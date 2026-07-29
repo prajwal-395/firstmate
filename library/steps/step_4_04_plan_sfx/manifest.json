@@ -1,0 +1,88 @@
+{
+  "id": "step_4_04_plan_sfx",
+  "name": "Plan SFX",
+  "version": "1.0.0",
+  "description": "Plans sound effects timing based on the timed spine and visual events.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sfx_spec",
+        "type": "object",
+        "description": "State output: sfx_spec"
+      }
+    ],
+    "preconditions": [
+      "'timed_spine' exists in state",
+      "'creative_direction' exists in state",
+      "'semantic_analysis_documents' exists in state",
+      "'rough_cut_review.passed' is true in state"
+    ],
+    "postconditions": [
+      "'sfx_spec' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "content_generation",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "audio_spine",
+      "b_roll_assignments",
+      "creative_direction",
+      "music_analysis",
+      "project_folder",
+      "semantic_analysis_documents",
+      "sfx_library_status"
+    ],
+    "writes": [
+      "sfx_spec"
+    ]
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine",
+    "step_3_03_review_rough_cut"
+  ],
+  "tags": [
+    "content_generation",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "bridge.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

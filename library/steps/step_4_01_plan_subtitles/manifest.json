@@ -1,0 +1,78 @@
+{
+  "id": "step_4_01_plan_subtitles",
+  "name": "Plan Subtitles",
+  "version": "1.0.0",
+  "description": "Plans subtitle timing and placement based on the timed spine.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_index"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "subtitle_plan",
+        "type": "object",
+        "description": "State output: subtitle_plan"
+      }
+    ],
+    "preconditions": [
+      "'timed_spine' exists in state",
+      "'temporal_index' exists in state",
+      "'rough_cut_review.passed' is true in state"
+    ],
+    "postconditions": [
+      "'subtitle_plan' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "audio_spine",
+      "b_roll_assignments",
+      "project_folder",
+      "temporal_index"
+    ],
+    "writes": [
+      "subtitle_plan"
+    ]
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine",
+    "step_3_03_review_rough_cut"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

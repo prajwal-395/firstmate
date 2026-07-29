@@ -1,0 +1,85 @@
+{
+  "id": "step_5_01_color_grade",
+  "name": "Color Grade",
+  "version": "1.0.0",
+  "description": "Specifies color grading settings for A-roll and B-roll clips.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      },
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: a_roll_assignments"
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: b_roll_assignments"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "color_grade_spec",
+        "type": "object",
+        "description": "State output: color_grade_spec"
+      }
+    ],
+    "preconditions": [
+      "'creative_direction' exists in state",
+      "'a_roll_assignments' exists in state",
+      "'b_roll_assignments' exists in state"
+    ],
+    "postconditions": [
+      "'color_grade_spec' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "a_roll_assignments",
+      "b_roll_assignments",
+      "creative_direction",
+      "project_folder"
+    ],
+    "writes": [
+      "color_grade_spec"
+    ]
+  },
+  "dependencies": [
+    "step_2_01_creative_direction",
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

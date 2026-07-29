@@ -1,0 +1,94 @@
+{
+  "id": "step_4_03_plan_vfx",
+  "name": "Plan VFX",
+  "version": "1.0.0",
+  "description": "Plans visual effects enhancements for specific clips.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: a_roll_assignments"
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: b_roll_assignments"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "description": "State output: enhancement_spec"
+      }
+    ],
+    "preconditions": [
+      "'a_roll_assignments' exists in state",
+      "'b_roll_assignments' exists in state",
+      "'creative_direction' exists in state",
+      "'semantic_analysis_documents' exists in state",
+      "'rough_cut_review.passed' is true in state"
+    ],
+    "postconditions": [
+      "'enhancement_spec' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "content_generation",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "a_roll_assignments",
+      "b_roll_assignments",
+      "creative_direction",
+      "project_folder",
+      "semantic_analysis_documents"
+    ],
+    "writes": [
+      "enhancement_spec"
+    ]
+  },
+  "dependencies": [
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll",
+    "step_3_03_review_rough_cut"
+  ],
+  "tags": [
+    "content_generation",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "bridge.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

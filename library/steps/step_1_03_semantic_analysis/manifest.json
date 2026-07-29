@@ -1,0 +1,74 @@
+{
+  "id": "step_1_03_semantic_analysis",
+  "name": "Semantic Analysis",
+  "version": "1.0.0",
+  "description": "Performs semantic analysis on raw footage to understand visual and narrative content.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "required": true,
+        "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": false,
+        "description": "State input: clip_catalog"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "description": "State output: semantic_analysis_documents"
+      }
+    ],
+    "preconditions": [
+      "'raw_footage_files' exists in state",
+      "'clip_catalog' exists in state"
+    ],
+    "postconditions": [
+      "'semantic_analysis_documents' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "raw_footage_files"
+    ],
+    "writes": [
+      "semantic_analysis_documents"
+    ]
+  },
+  "dependencies": [
+    "step_1_02_catalog_footage"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "llm",
+      "entry_point": "handoff.md"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

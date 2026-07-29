@@ -1,0 +1,76 @@
+{
+  "id": "step_1_05_prosody_analysis",
+  "name": "Prosody Analysis",
+  "version": "1.0.0",
+  "description": "Supplements WhisperX transcription with prosodic features: pitch (F0) contour, speaking rate, voice quality (jitter/shimmer/HNR), and intensity. Uses parselmouth (Praat wrapper) — deterministic signal processing. Enriches the LLM's understanding of speaker emphasis, questions, energy shifts.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "array",
+        "required": true,
+        "description": "List of raw footage files to extract audio from"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": true,
+        "description": "Temporal index with speech regions (used to identify voiced segments)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "description": "Per-clip prosody data: pitch contour, speaking rate, voice quality, intensity"
+      }
+    ],
+    "preconditions": [
+      "parselmouth is installed (pip install praat-parselmouth)",
+      "'temporal_index' exists in state with speech regions"
+    ],
+    "postconditions": [
+      "'prosody_analysis' is written to state with per-clip prosody data"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "raw_footage_files",
+      "temporal_index",
+      "project_folder"
+    ],
+    "writes": [
+      "prosody_analysis"
+    ]
+  },
+  "dependencies": [
+    "step_1_04_temporal_index"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "speech-analysis",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-25",
+    "last_modified": "2026-07-25",
+    "source_process": "video_editing_pipeline"
+  }
+}

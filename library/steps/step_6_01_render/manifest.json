@@ -1,0 +1,67 @@
+{
+  "id": "step_6_01_render",
+  "name": "Render",
+  "version": "1.0.0",
+  "description": "Executes the DaVinci Resolve orchestrator to render the final video.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "assembly_manifest",
+        "type": "object",
+        "required": true,
+        "description": "State input: assembly_manifest"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rendered_output",
+        "type": "object",
+        "description": "State output: rendered_output"
+      }
+    ],
+    "preconditions": [
+      "'assembly_manifest' exists in state"
+    ],
+    "postconditions": [
+      "'rendered_output' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "direct_action",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "assembly_manifest",
+      "project_folder"
+    ],
+    "writes": [
+      "rendered_output"
+    ]
+  },
+  "dependencies": [
+    "step_5_04_compile_manifest"
+  ],
+  "tags": [
+    "direct_action",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "resolve_orchestrator.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

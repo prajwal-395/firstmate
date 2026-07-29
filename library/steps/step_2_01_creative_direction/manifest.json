@@ -1,0 +1,77 @@
+{
+  "id": "step_2_01_creative_direction",
+  "name": "Creative Direction",
+  "version": "1.0.0",
+  "description": "Establishes the overall creative direction based on semantic analysis and temporal indexing.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_index"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "description": "State output: creative_direction"
+      }
+    ],
+    "preconditions": [
+      "'semantic_analysis_documents' exists in state",
+      "'temporal_index' exists in state"
+    ],
+    "postconditions": [
+      "'creative_direction' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "prosody_analysis",
+      "semantic_analysis_documents",
+      "temporal_index"
+    ],
+    "writes": [
+      "creative_direction"
+    ]
+  },
+  "dependencies": [
+    "step_1_03_semantic_analysis",
+    "step_1_04_temporal_index"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "llm",
+      "entry_point": "handoff.md"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

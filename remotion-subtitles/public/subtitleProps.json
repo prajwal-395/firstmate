@@ -1,0 +1,1364 @@
+{
+  "subtitles": [
+    {
+      "text": "the goal is just",
+      "startFrame": 0,
+      "endFrame": 48,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 0,
+          "endFrame": 12
+        },
+        {
+          "word": "goal",
+          "startFrame": 12,
+          "endFrame": 24
+        },
+        {
+          "word": "is",
+          "startFrame": 24,
+          "endFrame": 36
+        },
+        {
+          "word": "just",
+          "startFrame": 36,
+          "endFrame": 48
+        }
+      ]
+    },
+    {
+      "text": "to, you know, grow.",
+      "startFrame": 48,
+      "endFrame": 96,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "to,",
+          "startFrame": 48,
+          "endFrame": 60
+        },
+        {
+          "word": "you",
+          "startFrame": 60,
+          "endFrame": 72
+        },
+        {
+          "word": "know,",
+          "startFrame": 72,
+          "endFrame": 84
+        },
+        {
+          "word": "grow.",
+          "startFrame": 84,
+          "endFrame": 96
+        }
+      ]
+    },
+    {
+      "text": "today is march 25th,",
+      "startFrame": 156,
+      "endFrame": 203,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "today",
+          "startFrame": 156,
+          "endFrame": 167
+        },
+        {
+          "word": "is",
+          "startFrame": 167,
+          "endFrame": 178
+        },
+        {
+          "word": "march",
+          "startFrame": 178,
+          "endFrame": 189
+        },
+        {
+          "word": "25th,",
+          "startFrame": 189,
+          "endFrame": 200
+        }
+      ]
+    },
+    {
+      "text": "and i have an announcement",
+      "startFrame": 203,
+      "endFrame": 273,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "and",
+          "startFrame": 203,
+          "endFrame": 217
+        },
+        {
+          "word": "i",
+          "startFrame": 217,
+          "endFrame": 231
+        },
+        {
+          "word": "have",
+          "startFrame": 231,
+          "endFrame": 245
+        },
+        {
+          "word": "an",
+          "startFrame": 245,
+          "endFrame": 259
+        },
+        {
+          "word": "announcement",
+          "startFrame": 259,
+          "endFrame": 273
+        }
+      ]
+    },
+    {
+      "text": "to make.",
+      "startFrame": 274,
+      "endFrame": 295,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "to",
+          "startFrame": 274,
+          "endFrame": 284
+        },
+        {
+          "word": "make.",
+          "startFrame": 284,
+          "endFrame": 294
+        }
+      ]
+    },
+    {
+      "text": "so",
+      "startFrame": 326,
+      "endFrame": 347,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "so",
+          "startFrame": 326,
+          "endFrame": 347
+        }
+      ]
+    },
+    {
+      "text": "the reason i bring up",
+      "startFrame": 391,
+      "endFrame": 410,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 391,
+          "endFrame": 394
+        },
+        {
+          "word": "reason",
+          "startFrame": 394,
+          "endFrame": 397
+        },
+        {
+          "word": "i",
+          "startFrame": 397,
+          "endFrame": 400
+        },
+        {
+          "word": "bring",
+          "startFrame": 400,
+          "endFrame": 403
+        },
+        {
+          "word": "up",
+          "startFrame": 403,
+          "endFrame": 406
+        }
+      ]
+    },
+    {
+      "text": "the dave is because years",
+      "startFrame": 410,
+      "endFrame": 455,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 410,
+          "endFrame": 419
+        },
+        {
+          "word": "dave",
+          "startFrame": 419,
+          "endFrame": 428
+        },
+        {
+          "word": "is",
+          "startFrame": 428,
+          "endFrame": 437
+        },
+        {
+          "word": "because",
+          "startFrame": 437,
+          "endFrame": 446
+        },
+        {
+          "word": "years",
+          "startFrame": 446,
+          "endFrame": 455
+        }
+      ]
+    },
+    {
+      "text": "ago today, casey neistat,",
+      "startFrame": 457,
+      "endFrame": 533,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "ago",
+          "startFrame": 457,
+          "endFrame": 476
+        },
+        {
+          "word": "today,",
+          "startFrame": 476,
+          "endFrame": 495
+        },
+        {
+          "word": "casey",
+          "startFrame": 495,
+          "endFrame": 514
+        },
+        {
+          "word": "neistat,",
+          "startFrame": 514,
+          "endFrame": 533
+        }
+      ]
+    },
+    {
+      "text": "shout out casey,",
+      "startFrame": 554,
+      "endFrame": 580,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "shout",
+          "startFrame": 554,
+          "endFrame": 562
+        },
+        {
+          "word": "out",
+          "startFrame": 562,
+          "endFrame": 570
+        },
+        {
+          "word": "casey,",
+          "startFrame": 570,
+          "endFrame": 578
+        }
+      ]
+    },
+    {
+      "text": "casey neistat posted his very",
+      "startFrame": 625,
+      "endFrame": 684,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "casey",
+          "startFrame": 625,
+          "endFrame": 636
+        },
+        {
+          "word": "neistat",
+          "startFrame": 636,
+          "endFrame": 647
+        },
+        {
+          "word": "posted",
+          "startFrame": 647,
+          "endFrame": 658
+        },
+        {
+          "word": "his",
+          "startFrame": 658,
+          "endFrame": 669
+        },
+        {
+          "word": "very",
+          "startFrame": 669,
+          "endFrame": 680
+        }
+      ]
+    },
+    {
+      "text": "first vlog.",
+      "startFrame": 687,
+      "endFrame": 744,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "first",
+          "startFrame": 687,
+          "endFrame": 715
+        },
+        {
+          "word": "vlog.",
+          "startFrame": 715,
+          "endFrame": 743
+        }
+      ]
+    },
+    {
+      "text": "and so my very,",
+      "startFrame": 745,
+      "endFrame": 763,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "and",
+          "startFrame": 745,
+          "endFrame": 749
+        },
+        {
+          "word": "so",
+          "startFrame": 749,
+          "endFrame": 753
+        },
+        {
+          "word": "my",
+          "startFrame": 753,
+          "endFrame": 757
+        },
+        {
+          "word": "very,",
+          "startFrame": 757,
+          "endFrame": 761
+        }
+      ]
+    },
+    {
+      "text": "very small announcement is that",
+      "startFrame": 763,
+      "endFrame": 809,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "very",
+          "startFrame": 763,
+          "endFrame": 772
+        },
+        {
+          "word": "small",
+          "startFrame": 772,
+          "endFrame": 781
+        },
+        {
+          "word": "announcement",
+          "startFrame": 781,
+          "endFrame": 790
+        },
+        {
+          "word": "is",
+          "startFrame": 790,
+          "endFrame": 799
+        },
+        {
+          "word": "that",
+          "startFrame": 799,
+          "endFrame": 808
+        }
+      ]
+    },
+    {
+      "text": "i just want to post",
+      "startFrame": 816,
+      "endFrame": 837,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "i",
+          "startFrame": 816,
+          "endFrame": 820
+        },
+        {
+          "word": "just",
+          "startFrame": 820,
+          "endFrame": 824
+        },
+        {
+          "word": "want",
+          "startFrame": 824,
+          "endFrame": 828
+        },
+        {
+          "word": "to",
+          "startFrame": 828,
+          "endFrame": 832
+        },
+        {
+          "word": "post",
+          "startFrame": 832,
+          "endFrame": 836
+        }
+      ]
+    },
+    {
+      "text": "every single day.",
+      "startFrame": 837,
+      "endFrame": 851,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "every",
+          "startFrame": 837,
+          "endFrame": 841
+        },
+        {
+          "word": "single",
+          "startFrame": 841,
+          "endFrame": 845
+        },
+        {
+          "word": "day.",
+          "startFrame": 845,
+          "endFrame": 849
+        }
+      ]
+    },
+    {
+      "text": "i'm going to post a",
+      "startFrame": 851,
+      "endFrame": 913,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "i'm",
+          "startFrame": 851,
+          "endFrame": 863
+        },
+        {
+          "word": "going",
+          "startFrame": 863,
+          "endFrame": 875
+        },
+        {
+          "word": "to",
+          "startFrame": 875,
+          "endFrame": 887
+        },
+        {
+          "word": "post",
+          "startFrame": 887,
+          "endFrame": 899
+        },
+        {
+          "word": "a",
+          "startFrame": 899,
+          "endFrame": 911
+        }
+      ]
+    },
+    {
+      "text": "video, at least one,",
+      "startFrame": 914,
+      "endFrame": 946,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "video,",
+          "startFrame": 914,
+          "endFrame": 922
+        },
+        {
+          "word": "at",
+          "startFrame": 922,
+          "endFrame": 930
+        },
+        {
+          "word": "least",
+          "startFrame": 930,
+          "endFrame": 938
+        },
+        {
+          "word": "one,",
+          "startFrame": 938,
+          "endFrame": 946
+        }
+      ]
+    },
+    {
+      "text": "every single day.",
+      "startFrame": 962,
+      "endFrame": 983,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "every",
+          "startFrame": 962,
+          "endFrame": 969
+        },
+        {
+          "word": "single",
+          "startFrame": 969,
+          "endFrame": 976
+        },
+        {
+          "word": "day.",
+          "startFrame": 976,
+          "endFrame": 983
+        }
+      ]
+    },
+    {
+      "text": "so you might be asking,",
+      "startFrame": 1025,
+      "endFrame": 1062,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "so",
+          "startFrame": 1025,
+          "endFrame": 1032
+        },
+        {
+          "word": "you",
+          "startFrame": 1032,
+          "endFrame": 1039
+        },
+        {
+          "word": "might",
+          "startFrame": 1039,
+          "endFrame": 1046
+        },
+        {
+          "word": "be",
+          "startFrame": 1046,
+          "endFrame": 1053
+        },
+        {
+          "word": "asking,",
+          "startFrame": 1053,
+          "endFrame": 1060
+        }
+      ]
+    },
+    {
+      "text": "you know, why the sudden",
+      "startFrame": 1063,
+      "endFrame": 1095,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "you",
+          "startFrame": 1063,
+          "endFrame": 1069
+        },
+        {
+          "word": "know,",
+          "startFrame": 1069,
+          "endFrame": 1075
+        },
+        {
+          "word": "why",
+          "startFrame": 1075,
+          "endFrame": 1081
+        },
+        {
+          "word": "the",
+          "startFrame": 1081,
+          "endFrame": 1087
+        },
+        {
+          "word": "sudden",
+          "startFrame": 1087,
+          "endFrame": 1093
+        }
+      ]
+    },
+    {
+      "text": "change of heart?",
+      "startFrame": 1097,
+      "endFrame": 1118,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "change",
+          "startFrame": 1097,
+          "endFrame": 1104
+        },
+        {
+          "word": "of",
+          "startFrame": 1104,
+          "endFrame": 1111
+        },
+        {
+          "word": "heart?",
+          "startFrame": 1111,
+          "endFrame": 1118
+        }
+      ]
+    },
+    {
+      "text": "why the sudden motivation?",
+      "startFrame": 1146,
+      "endFrame": 1202,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "why",
+          "startFrame": 1146,
+          "endFrame": 1160
+        },
+        {
+          "word": "the",
+          "startFrame": 1160,
+          "endFrame": 1174
+        },
+        {
+          "word": "sudden",
+          "startFrame": 1174,
+          "endFrame": 1188
+        },
+        {
+          "word": "motivation?",
+          "startFrame": 1188,
+          "endFrame": 1202
+        }
+      ]
+    },
+    {
+      "text": "the goal of all this",
+      "startFrame": 1203,
+      "endFrame": 1229,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 1203,
+          "endFrame": 1208
+        },
+        {
+          "word": "goal",
+          "startFrame": 1208,
+          "endFrame": 1213
+        },
+        {
+          "word": "of",
+          "startFrame": 1213,
+          "endFrame": 1218
+        },
+        {
+          "word": "all",
+          "startFrame": 1218,
+          "endFrame": 1223
+        },
+        {
+          "word": "this",
+          "startFrame": 1223,
+          "endFrame": 1228
+        }
+      ]
+    },
+    {
+      "text": "is just to get momentum",
+      "startFrame": 1231,
+      "endFrame": 1265,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "is",
+          "startFrame": 1231,
+          "endFrame": 1237
+        },
+        {
+          "word": "just",
+          "startFrame": 1237,
+          "endFrame": 1243
+        },
+        {
+          "word": "to",
+          "startFrame": 1243,
+          "endFrame": 1249
+        },
+        {
+          "word": "get",
+          "startFrame": 1249,
+          "endFrame": 1255
+        },
+        {
+          "word": "momentum",
+          "startFrame": 1255,
+          "endFrame": 1261
+        }
+      ]
+    },
+    {
+      "text": "going. i think i've tried",
+      "startFrame": 1266,
+      "endFrame": 1298,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "going.",
+          "startFrame": 1266,
+          "endFrame": 1272
+        },
+        {
+          "word": "i",
+          "startFrame": 1272,
+          "endFrame": 1278
+        },
+        {
+          "word": "think",
+          "startFrame": 1278,
+          "endFrame": 1284
+        },
+        {
+          "word": "i've",
+          "startFrame": 1284,
+          "endFrame": 1290
+        },
+        {
+          "word": "tried",
+          "startFrame": 1290,
+          "endFrame": 1296
+        }
+      ]
+    },
+    {
+      "text": "to start recording and posting",
+      "startFrame": 1300,
+      "endFrame": 1357,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "to",
+          "startFrame": 1300,
+          "endFrame": 1311
+        },
+        {
+          "word": "start",
+          "startFrame": 1311,
+          "endFrame": 1322
+        },
+        {
+          "word": "recording",
+          "startFrame": 1322,
+          "endFrame": 1333
+        },
+        {
+          "word": "and",
+          "startFrame": 1333,
+          "endFrame": 1344
+        },
+        {
+          "word": "posting",
+          "startFrame": 1344,
+          "endFrame": 1355
+        }
+      ]
+    },
+    {
+      "text": "for so long now that",
+      "startFrame": 1358,
+      "endFrame": 1406,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "for",
+          "startFrame": 1358,
+          "endFrame": 1367
+        },
+        {
+          "word": "so",
+          "startFrame": 1367,
+          "endFrame": 1376
+        },
+        {
+          "word": "long",
+          "startFrame": 1376,
+          "endFrame": 1385
+        },
+        {
+          "word": "now",
+          "startFrame": 1385,
+          "endFrame": 1394
+        },
+        {
+          "word": "that",
+          "startFrame": 1394,
+          "endFrame": 1403
+        }
+      ]
+    },
+    {
+      "text": "at this point,",
+      "startFrame": 1407,
+      "endFrame": 1425,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "at",
+          "startFrame": 1407,
+          "endFrame": 1413
+        },
+        {
+          "word": "this",
+          "startFrame": 1413,
+          "endFrame": 1419
+        },
+        {
+          "word": "point,",
+          "startFrame": 1419,
+          "endFrame": 1425
+        }
+      ]
+    },
+    {
+      "text": "i'm like, it doesn't matter",
+      "startFrame": 1425,
+      "endFrame": 1470,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "i'm",
+          "startFrame": 1425,
+          "endFrame": 1434
+        },
+        {
+          "word": "like,",
+          "startFrame": 1434,
+          "endFrame": 1443
+        },
+        {
+          "word": "it",
+          "startFrame": 1443,
+          "endFrame": 1452
+        },
+        {
+          "word": "doesn't",
+          "startFrame": 1452,
+          "endFrame": 1461
+        },
+        {
+          "word": "matter",
+          "startFrame": 1461,
+          "endFrame": 1470
+        }
+      ]
+    },
+    {
+      "text": "what i'm using to record.",
+      "startFrame": 1473,
+      "endFrame": 1505,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "what",
+          "startFrame": 1473,
+          "endFrame": 1479
+        },
+        {
+          "word": "i'm",
+          "startFrame": 1479,
+          "endFrame": 1485
+        },
+        {
+          "word": "using",
+          "startFrame": 1485,
+          "endFrame": 1491
+        },
+        {
+          "word": "to",
+          "startFrame": 1491,
+          "endFrame": 1497
+        },
+        {
+          "word": "record.",
+          "startFrame": 1497,
+          "endFrame": 1503
+        }
+      ]
+    },
+    {
+      "text": "it doesn't matter if it's",
+      "startFrame": 1506,
+      "endFrame": 1538,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "it",
+          "startFrame": 1506,
+          "endFrame": 1512
+        },
+        {
+          "word": "doesn't",
+          "startFrame": 1512,
+          "endFrame": 1518
+        },
+        {
+          "word": "matter",
+          "startFrame": 1518,
+          "endFrame": 1524
+        },
+        {
+          "word": "if",
+          "startFrame": 1524,
+          "endFrame": 1530
+        },
+        {
+          "word": "it's",
+          "startFrame": 1530,
+          "endFrame": 1536
+        }
+      ]
+    },
+    {
+      "text": "even edited. it just matters",
+      "startFrame": 1540,
+      "endFrame": 1583,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "even",
+          "startFrame": 1540,
+          "endFrame": 1548
+        },
+        {
+          "word": "edited.",
+          "startFrame": 1548,
+          "endFrame": 1556
+        },
+        {
+          "word": "it",
+          "startFrame": 1556,
+          "endFrame": 1564
+        },
+        {
+          "word": "just",
+          "startFrame": 1564,
+          "endFrame": 1572
+        },
+        {
+          "word": "matters",
+          "startFrame": 1572,
+          "endFrame": 1580
+        }
+      ]
+    },
+    {
+      "text": "that it gets posted.",
+      "startFrame": 1584,
+      "endFrame": 1611,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "that",
+          "startFrame": 1584,
+          "endFrame": 1590
+        },
+        {
+          "word": "it",
+          "startFrame": 1590,
+          "endFrame": 1596
+        },
+        {
+          "word": "gets",
+          "startFrame": 1596,
+          "endFrame": 1602
+        },
+        {
+          "word": "posted.",
+          "startFrame": 1602,
+          "endFrame": 1608
+        }
+      ]
+    },
+    {
+      "text": "call this video one one",
+      "startFrame": 1657,
+      "endFrame": 1722,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "call",
+          "startFrame": 1657,
+          "endFrame": 1670
+        },
+        {
+          "word": "this",
+          "startFrame": 1670,
+          "endFrame": 1683
+        },
+        {
+          "word": "video",
+          "startFrame": 1683,
+          "endFrame": 1696
+        },
+        {
+          "word": "one",
+          "startFrame": 1696,
+          "endFrame": 1709
+        },
+        {
+          "word": "one",
+          "startFrame": 1709,
+          "endFrame": 1722
+        }
+      ]
+    },
+    {
+      "text": "of i'm gonna start with",
+      "startFrame": 1723,
+      "endFrame": 1759,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "of",
+          "startFrame": 1723,
+          "endFrame": 1730
+        },
+        {
+          "word": "i'm",
+          "startFrame": 1730,
+          "endFrame": 1737
+        },
+        {
+          "word": "gonna",
+          "startFrame": 1737,
+          "endFrame": 1744
+        },
+        {
+          "word": "start",
+          "startFrame": 1744,
+          "endFrame": 1751
+        },
+        {
+          "word": "with",
+          "startFrame": 1751,
+          "endFrame": 1758
+        }
+      ]
+    },
+    {
+      "text": "the goal of videos uh",
+      "startFrame": 1760,
+      "endFrame": 1819,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 1760,
+          "endFrame": 1771
+        },
+        {
+          "word": "goal",
+          "startFrame": 1771,
+          "endFrame": 1782
+        },
+        {
+          "word": "of",
+          "startFrame": 1782,
+          "endFrame": 1793
+        },
+        {
+          "word": "videos",
+          "startFrame": 1793,
+          "endFrame": 1804
+        },
+        {
+          "word": "uh",
+          "startFrame": 1804,
+          "endFrame": 1815
+        }
+      ]
+    },
+    {
+      "text": "if a video is seconds",
+      "startFrame": 1826,
+      "endFrame": 1857,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "if",
+          "startFrame": 1826,
+          "endFrame": 1832
+        },
+        {
+          "word": "a",
+          "startFrame": 1832,
+          "endFrame": 1838
+        },
+        {
+          "word": "video",
+          "startFrame": 1838,
+          "endFrame": 1844
+        },
+        {
+          "word": "is",
+          "startFrame": 1844,
+          "endFrame": 1850
+        },
+        {
+          "word": "seconds",
+          "startFrame": 1850,
+          "endFrame": 1856
+        }
+      ]
+    },
+    {
+      "text": "to a minute that's anywhere",
+      "startFrame": 1857,
+      "endFrame": 1882,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "to",
+          "startFrame": 1857,
+          "endFrame": 1862
+        },
+        {
+          "word": "a",
+          "startFrame": 1862,
+          "endFrame": 1867
+        },
+        {
+          "word": "minute",
+          "startFrame": 1867,
+          "endFrame": 1872
+        },
+        {
+          "word": "that's",
+          "startFrame": 1872,
+          "endFrame": 1877
+        },
+        {
+          "word": "anywhere",
+          "startFrame": 1877,
+          "endFrame": 1882
+        }
+      ]
+    },
+    {
+      "text": "between like",
+      "startFrame": 1883,
+      "endFrame": 1904,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "between",
+          "startFrame": 1883,
+          "endFrame": 1893
+        },
+        {
+          "word": "like",
+          "startFrame": 1893,
+          "endFrame": 1903
+        }
+      ]
+    },
+    {
+      "text": "i'm happy that i at",
+      "startFrame": 1932,
+      "endFrame": 1953,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "i'm",
+          "startFrame": 1932,
+          "endFrame": 1936
+        },
+        {
+          "word": "happy",
+          "startFrame": 1936,
+          "endFrame": 1940
+        },
+        {
+          "word": "that",
+          "startFrame": 1940,
+          "endFrame": 1944
+        },
+        {
+          "word": "i",
+          "startFrame": 1944,
+          "endFrame": 1948
+        },
+        {
+          "word": "at",
+          "startFrame": 1948,
+          "endFrame": 1952
+        }
+      ]
+    },
+    {
+      "text": "least recorded this i almost",
+      "startFrame": 1954,
+      "endFrame": 2004,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "least",
+          "startFrame": 1954,
+          "endFrame": 1964
+        },
+        {
+          "word": "recorded",
+          "startFrame": 1964,
+          "endFrame": 1974
+        },
+        {
+          "word": "this",
+          "startFrame": 1974,
+          "endFrame": 1984
+        },
+        {
+          "word": "i",
+          "startFrame": 1984,
+          "endFrame": 1994
+        },
+        {
+          "word": "almost",
+          "startFrame": 1994,
+          "endFrame": 2004
+        }
+      ]
+    },
+    {
+      "text": "didn't do this again i've",
+      "startFrame": 2005,
+      "endFrame": 2028,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "didn't",
+          "startFrame": 2005,
+          "endFrame": 2009
+        },
+        {
+          "word": "do",
+          "startFrame": 2009,
+          "endFrame": 2013
+        },
+        {
+          "word": "this",
+          "startFrame": 2013,
+          "endFrame": 2017
+        },
+        {
+          "word": "again",
+          "startFrame": 2017,
+          "endFrame": 2021
+        },
+        {
+          "word": "i've",
+          "startFrame": 2021,
+          "endFrame": 2025
+        }
+      ]
+    },
+    {
+      "text": "been literally this week i've",
+      "startFrame": 2028,
+      "endFrame": 2072,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "been",
+          "startFrame": 2028,
+          "endFrame": 2036
+        },
+        {
+          "word": "literally",
+          "startFrame": 2036,
+          "endFrame": 2044
+        },
+        {
+          "word": "this",
+          "startFrame": 2044,
+          "endFrame": 2052
+        },
+        {
+          "word": "week",
+          "startFrame": 2052,
+          "endFrame": 2060
+        },
+        {
+          "word": "i've",
+          "startFrame": 2060,
+          "endFrame": 2068
+        }
+      ]
+    },
+    {
+      "text": "quit every single day and",
+      "startFrame": 2074,
+      "endFrame": 2120,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "quit",
+          "startFrame": 2074,
+          "endFrame": 2083
+        },
+        {
+          "word": "every",
+          "startFrame": 2083,
+          "endFrame": 2092
+        },
+        {
+          "word": "single",
+          "startFrame": 2092,
+          "endFrame": 2101
+        },
+        {
+          "word": "day",
+          "startFrame": 2101,
+          "endFrame": 2110
+        },
+        {
+          "word": "and",
+          "startFrame": 2110,
+          "endFrame": 2119
+        }
+      ]
+    },
+    {
+      "text": "the only",
+      "startFrame": 2120,
+      "endFrame": 2141,
+      "emphasisWords": [],
+      "words": [
+        {
+          "word": "the",
+          "startFrame": 2120,
+          "endFrame": 2130
+        },
+        {
+          "word": "only",
+          "startFrame": 2130,
+          "endFrame": 2140
+        }
+      ]
+    }
+  ],
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "durationInFrames": 2160,
+  "style": {
+    "fontSize": 48,
+    "fontColor": "#FFFFFF",
+    "accentColor": "#00D4FF",
+    "position": "bottom",
+    "outlineColor": "#000000",
+    "outlineWidth": 4
+  }
+}

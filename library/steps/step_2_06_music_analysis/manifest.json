@@ -1,0 +1,68 @@
+{
+  "id": "step_2_06_music_analysis",
+  "name": "Music Analysis",
+  "version": "1.0.0",
+  "description": "Runs the music analysis pipeline against the selected music track to produce beat grid, BPM, key detection, and song structure. This is a per-project step that runs after music selection.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection (contains track path)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "music_analysis",
+        "type": "object",
+        "description": "Beat grid, BPM, key, song structure analysis"
+      }
+    ],
+    "preconditions": [
+      "'music_selection' exists in state with a valid track path"
+    ],
+    "postconditions": [
+      "'music_analysis' is written to state with beat_grid, bpm, key, and structure"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "music_selection",
+      "project_folder"
+    ],
+    "writes": [
+      "music_analysis"
+    ]
+  },
+  "dependencies": [
+    "step_2_04_music_selection"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "audio-analysis",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-25",
+    "last_modified": "2026-07-25",
+    "source_process": "video_editing_pipeline"
+  }
+}

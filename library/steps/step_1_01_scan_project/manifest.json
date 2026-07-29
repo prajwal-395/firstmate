@@ -1,0 +1,76 @@
+{
+  "id": "step_1_01_scan_project",
+  "name": "Scan Project Folder",
+  "version": "1.0.0",
+  "description": "Scans the project folder for raw video files and filters out irrelevant ones.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "object",
+        "required": true,
+        "description": "State input: project_folder"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "description": "State output: raw_footage_files"
+      },
+      {
+        "name": "total_files",
+        "type": "object",
+        "description": "State output: total_files"
+      },
+      {
+        "name": "skipped_files",
+        "type": "object",
+        "description": "State output: skipped_files"
+      }
+    ],
+    "preconditions": [
+      "'project_folder' exists in state"
+    ],
+    "postconditions": [
+      "'raw_footage_files' is written to state",
+      "'total_files' is written to state",
+      "'skipped_files' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "information_retrieval",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "project_folder"
+    ],
+    "writes": [
+      "raw_footage_files"
+    ]
+  },
+  "dependencies": [],
+  "tags": [
+    "information_retrieval",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

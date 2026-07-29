@@ -1,0 +1,271 @@
+// ═══════════════════════════════════════════════════════════════════
+// 4th Wall Base - Memory
+// Through the 4th Wall series — DaVinci Resolve DCTL Power Grade
+//
+// A complete color grade implementing the 4th Wall warm amber aesthetic:
+//   - Warm amber color correction (Lift/Gamma/Gain equivalent)
+//   - 2700K color temperature push
+//   - Deep Espresso shadow toning (#120B07)
+//   - Warm oval vignette with soft falloff
+//   - Subtle film grain (memory treatment)
+//   - Saturation and contrast enhancement
+//
+// Installation:
+//   Copy to: /Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/
+//   Restart Resolve. Apply via: Color page → node → right-click → LUT → 4thWall_Base_Memory
+//   Or: Add ResolveFX DCTL plugin to a node → select from DCTL list
+//
+// Color Palette:
+//   Lamp Amber:    #FFB23D    Burnt Honey:   #C46A1A
+//   Warm Ivory:    #FFF1DA    Deep Espresso: #120B07
+//   Smoked Umber:  #24160E    Faded Brass:   #D4A34A
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── User-adjustable parameters (appear as sliders in Resolve) ───
+
+// Overall intensity of the grade (0 = bypass, 1 = full grade)
+DEFINE_UI_PARAMS(intensity, Grade Intensity, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 1.0, 0.01)
+
+// Color temperature warmth (0 = neutral, 1 = full 2700K push)
+DEFINE_UI_PARAMS(warmth, Warmth, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.01)
+
+// Saturation boost
+DEFINE_UI_PARAMS(sat_boost, Saturation, DCTLUI_SLIDER_FLOAT, 1.15, 0.5, 2.0, 0.01)
+
+// Contrast amount
+DEFINE_UI_PARAMS(contrast, Contrast, DCTLUI_SLIDER_FLOAT, 1.10, 0.5, 2.0, 0.01)
+
+// Vignette intensity (0 = no vignette, 1 = full vignette)
+DEFINE_UI_PARAMS(vignette_intensity, Vignette, DCTLUI_SLIDER_FLOAT, 0.65, 0.0, 1.0, 0.01)
+
+// Vignette size (how far the clear center extends)
+DEFINE_UI_PARAMS(vignette_size, Vignette Size, DCTLUI_SLIDER_FLOAT, 0.7, 0.2, 1.5, 0.01)
+
+// Vignette softness (falloff width)
+DEFINE_UI_PARAMS(vignette_soft, Vignette Softness, DCTLUI_SLIDER_FLOAT, 0.5, 0.05, 1.0, 0.01)
+
+// Film grain amount (0 = no grain, 1 = heavy grain)
+DEFINE_UI_PARAMS(grain_amount, Film Grain, DCTLUI_SLIDER_FLOAT, 0.04, 0.0, 0.15, 0.001)
+
+// Film grain size (smaller = finer grain)
+DEFINE_UI_PARAMS(grain_size, Grain Size, DCTLUI_SLIDER_FLOAT, 1.0, 0.5, 3.0, 0.1)
+
+
+// ─── Helper: smoothstep for vignette falloff ───
+__DEVICE__ float smoothStep(float edge0, float edge1, float x)
+{
+    x = _saturatef((x - edge0) / (edge1 - edge0));
+    return x * x * (3.0f - 2.0f * x);
+}
+
+// ─── Helper: hash-based pseudo-random for film grain ───
+// Uses golden ratio hashing for low-correlation noise
+__DEVICE__ float hash(int x)
+{
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
+    return (float)(x & 0x7FFFFFFF) / 2147483647.0f;
+}
+
+// ─── Helper: luminance (Rec.709) ───
+__DEVICE__ float luminance(float r, float g, float b)
+{
+    return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN TRANSFORM
+// ═══════════════════════════════════════════════════════════════════
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    // Store original for intensity blending
+    const float origR = p_R;
+    const float origG = p_G;
+    const float origB = p_B;
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 1: Warm Amber Color Correction
+    // Equivalent to Lift/Gamma/Gain push into amber territory
+    // ─────────────────────────────────────────────────────
+
+    // Gain (Slope): Boost red, slight green, reduce blue
+    float gainR = 1.0f + 0.05f * warmth;
+    float gainG = 1.0f + 0.02f * warmth;
+    float gainB = 1.0f - 0.12f * warmth;
+
+    p_R *= gainR;
+    p_G *= gainG;
+    p_B *= gainB;
+
+    // Lift (Offset): Push shadows warm
+    float liftR =  0.02f * warmth;
+    float liftG =  0.01f * warmth;
+    float liftB = -0.03f * warmth;
+
+    p_R += liftR;
+    p_G += liftG;
+    p_B += liftB;
+
+    // Gamma (Power): Warp midtones warm
+    // Lower power = brighter mids, higher = darker mids
+    float gammaR = 1.0f - 0.05f * warmth;  // 0.95 at warmth=1
+    float gammaG = 1.0f - 0.03f * warmth;  // 0.97
+    float gammaB = 1.0f + 0.05f * warmth;  // 1.05
+
+    // Apply power function (gamma correction)
+    p_R = _powf(_fmaxf(p_R, 0.0f), gammaR);
+    p_G = _powf(_fmaxf(p_G, 0.0f), gammaG);
+    p_B = _powf(_fmaxf(p_B, 0.0f), gammaB);
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 2: Additional Temperature Push (2700K simulation)
+    // Second pass to deepen the warmth
+    // ─────────────────────────────────────────────────────
+
+    float tempGainR = 1.0f + 0.08f * warmth;
+    float tempGainB = 1.0f - 0.18f * warmth;
+
+    p_R *= tempGainR;
+    p_B *= tempGainB;
+
+    // Additional shadow warming
+    p_R += 0.015f * warmth;
+    p_B -= 0.02f * warmth;
+
+    // Midtone warp (second pass for deeper amber)
+    p_R = _powf(_fmaxf(p_R, 0.0f), 1.0f - 0.07f * warmth);
+    p_B = _powf(_fmaxf(p_B, 0.0f), 1.0f + 0.08f * warmth);
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 3: Shadow Toning → Deep Espresso (#120B07)
+    // Target: R=0.071 G=0.043 B=0.027 (normalized from #120B07)
+    // Only affects the shadow region, preserving highlights
+    // ─────────────────────────────────────────────────────
+
+    float luma = luminance(p_R, p_G, p_B);
+
+    // Shadow influence: strong in darks, fades out in mids/highs
+    float shadowMask = 1.0f - smoothStep(0.0f, 0.25f, luma);
+
+    // Deep Espresso target color (normalized)
+    const float espressoR = 0.071f;
+    const float espressoG = 0.043f;
+    const float espressoB = 0.027f;
+
+    // Blend shadows toward espresso (subtle — don't crush)
+    float shadowBlend = shadowMask * 0.3f * warmth;
+    p_R = p_R * (1.0f - shadowBlend) + espressoR * shadowBlend;
+    p_G = p_G * (1.0f - shadowBlend) + espressoG * shadowBlend;
+    p_B = p_B * (1.0f - shadowBlend) + espressoB * shadowBlend;
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 4: Contrast Enhancement
+    // S-curve contrast centered at midpoint
+    // ─────────────────────────────────────────────────────
+
+    float pivot = 0.435f;  // Slightly below middle gray (warm bias)
+
+    p_R = (p_R - pivot) * contrast + pivot;
+    p_G = (p_G - pivot) * contrast + pivot;
+    p_B = (p_B - pivot) * contrast + pivot;
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 5: Saturation
+    // Boost saturation for rich warm tones
+    // ─────────────────────────────────────────────────────
+
+    luma = luminance(p_R, p_G, p_B);
+
+    p_R = luma + (p_R - luma) * sat_boost;
+    p_G = luma + (p_G - luma) * sat_boost;
+    p_B = luma + (p_B - luma) * sat_boost;
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 6: Warm Oval Vignette
+    // Darkens edges toward Deep Espresso (#120B07)
+    // Center stays clear, edges fall off with soft oval shape
+    // ─────────────────────────────────────────────────────
+
+    if (vignette_intensity > 0.001f)
+    {
+        // Normalized coordinates centered at (0.5, 0.5)
+        float nx = (float)p_X / (float)p_Width - 0.5f;
+        float ny = (float)p_Y / (float)p_Height - 0.5f;
+
+        // Oval shape: portrait aspect ratio (taller than wide)
+        // Slightly wider horizontally to match portrait video
+        float aspect = (float)p_Width / (float)p_Height;
+        nx *= (1.0f + aspect) * 0.5f;  // Adjust for aspect ratio
+
+        // Distance from center (elliptical)
+        float dist = _sqrtf(nx * nx + ny * ny);
+
+        // Vignette falloff: clear inside vignette_size, dark outside
+        float vignetteVal = smoothStep(vignette_size * 0.5f, vignette_size * 0.5f + vignette_soft, dist);
+
+        // Apply vignette: darken and push toward Deep Espresso
+        float vAmount = vignetteVal * vignette_intensity;
+
+        // Exposure reduction + color shift to espresso
+        p_R = p_R * (1.0f - vAmount * 0.6f) + espressoR * vAmount * 0.15f;
+        p_G = p_G * (1.0f - vAmount * 0.65f) + espressoG * vAmount * 0.15f;
+        p_B = p_B * (1.0f - vAmount * 0.7f) + espressoB * vAmount * 0.15f;
+    }
+
+    // ─────────────────────────────────────────────────────
+    // STAGE 7: Film Grain (Memory Treatment)
+    // Subtle noise that varies per-frame and per-pixel
+    // Responds to luminance: more visible in mids, less in shadows/highlights
+    // ─────────────────────────────────────────────────────
+
+    if (grain_amount > 0.0001f)
+    {
+        // Pixel index with frame variation for temporal grain
+        int pixelIdx = p_Y * p_Width + p_X;
+
+        // Use grain_size to scale the pixel grid (larger = coarser grain)
+        int grainScale = _fmaxf(1, (int)grain_size);
+        int scaledX = p_X / grainScale;
+        int scaledY = p_Y / grainScale;
+        int scaledIdx = scaledY * (p_Width / grainScale + 1) + scaledX;
+
+        // Per-frame seed using TIMELINE_FRAME_INDEX for temporal variation
+        int frameSeed = TIMELINE_FRAME_INDEX * 73856093;
+        int seed = scaledIdx ^ frameSeed;
+
+        // Generate noise: centered at 0 (can brighten or darken)
+        float noise = hash(seed) * 2.0f - 1.0f;
+
+        // Luminance-dependent grain response:
+        // More visible in midtones, less in deep shadows and bright highlights
+        luma = luminance(p_R, p_G, p_B);
+        float grainResponse = 4.0f * luma * (1.0f - luma);  // Peaks at mid-gray
+        grainResponse = _fmaxf(grainResponse, 0.1f);         // Always some grain
+
+        float grainVal = noise * grain_amount * grainResponse;
+
+        // Apply grain equally to all channels (monochromatic grain = film-like)
+        p_R += grainVal;
+        p_G += grainVal;
+        p_B += grainVal;
+    }
+
+    // ─────────────────────────────────────────────────────
+    // FINAL: Intensity Blend
+    // Mix graded result with original based on intensity slider
+    // ─────────────────────────────────────────────────────
+
+    p_R = origR * (1.0f - intensity) + p_R * intensity;
+    p_G = origG * (1.0f - intensity) + p_G * intensity;
+    p_B = origB * (1.0f - intensity) + p_B * intensity;
+
+    // Clamp to valid range
+    p_R = _saturatef(p_R);
+    p_G = _saturatef(p_G);
+    p_B = _saturatef(p_B);
+
+    return make_float3(p_R, p_G, p_B);
+}

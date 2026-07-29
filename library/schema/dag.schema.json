@@ -1,0 +1,213 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "dag.schema.json",
+  "title": "Process DAG Definition",
+  "description": "Defines the directed acyclic graph for a process or sub-process. Nodes reference encoded steps; edges define dependencies and data flow.",
+  "type": "object",
+  "required": ["id", "nodes", "edges", "entry_nodes", "exit_nodes"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "description": "DAG identifier, matches the owning process/sub-process ID."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/node"
+      },
+      "minItems": 1,
+      "description": "All nodes (steps) in the DAG."
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/edge"
+      },
+      "description": "Directed edges defining dependencies between nodes."
+    },
+    "entry_nodes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Node IDs with no incoming edges — execution starts here."
+    },
+    "exit_nodes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Node IDs with no outgoing edges — execution ends here."
+    },
+    "parallel_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/parallel_block"
+      },
+      "description": "Identified parallel execution blocks with error policies and join semantics."
+    },
+    "execution_environment": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Process-level default environment."
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Per-step environment overrides. Key is node ID, value is environment name."
+        }
+      },
+      "description": "Environment configuration for variant resolution."
+    },
+    "checkpoint_interval": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Checkpoint state every N completed steps."
+    }
+  },
+  "additionalProperties": false,
+
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": ["id", "name", "step_ref"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique node identifier within this DAG."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name."
+        },
+        "step_ref": {
+          "type": "string",
+          "description": "Reference to the library component. Path relative to library root, or inline step ID."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["step", "decision", "join", "loop_super_node"],
+          "default": "step",
+          "description": "Node type. Most nodes are 'step'. Decision and join nodes have special semantics."
+        },
+        "error_policy": {
+          "$ref": "#/definitions/error_policy",
+          "description": "Per-node error handling override."
+        },
+        "estimated_duration_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated execution time in seconds."
+        }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Source node ID."
+        },
+        "to": {
+          "type": "string",
+          "description": "Target node ID."
+        },
+        "condition": {
+          "type": "string",
+          "description": "For conditional edges from decision nodes. The condition expression that must be true for this edge to be followed."
+        },
+        "data_mapping": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Maps output names from the source node to input names of the target node. Key is target input name, value is source output name."
+        }
+      },
+      "additionalProperties": false
+    },
+    "parallel_block": {
+      "type": "object",
+      "required": ["id", "fork_node", "join_node", "branches", "error_policy", "join_semantics"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Parallel block identifier."
+        },
+        "fork_node": {
+          "type": "string",
+          "description": "The node after which branches diverge."
+        },
+        "join_node": {
+          "type": "string",
+          "description": "The node where branches converge."
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ordered list of node IDs in this branch."
+          },
+          "minItems": 2,
+          "description": "The parallel branches, each as a list of node IDs."
+        },
+        "error_policy": {
+          "$ref": "#/definitions/error_policy"
+        },
+        "join_semantics": {
+          "type": "object",
+          "required": ["completion_model"],
+          "properties": {
+            "completion_model": {
+              "type": "string",
+              "enum": ["wait_for_all", "wait_for_any", "threshold"],
+              "description": "When to proceed past the join point."
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Required for 'threshold' model. Fraction of branches that must complete (e.g., 0.75)."
+            },
+            "output_derivation": {
+              "type": "string",
+              "enum": ["merge_all", "first_completed", "custom"],
+              "description": "How to derive the join point's output from branch outputs."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "error_policy": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": ["retry", "cascade", "escalate", "independent"],
+          "description": "Error handling strategy."
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum retry attempts (only for 'retry' policy)."
+        },
+        "backoff_strategy": {
+          "type": "string",
+          "enum": ["fixed", "exponential", "linear"],
+          "description": "Backoff strategy between retries."
+        },
+        "escalation_enabled": {
+          "type": "boolean",
+          "description": "Whether structural failures can trigger the failure escalation protocol."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

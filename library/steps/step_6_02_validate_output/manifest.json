@@ -1,0 +1,72 @@
+{
+  "id": "step_6_02_validate_output",
+  "name": "Validate Output",
+  "version": "1.0.0",
+  "description": "Validates the rendered output against the assembly manifest.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "rendered_output",
+        "type": "object",
+        "required": true,
+        "description": "State input: rendered_output"
+      },
+      {
+        "name": "assembly_manifest",
+        "type": "object",
+        "required": true,
+        "description": "State input: assembly_manifest"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "validation_result",
+        "type": "object",
+        "description": "State output: validation_result"
+      }
+    ],
+    "preconditions": [
+      "'rendered_output' exists in state",
+      "'assembly_manifest' exists in state"
+    ],
+    "postconditions": [
+      "'validation_result' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "rendered_output"
+    ],
+    "writes": []
+  },
+  "dependencies": [
+    "step_6_01_render"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "llm",
+      "entry_point": "handoff.md"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

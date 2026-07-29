@@ -1,0 +1,90 @@
+import json, sys, subprocess, os, glob
+
+def main():
+    data = json.loads(sys.stdin.read())
+    
+    # Derive raw_dir from DAG-provided data
+    raw_footage_files = data.get('raw_footage_files', [])
+    if raw_footage_files:
+        # raw_footage_files can be dicts (from scan step) or strings
+        first = raw_footage_files[0]
+        first_path = first['path'] if isinstance(first, dict) else first
+        raw_dir = os.path.dirname(first_path)
+    elif 'raw_dir' in data:
+        raw_dir = data['raw_dir']
+    else:
+        raw_dir = os.path.join(data.get('project_folder', '.'), 'raw')
+    
+    # Analysis outputs go alongside the raw dir (raw/analysis/)
+    analysis_dir = os.path.join(raw_dir, 'analysis')
+    os.makedirs(analysis_dir, exist_ok=True)
+    
+    # Path to the vision pipeline tool (repo-relative)
+    PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    VISION_PIPELINE = os.path.join(PILOT_ROOT, 'library', 'tools', 'analysis', 'vision_pipeline_v3.py')
+    
+    if not os.path.exists(VISION_PIPELINE):
+        print(f"  ✗ Vision pipeline not found at {VISION_PIPELINE}", file=sys.stderr)
+        print(f"    Expected: library/tools/analysis/vision_pipeline_v3.py", file=sys.stderr)
+        sys.exit(1)
+    
+    # Check which clips already have profiles
+    existing_profiles = set()
+    for f in glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json')):
+        # Extract clip name: clip_profile_IMG_1806.json → IMG_1806
+        basename = os.path.basename(f)
+        clip_name = basename.replace('clip_profile_', '').replace('.json', '')
+        if '_video_only' not in clip_name:
+            existing_profiles.add(clip_name)
+    
+    # Find clips that need analysis
+    all_clips = []
+    missing_clips = []
+    for fpath in sorted(glob.glob(os.path.join(raw_dir, '*.MOV')) + glob.glob(os.path.join(raw_dir, '*.MP4')) + glob.glob(os.path.join(raw_dir, '*.mp4'))):
+        clip_name = os.path.splitext(os.path.basename(fpath))[0]
+        all_clips.append(fpath)
+        if clip_name not in existing_profiles:
+            missing_clips.append(fpath)
+    
+    print(f"Semantic Analysis: {len(all_clips)} total clips, {len(existing_profiles)} already analyzed, {len(missing_clips)} remaining", file=sys.stderr)
+    
+    # Only run vision pipeline on missing clips
+    if missing_clips:
+        print(f"Running vision pipeline on {len(missing_clips)} new clips...", file=sys.stderr)
+        
+        # Run on each missing clip individually
+        for clip_path in missing_clips:
+            print(f"  Analyzing: {os.path.basename(clip_path)}", file=sys.stderr)
+            try:
+                subprocess.run(
+                    ['python3', VISION_PIPELINE, '--clip', clip_path, '--output-dir', analysis_dir],
+                    check=True,
+                    timeout=600,  # 10 min max per clip
+                )
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
+            except subprocess.CalledProcessError as e:
+                print(f"  ⚠ Error on {os.path.basename(clip_path)}: {e}", file=sys.stderr)
+    else:
+        print("All clips already have vision profiles, skipping analysis.", file=sys.stderr)
+    
+    # Collect ALL clip profiles (existing + new)
+    profiles = []
+    for f in sorted(glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json'))):
+        if '_video_only' in f:
+            continue  # Skip partial profiles
+        with open(f) as fp:
+            try:
+                profiles.append(json.load(fp))
+            except json.JSONDecodeError:
+                print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
+    
+    print(f"Collected {len(profiles)} clip profiles", file=sys.stderr)
+    
+    json.dump({
+        'semantic_analysis_documents': profiles,
+        'total_clips_analyzed': len(profiles)
+    }, sys.stdout, indent=2)
+
+if __name__ == '__main__':
+    main()

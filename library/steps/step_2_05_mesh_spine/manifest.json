@@ -1,0 +1,91 @@
+{
+  "id": "step_2_05_mesh_spine",
+  "name": "Mesh Spine",
+  "version": "1.0.0",
+  "description": "Meshes the speech sequence with music selection into a unified audio and timed spine.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": true,
+        "description": "State input: speech_sequence"
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_index"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "description": "State output: audio_spine"
+      },
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "description": "State output: timed_spine"
+      }
+    ],
+    "preconditions": [
+      "'speech_sequence' exists in state",
+      "'music_selection' exists in state",
+      "'temporal_index' exists in state"
+    ],
+    "postconditions": [
+      "'audio_spine' is written to state",
+      "'timed_spine' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "data_transformation",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "music_analysis",
+      "music_selection",
+      "project_folder",
+      "speech_sequence",
+      "temporal_index"
+    ],
+    "writes": [
+      "audio_spine"
+    ]
+  },
+  "dependencies": [
+    "step_2_02_speech_sequence",
+    "step_2_04_music_selection"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "bridge.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

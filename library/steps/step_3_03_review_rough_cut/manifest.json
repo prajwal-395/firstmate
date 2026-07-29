@@ -1,0 +1,110 @@
+{
+  "id": "step_3_03_review_rough_cut",
+  "name": "Review Rough Cut",
+  "version": "1.0.0",
+  "description": "Quality gate that validates the assembled rough cut for duration consistency, narrative coherence, and complete thoughts before proceeding to planning phases. Rejects manifests with mismatched source/timeline durations or incoherent narrative flow.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: a_roll_assignments"
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: b_roll_assignments"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine"
+      },
+      {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": true,
+        "description": "State input: speech_sequence"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_index"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rough_cut_review",
+        "type": "object",
+        "description": "State output: rough_cut_review"
+      }
+    ],
+    "preconditions": [
+      "'a_roll_assignments' exists in state",
+      "'b_roll_assignments' exists in state",
+      "'audio_spine' exists in state",
+      "'speech_sequence' exists in state",
+      "'temporal_index' exists in state",
+      "'creative_direction' exists in state"
+    ],
+    "postconditions": [
+      "'rough_cut_review' is written to state",
+      "'rough_cut_review.passed' is true OR 'rough_cut_review.rejection_reasons' is non-empty"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "evaluation_judgment",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "a_roll_assignments",
+      "audio_spine",
+      "b_roll_assignments",
+      "creative_direction",
+      "project_folder",
+      "speech_sequence",
+      "temporal_index"
+    ],
+    "writes": [
+      "rough_cut_review"
+    ]
+  },
+  "dependencies": [
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "quality_gate"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "hybrid",
+      "entry_point": "handoff.md",
+      "mechanical_checks": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-25",
+    "last_modified": "2026-07-25",
+    "source_process": "video_editing_pipeline"
+  }
+}

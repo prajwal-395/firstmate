@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""
+Pipeline Runner — Executes the edit_video DAG end-to-end.
+
+This is the orchestrator entry point that:
+1. Reads the DAG (24 nodes, 58 edges)
+2. Resolves execution order via topological sort
+3. For each step:
+   - Deterministic steps: runs step.py with JSON stdin/stdout
+   - Nondeterministic steps: presents handoff.md as LLM prompt
+   - Bridge steps: runs bridge.py which orchestrates both
+4. Tracks state in pipeline_data.json (full checkpoint support)
+
+Usage:
+    python3 run_pipeline.py --project /path/to/project
+    python3 run_pipeline.py --project /path/to/project --from temporal_index
+    python3 run_pipeline.py --project /path/to/project --step creative_direction
+    python3 run_pipeline.py --project /path/to/project --dry-run
+"""
+import json
+import os
+import sys
+import subprocess
+import time
+import argparse
+from pathlib import Path
+from collections import deque
+
+
+# ── Path Configuration ──────────────────────────────────────────────
+
+PILOT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+LIBRARY_ROOT = PILOT_ROOT / "library"
+STEPS_ROOT = LIBRARY_ROOT / "steps"
+DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
+
+
+# ── DAG Loader ──────────────────────────────────────────────────────
+
+def load_dag(dag_path: str = None) -> dict:
+    """Load and validate the DAG definition."""
+    path = dag_path or str(DAG_PATH)
+    with open(path) as f:
+        return json.load(f)
+
+
+def topological_sort(dag: dict) -> list:
+    """Topological sort of the DAG nodes, respecting edge dependencies."""
+    nodes = {n["id"]: n for n in dag["nodes"]}
+    
+    # Build adjacency and in-degree
+    in_degree = {n: 0 for n in nodes}
+    adj = {n: [] for n in nodes}
+    
+    for edge in dag["edges"]:
+        adj[edge["from"]].append(edge["to"])
+        in_degree[edge["to"]] += 1
+    
+    # Kahn's algorithm
+    queue = deque([n for n in nodes if in_degree[n] == 0])
+    order = []
+    
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for neighbor in adj[node]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    
+    if len(order) != len(nodes):
+        raise ValueError("DAG has cycles!")
+    
+    return order
+
+
+def get_step_dir(dag_node: dict) -> Path:
+    """Get the filesystem path for a step from its DAG node."""
+    step_ref = dag_node["step_ref"]  # e.g., "steps/step_1_01_scan_project"
+    return LIBRARY_ROOT / step_ref
+
+
+def get_step_implementation(step_dir: Path) -> dict:
+    """Determine what type of implementation a step has."""
+    has_step_py = (step_dir / "step.py").exists()
+    has_bridge_py = (step_dir / "bridge.py").exists()
+    has_handoff_md = (step_dir / "handoff.md").exists()
+    has_manifest = (step_dir / "manifest.json").exists()
+    
+    # Load manifest for metadata
+    manifest = {}
+    if has_manifest:
+        with open(step_dir / "manifest.json") as f:
+            manifest = json.load(f)
+    
+    determinism = manifest.get("determinism", "unknown")
+    
+    if has_step_py and not has_handoff_md:
+        return {
+            "type": "deterministic",
+            "entry": str(step_dir / "step.py"),
+            "determinism": determinism,
+            "manifest": manifest,
+        }
+    elif has_bridge_py and has_handoff_md:
+        return {
+            "type": "hybrid",
+            "entry": str(step_dir / "bridge.py"),
+            "prompt": str(step_dir / "handoff.md"),
+            "determinism": determinism,
+            "manifest": manifest,
+        }
+    elif has_handoff_md and not has_bridge_py and not has_step_py:
+        return {
+            "type": "llm_only",
+            "prompt": str(step_dir / "handoff.md"),
+            "determinism": determinism,
+            "manifest": manifest,
+        }
+    else:
+        return {
+            "type": "unknown",
+            "files": {
+                "step.py": has_step_py,
+                "bridge.py": has_bridge_py,
+                "handoff.md": has_handoff_md,
+            },
+            "determinism": determinism,
+            "manifest": manifest,
+        }
+
+
+# ── State Management ────────────────────────────────────────────────
+
+def load_pipeline_state(project_dir: str) -> dict:
+    """Load or initialize pipeline state from project.
+    
+    Always sets project_folder from the argument, regardless of
+    what's in the existing file.
+    """
+    state_path = os.path.join(project_dir, "pipeline_data.json")
+    if os.path.exists(state_path):
+        with open(state_path) as f:
+            state = json.load(f)
+    else:
+        state = {
+            "pipeline_version": "1.0",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "steps_completed": {},
+            "step_outputs": {},
+        }
+    # Always inject project_folder from CLI
+    state["project_folder"] = project_dir
+    
+    # Inject shared library paths from the process manifest defaults
+    # (unless already set by a previous run or CLI override)
+    manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            process_manifest = json.load(f)
+        for inp in process_manifest.get("interface", {}).get("inputs", []):
+            name = inp.get("name", "")
+            if name in ("sfx_library", "music_library") and name not in state:
+                default = inp.get("default", "")
+                if default:
+                    state[name] = default
+    
+    return state
+
+
+def save_pipeline_state(project_dir: str, state: dict):
+    """Save pipeline state to project."""
+    state_path = os.path.join(project_dir, "pipeline_data.json")
+    state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    with open(state_path, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def gather_step_inputs(node_id: str, dag: dict, state: dict) -> dict:
+    """Gather inputs for a step from upstream outputs using edge data_mappings."""
+    inputs = {}
+    
+    for edge in dag["edges"]:
+        if edge["to"] == node_id:
+            source_id = edge["from"]
+            source_outputs = state.get("step_outputs", {}).get(source_id, {})
+            
+            # Apply data_mapping if specified
+            mapping = edge.get("data_mapping", {})
+            if mapping:
+                for src_key, dst_key in mapping.items():
+                    if src_key in source_outputs:
+                        inputs[dst_key] = source_outputs[src_key]
+            else:
+                # No explicit mapping — merge all outputs
+                inputs.update(source_outputs)
+    
+    # Always include project folder
+    inputs["project_folder"] = state.get("project_folder", "")
+    
+    return inputs
+
+
+# ── Step Execution ──────────────────────────────────────────────────
+
+def run_deterministic_step(entry: str, inputs: dict) -> dict:
+    """Run a deterministic step via subprocess (stdin JSON → stdout JSON)."""
+    result = subprocess.run(
+        ["python3", entry],
+        input=json.dumps(inputs),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Step failed (exit {result.returncode}):\n"
+            f"  stderr: {result.stderr[:500]}"
+        )
+    
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"Step produced invalid JSON:\n"
+            f"  stdout: {result.stdout[:500]}\n"
+            f"  stderr: {result.stderr[:500]}"
+        )
+
+
+def present_llm_step(prompt_path: str, inputs: dict, node_id: str) -> dict:
+    """Present an LLM step as a prompt for the user/Antigravity to complete.
+    
+    In automated mode, this writes the prompt + context to a handoff file
+    and pauses execution. The LLM completes it and saves results.
+    
+    In interactive mode, this prints the prompt and waits for input.
+    """
+    with open(prompt_path) as f:
+        prompt = f.read()
+    
+    print(f"\n{'─'*60}", file=sys.stderr)
+    print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
+    print(f"  Prompt: {prompt_path}", file=sys.stderr)
+    print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
+    print(f"{'─'*60}", file=sys.stderr)
+    print(f"\n  This step requires LLM judgment.", file=sys.stderr)
+    print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
+    print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
+    print(f"\n  When complete, save the output to:", file=sys.stderr)
+    print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
+    print(f"{'─'*60}\n", file=sys.stderr)
+    
+    # For non-interactive: return a marker indicating human/LLM needed
+    return {
+        "__status": "awaiting_llm",
+        "__prompt": prompt_path,
+        "__inputs_available": list(inputs.keys()),
+    }
+
+
+def run_hybrid_step(bridge_path: str, prompt_path: str, inputs: dict) -> dict:
+    """Run a hybrid step: bridge.py handles the deterministic parts
+    and produces context for the LLM prompt."""
+    # Run bridge first to enrich inputs
+    result = subprocess.run(
+        ["python3", bridge_path],
+        input=json.dumps(inputs),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    
+    if result.returncode != 0:
+        print(f"  Bridge stderr: {result.stderr[:300]}", file=sys.stderr)
+        # Bridge failure is non-fatal — fall through to LLM with original inputs
+        enriched = inputs
+    else:
+        try:
+            enriched = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            enriched = inputs
+    
+    return enriched
+
+
+# ── Main Runner ─────────────────────────────────────────────────────
+
+def run_pipeline(
+    project_dir: str,
+    from_step: str = None,
+    single_step: str = None,
+    dry_run: bool = False,
+    auto_mode: bool = False,
+):
+    """Execute the pipeline DAG."""
+    dag = load_dag()
+    state = load_pipeline_state(project_dir)
+    order = topological_sort(dag)
+    nodes = {n["id"]: n for n in dag["nodes"]}
+    
+    print(f"\n{'═'*60}", file=sys.stderr)
+    print(f"  Pipeline: edit_video", file=sys.stderr)
+    print(f"  Project: {project_dir}", file=sys.stderr)
+    print(f"  Steps: {len(order)}", file=sys.stderr)
+    print(f"  Order: {' → '.join(order)}", file=sys.stderr)
+    print(f"{'═'*60}\n", file=sys.stderr)
+    
+    # Determine which steps to run
+    skip_until = from_step
+    steps_to_run = []
+    for node_id in order:
+        if single_step and node_id != single_step:
+            continue
+        if skip_until:
+            if node_id == skip_until:
+                skip_until = None
+            else:
+                continue
+        steps_to_run.append(node_id)
+    
+    print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
+    
+    completed = []
+    failed = []
+    awaiting_llm = []
+    
+    for node_id in steps_to_run:
+        node = nodes[node_id]
+        step_dir = get_step_dir(node)
+        impl = get_step_implementation(step_dir)
+        
+        # Check if already completed
+        if node_id in state.get("steps_completed", {}):
+            print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
+            completed.append(node_id)
+            continue
+        
+        print(f"\n  ▶  Step: {node_id} ({node['name']})", file=sys.stderr)
+        print(f"     Type: {impl['type']} | Dir: {step_dir}", file=sys.stderr)
+        
+        if dry_run:
+            inputs = gather_step_inputs(node_id, dag, state)
+            print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
+            print(f"     [DRY RUN — skipping execution]", file=sys.stderr)
+            completed.append(node_id)
+            continue
+        
+        # Gather inputs from upstream
+        inputs = gather_step_inputs(node_id, dag, state)
+        print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
+        
+        try:
+            start_time = time.time()
+            
+            if impl["type"] == "deterministic":
+                output = run_deterministic_step(impl["entry"], inputs)
+                elapsed = time.time() - start_time
+                print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
+                print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
+                
+                # Save state
+                state.setdefault("step_outputs", {})[node_id] = output
+                state.setdefault("steps_completed", {})[node_id] = {
+                    "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "elapsed_s": round(elapsed, 1),
+                }
+                save_pipeline_state(project_dir, state)
+                completed.append(node_id)
+                
+            elif impl["type"] == "hybrid":
+                # Run bridge for enrichment, then present for LLM
+                enriched = run_hybrid_step(
+                    impl["entry"], impl["prompt"], inputs
+                )
+                
+                if auto_mode:
+                    # In auto mode, treat bridge output as final
+                    state.setdefault("step_outputs", {})[node_id] = enriched
+                    state.setdefault("steps_completed", {})[node_id] = {
+                        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "note": "auto-completed via bridge",
+                    }
+                    save_pipeline_state(project_dir, state)
+                    completed.append(node_id)
+                else:
+                    output = present_llm_step(impl["prompt"], enriched, node_id)
+                    awaiting_llm.append(node_id)
+                    print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                    
+            elif impl["type"] == "llm_only":
+                output = present_llm_step(impl["prompt"], inputs, node_id)
+                awaiting_llm.append(node_id)
+                print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                
+            else:
+                print(f"     ⚠ Unknown implementation type: {impl['type']}", 
+                      file=sys.stderr)
+                failed.append(node_id)
+                
+        except Exception as e:
+            print(f"     ✗ FAILED: {e}", file=sys.stderr)
+            failed.append(node_id)
+            
+            # Check error policy
+            error_policy = node.get("error_policy", {}).get("policy", "fail")
+            if error_policy == "retry":
+                max_retries = node.get("error_policy", {}).get("max_retries", 2)
+                print(f"     Retry policy: up to {max_retries} retries", 
+                      file=sys.stderr)
+                # TODO: implement retry loop
+            elif error_policy != "continue":
+                print(f"     Stopping pipeline due to failure.", file=sys.stderr)
+                break
+    
+    # Summary
+    print(f"\n{'═'*60}", file=sys.stderr)
+    print(f"  Pipeline Summary", file=sys.stderr)
+    print(f"{'═'*60}", file=sys.stderr)
+    print(f"  Completed:    {len(completed)} steps", file=sys.stderr)
+    print(f"  Awaiting LLM: {len(awaiting_llm)} steps", file=sys.stderr)
+    print(f"  Failed:       {len(failed)} steps", file=sys.stderr)
+    
+    if completed:
+        print(f"  ✓ {', '.join(completed)}", file=sys.stderr)
+    if awaiting_llm:
+        print(f"  ⏸ {', '.join(awaiting_llm)}", file=sys.stderr)
+    if failed:
+        print(f"  ✗ {', '.join(failed)}", file=sys.stderr)
+    
+    print(f"{'═'*60}\n", file=sys.stderr)
+    
+    # Output final state
+    summary = {
+        "completed": completed,
+        "awaiting_llm": awaiting_llm,
+        "failed": failed,
+        "state_file": os.path.join(project_dir, "pipeline_data.json"),
+    }
+    json.dump(summary, sys.stdout, indent=2)
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Pipeline Runner")
+    parser.add_argument("--project", required=True, help="Project directory")
+    parser.add_argument("--from", dest="from_step", help="Start from this step")
+    parser.add_argument("--step", help="Run only this step")
+    parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
+    parser.add_argument("--auto", action="store_true", 
+                       help="Auto-complete hybrid steps (use bridge output as final)")
+    args = parser.parse_args()
+    
+    run_pipeline(
+        project_dir=args.project,
+        from_step=args.from_step,
+        single_step=args.step,
+        dry_run=args.dry_run,
+        auto_mode=args.auto,
+    )
+
+
+if __name__ == "__main__":
+    main()

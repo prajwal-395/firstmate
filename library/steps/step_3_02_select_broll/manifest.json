@@ -1,0 +1,83 @@
+{
+  "id": "step_3_02_select_broll",
+  "name": "Select B Roll",
+  "version": "1.0.0",
+  "description": "Selects B-roll clips based on A-roll assignments and semantic analysis.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: a_roll_assignments"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "description": "State output: b_roll_assignments"
+      }
+    ],
+    "preconditions": [
+      "'a_roll_assignments' exists in state",
+      "'semantic_analysis_documents' exists in state",
+      "'creative_direction' exists in state"
+    ],
+    "postconditions": [
+      "'b_roll_assignments' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "hybrid",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "a_roll_assignments",
+      "creative_direction",
+      "project_folder",
+      "semantic_analysis_documents"
+    ],
+    "writes": [
+      "b_roll_assignments"
+    ]
+  },
+  "dependencies": [
+    "step_3_01_assign_aroll"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "bridge.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "id": "step_1_04_temporal_index",
+  "name": "Temporal Index",
+  "version": "1.0.0",
+  "description": "Creates a temporal index of footage using WhisperX and Librosa.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "required": true,
+        "description": "State input: raw_footage_files"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "description": "State output: temporal_index"
+      }
+    ],
+    "preconditions": [
+      "'raw_footage_files' exists in state"
+    ],
+    "postconditions": [
+      "'temporal_index' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "raw_footage_files"
+    ],
+    "writes": [
+      "temporal_index"
+    ]
+  },
+  "dependencies": [
+    "step_1_01_scan_project"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

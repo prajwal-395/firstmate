@@ -1,0 +1,140 @@
+{
+  "id": "step_5_04_compile_manifest",
+  "name": "Compile Manifest",
+  "version": "1.0.0",
+  "description": "Compiles all specifications into a final assembly manifest for rendering.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: a_roll_assignments"
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: b_roll_assignments"
+      },
+      {
+        "name": "subtitle_plan",
+        "type": "object",
+        "required": true,
+        "description": "State input: subtitle_plan"
+      },
+      {
+        "name": "transition_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: transition_spec"
+      },
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: enhancement_spec"
+      },
+      {
+        "name": "sfx_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: sfx_spec"
+      },
+      {
+        "name": "color_grade_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: color_grade_spec"
+      },
+      {
+        "name": "audio_mix_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_mix_spec"
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "assembly_manifest",
+        "type": "object",
+        "description": "State output: assembly_manifest"
+      }
+    ],
+    "preconditions": [
+      "'a_roll_assignments' exists in state",
+      "'b_roll_assignments' exists in state",
+      "'subtitle_plan' exists in state",
+      "'transition_spec' exists in state",
+      "'enhancement_spec' exists in state",
+      "'sfx_spec' exists in state",
+      "'color_grade_spec' exists in state",
+      "'audio_mix_spec' exists in state",
+      "'music_selection' exists in state"
+    ],
+    "postconditions": [
+      "'assembly_manifest' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "a_roll_assignments",
+      "audio_mix_spec",
+      "b_roll_assignments",
+      "color_grade_spec",
+      "enhancement_spec",
+      "music_selection",
+      "project_folder",
+      "sfx_spec",
+      "subtitle_overlay",
+      "transition_spec",
+      "rough_cut_review"
+    ],
+    "writes": [
+      "assembly_manifest"
+    ]
+  },
+  "dependencies": [
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll",
+    "step_4_01_plan_subtitles",
+    "step_4_02_plan_transitions",
+    "step_4_03_plan_vfx",
+    "step_4_04_plan_sfx",
+    "step_5_01_color_grade",
+    "step_5_02_audio_mix",
+    "step_3_03_review_rough_cut"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

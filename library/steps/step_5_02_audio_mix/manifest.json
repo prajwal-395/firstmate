@@ -1,0 +1,83 @@
+{
+  "id": "step_5_02_audio_mix",
+  "name": "Audio Mix",
+  "version": "1.0.0",
+  "description": "Balances and mixes audio streams for the final output.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "audio_mix_spec",
+        "type": "object",
+        "description": "State output: audio_mix_spec"
+      }
+    ],
+    "preconditions": [
+      "'timed_spine' exists in state",
+      "'music_selection' exists in state",
+      "'creative_direction' exists in state"
+    ],
+    "postconditions": [
+      "'audio_mix_spec' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "audio_spine",
+      "creative_direction",
+      "music_selection",
+      "project_folder"
+    ],
+    "writes": [
+      "audio_mix_spec"
+    ]
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

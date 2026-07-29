@@ -1,0 +1,127 @@
+{
+  "$schema": "../../schema/manifest.schema.json",
+  "id": "edit_video",
+  "name": "Edit Video — Full Pipeline",
+  "version": "1.0.0",
+  "description": "Complete automated video editing pipeline: ingest raw footage, plan editorial structure with LLM, assemble timeline in DaVinci Resolve, apply post-production (subtitles, SFX, transitions, VFX, color, audio mix), and render final output.",
+  "level": "process",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": true,
+        "description": "Absolute path to the project folder containing raw/ subdirectory with footage"
+      },
+      {
+        "name": "sfx_library",
+        "type": "string",
+        "required": false,
+        "description": "Absolute path to the shared SFX library folder",
+        "default": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library"
+      },
+      {
+        "name": "music_library",
+        "type": "string",
+        "required": false,
+        "description": "Absolute path to the shared music library folder",
+        "default": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/music"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rendered_output",
+        "type": "object",
+        "description": "Final rendered video file path and metadata"
+      },
+      {
+        "name": "validation_result",
+        "type": "object",
+        "description": "Validation checks and pass/fail status"
+      },
+      {
+        "name": "pipeline_data",
+        "type": "object",
+        "description": "Complete pipeline state with all intermediate decisions"
+      }
+    ],
+    "preconditions": [
+      "Project folder exists and contains raw/ subdirectory with .MOV or .mp4 files",
+      "DaVinci Resolve is running with a project open",
+      "WhisperX is installed (pip install whisperx)",
+      "Remotion is installed in the remotion-subtitles/ directory",
+      "MLX framework available for Gemma4 12B vision analysis (Apple Silicon)",
+      "HF_TOKEN environment variable set (for Audio Flamingo Next SFX profiling)"
+    ],
+    "postconditions": [
+      "DaVinci Resolve timeline is fully assembled with video, subtitles, SFX, and music",
+      "pipeline_data.json contains all editorial decisions for reproducibility",
+      "assembly_manifest.json contains the complete timeline specification"
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "composite",
+    "idempotent": false
+  },
+  "state": {
+    "reads": ["project_folder"],
+    "writes": [
+      "raw_footage_files", "clip_catalog", "semantic_analysis_documents",
+      "temporal_index", "creative_direction", "speech_sequence",
+      "music_selection", "audio_spine", "timed_spine",
+      "a_roll_assignments", "b_roll_assignments", "rough_cut_review",
+      "subtitle_plan", "transition_spec", "enhancement_spec",
+      "sfx_spec", "color_grade_spec", "audio_mix_spec",
+      "assembly_manifest", "rendered_output", "validation_result"
+    ]
+  },
+  "dependencies": [],
+  "tags": [
+    "video-editing", "pipeline", "davinci-resolve", "subtitles",
+    "sfx", "music", "color-grading", "audio-mix", "remotion",
+    "whisperx", "ollama", "gemma4", "shortform"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "dag.json"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "composition": {
+    "type": "dag",
+    "definition_file": "dag.json",
+    "components": [
+      {"step_ref": "steps/step_1_01_scan_project", "version_constraint": ">=1.0.0", "role": "Scan raw footage folder"},
+      {"step_ref": "steps/step_1_02_catalog_footage", "version_constraint": ">=1.0.0", "role": "Extract clip metadata"},
+      {"step_ref": "steps/step_1_03_semantic_analysis", "version_constraint": ">=1.0.0", "role": "Vision analysis of clips"},
+      {"step_ref": "steps/step_1_04_temporal_index", "version_constraint": ">=1.0.0", "role": "WhisperX transcription + energy analysis"},
+      {"step_ref": "steps/step_2_01_creative_direction", "version_constraint": ">=1.0.0", "role": "LLM infers editorial mood and style"},
+      {"step_ref": "steps/step_2_02_speech_sequence", "version_constraint": ">=1.0.0", "role": "Order speech segments into narrative"},
+      {"step_ref": "steps/step_2_04_music_selection", "version_constraint": ">=1.0.0", "role": "Select background music track"},
+      {"step_ref": "steps/step_2_05_mesh_spine", "version_constraint": ">=1.0.0", "role": "Create timed audio spine"},
+      {"step_ref": "steps/step_3_01_assign_aroll", "version_constraint": ">=1.0.0", "role": "Map spine blocks to source clips"},
+      {"step_ref": "steps/step_3_02_select_broll", "version_constraint": ">=1.0.0", "role": "Pick B-roll for each segment"},
+      {"step_ref": "steps/step_3_03_review_rough_cut", "version_constraint": ">=1.0.0", "role": "Quality gate: validate rough cut before post-production"},
+      {"step_ref": "steps/step_4_01_plan_subtitles", "version_constraint": ">=1.0.0", "role": "Generate subtitle groups"},
+      {"step_ref": "steps/step_4_02_plan_transitions", "version_constraint": ">=1.0.0", "role": "Design transitions between cuts"},
+      {"step_ref": "steps/step_4_03_plan_vfx", "version_constraint": ">=1.0.0", "role": "Plan zoom effects and enhancements"},
+      {"step_ref": "steps/step_4_04_plan_sfx", "version_constraint": ">=1.0.0", "role": "Plan SFX placement intentions"},
+      {"step_ref": "steps/step_5_01_color_grade", "version_constraint": ">=1.0.0", "role": "Generate color grade node spec"},
+      {"step_ref": "steps/step_5_02_audio_mix", "version_constraint": ">=1.0.0", "role": "Generate audio level automation"},
+      {"step_ref": "steps/step_5_04_compile_manifest", "version_constraint": ">=1.0.0", "role": "Compile final assembly manifest"},
+      {"step_ref": "steps/step_6_01_render", "version_constraint": ">=1.0.0", "role": "Assemble timeline in Resolve"},
+      {"step_ref": "steps/step_6_02_validate_output", "version_constraint": ">=1.0.0", "role": "Validate rendered output"}
+    ]
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "shortform_video_editing",
+    "notes": "Complete pipeline for editing shortform vertical video from raw footage to final render. Uses DaVinci Resolve as the NLE, Remotion for subtitle overlays, WhisperX for transcription, and Gemma4/Ollama for LLM-driven editorial decisions."
+  }
+}

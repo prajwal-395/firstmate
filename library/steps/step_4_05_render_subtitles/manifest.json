@@ -1,0 +1,78 @@
+{
+  "id": "step_4_05_render_subtitles",
+  "name": "Render Subtitles (Remotion)",
+  "version": "1.0.0",
+  "description": "Renders subtitle and motion graphics overlays to ProRes 4444 with alpha using Remotion. Takes the subtitle plan from step 4.01, generates Remotion input props via generate_subtitle_props.py, then runs npx remotion render to produce the final overlay video.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "subtitle_plan",
+        "type": "object",
+        "required": true,
+        "description": "Subtitle groups with timestamps, text, and styling from step 4.01"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "Timed audio spine for total duration calculation"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "subtitle_overlay",
+        "type": "object",
+        "description": "Path to rendered ProRes 4444 overlay and metadata"
+      }
+    ],
+    "preconditions": [
+      "'subtitle_plan' exists in state",
+      "'audio_spine' exists in state",
+      "Remotion project is set up in remotion-subtitles/",
+      "Node.js and npx are available"
+    ],
+    "postconditions": [
+      "'subtitle_overlay' is written to state with overlay_path"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "direct_action",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "subtitle_plan",
+      "audio_spine",
+      "project_folder"
+    ],
+    "writes": [
+      "subtitle_overlay"
+    ]
+  },
+  "dependencies": [
+    "step_4_01_plan_subtitles"
+  ],
+  "tags": [
+    "direct_action",
+    "video-editing",
+    "remotion",
+    "subtitles"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-25",
+    "last_modified": "2026-07-25",
+    "source_process": "video_editing_pipeline"
+  }
+}

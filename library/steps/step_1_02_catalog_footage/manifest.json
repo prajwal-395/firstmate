@@ -1,0 +1,67 @@
+{
+  "id": "step_1_02_catalog_footage",
+  "name": "Catalog Footage",
+  "version": "1.0.0",
+  "description": "Catalogs the raw footage files into a structured clip catalog.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "required": true,
+        "description": "State input: raw_footage_files"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "description": "State output: clip_catalog"
+      }
+    ],
+    "preconditions": [
+      "'raw_footage_files' exists in state"
+    ],
+    "postconditions": [
+      "'clip_catalog' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "raw_footage_files"
+    ],
+    "writes": [
+      "clip_catalog"
+    ]
+  },
+  "dependencies": [
+    "step_1_01_scan_project"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

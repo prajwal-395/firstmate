@@ -1,0 +1,76 @@
+{
+  "id": "step_3_01_assign_aroll",
+  "name": "Assign A Roll",
+  "version": "1.0.0",
+  "description": "Assigns A-roll clips to the timed spine based on clip catalog constraints.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": true,
+        "description": "State input: clip_catalog"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "description": "State output: a_roll_assignments"
+      }
+    ],
+    "preconditions": [
+      "'timed_spine' exists in state",
+      "'clip_catalog' exists in state"
+    ],
+    "postconditions": [
+      "'a_roll_assignments' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "audio_spine",
+      "clip_catalog",
+      "project_folder"
+    ],
+    "writes": [
+      "a_roll_assignments"
+    ]
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine",
+    "step_1_02_catalog_footage"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}

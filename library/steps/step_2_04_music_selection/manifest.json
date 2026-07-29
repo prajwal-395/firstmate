@@ -1,0 +1,67 @@
+{
+  "id": "step_2_04_music_selection",
+  "name": "Music Selection",
+  "version": "1.0.0",
+  "description": "Selects appropriate background music based on the creative direction.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "music_selection",
+        "type": "object",
+        "description": "State output: music_selection"
+      }
+    ],
+    "preconditions": [
+      "'creative_direction' exists in state"
+    ],
+    "postconditions": [
+      "'music_selection' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "state": {
+    "reads": [
+      "creative_direction",
+      "project_folder"
+    ],
+    "writes": [
+      "music_selection"
+    ]
+  },
+  "dependencies": [
+    "step_2_01_creative_direction"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "nondeterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "llm",
+      "entry_point": "handoff.md"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-07-20",
+    "last_modified": "2026-07-20",
+    "source_process": "video_editing_pipeline"
+  }
+}
