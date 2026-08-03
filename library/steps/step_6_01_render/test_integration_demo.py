@@ -239,22 +239,24 @@ def run_integration_test():
 
     for ti in range(len(v1_items_fresh) - 1):
         ttype = transition_types[ti % len(transition_types)]
-        dur_frames = 7
 
         # TAIL comp on outgoing clip
-        tail_comp = generate_transition_comp(dur_frames, ttype, position="tail")
+        out_clip = v1_items_fresh[ti]
+        # CRITICAL: use SOURCE clip frame count, not timeline duration
+        out_clip_dur = out_clip.GetSourceEndFrame() - out_clip.GetSourceStartFrame() + 1
+        tail_comp = generate_transition_comp(out_clip_dur, ttype, position="tail")
         tail_path = write_transition_comp(
             os.path.join(trans_dir, f"t{ti}_{ttype}_tail.comp"), tail_comp
         )
-        out_clip = v1_items_fresh[ti]
         tail_result = out_clip.ImportFusionComp(tail_path)
 
         # HEAD comp on incoming clip
-        head_comp = generate_transition_comp(dur_frames, ttype, position="head")
+        in_clip = v1_items_fresh[ti + 1]
+        in_clip_dur = in_clip.GetSourceEndFrame() - in_clip.GetSourceStartFrame() + 1
+        head_comp = generate_transition_comp(in_clip_dur, ttype, position="head")
         head_path = write_transition_comp(
             os.path.join(trans_dir, f"t{ti}_{ttype}_head.comp"), head_comp
         )
-        in_clip = v1_items_fresh[ti + 1]
         head_result = in_clip.ImportFusionComp(head_path)
 
         if tail_result and head_result:

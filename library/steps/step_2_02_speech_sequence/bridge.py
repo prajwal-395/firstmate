@@ -25,6 +25,12 @@ import re
 import sys
 
 
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
+
 def normalize(text: str) -> str:
     """Normalize text for comparison: lowercase, strip punctuation."""
     text = text.lower().strip()
@@ -323,6 +329,12 @@ def enrich_speech_sequence(
 
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["speech_sequence", "temporal_index_dir"], "Input data")
+    if not isinstance(data["speech_sequence"], dict):
+        raise ValueError("speech_sequence must be a dictionary")
 
     speech_sequence = data.get("speech_sequence")
     if not speech_sequence:

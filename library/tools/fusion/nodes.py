@@ -395,6 +395,19 @@ class FusionNode:
                     "Creates artifacts and edge tiling."
                 )
 
+        # Defocus XDefocusSize should not exceed 3.0
+        if self.tool_type == "Defocus" and "XDefocusSize" in self.inputs:
+            inp = self.inputs["XDefocusSize"]
+            if (
+                isinstance(inp, dict)
+                and inp.get("_type") == "value"
+                and inp["value"] > 3.0
+            ):
+                raise ValueError(
+                    f"{self.name}: Defocus XDefocusSize {inp['value']} > 3.0. "
+                    "Creates excessive blur artifacts."
+                )
+
     def serialize(self, indent: str = "\t\t") -> str:
         """Serialize to Lua tool definition."""
         self._validate()
@@ -512,6 +525,48 @@ class FusionComp:
                             "in same comp → causes black output. "
                             "Use static Center value instead."
                         )
+
+        # Build spline lookup
+        splines = {
+            n.name: n
+            for n in self.nodes
+            if isinstance(n, BezierSpline)
+        }
+
+        # Check safety limits on animated values
+        for n in self.nodes:
+            if not isinstance(n, FusionNode):
+                continue
+                
+            # DirectionalBlur Length <= 5.0
+            if n.tool_type == "DirectionalBlur" and "Length" in n.inputs:
+                inp = n.inputs["Length"]
+                if isinstance(inp, dict) and inp.get("_type") == "sourceop":
+                    spline_name = inp.get("SourceOp")
+                    if spline_name in splines:
+                        spline = splines[spline_name]
+                        if spline.keyframes:
+                            max_val = max(kf.value for kf in spline.keyframes)
+                            if max_val > 5.0:
+                                raise ValueError(
+                                    f"{n.name}: DirectionalBlur Length animated peak {max_val} > 5. "
+                                    "Creates artifacts and edge tiling."
+                                )
+
+            # Transform zoom (Size) <= 1.04
+            if n.tool_type == "Transform" and "Size" in n.inputs:
+                inp = n.inputs["Size"]
+                if isinstance(inp, dict) and inp.get("_type") == "sourceop":
+                    spline_name = inp.get("SourceOp")
+                    if spline_name in splines:
+                        spline = splines[spline_name]
+                        if spline.keyframes:
+                            max_val = max(kf.value for kf in spline.keyframes)
+                            if max_val > 1.04:
+                                raise ValueError(
+                                    f"{n.name}: Transform zoom (Size) animated peak {max_val} > 1.04. "
+                                    "Too aggressive, breaks immersion."
+                                )
 
     def serialize(self) -> str:
         """Serialize to a complete .comp file string."""

@@ -235,6 +235,67 @@ class TestCompEngine(unittest.TestCase):
         self.assertIn("MaskHeight", comp)
         self.assertIn("PixelAspect", comp)
 
+    def test_directional_blur_safety_spline_fail(self):
+        """A composition with a DirectionalBlur animated via spline peaking at 8.0 raises ValueError"""
+        from fusion.nodes import FusionComp
+        comp = FusionComp(duration=90)
+        
+        spline = BezierSpline("DirectionalBlur1Length")
+        spline.add_key(0, 1.0).add_key(45, 8.0).add_key(90, 1.0)
+        
+        blur = FusionNode("DirectionalBlur1", "DirectionalBlur")
+        blur.set_input("Length", spline)
+        
+        comp.add_node(spline).add_node(blur)
+        with self.assertRaises(ValueError) as ctx:
+            comp.serialize()
+        self.assertIn("DirectionalBlur Length animated peak 8.0 > 5", str(ctx.exception))
+
+    def test_directional_blur_safety_spline_pass(self):
+        """A composition with a DirectionalBlur animated via spline peaking at 4.0 passes"""
+        from fusion.nodes import FusionComp
+        comp = FusionComp(duration=90)
+        
+        spline = BezierSpline("DirectionalBlur1Length")
+        spline.add_key(0, 1.0).add_key(45, 4.0).add_key(90, 1.0)
+        
+        blur = FusionNode("DirectionalBlur1", "DirectionalBlur")
+        blur.set_input("Length", spline)
+        
+        comp.add_node(spline).add_node(blur)
+        comp.serialize()  # Should not raise
+
+    def test_transform_size_safety_spline_fail(self):
+        """A composition with a Transform.Size animated via spline peaking at 1.06 raises ValueError"""
+        from fusion.nodes import FusionComp
+        comp = FusionComp(duration=90)
+        
+        spline = BezierSpline("Transform1Size")
+        spline.add_key(0, 1.0).add_key(45, 1.06).add_key(90, 1.0)
+        
+        transform = FusionNode("Transform1", "Transform")
+        transform.set_input("Size", spline)
+        
+        comp.add_node(spline).add_node(transform)
+        with self.assertRaises(ValueError) as ctx:
+            comp.serialize()
+        self.assertIn("Transform zoom (Size) animated peak 1.06 > 1.04", str(ctx.exception))
+
+    def test_transform_size_safety_spline_pass(self):
+        """A composition with a Transform.Size animated via spline peaking at 1.03 passes"""
+        from fusion.nodes import FusionComp
+        comp = FusionComp(duration=90)
+        
+        spline = BezierSpline("Transform1Size")
+        spline.add_key(0, 1.0).add_key(45, 1.03).add_key(90, 1.0)
+        
+        transform = FusionNode("Transform1", "Transform")
+        transform.set_input("Size", spline)
+        
+        comp.add_node(spline).add_node(transform)
+        comp.serialize()  # Should not raise
+
 
 if __name__ == "__main__":
     unittest.main()
+

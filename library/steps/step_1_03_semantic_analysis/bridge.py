@@ -1,7 +1,19 @@
+"""
+Step 1.03 Bridge: Semantic Analysis
+Runs the vision pipeline on new raw footage clips to generate semantic analysis documents.
+"""
 import json, sys, subprocess, os, glob
+
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
 
 def main():
     data = json.loads(sys.stdin.read())
+    
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
     
     # Derive raw_dir from DAG-provided data
     raw_footage_files = data.get('raw_footage_files', [])

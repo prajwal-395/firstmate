@@ -53,7 +53,7 @@
   "implementation": {
     "default": {
       "runtime": "python",
-      "entry_point": "resolve_orchestrator.py"
+      "entry_point": "resolve_build_timeline.py"
     },
     "variants": {},
     "test_entry_point": ""

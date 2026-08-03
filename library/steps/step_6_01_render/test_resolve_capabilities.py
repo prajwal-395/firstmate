@@ -301,7 +301,7 @@ if v1_items and len(v1_items) > 0:
             clip.SetProperty(prop_name, {"ZoomX": 1.0, "ZoomY": 1.0, "Pan": 0.0, 
                                           "Tilt": 0.0, "RotationAngle": 0.0, 
                                           "Opacity": 100.0, "CropLeft": 0.0, "CropRight": 0.0}[prop_name])
-        except:
+        except Exception:
             pass
     
     # GetName / SetName
@@ -623,7 +623,7 @@ if v1_items and len(v1_items) > 0:
                     t.Delete()
                 else:
                     unavailable.append(tool_id)
-            except:
+            except Exception:
                 unavailable.append(tool_id)
         
         results.ok(f"Available Fusion tools", f"{len(available)}/{len(all_tools)}")
@@ -876,7 +876,7 @@ try:
     import shutil
     shutil.rmtree(COMP_DIR, ignore_errors=True)
     results.ok("Clean temp files")
-except:
+except Exception:
     pass
 
 

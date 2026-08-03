@@ -1,0 +1,351 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Assembly Manifest",
+  "description": "Manifest detailing the timeline assembly for DaVinci Resolve",
+  "type": "object",
+  "required": [
+    "project",
+    "tracks",
+    "subtitles"
+  ],
+  "properties": {
+    "project": {
+      "title": "Project Info",
+      "description": "Basic project settings",
+      "type": "object",
+      "required": [
+        "name",
+        "resolution",
+        "frame_rate",
+        "duration_seconds"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "frame_rate": {
+          "type": "number"
+        },
+        "duration_seconds": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "tracks": {
+      "title": "Timeline Tracks",
+      "description": "Video and audio tracks definitions",
+      "type": "object",
+      "required": [
+        "V1"
+      ],
+      "properties": {
+        "V1": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "source_file",
+                  "source_in",
+                  "source_out",
+                  "timeline_in",
+                  "timeline_out",
+                  "label"
+                ],
+                "properties": {
+                  "source_file": {
+                    "type": "string"
+                  },
+                  "source_in": {
+                    "type": "number"
+                  },
+                  "source_out": {
+                    "type": "number"
+                  },
+                  "timeline_in": {
+                    "type": "number"
+                  },
+                  "timeline_out": {
+                    "type": "number"
+                  },
+                  "timeline_in_frame": {
+                    "type": "integer"
+                  },
+                  "timeline_out_frame": {
+                    "type": "integer"
+                  },
+                  "link_group_id": {
+                    "type": ["string", "null"]
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "V2": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "source_file",
+                  "source_in",
+                  "source_out",
+                  "timeline_in",
+                  "timeline_out",
+                  "label"
+                ],
+                "properties": {
+                  "source_file": {
+                    "type": "string"
+                  },
+                  "source_in": {
+                    "type": "number"
+                  },
+                  "source_out": {
+                    "type": "number"
+                  },
+                  "timeline_in": {
+                    "type": "number"
+                  },
+                  "timeline_out": {
+                    "type": "number"
+                  },
+                  "timeline_in_frame": {
+                    "type": "integer"
+                  },
+                  "timeline_out_frame": {
+                    "type": "integer"
+                  },
+                  "video_only": {
+                    "type": "boolean"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "A2": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "source_file",
+                  "source_in",
+                  "source_out",
+                  "timeline_in",
+                  "timeline_out",
+                  "label"
+                ],
+                "properties": {
+                  "source_file": {
+                    "type": "string"
+                  },
+                  "source_in": {
+                    "type": "number"
+                  },
+                  "source_out": {
+                    "type": "number"
+                  },
+                  "timeline_in": {
+                    "type": "number"
+                  },
+                  "timeline_out": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "A3": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "source_file",
+                  "source_in",
+                  "timeline_in_frame",
+                  "timeline_out_frame",
+                  "label"
+                ],
+                "properties": {
+                  "source_file": {
+                    "type": "string"
+                  },
+                  "source_in": {
+                    "type": "number"
+                  },
+                  "timeline_in_frame": {
+                    "type": "integer"
+                  },
+                  "timeline_out_frame": {
+                    "type": "integer"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "volume_db": {
+                    "type": "number"
+                  },
+                  "sfx_type": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "subtitles": {
+      "title": "Subtitles",
+      "description": "List of subtitles for the project",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "transitions": {
+      "title": "Transitions",
+      "description": "List of video/audio transitions",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "vfx": {
+      "title": "VFX",
+      "description": "Visual effects settings",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "sfx": {
+      "title": "SFX",
+      "description": "Sound effects settings",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "fusion_effects": {
+      "title": "Fusion Effects",
+      "description": "Fusion composition settings per clip and transitions",
+      "type": "object",
+      "properties": {
+        "per_clip": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "audio": {
+      "title": "Audio Settings",
+      "description": "General audio settings like fairlight preset",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "color_grade": {
+      "title": "Color Grade",
+      "description": "Color grading settings",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "audio_mix": {
+      "title": "Audio Mix",
+      "description": "Audio mixing configurations",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "music_ducking": {
+      "title": "Music Ducking",
+      "description": "Settings for ducking music against speech",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "_spine_blocks": {
+      "title": "Spine Blocks",
+      "description": "Internal blocks defining the structure of the timeline spine",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "subtitle_overlay": {
+      "title": "Subtitle Overlay",
+      "description": "Overlay properties for rendered subtitles",
+      "type": "object",
+      "properties": {
+        "overlay_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

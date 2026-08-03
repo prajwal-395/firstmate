@@ -11,6 +11,8 @@ Input:  { "shot_list": {...} }
 Output: { "color_grade_spec": { grade_pipeline, per_clip_adjustments } }
 """
 import json
+import os
+import subprocess
 import sys
 
 
@@ -50,10 +52,76 @@ GRADE_PIPELINE = {
     },
 }
 
+# Reference brightness target (0-255 scale). Typical well-exposed
+# iPhone footage sits around 115-130. We aim for the middle.
+_REFERENCE_BRIGHTNESS = 122.0
 
-def define_color_grade(shot_list: dict) -> dict:
+# Maximum exposure offset we'll suggest (in stops-like units).
+# Keeps adjustments conservative to avoid blowing out highlights.
+_MAX_EXPOSURE_OFFSET = 0.5
+
+
+def _estimate_exposure(filepath: str) -> float:
+    """Estimate per-clip exposure offset by measuring average brightness.
+
+    Uses ffprobe's signalstats filter to get the YAVG (luma average) of a
+    sample of frames (every 5th frame, capped at first 10 seconds), then
+    compares against the reference brightness to produce an offset.
+
+    Returns:
+        Exposure offset in approximate stops. Positive = brighten,
+        negative = darken. Returns 0.0 if analysis fails.
     """
-    Define the color grading specification based on style spec.
+    if not filepath or not os.path.exists(filepath):
+        return 0.0
+
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'quiet',
+             '-f', 'lavfi',
+             '-i', f'movie={filepath},select=not(mod(n\\,5)),signalstats',
+             '-show_entries', 'frame_tags=lavfi.signalstats.YAVG',
+             '-of', 'csv=p=0',
+             '-read_intervals', '%+10',  # first 10 seconds only
+             ],
+            capture_output=True, text=True, timeout=30,
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return 0.0
+
+        # Parse YAVG values and compute mean
+        values = []
+        for line in result.stdout.strip().split('\n'):
+            line = line.strip()
+            if line:
+                try:
+                    values.append(float(line))
+                except ValueError:
+                    continue
+
+        if not values:
+            return 0.0
+
+        avg_brightness = sum(values) / len(values)
+
+        # Compute offset: positive means clip is dark (needs brightening)
+        # Scale factor: 25 units of brightness ~ 0.5 stops
+        raw_offset = (_REFERENCE_BRIGHTNESS - avg_brightness) / 50.0
+        # Clamp to safe range
+        return max(-_MAX_EXPOSURE_OFFSET,
+                   min(_MAX_EXPOSURE_OFFSET, round(raw_offset, 3)))
+
+    except (subprocess.TimeoutExpired, FileNotFoundError,
+            ValueError, OSError):
+        return 0.0
+
+
+def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
+    """Define the color grading specification based on style spec.
+
+    Runs per-clip exposure analysis via ffprobe to estimate brightness
+    offsets instead of defaulting everything to 0.0.
     """
     entries = shot_list.get("entries", [])
 
@@ -69,14 +137,27 @@ def define_color_grade(shot_list: dict) -> dict:
             continue
         seen_clips.add(entry["clip_id"])
 
-        # Default: no adjustment needed
-        # In a real implementation, exposure analysis would happen here
+        # Estimate exposure from the source file
+        source_file = entry.get("source_file", "")
+        if not source_file and project_folder:
+            # Try to resolve from clip_id if source_file not provided
+            source_file = ""  # Caller should provide source_file in entries
+
+        exposure_offset = _estimate_exposure(source_file)
+
+        if exposure_offset == 0.0:
+            notes = "Exposure within normal range, no adjustment needed"
+        elif exposure_offset > 0:
+            notes = f"Clip underexposed, brightening by {exposure_offset:.3f}"
+        else:
+            notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
+
         per_clip_adjustments.append({
             "entry_id": entry["entry_id"],
             "clip_id": entry["clip_id"],
-            "exposure_offset": 0.0,
+            "exposure_offset": exposure_offset,
             "white_balance_override": None,
-            "notes": "Default grade — adjust if clip is over/underexposed",
+            "notes": notes,
         })
 
     return {
@@ -86,8 +167,8 @@ def define_color_grade(shot_list: dict) -> dict:
             "output_color_space": "Rec.709, Gamma 2.4",
             "consistency_notes": (
                 "Grade pipeline is uniform across all clips. "
-                "Per-clip exposure adjustments may be needed for clips "
-                "shot in different lighting conditions."
+                "Per-clip exposure offsets are estimated from average "
+                "brightness analysis via ffprobe signalstats."
             ),
         },
     }
@@ -95,9 +176,9 @@ def define_color_grade(shot_list: dict) -> dict:
 
 def main():
     input_data = json.loads(sys.stdin.read())
+    project_folder = input_data.get("project_folder", "")
 
     # Build a shot_list-compatible structure from upstream data
-    # The grade pipeline is uniform, so we just need clip IDs for per-clip adjustments
     entries = []
 
     # A-roll assignments
@@ -107,6 +188,7 @@ def main():
                 "track": "V1",
                 "clip_id": seg.get("clip_id", assignment.get("source_clip_id", "")),
                 "entry_id": seg.get("segment_id", ""),
+                "source_file": seg.get("source_file", assignment.get("source_file", "")),
             })
 
     # B-roll assignments
@@ -115,10 +197,11 @@ def main():
             "track": "V2",
             "clip_id": broll.get("clip_id", broll.get("source_clip_id", "")),
             "entry_id": broll.get("assignment_id", ""),
+            "source_file": broll.get("source_file", ""),
         })
 
     shot_list = {"entries": entries}
-    result = define_color_grade(shot_list)
+    result = define_color_grade(shot_list, project_folder)
     json.dump(result, sys.stdout, indent=2)
 
 

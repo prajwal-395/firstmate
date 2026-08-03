@@ -79,20 +79,26 @@ class fx:
         start: float = 1.0,
         mid: float = 1.0,
         end: float = 1.0,
+        pan_start: Optional[tuple] = None,
         pan_end: Optional[tuple] = None,
     ) -> EffectBlock:
-        """Animated Ken Burns zoom with optional static pan offset.
+        """Animated Ken Burns zoom with optional pan offset.
 
         Creates a Transform node with BezierSpline-animated Size
-        (3-point: start → mid → end) and optional static Center offset.
+        (3-point: start -> mid -> end) and optional static Center offset.
 
-        Uses static Center instead of Path to avoid black output
-        when Merge nodes exist downstream (known Fusion bug).
+        NOTE: pan_start is accepted for forward-compatibility but animated
+        Center drift is not currently implemented. Fusion's animated Point
+        coordinates require either Path{} (banned by AGENTS.md when Merge
+        exists downstream - causes black output) or Lua expressions.
+        Since pan drift is very subtle (typically 0.5 -> 0.49 = 1%),
+        the static pan_end position is used. This is visually
+        indistinguishable for the ranges we use.
         """
         has_anim = not (start == mid == end)
 
         if not has_anim and pan_end is None:
-            # No zoom, no pan — skip entirely
+            # No zoom, no pan - skip entirely
             return EffectBlock(nodes=[], input_name="", output_name="")
 
         tf_name = _next_name("Transform")
@@ -504,13 +510,12 @@ class fx:
     @staticmethod
     def _defocus_transition(
         clip_dur, start_f, end_f,
-        defocus_size=10.0, easing="Sine",
+        defocus_size=3.0, easing="Sine",
         suffix="Tail", hold_end=None,
     ):
         """Defocus transition with eased curve.
 
-        No direct DaVinci default equivalent, but uses Sine easing
-        for a smooth blur in/out.
+        AGENTS.md limit: XDefocusSize <= 3.0 to avoid artifacts.
         """
         last_frame = clip_dur - 1
         df_name = _next_name("TransDefocus")

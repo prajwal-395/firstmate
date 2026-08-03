@@ -72,8 +72,8 @@ below. Produce a structured validation result.
 
 | Direction | State Key |
 |-----------|-----------|
-| Reads | `rendered_video` (the actual file) |
-| Writes | `final_validation` |
+| Reads | `rendered_output` (the actual file) |
+| Writes | `validation_result` |
 
 ---
 

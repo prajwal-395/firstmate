@@ -100,13 +100,22 @@ def convert_spine_to_frames(spine: dict, fps: float = None) -> dict:
         return spine
 
     # Cumulative frame cursor ensures contiguous blocks.
-    # This is critical: we do NOT independently convert each block's
-    # timeline_start/end because independent rounding of start + duration
-    # can create 1-frame gaps. Instead, we accumulate.
+    # This is critical: for runs of adjacent blocks, we accumulate to avoid
+    # 1-frame gaps from independent rounding. But if a block's timeline_start
+    # deviates significantly from the cursor (e.g. lead-in silence, explicit
+    # gap), we reset to the authoritative timeline_start value.
     frame_cursor = 0
     for block in structure:
         dur_seconds = block.get("duration_seconds", 0)
         dur_frames = seconds_to_frame(dur_seconds, fps)
+
+        # Check if the block's declared timeline_start diverges from cursor.
+        # This catches non-zero start offsets and explicit gaps.
+        declared_start = block.get("timeline_start")
+        if declared_start is not None:
+            declared_start_frame = seconds_to_frame(declared_start, fps)
+            if abs(declared_start_frame - frame_cursor) > 0:
+                frame_cursor = declared_start_frame
 
         block["timeline_start_frame"] = frame_cursor
         block["timeline_end_frame"] = frame_cursor + dur_frames

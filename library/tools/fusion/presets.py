@@ -26,12 +26,12 @@ SEGMENT_PRESETS_FLAT = {
         "glow_gain": 0.08,
     },
     "TURNING_POINT": {
-        "zoom_start": 1.0, "zoom_mid": 1.08, "zoom_end": 1.06,
+        "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.04,
         "grade_gain": 1.05, "grade_contrast": 0.06, "grade_saturation": 1.15,
         "glow_gain": 0.12, "glow_threshold": 0.72, "glow_size": 4.0,
     },
     "EMOTIONAL_PEAK": {
-        "zoom_start": 1.0, "zoom_mid": 1.06, "zoom_end": 1.04,
+        "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
         "pan_start": (0.5, 0.5), "pan_end": (0.5, 0.48),
         "grade_gain": 1.06, "grade_contrast": 0.05, "grade_saturation": 1.18,
         "glow_gain": 0.10, "glow_threshold": 0.70, "glow_size": 4.5,
@@ -80,13 +80,13 @@ SEGMENT_RECIPES = {
         "vignette": {},
     },
     "TURNING_POINT": {
-        "zoom": {"start": 1.0, "mid": 1.08, "end": 1.06},
+        "zoom": {"start": 1.0, "mid": 1.04, "end": 1.04},
         "grade": {"gain": 1.05, "contrast": 0.06, "saturation": 1.15},
         "glow": {"gain": 0.12, "threshold": 0.72, "size": 4.0},
         "vignette": {},
     },
     "EMOTIONAL_PEAK": {
-        "zoom": {"start": 1.0, "mid": 1.06, "end": 1.04, "pan_end": (0.5, 0.48)},
+        "zoom": {"start": 1.0, "mid": 1.04, "end": 1.03, "pan_end": (0.5, 0.48)},
         "grade": {"gain": 1.06, "contrast": 0.05, "saturation": 1.18},
         "glow": {"gain": 0.10, "threshold": 0.70, "size": 4.5},
         "grain": {"power": 0.15},
@@ -109,6 +109,7 @@ SEGMENT_RECIPES = {
         "grade": {"gain": 1.05, "contrast": 0.04, "saturation": 1.08},
         "glow": {"gain": 0.06, "threshold": 0.78, "size": 3.0},
         "vignette": {},
+        "fade": {"fade_out": 15},
     },
 }
 

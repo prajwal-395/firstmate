@@ -184,6 +184,14 @@ def build_timeline(
     transitions = manifest.get('transitions', [])
     vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
 
+    # If subtitle_overlay_path was not explicitly passed, try reading it
+    # from the manifest (populated by step 5.04 from step 4.05 output).
+    if not subtitle_overlay_path:
+        overlay_info = manifest.get('subtitle_overlay', {})
+        overlay_candidate = overlay_info.get('overlay_path', '')
+        if overlay_candidate and os.path.exists(overlay_candidate):
+            subtitle_overlay_path = overlay_candidate
+
     results = {
         "success": False,
         "timeline_name": timeline_name,
@@ -476,8 +484,10 @@ def build_timeline(
                     # This is a best-effort attempt
                     try:
                         placed.SetProperty("Volume", linear_vol)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        results["warnings"].append(
+                            f"Volume set failed for {basename}: {e}"
+                        )
             else:
                 print(f"  ✗ {basename}: failed")
 
@@ -522,8 +532,10 @@ def build_timeline(
                     linear_vol = max(0.0, min(linear_vol, 4.0))
                     try:
                         placed.SetProperty("Volume", linear_vol)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        results["warnings"].append(
+                            f"SFX volume set failed on A{track_idx}: {e}"
+                        )
             else:
                 print(f"  ✗ {basename} on A{track_idx} at {tl_in_f}: failed")
 

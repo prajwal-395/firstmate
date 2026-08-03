@@ -35,6 +35,7 @@ def generate_transition_comp(
     duration_frames: int,
     transition_type: str = "fade_to_black",
     *,
+    transition_dur: int = 7,  # Transition effect duration in frames
     position: str = "tail",  # "tail" = outgoing clip, "head" = incoming clip
     width: int = 1080,
     height: int = 1920,
@@ -45,6 +46,8 @@ def generate_transition_comp(
         duration_frames: SOURCE clip total frame count (NOT timeline duration).
                          Fusion comps operate on the full source media range.
         transition_type: One of fade_to_black, zoom_blur, defocus, flash
+        transition_dur: Duration of the transition effect in frames (default 7).
+                        This is how many frames at the tail/head are affected.
         position: "tail" for outgoing clip end, "head" for incoming clip start
         width/height: Resolution
 
@@ -55,12 +58,12 @@ def generate_transition_comp(
 
     if position == "tail":
         block = fx.transition_tail(
-            duration_frames, transition_type, duration_frames,
+            duration_frames, transition_type, transition_dur,
             res=(width, height),
         )
     else:
         block = fx.transition_head(
-            duration_frames, transition_type, duration_frames,
+            duration_frames, transition_type, transition_dur,
             res=(width, height),
         )
 

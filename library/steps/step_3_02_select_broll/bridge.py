@@ -28,6 +28,11 @@ import json
 import os
 import sys
 
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
 
 def find_best_segment(
     preferred_moment: str,
@@ -328,6 +333,16 @@ def resolve_broll(
 
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents", "temporal_event_indices", "timed_spine"], "Input data")
+    if not isinstance(data["broll_creative"], list):
+        raise ValueError("broll_creative must be a list")
+    for broll in data["broll_creative"]:
+        if not isinstance(broll, dict):
+            raise ValueError("Items in broll_creative must be dictionaries")
+        _require_keys(broll, ["clip_id", "spine_block_position"], "broll_creative item")
 
     broll_creative = data.get("broll_creative", [])
     clip_catalog = data.get("clip_catalog", [])

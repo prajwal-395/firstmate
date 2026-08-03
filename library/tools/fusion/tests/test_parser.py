@@ -42,14 +42,14 @@ class TestParseHook1(unittest.TestCase):
         self.comp = parse_comp_file(self.comp_path)
 
     def test_duration(self):
-        """RenderRange { 0, 75 } → duration = 76."""
-        self.assertEqual(self.comp.duration, 76)
+        """RenderRange { 0, 71 } -> duration = 72."""
+        self.assertEqual(self.comp.duration, 72)
 
     def test_node_count(self):
-        """hook_1 has 8 nodes: MediaIn, Transform, BezierSpline,
+        """hook_1 has 12 nodes: MediaIn, Transform, BezierSpline(Size),
         BrightnessContrast, SoftGlow, Background, EllipseMask,
-        Merge, MediaOut."""
-        self.assertEqual(len(self.comp.nodes), 9)
+        Merge, BgTrans1, MergeTrans1, BezierSpline(Blend), MediaOut."""
+        self.assertEqual(len(self.comp.nodes), 12)
 
     def test_media_in(self):
         n = self.comp.find_node("MediaIn1")
@@ -69,8 +69,8 @@ class TestParseHook1(unittest.TestCase):
         splines = [
             n for n in self.comp.nodes if isinstance(n, BezierSpline)
         ]
-        self.assertEqual(len(splines), 1)
-        spline = splines[0]
+        self.assertEqual(len(splines), 2)
+        spline = next(s for s in splines if s.name == "Transform1Size")
         self.assertEqual(spline.name, "Transform1Size")
         self.assertEqual(len(spline.keyframes), 3)
 
@@ -79,16 +79,16 @@ class TestParseHook1(unittest.TestCase):
         self.assertEqual(kf0.frame, 0)
         self.assertAlmostEqual(kf0.value, 1.0)
         self.assertIsNotNone(kf0.rh)
-        self.assertEqual(kf0.rh[0], 25)
+        self.assertEqual(kf0.rh[0], 24)
 
         kf1 = spline.keyframes[1]
-        self.assertEqual(kf1.frame, 38)
+        self.assertEqual(kf1.frame, 36)
         self.assertAlmostEqual(kf1.value, 1.04)
         self.assertIsNotNone(kf1.lh)
         self.assertIsNotNone(kf1.rh)
 
         kf2 = spline.keyframes[2]
-        self.assertEqual(kf2.frame, 75)
+        self.assertEqual(kf2.frame, 71)
         self.assertAlmostEqual(kf2.value, 1.03)
         self.assertIsNotNone(kf2.lh)
 
@@ -116,7 +116,7 @@ class TestParseHook1(unittest.TestCase):
         n = self.comp.find_node("MediaOut1")
         self.assertIsNotNone(n)
         inp = n.inputs.get("Input", {})
-        self.assertEqual(inp.get("SourceOp"), "Merge1")
+        self.assertEqual(inp.get("SourceOp"), "MergeTrans1")
 
     def test_positions_parsed(self):
         tf = self.comp.find_node("Transform1")

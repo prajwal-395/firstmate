@@ -206,6 +206,7 @@ class CompEngine:
                 start=zoom_start,
                 mid=zoom_mid,
                 end=zoom_end,
+                pan_start=pan_start if has_pan else None,
                 pan_end=pan_end if has_pan else None,
             ))
 

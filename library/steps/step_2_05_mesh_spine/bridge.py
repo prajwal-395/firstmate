@@ -27,6 +27,11 @@ import sys
 import uuid
 import os
 
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame
@@ -160,6 +165,15 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
 
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["spine", "speech_sequence", "music_selection"], "Input data")
+    if not isinstance(data["spine"], dict):
+        raise ValueError("spine must be a dictionary")
+    _require_keys(data["spine"], ["structure"], "spine")
+    if not isinstance(data["spine"]["structure"], list):
+        raise ValueError("spine.structure must be a list")
 
     spine = data.get("spine")
     if not spine:

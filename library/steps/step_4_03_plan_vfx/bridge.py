@@ -15,22 +15,30 @@ import json
 import sys
 
 
-# Style spec ranges for VFX parameters
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
+
+# Style spec ranges for VFX parameters.
+# AGENTS.md: "NEVER set transition zoom > 1.04" - all zoom values
+# are clamped to this limit.
 INTENSITY_MAP = {
     "slow_zoom_in": {
         "subtle": {"zoom_start": 1.0, "zoom_end": 1.03},
-        "moderate": {"zoom_start": 1.0, "zoom_end": 1.05},
-        "strong": {"zoom_start": 1.0, "zoom_end": 1.08},
+        "moderate": {"zoom_start": 1.0, "zoom_end": 1.04},
+        "strong": {"zoom_start": 1.0, "zoom_end": 1.04},
     },
     "slow_zoom_out": {
         "subtle": {"zoom_start": 1.03, "zoom_end": 1.0},
-        "moderate": {"zoom_start": 1.05, "zoom_end": 1.0},
-        "strong": {"zoom_start": 1.08, "zoom_end": 1.0},
+        "moderate": {"zoom_start": 1.04, "zoom_end": 1.0},
+        "strong": {"zoom_start": 1.04, "zoom_end": 1.0},
     },
     "zoom_emphasis": {
         "subtle": {"zoom_percent": 3.0},
-        "moderate": {"zoom_percent": 5.0},
-        "strong": {"zoom_percent": 8.0},
+        "moderate": {"zoom_percent": 4.0},
+        "strong": {"zoom_percent": 4.0},
     },
     "screen_shake": {
         "subtle": {"intensity_px": 2, "duration_frames": 3},
@@ -43,6 +51,10 @@ INTENSITY_MAP = {
         "strong": {"scale_factor": 1.4},
     },
 }
+
+# Minimum A-roll clip duration (seconds) to receive default Ken Burns zoom.
+# Clips shorter than this are too brief for a slow zoom to be perceptible.
+KEN_BURNS_MIN_DURATION_S = 3.0
 
 
 def resolve_vfx(
@@ -84,11 +96,88 @@ def resolve_vfx(
     return resolved
 
 
+def inject_default_ken_burns(
+    creative_plan: list,
+    timed_spine: dict,
+) -> list:
+    """Add default subtle Ken Burns zoom to A-roll clips that have no VFX.
+
+    The style spec mandates that nearly every A-roll talking head clip >3s
+    should have subtle Ken Burns motion. This function provides a
+    deterministic guarantee: if the LLM didn't assign VFX to a qualifying
+    clip, we inject the default.
+
+    Args:
+        creative_plan: List of VFX entries from the LLM (may be empty).
+        timed_spine: The timed audio spine with block positions.
+
+    Returns:
+        Updated creative_plan with defaults injected for uncovered blocks.
+    """
+    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+
+    # Find which spine positions already have VFX assigned
+    covered_positions = set()
+    for vfx in creative_plan:
+        pos = vfx.get("target_block_position")
+        if pos is not None:
+            covered_positions.add(pos)
+
+    # Inject defaults for uncovered A-roll blocks > KEN_BURNS_MIN_DURATION_S
+    injected_count = 0
+    for block in spine_blocks:
+        if block.get("block_type") not in ("speech", "hook"):
+            continue
+
+        pos = block.get("position")
+        if pos in covered_positions:
+            continue
+
+        duration = block.get("timeline_end", 0) - block.get("timeline_start", 0)
+        if duration < KEN_BURNS_MIN_DURATION_S:
+            continue
+
+        # Alternate between zoom_in and zoom_out for visual variety
+        effect = "slow_zoom_in" if (pos % 2 == 0) else "slow_zoom_out"
+
+        creative_plan.append({
+            "target_block_position": pos,
+            "effect_type": effect,
+            "intensity": "subtle",
+            "rationale": "Default Ken Burns - style spec requires subtle"
+                         " motion on all A-roll clips >3s.",
+        })
+        injected_count += 1
+
+    if injected_count > 0:
+        import sys
+        print(
+            f"  Ken Burns: injected {injected_count} default zoom effects"
+            f" on uncovered A-roll clips",
+            file=sys.stderr,
+        )
+
+    return creative_plan
+
+
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["vfx_creative", "timed_spine"], "Input data")
+    if not isinstance(data.get("vfx_creative", []), list):
+        raise ValueError("vfx_creative must be a list")
+    for vfx in data.get("vfx_creative", []):
+        if not isinstance(vfx, dict):
+            raise ValueError("Items in vfx_creative must be dictionaries")
+
     creative = data.get("vfx_creative", [])
     spine = data.get("timed_spine", {})
     fps = data.get("frame_rate", 30.0)
+
+    # Inject default Ken Burns on uncovered A-roll clips before resolving
+    creative = inject_default_ken_burns(creative, spine)
 
     result = resolve_vfx(creative, spine, fps)
     json.dump({"vfx_spec": result}, sys.stdout, indent=2)

@@ -29,6 +29,12 @@ import json
 import sys
 
 
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
+
 # Volume level → dB mapping
 VOLUME_MAP = {
     "subtle": -18,
@@ -381,6 +387,16 @@ def _describe_placement(sfx_type: str) -> str:
 
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["sfx_creative", "timed_spine", "temporal_event_indices", "music_analysis"], "Input data")
+    if not isinstance(data.get("sfx_creative", []), list):
+        raise ValueError("sfx_creative must be a list")
+    for sfx in data.get("sfx_creative", []):
+        if not isinstance(sfx, dict):
+            raise ValueError("Items in sfx_creative must be dictionaries")
+
     creative = data.get("sfx_creative", [])
     spine = data.get("timed_spine", {})
     temporal = data.get("temporal_event_indices", [])

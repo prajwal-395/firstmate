@@ -20,11 +20,16 @@ import os
 import sys
 import math
 
+def _require_keys(obj, keys, context):
+    missing = [k for k in keys if k not in obj]
+    if missing:
+        raise ValueError(f"{context}: missing required keys: {missing}")
+
 
 def snap_to_beat(
     cut_time: float,
     beat_grid: list,
-    tolerance: float = 0.15,
+    tolerance: float = 0.10,
 ) -> tuple:
     """
     Snap a cut point to the nearest musical beat if within tolerance.
@@ -240,6 +245,16 @@ def resolve_transitions(
 
 def main():
     data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    _require_keys(data, ["transition_creative", "timed_spine", "music_selection", "temporal_event_indices"], "Input data")
+    if not isinstance(data.get("transition_creative", []), list):
+        raise ValueError("transition_creative must be a list")
+    for trans in data.get("transition_creative", []):
+        if not isinstance(trans, dict):
+            raise ValueError("Items in transition_creative must be dictionaries")
+
     creative = data.get("transition_creative", [])
     spine = data.get("timed_spine", {})
     music = data.get("music_selection", {})

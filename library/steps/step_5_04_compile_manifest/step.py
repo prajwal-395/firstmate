@@ -21,6 +21,38 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 
 
+def _resolve_source(block_or_clip: dict, clip_lookup: dict) -> str:
+    """Resolve source_file from source_file field or clip_id lookup.
+
+    Shared by both compile_manifest() and compile_manifest_from_inputs()
+    to avoid logic duplication.
+
+    Resolution order:
+      1. Direct 'source_file' field (with filename-only catalog fallback)
+      2. 'source_clip_id' or 'clip_id' from clip_lookup
+      3. Nested 'content.clip_id' from clip_lookup
+    """
+    if "source_file" in block_or_clip:
+        sf = block_or_clip["source_file"]
+        # If it's just a filename (no path separator), try catalog lookup
+        if "/" not in sf:
+            for path in clip_lookup.values():
+                if path.endswith(sf):
+                    return path
+        return sf
+    # Try source_clip_id or clip_id
+    for key in ("source_clip_id", "clip_id"):
+        cid = block_or_clip.get(key)
+        if cid and cid in clip_lookup:
+            return clip_lookup[cid]
+    # Try content.clip_id
+    content = block_or_clip.get("content") or {}
+    cid = content.get("clip_id")
+    if cid and cid in clip_lookup:
+        return clip_lookup[cid]
+    return ""
+
+
 def load(out_dir, filename):
     """Load a JSON file from the pipeline output directory.
 
@@ -64,6 +96,9 @@ def compile_manifest(out_dir: str) -> dict:
     color_data = load(out_dir, "step_5_01.json")
     audio_mix_data = load(out_dir, "step_5_02.json")
 
+    # Subtitle overlay from step 4.05 (Remotion render)
+    subtitle_overlay_data = load(out_dir, "step_4_05.json")
+
     spine = spine_data.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0
@@ -76,26 +111,7 @@ def compile_manifest(out_dir: str) -> dict:
         clip_lookup[clip["clip_id"]] = clip["path"]
 
     def resolve_source(block_or_clip):
-        """Resolve source_file from source_file field or clip_id lookup."""
-        if "source_file" in block_or_clip:
-            sf = block_or_clip["source_file"]
-            # If it's just a filename, try catalog lookup
-            if "/" not in sf:
-                for path in clip_lookup.values():
-                    if path.endswith(sf):
-                        return path
-            return sf
-        # Try source_clip_id or clip_id
-        for key in ("source_clip_id", "clip_id"):
-            cid = block_or_clip.get(key)
-            if cid and cid in clip_lookup:
-                return clip_lookup[cid]
-        # Try content.clip_id
-        content = block_or_clip.get("content") or {}
-        cid = content.get("clip_id")
-        if cid and cid in clip_lookup:
-            return clip_lookup[cid]
-        return ""
+        return _resolve_source(block_or_clip, clip_lookup)
 
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
@@ -485,6 +501,8 @@ def compile_manifest(out_dir: str) -> dict:
             }
             for b in structure
         ],
+        "subtitle_overlay": subtitle_overlay_data.get(
+            "subtitle_overlay", {}),
     }
 
     # Print summary
@@ -512,18 +530,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     Accepts the same data that compile_manifest() loads from files,
     but passed directly as a dict from the DAG orchestrator.
-    """
-    spine_data = {"audio_spine": inputs.get("audio_spine", {})}
-    broll_data = {"b_roll_assignments": inputs.get("b_roll_assignments", [])}
-    speech_data = {"speech_sequence": inputs.get("speech_sequence", {})}
-    transition_data = {"transition_spec": inputs.get("transition_spec", {})}
-    sfx_data = {"sfx_spec": inputs.get("sfx_spec", {})}
-    music_data = inputs.get("music_selection", {})
-    subtitle_data = {"subtitle_plan": inputs.get("subtitle_plan", {})}
-    vfx_data = {"enhancement_spec": inputs.get("enhancement_spec", {})}
-    color_data = {"color_grade_spec": inputs.get("color_grade_spec", {})}
-    audio_mix_data = {"audio_mix_spec": inputs.get("audio_mix_spec", {})}
 
+    IMPORTANT: Produces the same manifest shape as compile_manifest()
+    so resolve_build_timeline.py can consume it identically.
+    """
     spine = inputs.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0
@@ -538,36 +548,133 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             clip_lookup[cid] = path
 
     def resolve_source(block_or_clip):
-        if "source_file" in block_or_clip:
-            return block_or_clip["source_file"]
-        for key in ("source_clip_id", "clip_id"):
-            cid = block_or_clip.get(key)
-            if cid and cid in clip_lookup:
-                return clip_lookup[cid]
-        content = block_or_clip.get("content") or {}
-        cid = content.get("clip_id")
-        if cid and cid in clip_lookup:
-            return clip_lookup[cid]
-        return ""
+        return _resolve_source(block_or_clip, clip_lookup)
 
-    # For orchestrator mode, build a simplified manifest from the available data
-    # The full compile_manifest() function expects filesystem paths; this version
-    # works with the JSON objects directly
+    # V1: A-Roll clips from spine speech blocks
+    v1_clips = []
+    for block in structure:
+        if block.get("block_type") in ("speech", "hook"):
+            content = block.get("content") or {}
+            lgid = block.get("link_group_id") or content.get("link_group_id")
+            clip = {
+                "source_file": resolve_source(block),
+                "source_in": block.get("source_start", 0.0),
+                "source_out": block.get("source_end", 0.0),
+                "timeline_in": block.get("timeline_start", 0.0),
+                "timeline_out": block.get("timeline_end", 0.0),
+                "timeline_in_frame": block.get("timeline_start_frame"),
+                "timeline_out_frame": block.get("timeline_end_frame"),
+                "link_group_id": lgid,
+                "label": f"{block['block_type']}_{block['position']}",
+            }
+            if clip["timeline_in_frame"] is None:
+                convert_clip_to_frames(clip, fps)
+            v1_clips.append(clip)
+
+    # V2: B-Roll clips
+    v2_clips = []
+    for broll in inputs.get("b_roll_assignments", []):
+        assigned = broll.get("assigned_clip", broll)
+        v2_clip = {
+            "source_file": resolve_source(assigned),
+            "source_in": assigned.get("video_in", broll.get("video_in", 0)),
+            "source_out": assigned.get("video_out", broll.get("video_out", 0)),
+            "timeline_in": broll.get("timeline_start", 0.0),
+            "timeline_out": broll.get("timeline_end", 0.0),
+            "video_only": True,
+            "label": f"broll_{broll.get('spine_block_position', 0)}",
+        }
+        convert_clip_to_frames(v2_clip, fps)
+        v2_clips.append(v2_clip)
+
+    # A2: Music
+    ms = inputs.get("music_selection", {})
+    music_path = ms.get("audio_path", "")
+    if not music_path and ms.get("tracks"):
+        music_path = ms["tracks"][0].get("audio_path", "")
+    music_clips = []
+    if music_path:
+        music_clips.append({
+            "source_file": music_path,
+            "source_in": 0.0,
+            "source_out": total_duration,
+            "timeline_in": 0.0,
+            "timeline_out": total_duration,
+            "label": "background_music",
+        })
+
+    # Subtitles
+    subtitles = inputs.get("subtitle_plan", {}).get("subtitle_entries",
+                    inputs.get("subtitle_plan", {}).get("subtitles", []))
+
+    # Transitions
+    transition_spec = inputs.get("transition_spec", {})
+    transitions = transition_spec.get("transitions",
+                    transition_spec.get("transition_spec", []))
+
+    # VFX
+    enhancement = inputs.get("enhancement_spec", {})
+    vfx = enhancement.get("vfx_plan",
+            enhancement.get("vfx_spec", []))
+
+    # Audio config
+    audio_mix_data = inputs.get("audio_mix_spec", {})
+    audio_config = {
+        "fairlight_preset": audio_mix_data.get("fairlight_preset", ""),
+    }
+
+    # Build manifest with the SAME shape as compile_manifest()
     manifest = {
-        "version": "1.0",
-        "total_duration_seconds": total_duration,
-        "frame_rate": fps,
-        "tracks": {
-            "V1": {"clips": []},
-            "V2": {"clips": []},
-            "A1": {"clips": []},
-            "A2": {"clips": []},
+        "project": {
+            "name": "Pipeline_Edit",
+            "resolution": [1080, 1920],
+            "frame_rate": fps,
+            "duration_seconds": round(total_duration, 2),
         },
-        "subtitles": inputs.get("subtitle_plan", {}).get("subtitles", []),
-        "transitions": inputs.get("transition_spec", {}).get("transitions", []),
+        "tracks": {
+            "V1": {
+                "label": "A-Roll",
+                "clips": sorted(v1_clips, key=lambda c: c["timeline_in"]),
+            },
+            "V2": {
+                "label": "B-Roll",
+                "clips": sorted(v2_clips, key=lambda c: c["timeline_in"]),
+            },
+            "A2": {
+                "label": "Music",
+                "clips": music_clips,
+            },
+            "A3": {
+                "label": "SFX",
+                "clips": [],  # SFX resolution requires filesystem access
+            },
+        },
+        "subtitles": subtitles,
+        "transitions": transitions,
+        "vfx": vfx,
         "sfx": inputs.get("sfx_spec", {}).get("sfx_placements", []),
+        "fusion_effects": {
+            "per_clip": {},
+            "transitions": [],
+        },
+        "audio": audio_config,
         "color_grade": inputs.get("color_grade_spec", {}),
-        "audio_mix": inputs.get("audio_mix_spec", {}),
+        "audio_mix": audio_mix_data,
+        "music_ducking": {
+            "speech_volume_db": -18,
+            "gap_volume_db": -10,
+        },
+        "_spine_blocks": [
+            {
+                "timeline_start": b.get("timeline_start", 0),
+                "timeline_end": b.get("timeline_end", 0),
+                "block_type": b.get("block_type", ""),
+                "music_behavior": "full" if b.get("block_type") in
+                    ("transition_slot", "outro") else "ducked",
+            }
+            for b in structure
+        ],
+        "subtitle_overlay": inputs.get("subtitle_overlay", {}),
     }
 
     return {"assembly_manifest": manifest}
