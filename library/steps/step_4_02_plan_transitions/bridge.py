@@ -150,7 +150,7 @@ def resolve_transitions(
     3. Beat-snap (prefer word-end + beat coincidence)
     4. Resolve duration_feel to frame count
     """
-    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     block_lookup = {b["position"]: b for b in spine_blocks}
 
     # Build temporal index lookup
@@ -165,9 +165,9 @@ def resolve_transitions(
     beat_positions = []
     if bpm > 0:
         beat_interval = 60.0 / bpm
-        total_dur = timed_spine.get("audio_spine", {}).get(
+        total_dur = timed_spine.get("total_estimated_duration_seconds", timed_spine.get("audio_spine", {}).get(
             "total_estimated_duration_seconds", 60
-        )
+        ))
         beat_positions = [
             round(i * beat_interval, 4)
             for i in range(int(total_dur / beat_interval) + 1)
@@ -248,7 +248,9 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["transition_creative", "timed_spine", "music_selection", "temporal_event_indices"], "Input data")
+    _require_keys(data, ["transition_creative", "music_selection", "temporal_event_indices"], "Input data")
+    if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
+        raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("transition_creative", []), list):
         raise ValueError("transition_creative must be a list")
     for trans in data.get("transition_creative", []):

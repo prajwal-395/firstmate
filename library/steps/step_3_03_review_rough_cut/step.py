@@ -33,38 +33,31 @@ def check_duration_invariant(a_roll_assignments: list) -> dict:
     timeline_end - timeline_start (within tolerance).
     """
     violations = []
-
     for ar in a_roll_assignments:
-        src_in = ar.get("source_in", 0)
-        src_out = ar.get("source_out", 0)
         tl_start = ar.get("timeline_start", 0)
         tl_end = ar.get("timeline_end", 0)
-
-        src_dur = round(src_out - src_in, 4)
         tl_dur = round(tl_end - tl_start, 4)
+        
+        # Sum source duration from video_segments
+        segments = ar.get("video_segments", [])
+        src_dur = round(sum(
+            seg.get("video_out", 0) - seg.get("video_in", 0)
+            for seg in segments
+        ), 4)
+        
         delta = round(abs(src_dur - tl_dur), 4)
-
         if delta > DURATION_TOLERANCE:
             violations.append({
-                "entry_id": ar.get("entry_id", "?"),
-                "clip_id": ar.get("clip_id", "?"),
-                "source_in": src_in,
-                "source_out": src_out,
+                "block_position": ar.get("spine_block_position", "?"),
+                "block_type": ar.get("block_type", "?"),
                 "source_duration": src_dur,
                 "timeline_start": tl_start,
                 "timeline_end": tl_end,
                 "timeline_duration": tl_dur,
                 "delta_seconds": delta,
-                "fix": (
-                    f"Expand timeline to {src_dur}s to play the full speech block, "
-                    f"OR produce sub-segments that total {tl_dur}s with filler removed"
-                ),
+                "segment_count": len(segments),
             })
-
-    return {
-        "passed": len(violations) == 0,
-        "violations": violations,
-    }
+    return {"passed": len(violations) == 0, "violations": violations}
 
 
 def check_timeline_continuity(a_roll_assignments: list) -> dict:
@@ -85,8 +78,8 @@ def check_timeline_continuity(a_roll_assignments: list) -> dict:
         if gap < -DURATION_TOLERANCE:
             gaps.append({
                 "between": [
-                    sorted_ar[i - 1].get("entry_id", "?"),
-                    sorted_ar[i].get("entry_id", "?"),
+                    sorted_ar[i - 1].get("spine_block_position", "?"),
+                    sorted_ar[i].get("spine_block_position", "?"),
                 ],
                 "overlap_seconds": abs(gap),
             })
@@ -103,29 +96,42 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
     Every source_file must resolve to an existing file on disk.
     """
     missing = []
-
-    all_assignments = list(a_roll_assignments)
+    
+    # A-roll: source_file is in video_segments
+    for ar in a_roll_assignments:
+        for seg in ar.get("video_segments", []):
+            sf = seg.get("source_file")
+            if not sf:
+                continue
+            # Try absolute, then relative to project
+            if not os.path.isabs(sf):
+                full_path = os.path.join(project_folder, sf)
+            else:
+                full_path = sf
+            if not os.path.exists(full_path):
+                missing.append({
+                    "clip_id": seg.get("clip_id", "?"),
+                    "source_file": sf,
+                    "resolved_path": full_path,
+                })
+    
+    # B-roll: source_file is at top level
     for br in (b_roll_assignments or []):
-        clip = br.get("assigned_clip", {})
-        if clip.get("source_file"):
-            all_assignments.append(clip)
-
-    for ar in all_assignments:
-        sf = ar.get("source_file")
+        sf = br.get("source_file")
         if not sf:
             continue
-        full_path = os.path.join(project_folder, sf)
+        if not os.path.isabs(sf):
+            full_path = os.path.join(project_folder, sf)
+        else:
+            full_path = sf
         if not os.path.exists(full_path):
             missing.append({
-                "entry_id": ar.get("entry_id", ar.get("clip_id", "?")),
+                "clip_id": br.get("clip_id", "?"),
                 "source_file": sf,
                 "resolved_path": full_path,
             })
-
-    return {
-        "passed": len(missing) == 0,
-        "missing": missing,
-    }
+    
+    return {"passed": len(missing) == 0, "missing": missing}
 
 
 def check_no_duplicate_ranges(a_roll_assignments: list) -> dict:
@@ -143,8 +149,8 @@ def check_no_duplicate_ranges(a_roll_assignments: list) -> dict:
             if (a.get("timeline_start", 0) < b.get("timeline_end", 0) and
                     b.get("timeline_start", 0) < a.get("timeline_end", 0)):
                 conflicts.append({
-                    "clip_a": a.get("entry_id", "?"),
-                    "clip_b": b.get("entry_id", "?"),
+                    "clip_a": a.get("spine_block_position", "?"),
+                    "clip_b": b.get("spine_block_position", "?"),
                     "range_a": [a.get("timeline_start"), a.get("timeline_end")],
                     "range_b": [b.get("timeline_start"), b.get("timeline_end")],
                 })
@@ -188,10 +194,9 @@ def run_mechanical_checks(data: dict) -> dict:
     if not duration["passed"]:
         for v in duration["violations"]:
             rejection_reasons.append(
-                f"Duration mismatch on {v['clip_id']} ({v['entry_id']}): "
+                f"Duration mismatch on {v.get('block_position', '?')} ({v.get('block_type', '?')}): "
                 f"source is {v['source_duration']}s but timeline allocates "
-                f"{v['timeline_duration']}s. Delta: {v['delta_seconds']}s. "
-                f"Fix: {v['fix']}"
+                f"{v['timeline_duration']}s. Delta: {v['delta_seconds']}s."
             )
     if not continuity["passed"]:
         for g in continuity["gaps"]:

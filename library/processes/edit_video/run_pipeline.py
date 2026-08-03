@@ -3,7 +3,7 @@
 Pipeline Runner — Executes the edit_video DAG end-to-end.
 
 This is the orchestrator entry point that:
-1. Reads the DAG (24 nodes, 58 edges)
+1. Reads the DAG (nodes and edges vary by pipeline)
 2. Resolves execution order via topological sort
 3. For each step:
    - Deterministic steps: runs step.py with JSON stdin/stdout
@@ -99,6 +99,17 @@ def get_step_implementation(step_dir: Path) -> dict:
         return {
             "type": "deterministic",
             "entry": str(step_dir / "step.py"),
+            "determinism": determinism,
+            "manifest": manifest,
+        }
+    elif has_step_py and has_handoff_md and not has_bridge_py:
+        # Deterministic step with optional LLM review (e.g., rough cut
+        # review runs mechanical checks, then handoff.md guides narrative
+        # review). step.py runs first; handoff.md is informational.
+        return {
+            "type": "deterministic",
+            "entry": str(step_dir / "step.py"),
+            "prompt": str(step_dir / "handoff.md"),
             "determinism": determinism,
             "manifest": manifest,
         }

@@ -181,7 +181,8 @@ def build_timeline(
     a2_clips = tracks.get('A2', {}).get('clips', [])
     # SFX: manifest compiler puts these at top-level 'sfx', not tracks.A3
     a3_clips = tracks.get('A3', {}).get('clips', []) or manifest.get('sfx', [])
-    transitions = manifest.get('transitions', [])
+    # Note: transitions are applied via fusion_effects.transitions, not
+    # the top-level 'transitions' key (which is informational only).
     vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
 
     # If subtitle_overlay_path was not explicitly passed, try reading it

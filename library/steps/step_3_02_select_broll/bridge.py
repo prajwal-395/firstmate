@@ -267,7 +267,7 @@ def resolve_broll(
     index_lookup = {i["clip_id"]: i for i in temporal_indices}
 
     # Build spine block lookup for timeline positions
-    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     block_lookup = {b["position"]: b for b in spine_blocks}
 
     assignments = []
@@ -336,7 +336,9 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents", "temporal_event_indices", "timed_spine"], "Input data")
+    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents", "temporal_event_indices"], "Input data")
+    if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
+        raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data["broll_creative"], list):
         raise ValueError("broll_creative must be a list")
     for broll in data["broll_creative"]:

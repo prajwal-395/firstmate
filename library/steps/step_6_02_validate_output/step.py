@@ -317,13 +317,91 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     }
 
 
+def _validate_build_result(build_result: dict, assembly_manifest: dict) -> dict:
+    """Validate the timeline build result when no rendered file exists yet.
+
+    This runs when step 6.01 has built the Resolve timeline but hasn't
+    triggered a render pass. It validates the build report instead.
+    """
+    checks = {}
+    project = assembly_manifest.get('project', {})
+
+    # Check build success
+    build_check = {"pass": False, "issues": []}
+    if build_result.get("success"):
+        build_check["pass"] = True
+    else:
+        build_check["issues"].append("Timeline build reported failure")
+
+    if build_result.get("errors"):
+        for err in build_result["errors"]:
+            build_check["issues"].append(f"Build error: {err}")
+        build_check["pass"] = False
+
+    checks["build_success"] = build_check
+
+    # Check track counts match manifest expectations
+    track_check = {"pass": True, "issues": []}
+    built_tracks = build_result.get("tracks", {})
+    manifest_tracks = assembly_manifest.get("tracks", {})
+
+    for track_name in ("V1", "V2", "A2"):
+        expected_clips = len(manifest_tracks.get(track_name, {}).get("clips", []))
+        actual_clips = built_tracks.get(track_name, 0)
+        if expected_clips > 0 and actual_clips == 0:
+            track_check["issues"].append(
+                f"{track_name}: expected {expected_clips} clips, got 0")
+            track_check["pass"] = False
+
+    checks["track_counts"] = track_check
+
+    # Check warnings
+    warning_check = {"pass": True, "issues": []}
+    warnings = build_result.get("warnings", [])
+    if warnings:
+        warning_check["issues"] = [f"Build warning: {w}" for w in warnings]
+        # Warnings don't fail the check, just report
+
+    checks["build_warnings"] = warning_check
+
+    all_passed = all(c.get("pass", False) for c in checks.values())
+    all_issues = []
+    for name, check in checks.items():
+        for issue in check.get("issues", []):
+            all_issues.append(f"[{name}] {issue}")
+
+    return {
+        "status": "pass" if all_passed else "fail",
+        "mode": "build_validation",
+        "checks": checks,
+        "all_issues": all_issues,
+        "distribution_ready": False,  # Not rendered yet
+        "critical_checks_passed": checks["build_success"]["pass"],
+        "summary": (
+            "Timeline build validated - ready for render"
+            if all_passed
+            else f"{len(all_issues)} issue(s) found in build"
+        ),
+        "recommended_action": (
+            "Render the timeline in DaVinci Resolve, then re-run validation "
+            "with output_path set" if all_passed
+            else "Fix build errors and re-run step 6.01"
+        ),
+    }
+
+
 def main():
     input_data = json.loads(sys.stdin.read())
 
     rendered_output = input_data.get("rendered_output", {})
     assembly_manifest = input_data.get("assembly_manifest", {})
 
-    result = validate_output(rendered_output, assembly_manifest)
+    # Two modes: file validation (post-render) or build validation (post-build)
+    if rendered_output.get("output_path"):
+        result = validate_output(rendered_output, assembly_manifest)
+    else:
+        # No rendered file yet - validate the build result from step 6.01
+        result = _validate_build_result(rendered_output, assembly_manifest)
 
     json.dump({"validation_result": result}, sys.stdout, indent=2)
 

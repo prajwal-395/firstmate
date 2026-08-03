@@ -63,7 +63,7 @@ def resolve_vfx(
     frame_rate: float = 30.0,
 ) -> list:
     """Resolve creative VFX plan to execution specs."""
-    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     block_lookup = {b["position"]: b for b in spine_blocks}
 
     resolved = []
@@ -114,7 +114,7 @@ def inject_default_ken_burns(
     Returns:
         Updated creative_plan with defaults injected for uncovered blocks.
     """
-    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
 
     # Find which spine positions already have VFX assigned
     covered_positions = set()
@@ -165,7 +165,9 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["vfx_creative", "timed_spine"], "Input data")
+    _require_keys(data, ["vfx_creative"], "Input data")
+    if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
+        raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("vfx_creative", []), list):
         raise ValueError("vfx_creative must be a list")
     for vfx in data.get("vfx_creative", []):

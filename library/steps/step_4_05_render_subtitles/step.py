@@ -32,10 +32,14 @@ def main():
 
     # Calculate total duration from audio spine
     total_duration = 0
-    blocks = audio_spine.get("blocks", audio_spine.get("timed_spine", []))
+    blocks = audio_spine.get("structure",
+                audio_spine.get("blocks",
+                    audio_spine.get("timed_spine", [])))
     if blocks:
         last_block = blocks[-1]
-        total_duration = last_block.get("end_time", last_block.get("end", 0))
+        total_duration = last_block.get("timeline_end",
+                            last_block.get("end_time",
+                                last_block.get("end", 0)))
 
     if total_duration == 0:
         print("WARNING: Could not determine total duration from audio spine",
@@ -90,7 +94,8 @@ def main():
               file=sys.stderr)
         with open(props_path, "w") as f:
             json.dump({
-                "subtitles": subtitle_plan.get("groups", []),
+                "subtitles": subtitle_plan.get("subtitle_entries",
+                                subtitle_plan.get("groups", [])),
                 "totalDurationInFrames": int(total_duration * 30),
                 "fps": 30,
             }, f, indent=2)

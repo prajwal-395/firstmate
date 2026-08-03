@@ -306,7 +306,7 @@ def resolve_sfx(
     3. Apply type-specific signal-driven placement
     4. Check for speech collision and shift if needed
     """
-    spine_blocks = timed_spine.get("audio_spine", {}).get("structure", [])
+    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     temporal_indices = temporal_indices or []
 
     # Build temporal index lookup by clip_id
@@ -390,7 +390,9 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["sfx_creative", "timed_spine", "temporal_event_indices", "music_analysis"], "Input data")
+    _require_keys(data, ["sfx_creative", "temporal_event_indices", "music_analysis"], "Input data")
+    if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
+        raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("sfx_creative", []), list):
         raise ValueError("sfx_creative must be a list")
     for sfx in data.get("sfx_creative", []):
