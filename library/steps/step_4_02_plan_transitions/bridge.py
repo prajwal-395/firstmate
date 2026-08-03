@@ -248,7 +248,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["transition_creative", "music_selection", "temporal_event_indices"], "Input data")
+    _require_keys(data, ["transition_creative", "music_selection"], "Input data")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("transition_creative", []), list):
@@ -260,7 +260,8 @@ def main():
     creative = data.get("transition_creative", [])
     spine = data.get("timed_spine", {})
     music = data.get("music_selection", {})
-    temporal = data.get("temporal_event_indices", [])
+    temporal_raw = data.get("temporal_event_indices", [])
+    temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
 
     result = resolve_transitions(creative, spine, music, temporal, fps)

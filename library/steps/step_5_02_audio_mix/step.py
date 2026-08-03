@@ -55,7 +55,7 @@ def define_audio_mix(audio_spine: dict, enhancement_spec: dict) -> dict:
     # Build music automation from spine blocks
     music_automation = []
     for block in structure:
-        behavior = block.get("music_behavior", "silent")
+        behavior = block.get("music_behavior", "background")
         music_automation.append({
             "spine_block_position": block["position"],
             "timeline_start": block.get("timeline_start", 0.0),
@@ -97,7 +97,7 @@ def define_audio_mix(audio_spine: dict, enhancement_spec: dict) -> dict:
 
 def main():
     input_data = json.loads(sys.stdin.read())
-    audio_spine = input_data["audio_spine"]
+    audio_spine = input_data.get("audio_spine", {})
     enhancement_spec = input_data.get("enhancement_spec", {})
 
     result = define_audio_mix(audio_spine, enhancement_spec)

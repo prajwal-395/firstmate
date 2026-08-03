@@ -139,9 +139,8 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
 
         # Estimate exposure from the source file
         source_file = entry.get("source_file", "")
-        if not source_file and project_folder:
-            # Try to resolve from clip_id if source_file not provided
-            source_file = ""  # Caller should provide source_file in entries
+        if source_file and not os.path.isabs(source_file) and project_folder:
+            source_file = os.path.join(project_folder, source_file)
 
         exposure_offset = _estimate_exposure(source_file)
 

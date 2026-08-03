@@ -608,20 +608,30 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
                     inputs.get("subtitle_plan", {}).get("subtitles", []))
 
     # Transitions
-    transition_spec = inputs.get("transition_spec", {})
-    transitions = transition_spec.get("transitions",
-                    transition_spec.get("transition_spec", []))
+    transition_raw = inputs.get("transition_spec", [])
+    if isinstance(transition_raw, dict):
+        transitions = transition_raw.get("transitions", transition_raw.get("transition_spec", []))
+    else:
+        transitions = transition_raw if isinstance(transition_raw, list) else []
 
     # VFX
-    enhancement = inputs.get("enhancement_spec", {})
-    vfx = enhancement.get("vfx_plan",
-            enhancement.get("vfx_spec", []))
+    vfx_raw = inputs.get("enhancement_spec", [])
+    if isinstance(vfx_raw, dict):
+        vfx = vfx_raw.get("vfx_plan", vfx_raw.get("vfx_spec", []))
+    else:
+        vfx = vfx_raw if isinstance(vfx_raw, list) else []
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})
     audio_config = {
         "fairlight_preset": audio_mix_data.get("fairlight_preset", ""),
     }
+
+    sfx_raw = inputs.get("sfx_spec", [])
+    if isinstance(sfx_raw, dict):
+        sfx_list = sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", []))
+    else:
+        sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
 
     # Build manifest with the SAME shape as compile_manifest()
     manifest = {
@@ -652,7 +662,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
-        "sfx": inputs.get("sfx_spec", {}).get("sfx_placements", []),
+        "sfx": sfx_list,
         "fusion_effects": {
             "per_clip": {},
             "transitions": [],

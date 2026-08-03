@@ -33,10 +33,11 @@ def main():
     # Extract track path from music selection
     track_path = music_selection.get("track_path", "")
     if not track_path:
-        # Try alternative field names
-        track_path = music_selection.get("file_path", "")
-        if not track_path:
-            track_path = music_selection.get("path", "")
+        # Try alternative field names (audio_path is what step 2.04 outputs)
+        for key in ("audio_path", "file_path", "path"):
+            track_path = music_selection.get(key, "")
+            if track_path:
+                break
 
     if not track_path or not os.path.exists(track_path):
         print(f"ERROR: Music track not found: {track_path}", file=sys.stderr)

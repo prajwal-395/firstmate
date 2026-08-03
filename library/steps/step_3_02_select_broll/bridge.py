@@ -336,7 +336,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents", "temporal_event_indices"], "Input data")
+    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents"], "Input data")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data["broll_creative"], list):
@@ -349,7 +349,8 @@ def main():
     broll_creative = data.get("broll_creative", [])
     clip_catalog = data.get("clip_catalog", [])
     semantic_docs = data.get("semantic_analysis_documents", [])
-    temporal_indices = data.get("temporal_event_indices", [])
+    temporal_raw = data.get("temporal_event_indices", [])
+    temporal_indices = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     timed_spine = data.get("timed_spine", {})
 
     if not broll_creative:
