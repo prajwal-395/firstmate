@@ -541,6 +541,7 @@ muse is a day-0 `0.1.0` beta whose launcher polls a release channel hourly and c
 The captain accepted that risk, so firstmate does NOT set `MUSE_NO_AUTO_UPDATE=1`; a fleet that later wants stability can set it in the launch environment without any adapter change.
 Its plugin/hook engine reports `plugins are not available in this build` unless `MUSE_EXPERIMENTAL_PLUGINS=on`, which is why the busy source reads the session log instead of installing a hook.
 ## agy (PENDING EMPIRICAL VERIFICATION)
+## agy
 
 Google Antigravity CLI (`agy`), an AI coding agent from Google DeepMind.
 Launch with a positional prompt via `-i`: `agy --dangerously-skip-permissions -i "$(cat <brief>)"`.
@@ -550,20 +551,24 @@ For agy's supported reasoning-effort values and omission behavior, see the [laun
 |---|---|
 | Busy state | Owned lifecycle hooks: `UserPromptSubmit` opens a turn, `Stop`, `StopFailure`, and `SessionEnd` close it. Workspace hooks in `.agents/hooks.json` are merged with global hooks automatically. |
 | Exit command | `Ctrl+D Ctrl+D`, `/exit`, or `/quit` |
-| Interrupt | Ctrl+C (pending verification) |
-| Skill invocation | `/skill-name` (e.g. `/no-mistakes`; pending verification) |
+| Interrupt | Ctrl+C or Esc (Esc is a global escape hatch for cancellation/dismiss) |
+| Skill invocation | `/skill-name` inside TUI (e.g. `/no-mistakes`, `/help`) |
 | Autonomy | `--dangerously-skip-permissions` (same flag as Claude Code) |
 | Env marker | `ANTIGRAVITY_AGENT`, set in child/tool processes. |
 | Resume | `agy --continue` (`-c`) for most recent, `agy --conversation <id>` for specific session. |
 
-No trust dialog on first launch in a worktree (pending verification).
+No trust dialog on first launch in a worktree (workspace hooks require trusted workspace via client settings).
 
 Turn-end hook: agy fires a `Stop` hook at every turn boundary.
+agy `Stop` hooks receive a JSON payload on stdin with `session_id` and `stop_hook_active` fields.
+`stop_hook_active: true` means the current stop already follows a guard block (one-shot loop prevention).
 agy workspace hooks (`.agents/hooks.json`) are merged with global hooks automatically when the workspace is trusted.
 `fm-spawn` installs the busy-state hooks and turn-end notification touch directly into the worktree's `.agents/hooks.json`, which is cleaned up when the worktree is returned to the pool.
 Unlike Grok's global hook approach, agy's workspace hooks are scoped to the worktree, so no global registry or token pointer is needed.
 agy hooks MUST always exit 0; non-zero is treated as a hook execution failure rather than a semantic signal.
 
-**Primary-session guard fact (PENDING).**
-agy does not support exit-code 2 rewake from Stop hooks.
+**Primary-session guard fact.**
+agy does not support exit-code 2 rewake from Stop hooks (hooks MUST exit 0).
+When the guard wants to block, `bin/fm-turnend-guard-agy.sh` uses `agy --continue <session_id> -p <prompt>` to force a bounded resume.
 agy's primary watcher protocol is background-notify around `bin/fm-watch-arm.sh`, same supervision shape as Grok.
+The tracked `.agents/hooks.json` at the repo root wires the primary Stop hook to `bin/fm-turnend-guard-agy.sh`.
