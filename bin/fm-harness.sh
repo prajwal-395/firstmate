@@ -72,6 +72,7 @@ detect_own() {
   # by ancestry alone below. Do NOT promote MUSE_CURRENT_SESSION_LOG to a marker
   # without verifying it reaches children AND that it cannot survive in a
   # multiplexer's stored environment, which is the precedence hazard above.
+  [ -n "${ANTIGRAVITY_AGENT:-}" ] && { echo agy; return; }
   # Layer 2: walk the parent chain and match the command name.
   local pid=$$ comm args argv0
   for _ in 1 2 3 4 5 6 7 8; do
@@ -86,6 +87,7 @@ detect_own() {
       *codex*) echo codex; return ;;
       *opencode*) echo opencode; return ;;
       *grok*) echo grok; return ;;
+      *agy*) echo agy; return ;;
       kimi) echo kimi; return ;;
       # muse's installed launcher ~/.local/bin/muse execs ~/.local/bin/muse-bin-<version>
       # (verified in the published launcher, muse 0.1.0-R708.1), so the live process
@@ -103,6 +105,7 @@ detect_own() {
           *codex*) echo codex; return ;;
           *opencode*) echo opencode; return ;;
           *grok*) echo grok; return ;;
+          *agy*) echo agy; return ;;
           *" pi "*|*/pi) echo pi; return ;;
         esac ;;
     esac

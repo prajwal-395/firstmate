@@ -3,7 +3,7 @@ name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
   Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
-  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and muse.
+  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, muse, and agy.
 user-invocable: false
 metadata:
   internal: true
@@ -132,6 +132,7 @@ The supported launch-profile flags below are verified locally; each row records 
 | kimi | `--model <model>` | none | Verified 2026-07-25 on Kimi Code CLI 0.29.1. |
 | cursor | `--model <model>` | none | Verified 2026-08-11 on Cursor Agent CLI 2026.08.11-e8db854. No effort flag exists, so firstmate records the requested effort in task metadata and omits it from the launch. Validate ids against `cursor-agent --list-models` rather than assuming a low/medium/high family: the live catalog carries only `-high` Grok ids. |
 | muse | `--model <model>` | `--reasoning-effort <low\|medium\|high\|xhigh>`, and `ultra` only for an explicit `max` | Verified 2026-08-05 on Muse Code 0.1.0-R708.1. The flag accepts `none\|minimal\|low\|medium\|high\|xhigh\|ultra` and defaults to `high`. `ultra` is muse's max-class level, so it is reachable only through an explicit captain `max`, never from the generic fallback; `none` and `minimal` sit below the shared vocabulary and stay unreachable. |
+| agy | `--model <model>` | `--effort <low\|medium\|high>` | Pending empirical verification. agy accepts low/medium/high only; xhigh and max are omitted. |
 
 The concrete `harness` field owns adapter identity independently of the model provider: `harness=pi` with `model=xai/grok-*` is Pi using xAI, not `harness=grok`, and does not require Grok CLI login; `harness=grok` remains the standalone Grok Build CLI adapter.
 Likewise, `harness=cursor` with `model=cursor-grok-4.5-*` is Cursor Agent CLI routing a Grok model, not the xAI Grok Build `grok` harness.
@@ -539,3 +540,30 @@ A teardown refusal naming muse scratch is therefore correct behavior: inspect it
 muse is a day-0 `0.1.0` beta whose launcher polls a release channel hourly and can replace the running binary underneath the fleet, changing the process name with it.
 The captain accepted that risk, so firstmate does NOT set `MUSE_NO_AUTO_UPDATE=1`; a fleet that later wants stability can set it in the launch environment without any adapter change.
 Its plugin/hook engine reports `plugins are not available in this build` unless `MUSE_EXPERIMENTAL_PLUGINS=on`, which is why the busy source reads the session log instead of installing a hook.
+## agy (PENDING EMPIRICAL VERIFICATION)
+
+Google Antigravity CLI (`agy`), an AI coding agent from Google DeepMind.
+Launch with a positional prompt via `-i`: `agy --dangerously-skip-permissions -i "$(cat <brief>)"`.
+For agy's supported reasoning-effort values and omission behavior, see the [launch-profile-axes table](#launch-profile-axes).
+
+| Fact | Value |
+|---|---|
+| Busy state | Owned lifecycle hooks: `UserPromptSubmit` opens a turn, `Stop`, `StopFailure`, and `SessionEnd` close it. Workspace hooks in `.agents/hooks.json` are merged with global hooks automatically. |
+| Exit command | `Ctrl+D Ctrl+D`, `/exit`, or `/quit` |
+| Interrupt | Ctrl+C (pending verification) |
+| Skill invocation | `/skill-name` (e.g. `/no-mistakes`; pending verification) |
+| Autonomy | `--dangerously-skip-permissions` (same flag as Claude Code) |
+| Env marker | `ANTIGRAVITY_AGENT`, set in child/tool processes. |
+| Resume | `agy --continue` (`-c`) for most recent, `agy --conversation <id>` for specific session. |
+
+No trust dialog on first launch in a worktree (pending verification).
+
+Turn-end hook: agy fires a `Stop` hook at every turn boundary.
+agy workspace hooks (`.agents/hooks.json`) are merged with global hooks automatically when the workspace is trusted.
+`fm-spawn` installs the busy-state hooks and turn-end notification touch directly into the worktree's `.agents/hooks.json`, which is cleaned up when the worktree is returned to the pool.
+Unlike Grok's global hook approach, agy's workspace hooks are scoped to the worktree, so no global registry or token pointer is needed.
+agy hooks MUST always exit 0; non-zero is treated as a hook execution failure rather than a semantic signal.
+
+**Primary-session guard fact (PENDING).**
+agy does not support exit-code 2 rewake from Stop hooks.
+agy's primary watcher protocol is background-notify around `bin/fm-watch-arm.sh`, same supervision shape as Grok.

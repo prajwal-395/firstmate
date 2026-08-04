@@ -104,7 +104,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|agy)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
@@ -444,7 +444,7 @@ spawn_remote_secondmate() {
       echo "error: cursor is a verified crewmate/scout adapter only and cannot run a remote secondmate; no primary supervision protocol has been verified for Cursor Agent CLI" >&2
       return 1
       ;;
-    claude|codex|opencode|pi|pi-signed|grok|kimi) ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|agy) ;;
     *)
       fm_lock_release "$registry_lock" || true
       fm_lock_release "$SPAWN_TASK_LOCK" || true
@@ -1051,7 +1051,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|agy)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1159,6 +1159,13 @@ launch_template() {
     # Its turn-end signal is a globally configured Stop hook plus a guarded
     # per-task worktree token, so no launch placeholder belongs here.
     kimi) printf '%s' '__KIMIBIN__ __MODELFLAG__--auto' ;;
+
+    # agy (Google Antigravity CLI): a positional prompt via -i starts a supervised
+    # interactive session. --dangerously-skip-permissions auto-approves all tool
+    # execution (same flag as claude). agy's turn-end signal is a Stop hook
+    # installed in .agents/hooks.json inside the worktree, so no launch
+    # placeholder is needed. The template is identical for ship/scout/secondmate.
+    agy) printf '%s' 'agy --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__-i "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # muse (Muse Code): a positional prompt starts the supervised interactive
     # session. --yolo is the single flag that makes a crewmate pane viable: muse
     # ships approval prompts AND a filesystem/network sandbox ON by default
@@ -1375,7 +1382,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|agy)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -1426,6 +1433,13 @@ effort_flag_for_harness() {
       case "$effort" in
         low|medium|high|xhigh) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
         max) printf -- '--reasoning-effort %s ' "$(shell_quote ultra)" ;;
+      esac
+      ;;
+    agy)
+      # agy accepts --effort low|medium|high. It does not support xhigh or max,
+      # so those are omitted rather than passed as unsupported values.
+      case "$effort" in
+        low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
     # opencode's interactive `opencode --prompt` launch has a verified --model
@@ -2352,6 +2366,27 @@ if [ "$KIND" != secondmate ]; then
       ;;
   esac
   case "$HARNESS" in
+    agy*)
+      # Semantic busy-state hooks (bin/fm-busy-lib.sh): same hook events as
+      # Claude - UserPromptSubmit opens a turn; Stop, StopFailure, and
+      # SessionEnd all close it. agy hooks MUST always exit 0 (non-zero is
+      # treated as a hook execution failure), so || true is critical here.
+      # The Stop hook also touches the turn-ended NOTIFICATION for the watcher.
+      # agy workspace hooks (.agents/hooks.json) are merged with global hooks
+      # automatically when the workspace is trusted, so there is no collision
+      # with the user's existing global hooks.
+      mkdir -p "$WT/.agents"
+      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
+      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source agy-hook"
+      j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
+      j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
+      j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
+      j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
+      cat > "$WT/.agents/hooks.json" <<EOF
+{"fm-busy-state":{"UserPromptSubmit":[{"type":"command","command":"$j_submit","timeout":10}],"Stop":[{"type":"command","command":"$j_stop","timeout":10}],"StopFailure":[{"type":"command","command":"$j_stopfail","timeout":10}],"SessionEnd":[{"type":"command","command":"$j_sessionend","timeout":10}]}}
+EOF
+      exclude_path '.agents/hooks.json'
+      ;;
     claude*)
       # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
       # a turn; Stop (normal completion), StopFailure (API-error turn end),
@@ -2742,7 +2777,7 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|muse)
+  claude|codex|opencode|pi|pi-signed|grok|kimi|muse|agy)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS $LAUNCH"
     ;;
 esac
