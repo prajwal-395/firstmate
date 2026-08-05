@@ -1,4 +1,46 @@
 {
+  "fm-primary-sessionstart-nudge": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash -lc '[ -n \"${ANTIGRAVITY_PROJECT_DIR:-}\" ] || exit 0; exec \"${ANTIGRAVITY_PROJECT_DIR:-}/bin/fm-sessionstart-nudge.sh\"'",
+        "timeout": 10
+      }
+    ]
+  },
+  "fm-primary-pretool-arm-check": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc '[ -n \"${ANTIGRAVITY_PROJECT_DIR:-}\" ] || exit 0; payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; cmd=$(printf \"%s\" \"$payload\" | jq -r \".toolCall.args.CommandLine // empty\" 2>/dev/null) || exit 0; [ -n \"$cmd\" ] || exit 0; \"${ANTIGRAVITY_PROJECT_DIR:-}/bin/fm-arm-pretool-check.sh\" --command \"$cmd\"'",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash -lc '[ -n \"${ANTIGRAVITY_PROJECT_DIR:-}\" ] || exit 0; payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; cmd=$(printf \"%s\" \"$payload\" | jq -r \".toolCall.args.CommandLine // empty\" 2>/dev/null) || exit 0; [ -n \"$cmd\" ] || exit 0; \"${ANTIGRAVITY_PROJECT_DIR:-}/bin/fm-cd-pretool-check.sh\" --command \"$cmd\"'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "fm-primary-pretool-subagent-check": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc '[ -n \"${ANTIGRAVITY_PROJECT_DIR:-}\" ] || exit 0; payload=$(cat 2>/dev/null || true); [ -n \"$payload\" ] || exit 0; tool=$(printf \"%s\" \"$payload\" | jq -r \".toolCall.name // empty\" 2>/dev/null) || exit 0; [ -n \"$tool\" ] || exit 0; \"${ANTIGRAVITY_PROJECT_DIR:-}/bin/fm-subagent-pretool-check.sh\" --tool \"$tool\"'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "fm-primary-turnend-guard": {
     "Stop": [
       {

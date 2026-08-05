@@ -572,3 +572,16 @@ agy does not support exit-code 2 rewake from Stop hooks (hooks MUST exit 0).
 When the guard wants to block, `bin/fm-turnend-guard-agy.sh` uses `agy --continue <session_id> -p <prompt>` to force a bounded resume.
 agy's primary watcher protocol is background-notify around `bin/fm-watch-arm.sh`, same supervision shape as Grok.
 The tracked `.agents/hooks.json` at the repo root wires the primary Stop hook to `bin/fm-turnend-guard-agy.sh`.
+
+**Session-start nudge fact.**
+The tracked `.agents/hooks.json` wires `SessionStart` to `bin/fm-sessionstart-nudge.sh` through `ANTIGRAVITY_PROJECT_DIR`, same pattern as Grok's project hook.
+The nudge is fail-open: if the env var is unset, the wrapper is missing, or the lock-ancestry check fails, the hook exits 0 silently.
+
+**PreToolUse seatbelt fact.**
+The tracked `.agents/hooks.json` wires three PreToolUse guards for the primary session:
+1. `fm-primary-pretool-arm-check` (matcher: `run_command`) - extracts `.toolCall.args.CommandLine` from stdin and invokes `bin/fm-arm-pretool-check.sh --command`.
+2. `fm-primary-pretool-arm-check` also runs `bin/fm-cd-pretool-check.sh --command` with the same extraction.
+3. `fm-primary-pretool-subagent-check` (matcher: `.*`) - extracts `.toolCall.name` from stdin and invokes `bin/fm-subagent-pretool-check.sh --tool`.
+agy's `PreToolUse` payload uses `.toolCall.name` and `.toolCall.args` rather than Claude/Codex's `.tool_name`/`.tool_input` or Grok's `.toolName`/`.toolInput`. The hooks extract the value with `jq` and pass it via CLI mode (`--command` / `--tool`) to avoid modifying the shared scripts.
+agy consumes deny decisions as `{"decision":"deny","reason":"..."}` on stdout, which is the same shape the shared scripts already emit for Grok.
+All PreToolUse guards are fail-open: missing `ANTIGRAVITY_PROJECT_DIR`, empty payload, missing `jq`, or absent scripts all exit 0 silently.
