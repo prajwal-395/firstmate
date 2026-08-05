@@ -95,6 +95,7 @@ def compile_manifest(out_dir: str) -> dict:
     vfx_data = load(out_dir, "step_4_03.json")
     color_data = load(out_dir, "step_5_01.json")
     audio_mix_data = load(out_dir, "step_5_02.json")
+    semantic_data = load(out_dir, "step_1_03.json")
 
     # Subtitle overlay from step 4.05 (Remotion render)
     subtitle_overlay_data = load(out_dir, "step_4_05.json")
@@ -107,11 +108,60 @@ def compile_manifest(out_dir: str) -> dict:
     # Build clip_id → source_file lookup from catalog
     catalog_data = load(out_dir, "step_1_02.json")
     clip_lookup = {}
+    clip_metadata = {}
     for clip in catalog_data.get("clip_catalog", []):
         clip_lookup[clip["clip_id"]] = clip["path"]
+        clip_metadata[clip["clip_id"]] = clip
 
     def resolve_source(block_or_clip):
         return _resolve_source(block_or_clip, clip_lookup)
+
+    def get_clip_id(block_or_clip):
+        if "source_clip_id" in block_or_clip: return block_or_clip["source_clip_id"]
+        if "clip_id" in block_or_clip: return block_or_clip["clip_id"]
+        content = block_or_clip.get("content") or {}
+        if "clip_id" in content: return content["clip_id"]
+        # Fallback to finding by source_file
+        sf = _resolve_source(block_or_clip, clip_lookup)
+        for cid, path in clip_lookup.items():
+            if path == sf: return cid
+        return None
+
+    # Process semantic analysis for neural engine directives
+    semantic_clips = semantic_data.get("semantic_analysis", {}).get("clips", [])
+    if isinstance(semantic_data.get("semantic_analysis"), list):
+        semantic_clips = semantic_data["semantic_analysis"]
+    semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
+
+    neural_engine_directives = {}
+
+    def compute_neural_directives(clip_id, clip_entry):
+        directives = {}
+        sem = semantic_lookup.get(clip_id, {})
+        meta = clip_metadata.get(clip_id, {})
+        
+        # Determine tags/description
+        tags = sem.get("tags", []) + sem.get("keywords", [])
+        description = sem.get("description", "")
+        text_data = " ".join(tags).lower() + " " + description.lower()
+        
+        if "handheld" in text_data or "shaky" in text_data:
+            directives["stabilize"] = True
+            
+        if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
+            directives["magic_mask"] = True
+            
+        width = meta.get("width", 1080)
+        height = meta.get("height", 1920)
+        proj_w, proj_h = 1080, 1920
+        proj_max = max(proj_w, proj_h)
+        clip_max = max(width, height)
+        # If low res
+        if clip_max < proj_max * 0.8:
+            directives["super_scale"] = 2
+            
+        if directives:
+            neural_engine_directives[clip_entry["label"]] = directives
 
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
@@ -138,6 +188,7 @@ def compile_manifest(out_dir: str) -> dict:
             if clip["timeline_in_frame"] is None:
                 convert_clip_to_frames(clip, fps)
             v1_clips.append(clip)
+            compute_neural_directives(get_clip_id(block), clip)
 
     # ── V2: B-Roll clips ──
     v2_clips = []
@@ -154,6 +205,7 @@ def compile_manifest(out_dir: str) -> dict:
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
+        compute_neural_directives(get_clip_id(clip), v2_clip)
     # B-roll interjections
     for interj in broll_data.get("b_roll_interjections", []):
         clip = interj["assigned_clip"]
@@ -168,6 +220,7 @@ def compile_manifest(out_dir: str) -> dict:
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
+        compute_neural_directives(get_clip_id(clip), v2_clip)
 
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
@@ -484,6 +537,7 @@ def compile_manifest(out_dir: str) -> dict:
             "per_clip": per_clip_effects,
             "transitions": fusion_transitions,
         },
+        "neural_engine_directives": neural_engine_directives,
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
@@ -541,14 +595,67 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     # Build clip lookup from a_roll_assignments
     clip_lookup = {}
+    clip_metadata = {}
     for assignment in inputs.get("a_roll_assignments", []):
         cid = assignment.get("source_clip_id", "")
         path = assignment.get("source_file", "")
         if cid and path:
             clip_lookup[cid] = path
+            clip_metadata[cid] = assignment
+
+    for broll in inputs.get("b_roll_assignments", []):
+        assigned = broll.get("assigned_clip", broll)
+        cid = assigned.get("source_clip_id", assigned.get("clip_id"))
+        if cid and cid not in clip_metadata:
+            clip_metadata[cid] = assigned
 
     def resolve_source(block_or_clip):
         return _resolve_source(block_or_clip, clip_lookup)
+
+    def get_clip_id(block_or_clip):
+        if "source_clip_id" in block_or_clip: return block_or_clip["source_clip_id"]
+        if "clip_id" in block_or_clip: return block_or_clip["clip_id"]
+        content = block_or_clip.get("content") or {}
+        if "clip_id" in content: return content["clip_id"]
+        sf = _resolve_source(block_or_clip, clip_lookup)
+        for cid, path in clip_lookup.items():
+            if path == sf: return cid
+        return None
+
+    # Process semantic analysis for neural engine directives
+    semantic_data = inputs.get("semantic_analysis") or {}
+    semantic_clips = semantic_data.get("clips", [])
+    if isinstance(semantic_data, list):
+        semantic_clips = semantic_data
+    semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
+
+    neural_engine_directives = {}
+
+    def compute_neural_directives(clip_id, clip_entry):
+        directives = {}
+        sem = semantic_lookup.get(clip_id, {})
+        meta = clip_metadata.get(clip_id, {})
+        
+        tags = sem.get("tags", []) + sem.get("keywords", [])
+        description = sem.get("description", "")
+        text_data = " ".join(tags).lower() + " " + description.lower()
+        
+        if "handheld" in text_data or "shaky" in text_data:
+            directives["stabilize"] = True
+            
+        if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
+            directives["magic_mask"] = True
+            
+        width = meta.get("width", 1080)
+        height = meta.get("height", 1920)
+        proj_w, proj_h = 1080, 1920
+        proj_max = max(proj_w, proj_h)
+        clip_max = max(width, height)
+        if clip_max < proj_max * 0.8:
+            directives["super_scale"] = 2
+            
+        if directives:
+            neural_engine_directives[clip_entry["label"]] = directives
 
     # V1: A-Roll clips from spine speech blocks
     v1_clips = []
@@ -570,6 +677,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             if clip["timeline_in_frame"] is None:
                 convert_clip_to_frames(clip, fps)
             v1_clips.append(clip)
+            compute_neural_directives(get_clip_id(block), clip)
 
     # V2: B-Roll clips
     v2_clips = []
@@ -586,6 +694,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
+        compute_neural_directives(get_clip_id(assigned), v2_clip)
 
     # A2: Music
     ms = inputs.get("music_selection", {})
@@ -799,6 +908,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             "per_clip": per_clip_effects,
             "transitions": fusion_transitions,
         },
+        "neural_engine_directives": neural_engine_directives,
         "audio": audio_config,
         "color_grade": inputs.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data,

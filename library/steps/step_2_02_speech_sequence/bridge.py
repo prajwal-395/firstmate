@@ -24,6 +24,12 @@ import os
 import re
 import sys
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
+try:
+    from engagement_scorer import compute_engagement
+except ImportError:
+    compute_engagement = None
+
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -223,6 +229,8 @@ def _align_words_to_text(
 def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
+    semantic_data: dict = None,
+    prosody_data: dict = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
@@ -314,6 +322,8 @@ def enrich_speech_sequence(
         if enrichment["start_time"] is not None:
             hook["start_time"] = enrichment["start_time"]
             hook["end_time"] = enrichment["end_time"]
+        if compute_engagement:
+            hook["engagement"] = compute_engagement(hook, prosody_data, semantic_data, result)
 
     # Enrich body passages
     body = result.get("body_sequence", [])
@@ -323,6 +333,8 @@ def enrich_speech_sequence(
         passage["word_timestamps"] = enrichment["word_timestamps"]
         passage["start_time"] = enrichment["start_time"]
         passage["end_time"] = enrichment["end_time"]
+        if compute_engagement:
+            passage["engagement"] = compute_engagement(passage, prosody_data, semantic_data, result)
 
     return result
 
@@ -352,7 +364,10 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    enriched = enrich_speech_sequence(speech_sequence, ti_dir)
+    semantic_data = data.get("semantic_analysis", {})
+    prosody_data = data.get("prosody_analysis", {})
+
+    enriched = enrich_speech_sequence(speech_sequence, ti_dir, semantic_data, prosody_data)
 
     json.dump({
         "step": "2.02_bridge",

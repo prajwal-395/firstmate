@@ -28,6 +28,13 @@ import subprocess
 import sys
 from typing import Optional
 
+# Add tools to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
+try:
+    from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
+except ImportError:
+    apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
+
 
 # ─── Resolve Connection ──────────────────────────────────────
 
@@ -721,6 +728,70 @@ def build_timeline(
                               f" at {vfx_start_f}f",
                               file=sys.stderr)
                         break
+
+    # ══════════════════════════════════════════════════════════
+    # NEURAL ENGINE DIRECTIVES (Per-Clip)
+    # ══════════════════════════════════════════════════════════
+    neural_directives = manifest.get('neural_engine_directives', {})
+    if neural_directives and apply_stabilization is not None:
+        print(f"\n── Neural Engine: {len(neural_directives)} clips ──", file=sys.stderr)
+        # Apply to V1
+        for item in (timeline.GetItemListInTrack("video", 1) or []):
+            label = item.GetName()  # Actually item.GetName() returns the pool item name.
+            # Wait, the label in manifest is like "hook_0". We can find it by index or pool name.
+            # resolve_build_timeline.py doesn't set clip name in timeline easily, 
+            # let's just match using v1_clips order or label.
+            # We already have v1_items, but let's iterate them.
+            pass
+            
+        # We stored v1_timeline_items earlier in the script. Wait, let's use the loop from V1 placement.
+        # Actually it's better to do this inside the script, we can just iterate v1_clips and v1_items.
+        v1_items = timeline.GetItemListInTrack("video", 1) or []
+        for ci, clip_spec in enumerate(v1_clips):
+            label = clip_spec.get('label', f'clip_{ci}')
+            if label in neural_directives and ci < len(v1_items):
+                directives = neural_directives[label]
+                tl_clip = v1_items[ci]
+                
+                if directives.get('stabilize'):
+                    apply_stabilization(tl_clip)
+                    print(f"  ✓ [{ci}] {label}: Stabilization applied", file=sys.stderr)
+                if directives.get('super_scale'):
+                    apply_super_scale(tl_clip, scale_factor=directives['super_scale'])
+                    print(f"  ✓ [{ci}] {label}: Super Scale {directives['super_scale']}x applied", file=sys.stderr)
+                if directives.get('magic_mask'):
+                    apply_magic_mask(tl_clip)
+                    print(f"  ✓ [{ci}] {label}: Magic Mask applied", file=sys.stderr)
+                    
+        # Apply to V2
+        v2_items = timeline.GetItemListInTrack("video", 2) or []
+        for ci, clip_spec in enumerate(v2_clips):
+            label = clip_spec.get('label', f'broll_{ci}')
+            if label in neural_directives and ci < len(v2_items):
+                directives = neural_directives[label]
+                tl_clip = v2_items[ci]
+                
+                if directives.get('stabilize'):
+                    apply_stabilization(tl_clip)
+                    print(f"  ✓ [{ci}] {label}: Stabilization applied", file=sys.stderr)
+                if directives.get('super_scale'):
+                    apply_super_scale(tl_clip, scale_factor=directives['super_scale'])
+                    print(f"  ✓ [{ci}] {label}: Super Scale {directives['super_scale']}x applied", file=sys.stderr)
+                if directives.get('magic_mask'):
+                    apply_magic_mask(tl_clip)
+                    print(f"  ✓ [{ci}] {label}: Magic Mask applied", file=sys.stderr)
+                    
+    # ══════════════════════════════════════════════════════════
+    # SMART REFRAME (Timeline Level)
+    # ══════════════════════════════════════════════════════════
+    # The instruction says "Smart Reframe is timeline-level, not per-clip. Add as an optional post-render pass".
+    # We can apply it here on the timeline if needed, but since it's an optional post-render pass,
+    # maybe we just check if it's in the manifest and apply it to timeline.
+    if manifest.get("smart_reframe") and apply_smart_reframe is not None:
+        print(f"\n── Smart Reframe ──", file=sys.stderr)
+        target_aspect = manifest["smart_reframe"].get("target_aspect", "9:16")
+        apply_smart_reframe(timeline, target_aspect=target_aspect)
+        print(f"  ✓ Applied Smart Reframe to timeline ({target_aspect})", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # APPLY FAIRLIGHT PRESET (if specified)
