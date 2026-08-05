@@ -21,6 +21,12 @@ import os
 import subprocess
 import sys
 import tempfile
+import traceback
+
+# Import new QA modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from library.tools.render_qa import run_full_render_qa
+from library.tools.subtitle_qa import verify_subtitle_timing, verify_subtitle_safe_zone
 
 
 def _run_ffprobe(filepath, *args):
@@ -58,18 +64,9 @@ def _extract_frame(filepath, frame_num, output_path, fps=30):
         return False
 
 
+
 def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
-    """Run automated validation checks on the rendered video.
-
-    Args:
-        rendered_output: Dict with at least 'output_path' pointing to the
-            rendered video file.
-        assembly_manifest: The manifest used to build the timeline, providing
-            expected duration, resolution, and track counts.
-
-    Returns:
-        Validation result dict with per-check results and overall status.
-    """
+    """Run automated validation checks on the rendered video using render_qa."""
     video_path = rendered_output.get('output_path', '')
     project_settings = assembly_manifest.get('project', {})
     expected_fps = project_settings.get('frame_rate', 30)
@@ -77,27 +74,24 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     expected_duration = project_settings.get('duration_seconds', 0)
 
     checks = {}
-
+    
     # ── Check 1: File existence and size ──
     file_check = {"pass": False, "issues": []}
     if not video_path or not os.path.exists(video_path):
-        file_check["issues"].append(
-            f"Rendered file not found: {video_path}")
+        file_check["issues"].append(f"Rendered file not found: {video_path}")
     else:
         size_bytes = os.path.getsize(video_path)
         size_mb = size_bytes / (1024 * 1024)
         file_check["size_mb"] = round(size_mb, 2)
 
-        if size_bytes < 100_000:  # < 100KB is almost certainly broken
-            file_check["issues"].append(
-                f"File suspiciously small: {size_mb:.2f} MB")
+        if size_bytes < 100_000:
+            file_check["issues"].append(f"File suspiciously small: {size_mb:.2f} MB")
         else:
             file_check["pass"] = True
 
     checks["file_exists"] = file_check
 
     if not file_check["pass"]:
-        # Can't proceed without a valid file
         return {
             "status": "fail",
             "checks": checks,
@@ -105,186 +99,65 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
             "summary": "Rendered file missing or empty",
         }
 
-    # ── Check 2: Technical validation via ffprobe ──
-    tech_check = {"pass": False, "issues": []}
-    probe = _run_ffprobe(video_path, '-show_format', '-show_streams')
-
-    if not probe:
-        tech_check["issues"].append("ffprobe failed to read file")
-    else:
-        streams = probe.get('streams', [])
-        video_streams = [s for s in streams if s.get('codec_type') == 'video']
-        audio_streams = [s for s in streams if s.get('codec_type') == 'audio']
-
-        # Video stream checks
-        if not video_streams:
-            tech_check["issues"].append("No video stream found")
-        else:
-            vs = video_streams[0]
-            width = int(vs.get('width', 0))
-            height = int(vs.get('height', 0))
-            tech_check["resolution"] = f"{width}x{height}"
-
-            if (width != expected_resolution[0]
-                    or height != expected_resolution[1]):
-                tech_check["issues"].append(
-                    f"Resolution mismatch: got {width}x{height}, "
-                    f"expected {expected_resolution[0]}x{expected_resolution[1]}")
-
-            # Frame rate check
-            fps_str = vs.get('r_frame_rate', '0/1')
-            if '/' in fps_str:
-                num, den = fps_str.split('/')
-                actual_fps = int(num) / max(int(den), 1)
-            else:
-                actual_fps = float(fps_str)
-            tech_check["fps"] = round(actual_fps, 2)
-
-            if abs(actual_fps - expected_fps) > 1.0:
-                tech_check["issues"].append(
-                    f"FPS mismatch: got {actual_fps:.2f}, "
-                    f"expected {expected_fps}")
-
-        # Audio stream checks
-        if not audio_streams:
-            tech_check["issues"].append("No audio stream found")
-        else:
-            tech_check["audio_streams"] = len(audio_streams)
-
-        if not tech_check["issues"]:
-            tech_check["pass"] = True
-
-    checks["technical"] = tech_check
-
-    # ── Check 3: Duration comparison ──
-    duration_check = {"pass": False, "issues": []}
-    fmt = probe.get('format', {}) if probe else {}
-    actual_duration = float(fmt.get('duration', 0))
-    duration_check["actual_seconds"] = round(actual_duration, 2)
-    duration_check["expected_seconds"] = round(expected_duration, 2)
-
-    if actual_duration == 0:
-        duration_check["issues"].append("Could not determine duration")
-    elif expected_duration > 0:
-        drift = abs(actual_duration - expected_duration)
-        drift_pct = (drift / expected_duration) * 100
-        duration_check["drift_seconds"] = round(drift, 2)
-        duration_check["drift_percent"] = round(drift_pct, 1)
-
-        if drift_pct > 10:
-            duration_check["issues"].append(
-                f"Duration drift too large: {drift:.2f}s "
-                f"({drift_pct:.1f}% off expected {expected_duration:.1f}s)")
-        else:
-            duration_check["pass"] = True
-    else:
-        # No expected duration to compare, just check it's reasonable
-        if 10 <= actual_duration <= 120:
-            duration_check["pass"] = True
-        else:
-            duration_check["issues"].append(
-                f"Duration {actual_duration:.1f}s outside expected "
-                f"30-60s range for shortform content")
-
-    checks["duration"] = duration_check
-
-    # ── Check 4: Black frame detection ──
-    black_frame_check = {"pass": False, "issues": []}
-    if actual_duration > 0:
-        # Sample frames at 10%, 25%, 50%, 75%, 90% of the video
-        sample_points = [0.1, 0.25, 0.5, 0.75, 0.9]
-        total_frames = int(actual_duration * expected_fps)
-        sample_frames = [int(p * total_frames) for p in sample_points]
-
-        black_frames = []
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for frame_num in sample_frames:
-                png_path = os.path.join(tmpdir, f"frame_{frame_num}.png")
-                extracted = _extract_frame(
-                    video_path, frame_num, png_path, expected_fps)
-
-                if extracted and os.path.exists(png_path):
-                    frame_size = os.path.getsize(png_path)
-                    # < 2KB is almost certainly a black/blank frame
-                    if frame_size < 2048:
-                        black_frames.append({
-                            "frame": frame_num,
-                            "time": round(frame_num / expected_fps, 2),
-                            "size_bytes": frame_size,
-                        })
-                elif not extracted:
-                    black_frames.append({
-                        "frame": frame_num,
-                        "time": round(frame_num / expected_fps, 2),
-                        "error": "extraction failed",
-                    })
-
-        black_frame_check["sampled"] = len(sample_frames)
-        black_frame_check["black_frames"] = black_frames
-
-        if black_frames:
-            positions = [f"{bf['time']:.1f}s" for bf in black_frames]
-            black_frame_check["issues"].append(
-                f"Black/blank frames detected at: {', '.join(positions)}")
-        else:
-            black_frame_check["pass"] = True
-    else:
-        black_frame_check["issues"].append(
-            "Skipped: could not determine duration")
-
-    checks["black_frames"] = black_frame_check
-
-    # ── Check 5: Audio level check ──
-    audio_check = {"pass": False, "issues": []}
+    # ── Run QA Toolkit ──
+    qa_results = []
     try:
-        result = subprocess.run(
-            ['ffmpeg', '-i', video_path,
-             '-af', 'volumedetect', '-f', 'null', '-'],
-            capture_output=True, text=True, timeout=60,
-        )
-        stderr = result.stderr
-        # Parse volumedetect output
-        for line in stderr.split('\n'):
-            if 'mean_volume' in line:
-                parts = line.split('mean_volume:')
-                if len(parts) > 1:
-                    vol_str = parts[1].strip().replace(' dB', '')
-                    try:
-                        mean_vol = float(vol_str)
-                        audio_check["mean_volume_db"] = mean_vol
+        qa_results = run_full_render_qa(video_path, expected_duration)
+    except Exception as e:
+        print(f"Error running render_qa: {e}", file=sys.stderr)
+        traceback.print_exc()
 
-                        if mean_vol < -40:
-                            audio_check["issues"].append(
-                                f"Audio very quiet: {mean_vol:.1f} dB mean")
-                        elif mean_vol > -3:
-                            audio_check["issues"].append(
-                                f"Audio may be clipping: {mean_vol:.1f} dB mean")
-                    except ValueError:
-                        pass
-
-            if 'max_volume' in line:
-                parts = line.split('max_volume:')
-                if len(parts) > 1:
-                    vol_str = parts[1].strip().replace(' dB', '')
-                    try:
-                        max_vol = float(vol_str)
-                        audio_check["max_volume_db"] = max_vol
-
-                        if max_vol >= 0:
-                            audio_check["issues"].append(
-                                f"Audio clipping detected: {max_vol:.1f} dB peak")
-                    except ValueError:
-                        pass
-
-        if not audio_check["issues"]:
-            if "mean_volume_db" in audio_check:
-                audio_check["pass"] = True
-            else:
-                audio_check["issues"].append("Could not parse audio levels")
-
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        audio_check["issues"].append(f"Audio analysis failed: {e}")
-
+    # Subtitle QA
+    subtitles = assembly_manifest.get("subtitles", [])
+    if subtitles:
+        try:
+            qa_results.extend(verify_subtitle_timing(subtitles))
+            qa_results.extend(verify_subtitle_safe_zone(subtitles, expected_resolution[0], expected_resolution[1]))
+        except Exception as e:
+            print(f"Error running subtitle_qa: {e}", file=sys.stderr)
+            traceback.print_exc()
+            
+    # Process QA Results into existing checks format for compatibility
+    tech_check = {"pass": True, "issues": []}
+    duration_check = {"pass": True, "issues": []}
+    black_frame_check = {"pass": True, "issues": []}
+    audio_check = {"pass": True, "issues": []}
+    
+    qa_report = []
+    
+    for r in qa_results:
+        # Convert dataclass to dict
+        r_dict = {
+            "metric": r.metric,
+            "passed": r.passed,
+            "value": r.value,
+            "threshold": r.threshold,
+            "severity": r.severity,
+            "detail": r.detail
+        }
+        qa_report.append(r_dict)
+        
+        # Map to legacy checks
+        if r.metric in ["resolution", "framerate"]:
+            if not r.passed:
+                tech_check["pass"] = False
+                tech_check["issues"].append(r.detail)
+        elif r.metric == "duration":
+            if not r.passed:
+                duration_check["pass"] = False
+                duration_check["issues"].append(r.detail)
+        elif r.metric == "black_frames":
+            if not r.passed:
+                black_frame_check["pass"] = False
+                black_frame_check["issues"].append(r.detail)
+        elif r.metric in ["audio_streams", "lufs"]:
+            if not r.passed:
+                audio_check["pass"] = False
+                audio_check["issues"].append(r.detail)
+                
+    checks["technical"] = tech_check
+    checks["duration"] = duration_check
+    checks["black_frames"] = black_frame_check
     checks["audio_levels"] = audio_check
 
     # ── Aggregate result ──
@@ -299,23 +172,25 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
         for issue in check.get("issues", []):
             all_issues.append(f"[{name}] {issue}")
 
+    # Write QA report JSON
+    qa_report_path = os.path.join(os.path.dirname(video_path), "qa_report.json")
+    try:
+        with open(qa_report_path, 'w') as f:
+            json.dump(qa_report, f, indent=2)
+    except Exception as e:
+        print(f"Failed to write qa_report.json: {e}", file=sys.stderr)
+
     return {
         "status": "pass" if all_passed else "fail",
         "checks": checks,
         "all_issues": all_issues,
         "distribution_ready": all_passed,
         "critical_checks_passed": critical_passed,
-        "summary": (
-            "All automated checks passed"
-            if all_passed
-            else f"{len(all_issues)} issue(s) found"
-        ),
-        "recommended_action": (
-            None if all_passed
-            else "Review issues and re-render if critical checks failed"
-        ),
+        "summary": "All automated checks passed" if all_passed else f"{len(all_issues)} issue(s) found",
+        "recommended_action": None if all_passed else "Review issues and re-render if critical checks failed",
+        "qa_report_path": qa_report_path,
+        "qa_report": qa_report
     }
-
 
 def _validate_build_result(build_result: dict, assembly_manifest: dict) -> dict:
     """Validate the timeline build result when no rendered file exists yet.
