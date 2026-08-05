@@ -312,6 +312,15 @@ def compile_manifest(out_dir: str) -> dict:
                 sfx_data.get("sfx_events",
                   sfx_data.get("sfx_spec", [])))
 
+    if isinstance(sfx_raw, dict):
+        sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_spec", []))
+        sfx_preset = sfx_raw.get("fairlight_preset")
+        sfx_ducking = sfx_raw.get("music_ducking")
+    else:
+        sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
+        sfx_preset = None
+        sfx_ducking = None
+
     sfx_library_path = os.environ.get(
         "SFX_LIBRARY",
         "/Users/prajwal/Documents/content_stuff/"
@@ -394,7 +403,7 @@ def compile_manifest(out_dir: str) -> dict:
     # Compile SFX into builder-compatible format
     a3_clips = []
     sfx_passthrough = []  # Keep raw SFX for reference
-    for si, sfx_entry in enumerate(sfx_raw):
+    for si, sfx_entry in enumerate(sfx_list):
         sfx_type = sfx_entry.get("sfx_type", "whoosh")
         tl_start_sec = sfx_entry.get("timeline_start", 0.0)
         tl_end_sec = sfx_entry.get("timeline_end",
@@ -500,9 +509,9 @@ def compile_manifest(out_dir: str) -> dict:
         fusion_transitions.append(trans_obj)
 
     # Audio config
+    audio_preset = sfx_preset or audio_mix_data.get("audio_mix_spec", {}).get("fairlight_preset", "")
     audio_config = {
-        "fairlight_preset": audio_mix_data.get(
-            "audio_mix_spec", {}).get("fairlight_preset", ""),
+        "fairlight_preset": audio_preset,
     }
 
     # ── Compile ──
@@ -544,7 +553,7 @@ def compile_manifest(out_dir: str) -> dict:
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
-        "music_ducking": {
+        "music_ducking": sfx_ducking or {
             "speech_volume_db": -18,
             "gap_volume_db": -10,
         },
@@ -804,8 +813,9 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})
+    audio_preset = sfx_preset or audio_mix_data.get("fairlight_preset", "")
     audio_config = {
-        "fairlight_preset": audio_mix_data.get("fairlight_preset", ""),
+        "fairlight_preset": audio_preset,
     }
 
     # SFX: Resolve SFX file paths using the SFX library.
@@ -813,9 +823,13 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     # unresolved specs that lack source_file paths needed by the render step.
     sfx_raw = inputs.get("sfx_spec", [])
     if isinstance(sfx_raw, dict):
-        sfx_list = sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", []))
+        sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", [])))
+        sfx_preset = sfx_raw.get("fairlight_preset")
+        sfx_ducking = sfx_raw.get("music_ducking")
     else:
         sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
+        sfx_preset = None
+        sfx_ducking = None
 
     sfx_library_path = os.environ.get(
         "SFX_LIBRARY",
@@ -918,7 +932,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "audio": audio_config,
         "color_grade": inputs.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data,
-        "music_ducking": {
+        "music_ducking": sfx_ducking or {
             "speech_volume_db": -18,
             "gap_volume_db": -10,
         },

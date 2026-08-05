@@ -32,8 +32,10 @@ from typing import Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
 try:
     from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
+    from fairlight_presets import get_preset, apply_fairlight_preset
 except ImportError:
     apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
+    get_preset = apply_fairlight_preset = None
 
 
 # ─── Resolve Connection ──────────────────────────────────────
@@ -357,6 +359,17 @@ def build_timeline(
             print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
                   f"src {src_in_f}-{src_out_f} → V1+A1 at TL {tl_in_f} "
                   f"({placed.GetDuration()}f)", file=sys.stderr)
+                  
+            # Apply Fairlight preset to this dialogue track item
+            fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')
+            if fairlight_preset_name and get_preset and apply_fairlight_preset:
+                preset = get_preset(fairlight_preset_name)
+                success = apply_fairlight_preset(placed, preset)
+                if success:
+                    print(f"    ✓ Applied Fairlight preset: {fairlight_preset_name}", file=sys.stderr)
+                else:
+                    results["warnings"].append(f"Fairlight preset {fairlight_preset_name} could not be applied to {basename}")
+
         else:
             results["errors"].append(f"V1[{ci}] AppendToTimeline failed for {basename}")
             print(f"  ✗ [{ci}] {basename}: AppendToTimeline returned None", file=sys.stderr)
@@ -504,6 +517,32 @@ def build_timeline(
                         results["warnings"].append(
                             f"Volume set failed for {basename}: {e}"
                         )
+                        
+                # Apply music ducking keyframes if present
+                music_ducking = manifest.get('music_ducking', [])
+                if music_ducking and isinstance(music_ducking, list):
+                    # We have ducking keyframes: [{"time_ms": int, "volume_db": float}]
+                    # Fairlight API access for automation is limited. We'll try common patterns.
+                    if hasattr(placed, "AddMarker"):
+                        # Sometimes we add markers to guide the editor
+                        pass
+                    
+                    try:
+                        # If API supports adding property keyframes
+                        if hasattr(placed, "AddPropertyKeyframe"):
+                            for kf in music_ducking:
+                                frame = round((kf["time_ms"] / 1000.0) * fps)
+                                vol_lin = max(0.0, min(10 ** (kf["volume_db"] / 20.0), 4.0))
+                                placed.AddPropertyKeyframe("Volume", frame, vol_lin)
+                        # Or if we can just set properties at time
+                        elif hasattr(placed, "SetPropertyAtTime"):
+                            for kf in music_ducking:
+                                frame = round((kf["time_ms"] / 1000.0) * fps)
+                                vol_lin = max(0.0, min(10 ** (kf["volume_db"] / 20.0), 4.0))
+                                placed.SetPropertyAtTime("Volume", frame, vol_lin)
+                    except Exception as e:
+                        results["warnings"].append(f"Music ducking automation failed: {e}")
+
             else:
                 print(f"  ✗ {basename}: failed", file=sys.stderr)
 

@@ -28,6 +28,10 @@ Idempotent: Yes
 import json
 import sys
 
+from library.tools.fairlight_presets import select_preset_for_content
+from library.tools.audio_ducker import compute_ducking_curves, compute_sfx_ducking
+from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
+
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -297,7 +301,11 @@ def resolve_sfx(
     temporal_indices: list = None,
     music_analysis: dict = None,
     frame_rate: float = 30.0,
-) -> list:
+    creative_direction: dict = None,
+    prosody_analysis: dict = None,
+    engagement_scores: dict = None,
+    brand_audio: dict = None,
+) -> dict:
     """Resolve creative SFX plan to execution specs.
 
     For each SFX in the creative plan:
@@ -321,6 +329,16 @@ def resolve_sfx(
     if music_analysis:
         bars = music_analysis.get("beat_grid", {}).get("bars", [])
         beat_grid = [b["start"] for b in bars]
+
+    # Apply SFX density scaling based on energy
+    energy_level = "moderate"
+    if creative_direction:
+        energy_level = creative_direction.get("energy_level", "moderate")
+    creative_plan = scale_sfx_density(creative_plan, energy_level)
+
+    # Align to prosody if available
+    if prosody_analysis:
+        creative_plan = align_sfx_to_prosody(creative_plan, prosody_analysis, engagement_scores)
 
     resolved = []
     for sfx in creative_plan:
@@ -367,7 +385,43 @@ def resolve_sfx(
             "shift_from_original": round(shift, 3),
         })
 
-    return resolved
+    # Apply SFX ducking
+    speech_segments = []
+    if prosody_analysis and "speech_segments" in prosody_analysis:
+        speech_segments = prosody_analysis["speech_segments"]
+    elif temporal_indices:
+        # Fallback to temporal index word ends
+        # (Very naive fallback just to have some segments)
+        pass
+
+    if speech_segments:
+        # compute_sfx_ducking expects {"start_time": x, "end_time": y}
+        # bridge currently outputs {"timeline_start": x, "timeline_end": y}
+        # Let's map it temporarily
+        mapped_resolved = [{"start_time": s["timeline_start"], "end_time": s["timeline_end"], **s} for s in resolved]
+        ducked_sfx = compute_sfx_ducking(mapped_resolved, speech_segments)
+        # map back
+        for i, s in enumerate(ducked_sfx):
+            resolved[i]["volume_db"] = s.get("volume_db", resolved[i]["volume_db"])
+
+    # Determine Fairlight preset
+    content_type = "vlog"
+    if creative_direction:
+        content_type = creative_direction.get("content_type", "vlog")
+    preset_name = select_preset_for_content(content_type, brand_audio)
+
+    # Compute music ducking
+    music_dur = 60.0
+    if music_analysis and "duration" in music_analysis:
+        music_dur = music_analysis["duration"]
+    music_ducking = compute_ducking_curves(speech_segments, music_dur)
+
+    return {
+        "sfx_list": resolved,
+        "fairlight_preset": preset_name,
+        "music_ducking": music_ducking,
+    }
+
 
 
 def _describe_placement(sfx_type: str) -> str:
@@ -405,8 +459,14 @@ def main():
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     music = data.get("music_analysis", {})
     fps = data.get("frame_rate", 30.0)
+    
+    cd = data.get("creative_direction", {})
+    prosody = data.get("prosody_analysis", {})
+    eng = data.get("engagement_scores", {})
+    brand_audio = data.get("brand_audio", {})
 
-    result = resolve_sfx(creative, spine, temporal, music, fps)
+    result = resolve_sfx(creative, spine, temporal, music, fps, cd, prosody, eng, brand_audio)
+    
     json.dump({"sfx_spec": result}, sys.stdout, indent=2)
 
 

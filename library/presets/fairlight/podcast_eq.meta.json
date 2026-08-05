@@ -6,5 +6,6 @@
   "compatibility": {"resolve_version": ">=18.0"},
   "file_path": "podcast_eq.preset",
   "mood_match": ["professional", "clear"],
-  "energy_match": ["moderate", "low"]
+  "energy_match": ["moderate", "low"],
+  "internal_preset": "podcast_master"
 }

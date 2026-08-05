@@ -6,5 +6,6 @@
   "compatibility": {"resolve_version": ">=18.0"},
   "file_path": "broadcast_limiter.preset",
   "mood_match": ["loud", "professional"],
-  "energy_match": ["high", "moderate"]
+  "energy_match": ["high", "moderate"],
+  "internal_preset": "music_forward"
 }

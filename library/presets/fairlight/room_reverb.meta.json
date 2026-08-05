@@ -6,5 +6,6 @@
   "compatibility": {"resolve_version": ">=18.0"},
   "file_path": "room_reverb.preset",
   "mood_match": ["spacious", "natural"],
-  "energy_match": ["moderate", "low"]
+  "energy_match": ["moderate", "low"],
+  "internal_preset": "ambient_bed"
 }
