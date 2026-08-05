@@ -33,9 +33,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../t
 try:
     from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
     from fairlight_presets import get_preset, apply_fairlight_preset
+    from timeline_qa import (
+        verify_clip_placement, verify_transitions, verify_color_grades,
+        verify_audio, verify_fusion_comps, run_full_timeline_qa
+    )
 except ImportError:
     apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
     get_preset = apply_fairlight_preset = None
+    verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
 
 
 # ─── Resolve Connection ──────────────────────────────────────
@@ -209,6 +214,17 @@ def build_timeline(
         "errors": [],
         "warnings": [],
     }
+    
+    qa_reports = []
+    def _run_qa(report):
+        if not report: return
+        qa_reports.append(report)
+        if not report.passed:
+            for check in report.checks:
+                if not check.passed and check.severity == "error":
+                    msg = f"QA [{report.station}] Failed {check.name}: expected {check.expected}, got {check.actual}"
+                    print(f"  ⚠ {msg}", file=sys.stderr)
+                    results["warnings"].append(msg)
 
     # ── Connect to Resolve ──
     try:
@@ -376,6 +392,9 @@ def build_timeline(
 
     results["tracks"]["V1"] = len(v1_timeline_items)
     results["tracks"]["A1"] = len(v1_timeline_items)  # auto-linked
+    
+    if verify_clip_placement:
+        _run_qa(verify_clip_placement(timeline, {"V1": v1_timeline_items}, {"V1": v1_clips}))
 
     # ══════════════════════════════════════════════════════════
     # NOW create extra audio tracks (AFTER V1 — so they start clean)
@@ -419,6 +438,9 @@ def build_timeline(
                 print(f"  ✗ [{ci}] {basename}: failed", file=sys.stderr)
 
         results["tracks"]["V2"] = v2_count
+        
+    if verify_transitions:
+        _run_qa(verify_transitions(timeline, {}, manifest.get("transitions", [])))
 
     # ══════════════════════════════════════════════════════════
     # PLACE V3: Subtitle Overlay (Remotion)
@@ -795,6 +817,9 @@ def build_timeline(
                               file=sys.stderr)
                         break
 
+    if verify_fusion_comps:
+        _run_qa(verify_fusion_comps(timeline, None, manifest.get("vfx", {})))
+
     # ══════════════════════════════════════════════════════════
     # NEURAL ENGINE DIRECTIVES (Per-Clip)
     # ══════════════════════════════════════════════════════════
@@ -873,6 +898,9 @@ def build_timeline(
             print(f"  ✗ Fairlight preset '{fairlight_preset}' not found or failed", file=sys.stderr)
             results["warnings"].append(
                 f"Fairlight preset '{fairlight_preset}' failed")
+                
+    if verify_audio:
+        _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
 
     # ══════════════════════════════════════════════════════════
     # COLOR GRADING (CDL + PowerGrade)
@@ -987,6 +1015,9 @@ def build_timeline(
                             pass
                         
                     print(f"  ✓ Copied grade to subsequent clip of {clip_name}", file=sys.stderr)
+                    
+    if verify_color_grades:
+        _run_qa(verify_color_grades(timeline, None, manifest.get("color_grade", {})))
 
     # ══════════════════════════════════════════════════════════
     print(f"\n── Track Labels ──", file=sys.stderr)
@@ -1012,49 +1043,24 @@ def build_timeline(
     print(f"\n── Verification ──", file=sys.stderr)
     resolve.OpenPage("edit")
 
-    # Duration check
-    start_f = timeline.GetStartFrame()
-    end_f = timeline.GetEndFrame()
-    actual_dur = (end_f - start_f) / fps
-    print(f"  Duration: {actual_dur:.1f}s (expected: {total_duration:.1f}s)", file=sys.stderr)
-
-    # Playhead checks at key positions
-    playhead_checks = []
-    for clip in v1_clips:
-        mid_f = (clip['timeline_in_frame'] + clip['timeline_out_frame']) // 2
-        playhead_checks.append((mid_f, clip.get('label', os.path.basename(clip['source_file']))))
-
-    print(f"\n  Playhead verification ({len(playhead_checks)} points):", file=sys.stderr)
     all_passed = True
-    for frame, expected_label in playhead_checks:
-        ifps = int(fps)
-        tc = f"{frame // (ifps * 3600):02d}:{(frame // (ifps * 60)) % 60:02d}:" \
-             f"{(frame // ifps) % 60:02d}:{frame % ifps:02d}"
-        timeline.SetCurrentTimecode(tc)
-        item = timeline.GetCurrentVideoItem()
-        name = item.GetName() if item else "EMPTY"
-        passed = item is not None
-        status = "✓" if passed else "✗"
-        if not passed:
-            all_passed = False
-        print(f"    {status} Frame {frame:5d} ({frame / fps:5.1f}s): {name} — expected: {expected_label}", file=sys.stderr)
+    if run_full_timeline_qa:
+        final_report = run_full_timeline_qa(timeline, project, manifest)
+        qa_reports.append(final_report)
+        all_passed = final_report.passed
+        for check in final_report.checks:
+            status = "✓" if check.passed else "✗"
+            print(f"    {status} {check.name} — expected: {check.expected}, actual: {check.actual}", file=sys.stderr)
+            if not check.passed and check.severity == "error":
+                results["warnings"].append(f"Final QA Failed {check.name}: {check.actual}")
+    else:
+        print("  ⚠ Timeline QA script not loaded.", file=sys.stderr)
 
-    # Track inventory
-    print(f"\n  Track inventory:", file=sys.stderr)
-    for ti in range(1, timeline.GetTrackCount("video") + 1):
-        items = timeline.GetItemListInTrack("video", ti)
-        name = timeline.GetTrackName("video", ti)
-        count = len(items) if items else 0
-        print(f"    V{ti} ({name}): {count} clips", file=sys.stderr)
-
-    for ti in range(1, timeline.GetTrackCount("audio") + 1):
-        items = timeline.GetItemListInTrack("audio", ti)
-        name = timeline.GetTrackName("audio", ti)
-        count = len(items) if items else 0
-        print(f"    A{ti} ({name}): {count} clips", file=sys.stderr)
+    print(f"\n── QA Summary ──", file=sys.stderr)
+    for rep in qa_reports:
+        print(f"  Station {rep.station}: {'Passed' if rep.passed else 'Failed'}", file=sys.stderr)
 
     results["success"] = all_passed and not results["errors"]
-    results["duration_seconds"] = actual_dur
     results["verification_passed"] = all_passed
 
     status_emoji = "✓" if results["success"] else "✗"

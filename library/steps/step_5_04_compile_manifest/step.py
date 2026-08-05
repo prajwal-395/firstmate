@@ -19,6 +19,7 @@ import sys
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
+from tools.manifest_validator import validate_manifest
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
     if not cohesion_review or not cohesion_review.get("adjustments"):
@@ -605,6 +606,10 @@ def compile_manifest(out_dir: str) -> dict:
           f"{sfx_unresolved} unresolved", file=sys.stderr)
     print(f"  Duration:    {total_duration:.1f}s", file=sys.stderr)
 
+    errors = validate_manifest(manifest)
+    if errors:
+        raise ValueError(f"Manifest validation failed with {len(errors)} errors:\n" + "\n".join(errors))
+
     return manifest
 
 
@@ -967,6 +972,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         ],
         "subtitle_overlay": inputs.get("subtitle_overlay", {}),
     }
+
+    errors = validate_manifest(manifest)
+    if errors:
+        raise ValueError(f"Manifest validation failed with {len(errors)} errors:\n" + "\n".join(errors))
 
     return {"assembly_manifest": manifest}
 
