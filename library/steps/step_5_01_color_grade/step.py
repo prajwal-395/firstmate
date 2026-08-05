@@ -117,7 +117,25 @@ def _estimate_exposure(filepath: str) -> float:
         return 0.0
 
 
-def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
+def _extract_frame(video_path: str) -> str:
+    """Extract a single frame from video for color analysis."""
+    import tempfile
+    if not os.path.exists(video_path):
+        return ""
+    fd, path = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    try:
+        subprocess.run(
+            ['ffmpeg', '-y', '-v', 'quiet', '-i', video_path, '-vframes', '1', '-q:v', '2', path],
+            check=True
+        )
+        return path
+    except Exception:
+        if os.path.exists(path):
+            os.remove(path)
+        return ""
+
+def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "", creative_look_dctl: str = "") -> dict:
     """Define the color grading specification based on style spec.
 
     Runs per-clip exposure analysis via ffprobe to estimate brightness
@@ -128,43 +146,84 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
     # Identify clips that may need per-clip adjustments
     per_clip_adjustments = []
     seen_clips = set()
+    clip_frames = {}
 
     for entry in entries:
-        # Only process video entries (V1/V2), and only once per clip
         if entry["track"] not in ("V1", "V2"):
             continue
         if entry["clip_id"] in seen_clips:
             continue
         seen_clips.add(entry["clip_id"])
 
-        # Estimate exposure from the source file
+        source_file = entry.get("source_file", "")
+        if source_file and not os.path.isabs(source_file) and project_folder:
+            source_file = os.path.join(project_folder, source_file)
+            
+        if reference_image:
+            frame_path = _extract_frame(source_file)
+            if frame_path:
+                clip_frames[entry["clip_id"]] = frame_path
+
+    # Compute matches if reference is provided
+    cdl_matches = {}
+    if reference_image:
+        try:
+            from library.tools.look_matcher import match_clips_to_reference
+            cdl_matches = match_clips_to_reference(reference_image, clip_frames)
+        except ImportError:
+            pass
+            
+    # Cleanup temp frames
+    for frame_path in clip_frames.values():
+        if os.path.exists(frame_path):
+            os.remove(frame_path)
+
+    seen_clips.clear()
+
+    for entry in entries:
+        if entry["track"] not in ("V1", "V2"):
+            continue
+        if entry["clip_id"] in seen_clips:
+            continue
+        seen_clips.add(entry["clip_id"])
+
         source_file = entry.get("source_file", "")
         if source_file and not os.path.isabs(source_file) and project_folder:
             source_file = os.path.join(project_folder, source_file)
 
-        exposure_offset = _estimate_exposure(source_file)
-
-        if exposure_offset == 0.0:
-            notes = "Exposure within normal range, no adjustment needed"
-        elif exposure_offset > 0:
-            notes = f"Clip underexposed, brightening by {exposure_offset:.3f}"
+        if reference_image and entry["clip_id"] in cdl_matches:
+            match = cdl_matches[entry["clip_id"]]
+            notes = "AI Look Match CDL applied"
+            cdl_values = {
+                "slope_r": match["slope"][0],
+                "slope_g": match["slope"][1],
+                "slope_b": match["slope"][2],
+                "offset_r": match["offset"][0],
+                "offset_g": match["offset"][1],
+                "offset_b": match["offset"][2],
+                "power_r": match["power"][0],
+                "power_g": match["power"][1],
+                "power_b": match["power"][2],
+                "saturation": match["saturation"]
+            }
+            exposure_offset = 0.0
         else:
-            notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
-
-        slope = round(2.0 ** exposure_offset, 3)
-        wb_offset = GRADE_PIPELINE["node_2"].get("white_balance_offset", 0)
-        offset_r = round(wb_offset / 10000.0, 3)
-        offset_g = 0.0
-        offset_b = round(-wb_offset / 10000.0, 3)
-        
-        per_clip_adjustments.append({
-            "entry_id": entry["entry_id"],
-            "clip_id": entry["clip_id"],
-            "source_file": source_file,
-            "exposure_offset": exposure_offset,
-            "white_balance_override": None,
-            "notes": notes,
-            "cdl_values": {
+            exposure_offset = _estimate_exposure(source_file)
+    
+            if exposure_offset == 0.0:
+                notes = "Exposure within normal range, no adjustment needed"
+            elif exposure_offset > 0:
+                notes = f"Clip underexposed, brightening by {exposure_offset:.3f}"
+            else:
+                notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
+    
+            slope = round(2.0 ** exposure_offset, 3)
+            wb_offset = GRADE_PIPELINE["node_2"].get("white_balance_offset", 0)
+            offset_r = round(wb_offset / 10000.0, 3)
+            offset_g = 0.0
+            offset_b = round(-wb_offset / 10000.0, 3)
+            
+            cdl_values = {
                 "slope_r": slope,
                 "slope_g": slope,
                 "slope_b": slope,
@@ -176,6 +235,15 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
                 "power_b": 0.95,
                 "saturation": 1.12
             }
+
+        per_clip_adjustments.append({
+            "entry_id": entry["entry_id"],
+            "clip_id": entry["clip_id"],
+            "source_file": source_file,
+            "exposure_offset": exposure_offset,
+            "white_balance_override": None,
+            "notes": notes,
+            "cdl_values": cdl_values
         })
 
     return {
@@ -189,6 +257,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
                 "brightness analysis via ffprobe signalstats."
             ),
             "powergrade_path": None,
+            "creative_look_dctl": creative_look_dctl,
         },
     }
 
@@ -196,6 +265,9 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
 def main():
     input_data = json.loads(sys.stdin.read())
     project_folder = input_data.get("project_folder", "")
+    brand_template = input_data.get("brand_template", {})
+    style = brand_template.get("style", {})
+    reference_image = style.get("reference_look_image", "")
 
     # Build a shot_list-compatible structure from upstream data
     entries = []
@@ -220,7 +292,7 @@ def main():
         })
 
     shot_list = {"entries": entries}
-    result = define_color_grade(shot_list, project_folder)
+    result = define_color_grade(shot_list, project_folder, reference_image, style.get("creative_look_dctl", ""))
     json.dump(result, sys.stdout, indent=2)
 
 

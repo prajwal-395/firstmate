@@ -6,6 +6,9 @@ style:
     cuts_per_minute_max: 15
   color_palette: ["#223344", "#aabbcc", "#111111"]
   preferred_powergrade: "Moody Desaturated"
+  # Add path to reference frame for AI color matching here:
+  # reference_look_image: "/path/to/reference.jpg"
+  # creative_look_dctl: "/path/to/look.dctl"
 effect:
   transition_types: ["dissolve", "wipe"]
   vfx_intensity: 0.3

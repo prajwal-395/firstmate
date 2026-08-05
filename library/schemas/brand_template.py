@@ -6,6 +6,8 @@ from typing import List, Dict, Any
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
     preferred_powergrade: str = ""
+    reference_look_image: str = ""
+    creative_look_dctl: str = ""
     typography: Dict[str, Any] = field(default_factory=dict)
     pacing: Dict[str, float] = field(default_factory=dict)
     energy_profile: str = "moderate"
@@ -52,6 +54,8 @@ class BrandTemplate:
                     "properties": {
                         "color_palette": {"type": "array", "items": {"type": "string"}},
                         "preferred_powergrade": {"type": "string"},
+                        "reference_look_image": {"type": "string"},
+                        "creative_look_dctl": {"type": "string"},
                         "typography": {"type": "object"},
                         "pacing": {"type": "object"},
                         "energy_profile": {"type": "string", "enum": ["calm", "moderate", "high"]}

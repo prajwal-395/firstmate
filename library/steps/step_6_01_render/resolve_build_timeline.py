@@ -901,6 +901,17 @@ def build_timeline(
                             print(f"  ✗ Failed to apply PowerGrade to {clip_name}", file=sys.stderr)
                             results["warnings"].append(f"Failed to apply PowerGrade to {clip_name}")
 
+                    creative_look_dctl = color_grade.get("creative_look_dctl", "")
+                    if creative_look_dctl:
+                        try:
+                            res = item.SetLUT(4, creative_look_dctl)
+                            if res:
+                                print(f"  ✓ Applied DCTL to {clip_name} (node 4)", file=sys.stderr)
+                            else:
+                                print(f"  ✗ Failed to apply DCTL to {clip_name}", file=sys.stderr)
+                        except Exception as e:
+                            results["warnings"].append(f"DCTL error on {clip_name}: {e}")
+
                     graded_sources[clip_name] = item
                     print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
                 else:
@@ -928,6 +939,13 @@ def build_timeline(
                     
                     if powergrade_path and os.path.exists(powergrade_path):
                         item.ApplyGradeFromDRX(powergrade_path, 1)
+
+                    creative_look_dctl = color_grade.get("creative_look_dctl", "")
+                    if creative_look_dctl:
+                        try:
+                            item.SetLUT(4, creative_look_dctl)
+                        except Exception:
+                            pass
                         
                     print(f"  ✓ Copied grade to subsequent clip of {clip_name}", file=sys.stderr)
 
