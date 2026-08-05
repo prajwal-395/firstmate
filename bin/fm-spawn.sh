@@ -2366,27 +2366,6 @@ if [ "$KIND" != secondmate ]; then
       ;;
   esac
   case "$HARNESS" in
-    agy*)
-      # Semantic busy-state hooks (bin/fm-busy-lib.sh): same hook events as
-      # Claude - UserPromptSubmit opens a turn; Stop, StopFailure, and
-      # SessionEnd all close it. agy hooks MUST always exit 0 (non-zero is
-      # treated as a hook execution failure), so || true is critical here.
-      # The Stop hook also touches the turn-ended NOTIFICATION for the watcher.
-      # agy workspace hooks (.agents/hooks.json) are merged with global hooks
-      # automatically when the workspace is trusted, so there is no collision
-      # with the user's existing global hooks.
-      mkdir -p "$WT/.agents"
-      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
-      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source agy-hook"
-      j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
-      j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
-      j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
-      j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-      cat > "$WT/.agents/hooks.json" <<EOF
-{"fm-busy-state":{"UserPromptSubmit":[{"type":"command","command":"$j_submit","timeout":10}],"Stop":[{"type":"command","command":"$j_stop","timeout":10}],"StopFailure":[{"type":"command","command":"$j_stopfail","timeout":10}],"SessionEnd":[{"type":"command","command":"$j_sessionend","timeout":10}]}}
-EOF
-      exclude_path '.agents/hooks.json'
-      ;;
     claude*)
       # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
       # a turn; Stop (normal completion), StopFailure (API-error turn end),
@@ -2408,6 +2387,38 @@ EOF
 {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
       exclude_path '.claude/settings.local.json'
+      ;;
+    agy*)
+      # Semantic busy-state hooks (bin/fm-busy-lib.sh): same hook events as
+      # Claude - UserPromptSubmit opens a turn; Stop, StopFailure, and
+      # SessionEnd all close it. agy hooks MUST always exit 0 (non-zero is
+      # treated as a hook execution failure), so || true is critical here.
+      # The Stop hook also touches the turn-ended NOTIFICATION for the watcher.
+      # agy workspace hooks (.agents/hooks.json) are merged with global hooks
+      # automatically when the workspace is trusted, so there is no collision
+      # with the user's existing global hooks.
+      mkdir -p "$WT/.agents"
+      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
+      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source agy-hook"
+      j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
+      j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
+      j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
+      j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
+      cat > "$WT/.agents/hooks.json" <<EOF
+{"fm-busy-state":{"UserPromptSubmit":[{"type":"command","command":"$j_submit","timeout":10}],"Stop":[{"type":"command","command":"$j_stop","timeout":10}],"StopFailure":[{"type":"command","command":"$j_stopfail","timeout":10}],"SessionEnd":[{"type":"command","command":"$j_sessionend","timeout":10}]}}
+EOF
+      exclude_path '.agents/hooks.json'
+      # agy only loads workspace hooks from trusted workspaces. Treehouse
+      # worktrees are ephemeral paths that won't be pre-trusted, so ensure the
+      # worktree path is in agy's trustedWorkspaces before launch.
+      agy_settings="${HOME}/.gemini/antigravity-cli/settings.json"
+      if [ -f "$agy_settings" ] && command -v jq >/dev/null 2>&1; then
+        wt_real=$(cd "$WT" && pwd -P 2>/dev/null) || wt_real="$WT"
+        if ! jq -e --arg p "$wt_real" '.trustedWorkspaces // [] | index($p)' "$agy_settings" >/dev/null 2>&1; then
+          jq --arg p "$wt_real" '.trustedWorkspaces = ((.trustedWorkspaces // []) + [$p])' "$agy_settings" > "${agy_settings}.tmp" \
+            && mv "${agy_settings}.tmp" "$agy_settings" 2>/dev/null || rm -f "${agy_settings}.tmp"
+        fi
+      fi
       ;;
     opencode*)
       mkdir -p "$WT/.opencode/plugins"
