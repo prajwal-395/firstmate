@@ -23,6 +23,12 @@
         "type": "object",
         "required": true,
         "description": "State input: temporal_index"
+      },
+      {
+        "name": "music_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_analysis"
       }
     ],
     "outputs": [
@@ -40,7 +46,8 @@
     "preconditions": [
       "'speech_sequence' exists in state",
       "'music_selection' exists in state",
-      "'temporal_index' exists in state"
+      "'temporal_index' exists in state",
+      "'music_analysis' exists in state"
     ],
     "postconditions": [
       "'audio_spine' is written to state",

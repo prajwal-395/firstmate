@@ -186,10 +186,11 @@ beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `speech_sequence` (with timestamps from 2.3) |
-| Reads | `music_selections` |
-| Reads | `creative_direction` |
-| Reads | `style_specification` |
+| Reads | `music_selection` |
+| Reads | `temporal_index` |
+| Reads | `music_analysis` |
 | Writes | `audio_spine` |
+| Writes | `timed_spine` |
 
 ---
 

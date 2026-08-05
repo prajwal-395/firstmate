@@ -7,10 +7,10 @@
   "interface": {
     "inputs": [
       {
-        "name": "timed_spine",
+        "name": "audio_spine",
         "type": "object",
         "required": true,
-        "description": "State input: timed_spine"
+        "description": "State input: audio_spine"
       },
       {
         "name": "clip_catalog",
@@ -27,7 +27,7 @@
       }
     ],
     "preconditions": [
-      "'timed_spine' exists in state",
+      "'audio_spine' exists in state",
       "'clip_catalog' exists in state"
     ],
     "postconditions": [

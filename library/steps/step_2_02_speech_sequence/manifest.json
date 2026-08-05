@@ -17,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
       }
     ],
     "outputs": [
@@ -28,7 +34,8 @@
     ],
     "preconditions": [
       "'temporal_index' exists in state",
-      "'creative_direction' exists in state"
+      "'creative_direction' exists in state",
+      "'semantic_analysis_documents' exists in state"
     ],
     "postconditions": [
       "'speech_sequence' is written to state"

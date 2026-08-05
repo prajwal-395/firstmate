@@ -17,6 +17,18 @@
         "type": "object",
         "required": true,
         "description": "State input: temporal_index"
+      },
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: prosody_analysis"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": true,
+        "description": "State input: clip_catalog"
       }
     ],
     "outputs": [
@@ -28,7 +40,9 @@
     ],
     "preconditions": [
       "'semantic_analysis_documents' exists in state",
-      "'temporal_index' exists in state"
+      "'temporal_index' exists in state",
+      "'prosody_analysis' exists in state",
+      "'clip_catalog' exists in state"
     ],
     "postconditions": [
       "'creative_direction' is written to state"

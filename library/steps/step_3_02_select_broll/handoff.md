@@ -200,7 +200,7 @@ creative selections.
 
 | Direction | State Key |
 |-----------|-----------|
-| Reads | `audio_spine` (structure with visual_notes and timeline positions) |
+| Reads | `timed_spine` (structure with visual_notes and timeline positions) |
 | Reads | `clip_catalog` (all clips with metadata) |
 | Reads | `semantic_analysis_documents` (per-clip editorial analysis) |
 | Reads | `temporal_event_indices` (per-clip scene boundaries, energy, motion) |

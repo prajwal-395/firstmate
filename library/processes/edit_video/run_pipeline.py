@@ -453,7 +453,7 @@ def run_pipeline(
                     # wrong data shapes downstream.  Mark it clearly so
                     # consumers can distinguish bridge context from real
                     # LLM-completed output.
-                    state.setdefault("step_outputs", {})[node_id] = {
+                    auto_output = {
                         "__status": "auto_bridge",
                         "__bridge_context": enriched,
                         "__note": (
@@ -462,6 +462,12 @@ def run_pipeline(
                             "in --auto mode."
                         ),
                     }
+                    if isinstance(enriched, dict):
+                        for k, v in enriched.items():
+                            if k not in auto_output:
+                                auto_output[k] = v
+                    
+                    state.setdefault("step_outputs", {})[node_id] = auto_output
                     state.setdefault("steps_completed", {})[node_id] = {
                         "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                         "note": "auto-completed via bridge (context only)",
