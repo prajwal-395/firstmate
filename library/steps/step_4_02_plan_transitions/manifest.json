@@ -23,6 +23,30 @@
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection"
+      },
+      {
+        "name": "rough_cut_review",
+        "type": "object",
+        "required": true,
+        "description": "State input: rough_cut_review"
+      },
+      {
+        "name": "temporal_event_indices",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_event_indices"
+      },
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
       }
     ],
     "outputs": [
@@ -52,7 +76,11 @@
       "a_roll_assignments",
       "b_roll_assignments",
       "creative_direction",
-      "project_folder"
+      "music_selection",
+      "project_folder",
+      "rough_cut_review",
+      "temporal_event_indices",
+      "timed_spine"
     ],
     "writes": [
       "transition_spec"

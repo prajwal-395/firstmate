@@ -7,16 +7,34 @@
   "interface": {
     "inputs": [
       {
-        "name": "timed_spine",
-        "type": "object",
-        "required": true,
-        "description": "State input: timed_spine"
-      },
-      {
         "name": "temporal_index",
         "type": "object",
         "required": true,
         "description": "State input: temporal_index"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine"
+      },
+      {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": true,
+        "description": "State input: speech_sequence"
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": false,
+        "description": "State input: b_roll_assignments"
+      },
+      {
+        "name": "rough_cut_review",
+        "type": "object",
+        "required": true,
+        "description": "State input: rough_cut_review"
       }
     ],
     "outputs": [
@@ -45,6 +63,8 @@
       "audio_spine",
       "b_roll_assignments",
       "project_folder",
+      "rough_cut_review",
+      "speech_sequence",
       "temporal_index"
     ],
     "writes": [

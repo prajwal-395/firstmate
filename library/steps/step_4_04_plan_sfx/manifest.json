@@ -23,6 +23,30 @@
         "type": "object",
         "required": true,
         "description": "State input: semantic_analysis_documents"
+      },
+      {
+        "name": "rough_cut_review",
+        "type": "object",
+        "required": true,
+        "description": "State input: rough_cut_review"
+      },
+      {
+        "name": "sfx_library_status",
+        "type": "object",
+        "required": false,
+        "description": "State input: sfx_library_status"
+      },
+      {
+        "name": "temporal_event_indices",
+        "type": "object",
+        "required": true,
+        "description": "State input: temporal_event_indices"
+      },
+      {
+        "name": "music_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_analysis"
       }
     ],
     "outputs": [
@@ -54,8 +78,11 @@
       "creative_direction",
       "music_analysis",
       "project_folder",
+      "rough_cut_review",
       "semantic_analysis_documents",
-      "sfx_library_status"
+      "sfx_library_status",
+      "temporal_event_indices",
+      "timed_spine"
     ],
     "writes": [
       "sfx_spec"

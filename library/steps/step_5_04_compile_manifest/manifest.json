@@ -59,6 +59,18 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine"
+      },
+      {
+        "name": "subtitle_overlay",
+        "type": "object",
+        "required": true,
+        "description": "State input: subtitle_overlay"
       }
     ],
     "outputs": [
@@ -92,6 +104,7 @@
     "reads": [
       "a_roll_assignments",
       "audio_mix_spec",
+      "audio_spine",
       "b_roll_assignments",
       "color_grade_spec",
       "enhancement_spec",
@@ -99,8 +112,8 @@
       "project_folder",
       "sfx_spec",
       "subtitle_overlay",
-      "transition_spec",
-      "rough_cut_review"
+      "subtitle_plan",
+      "transition_spec"
     ],
     "writes": [
       "assembly_manifest"
