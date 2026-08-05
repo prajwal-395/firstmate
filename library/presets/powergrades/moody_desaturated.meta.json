@@ -1,0 +1,10 @@
+{
+  "name": "Moody Desaturated",
+  "description": "Cool, desaturated look for dramatic narrative.",
+  "category": "powergrade",
+  "tags": ["moody", "desaturated", "cool", "dramatic", "narrative", "film"],
+  "compatibility": {"resolve_version": ">=18.0", "colorspace": "Rec.709"},
+  "file_path": "moody_desaturated.drx",
+  "mood_match": ["calm", "dramatic", "serious", "somber"],
+  "energy_match": ["low", "calm", "moderate"]
+}

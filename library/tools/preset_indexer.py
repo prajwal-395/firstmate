@@ -55,13 +55,19 @@ def find_preset_for_mood(index: PresetIndex, mood: str, energy: str) -> Optional
     for p in index.presets:
         score = 0
         p_tags_lower = [t.lower() for t in p.tags]
+        p_moods_lower = [m.lower() for m in p.mood_match]
+        p_energies_lower = [e.lower() for e in p.energy_match]
         
-        if mood_lower in p_tags_lower:
+        if mood_lower in p_moods_lower:
+            score += 3
+        elif mood_lower in p_tags_lower:
             score += 2
         elif any(mood_lower in t or t in mood_lower for t in p_tags_lower):
             score += 1
             
-        if energy_lower in p_tags_lower:
+        if energy_lower in p_energies_lower:
+            score += 3
+        elif energy_lower in p_tags_lower:
             score += 2
             
         if score > best_score:

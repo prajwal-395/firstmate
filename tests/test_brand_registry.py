@@ -75,6 +75,15 @@ class TestBrandRegistry(unittest.TestCase):
             
         finally:
             os.remove(temp_path)
-            
+
+    def test_populated_templates(self):
+        templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "library", "templates")
+        
+        for template_name in ["shortform_energetic.yaml", "interview_professional.yaml", "cinematic_narrative.yaml"]:
+            path = os.path.join(templates_dir, template_name)
+            bt = load_brand_template(path)
+            errors = validate_template(bt)
+            self.assertEqual(len(errors), 0, f"Template {template_name} failed validation: {errors}")
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,10 @@
+{
+  "name": "Halation",
+  "description": "Film halation DCTL for bright highlights.",
+  "category": "dctl",
+  "tags": ["film", "halation", "vfx"],
+  "compatibility": {"resolve_version": ">=18.0"},
+  "file_path": "halation.dctl",
+  "mood_match": ["cinematic", "warm"],
+  "energy_match": ["moderate"]
+}

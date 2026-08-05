@@ -1,0 +1,10 @@
+{
+  "name": "Film Emulation",
+  "description": "Kodak 2383 emulation LUT.",
+  "category": "lut",
+  "tags": ["film", "kodak", "cinematic"],
+  "compatibility": {"resolve_version": ">=18.0"},
+  "file_path": "film_emulation.cube",
+  "mood_match": ["cinematic", "nostalgic"],
+  "energy_match": ["moderate", "low"]
+}

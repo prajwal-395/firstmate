@@ -1,0 +1,18 @@
+series_id: cinematic_narrative
+style:
+  energy_profile: calm
+  pacing:
+    cuts_per_minute_min: 8
+    cuts_per_minute_max: 15
+  color_palette: ["#223344", "#aabbcc", "#111111"]
+  preferred_powergrade: "Moody Desaturated"
+effect:
+  transition_types: ["dissolve", "wipe"]
+  vfx_intensity: 0.3
+  subtitle_style: "minimal"
+  sfx_density: moderate
+content:
+  music_genre: ["orchestral", "atmospheric"]
+  target_duration_seconds:
+    min: 180
+    max: 600

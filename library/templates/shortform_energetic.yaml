@@ -1,0 +1,18 @@
+series_id: shortform_energetic
+style:
+  energy_profile: high
+  pacing:
+    cuts_per_minute_min: 15
+    cuts_per_minute_max: 25
+  color_palette: ["#ff0055", "#00ffcc", "#ffffff", "#000000"]
+  preferred_powergrade: "High Contrast Pop"
+effect:
+  transition_types: ["zoom", "glitch"]
+  vfx_intensity: 0.8
+  subtitle_style: "bold_large"
+  sfx_density: dense
+content:
+  music_genre: ["electronic", "upbeat"]
+  target_duration_seconds:
+    min: 30
+    max: 60

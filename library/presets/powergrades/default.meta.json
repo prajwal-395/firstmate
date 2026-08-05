@@ -1,0 +1,10 @@
+{
+  "name": "Default",
+  "description": "Standard Rec.709 conversion and basic balance.",
+  "category": "powergrade",
+  "tags": ["default", "standard", "clean"],
+  "compatibility": {"resolve_version": ">=18.0", "colorspace": "Rec.709"},
+  "file_path": "default.drx",
+  "mood_match": ["neutral", "standard"],
+  "energy_match": ["moderate", "low", "high"]
+}

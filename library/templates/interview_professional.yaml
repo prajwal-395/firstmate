@@ -1,0 +1,18 @@
+series_id: interview_professional
+style:
+  energy_profile: moderate
+  pacing:
+    cuts_per_minute_min: 5
+    cuts_per_minute_max: 12
+  color_palette: ["#f5f5f5", "#333333", "#ddab7e"]
+  preferred_powergrade: "Cinematic Warm"
+effect:
+  transition_types: ["cut", "dissolve"]
+  vfx_intensity: 0.1
+  subtitle_style: "clean_standard"
+  sfx_density: sparse
+content:
+  music_genre: ["ambient", "acoustic"]
+  target_duration_seconds:
+    min: 300
+    max: 900

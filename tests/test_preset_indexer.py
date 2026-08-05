@@ -82,5 +82,17 @@ class TestPresetIndexer(unittest.TestCase):
         self.assertIsNotNone(p2)
         self.assertEqual(p2.name, "Bright Pop")
 
+    def test_populated_library(self):
+        # Scan the actual populated library
+        library_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "library", "presets")
+        index = scan_library(library_path)
+        # We expect 15 presets from our population script
+        self.assertGreaterEqual(len(index.presets), 15)
+        
+        for p in index.presets:
+            self.assertTrue(p.name)
+            self.assertTrue(p.category in ["powergrade", "fusion-macro", "lut", "dctl", "fairlight"])
+            self.assertTrue(p.file_path)
+
 if __name__ == '__main__':
     unittest.main()
