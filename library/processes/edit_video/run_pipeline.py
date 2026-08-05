@@ -74,6 +74,30 @@ def topological_sort(dag: dict) -> list:
     return order
 
 
+def _get_ancestors(node_id: str, dag: dict) -> set:
+    """Return the set of strict ancestors of *node_id* in the DAG.
+
+    An ancestor is any node that transitively feeds into *node_id* via
+    the DAG edges.  The returned set does NOT include *node_id* itself.
+    Used by --from to skip only the steps that the target depends on
+    (presumed already complete) while keeping parallel branches alive.
+    (Fix H2 helper)
+    """
+    # Build a reverse adjacency list: child -> set of parents
+    reverse_adj: dict[str, set] = {}
+    for edge in dag["edges"]:
+        reverse_adj.setdefault(edge["to"], set()).add(edge["from"])
+
+    ancestors: set = set()
+    queue = deque(reverse_adj.get(node_id, []))
+    while queue:
+        parent = queue.popleft()
+        if parent not in ancestors:
+            ancestors.add(parent)
+            queue.extend(reverse_adj.get(parent, []))
+    return ancestors
+
+
 def get_step_dir(dag_node: dict) -> Path:
     """Get the filesystem path for a step from its DAG node."""
     step_ref = dag_node["step_ref"]  # e.g., "steps/step_1_01_scan_project"
@@ -187,28 +211,52 @@ def save_pipeline_state(project_dir: str, state: dict):
         json.dump(state, f, indent=2)
 
 
-def gather_step_inputs(node_id: str, dag: dict, state: dict) -> dict:
-    """Gather inputs for a step from upstream outputs using edge data_mappings."""
+def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None) -> dict:
+    """Gather inputs for a step from upstream outputs using edge data_mappings.
+
+    Raises RuntimeError when a declared data_mapping source key is missing
+    from the upstream step's outputs, unless the step's manifest marks that
+    input as optional (required: false).  This prevents silent contract
+    violations from propagating incomplete dicts downstream.  (Fix H3)
+    """
     inputs = {}
-    
+
+    # Build a set of optional input names from the step manifest so we can
+    # tolerate missing source keys for those inputs only.
+    optional_inputs: set = set()
+    if manifest:
+        for inp in manifest.get("interface", {}).get("inputs", []):
+            if not inp.get("required", True):
+                optional_inputs.add(inp.get("name", ""))
+
     for edge in dag["edges"]:
         if edge["to"] == node_id:
             source_id = edge["from"]
             source_outputs = state.get("step_outputs", {}).get(source_id, {})
-            
+
             # Apply data_mapping if specified
             mapping = edge.get("data_mapping", {})
             if mapping:
                 for src_key, dst_key in mapping.items():
                     if src_key in source_outputs:
                         inputs[dst_key] = source_outputs[src_key]
+                    elif dst_key not in optional_inputs:
+                        # Fix H3: Raise on missing required mapped input
+                        # instead of silently skipping, so contract
+                        # violations surface immediately.
+                        raise RuntimeError(
+                            f"Step '{node_id}': data_mapping expects key "
+                            f"'{src_key}' from upstream step '{source_id}', "
+                            f"but it is missing from that step's outputs. "
+                            f"Available keys: {list(source_outputs.keys())}"
+                        )
             else:
-                # No explicit mapping — merge all outputs
+                # No explicit mapping - merge all outputs
                 inputs.update(source_outputs)
-    
+
     # Always include project folder
     inputs["project_folder"] = state.get("project_folder", "")
-    
+
     return inputs
 
 
@@ -319,17 +367,30 @@ def run_pipeline(
     print(f"{'═'*60}\n", file=sys.stderr)
     
     # Determine which steps to run
-    skip_until = from_step
     steps_to_run = []
-    for node_id in order:
-        if single_step and node_id != single_step:
-            continue
-        if skip_until:
-            if node_id == skip_until:
-                skip_until = None
-            else:
+    if from_step:
+        # Fix H2: Ancestor-aware --from skip logic.
+        # Instead of linearly skipping everything before the target in the
+        # topo-sorted list (which arbitrarily kills parallel branches),
+        # compute the set of ancestors that the target step depends on and
+        # skip only those.  Parallel branches that are NOT ancestors of
+        # from_step will still execute, preserving required data for
+        # downstream steps.
+        ancestors = _get_ancestors(from_step, dag)
+        for node_id in order:
+            if single_step and node_id != single_step:
                 continue
-        steps_to_run.append(node_id)
+            # Skip the target step's ancestors (they are presumed complete)
+            # but keep the target step itself and everything after it,
+            # as well as parallel branches that aren't ancestors.
+            if node_id in ancestors:
+                continue
+            steps_to_run.append(node_id)
+    else:
+        for node_id in order:
+            if single_step and node_id != single_step:
+                continue
+            steps_to_run.append(node_id)
     
     print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
     
@@ -358,8 +419,8 @@ def run_pipeline(
             completed.append(node_id)
             continue
         
-        # Gather inputs from upstream
-        inputs = gather_step_inputs(node_id, dag, state)
+        # Gather inputs from upstream (pass manifest for optional-input checking)
+        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"))
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
         
         try:
@@ -387,11 +448,23 @@ def run_pipeline(
                 )
                 
                 if auto_mode:
-                    # In auto mode, treat bridge output as final
-                    state.setdefault("step_outputs", {})[node_id] = enriched
+                    # Fix H1: Bridge output is context prepared for the LLM,
+                    # NOT the final step output.  Storing it verbatim sends
+                    # wrong data shapes downstream.  Mark it clearly so
+                    # consumers can distinguish bridge context from real
+                    # LLM-completed output.
+                    state.setdefault("step_outputs", {})[node_id] = {
+                        "__status": "auto_bridge",
+                        "__bridge_context": enriched,
+                        "__note": (
+                            "This is bridge-generated context, not final "
+                            "step output. The LLM interaction was skipped "
+                            "in --auto mode."
+                        ),
+                    }
                     state.setdefault("steps_completed", {})[node_id] = {
                         "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        "note": "auto-completed via bridge",
+                        "note": "auto-completed via bridge (context only)",
                     }
                     save_pipeline_state(project_dir, state)
                     completed.append(node_id)
@@ -399,11 +472,17 @@ def run_pipeline(
                     output = present_llm_step(impl["prompt"], enriched, node_id)
                     awaiting_llm.append(node_id)
                     print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
-                    
+                    # Fix C1: Break out of the execution loop so downstream
+                    # steps don't fire with missing upstream data.
+                    break
+
             elif impl["type"] == "llm_only":
                 output = present_llm_step(impl["prompt"], inputs, node_id)
                 awaiting_llm.append(node_id)
                 print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                # Fix C1: Break out of the execution loop so downstream
+                # steps don't fire with missing upstream data.
+                break
                 
             else:
                 print(f"     ⚠ Unknown implementation type: {impl['type']}", 

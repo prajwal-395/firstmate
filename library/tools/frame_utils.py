@@ -114,7 +114,12 @@ def convert_spine_to_frames(spine: dict, fps: float = None) -> dict:
         declared_start = block.get("timeline_start")
         if declared_start is not None:
             declared_start_frame = seconds_to_frame(declared_start, fps)
-            if abs(declared_start_frame - frame_cursor) > 0:
+            # Fix H4: Threshold changed from > 0 to > 1.  A 1-frame
+            # discrepancy is normal rounding noise from independent
+            # seconds_to_frame() calls; resetting the cursor on it defeats
+            # the purpose of the accumulator.  Only genuine gaps (2+ frames)
+            # warrant a cursor reset.
+            if abs(declared_start_frame - frame_cursor) > 1:
                 frame_cursor = declared_start_frame
 
         block["timeline_start_frame"] = frame_cursor
