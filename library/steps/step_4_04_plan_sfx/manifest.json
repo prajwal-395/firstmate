@@ -7,6 +7,12 @@
   "interface": {
     "inputs": [
       {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": true,
+        "description": "State input: b_roll_assignments"
+      },
+      {
         "name": "timed_spine",
         "type": "object",
         "required": true,

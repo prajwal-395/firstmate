@@ -871,4 +871,4 @@ if __name__ == "__main__":
 
     # BUG FIX C7: Output structured JSON result to stdout (only JSON, no
     # other prints - all status logging goes to stderr).
-    json.dump(result, sys.stdout, indent=2, default=str)
+    json.dump({"rendered_output": result}, sys.stdout, indent=2, default=str)

@@ -49,7 +49,9 @@
       "project_folder"
     ],
     "writes": [
-      "raw_footage_files"
+      "raw_footage_files",
+      "total_files",
+      "skipped_files"
     ]
   },
   "dependencies": [],
