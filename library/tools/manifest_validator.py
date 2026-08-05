@@ -59,6 +59,21 @@ def validate_manifest(manifest: dict) -> list[str]:
     if proj_duration < 0:
         errors.append("Project duration cannot be negative")
 
+    if proj_duration > 0:
+        # Check subtitles list
+        for i, sub in enumerate(manifest.get("subtitles", [])):
+            end_time = sub.get("timeline_end", 0)
+            if end_time > proj_duration:
+                errors.append(f"Subtitle {i} ends at {end_time}s which exceeds project duration {proj_duration}s")
+                
+        # Check subtitle_overlay track
+        if "subtitle_overlay" in tracks:
+            for i, clip in enumerate(tracks["subtitle_overlay"].get("clips", [])):
+                end_time = clip.get("timeline_out", 0)
+                if end_time > proj_duration:
+                    errors.append(f"Track subtitle_overlay clip {i} ends at {end_time}s which exceeds project duration {proj_duration}s")
+
+
     # 4. CDL parameter bounds
     color_grade = manifest.get("color_grade", {})
     per_clip_adjustments = color_grade.get("per_clip_adjustments", [])

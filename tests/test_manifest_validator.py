@@ -75,3 +75,21 @@ def test_schema_violation_fails():
     del manifest["project"]  # Required field
     errors = validate_manifest(manifest)
     assert any("Schema validation error" in e for e in errors)
+
+def test_subtitle_duration_exceeds_project():
+    manifest = get_valid_manifest()
+    manifest["subtitles"] = [
+        {"timeline_start": 0.0, "timeline_end": 15.0, "text": "This exceeds the 10.0 project duration"}
+    ]
+    errors = validate_manifest(manifest)
+    assert any("exceeds project duration" in e for e in errors)
+    
+def test_subtitle_overlay_exceeds_project():
+    manifest = get_valid_manifest()
+    manifest["tracks"]["subtitle_overlay"] = {
+        "clips": [
+            {"timeline_in": 0.0, "timeline_out": 12.0}
+        ]
+    }
+    errors = validate_manifest(manifest)
+    assert any("exceeds project duration" in e for e in errors)

@@ -53,6 +53,28 @@ def test_verify_subtitle_timing_read_speed():
     fast_res = next(r for r in results if r.metric == "subtitle_read_speed")
     assert not fast_res.passed
 
+def test_verify_subtitle_timing_total_duration_overflow():
+    results = verify_subtitle_timing([
+        {"timeline_start": 5.0, "timeline_end": 12.0, "text": "Overflow"}
+    ], total_duration=10.0)
+    overflow_res = next((r for r in results if r.metric == "subtitle_overflow"), None)
+    assert overflow_res is not None
+    assert not overflow_res.passed
+
+def test_verify_subtitle_timing_total_duration_none():
+    results = verify_subtitle_timing([
+        {"timeline_start": 5.0, "timeline_end": 12.0, "text": "Overflow"}
+    ])
+    overflow_res = next((r for r in results if r.metric == "subtitle_overflow"), None)
+    assert overflow_res is None
+
+def test_verify_subtitle_timing_total_duration_edge():
+    results = verify_subtitle_timing([
+        {"timeline_start": 5.0, "timeline_end": 10.0, "text": "Edge"}
+    ], total_duration=10.0)
+    overflow_res = next((r for r in results if r.metric == "subtitle_overflow"), None)
+    assert overflow_res is None
+
 def test_verify_subtitle_safe_zone_empty():
     results = verify_subtitle_safe_zone([])
     for r in results:

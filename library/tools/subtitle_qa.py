@@ -1,7 +1,7 @@
 from library.tools.render_qa import RenderQAResult
 from typing import List, Dict, Any
 
-def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]]) -> List[RenderQAResult]:
+def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: float = None) -> List[RenderQAResult]:
     """Check subtitle entries for timing issues."""
     results = []
     
@@ -47,6 +47,17 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]]) -> List[RenderQA
             cps = text_len / dur
             if cps > 25:
                 too_fast.append((i, cps))
+                
+        # 6. Exceeds total duration
+        if total_duration is not None and end > total_duration:
+            results.append(RenderQAResult(
+                metric="subtitle_overflow",
+                passed=False,
+                value=end,
+                threshold=total_duration,
+                severity="error",
+                detail=f"Subtitle at index {i} ends at {end}s but timeline is {total_duration}s"
+            ))
                 
     results.append(RenderQAResult(
         metric="subtitle_overlap",
