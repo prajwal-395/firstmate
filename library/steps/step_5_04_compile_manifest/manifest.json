@@ -71,6 +71,12 @@
         "type": "object",
         "required": true,
         "description": "State input: subtitle_overlay"
+      },
+      {
+        "name": "cohesion_review",
+        "type": "object",
+        "required": false,
+        "description": "State input: cohesion_review"
       }
     ],
     "outputs": [
@@ -113,7 +119,8 @@
       "sfx_spec",
       "subtitle_overlay",
       "subtitle_plan",
-      "transition_spec"
+      "transition_spec",
+      "cohesion_review"
     ],
     "writes": [
       "assembly_manifest"
@@ -128,6 +135,7 @@
     "step_4_04_plan_sfx",
     "step_5_01_color_grade",
     "step_5_02_audio_mix",
+    "step_5_03_creative_cohesion",
     "step_3_03_review_rough_cut"
   ],
   "tags": [

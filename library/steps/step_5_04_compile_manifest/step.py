@@ -20,6 +20,18 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 
+def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
+    if not cohesion_review or not cohesion_review.get("adjustments"):
+        return
+    for adj in cohesion_review["adjustments"]:
+        if adj.get("target_step") == "transition_spec" and "target_index" in adj:
+            idx = adj["target_index"]
+            if 0 <= idx < len(transitions_raw):
+                old_val = transitions_raw[idx].get(adj["field"])
+                transitions_raw[idx][adj["field"]] = adj["suggested_value"]
+                print(f"  Applied Cohesion Adjustment: Transition {idx} {adj['field']} {old_val} -> {adj['suggested_value']}", file=sys.stderr)
+
+
 
 def _resolve_source(block_or_clip: dict, clip_lookup: dict) -> str:
     """Resolve source_file from source_file field or clip_id lookup.
@@ -99,6 +111,9 @@ def compile_manifest(out_dir: str) -> dict:
 
     # Subtitle overlay from step 4.05 (Remotion render)
     subtitle_overlay_data = load(out_dir, "step_4_05.json")
+    
+    # Cohesion review
+    cohesion_data = load(out_dir, "step_5_03.json")
 
     spine = spine_data.get("audio_spine", {})
     structure = spine.get("structure", [])
@@ -261,6 +276,8 @@ def compile_manifest(out_dir: str) -> dict:
     # cut_point_timeline (seconds) and a normalized transition_type.
     transitions_raw = transition_data.get(
         "transitions", transition_data.get("transition_spec", []))
+        
+    apply_cohesion_adjustments(transitions_raw, cohesion_data.get("cohesion_review", {}))
 
     # Build spine-block-end lookup: position → timeline_end seconds
     block_end_by_pos = {}
@@ -784,6 +801,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         transitions = transition_raw.get("transitions", transition_raw.get("transition_spec", []))
     else:
         transitions = transition_raw if isinstance(transition_raw, list) else []
+        
+    apply_cohesion_adjustments(transitions, inputs.get("cohesion_review", {}))
 
     # Convert transitions to fusion comp format (same mapping as file mode)
     fusion_transitions = []

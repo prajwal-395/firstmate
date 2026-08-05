@@ -102,7 +102,8 @@
       "prosody_analysis",
       "sfx_library_status",
       "music_analysis",
-      "subtitle_overlay"
+      "subtitle_overlay",
+      "cohesion_review"
     ]
   },
   "dependencies": [],
@@ -238,6 +239,11 @@
         "step_ref": "steps/step_5_02_audio_mix",
         "version_constraint": ">=1.0.0",
         "role": "Generate audio level automation"
+      },
+      {
+        "step_ref": "steps/step_5_03_creative_cohesion",
+        "version_constraint": ">=1.0.0",
+        "role": "Review creative decisions across steps for cohesion"
       },
       {
         "step_ref": "steps/step_5_04_compile_manifest",

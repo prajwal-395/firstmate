@@ -162,6 +162,13 @@
       "estimated_duration_seconds": 5
     },
     {
+      "id": "creative_cohesion",
+      "name": "Creative Cohesion Review",
+      "step_ref": "steps/step_5_03_creative_cohesion",
+      "type": "step",
+      "estimated_duration_seconds": 15
+    },
+    {
       "id": "render",
       "name": "Render & Assemble in Resolve",
       "step_ref": "steps/step_6_01_render",
@@ -647,6 +654,48 @@
       }
     },
     {
+      "from": "creative_direction",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "speech_sequence",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "speech_sequence": "speech_sequence"
+      }
+    },
+    {
+      "from": "plan_transitions",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "transition_spec": "transition_spec"
+      }
+    },
+    {
+      "from": "plan_vfx",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "enhancement_spec": "enhancement_spec"
+      }
+    },
+    {
+      "from": "plan_sfx",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "sfx_spec": "sfx_spec"
+      }
+    },
+    {
+      "from": "color_grade",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "color_grade_spec": "color_grade_spec"
+      }
+    },
+    {
       "from": "assign_aroll",
       "to": "compile_manifest",
       "data_mapping": {
@@ -742,6 +791,13 @@
       "to": "validate",
       "data_mapping": {
         "assembly_manifest": "assembly_manifest"
+      }
+    },
+    {
+      "from": "creative_cohesion",
+      "to": "compile_manifest",
+      "data_mapping": {
+        "cohesion_review": "cohesion_review"
       }
     }
   ],
