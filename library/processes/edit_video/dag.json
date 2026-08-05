@@ -356,14 +356,14 @@
       "from": "mesh_spine",
       "to": "select_broll",
       "data_mapping": {
-        "timed_spine": "timed_spine"
+        "audio_spine": "timed_spine"
       }
     },
     {
       "from": "temporal_index",
       "to": "select_broll",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "temporal_index": "temporal_event_indices"
       }
     },
     {
@@ -482,7 +482,7 @@
       "from": "mesh_spine",
       "to": "plan_transitions",
       "data_mapping": {
-        "timed_spine": "timed_spine"
+        "audio_spine": "timed_spine"
       }
     },
     {
@@ -496,7 +496,7 @@
       "from": "temporal_index",
       "to": "plan_transitions",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "temporal_index": "temporal_event_indices"
       }
     },
     {
@@ -538,7 +538,7 @@
       "from": "mesh_spine",
       "to": "plan_vfx",
       "data_mapping": {
-        "timed_spine": "timed_spine"
+        "audio_spine": "timed_spine"
       }
     },
     {
@@ -559,7 +559,7 @@
       "from": "mesh_spine",
       "to": "plan_sfx",
       "data_mapping": {
-        "timed_spine": "timed_spine"
+        "audio_spine": "timed_spine"
       }
     },
     {
@@ -587,7 +587,7 @@
       "from": "temporal_index",
       "to": "plan_sfx",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "temporal_index": "temporal_event_indices"
       }
     },
     {
