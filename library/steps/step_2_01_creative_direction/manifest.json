@@ -29,6 +29,18 @@
         "type": "object",
         "required": true,
         "description": "State input: clip_catalog"
+      },
+      {
+        "name": "brand_style",
+        "type": "object",
+        "required": false,
+        "description": "Brand style slots"
+      },
+      {
+        "name": "brand_content",
+        "type": "object",
+        "required": false,
+        "description": "Brand content slots"
       }
     ],
     "outputs": [
@@ -58,7 +70,9 @@
       "project_folder",
       "prosody_analysis",
       "semantic_analysis_documents",
-      "temporal_index"
+      "temporal_index",
+      "brand_style",
+      "brand_content"
     ],
     "writes": [
       "creative_direction"

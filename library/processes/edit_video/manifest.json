@@ -1,7 +1,7 @@
 {
   "$schema": "../../schema/manifest.schema.json",
   "id": "edit_video",
-  "name": "Edit Video — Full Pipeline",
+  "name": "Edit Video \u2014 Full Pipeline",
   "version": "1.0.0",
   "description": "Complete automated video editing pipeline: ingest raw footage, plan editorial structure with LLM, assemble timeline in DaVinci Resolve, apply post-production (subtitles, SFX, transitions, VFX, color, audio mix), and render final output.",
   "level": "process",
@@ -26,6 +26,12 @@
         "required": false,
         "description": "Absolute path to the shared music library folder",
         "default": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/music"
+      },
+      {
+        "name": "brand_template",
+        "type": "string",
+        "required": false,
+        "description": "Absolute path to the brand template YAML/JSON file"
       }
     ],
     "outputs": [
@@ -65,23 +71,55 @@
     "idempotent": false
   },
   "state": {
-    "reads": ["project_folder", "clip_catalog"],
+    "reads": [
+      "project_folder",
+      "clip_catalog"
+    ],
     "writes": [
-      "raw_footage_files", "total_files", "skipped_files", "clip_catalog", "semantic_analysis_documents",
-      "temporal_index", "creative_direction", "speech_sequence",
-      "music_selection", "audio_spine", "timed_spine",
-      "a_roll_assignments", "b_roll_assignments", "rough_cut_review",
-      "subtitle_plan", "transition_spec", "enhancement_spec",
-      "sfx_spec", "color_grade_spec", "audio_mix_spec",
-      "assembly_manifest", "rendered_output", "validation_result",
-      "prosody_analysis", "sfx_library_status", "music_analysis", "subtitle_overlay"
+      "raw_footage_files",
+      "total_files",
+      "skipped_files",
+      "clip_catalog",
+      "semantic_analysis_documents",
+      "temporal_index",
+      "creative_direction",
+      "speech_sequence",
+      "music_selection",
+      "audio_spine",
+      "timed_spine",
+      "a_roll_assignments",
+      "b_roll_assignments",
+      "rough_cut_review",
+      "subtitle_plan",
+      "transition_spec",
+      "enhancement_spec",
+      "sfx_spec",
+      "color_grade_spec",
+      "audio_mix_spec",
+      "assembly_manifest",
+      "rendered_output",
+      "validation_result",
+      "prosody_analysis",
+      "sfx_library_status",
+      "music_analysis",
+      "subtitle_overlay"
     ]
   },
   "dependencies": [],
   "tags": [
-    "video-editing", "pipeline", "davinci-resolve", "subtitles",
-    "sfx", "music", "color-grading", "audio-mix", "remotion",
-    "whisperx", "ollama", "gemma4", "shortform"
+    "video-editing",
+    "pipeline",
+    "davinci-resolve",
+    "subtitles",
+    "sfx",
+    "music",
+    "color-grading",
+    "audio-mix",
+    "remotion",
+    "whisperx",
+    "ollama",
+    "gemma4",
+    "shortform"
   ],
   "domain": "video-editing",
   "implementation": {
@@ -96,30 +134,126 @@
     "type": "dag",
     "definition_file": "dag.json",
     "components": [
-      {"step_ref": "steps/step_0_01_validate_sfx_library", "version_constraint": ">=1.0.0", "role": "Validate SFX library folder structure"},
-      {"step_ref": "steps/step_1_01_scan_project", "version_constraint": ">=1.0.0", "role": "Scan raw footage folder"},
-      {"step_ref": "steps/step_1_02_catalog_footage", "version_constraint": ">=1.0.0", "role": "Extract clip metadata"},
-      {"step_ref": "steps/step_1_03_semantic_analysis", "version_constraint": ">=1.0.0", "role": "Vision analysis of clips"},
-      {"step_ref": "steps/step_1_04_temporal_index", "version_constraint": ">=1.0.0", "role": "WhisperX transcription + energy analysis"},
-      {"step_ref": "steps/step_1_05_prosody_analysis", "version_constraint": ">=1.0.0", "role": "Analyze speech prosody and energy"},
-      {"step_ref": "steps/step_2_01_creative_direction", "version_constraint": ">=1.0.0", "role": "LLM infers editorial mood and style"},
-      {"step_ref": "steps/step_2_02_speech_sequence", "version_constraint": ">=1.0.0", "role": "Order speech segments into narrative"},
-      {"step_ref": "steps/step_2_04_music_selection", "version_constraint": ">=1.0.0", "role": "Select background music track"},
-      {"step_ref": "steps/step_2_05_mesh_spine", "version_constraint": ">=1.0.0", "role": "Create timed audio spine"},
-      {"step_ref": "steps/step_2_06_music_analysis", "version_constraint": ">=1.0.0", "role": "Analyze selected music track for beat/tempo"},
-      {"step_ref": "steps/step_3_01_assign_aroll", "version_constraint": ">=1.0.0", "role": "Map spine blocks to source clips"},
-      {"step_ref": "steps/step_3_02_select_broll", "version_constraint": ">=1.0.0", "role": "Pick B-roll for each segment"},
-      {"step_ref": "steps/step_3_03_review_rough_cut", "version_constraint": ">=1.0.0", "role": "Quality gate: validate rough cut before post-production"},
-      {"step_ref": "steps/step_4_01_plan_subtitles", "version_constraint": ">=1.0.0", "role": "Generate subtitle groups"},
-      {"step_ref": "steps/step_4_02_plan_transitions", "version_constraint": ">=1.0.0", "role": "Design transitions between cuts"},
-      {"step_ref": "steps/step_4_03_plan_vfx", "version_constraint": ">=1.0.0", "role": "Plan zoom effects and enhancements"},
-      {"step_ref": "steps/step_4_04_plan_sfx", "version_constraint": ">=1.0.0", "role": "Plan SFX placement intentions"},
-      {"step_ref": "steps/step_4_05_render_subtitles", "version_constraint": ">=1.0.0", "role": "Render subtitle overlays via Remotion"},
-      {"step_ref": "steps/step_5_01_color_grade", "version_constraint": ">=1.0.0", "role": "Generate color grade node spec"},
-      {"step_ref": "steps/step_5_02_audio_mix", "version_constraint": ">=1.0.0", "role": "Generate audio level automation"},
-      {"step_ref": "steps/step_5_04_compile_manifest", "version_constraint": ">=1.0.0", "role": "Compile final assembly manifest"},
-      {"step_ref": "steps/step_6_01_render", "version_constraint": ">=1.0.0", "role": "Assemble timeline in Resolve"},
-      {"step_ref": "steps/step_6_02_validate_output", "version_constraint": ">=1.0.0", "role": "Validate rendered output"}
+      {
+        "step_ref": "steps/step_0_01_validate_sfx_library",
+        "version_constraint": ">=1.0.0",
+        "role": "Validate SFX library folder structure"
+      },
+      {
+        "step_ref": "steps/step_1_01_scan_project",
+        "version_constraint": ">=1.0.0",
+        "role": "Scan raw footage folder"
+      },
+      {
+        "step_ref": "steps/step_1_02_catalog_footage",
+        "version_constraint": ">=1.0.0",
+        "role": "Extract clip metadata"
+      },
+      {
+        "step_ref": "steps/step_1_03_semantic_analysis",
+        "version_constraint": ">=1.0.0",
+        "role": "Vision analysis of clips"
+      },
+      {
+        "step_ref": "steps/step_1_04_temporal_index",
+        "version_constraint": ">=1.0.0",
+        "role": "WhisperX transcription + energy analysis"
+      },
+      {
+        "step_ref": "steps/step_1_05_prosody_analysis",
+        "version_constraint": ">=1.0.0",
+        "role": "Analyze speech prosody and energy"
+      },
+      {
+        "step_ref": "steps/step_2_01_creative_direction",
+        "version_constraint": ">=1.0.0",
+        "role": "LLM infers editorial mood and style"
+      },
+      {
+        "step_ref": "steps/step_2_02_speech_sequence",
+        "version_constraint": ">=1.0.0",
+        "role": "Order speech segments into narrative"
+      },
+      {
+        "step_ref": "steps/step_2_04_music_selection",
+        "version_constraint": ">=1.0.0",
+        "role": "Select background music track"
+      },
+      {
+        "step_ref": "steps/step_2_05_mesh_spine",
+        "version_constraint": ">=1.0.0",
+        "role": "Create timed audio spine"
+      },
+      {
+        "step_ref": "steps/step_2_06_music_analysis",
+        "version_constraint": ">=1.0.0",
+        "role": "Analyze selected music track for beat/tempo"
+      },
+      {
+        "step_ref": "steps/step_3_01_assign_aroll",
+        "version_constraint": ">=1.0.0",
+        "role": "Map spine blocks to source clips"
+      },
+      {
+        "step_ref": "steps/step_3_02_select_broll",
+        "version_constraint": ">=1.0.0",
+        "role": "Pick B-roll for each segment"
+      },
+      {
+        "step_ref": "steps/step_3_03_review_rough_cut",
+        "version_constraint": ">=1.0.0",
+        "role": "Quality gate: validate rough cut before post-production"
+      },
+      {
+        "step_ref": "steps/step_4_01_plan_subtitles",
+        "version_constraint": ">=1.0.0",
+        "role": "Generate subtitle groups"
+      },
+      {
+        "step_ref": "steps/step_4_02_plan_transitions",
+        "version_constraint": ">=1.0.0",
+        "role": "Design transitions between cuts"
+      },
+      {
+        "step_ref": "steps/step_4_03_plan_vfx",
+        "version_constraint": ">=1.0.0",
+        "role": "Plan zoom effects and enhancements"
+      },
+      {
+        "step_ref": "steps/step_4_04_plan_sfx",
+        "version_constraint": ">=1.0.0",
+        "role": "Plan SFX placement intentions"
+      },
+      {
+        "step_ref": "steps/step_4_05_render_subtitles",
+        "version_constraint": ">=1.0.0",
+        "role": "Render subtitle overlays via Remotion"
+      },
+      {
+        "step_ref": "steps/step_5_01_color_grade",
+        "version_constraint": ">=1.0.0",
+        "role": "Generate color grade node spec"
+      },
+      {
+        "step_ref": "steps/step_5_02_audio_mix",
+        "version_constraint": ">=1.0.0",
+        "role": "Generate audio level automation"
+      },
+      {
+        "step_ref": "steps/step_5_04_compile_manifest",
+        "version_constraint": ">=1.0.0",
+        "role": "Compile final assembly manifest"
+      },
+      {
+        "step_ref": "steps/step_6_01_render",
+        "version_constraint": ">=1.0.0",
+        "role": "Assemble timeline in Resolve"
+      },
+      {
+        "step_ref": "steps/step_6_02_validate_output",
+        "version_constraint": ">=1.0.0",
+        "role": "Validate rendered output"
+      }
     ]
   },
   "metadata": {

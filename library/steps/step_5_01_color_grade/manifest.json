@@ -29,6 +29,12 @@
         "type": "string",
         "required": false,
         "description": "Path to the project folder, needed for ffprobe media analysis"
+      },
+      {
+        "name": "brand_style",
+        "type": "object",
+        "required": false,
+        "description": "Brand style slots"
       }
     ],
     "outputs": [
@@ -58,7 +64,8 @@
       "a_roll_assignments",
       "b_roll_assignments",
       "creative_direction",
-      "project_folder"
+      "project_folder",
+      "brand_style"
     ],
     "writes": [
       "color_grade_spec"

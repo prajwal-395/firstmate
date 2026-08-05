@@ -195,7 +195,7 @@ def load_pipeline_state(project_dir: str) -> dict:
             process_manifest = json.load(f)
         for inp in process_manifest.get("interface", {}).get("inputs", []):
             name = inp.get("name", "")
-            if name in ("sfx_library", "music_library") and name not in state:
+            if name in ("sfx_library", "music_library", "brand_template") and name not in state:
                 default = inp.get("default", "")
                 if default:
                     state[name] = default
@@ -256,6 +256,28 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
 
     # Always include project folder
     inputs["project_folder"] = state.get("project_folder", "")
+
+    # Add brand template data if present
+    if manifest:
+        step_inputs = [inp.get("name") for inp in manifest.get("interface", {}).get("inputs", [])]
+        brand_template_path = state.get("brand_template")
+        
+        if brand_template_path or any(x in step_inputs for x in ["brand_style", "brand_effect", "brand_content"]):
+            try:
+                import sys
+                if str(LIBRARY_ROOT.parent) not in sys.path:
+                    sys.path.append(str(LIBRARY_ROOT.parent))
+                from library.tools.brand_registry import load_brand_template, query_slots
+                bt = load_brand_template(brand_template_path if brand_template_path else "")
+                if "brand_style" in step_inputs:
+                    inputs["brand_style"] = query_slots(bt, "style")
+                if "brand_effect" in step_inputs:
+                    inputs["brand_effect"] = query_slots(bt, "effect")
+                if "brand_content" in step_inputs:
+                    inputs["brand_content"] = query_slots(bt, "content")
+            except Exception as e:
+                import sys
+                print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
 
     return inputs
 

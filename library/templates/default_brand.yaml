@@ -1,0 +1,38 @@
+series_id: "default_series"
+style:
+  color_palette:
+    - "#ff0000"
+    - "#00ff00"
+    - "#0000ff"
+  preferred_powergrade: "library/presets/powergrades/default.drx"
+  typography:
+    font: "Helvetica"
+    size: 42
+    weight: "bold"
+  pacing:
+    min_cuts_per_minute: 10
+    max_cuts_per_minute: 20
+  energy_profile: "high"
+effect:
+  transition_types:
+    - "cut"
+    - "dissolve"
+    - "wipe"
+  transition_duration_ms:
+    min: 200
+    max: 500
+  vfx_intensity: 0.5
+  subtitle_style: "default_subtitles"
+  sfx_density: "dense"
+content:
+  intro_template: "library/presets/fusion-macros/intro.setting"
+  outro_template: "library/presets/fusion-macros/outro.setting"
+  watermark:
+    image: "library/assets/watermark.png"
+    position: "bottom-right"
+  music_genre:
+    - "electronic"
+    - "upbeat"
+  target_duration_seconds:
+    min: 30
+    max: 60

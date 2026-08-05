@@ -53,6 +53,12 @@
         "type": "object",
         "required": true,
         "description": "State input: music_analysis"
+      },
+      {
+        "name": "brand_effect",
+        "type": "object",
+        "required": false,
+        "description": "Brand effect slots"
       }
     ],
     "outputs": [
@@ -88,7 +94,8 @@
       "semantic_analysis_documents",
       "sfx_library_status",
       "temporal_event_indices",
-      "timed_spine"
+      "timed_spine",
+      "brand_effect"
     ],
     "writes": [
       "sfx_spec"
