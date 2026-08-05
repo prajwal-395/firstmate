@@ -580,11 +580,18 @@ def build_timeline(
 
     # Build transition lookup: clip_index → {tail_transition, head_transition}
     transition_by_clip = {}
+    macro_transitions_by_clip = {}
     for tspec in transition_specs:
         ttype = tspec.get('type', 'cut')
         if ttype in ('cut', 'hard_cut', '', None):
             continue
+            
         after_idx = tspec.get('after_clip', 0)
+        
+        if ttype == 'macro':
+            macro_transitions_by_clip[after_idx] = tspec
+            continue
+            
         dur_f = tspec.get('duration_frames', 12)
         # Outgoing clip gets tail transition
         transition_by_clip.setdefault(after_idx, {})
@@ -596,12 +603,17 @@ def build_timeline(
         transition_by_clip[next_idx]['head_transition'] = ttype
         transition_by_clip[next_idx]['head_transition_frames'] = dur_f
 
-    has_any_effects = per_clip_effects or transition_by_clip
+    has_any_effects = per_clip_effects or transition_by_clip or macro_transitions_by_clip
 
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, "
               f"{len(transition_specs)} transitions ──",
               file=sys.stderr)
+        
+        try:
+            from fusion_macro_loader import apply_macro_to_transition
+        except ImportError:
+            apply_macro_to_transition = None
 
         from fusion_comp_generator import generate_comp, write_comp, SEGMENT_PRESETS
 
@@ -636,12 +648,35 @@ def build_timeline(
             if trans_params:
                 effects.update(trans_params)
 
-            if not effects:
+            # Check if this clip has a macro transition after it
+            macro_trans = macro_transitions_by_clip.get(ci, None)
+
+            if not effects and not macro_trans:
                 continue
 
             if ci >= len(v1_items):
                 results["warnings"].append(
                     f"VFX: clip {ci} ({label}) not on timeline")
+                continue
+                
+            tl_clip = v1_items[ci]
+            clip_dur = (tl_clip.GetSourceEndFrame()
+                        - tl_clip.GetSourceStartFrame() + 1)
+                        
+            # Apply macro transition if it exists
+            macro_applied = False
+            if macro_trans and apply_macro_to_transition:
+                macro_data = macro_trans.get("macro_preset", {})
+                duration_ms = macro_trans.get("duration_ms", 500)
+                macro_applied = apply_macro_to_transition(tl_clip, macro_data, duration_ms)
+                if macro_applied:
+                    print(f"  ✓ [{ci}] {label}: Applied Fusion Macro transition", file=sys.stderr)
+                else:
+                    print(f"  ⚠ [{ci}] {label}: Macro transition failed, falling back to dissolve", file=sys.stderr)
+                    effects["tail_transition"] = "fade_to_black"
+                    effects["tail_transition_frames"] = 12
+
+            if not effects:
                 continue
 
             # If only transitions, add minimal defaults
@@ -650,14 +685,6 @@ def build_timeline(
                 effects.setdefault('zoom_mid', 1.0)
                 effects.setdefault('zoom_end', 1.0)
                 effects.setdefault('vignette', False)
-
-            tl_clip = v1_items[ci]
-            # CRITICAL: Fusion comps operate on the SOURCE clip's full
-            # frame range, not the timeline's trimmed duration.
-            # GetDuration() returns timeline duration (WRONG for keyframes).
-            # GetSourceEndFrame() - GetSourceStartFrame() + 1 = source frames (CORRECT).
-            clip_dur = (tl_clip.GetSourceEndFrame()
-                        - tl_clip.GetSourceStartFrame() + 1)
 
             # Generate unified .comp (VFX + transitions in one)
             comp_content = generate_comp(clip_dur, **effects)

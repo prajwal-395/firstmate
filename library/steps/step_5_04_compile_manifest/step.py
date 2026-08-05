@@ -490,11 +490,14 @@ def compile_manifest(out_dir: str) -> dict:
         comp_type = type_map.get(ttype, ttype)
         if comp_type in ("cut", "hard_cut", ""):
             continue
-        fusion_transitions.append({
+        trans_obj = {
             "type": comp_type,
             "after_clip": t.get("from_block", ti),
             "duration_frames": t.get("duration_frames", 15),
-        })
+        }
+        if "macro_preset" in t:
+            trans_obj["macro_preset"] = t["macro_preset"]
+        fusion_transitions.append(trans_obj)
 
     # Audio config
     audio_config = {
@@ -790,11 +793,14 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         comp_type = type_map.get(ttype, ttype)
         if comp_type in ("cut", "hard_cut", ""):
             continue
-        fusion_transitions.append({
+        trans_obj = {
             "type": comp_type,
             "after_clip": t.get("from_block", ti),
             "duration_frames": t.get("duration_frames", 15),
-        })
+        }
+        if "macro_preset" in t:
+            trans_obj["macro_preset"] = t["macro_preset"]
+        fusion_transitions.append(trans_obj)
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})

@@ -141,6 +141,8 @@ def resolve_transitions(
     music_selection: dict,
     temporal_indices: list = None,
     frame_rate: float = 30.0,
+    creative_direction: dict = None,
+    brand_effect: dict = None,
 ) -> list:
     """Resolve creative transition plan to execution specs.
 
@@ -150,6 +152,11 @@ def resolve_transitions(
     3. Beat-snap (prefer word-end + beat coincidence)
     4. Resolve duration_feel to frame count
     """
+    if creative_direction is None:
+        creative_direction = {}
+    if brand_effect is None:
+        brand_effect = {}
+
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     block_lookup = {b["position"]: b for b in spine_blocks}
 
@@ -173,13 +180,16 @@ def resolve_transitions(
             for i in range(int(total_dur / beat_interval) + 1)
         ]
 
-    # Duration feel → frame count mapping
-    duration_map = {
-        "instant": 0,
-        "quick": int(6 * (frame_rate / 30)),
-        "medium": int(10 * (frame_rate / 30)),
-        "slow": int(15 * (frame_rate / 30)),
-    }
+    # Initialize preset index
+    from library.tools.preset_indexer import scan_library
+    import os
+    try:
+        preset_dir = os.path.join(os.path.dirname(__file__), "..", "..", "presets")
+        preset_index = scan_library(os.path.abspath(preset_dir))
+    except Exception:
+        preset_index = None
+
+    from library.tools.transition_selector import select_transition
 
     resolved = []
     for trans in creative_plan:
@@ -201,14 +211,38 @@ def resolve_transitions(
 
         block = block_lookup.get(pos, {})
         original_tl = block.get("timeline_start", 0.0)
+        
+        outgoing = block_lookup.get(pos - 1, {})
 
-        ttype = trans.get("transition_type", "hard_cut")
-        feel = trans.get("duration_feel", "instant")
-        dur_frames = duration_map.get(feel, 0)
-
-        # If hard cut, override frames to 0
+        # Use the content-aware transition selector
+        selected_trans = select_transition(
+            from_clip=outgoing,
+            to_clip=block,
+            brand_effect=brand_effect,
+            preset_index=preset_index,
+            creative_direction=creative_direction
+        )
+        
+        ttype = selected_trans["type"]
+        macro_preset = selected_trans.get("macro_preset")
+        
+        # Duration frame calculation
         if ttype in ("hard_cut", "cut", "jump_cut"):
             dur_frames = 0
+        elif ttype == "macro":
+            dur_frames = int((selected_trans["duration_ms"] / 1000.0) * frame_rate)
+        else:
+            # For dissolve/wipe, we might fall back to LLM feel if needed, but selector returns duration_ms
+            dur_frames = int((selected_trans["duration_ms"] / 1000.0) * frame_rate)
+            if dur_frames == 0:
+                duration_map = {
+                    "instant": 0,
+                    "quick": int(6 * (frame_rate / 30)),
+                    "medium": int(10 * (frame_rate / 30)),
+                    "slow": int(15 * (frame_rate / 30)),
+                }
+                feel = trans.get("duration_feel", "medium")
+                dur_frames = duration_map.get(feel, int(10 * (frame_rate / 30)))
 
         # Resolve the precise cut point
         cut_info = resolve_cut_point(
@@ -227,7 +261,7 @@ def resolve_transitions(
         elif "beat" in cut_info["method"]:
             beat_aligned = True
 
-        resolved.append({
+        trans_dict = {
             "transition_id": f"trans_{len(resolved)+1:03d}",
             "cut_point_timeline": round(cut_time, 3),
             "cut_point_original": round(original_tl, 3),
@@ -238,7 +272,15 @@ def resolve_transitions(
             "placement_method": cut_info["method"],
             "word_beat_coincidence": cut_info["word_beat_coincidence"],
             "rationale": trans.get("rationale", ""),
-        })
+        }
+        if macro_preset:
+            trans_dict["macro_preset"] = {
+                "name": macro_preset.name,
+                "file_path": macro_preset.file_path,
+                "category": macro_preset.category,
+                "tags": macro_preset.tags
+            }
+        resolved.append(trans_dict)
 
     return resolved
 
@@ -263,8 +305,12 @@ def main():
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
+    
+    # Extract new inputs
+    creative_direction = data.get("creative_direction", {})
+    brand_effect = data.get("brand_effect", {})
 
-    result = resolve_transitions(creative, spine, music, temporal, fps)
+    result = resolve_transitions(creative, spine, music, temporal, fps, creative_direction, brand_effect)
     json.dump({"transition_spec": result}, sys.stdout, indent=2)
 
 
