@@ -151,12 +151,31 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
         else:
             notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
 
+        slope = round(2.0 ** exposure_offset, 3)
+        wb_offset = GRADE_PIPELINE["node_2"].get("white_balance_offset", 0)
+        offset_r = round(wb_offset / 10000.0, 3)
+        offset_g = 0.0
+        offset_b = round(-wb_offset / 10000.0, 3)
+        
         per_clip_adjustments.append({
             "entry_id": entry["entry_id"],
             "clip_id": entry["clip_id"],
+            "source_file": source_file,
             "exposure_offset": exposure_offset,
             "white_balance_override": None,
             "notes": notes,
+            "cdl_values": {
+                "slope_r": slope,
+                "slope_g": slope,
+                "slope_b": slope,
+                "offset_r": offset_r,
+                "offset_g": offset_g,
+                "offset_b": offset_b,
+                "power_r": 0.95,
+                "power_g": 0.95,
+                "power_b": 0.95,
+                "saturation": 1.12
+            }
         })
 
     return {
@@ -169,6 +188,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "") -> dict:
                 "Per-clip exposure offsets are estimated from average "
                 "brightness analysis via ffprobe signalstats."
             ),
+            "powergrade_path": None,
         },
     }
 

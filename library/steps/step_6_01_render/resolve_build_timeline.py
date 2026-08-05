@@ -738,6 +738,102 @@ def build_timeline(
                 f"Fairlight preset '{fairlight_preset}' failed")
 
     # ══════════════════════════════════════════════════════════
+    # COLOR GRADING (CDL + PowerGrade)
+    # ══════════════════════════════════════════════════════════
+    color_grade = manifest.get("color_grade", {})
+    per_clip_adjs = color_grade.get("per_clip_adjustments", [])
+    powergrade_path = color_grade.get("powergrade_path")
+
+    # Build a lookup by source_file basename
+    color_lookup = {}
+    for adj in per_clip_adjs:
+        src = adj.get("source_file", "")
+        if src:
+            color_lookup[os.path.basename(src)] = adj.get("cdl_values", {})
+
+    if color_lookup or powergrade_path:
+        print(f"\n── Color Grading (CDL + PowerGrade) ──", file=sys.stderr)
+        graded_sources = {}
+        
+        for track_idx in range(1, timeline.GetTrackCount("video") + 1):
+            items = timeline.GetItemListInTrack("video", track_idx)
+            if not items: continue
+
+            for ci, item in enumerate(items):
+                mpi = item.GetMediaPoolItem()
+                if not mpi: continue
+
+                clip_name = mpi.GetClipProperty("File Name") or item.GetName()
+                if not clip_name: continue
+
+                cdl_vals = color_lookup.get(clip_name)
+                if not cdl_vals and not powergrade_path:
+                    continue
+
+                if clip_name not in graded_sources:
+                    if cdl_vals:
+                        slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
+                        offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
+                        power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
+                        sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
+                        
+                        try:
+                            # Try SetCDL first
+                            res = item.SetCDL({
+                                "NodeIndex": "1",
+                                "Slope": slope,
+                                "Offset": offset,
+                                "Power": power,
+                                "Saturation": sat
+                            })
+                            if not res:
+                                # Fallback to SetClipProperty
+                                item.SetClipProperty("Slope", slope)
+                                item.SetClipProperty("Offset", offset)
+                                item.SetClipProperty("Power", power)
+                                item.SetClipProperty("Saturation", sat)
+                        except Exception as e:
+                            results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
+
+                    if powergrade_path and os.path.exists(powergrade_path):
+                        res = item.ApplyGradeFromDRX(powergrade_path, 1)
+                        if res:
+                            print(f"  ✓ Applied PowerGrade to {clip_name}", file=sys.stderr)
+                        else:
+                            print(f"  ✗ Failed to apply PowerGrade to {clip_name}", file=sys.stderr)
+                            results["warnings"].append(f"Failed to apply PowerGrade to {clip_name}")
+
+                    graded_sources[clip_name] = item
+                    print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
+                else:
+                    # Subsequent clips from the same source: re-apply the same CDL values
+                    if cdl_vals:
+                        slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
+                        offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
+                        power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
+                        sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
+                        try:
+                            res = item.SetCDL({
+                                "NodeIndex": "1",
+                                "Slope": slope,
+                                "Offset": offset,
+                                "Power": power,
+                                "Saturation": sat
+                            })
+                            if not res:
+                                item.SetClipProperty("Slope", slope)
+                                item.SetClipProperty("Offset", offset)
+                                item.SetClipProperty("Power", power)
+                                item.SetClipProperty("Saturation", sat)
+                        except Exception:
+                            pass
+                    
+                    if powergrade_path and os.path.exists(powergrade_path):
+                        item.ApplyGradeFromDRX(powergrade_path, 1)
+                        
+                    print(f"  ✓ Copied grade to subsequent clip of {clip_name}", file=sys.stderr)
+
+    # ══════════════════════════════════════════════════════════
     print(f"\n── Track Labels ──", file=sys.stderr)
     video_labels = {1: "A-Roll", 2: "B-Roll", 3: "Subtitles", 4: "Motion Graphics"}
     audio_labels = {1: "Speech", 2: "Music"}
