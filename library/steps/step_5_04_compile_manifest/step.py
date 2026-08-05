@@ -830,13 +830,6 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             trans_obj["macro_preset"] = t["macro_preset"]
         fusion_transitions.append(trans_obj)
 
-    # Audio config
-    audio_mix_data = inputs.get("audio_mix_spec", {})
-    audio_preset = sfx_preset or audio_mix_data.get("fairlight_preset", "")
-    audio_config = {
-        "fairlight_preset": audio_preset,
-    }
-
     # SFX: Resolve SFX file paths using the SFX library.
     # BUG FIX C6: Previously skipped SFX resolution entirely, passing raw
     # unresolved specs that lack source_file paths needed by the render step.
@@ -849,6 +842,13 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
         sfx_preset = None
         sfx_ducking = None
+
+    # Audio config
+    audio_mix_data = inputs.get("audio_mix_spec", {})
+    audio_preset = sfx_preset or audio_mix_data.get("fairlight_preset", "")
+    audio_config = {
+        "fairlight_preset": audio_preset,
+    }
 
     sfx_library_path = os.environ.get(
         "SFX_LIBRARY",
