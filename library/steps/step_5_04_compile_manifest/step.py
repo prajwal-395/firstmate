@@ -614,12 +614,78 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     else:
         transitions = transition_raw if isinstance(transition_raw, list) else []
 
-    # VFX
+    # VFX: Extract and integrate enhancement specs into per-clip effects.
+    # BUG FIX C6: Previously hardcoded per_clip to {} and transitions to [],
+    # discarding all VFX and transition data from upstream pipeline steps.
     vfx_raw = inputs.get("enhancement_spec", [])
     if isinstance(vfx_raw, dict):
         vfx = vfx_raw.get("vfx_plan", vfx_raw.get("vfx_spec", []))
     else:
         vfx = vfx_raw if isinstance(vfx_raw, list) else []
+
+    # Enrich VFX entries with timeline ranges from V1 clips (same as file mode)
+    for v in vfx:
+        target = v.get("target", "")
+        if target.startswith("block_"):
+            try:
+                block_num = int(target.replace("block_", ""))
+                for clip in v1_clips:
+                    label = clip.get("label", "")
+                    if label.endswith(f"_{block_num}"):
+                        v["timeline_start"] = clip["timeline_in"]
+                        v["timeline_end"] = clip["timeline_out"]
+                        break
+            except ValueError:
+                pass
+        if v.get("timeline_end", 0) > total_duration:
+            v["timeline_end"] = total_duration
+
+    # Build per-clip effects from VFX preset assignments
+    per_clip_effects = {}
+    for v in vfx:
+        preset_name = v.get("preset", v.get("fusion_preset", ""))
+        if preset_name:
+            target = v.get("target", "")
+            if target.startswith("block_"):
+                try:
+                    block_num = int(target.replace("block_", ""))
+                    for clip in v1_clips:
+                        label = clip.get("label", "")
+                        if label.endswith(f"_{block_num}"):
+                            per_clip_effects[label] = {"_preset": preset_name}
+                            break
+                except ValueError:
+                    pass
+
+    # Transitions: extract and convert to fusion .comp format
+    transition_raw = inputs.get("transition_spec", [])
+    if isinstance(transition_raw, dict):
+        transitions = transition_raw.get("transitions", transition_raw.get("transition_spec", []))
+    else:
+        transitions = transition_raw if isinstance(transition_raw, list) else []
+
+    # Convert transitions to fusion comp format (same mapping as file mode)
+    fusion_transitions = []
+    for ti, t in enumerate(transitions):
+        ttype = t.get("transition_type", t.get("type", "cut"))
+        type_map = {
+            "cross_dissolve": "fade_to_black",
+            "dip_to_black": "fade_to_black",
+            "fade_in": "fade_to_black",
+            "fade_out": "fade_to_black",
+            "zoom_blur": "zoom_blur",
+            "defocus": "defocus",
+            "slide_left": "slide_left",
+            "flash": "flash",
+        }
+        comp_type = type_map.get(ttype, ttype)
+        if comp_type in ("cut", "hard_cut", ""):
+            continue
+        fusion_transitions.append({
+            "type": comp_type,
+            "after_clip": t.get("from_block", ti),
+            "duration_frames": t.get("duration_frames", 15),
+        })
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})
@@ -627,11 +693,76 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "fairlight_preset": audio_mix_data.get("fairlight_preset", ""),
     }
 
+    # SFX: Resolve SFX file paths using the SFX library.
+    # BUG FIX C6: Previously skipped SFX resolution entirely, passing raw
+    # unresolved specs that lack source_file paths needed by the render step.
     sfx_raw = inputs.get("sfx_spec", [])
     if isinstance(sfx_raw, dict):
         sfx_list = sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", []))
     else:
         sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
+
+    sfx_library_path = os.environ.get(
+        "SFX_LIBRARY",
+        "/Users/prajwal/Documents/content_stuff/"
+        "assets i used (just copied here for convenience)/sfx library"
+    )
+
+    # Load SFX library index (same logic as file-based compile_manifest)
+    sfx_index = []
+    sfx_index_path = os.path.join(sfx_library_path, "sfx_index.json")
+    if os.path.exists(sfx_index_path):
+        try:
+            with open(sfx_index_path) as f:
+                sfx_index = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    elif os.path.isdir(os.path.join(sfx_library_path, "profiles")):
+        import glob
+        for pf in sorted(glob.glob(
+                os.path.join(sfx_library_path, "profiles", "*.json"))):
+            if os.path.basename(pf) in (
+                    "sfx_index.json", "library_analysis.json",
+                    "library_semantic.json"):
+                continue
+            try:
+                with open(pf) as f:
+                    sfx_index.append(json.load(f))
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    a3_clips = []
+    sfx_passthrough = []
+    for si, sfx_entry in enumerate(sfx_list):
+        sfx_type = sfx_entry.get("sfx_type", "whoosh")
+        tl_start_sec = sfx_entry.get("timeline_start", 0.0)
+        tl_end_sec = sfx_entry.get("timeline_end",
+                                    tl_start_sec + sfx_entry.get(
+                                        "duration_seconds", 0.5))
+        vol_db = sfx_entry.get("volume_db", -14)
+
+        source_file, lib_dur = _match_sfx_file(sfx_type, sfx_index)
+
+        if source_file and os.path.exists(source_file):
+            a3_clips.append({
+                "source_file": source_file,
+                "source_in": 0.0,
+                "timeline_in_frame": seconds_to_frame(tl_start_sec, fps),
+                "timeline_out_frame": seconds_to_frame(tl_end_sec, fps),
+                "volume_db": vol_db,
+                "label": sfx_entry.get("sfx_id", f"sfx_{si+1:03d}"),
+                "sfx_type": sfx_type,
+            })
+        else:
+            sfx_passthrough.append({
+                **sfx_entry,
+                "_warning": f"No audio file resolved for sfx_type={sfx_type}",
+            })
+
+    if sfx_passthrough:
+        print(f"  WARNING: {len(sfx_passthrough)} SFX entries "
+              f"could not be resolved to audio files",
+              file=sys.stderr)
 
     # Build manifest with the SAME shape as compile_manifest()
     manifest = {
@@ -656,16 +787,17 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             },
             "A3": {
                 "label": "SFX",
-                "clips": [],  # SFX resolution requires filesystem access
+                "clips": sorted(a3_clips,
+                                key=lambda c: c["timeline_in_frame"]),
             },
         },
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
-        "sfx": sfx_list,
+        "sfx": sfx_passthrough,  # unresolved SFX entries (for reference)
         "fusion_effects": {
-            "per_clip": {},
-            "transitions": [],
+            "per_clip": per_clip_effects,
+            "transitions": fusion_transitions,
         },
         "audio": audio_config,
         "color_grade": inputs.get("color_grade_spec", {}),

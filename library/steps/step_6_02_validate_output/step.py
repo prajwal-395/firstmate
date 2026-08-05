@@ -399,6 +399,33 @@ def main():
     # Two modes: file validation (post-render) or build validation (post-build)
     if rendered_output.get("output_path"):
         result = validate_output(rendered_output, assembly_manifest)
+    elif rendered_output.get("render_expected", False):
+        # BUG FIX H8: When a render was expected but output_path is missing,
+        # report failure explicitly instead of falling back to build validation
+        # which could mask the missing render output with a false 'pass'.
+        result = {
+            "status": "fail",
+            "mode": "render_validation",
+            "checks": {
+                "render_output": {
+                    "pass": False,
+                    "issues": [
+                        "Render was expected but output_path is missing. "
+                        "The render step may have failed or not been triggered."
+                    ],
+                },
+            },
+            "all_issues": [
+                "[render_output] Render was expected but output_path is missing"
+            ],
+            "distribution_ready": False,
+            "critical_checks_passed": False,
+            "summary": "Render output missing - render step failed or was not triggered",
+            "recommended_action": (
+                "Check step 6.01 render logs for errors. Ensure DaVinci Resolve "
+                "is running and the render completed successfully."
+            ),
+        }
     else:
         # No rendered file yet - validate the build result from step 6.01
         result = _validate_build_result(rendered_output, assembly_manifest)

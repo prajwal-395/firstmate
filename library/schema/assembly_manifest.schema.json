@@ -188,6 +188,12 @@
                   "timeline_out": {
                     "type": "number"
                   },
+                  "timeline_in_frame": {
+                    "type": "integer"
+                  },
+                  "timeline_out_frame": {
+                    "type": "integer"
+                  },
                   "label": {
                     "type": "string"
                   }
@@ -227,6 +233,12 @@
                   },
                   "timeline_out_frame": {
                     "type": "integer"
+                  },
+                  "timeline_in": {
+                    "type": "number"
+                  },
+                  "timeline_out": {
+                    "type": "number"
                   },
                   "label": {
                     "type": "string"

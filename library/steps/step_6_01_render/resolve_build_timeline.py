@@ -238,7 +238,7 @@ def build_timeline(
     timeline.SetSetting("timelineResolutionHeight", str(height))
     timeline.SetSetting("timelineFrameRate", f"{fps:.3f}")
 
-    print(f"✓ Created timeline: {timeline_name} ({width}x{height} @ {fps}fps)")
+    print(f"✓ Created timeline: {timeline_name} ({width}x{height} @ {fps}fps)", file=sys.stderr)
 
     # ── Import all media to pool ──
     all_media_paths = set()
@@ -257,7 +257,7 @@ def build_timeline(
 
     if all_media_paths:
         imported = media_pool.ImportMedia(list(all_media_paths))
-        print(f"✓ Imported {len(imported) if imported else 0} media files")
+        print(f"✓ Imported {len(imported) if imported else 0} media files", file=sys.stderr)
 
     # Build pool clip lookup (by filename since paths may differ)
     root_folder = media_pool.GetRootFolder()
@@ -270,7 +270,7 @@ def build_timeline(
             _scan_folder(sub)
 
     _scan_folder(root_folder)
-    print(f"  Media pool: {len(pool_clips)} clips")
+    print(f"  Media pool: {len(pool_clips)} clips", file=sys.stderr)
 
     # ── Set up tracks ──
     # V1 exists by default. Need V2, V3, V4 for video and extra audio tracks.
@@ -304,18 +304,26 @@ def build_timeline(
     #   3. THEN place music/SFX on A2+ with mediaType=2
 
     vt = timeline.GetTrackCount("video")
-    print(f"✓ Video tracks: V={vt}")
-    print(f"  (Audio tracks deferred until after V1 placement)")
+    print(f"✓ Video tracks: V={vt}", file=sys.stderr)
+    print(f"  (Audio tracks deferred until after V1 placement)", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # PLACE V1: A-Roll clips (DEFAULT — audio auto-links to A1 only)
     # ══════════════════════════════════════════════════════════
     # At this point only A1 exists, so default placement puts audio on A1
-    print(f"\n── V1 A-Roll + A1 Speech: {len(v1_clips)} clips ──")
+    print(f"\n── V1 A-Roll + A1 Speech: {len(v1_clips)} clips ──", file=sys.stderr)
     v1_timeline_items = []
 
     for ci, clip in enumerate(v1_clips):
-        src = clip['source_file']
+        # BUG FIX C7: Handle clips with missing source_file gracefully
+        # (e.g. unresolved SFX clips passed through without file resolution)
+        src = clip.get('source_file', '')
+        if not src:
+            results["warnings"].append(
+                f"V1[{ci}] ({clip.get('label', '?')}) missing source_file - skipped")
+            print(f"  ⚠ [{ci}] {clip.get('label', '?')}: missing source_file",
+                  file=sys.stderr)
+            continue
         basename = os.path.basename(src)
         pool_item = pool_clips.get(basename)
         if not pool_item:
@@ -341,10 +349,10 @@ def build_timeline(
             v1_timeline_items.append(placed)
             print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
                   f"src {src_in_f}-{src_out_f} → V1+A1 at TL {tl_in_f} "
-                  f"({placed.GetDuration()}f)")
+                  f"({placed.GetDuration()}f)", file=sys.stderr)
         else:
             results["errors"].append(f"V1[{ci}] AppendToTimeline failed for {basename}")
-            print(f"  ✗ [{ci}] {basename}: AppendToTimeline returned None")
+            print(f"  ✗ [{ci}] {basename}: AppendToTimeline returned None", file=sys.stderr)
 
     results["tracks"]["V1"] = len(v1_timeline_items)
     results["tracks"]["A1"] = len(v1_timeline_items)  # auto-linked
@@ -356,13 +364,13 @@ def build_timeline(
         timeline.AddTrack("audio")
 
     at = timeline.GetTrackCount("audio")
-    print(f"✓ Audio tracks added: A={at} (A1=speech, A2+=clean)")
+    print(f"✓ Audio tracks added: A={at} (A1=speech, A2+=clean)", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # PLACE V2: B-Roll clips
     # ══════════════════════════════════════════════════════════
     if v2_clips:
-        print(f"\n── V2 B-Roll: {len(v2_clips)} clips ──")
+        print(f"\n── V2 B-Roll: {len(v2_clips)} clips ──", file=sys.stderr)
         v2_count = 0
         for ci, clip in enumerate(v2_clips):
             basename = os.path.basename(clip['source_file'])
@@ -386,9 +394,9 @@ def build_timeline(
 
             if result:
                 v2_count += 1
-                print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}")
+                print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}", file=sys.stderr)
             else:
-                print(f"  ✗ [{ci}] {basename}: failed")
+                print(f"  ✗ [{ci}] {basename}: failed", file=sys.stderr)
 
         results["tracks"]["V2"] = v2_count
 
@@ -396,7 +404,7 @@ def build_timeline(
     # PLACE V3: Subtitle Overlay (Remotion)
     # ══════════════════════════════════════════════════════════
     if has_subtitles:
-        print(f"\n── V3 Subtitle Overlay ──")
+        print(f"\n── V3 Subtitle Overlay ──", file=sys.stderr)
         sub_basename = os.path.basename(subtitle_overlay_path)
         pool_item = pool_clips.get(sub_basename)
         if pool_item:
@@ -410,20 +418,20 @@ def build_timeline(
                 "mediaType": 1,  # video-only placement on V3
             }])
             if result:
-                print(f"  ✓ {sub_basename} on V3 ({total_frames}f)")
+                print(f"  ✓ {sub_basename} on V3 ({total_frames}f)", file=sys.stderr)
                 results["tracks"]["V3"] = 1
             else:
-                print(f"  ✗ Failed to place subtitle overlay")
+                print(f"  ✗ Failed to place subtitle overlay", file=sys.stderr)
                 results["warnings"].append("Subtitle overlay placement failed")
         else:
-            print(f"  ✗ {sub_basename} not in media pool")
+            print(f"  ✗ {sub_basename} not in media pool", file=sys.stderr)
             results["warnings"].append(f"Subtitle overlay not in pool: {sub_basename}")
 
     # ══════════════════════════════════════════════════════════
     # PLACE V4: Motion Graphics Overlay (Remotion)
     # ══════════════════════════════════════════════════════════
     if has_mg:
-        print(f"\n── V4 Motion Graphics ──")
+        print(f"\n── V4 Motion Graphics ──", file=sys.stderr)
         mg_basename = os.path.basename(motion_graphics_path)
         pool_item = pool_clips.get(mg_basename)
         if pool_item:
@@ -437,18 +445,18 @@ def build_timeline(
                 "mediaType": 1,  # video-only placement on V4
             }])
             if result:
-                print(f"  ✓ {mg_basename} on V4 ({total_frames}f)")
+                print(f"  ✓ {mg_basename} on V4 ({total_frames}f)", file=sys.stderr)
                 results["tracks"]["V4"] = 1
             else:
-                print(f"  ✗ Failed to place motion graphics")
+                print(f"  ✗ Failed to place motion graphics", file=sys.stderr)
         else:
-            print(f"  ✗ {mg_basename} not in media pool")
+            print(f"  ✗ {mg_basename} not in media pool", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
     # ══════════════════════════════════════════════════════════
     if a2_clips:
-        print(f"\n── A2 Music: {len(a2_clips)} clips ──")
+        print(f"\n── A2 Music: {len(a2_clips)} clips ──", file=sys.stderr)
         for ci, clip in enumerate(a2_clips):
             basename = os.path.basename(clip['source_file'])
             pool_item = pool_clips.get(basename)
@@ -470,7 +478,7 @@ def build_timeline(
 
             if result:
                 placed = result[0] if isinstance(result, list) else result
-                print(f"  ✓ {basename}: {placed.GetDuration()}f on A2")
+                print(f"  ✓ {basename}: {placed.GetDuration()}f on A2", file=sys.stderr)
                 results["tracks"]["A2"] = 1
 
                 # Set volume if specified
@@ -490,17 +498,25 @@ def build_timeline(
                             f"Volume set failed for {basename}: {e}"
                         )
             else:
-                print(f"  ✗ {basename}: failed")
+                print(f"  ✗ {basename}: failed", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # PLACE A3+: SFX (overlap-aware multi-track)
     # ══════════════════════════════════════════════════════════
     if sfx_allocations:
-        print(f"\n── SFX: {len(sfx_allocations)} clips across tracks ──")
+        print(f"\n── SFX: {len(sfx_allocations)} clips across tracks ──", file=sys.stderr)
         sfx_track_counts = {}
 
         for clip, track_idx in sfx_allocations:
-            basename = os.path.basename(clip['source_file'])
+            # BUG FIX C7: Handle unresolved SFX clips missing source_file
+            src = clip.get('source_file', '')
+            if not src:
+                results["warnings"].append(
+                    f"SFX ({clip.get('label', '?')}) missing source_file - skipped")
+                print(f"  ⚠ SFX {clip.get('label', '?')}: missing source_file",
+                      file=sys.stderr)
+                continue
+            basename = os.path.basename(src)
             pool_item = pool_clips.get(basename)
             if not pool_item:
                 results["warnings"].append(f"SFX {basename} not in pool")
@@ -523,7 +539,8 @@ def build_timeline(
             if result:
                 sfx_track_counts[track_idx] = sfx_track_counts.get(track_idx, 0) + 1
                 print(f"  ✓ {clip.get('label', basename)}: "
-                      f"TL {tl_in_f}-{tl_out_f} → A{track_idx}")
+                      f"TL {tl_in_f}-{tl_out_f} → A{track_idx}",
+                      file=sys.stderr)
 
                 # Apply volume
                 placed = result[0] if isinstance(result, list) else result
@@ -538,7 +555,7 @@ def build_timeline(
                             f"SFX volume set failed on A{track_idx}: {e}"
                         )
             else:
-                print(f"  ✗ {basename} on A{track_idx} at {tl_in_f}: failed")
+                print(f"  ✗ {basename} on A{track_idx} at {tl_in_f}: failed", file=sys.stderr)
 
         for tk, count in sorted(sfx_track_counts.items()):
             results["tracks"][f"A{tk}"] = count
@@ -576,7 +593,8 @@ def build_timeline(
 
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, "
-              f"{len(transition_specs)} transitions ──")
+              f"{len(transition_specs)} transitions ──",
+              file=sys.stderr)
 
         from fusion_comp_generator import generate_comp, write_comp, SEGMENT_PRESETS
 
@@ -663,7 +681,7 @@ def build_timeline(
                 if len(real_tools) == 0:
                     results["warnings"].append(
                         f"VFX: {label} imported empty comp (0 tools)")
-                    print(f"  ✗ [{ci}] {label}: empty comp (bad file)")
+                    print(f"  ✗ [{ci}] {label}: empty comp (bad file)", file=sys.stderr)
                     continue
 
                 parts = []
@@ -682,15 +700,15 @@ def build_timeline(
 
                 detail = f" ({', '.join(parts)})" if parts else ""
                 print(f"  ✓ [{ci}] {label}: {len(real_tools)} tools"
-                      f"{detail}")
+                      f"{detail}", file=sys.stderr)
             else:
                 results["warnings"].append(
                     f"VFX: ImportFusionComp failed for {label}")
-                print(f"  ✗ [{ci}] {label}: ImportFusionComp failed")
+                print(f"  ✗ [{ci}] {label}: ImportFusionComp failed", file=sys.stderr)
 
     elif vfx_entries:
         # Legacy fallback: static SetProperty for simple zoom
-        print(f"\n── VFX (legacy): {len(vfx_entries)} entries ──")
+        print(f"\n── VFX (legacy): {len(vfx_entries)} entries ──", file=sys.stderr)
         for vfx in vfx_entries:
             vfx_type = vfx.get('type', '')
             if vfx_type == 'zoom_pulse':
@@ -700,7 +718,8 @@ def build_timeline(
                         item.SetProperty("ZoomX", 1.05)
                         item.SetProperty("ZoomY", 1.05)
                         print(f"  ✓ zoom_pulse on {item.GetName()}"
-                              f" at {vfx_start_f}f")
+                              f" at {vfx_start_f}f",
+                              file=sys.stderr)
                         break
 
     # ══════════════════════════════════════════════════════════
@@ -709,24 +728,24 @@ def build_timeline(
     audio_config = manifest.get('audio', {})
     fairlight_preset = audio_config.get('fairlight_preset', '')
     if fairlight_preset:
-        print(f"\n── Fairlight Preset: {fairlight_preset} ──")
+        print(f"\n── Fairlight Preset: {fairlight_preset} ──", file=sys.stderr)
         result = project.ApplyFairlightPresetToCurrentTimeline(fairlight_preset)
         if result:
-            print(f"  ✓ Applied Fairlight preset: {fairlight_preset}")
+            print(f"  ✓ Applied Fairlight preset: {fairlight_preset}", file=sys.stderr)
         else:
-            print(f"  ✗ Fairlight preset '{fairlight_preset}' not found or failed")
+            print(f"  ✗ Fairlight preset '{fairlight_preset}' not found or failed", file=sys.stderr)
             results["warnings"].append(
                 f"Fairlight preset '{fairlight_preset}' failed")
 
     # ══════════════════════════════════════════════════════════
-    print(f"\n── Track Labels ──")
+    print(f"\n── Track Labels ──", file=sys.stderr)
     video_labels = {1: "A-Roll", 2: "B-Roll", 3: "Subtitles", 4: "Motion Graphics"}
     audio_labels = {1: "Speech", 2: "Music"}
 
     for i in range(1, timeline.GetTrackCount("video") + 1):
         label = video_labels.get(i, f"V{i}")
         timeline.SetTrackName("video", i, label)
-        print(f"  V{i}: {label}")
+        print(f"  V{i}: {label}", file=sys.stderr)
 
     for i in range(1, timeline.GetTrackCount("audio") + 1):
         if i <= 2:
@@ -734,19 +753,19 @@ def build_timeline(
         else:
             label = f"SFX-{i - 2}"
         timeline.SetTrackName("audio", i, label)
-        print(f"  A{i}: {label}")
+        print(f"  A{i}: {label}", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # VERIFICATION
     # ══════════════════════════════════════════════════════════
-    print(f"\n── Verification ──")
+    print(f"\n── Verification ──", file=sys.stderr)
     resolve.OpenPage("edit")
 
     # Duration check
     start_f = timeline.GetStartFrame()
     end_f = timeline.GetEndFrame()
     actual_dur = (end_f - start_f) / fps
-    print(f"  Duration: {actual_dur:.1f}s (expected: {total_duration:.1f}s)")
+    print(f"  Duration: {actual_dur:.1f}s (expected: {total_duration:.1f}s)", file=sys.stderr)
 
     # Playhead checks at key positions
     playhead_checks = []
@@ -754,7 +773,7 @@ def build_timeline(
         mid_f = (clip['timeline_in_frame'] + clip['timeline_out_frame']) // 2
         playhead_checks.append((mid_f, clip.get('label', os.path.basename(clip['source_file']))))
 
-    print(f"\n  Playhead verification ({len(playhead_checks)} points):")
+    print(f"\n  Playhead verification ({len(playhead_checks)} points):", file=sys.stderr)
     all_passed = True
     for frame, expected_label in playhead_checks:
         ifps = int(fps)
@@ -767,34 +786,34 @@ def build_timeline(
         status = "✓" if passed else "✗"
         if not passed:
             all_passed = False
-        print(f"    {status} Frame {frame:5d} ({frame / fps:5.1f}s): {name} — expected: {expected_label}")
+        print(f"    {status} Frame {frame:5d} ({frame / fps:5.1f}s): {name} — expected: {expected_label}", file=sys.stderr)
 
     # Track inventory
-    print(f"\n  Track inventory:")
+    print(f"\n  Track inventory:", file=sys.stderr)
     for ti in range(1, timeline.GetTrackCount("video") + 1):
         items = timeline.GetItemListInTrack("video", ti)
         name = timeline.GetTrackName("video", ti)
         count = len(items) if items else 0
-        print(f"    V{ti} ({name}): {count} clips")
+        print(f"    V{ti} ({name}): {count} clips", file=sys.stderr)
 
     for ti in range(1, timeline.GetTrackCount("audio") + 1):
         items = timeline.GetItemListInTrack("audio", ti)
         name = timeline.GetTrackName("audio", ti)
         count = len(items) if items else 0
-        print(f"    A{ti} ({name}): {count} clips")
+        print(f"    A{ti} ({name}): {count} clips", file=sys.stderr)
 
     results["success"] = all_passed and not results["errors"]
     results["duration_seconds"] = actual_dur
     results["verification_passed"] = all_passed
 
     status_emoji = "✓" if results["success"] else "✗"
-    print(f"\n{status_emoji} Build {'succeeded' if results['success'] else 'FAILED'}")
+    print(f"\n{status_emoji} Build {'succeeded' if results['success'] else 'FAILED'}", file=sys.stderr)
     if results["errors"]:
         for e in results["errors"]:
-            print(f"  ERROR: {e}")
+            print(f"  ERROR: {e}", file=sys.stderr)
     if results["warnings"]:
         for w in results["warnings"]:
-            print(f"  WARNING: {w}")
+            print(f"  WARNING: {w}", file=sys.stderr)
 
     return results
 
@@ -803,26 +822,53 @@ def build_timeline(
 
 if __name__ == "__main__":
     import argparse
+    import select
 
-    parser = argparse.ArgumentParser(description="Build Resolve timeline from manifest")
-    parser.add_argument("manifest", help="Path to assembly_manifest.json")
-    parser.add_argument("--subtitle-overlay", help="Path to Remotion subtitle overlay (.mov)")
-    parser.add_argument("--motion-graphics", help="Path to Remotion motion graphics overlay (.mov)")
-    parser.add_argument("--project", help="Resolve project name")
-    parser.add_argument("--keep-existing", action="store_true",
-                        help="Don't delete existing timelines with same name")
-    args = parser.parse_args()
+    # BUG FIX C7: Support both stdin JSON (orchestrator mode) and argparse
+    # file path (CLI mode). Check if stdin has data first, fall back to argparse.
+    manifest = None
+    subtitle_overlay = None
+    motion_graphics = None
+    project_name = None
+    keep_existing = False
 
-    with open(args.manifest) as f:
-        manifest = json.load(f)
+    if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.0)[0]:
+        # Orchestrator mode: JSON piped via stdin
+        raw = sys.stdin.read().strip()
+        if raw:
+            input_data = json.loads(raw)
+            # The orchestrator may wrap the manifest or pass it directly
+            manifest = input_data.get("assembly_manifest", input_data)
+            subtitle_overlay = input_data.get("subtitle_overlay_path")
+            motion_graphics = input_data.get("motion_graphics_path")
+            project_name = input_data.get("project_name")
+
+    if manifest is None:
+        # CLI mode: parse arguments
+        parser = argparse.ArgumentParser(description="Build Resolve timeline from manifest")
+        parser.add_argument("manifest", help="Path to assembly_manifest.json")
+        parser.add_argument("--subtitle-overlay", help="Path to Remotion subtitle overlay (.mov)")
+        parser.add_argument("--motion-graphics", help="Path to Remotion motion graphics overlay (.mov)")
+        parser.add_argument("--project", help="Resolve project name")
+        parser.add_argument("--keep-existing", action="store_true",
+                            help="Don't delete existing timelines with same name")
+        args = parser.parse_args()
+
+        with open(args.manifest) as f:
+            manifest = json.load(f)
+        subtitle_overlay = args.subtitle_overlay
+        motion_graphics = args.motion_graphics
+        project_name = args.project
+        keep_existing = args.keep_existing
 
     result = build_timeline(
         manifest,
-        subtitle_overlay_path=args.subtitle_overlay,
-        motion_graphics_path=args.motion_graphics,
-        project_name=args.project,
-        delete_existing=not args.keep_existing,
+        subtitle_overlay_path=subtitle_overlay,
+        motion_graphics_path=motion_graphics,
+        project_name=project_name,
+        delete_existing=not keep_existing,
     )
 
-    print(f"\n{'=' * 60}")
-    print(json.dumps(result, indent=2, default=str))
+    # BUG FIX C7: Output structured JSON result to stdout (only JSON, no
+    # other prints - all status logging goes to stderr).
+    json.dump(result, sys.stdout, indent=2, default=str)

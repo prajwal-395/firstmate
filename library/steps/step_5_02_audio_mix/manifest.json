@@ -7,10 +7,16 @@
   "interface": {
     "inputs": [
       {
-        "name": "timed_spine",
+        "name": "audio_spine",
         "type": "object",
         "required": true,
-        "description": "State input: timed_spine"
+        "description": "State input: audio_spine (the timed audio spine with structure and music_behavior)"
+      },
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: enhancement_spec (VFX/enhancement data, used for audio-aware mixing)"
       },
       {
         "name": "music_selection",
@@ -33,7 +39,7 @@
       }
     ],
     "preconditions": [
-      "'timed_spine' exists in state",
+      "'audio_spine' exists in state",
       "'music_selection' exists in state",
       "'creative_direction' exists in state"
     ],

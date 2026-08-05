@@ -23,6 +23,12 @@
         "type": "object",
         "required": true,
         "description": "State input: b_roll_assignments"
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "Path to the project folder, needed for ffprobe media analysis"
       }
     ],
     "outputs": [
@@ -35,7 +41,8 @@
     "preconditions": [
       "'creative_direction' exists in state",
       "'a_roll_assignments' exists in state",
-      "'b_roll_assignments' exists in state"
+      "'b_roll_assignments' exists in state",
+      "'project_folder' exists in state (optional)"
     ],
     "postconditions": [
       "'color_grade_spec' is written to state"
