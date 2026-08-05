@@ -113,9 +113,10 @@ A creative direction document containing:
 
 | Direction | State Key |
 |-----------|-----------|
-| Reads | `clip_catalog` |
 | Reads | `semantic_analysis_documents` |
-| Reads | `video_topic` (if provided) |
+| Reads | `temporal_index` |
+| Reads | `prosody_analysis` |
+| Reads | `clip_catalog` |
 | Writes | `creative_direction` |
 
 ---

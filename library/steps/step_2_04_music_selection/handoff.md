@@ -147,7 +147,7 @@ Given the creative direction, find and prepare music for the video.
 
 ## Important Notes
 
-- The music_selections output is a MENU of available splices, not the
+- The music_selection output is a MENU of available splices, not the
   final placement plan. Step 2.5 (Mesh and Refine) determines exactly
   where each splice goes.
 - For 30-60 second videos, one track with multiple splices is more common
@@ -166,7 +166,7 @@ Given the creative direction, find and prepare music for the video.
 |-----------|-----------|
 | Reads | `creative_direction` |
 | Reads | `style_specification` |
-| Writes | `music_selections` |
+| Writes | `music_selection` |
 
 ---
 

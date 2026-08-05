@@ -332,7 +332,9 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["speech_sequence", "temporal_index_dir"], "Input data")
+    # C2 fix: State provides temporal_index as an object with index_dir,
+    # not temporal_index_dir at root level.
+    _require_keys(data, ["speech_sequence", "temporal_index"], "Input data")
     if not isinstance(data["speech_sequence"], dict):
         raise ValueError("speech_sequence must be a dictionary")
 
@@ -342,9 +344,11 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    ti_dir = data.get("temporal_index_dir", "")
+    # C2 fix: Read index_dir from temporal_index object, not from root key.
+    temporal_index = data.get("temporal_index", {})
+    ti_dir = temporal_index.get("index_dir", "") if isinstance(temporal_index, dict) else ""
     if not ti_dir or not os.path.isdir(ti_dir):
-        print(json.dumps({"error": f"Invalid temporal_index_dir: {ti_dir}",
+        print(json.dumps({"error": f"Invalid temporal_index.index_dir: {ti_dir}",
                           "step": "2.02_bridge"}))
         sys.exit(1)
 

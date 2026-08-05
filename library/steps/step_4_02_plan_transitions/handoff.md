@@ -101,7 +101,7 @@ transitions on these positions. Hard cuts don't need beat alignment.
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `shot_list`, `audio_spine`, `music_selections`, `creative_direction`, `style_specification` |
-| Writes | `transition_plan` |
+| Writes | `transition_spec` |
 
 ---
 

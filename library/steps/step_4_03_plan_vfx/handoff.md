@@ -125,7 +125,7 @@ face_mesh = mp_face.FaceMesh(static_image_mode=False)
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `shot_list`, `style_specification` |
-| Writes | `vfx_plan` |
+| Writes | `enhancement_spec` |
 
 ---
 

@@ -65,7 +65,7 @@
     "idempotent": false
   },
   "state": {
-    "reads": ["project_folder"],
+    "reads": ["project_folder", "clip_catalog"],
     "writes": [
       "raw_footage_files", "clip_catalog", "semantic_analysis_documents",
       "temporal_index", "creative_direction", "speech_sequence",
@@ -73,7 +73,8 @@
       "a_roll_assignments", "b_roll_assignments", "rough_cut_review",
       "subtitle_plan", "transition_spec", "enhancement_spec",
       "sfx_spec", "color_grade_spec", "audio_mix_spec",
-      "assembly_manifest", "rendered_output", "validation_result"
+      "assembly_manifest", "rendered_output", "validation_result",
+      "prosody_analysis", "sfx_library_status", "music_analysis", "subtitle_overlay"
     ]
   },
   "dependencies": [],

@@ -168,17 +168,26 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["spine", "speech_sequence", "music_selection"], "Input data")
-    if not isinstance(data["spine"], dict):
-        raise ValueError("spine must be a dictionary")
-    _require_keys(data["spine"], ["structure"], "spine")
-    if not isinstance(data["spine"]["structure"], list):
+    # C3 fix: Accept LLM output format. The LLM outputs {structure: [...],
+    # total_estimated_duration_seconds: ...} directly, not nested under a
+    # "spine" key. Support both formats for robustness.
+    _require_keys(data, ["speech_sequence", "music_selection"], "Input data")
+    if "spine" in data:
+        spine_data = data["spine"]
+    elif "structure" in data:
+        # LLM output: structure is at root level
+        spine_data = data
+    else:
+        raise ValueError("Input data: missing 'spine' or 'structure' key")
+    if not isinstance(spine_data, dict):
+        raise ValueError("spine data must be a dictionary")
+    _require_keys(spine_data, ["structure"], "spine data")
+    if not isinstance(spine_data["structure"], list):
         raise ValueError("spine.structure must be a list")
 
-    spine = data.get("spine")
-    if not spine:
-        print(json.dumps({"error": "Missing: spine", "step": "2.5_bridge"}))
-        sys.exit(1)
+    # C3 fix: Use spine_data resolved above (handles both LLM direct output
+    # and wrapped formats).
+    spine = spine_data
 
     speech = data.get("speech_sequence", {})
     music = data.get("music_selection", {})

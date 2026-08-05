@@ -364,6 +364,12 @@ def main():
         broll_creative, clip_catalog, semantic_docs,
         temporal_indices, timed_spine,
     )
+    # H6 fix: Include b_roll_interjections from LLM output in bridge output.
+    # The handoff.md defines interjections as overlay B-roll over speech blocks.
+    # Without passing them through, Phase 3+ loses visual variety data.
+    interjections = data.get("b_roll_interjections", [])
+    if interjections:
+        result["b_roll_interjections"] = interjections
     json.dump(result, sys.stdout, indent=2)
 
 

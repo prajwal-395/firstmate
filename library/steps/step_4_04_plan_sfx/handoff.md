@@ -122,7 +122,7 @@ rms_times = librosa.frames_to_time(range(len(rms)), sr=sr)
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `shot_list`, `audio_spine`, `transition_plan` (optional), `subtitle_entries` (optional), `vfx_plan` (optional), `style_specification` |
-| Writes | `sfx_plan` |
+| Writes | `sfx_spec` |
 
 ---
 

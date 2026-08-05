@@ -61,12 +61,14 @@
       "temporal_index"
     ],
     "writes": [
-      "audio_spine"
+      "audio_spine",
+      "timed_spine"
     ]
   },
   "dependencies": [
     "step_2_02_speech_sequence",
-    "step_2_04_music_selection"
+    "step_2_04_music_selection",
+    "step_2_06_music_analysis"
   ],
   "tags": [
     "data_transformation",

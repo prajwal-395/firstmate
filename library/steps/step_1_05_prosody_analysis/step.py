@@ -27,6 +27,29 @@ def main():
     raw_footage_files = data.get("raw_footage_files", [])
     project_folder = data.get("project_folder", "")
 
+    # C8 fix: Extract temporal boundaries from the temporal_index input.
+    # The manifest declares temporal_index as a required input - use it to
+    # focus prosody analysis on voiced segments only (avoids wasting compute
+    # on silence and improves pitch/rate accuracy).
+    temporal_index = data.get("temporal_index", {})
+    speech_boundaries = {}
+    if isinstance(temporal_index, dict):
+        index_dir = temporal_index.get("index_dir", "")
+        if index_dir and os.path.isdir(index_dir):
+            for ti_file in glob.glob(os.path.join(index_dir, "*.json")):
+                clip_id = os.path.splitext(os.path.basename(ti_file))[0]
+                try:
+                    with open(ti_file) as f:
+                        ti_data = json.load(f)
+                    regions = ti_data.get("speech_regions", [])
+                    if regions:
+                        speech_boundaries[clip_id] = [
+                            {"start": r.get("start", 0), "end": r.get("end", 0)}
+                            for r in regions
+                        ]
+                except (json.JSONDecodeError, IOError):
+                    pass
+
     if not raw_footage_files:
         json.dump({
             "prosody_analysis": {
@@ -90,7 +113,10 @@ def main():
         # Write input JSON for the pipeline
         input_data = {
             "audio_files": missing,
-            "output_dir": output_dir
+            "output_dir": output_dir,
+            # C8 fix: Pass speech region boundaries from temporal_index so the
+            # prosody pipeline can focus on voiced segments.
+            "speech_boundaries": speech_boundaries,
         }
 
         try:

@@ -566,9 +566,14 @@ def generate_subtitles(
             if ew in sub["text"]
         ]
 
+    # C4 fix: Wrap output under subtitle_plan key to match manifest contract.
+    # Manifest declares output as 'subtitle_plan', and DAG edge
+    # plan_subtitles -> render_subtitles maps subtitle_plan -> subtitle_plan.
     return {
-        "subtitle_entries": subtitle_entries,
-        "total_subtitles": len(subtitle_entries),
+        "subtitle_plan": {
+            "subtitle_entries": subtitle_entries,
+            "total_subtitles": len(subtitle_entries),
+        }
     }
 
 

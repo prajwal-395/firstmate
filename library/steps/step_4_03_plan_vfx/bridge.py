@@ -182,7 +182,9 @@ def main():
     creative = inject_default_ken_burns(creative, spine)
 
     result = resolve_vfx(creative, spine, fps)
-    json.dump({"vfx_spec": result}, sys.stdout, indent=2)
+    # C5 fix: Output key must be enhancement_spec to match manifest contract.
+    # The DAG edge plan_vfx -> compile_manifest maps enhancement_spec.
+    json.dump({"enhancement_spec": result}, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

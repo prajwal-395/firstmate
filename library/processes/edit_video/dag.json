@@ -179,6 +179,7 @@
   "edges": [
     {"from": "scan", "to": "catalog", "data_mapping": {"raw_footage_files": "raw_footage_files"}},
     {"from": "scan", "to": "semantic_analysis", "data_mapping": {"raw_footage_files": "raw_footage_files"}},
+    {"from": "catalog", "to": "semantic_analysis", "data_mapping": {"clip_catalog": "clip_catalog"}},
     {"from": "scan", "to": "temporal_index", "data_mapping": {"raw_footage_files": "raw_footage_files"}},
     {"from": "temporal_index", "to": "prosody_analysis", "data_mapping": {"temporal_index": "temporal_index"}},
     {"from": "scan", "to": "prosody_analysis", "data_mapping": {"raw_footage_files": "raw_footage_files"}},
@@ -186,7 +187,9 @@
     {"from": "semantic_analysis", "to": "creative_direction", "data_mapping": {"semantic_analysis_documents": "semantic_analysis_documents"}},
     {"from": "temporal_index", "to": "creative_direction", "data_mapping": {"temporal_index": "temporal_index"}},
     {"from": "prosody_analysis", "to": "creative_direction", "data_mapping": {"prosody_analysis": "prosody_analysis"}},
+    {"from": "catalog", "to": "creative_direction", "data_mapping": {"clip_catalog": "clip_catalog"}},
     {"from": "creative_direction", "to": "speech_sequence", "data_mapping": {"creative_direction": "creative_direction"}},
+    {"from": "semantic_analysis", "to": "speech_sequence", "data_mapping": {"semantic_analysis_documents": "semantic_analysis_documents"}},
     {"from": "temporal_index", "to": "speech_sequence", "data_mapping": {"temporal_index": "temporal_index"}},
     {"from": "creative_direction", "to": "music_selection", "data_mapping": {"creative_direction": "creative_direction"}},
     {"from": "music_selection", "to": "music_analysis", "data_mapping": {"music_selection": "music_selection"}},

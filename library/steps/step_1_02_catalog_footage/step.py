@@ -222,16 +222,21 @@ def catalog_footage(raw_footage_files: list) -> dict:
             "Cannot build catalog."
         )
 
-    # --- Verify creation_time is present for all entries ---
-    missing_ct = [
-        e["filename"] for e in entries if not e.get("creation_time")
-    ]
-    if missing_ct:
-        raise ValueError(
-            f"creation_time not found for {len(missing_ct)} file(s): "
-            f"{', '.join(missing_ct[:5])}. "
-            "Chronological ordering requires creation_time for every file."
-        )
+    # --- Fall back to filesystem mtime when creation_time is absent ---
+    # H5 fix: Some clips (e.g., screen recordings, re-encoded files) lack
+    # creation_time metadata. Using mtime preserves chronological ordering
+    # instead of crashing the pipeline.
+    for entry in entries:
+        if not entry.get("creation_time"):
+            mtime = os.path.getmtime(entry["path"])
+            entry["creation_time"] = datetime.fromtimestamp(mtime).strftime(
+                "%Y-%m-%dT%H:%M:%S"
+            )
+            print(
+                f"WARNING: No creation_time for {entry['filename']}, "
+                f"falling back to filesystem mtime: {entry['creation_time']}",
+                file=sys.stderr,
+            )
 
     # --- Sort by creation_time ascending, filename as tiebreaker ---
     entries.sort(key=lambda e: (
