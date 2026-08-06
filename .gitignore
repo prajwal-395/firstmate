@@ -27,6 +27,9 @@ palmier-pro/
 # ─── Node.js ─────────────────────────────────────────────────
 node_modules/
 
+# ─── Remotion generated props (regenerated per video project) ─
+remotion-subtitles/public/*Props.json
+
 # ─── Media files (too large for git) ────────────────────────
 *.mov
 *.mp4
