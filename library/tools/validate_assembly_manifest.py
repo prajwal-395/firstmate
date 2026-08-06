@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """
-Assembly Manifest Validator.
+Assembly Manifest Validator (legacy CLI wrapper).
 
 Validates the assembly_manifest.json produced by step 5.04 (compile_manifest)
 against the JSON Schema at library/schema/assembly_manifest.schema.json.
 
-Usage:
-    # As a module:
-    from validate_assembly_manifest import validate_assembly_manifest
-    errors = validate_assembly_manifest(manifest_dict)
-    if errors:
-        for e in errors:
-            print(e)
+NOTE: For programmatic use, prefer library/tools/manifest_validator.py which
+provides a richer validate_manifest() function with additional semantic checks.
 
-    # As a CLI tool:
+Usage (CLI only):
     python validate_assembly_manifest.py path/to/assembly_manifest.json
 
 Requires: pip install jsonschema

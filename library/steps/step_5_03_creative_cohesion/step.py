@@ -164,13 +164,14 @@ def review_creative_cohesion(inputs: dict) -> dict:
                     score -= 5
                     
         brand_palette = style_slots.get("color_palette", [])
-        if brand_palette and "palette" not in str(color_grade_spec).lower() and color_mood:
-            # simple check if color grade matches brand palette
-            pass 
-
-        brand_subtitle = effect_slots.get("subtitle_style", "")
-        # Since subtitle style is handled in subtitle_plan, we can just check if we have it in inputs
-        # But we don't have subtitle_plan in inputs for this step currently. We can skip or add it.
+        if brand_palette and color_mood:
+            palette_str = " ".join(str(c).lower() for c in brand_palette)
+            # Warn if the color grade mood has no overlap with brand palette descriptors
+            grade_words = set(color_mood.split())
+            palette_words = set(palette_str.split())
+            if not grade_words & palette_words:
+                warnings.append(f"Color grade mood '{color_mood}' does not reference brand palette")
+                score -= 3
 
     # 4. Output Adjustments
     score = max(0, score)

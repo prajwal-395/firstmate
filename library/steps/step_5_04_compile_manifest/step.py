@@ -750,12 +750,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     subtitles = inputs.get("subtitle_plan", {}).get("subtitle_entries",
                     inputs.get("subtitle_plan", {}).get("subtitles", []))
 
-    # Transitions
-    transition_raw = inputs.get("transition_spec", [])
-    if isinstance(transition_raw, dict):
-        transitions = transition_raw.get("transitions", transition_raw.get("transition_spec", []))
-    else:
-        transitions = transition_raw if isinstance(transition_raw, list) else []
+
 
     # VFX: Extract and integrate enhancement specs into per-clip effects.
     # BUG FIX C6: Previously hardcoded per_clip to {} and transitions to [],

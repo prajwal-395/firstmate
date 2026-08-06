@@ -57,8 +57,7 @@
       "audio_spine",
       "creative_direction",
       "enhancement_spec",
-      "music_selection",
-      "project_folder"
+      "music_selection"
     ],
     "writes": [
       "audio_mix_spec"

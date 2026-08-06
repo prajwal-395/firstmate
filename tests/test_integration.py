@@ -74,6 +74,15 @@ class TestIntegration(unittest.TestCase):
         self.assertIn("powergrade_path", manifest["color_grade"])
 
     def test_neural_engine_directives(self):
+        import tempfile
+        # Create real temp files so validate_manifest's os.path.exists check passes
+        tmpdir = tempfile.mkdtemp()
+        files = {}
+        for name in ("h.mov", "i.mov", "l.mov", "s.mov"):
+            p = os.path.join(tmpdir, name)
+            open(p, "w").close()
+            files[name] = p
+
         inputs = {
             "audio_spine": {
                 "structure": [
@@ -84,10 +93,10 @@ class TestIntegration(unittest.TestCase):
                 ]
             },
             "a_roll_assignments": [
-                {"source_clip_id": "c_handheld", "source_file": "h.mov", "width": 1080, "height": 1920},
-                {"source_clip_id": "c_interview", "source_file": "i.mov", "width": 1080, "height": 1920},
-                {"source_clip_id": "c_lowres", "source_file": "l.mov", "width": 720, "height": 1280},
-                {"source_clip_id": "c_standard", "source_file": "s.mov", "width": 1920, "height": 1080},
+                {"source_clip_id": "c_handheld", "source_file": files["h.mov"], "width": 1080, "height": 1920},
+                {"source_clip_id": "c_interview", "source_file": files["i.mov"], "width": 1080, "height": 1920},
+                {"source_clip_id": "c_lowres", "source_file": files["l.mov"], "width": 720, "height": 1280},
+                {"source_clip_id": "c_standard", "source_file": files["s.mov"], "width": 1920, "height": 1080},
             ],
             "semantic_analysis": {
                 "clips": [
@@ -108,14 +117,14 @@ class TestIntegration(unittest.TestCase):
         
         def get_dir(source_file):
             for c in v1_clips:
-                if c.get("source_file") == source_file:
+                if c.get("source_file") == source_file or os.path.basename(c.get("source_file", "")) == os.path.basename(source_file):
                     return neural_directives.get(c["label"], {})
             return {}
             
-        self.assertTrue(get_dir("h.mov").get("stabilize"))
-        self.assertTrue(get_dir("i.mov").get("magic_mask"))
-        self.assertEqual(get_dir("l.mov").get("super_scale"), 2)
-        self.assertNotIn("super_scale", get_dir("s.mov"))
+        self.assertTrue(get_dir(files["h.mov"]).get("stabilize"))
+        self.assertTrue(get_dir(files["i.mov"]).get("magic_mask"))
+        self.assertEqual(get_dir(files["l.mov"]).get("super_scale"), 2)
+        self.assertNotIn("super_scale", get_dir(files["s.mov"]))
         
         # Verify directives appear in compile_manifest() as well
         # We can't easily test compile_manifest() since it reads from files,

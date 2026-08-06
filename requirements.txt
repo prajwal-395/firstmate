@@ -1,0 +1,22 @@
+# Core pipeline dependencies
+jsonschema>=4.0
+
+# Audio analysis (step 1.04, 1.05, 2.06)
+whisperx>=3.0
+librosa>=0.10
+numpy>=1.24
+scipy>=1.10
+torch>=2.0
+torchaudio>=2.0
+
+# Vision analysis (step 1.03)
+# opencv-python>=4.8  # imported as cv2 - install via: pip install opencv-python
+
+# Image analysis (step 5.01 look matching)
+Pillow>=9.0
+
+# Brand templates
+pyyaml>=6.0
+
+# Optional: SFX query (FAISS-based semantic search)
+# faiss-cpu>=1.7  # only needed if using sfx_query_bridge.py

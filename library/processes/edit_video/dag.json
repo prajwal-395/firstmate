@@ -654,6 +654,13 @@
       }
     },
     {
+      "from": "plan_vfx",
+      "to": "audio_mix",
+      "data_mapping": {
+        "enhancement_spec": "enhancement_spec"
+      }
+    },
+    {
       "from": "creative_direction",
       "to": "creative_cohesion",
       "data_mapping": {
@@ -847,16 +854,14 @@
           "plan_transitions"
         ],
         [
-          "plan_vfx"
+          "plan_vfx",
+          "audio_mix"
         ],
         [
           "plan_sfx"
         ],
         [
           "color_grade"
-        ],
-        [
-          "audio_mix"
         ]
       ],
       "error_policy": {

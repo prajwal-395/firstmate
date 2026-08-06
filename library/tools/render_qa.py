@@ -171,7 +171,7 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
                 if len(lines) >= 4:
                     yavg = float(lines[0])
                     # order of tags might vary, best to use json or precise formatting
-            except:
+            except Exception:
                 pass
             
             # Using a more robust signalstats query
@@ -310,7 +310,7 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
             dur_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             duration = float(dur_res.stdout.strip())
             timestamps = [0.5, duration / 2, max(0.0, duration - 2.0)]
-        except:
+        except Exception:
             timestamps = [0.5]
 
     os.makedirs(output_dir, exist_ok=True)
