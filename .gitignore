@@ -18,8 +18,9 @@ __pycache__/
 *.swo
 *~
 
-# ─── Antigravity / MCP (managed by tooling, not by user) ────
+# ─── Agent tooling (managed by tooling, not by user) ────────
 .agents/mcp/
+.lavish/
 
 # ─── Separate repos ─────────────────────────────────────────
 palmier-pro/
@@ -57,3 +58,4 @@ library/steps/step_6_01_render/drp_exports/
 # ─── Build / temp artifacts ─────────────────────────────────
 *.log
 /tmp/
+.env
