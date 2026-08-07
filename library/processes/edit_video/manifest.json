@@ -262,6 +262,14 @@
       }
     ]
   },
+  "visual_qa": {
+    "enabled": true,
+    "frame_grab_enabled": true,
+    "video_segment_enabled": true,
+    "max_retries": 3,
+    "qa_render_resolution": "720p",
+    "qa_render_codec": "h264"
+  },
   "metadata": {
     "author": "prajwal",
     "created": "2026-07-20",

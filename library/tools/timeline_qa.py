@@ -17,6 +17,24 @@ class QAReport:
     passed: bool
     checks: List[QACheck] = field(default_factory=list)
 
+@dataclass
+class VisualQACheck:
+    name: str
+    passed: bool
+    confidence: float
+    frame_timecode: str
+    model_used: str
+    detail: str
+    issues: List[str]
+    severity: str = "warning"
+
+@dataclass
+class VisualQAReport:
+    station: str
+    passed: bool
+    qa_type: str
+    checks: List[VisualQACheck] = field(default_factory=list)
+
 
 def verify_clip_placement(timeline, track_items, manifest_clips) -> QAReport:
     """Station 1: After clip placement. Verify each clip is on the correct track at correct position."""
