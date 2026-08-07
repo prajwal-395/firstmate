@@ -26,8 +26,7 @@ import render_qa
 def run_analysis(
     video_path: str,
     question: str,
-    checks: List[str],
-    sample_count: int = 5
+    checks: List[str]
 ) -> Dict[str, Any]:
     """Run video segment analysis using vision model and deterministic checks."""
     results: Dict[str, Any] = {
@@ -41,7 +40,7 @@ def run_analysis(
     # Run relevant checks based on the check types requested
     if "color" in checks or "general" in checks:
         results["deterministic_checks"]["color_histogram"] = _qa_result_to_dict(
-            render_qa.analyze_color_histogram(video_path, sample_count=sample_count)
+            render_qa.analyze_color_histogram(video_path, sample_count=5)
         )
     
     if "audio" in checks or "general" in checks:
@@ -71,10 +70,9 @@ def run_analysis(
             prompt = f"{prompt}\nQuestion: {question}"
 
         try:
-            model_response = model.analyze_video_frames(
+            model_response = model.analyze_video(
                 video_path, 
-                prompt, 
-                sample_count=sample_count
+                prompt
             )
             results["model_analysis"][check] = model_response
         except Exception as e:
@@ -105,7 +103,6 @@ def main():
     analyze_parser.add_argument("--video", required=True, help="Path to video file")
     analyze_parser.add_argument("--question", default="", help="Question or prompt for analysis")
     analyze_parser.add_argument("--checks", default="general", help="Comma-separated list of checks (transition,vfx,color,subtitle,audio,general)")
-    analyze_parser.add_argument("--sample-count", type=int, default=5, help="Number of frames to sample")
     analyze_parser.add_argument("--cleanup", action="store_true", help="Delete video file after analysis")
 
     args = parser.parse_args()
@@ -122,8 +119,7 @@ def main():
             results = run_analysis(
                 video_path=video_path,
                 question=args.question,
-                checks=checks,
-                sample_count=args.sample_count
+                checks=checks
             )
             print(json.dumps(results, indent=2))
         except Exception as e:

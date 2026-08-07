@@ -1,7 +1,4 @@
 import time
-import subprocess
-import tempfile
-import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -77,36 +74,24 @@ class VisionModel:
         )
         return r.text if hasattr(r, "text") else str(r)
 
-    def analyze_video_frames(self, video_path: str, prompt: str, sample_count: int = 5, max_tokens: int = 800) -> str:
-        """Extract frames from a video and analyze them."""
-        # Get duration
-        try:
-            cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', 
-                   '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
-            dur_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            duration = float(dur_res.stdout.strip())
-        except Exception as e:
-            raise RuntimeError(f"Could not get duration for {video_path}: {e}")
-
-        if duration <= 0:
-            raise ValueError(f"Invalid video duration: {duration}")
-
-        sample_points = [duration * (i + 1) / (sample_count + 1) for i in range(sample_count)]
+    def analyze_video(self, video_path: str, prompt: str, max_tokens: int = 800) -> str:
+        """Analyze a video file natively."""
+        self._ensure_loaded()
         
-        with tempfile.TemporaryDirectory() as tmpdir:
-            extracted_paths = []
-            for i, t in enumerate(sample_points):
-                img_path = os.path.join(tmpdir, f'frame_{i}.jpg')
-                cmd = ['ffmpeg', '-y', '-ss', str(t), '-i', video_path, 
-                       '-vframes', '1', '-q:v', '2', img_path]
-                subprocess.run(cmd, capture_output=True, timeout=15)
-                if os.path.exists(img_path):
-                    extracted_paths.append(img_path)
-            
-            if not extracted_paths:
-                raise RuntimeError(f"Failed to extract any frames from {video_path}")
-            
-            return self.analyze_images(extracted_paths, prompt, max_tokens)
+        prompt_with_video = f"<|video|>{prompt}"
+        formatted = apply_chat_template(
+            self._proc, self._model.config, prompt_with_video, num_images=0
+        )
+        
+        r = generate(
+            self._model, self._proc,
+            prompt=formatted,
+            video=video_path,
+            max_tokens=max_tokens,
+            temperature=0.1,
+            verbose=False,
+        )
+        return r.text if hasattr(r, "text") else str(r)
 
 
 def get_model() -> VisionModel:
