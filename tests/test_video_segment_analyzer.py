@@ -46,14 +46,9 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
             result = model.analyze_image("dummy.jpg", "prompt")
             self.assertEqual(result, "Mocked analysis result")
 
-        # Test analyze_video_frames (mocking subprocess and os.path.exists)
-        with patch('subprocess.run') as mock_run:
-            # Mock ffprobe duration
-            mock_run.return_value.stdout = "5.0\n"
-            
-            with patch('os.path.exists', return_value=True):
-                result = model.analyze_video_frames(self.dummy_video, "prompt", sample_count=2)
-                self.assertEqual(result, "Mocked analysis result")
+        # Test analyze_video
+        result = model.analyze_video(self.dummy_video, "prompt")
+        self.assertEqual(result, "Mocked analysis result")
 
     @patch('video_segment_analyzer.get_model')
     @patch('render_qa.analyze_color_histogram')
@@ -65,15 +60,14 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         
         # Mock the vision model
         mock_model = MagicMock()
-        mock_model.analyze_video_frames.return_value = "Mocked model output"
+        mock_model.analyze_video.return_value = "Mocked model output"
         mock_get_model.return_value = mock_model
         
         # Run analysis for color and audio
         results = video_segment_analyzer.run_analysis(
             video_path=self.dummy_video,
             question="How does it look?",
-            checks=["color", "audio"],
-            sample_count=2
+            checks=["color", "audio"]
         )
         
         self.assertEqual(results["video"], self.dummy_video)
@@ -88,7 +82,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         # Verify model was called for each check
         self.assertIn("color", results["model_analysis"])
         self.assertIn("audio", results["model_analysis"])
-        self.assertEqual(mock_model.analyze_video_frames.call_count, 2)
+        self.assertEqual(mock_model.analyze_video.call_count, 2)
 
     @patch('video_segment_analyzer.run_analysis')
     def test_cli_cleanup(self, mock_run_analysis):
