@@ -23,3 +23,10 @@ Reusable assets are indexed with companion `.meta.json` files.
 - **Presets Directory:** `library/presets/` with subdirectories (`powergrades`, `fusion-macros`, `luts`, `dctls`, `fairlight`)
 - **Metadata Schema:** `library/schemas/preset_metadata.py`
 - **Indexer & Search:** `library/tools/preset_indexer.py` (`scan_library`, `find_presets`, `find_preset_for_mood`)
+
+## Visual QA System
+The project implements a Visual QA system with two routing paths:
+- **Frame Grabs:** The OAuth LLM grabs a frame via MCP `gallery_stills > grab_and_export` and analyzes the base64 image inline. The MCP call chain is: `save_state` > `open_page("color")` > `grab_and_export(cleanup=true, delete_after=true)` > `restore_state`.
+- **Video Segments:** A local Gemma 4 12B model analyzes rendered video segments.
+
+Both paths use prompt templates defined in `library/tools/visual_qa_prompts.py` and output a structured JSON response matching the schema. The visual QA hooks into the pipeline via settings configured in the `visual_qa` section of the manifest and logs results using `VisualQACheck` and `VisualQAReport`.
