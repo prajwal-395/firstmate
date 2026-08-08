@@ -9,8 +9,9 @@ scipy>=1.10
 torch>=2.0
 torchaudio>=2.0
 
-# Vision analysis (step 1.03)
+# Vision analysis (step 1.03, 1.07)
 # opencv-python>=4.8  # imported as cv2 - install via: pip install opencv-python
+easyocr>=1.7
 
 # Image analysis (step 5.01 look matching)
 Pillow>=9.0

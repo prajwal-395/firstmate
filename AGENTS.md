@@ -24,6 +24,9 @@ The project uses a structured brand template system to provide stylistic inputs 
 - **Registry & Loader:** `library/tools/brand_registry.py` (`load_brand_template`, `query_slots`, `validate_template`)
 - **Pipeline Integration:** `brand_template` is an optional pipeline parameter in `edit_video/manifest.json`. `gather_step_inputs` injects requested slots (`brand_style`, `brand_effect`, `brand_content`) into steps that declare them in their manifest (e.g. `step_2_01`, `step_4_02`, `step_4_04`, `step_5_01`).
 
+## OCR Extraction
+The pipeline uses EasyOCR (Step 1.07) for precise text extraction with bounding boxes and temporal tracking. This replaces best-effort LLM descriptions by providing structured data (confidence scores, normalized coordinates, and deduplicated appearance ranges).
+
 ## Preset Library & Indexer
 Reusable assets are indexed with companion `.meta.json` files.
 - **Presets Directory:** `library/presets/` with subdirectories (`powergrades`, `fusion-macros`, `luts`, `dctls`, `fairlight`)
