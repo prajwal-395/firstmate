@@ -23,7 +23,7 @@
       {
         "name": "subtitle_overlay",
         "type": "object",
-        "description": "Path to rendered ProRes 4444 overlay and metadata"
+        "description": "Per-segment rendered ProRes 4444 overlays with timeline positions"
       }
     ],
     "preconditions": [
@@ -33,7 +33,7 @@
       "Node.js and npx are available"
     ],
     "postconditions": [
-      "'subtitle_overlay' is written to state with overlay_path"
+      "'subtitle_overlay' is written to state with segments array"
     ]
   },
   "classification": {

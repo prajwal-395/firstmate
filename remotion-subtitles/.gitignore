@@ -5,3 +5,14 @@ dist
 
 # Ignore the output video from Git but not videos you import into src/.
 out
+
+# Compositions are assets - the src/compositions/ symlink points to the
+# shared assets directory (PIPELINE_REMOTION_COMPOSITIONS env var).
+src/compositions
+
+# Brand assets are project-specific and populated at render time.
+public/brand/*
+!public/brand/README.md
+
+# Props files are generated per-project render
+public/*Props.json

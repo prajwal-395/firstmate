@@ -34,11 +34,19 @@ Reusable assets are indexed with companion `.meta.json` files.
 - **Indexer & Search:** `library/tools/preset_indexer.py` (`scan_library`, `find_presets`, `find_preset_for_mood`)
 
 ## Visual QA System
-The project implements a Visual QA system with two routing paths:
-- **Frame Grabs:** The OAuth LLM grabs a frame via MCP `gallery_stills > grab_and_export` and analyzes the base64 image inline. The MCP call chain is: `save_state` > `open_page("color")` > `grab_and_export(cleanup=true, delete_after=true)` > `restore_state`.
-- **Video Segments:** A local Gemma 4 12B model analyzes rendered video segments.
+The project implements a dual-path visual QA feedback loop that combines synchronous inline frame evaluation with asynchronous video segment analysis:
 
-Both paths use prompt templates defined in `library/tools/visual_qa_prompts.py` and output a structured JSON response matching the schema. The visual QA hooks into the pipeline via settings configured in the `visual_qa` section of the manifest and logs results using `VisualQACheck` and `VisualQAReport`.
+- **Frame Grabs (sync path):** The orchestrating LLM grabs a frame via MCP `gallery_stills > grab_and_export`, receives base64 PNG inline, and analyzes it directly using its own vision capabilities. The MCP call chain is: `save_state` > `open_page('color')` > navigate to frame > `grab_and_export(cleanup=true, delete_after=true)` > analyze inline > `restore_state`. Prompts come from `visual_qa_prompts.py`. Best for spot checks, color grade verification, and static VFX validation.
+- **Video Segments (async path):** `segment_renderer.py` renders a timeline range to a temporary file via the Resolve Deliver page. `video_segment_analyzer.py` runs deterministic checks (ffmpeg for black frames, freeze, audio levels) plus Gemma 4 12B vision analysis. Results feed back as text context to the orchestrating LLM. Best for transition smoothness, motion quality, and temporal consistency.
+- **Feedback Loop:** `qa_feedback_loop.py` coordinates retry cycles. On failure, it generates adjustment prompts for the relevant pipeline step and re-evaluates up to `max_retries` (default 3, configured in the manifest `visual_qa` block).
+
+### Key Files
+- `library/tools/visual_qa_router.py` - Dual-path router for frame grab and video segment QA plans
+- `library/tools/segment_renderer.py` - Renders timeline ranges or single frames via Resolve Deliver page
+- `library/tools/video_segment_analyzer.py` - Runs deterministic ffmpeg checks and Gemma 4 12B vision analysis
+- `library/tools/qa_feedback_loop.py` - Coordinates iterative retry cycles and adjustment prompt generation
+- `library/tools/visual_qa_prompts.py` - Standardized prompt templates and JSON schemas for LLM visual QA
+- `library/tools/timeline_qa.py` - QA data structures (`VisualQACheck`, `VisualQAReport`) and logging hooks
 
 ## Object Segmentation & Tracking (SAM 2)
 The project uses Meta's SAM 2 (`sam2.1-hiera-small`) for video object segmentation.
@@ -111,6 +119,14 @@ project.StartRendering()
 ```
 - File size < 2KB = black/broken frame
 - File size 30-150KB = real video content
+
+### Media Pool Name Collisions
+Overlay segments (subtitles, motion graphics) from different sources often share
+generic filenames like `seg_000.mov`. When imported into the same media pool,
+`pool_clips[basename]` silently picks the wrong clip. Always:
+1. **Prefix filenames** with their context: `sub_craig_seg_000.mov`, `mg_intro_seg_000.mov`
+2. **Look up by filepath first**, then fall back to basename. `resolve_build_timeline.py`
+   uses `_find_pool_clip(filepath)` which checks `GetClipProperty("File Path")` first.
 
 ### Audio Track Flooding Prevention
 iPhone MOVs have multiple audio streams. Place V1 clips WHILE ONLY A1 EXISTS.

@@ -146,7 +146,10 @@ def load_afnext_model():
     mf_module.apply_rotary_time_emb = _patched_apply_rotary
     print("Applied MPS float64->float32 patch")
 
-    model_id = "/Users/prajwal/.cache/huggingface/af_next_local"
+    model_id = os.environ.get(
+        "AF_NEXT_MODEL_PATH",
+        os.path.join(str(Path.home()), ".cache", "huggingface", "af_next_local"),
+    )
     processor_id = "nvidia/audio-flamingo-next-captioner-hf"
     quant_config = QuantoConfig(weights="int4")
 
@@ -238,8 +241,13 @@ def search_index(query, profiles_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="SFX Analysis Pipeline")
-    parser.add_argument("--sfx-dir", default="/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library")
-    parser.add_argument("--output-dir", default="/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library/profiles")
+    _sfx_default = os.environ.get(
+        "PIPELINE_SFX_LIBRARY",
+        str(Path.home() / "Documents" / "content_stuff"
+            / "assets i used (just copied here for convenience)" / "sfx library"),
+    )
+    parser.add_argument("--sfx-dir", default=_sfx_default)
+    parser.add_argument("--output-dir", default=os.path.join(_sfx_default, "profiles"))
     parser.add_argument("--file", help="Analyze a single file")
     parser.add_argument("--fast", action="store_true", help="Skip AF-Next analysis (librosa only)")
     parser.add_argument("--search", help="Query the index")

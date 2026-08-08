@@ -141,6 +141,13 @@
       "estimated_duration_seconds": 120
     },
     {
+      "id": "render_motion_graphics",
+      "name": "Render Motion Graphics (Remotion)",
+      "step_ref": "steps/step_4_06_render_motion_graphics",
+      "type": "step",
+      "estimated_duration_seconds": 120
+    },
+    {
       "id": "color_grade",
       "name": "Color Grade Spec",
       "step_ref": "steps/step_5_01_color_grade",
@@ -612,6 +619,34 @@
       }
     },
     {
+      "from": "plan_vfx",
+      "to": "render_motion_graphics",
+      "data_mapping": {
+        "enhancement_spec": "enhancement_spec"
+      }
+    },
+    {
+      "from": "mesh_spine",
+      "to": "render_motion_graphics",
+      "data_mapping": {
+        "audio_spine": "audio_spine"
+      }
+    },
+    {
+      "from": "creative_direction",
+      "to": "render_motion_graphics",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "render_motion_graphics",
+      "to": "compile_manifest",
+      "data_mapping": {
+        "motion_graphics_overlay": "motion_graphics_overlay"
+      }
+    },
+    {
       "from": "assign_aroll",
       "to": "color_grade",
       "data_mapping": {
@@ -855,6 +890,7 @@
         ],
         [
           "plan_vfx",
+          "render_motion_graphics",
           "audio_mix"
         ],
         [

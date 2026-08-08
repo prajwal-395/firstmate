@@ -1,0 +1,86 @@
+{
+  "id": "step_4_06_render_motion_graphics",
+  "name": "Render Motion Graphics (Remotion)",
+  "version": "1.0.0",
+  "description": "Renders motion graphics overlays (upper third, accent shapes, progress bar) to per-segment ProRes 4444 videos with alpha using Remotion. Takes the enhancement spec from step 4.03 and creative direction for styling, then produces one overlay per spine block.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": true,
+        "description": "VFX plan from step 4.03 with effect entries"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "Timed audio spine for duration and block structure"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "Creative direction for accent colors, title text, style choices"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "motion_graphics_overlay",
+        "type": "object",
+        "description": "Per-segment overlay paths and metadata for Resolve placement"
+      }
+    ],
+    "preconditions": [
+      "'enhancement_spec' exists in state",
+      "'audio_spine' exists in state",
+      "'creative_direction' exists in state",
+      "Remotion project is set up in remotion-subtitles/",
+      "Node.js and npx are available"
+    ],
+    "postconditions": [
+      "'motion_graphics_overlay' is written to state with segment overlay paths"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "direct_action",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "enhancement_spec",
+      "audio_spine",
+      "creative_direction",
+      "project_folder"
+    ],
+    "writes": [
+      "motion_graphics_overlay"
+    ]
+  },
+  "dependencies": [
+    "step_4_03_plan_vfx"
+  ],
+  "tags": [
+    "direct_action",
+    "video-editing",
+    "remotion",
+    "motion-graphics"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-08-07",
+    "last_modified": "2026-08-07",
+    "source_process": "video_editing_pipeline"
+  }
+}

@@ -169,8 +169,8 @@ def build_timeline(
 
     Args:
         manifest: Assembly manifest dict with tracks, transitions, etc.
-        subtitle_overlay_path: Path to Remotion SubtitleOverlay ProRes 4444
-        motion_graphics_path: Path to Remotion FourthWallOverlay ProRes 4444
+        subtitle_overlay_path: Legacy single-file path (fallback)
+        motion_graphics_path: Legacy single-file path (fallback)
         project_name: Resolve project name (creates or loads)
         delete_existing: Delete existing timelines with same name
 
@@ -199,13 +199,42 @@ def build_timeline(
     # the top-level 'transitions' key (which is informational only).
     vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
 
-    # If subtitle_overlay_path was not explicitly passed, try reading it
-    # from the manifest (populated by step 5.04 from step 4.05 output).
-    if not subtitle_overlay_path:
-        overlay_info = manifest.get('subtitle_overlay', {})
-        overlay_candidate = overlay_info.get('overlay_path', '')
-        if overlay_candidate and os.path.exists(overlay_candidate):
-            subtitle_overlay_path = overlay_candidate
+    # ── Resolve overlay segments from manifest ──
+    # Per-segment overlays (new): manifest contains subtitle_overlay.segments
+    # and motion_graphics_overlay.segments arrays with per-block paths.
+    # Legacy fallback: single subtitle_overlay_path / motion_graphics_path.
+    sub_overlay_info = manifest.get('subtitle_overlay', {})
+    mg_overlay_info = manifest.get('motion_graphics_overlay', {})
+
+    sub_segments = sub_overlay_info.get('segments', [])
+    mg_segments = mg_overlay_info.get('segments', [])
+
+    # Legacy fallback: single overlay file
+    if not sub_segments and subtitle_overlay_path and os.path.exists(subtitle_overlay_path):
+        sub_segments = [{
+            'overlay_path': subtitle_overlay_path,
+            'timeline_start': 0,
+            'timeline_end': total_duration,
+            'total_frames': round(total_duration * fps),
+        }]
+    if not sub_segments:
+        # Try legacy overlay_path in manifest
+        legacy_sub = sub_overlay_info.get('overlay_path', '')
+        if legacy_sub and os.path.exists(legacy_sub):
+            sub_segments = [{
+                'overlay_path': legacy_sub,
+                'timeline_start': 0,
+                'timeline_end': total_duration,
+                'total_frames': round(total_duration * fps),
+            }]
+
+    if not mg_segments and motion_graphics_path and os.path.exists(motion_graphics_path):
+        mg_segments = [{
+            'overlay_path': motion_graphics_path,
+            'timeline_start': 0,
+            'timeline_end': total_duration,
+            'total_frames': round(total_duration * fps),
+        }]
 
     results = {
         "success": False,
@@ -275,33 +304,59 @@ def build_timeline(
         src = clip.get('source_file', '')
         if src and os.path.exists(src):
             all_media_paths.add(src)
-    if subtitle_overlay_path and os.path.exists(subtitle_overlay_path):
-        all_media_paths.add(subtitle_overlay_path)
-    if motion_graphics_path and os.path.exists(motion_graphics_path):
-        all_media_paths.add(motion_graphics_path)
+    # Collect overlay segment media files
+    for seg in sub_segments:
+        p = seg.get('overlay_path', '')
+        if p and os.path.exists(p):
+            all_media_paths.add(p)
+    for seg in mg_segments:
+        p = seg.get('overlay_path', '')
+        if p and os.path.exists(p):
+            all_media_paths.add(p)
 
     if all_media_paths:
         imported = media_pool.ImportMedia(list(all_media_paths))
         print(f"✓ Imported {len(imported) if imported else 0} media files", file=sys.stderr)
 
-    # Build pool clip lookup (by filename since paths may differ)
+    # Build pool clip lookup.
+    # Primary key: full file path (from GetClipProperty) - avoids name collisions
+    # when different overlay types share basenames (e.g. seg_000.mov for both
+    # subtitles and motion graphics).
+    # Secondary key: basename - backwards-compatible fallback.
     root_folder = media_pool.GetRootFolder()
-    pool_clips = {}
+    pool_clips_by_path = {}
+    pool_clips_by_name = {}
 
     def _scan_folder(folder):
         for clip in (folder.GetClipList() or []):
-            pool_clips[clip.GetName()] = clip
+            name = clip.GetName()
+            filepath = clip.GetClipProperty("File Path") or ""
+            if filepath:
+                pool_clips_by_path[filepath] = clip
+            pool_clips_by_name[name] = clip
         for sub in (folder.GetSubFolderList() or []):
             _scan_folder(sub)
 
     _scan_folder(root_folder)
-    print(f"  Media pool: {len(pool_clips)} clips", file=sys.stderr)
+
+    def _find_pool_clip(filepath: str) -> object:
+        """Look up a media pool clip by filepath first, then basename fallback."""
+        # Try full path match
+        item = pool_clips_by_path.get(filepath)
+        if item:
+            return item
+        # Try basename match (backwards compat)
+        return pool_clips_by_name.get(os.path.basename(filepath))
+
+    # Alias for any remaining direct dict access
+    pool_clips = pool_clips_by_name  # Prefer _find_pool_clip() for all new code
+    print(f"  Media pool: {len(pool_clips_by_name)} clips ({len(pool_clips_by_path)} with paths)", file=sys.stderr)
 
     # ── Set up tracks ──
     # V1 exists by default. Need V2, V3, V4 for video and extra audio tracks.
     has_v2 = bool(v2_clips)
-    has_subtitles = subtitle_overlay_path and os.path.exists(subtitle_overlay_path)
-    has_mg = motion_graphics_path and os.path.exists(motion_graphics_path)
+    has_subtitles = bool(sub_segments)
+    has_mg = bool(mg_segments)
 
     # Calculate how many SFX tracks we need
     sfx_allocations = _allocate_sfx_tracks(a3_clips, base_track_index=3)
@@ -350,7 +405,7 @@ def build_timeline(
                   file=sys.stderr)
             continue
         basename = os.path.basename(src)
-        pool_item = pool_clips.get(basename)
+        pool_item = _find_pool_clip(src)
         if not pool_item:
             results["errors"].append(f"V1[{ci}] {basename} not in media pool")
             continue
@@ -413,7 +468,7 @@ def build_timeline(
         v2_count = 0
         for ci, clip in enumerate(v2_clips):
             basename = os.path.basename(clip['source_file'])
-            pool_item = pool_clips.get(basename)
+            pool_item = _find_pool_clip(clip['source_file'])
             if not pool_item:
                 results["warnings"].append(f"V2[{ci}] {basename} not in pool")
                 continue
@@ -443,56 +498,77 @@ def build_timeline(
         _run_qa(verify_transitions(timeline, {}, manifest.get("transitions", [])))
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V3: Subtitle Overlay (Remotion)
+    # PLACE V3: Subtitle Overlay Segments (Remotion)
     # ══════════════════════════════════════════════════════════
     if has_subtitles:
-        print(f"\n── V3 Subtitle Overlay ──", file=sys.stderr)
-        sub_basename = os.path.basename(subtitle_overlay_path)
-        pool_item = pool_clips.get(sub_basename)
-        if pool_item:
-            total_frames = round(total_duration * fps)
+        print(f"\n── V3 Subtitle Overlay: {len(sub_segments)} segments ──", file=sys.stderr)
+        v3_count = 0
+        for si, seg in enumerate(sub_segments):
+            seg_path = seg.get('overlay_path', '')
+            seg_basename = os.path.basename(seg_path)
+            pool_item = _find_pool_clip(seg_path)
+            if not pool_item:
+                results["warnings"].append(f"V3[{si}] {seg_basename} not in pool")
+                print(f"  ✗ [{si}] {seg_basename} not in media pool", file=sys.stderr)
+                continue
+
+            seg_frames = seg.get('total_frames', round(
+                (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
+            tl_in_frame = round(seg.get('timeline_start', 0) * fps)
+
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": 0,
-                "endFrame": total_frames,
+                "endFrame": seg_frames,
                 "trackIndex": 3,
-                "recordFrame": 0,
+                "recordFrame": tl_in_frame,
                 "mediaType": 1,  # video-only placement on V3
             }])
             if result:
-                print(f"  ✓ {sub_basename} on V3 ({total_frames}f)", file=sys.stderr)
-                results["tracks"]["V3"] = 1
+                v3_count += 1
+                print(f"  ✓ [{si}] {seg_basename} on V3 ({seg_frames}f @ TL {tl_in_frame})",
+                      file=sys.stderr)
             else:
-                print(f"  ✗ Failed to place subtitle overlay", file=sys.stderr)
-                results["warnings"].append("Subtitle overlay placement failed")
-        else:
-            print(f"  ✗ {sub_basename} not in media pool", file=sys.stderr)
-            results["warnings"].append(f"Subtitle overlay not in pool: {sub_basename}")
+                print(f"  ✗ [{si}] {seg_basename}: placement failed", file=sys.stderr)
+                results["warnings"].append(f"V3[{si}] placement failed: {seg_basename}")
+
+        results["tracks"]["V3"] = v3_count
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V4: Motion Graphics Overlay (Remotion)
+    # PLACE V4: Motion Graphics Overlay Segments (Remotion)
     # ══════════════════════════════════════════════════════════
     if has_mg:
-        print(f"\n── V4 Motion Graphics ──", file=sys.stderr)
-        mg_basename = os.path.basename(motion_graphics_path)
-        pool_item = pool_clips.get(mg_basename)
-        if pool_item:
-            total_frames = round(total_duration * fps)
+        print(f"\n── V4 Motion Graphics: {len(mg_segments)} segments ──", file=sys.stderr)
+        v4_count = 0
+        for mi, seg in enumerate(mg_segments):
+            seg_path = seg.get('overlay_path', '')
+            seg_basename = os.path.basename(seg_path)
+            pool_item = _find_pool_clip(seg_path)
+            if not pool_item:
+                results["warnings"].append(f"V4[{mi}] {seg_basename} not in pool")
+                print(f"  ✗ [{mi}] {seg_basename} not in media pool", file=sys.stderr)
+                continue
+
+            seg_frames = seg.get('total_frames', round(
+                (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
+            tl_in_frame = round(seg.get('timeline_start', 0) * fps)
+
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": 0,
-                "endFrame": total_frames,
+                "endFrame": seg_frames,
                 "trackIndex": 4,
-                "recordFrame": 0,
+                "recordFrame": tl_in_frame,
                 "mediaType": 1,  # video-only placement on V4
             }])
             if result:
-                print(f"  ✓ {mg_basename} on V4 ({total_frames}f)", file=sys.stderr)
-                results["tracks"]["V4"] = 1
+                v4_count += 1
+                print(f"  ✓ [{mi}] {seg_basename} on V4 ({seg_frames}f @ TL {tl_in_frame})",
+                      file=sys.stderr)
             else:
-                print(f"  ✗ Failed to place motion graphics", file=sys.stderr)
-        else:
-            print(f"  ✗ {mg_basename} not in media pool", file=sys.stderr)
+                print(f"  ✗ [{mi}] {seg_basename}: placement failed", file=sys.stderr)
+
+        results["tracks"]["V4"] = v4_count
 
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
@@ -501,7 +577,7 @@ def build_timeline(
         print(f"\n── A2 Music: {len(a2_clips)} clips ──", file=sys.stderr)
         for ci, clip in enumerate(a2_clips):
             basename = os.path.basename(clip['source_file'])
-            pool_item = pool_clips.get(basename)
+            pool_item = _find_pool_clip(clip['source_file'])
             if not pool_item:
                 results["warnings"].append(f"A2[{ci}] {basename} not in pool")
                 continue
@@ -585,7 +661,7 @@ def build_timeline(
                       file=sys.stderr)
                 continue
             basename = os.path.basename(src)
-            pool_item = pool_clips.get(basename)
+            pool_item = _find_pool_clip(src)
             if not pool_item:
                 results["warnings"].append(f"SFX {basename} not in pool")
                 continue

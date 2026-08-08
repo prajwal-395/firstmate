@@ -19,14 +19,34 @@ import sys
 import shutil
 
 # ── Paths ────────────────────────────────────────────────────────────
-PROJECT_DIR = "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001"
+# Set PIPELINE_TEST_PROJECT env var to point to your test project,
+# or use --project flag when running directly.
+PROJECT_DIR = os.environ.get("PIPELINE_TEST_PROJECT", "")
+if not PROJECT_DIR:
+    # Try to resolve from project registry
+    try:
+        _pilot_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, _pilot_root)
+        from library.tools.paths import PROJECTS_ROOT
+        # Use the first available project as a default
+        for entry in PROJECTS_ROOT.iterdir():
+            if entry.is_dir() and (entry / "project.yaml").exists():
+                PROJECT_DIR = str(entry)
+                break
+            for sub in entry.iterdir():
+                if sub.is_dir() and (sub / "project.yaml").exists():
+                    PROJECT_DIR = str(sub)
+                    break
+            if PROJECT_DIR:
+                break
+    except (ImportError, FileNotFoundError, OSError):
+        pass
+if not PROJECT_DIR:
+    print("Error: Set PIPELINE_TEST_PROJECT env var to a project directory", file=sys.stderr)
+    sys.exit(1)
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "pipeline_output")
 PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIBRARY_DIR = os.path.join(PILOT_ROOT, "library")
-
-# Add library to path for tools
-sys.path.insert(0, LIBRARY_DIR)
-sys.path.insert(0, os.path.join(LIBRARY_DIR, "tools"))
 
 # Use importlib to load step modules explicitly (avoids name collisions)
 import importlib.util

@@ -33,8 +33,15 @@ RESOLVE_MODULES_PATH = "/Library/Application Support/Blackmagic Design/DaVinci R
 if RESOLVE_MODULES_PATH not in sys.path:
     sys.path.append(RESOLVE_MODULES_PATH)
 
+# Add library root to path for imports
+_PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PILOT_ROOT not in sys.path:
+    sys.path.insert(0, _PILOT_ROOT)
+
+from library.tools.paths import SFX_LIBRARY as _SFX_LIB_PATH
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SFX_LIBRARY = "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library"
+SFX_LIBRARY = str(_SFX_LIB_PATH)
 SUBTITLES_PATH = os.path.join(PROJECT_ROOT, "pipeline_output", "subtitles.json")
 ANALYSIS_CACHE = os.path.join(SFX_LIBRARY, "library_analysis.json")
 SEMANTIC_CACHE = os.path.join(SFX_LIBRARY, "library_semantic.json")

@@ -116,12 +116,39 @@ RESOLVE_SCRIPT_LIB = Path(os.environ.get(
 
 # ─── External Asset Libraries ────────────────────────────────
 
+SHARED_ASSETS_ROOT = Path(os.environ.get(
+    "PIPELINE_SHARED_ASSETS",
+    str(Path.home() / "Documents" / "content_stuff"
+        / "assets i used (just copied here for convenience)"),
+))
+
 SFX_LIBRARY = Path(os.environ.get(
     "PIPELINE_SFX_LIBRARY",
-    str(Path.home() / "Documents" / "content_stuff"
-        / "assets i used (just copied here for convenience)" / "sfx library"),
+    str(SHARED_ASSETS_ROOT / "sfx library"),
 ))
 SFX_PROFILES = SFX_LIBRARY / "profiles"
+
+MUSIC_LIBRARY = Path(os.environ.get(
+    "PIPELINE_MUSIC_LIBRARY",
+    str(SHARED_ASSETS_ROOT / "music"),
+))
+
+REMOTION_COMPOSITIONS = Path(os.environ.get(
+    "PIPELINE_REMOTION_COMPOSITIONS",
+    str(SHARED_ASSETS_ROOT / "remotion-compositions"),
+))
+
+# ─── Remotion Engine ─────────────────────────────────────────
+REMOTION_DIR = PILOT_ROOT / "remotion-subtitles"
+
+# ─── Video Projects Root ─────────────────────────────────────
+# All video projects live here, outside the repo. Each project is
+# a directory containing project.yaml and standardized subdirs.
+
+PROJECTS_ROOT = Path(os.environ.get(
+    "PIPELINE_PROJECTS_ROOT",
+    str(Path.home() / "Documents" / "content_stuff" / "video_projects"),
+))
 
 
 # ─── Resolve Sync Namespace ──────────────────────────────────
@@ -132,6 +159,30 @@ RESOLVE_SYNC_NAMESPACE = os.environ.get("RESOLVE_SYNC_NAMESPACE", "Pipeline")
 
 
 # ─── Project-Level Path Helpers ───────────────────────────────
+
+def project_root(slug: str) -> Path:
+    """Resolve a project slug to its root directory.
+
+    Searches PROJECTS_ROOT for a matching project directory.
+    Supports both flat and client-grouped layouts.
+    """
+    # Direct match
+    direct = PROJECTS_ROOT / slug
+    if direct.is_dir() and (direct / "project.yaml").exists():
+        return direct
+
+    # Client-grouped: PROJECTS_ROOT/client/slug
+    for entry in PROJECTS_ROOT.iterdir():
+        if entry.is_dir() and not entry.name.startswith((".", "_")):
+            grouped = entry / slug
+            if grouped.is_dir() and (grouped / "project.yaml").exists():
+                return grouped
+
+    raise FileNotFoundError(
+        f"Project '{slug}' not found in {PROJECTS_ROOT}. "
+        f"Use 'python3 manage_project.py list' to see available projects."
+    )
+
 
 def project_output_dir(project_folder: str) -> Path:
     """Standard pipeline output directory for a given project.
@@ -159,3 +210,8 @@ def comp_dir(project_folder: str = None) -> Path:
 def sfx_library_path() -> str:
     """Return the SFX library path as a string (for backward compatibility)."""
     return str(SFX_LIBRARY)
+
+
+def music_library_path() -> str:
+    """Return the music library path as a string."""
+    return str(MUSIC_LIBRARY)

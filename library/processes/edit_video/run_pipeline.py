@@ -187,8 +187,23 @@ def load_pipeline_state(project_dir: str) -> dict:
     # Always inject project_folder from CLI
     state["project_folder"] = project_dir
     
-    # Inject shared library paths from the process manifest defaults
-    # (unless already set by a previous run or CLI override)
+    # Inject shared library paths from environment (via paths.py).
+    # Priority: existing state value > env var > manifest default.
+    # This replaces hardcoded paths with the centralized paths module.
+    try:
+        from tools.paths import sfx_library_path, music_library_path
+        if "sfx_library" not in state:
+            sfx = sfx_library_path()
+            if sfx:
+                state["sfx_library"] = sfx
+        if "music_library" not in state:
+            music = music_library_path()
+            if music:
+                state["music_library"] = music
+    except ImportError:
+        pass
+
+    # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
     if manifest_path.exists():
         with open(manifest_path) as f:
@@ -562,7 +577,9 @@ def run_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(description="Pipeline Runner")
-    parser.add_argument("--project", required=True, help="Project directory")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--project", help="Project directory (absolute path)")
+    group.add_argument("--slug", help="Project slug (looked up from project registry)")
     parser.add_argument("--from", dest="from_step", help="Start from this step")
     parser.add_argument("--step", help="Run only this step")
     parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
@@ -570,8 +587,18 @@ def main():
                        help="Auto-complete hybrid steps (use bridge output as final)")
     args = parser.parse_args()
     
+    # Resolve project directory from slug if provided
+    project_dir = args.project
+    if args.slug:
+        try:
+            from tools.paths import project_root
+            project_dir = str(project_root(args.slug))
+        except (ImportError, FileNotFoundError) as e:
+            print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
+            sys.exit(1)
+    
     run_pipeline(
-        project_dir=args.project,
+        project_dir=project_dir,
         from_step=args.from_step,
         single_step=args.step,
         dry_run=args.dry_run,

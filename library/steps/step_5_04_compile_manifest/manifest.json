@@ -77,6 +77,12 @@
         "type": "object",
         "required": false,
         "description": "State input: cohesion_review"
+      },
+      {
+        "name": "motion_graphics_overlay",
+        "type": "object",
+        "required": false,
+        "description": "State input: motion_graphics_overlay from step 4.06"
       }
     ],
     "outputs": [
@@ -120,7 +126,8 @@
       "subtitle_overlay",
       "subtitle_plan",
       "transition_spec",
-      "cohesion_review"
+      "cohesion_review",
+      "motion_graphics_overlay"
     ],
     "writes": [
       "assembly_manifest"
@@ -136,7 +143,8 @@
     "step_5_01_color_grade",
     "step_5_02_audio_mix",
     "step_5_03_creative_cohesion",
-    "step_3_03_review_rough_cut"
+    "step_3_03_review_rough_cut",
+    "step_4_06_render_motion_graphics"
   ],
   "tags": [
     "data_transformation",

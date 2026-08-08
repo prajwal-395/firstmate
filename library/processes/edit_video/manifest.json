@@ -17,15 +17,15 @@
         "name": "sfx_library",
         "type": "string",
         "required": false,
-        "description": "Absolute path to the shared SFX library folder",
-        "default": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library"
+        "description": "Absolute path to the shared SFX library folder (resolved from PIPELINE_SFX_LIBRARY env var if empty)",
+        "default": ""
       },
       {
         "name": "music_library",
         "type": "string",
         "required": false,
-        "description": "Absolute path to the shared music library folder",
-        "default": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/music"
+        "description": "Absolute path to the shared music library folder (resolved from PIPELINE_MUSIC_LIBRARY env var if empty)",
+        "default": ""
       },
       {
         "name": "brand_template",

@@ -27,13 +27,19 @@ class VisualQACheck:
     detail: str
     issues: List[str]
     severity: str = "warning"
+    # Fields for QACheck compatibility and router integration
+    expected: Any = None
+    actual: Any = None
+    image_path: str = ""
 
 @dataclass
 class VisualQAReport:
     station: str
     passed: bool
-    qa_type: str
+    qa_type: str = ""
     checks: List[VisualQACheck] = field(default_factory=list)
+    # Alias used by qa_feedback_loop
+    visual_checks: List[VisualQACheck] = field(default_factory=list)
 
 
 def verify_clip_placement(timeline, track_items, manifest_clips) -> QAReport:

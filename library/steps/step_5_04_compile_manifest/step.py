@@ -112,6 +112,9 @@ def compile_manifest(out_dir: str) -> dict:
 
     # Subtitle overlay from step 4.05 (Remotion render)
     subtitle_overlay_data = load(out_dir, "step_4_05.json")
+
+    # Motion graphics overlay from step 4.06 (Remotion render)
+    motion_graphics_overlay_data = load(out_dir, "step_4_06.json")
     
     # Cohesion review
     cohesion_data = load(out_dir, "step_5_03.json")
@@ -339,11 +342,13 @@ def compile_manifest(out_dir: str) -> dict:
         sfx_preset = None
         sfx_ducking = None
 
-    sfx_library_path = os.environ.get(
-        "SFX_LIBRARY",
-        "/Users/prajwal/Documents/content_stuff/"
-        "assets i used (just copied here for convenience)/sfx library"
-    )
+    sfx_library_path = os.environ.get("PIPELINE_SFX_LIBRARY", "")
+    if not sfx_library_path:
+        try:
+            from tools.paths import sfx_library_path as _sfx_path_fn
+            sfx_library_path = _sfx_path_fn()
+        except ImportError:
+            sfx_library_path = ""
 
     # Load SFX library index for type → file resolution
     sfx_index = []
@@ -587,6 +592,8 @@ def compile_manifest(out_dir: str) -> dict:
         ],
         "subtitle_overlay": subtitle_overlay_data.get(
             "subtitle_overlay", {}),
+        "motion_graphics_overlay": motion_graphics_overlay_data.get(
+            "motion_graphics_overlay", {}),
     }
 
     # Print summary
@@ -850,11 +857,13 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "fairlight_preset": audio_preset,
     }
 
-    sfx_library_path = os.environ.get(
-        "SFX_LIBRARY",
-        "/Users/prajwal/Documents/content_stuff/"
-        "assets i used (just copied here for convenience)/sfx library"
-    )
+    sfx_library_path = os.environ.get("PIPELINE_SFX_LIBRARY", "")
+    if not sfx_library_path:
+        try:
+            from tools.paths import sfx_library_path as _sfx_path_fn
+            sfx_library_path = _sfx_path_fn()
+        except ImportError:
+            sfx_library_path = ""
 
     # Load SFX library index (same logic as file-based compile_manifest)
     sfx_index = []
@@ -966,6 +975,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             for b in structure
         ],
         "subtitle_overlay": inputs.get("subtitle_overlay", {}),
+        "motion_graphics_overlay": inputs.get("motion_graphics_overlay", {}),
     }
 
     errors = validate_manifest(manifest)

@@ -1,30 +1,24 @@
 #!/usr/bin/env python3
 """
-Step 4.05: Render Subtitles (Remotion)
+Step 4.06: Render Motion Graphics (Remotion)
 
-Takes the subtitle plan from step 4.01 and renders it to per-spine-block
-ProRes 4444 video overlays with alpha channel using Remotion.
+Takes the enhancement spec from step 4.03 and creative direction, then
+renders per-spine-block motion graphics overlays to ProRes 4444 videos
+with alpha channel using Remotion.
 
-Each spine block with subtitles gets its own rendered overlay clip. The
-Resolve builder (step 6.01) places each segment at its timeline position
-on V3.
-
-Workflow:
-  1. Generate per-block Remotion input props from the subtitle plan
-     (via generate_remotion_props.py)
-  2. Write props to per-block JSON files
-  3. Run `npx remotion render` for each block
-  4. Return the list of rendered overlay paths for the manifest
+Each spine block gets its own rendered overlay clip, which the Resolve
+builder places at the correct timeline position on V4.
 
 Classification: Deterministic / Direct Action
-Idempotent: Yes (same subtitle plan -> same rendered overlays)
+Idempotent: Yes (same inputs -> same rendered overlays)
 
 Input:  {
-    "subtitle_plan": { subtitle_entries: [...] },
-    "audio_spine": { structure: [...] }
+    "enhancement_spec": { ... },
+    "audio_spine": { structure: [...] },
+    "creative_direction": { ... }
 }
 Output: {
-    "subtitle_overlay": {
+    "motion_graphics_overlay": {
         "available": bool,
         "segments": [
             {
@@ -46,13 +40,14 @@ import os
 import subprocess
 import sys
 
-from generate_remotion_props import generate_subtitle_props_per_block
+from generate_motion_props import generate_motion_props
 
 
 def main():
     data = json.loads(sys.stdin.read())
-    subtitle_plan = data.get("subtitle_plan", {})
+    enhancement_spec = data.get("enhancement_spec", {})
     audio_spine = data.get("audio_spine", {})
+    creative_direction = data.get("creative_direction", {})
     project_folder = data.get("project_folder", "")
 
     # Find Remotion project (repo-relative)
@@ -64,7 +59,7 @@ def main():
         print(f"ERROR: Remotion project not found at {REMOTION_DIR}",
               file=sys.stderr)
         json.dump({
-            "subtitle_overlay": {
+            "motion_graphics_overlay": {
                 "available": False,
                 "error": "Remotion project not found at remotion-subtitles/"
             }
@@ -90,25 +85,27 @@ def main():
     # Output directory
     output_dir = os.path.join(project_folder, "pipeline_output") if project_folder else os.path.join(PILOT_ROOT, "pipeline_output")
     os.makedirs(output_dir, exist_ok=True)
-    sub_output_dir = os.path.join(output_dir, "subtitle_segments")
-    os.makedirs(sub_output_dir, exist_ok=True)
+    mg_output_dir = os.path.join(output_dir, "motion_graphics_segments")
+    os.makedirs(mg_output_dir, exist_ok=True)
 
     # Generate per-block props
     fps = 30
-    props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps)
+    props_list = generate_motion_props(
+        enhancement_spec, creative_direction, audio_spine, fps=fps
+    )
 
     if not props_list:
-        print("WARNING: No subtitle blocks to render", file=sys.stderr)
+        print("WARNING: No motion graphics blocks to render", file=sys.stderr)
         json.dump({
-            "subtitle_overlay": {
+            "motion_graphics_overlay": {
                 "available": False,
                 "segments": [],
-                "reason": "No subtitle entries found in subtitle plan"
+                "reason": "No motion graphics blocks found in audio spine"
             }
         }, sys.stdout, indent=2)
         return
 
-    print(f"Rendering {len(props_list)} subtitle segments...",
+    print(f"Rendering {len(props_list)} motion graphics segments...",
           file=sys.stderr)
 
     segments = []
@@ -116,26 +113,26 @@ def main():
         block_pos = props.pop("_block_position")
         tl_start = props.pop("_timeline_start")
         tl_end = props.pop("_timeline_end")
+        block_type = props.pop("_block_type")
         total_frames = props["durationInFrames"]
-        num_subs = len(props.get("subtitles", []))
 
-        segment_name = f"sub_block_{block_pos:02d}"
-        overlay_path = os.path.join(sub_output_dir, f"{segment_name}.mov")
-        props_path = os.path.join(sub_output_dir, f"{segment_name}_props.json")
+        segment_name = f"mg_block_{block_pos:02d}"
+        overlay_path = os.path.join(mg_output_dir, f"{segment_name}.mov")
+        props_path = os.path.join(mg_output_dir, f"{segment_name}_props.json")
 
         # Write props file
         with open(props_path, "w") as f:
             json.dump(props, f, indent=2)
 
         print(f"  [{i+1}/{len(props_list)}] {segment_name} "
-              f"({num_subs} subs, {total_frames}f, "
+              f"({block_type}, {total_frames}f, "
               f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
 
         # Render via Remotion
         try:
             result = subprocess.run(
                 ["npx", "remotion", "render",
-                 "SubtitleOverlay",
+                 "MotionGraphics",
                  overlay_path,
                  "--props", props_path,
                  "--codec", "prores",
@@ -145,7 +142,7 @@ def main():
                 cwd=REMOTION_DIR,
                 capture_output=True,
                 text=True,
-                timeout=180,  # 3 min per segment
+                timeout=120,
             )
 
             if result.returncode != 0:
@@ -168,11 +165,11 @@ def main():
             "total_frames": total_frames,
         })
 
-    print(f"\nRendered {len(segments)}/{len(props_list)} subtitle segments",
+    print(f"\nRendered {len(segments)}/{len(props_list)} motion graphics segments",
           file=sys.stderr)
 
     json.dump({
-        "subtitle_overlay": {
+        "motion_graphics_overlay": {
             "available": len(segments) > 0,
             "segments": segments,
             "format": "ProRes 4444",
