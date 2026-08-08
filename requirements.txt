@@ -21,3 +21,6 @@ pyyaml>=6.0
 
 # Optional: SFX query (FAISS-based semantic search)
 # faiss-cpu>=1.7  # only needed if using sfx_query_bridge.py
+
+# Object tracking (step 1.06)
+sam2

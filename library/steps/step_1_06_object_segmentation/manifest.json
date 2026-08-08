@@ -1,0 +1,72 @@
+{
+  "id": "step_1_06_object_segmentation",
+  "name": "Object Segmentation",
+  "version": "1.0.0",
+  "description": "Performs object segmentation and tracking on video clips using SAM 2.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "required": true,
+        "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": true,
+        "description": "State input: clip_catalog"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "object_segmentation",
+        "type": "object",
+        "description": "State output: per-clip segmentation results"
+      }
+    ],
+    "preconditions": [
+      "'raw_footage_files' exists in state",
+      "'clip_catalog' exists in state"
+    ],
+    "postconditions": [
+      "'object_segmentation' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "data_processing",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "raw_footage_files",
+      "clip_catalog"
+    ],
+    "writes": [
+      "object_segmentation"
+    ]
+  },
+  "dependencies": [
+    "step_1_02_catalog_footage"
+  ],
+  "tags": [
+    "segmentation",
+    "computer-vision",
+    "video-editing"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    }
+  },
+  "metadata": {
+    "author": "firstmate",
+    "created": "2026-08-08",
+    "last_modified": "2026-08-08",
+    "source_process": "video_editing_pipeline"
+  }
+}

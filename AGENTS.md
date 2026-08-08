@@ -40,6 +40,11 @@ The project implements a Visual QA system with two routing paths:
 
 Both paths use prompt templates defined in `library/tools/visual_qa_prompts.py` and output a structured JSON response matching the schema. The visual QA hooks into the pipeline via settings configured in the `visual_qa` section of the manifest and logs results using `VisualQACheck` and `VisualQAReport`.
 
+## Object Segmentation & Tracking (SAM 2)
+The project uses Meta's SAM 2 (`sam2.1-hiera-small`) for video object segmentation.
+- **Pipeline Step:** `step_1_06_object_segmentation` processes clips to extract tracking IDs and RLE-encoded binary masks.
+- **Implementation:** `library/tools/analysis/object_segmentation.py` handles auto-mask generation and mask propagation across frames using the SAM 2 video predictor.
+- **Match Cuts:** The module includes `find_match_cut_candidates` to align objects between clips via silhouette overlap (IoU).
 ## DaVinci Resolve Scripting - CRITICAL RULES
 
 ### Connection
