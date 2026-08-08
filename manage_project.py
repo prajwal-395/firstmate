@@ -226,6 +226,50 @@ def cmd_info(args):
     print(json.dumps(data, indent=2))
 
 
+def cmd_relink(args):
+    """Relink offline media in Resolve after project migration."""
+    try:
+        from library.tools.resolve_relinker import relink_project
+    except ImportError:
+        print("  Error: Could not import resolve_relinker", file=sys.stderr)
+        sys.exit(1)
+
+    result = relink_project(args.slug, dry_run=args.scan)
+
+    if not result.get("success"):
+        print(f"  Error: {result.get('error', 'Unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+    offline = result.get("offline_count", 0)
+    if offline == 0:
+        print("  No offline clips found - all media is linked.")
+        return
+
+    if args.scan:
+        fixable = result.get("fixable", [])
+        unfixable = result.get("unfixable", [])
+        print(f"\n  Offline clips: {offline}")
+        print(f"  Fixable: {len(fixable)}")
+        for c in fixable[:10]:
+            print(f"    {c['name']}: {c['old']} -> {c['new']}")
+        if len(fixable) > 10:
+            print(f"    ... and {len(fixable) - 10} more")
+        if unfixable:
+            print(f"  Cannot fix: {len(unfixable)}")
+            for c in unfixable:
+                print(f"    {c['name']}: {c['old']}")
+        print(f"\n  Run without --scan to execute relinking.")
+    else:
+        relinked = result.get("relinked", 0)
+        failed = result.get("failed", 0)
+        print(f"\n  Relinked: {relinked}")
+        if failed:
+            print(f"  Failed: {failed}")
+        unfixable = result.get("unfixable_count", 0)
+        if unfixable:
+            print(f"  Could not locate: {unfixable}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Manage video editing projects",
@@ -280,6 +324,12 @@ def main():
     p_archive = sub.add_parser("archive", help="Archive a completed project")
     p_archive.add_argument("slug", help="Project slug")
     p_archive.set_defaults(func=cmd_archive)
+
+    # relink
+    p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
+    p_relink.add_argument("slug", nargs="?", default="", help="Project slug (optional)")
+    p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
+    p_relink.set_defaults(func=cmd_relink)
 
     args = parser.parse_args()
     if not args.command:
