@@ -389,6 +389,7 @@ def run_pipeline(
     single_step: str = None,
     dry_run: bool = False,
     auto_mode: bool = False,
+    review_mode: bool = False,
 ):
     """Execute the pipeline DAG."""
     dag = load_dag()
@@ -476,6 +477,19 @@ def run_pipeline(
                     "elapsed_s": round(elapsed, 1),
                 }
                 save_pipeline_state(project_dir, state)
+                
+                # Export step output for dashboard review
+                _export_step_for_review(project_dir, node_id, node["name"], output)
+                
+                # Review gate: pause if review mode is enabled
+                if review_mode:
+                    _save_review_gate(
+                        project_dir, node_id, node["name"],
+                        output, inputs,
+                    )
+                    print(f"     ⏸ Review gate saved. Inspect at dashboard.",
+                          file=sys.stderr)
+                
                 completed.append(node_id)
                 
             elif impl["type"] == "hybrid":
@@ -575,6 +589,27 @@ def run_pipeline(
     return summary
 
 
+def _export_step_for_review(project_dir, step_id, step_name, output):
+    """Export step output for dashboard review (non-critical, best-effort)."""
+    try:
+        from library.tools.step_exporter import export_step_output
+        export_step_output(project_dir, step_id, step_name, output)
+    except Exception as e:
+        print(f"     (step export skipped: {e})", file=sys.stderr)
+
+
+def _save_review_gate(project_dir, step_id, step_name, output, inputs):
+    """Save a review gate snapshot (non-critical, best-effort)."""
+    try:
+        from library.tools.review_gate import save_gate_snapshot
+        save_gate_snapshot(
+            project_dir, step_id, step_name, output,
+            upstream_context={k: str(type(v).__name__) for k, v in inputs.items()},
+        )
+    except Exception as e:
+        print(f"     (gate save skipped: {e})", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Pipeline Runner")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -585,6 +620,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     parser.add_argument("--auto", action="store_true", 
                        help="Auto-complete hybrid steps (use bridge output as final)")
+    parser.add_argument("--review", action="store_true",
+                       help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
     args = parser.parse_args()
     
     # Resolve project directory from slug if provided
@@ -603,6 +640,7 @@ def main():
         single_step=args.step,
         dry_run=args.dry_run,
         auto_mode=args.auto,
+        review_mode=args.review,
     )
 
 

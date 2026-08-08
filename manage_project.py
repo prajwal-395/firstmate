@@ -192,6 +192,8 @@ def cmd_run(args):
         cmd.append("--dry-run")
     if args.auto:
         cmd.append("--auto")
+    if args.review:
+        cmd.append("--review")
 
     print(f"  Running pipeline for: {config.name}")
     print(f"  Project: {config.project_root}")
@@ -270,6 +272,39 @@ def cmd_relink(args):
             print(f"  Could not locate: {unfixable}")
 
 
+def cmd_dashboard(args):
+    """Start the review dashboard for a project."""
+    try:
+        from library.dashboard.server import start_server
+    except ImportError as e:
+        print(f"  Error: Could not import dashboard server: {e}", file=sys.stderr)
+        print(f"  Install dependencies: pip install fastapi uvicorn", file=sys.stderr)
+        sys.exit(1)
+
+    if args.slug:
+        try:
+            config = get_project(args.slug)
+            project_dir = str(config.project_root)
+            slug = args.slug
+        except FileNotFoundError as e:
+            print(f"  Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # No slug provided - check if PROJECTS_ROOT has any projects
+        configs = list_projects()
+        if not configs:
+            print("  No projects found. Create one first:", file=sys.stderr)
+            print("    python3 manage_project.py new <slug> --name '<name>'", file=sys.stderr)
+            sys.exit(1)
+        # Use the most recently modified project
+        config = configs[0]
+        project_dir = str(config.project_root)
+        slug = config.slug
+        print(f"  No slug provided, using: {slug}")
+
+    start_server(project_dir, slug=slug, port=args.port)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Manage video editing projects",
@@ -318,7 +353,15 @@ def main():
     p_run.add_argument("--step", help="Run only this step")
     p_run.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
+    p_run.add_argument("--review", action="store_true",
+                       help="Enable review gates for dashboard inspection")
     p_run.set_defaults(func=cmd_run)
+
+    # dashboard
+    p_dash = sub.add_parser("dashboard", help="Start the review dashboard for a project")
+    p_dash.add_argument("slug", nargs="?", default="", help="Project slug (optional)")
+    p_dash.add_argument("--port", type=int, default=8420, help="Server port (default: 8420)")
+    p_dash.set_defaults(func=cmd_dashboard)
 
     # archive
     p_archive = sub.add_parser("archive", help="Archive a completed project")
