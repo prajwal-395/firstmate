@@ -1,0 +1,71 @@
+{
+  "id": "step_1_07_ocr_extraction",
+  "name": "OCR Extraction",
+  "version": "1.0.0",
+  "description": "Extracts exact on-screen text with bounding boxes and temporal tracking using EasyOCR.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "object",
+        "required": true,
+        "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": false,
+        "description": "State input: clip_catalog"
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": false,
+        "description": "State input: temporal_index (for scene boundaries)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ocr_extraction",
+        "type": "object",
+        "description": "State output: ocr_extraction per clip"
+      }
+    ],
+    "preconditions": [
+      "'raw_footage_files' exists in state"
+    ],
+    "postconditions": [
+      "'ocr_extraction' is written to state"
+    ]
+  },
+  "classification": {
+    "determinism": "deterministic",
+    "archetype": "extraction",
+    "idempotent": true
+  },
+  "state": {
+    "reads": [
+      "project_folder",
+      "raw_footage_files"
+    ],
+    "writes": [
+      "ocr_extraction"
+    ]
+  },
+  "dependencies": [
+    "step_1_01_ingest_raw"
+  ],
+  "tags": [
+    "extraction",
+    "ocr",
+    "video-editing"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    }
+  }
+}
