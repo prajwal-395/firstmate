@@ -612,6 +612,42 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     return llm_output
 
 
+def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> None:
+    """Validate a step's output against its manifest declarations."""
+    if not manifest or "interface" not in manifest or "outputs" not in manifest["interface"]:
+        return
+
+    outputs_spec = manifest["interface"]["outputs"]
+    for spec in outputs_spec:
+        key = spec.get("name")
+        if not key:
+            continue
+            
+        is_required = spec.get("required", True)
+        
+        if key not in output or output[key] is None:
+            if is_required:
+                raise RuntimeError(f"Step '{node_id}' output missing required key: '{key}'")
+            else:
+                import sys
+                print(f"  Warning: Step '{node_id}' output missing optional key: '{key}'", file=sys.stderr)
+            continue
+            
+        val = output[key]
+        expected_type_str = spec.get("type", "").lower()
+        if expected_type_str:
+            type_map = {
+                "dict": dict, "object": dict,
+                "list": list, "array": list,
+                "str": str, "string": str,
+                "int": int, "float": float, "number": (int, float),
+                "bool": bool, "boolean": bool
+            }
+            expected_type = type_map.get(expected_type_str)
+            if expected_type and not isinstance(val, expected_type):
+                raise RuntimeError(f"Step '{node_id}' output '{key}' expected type {expected_type_str}, got {type(val).__name__}")
+
+
 # ── Main Runner ─────────────────────────────────────────────────────
 
 def run_pipeline(
@@ -796,6 +832,20 @@ def run_pipeline(
             elapsed = time.time() - start_time
             print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
             print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
+            
+            # Validate output against manifest
+            try:
+                validate_step_output(node_id, output, impl.get("manifest"))
+            except RuntimeError as e:
+                print(f"     ✗ INVALID OUTPUT: {e}", file=sys.stderr)
+                logger = get_logger()
+                if logger:
+                    logger.log(step_id=node_id, event_type="step_failed", error=str(e))
+                state.setdefault("failed_steps", []).append(node_id)
+                state.setdefault("step_errors", {})[node_id] = str(e)
+                save_pipeline_state(project_dir, state)
+                failed.append(node_id)
+                break
             
             state.setdefault("step_outputs", {})[node_id] = output
             state.setdefault("steps_completed", {})[node_id] = {

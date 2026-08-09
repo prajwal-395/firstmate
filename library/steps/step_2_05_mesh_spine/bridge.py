@@ -26,11 +26,7 @@ import json
 import sys
 import uuid
 import os
-
-def _require_keys(obj, keys, context):
-    missing = [k for k in keys if k not in obj]
-    if missing:
-        raise ValueError(f"{context}: missing required keys: {missing}")
+from library.tools.pipeline_validation import require_keys
 
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -171,7 +167,7 @@ def main():
     # C3 fix: Accept LLM output format. The LLM outputs {structure: [...],
     # total_estimated_duration_seconds: ...} directly, not nested under a
     # "spine" key. Support both formats for robustness.
-    _require_keys(data, ["speech_sequence", "music_selection"], "Input data")
+    require_keys(data, ["speech_sequence", "music_selection"], "step_2_05_mesh_spine/bridge.py")
     if "spine" in data:
         spine_data = data["spine"]
     elif "structure" in data:
@@ -181,7 +177,7 @@ def main():
         raise ValueError("Input data: missing 'spine' or 'structure' key")
     if not isinstance(spine_data, dict):
         raise ValueError("spine data must be a dictionary")
-    _require_keys(spine_data, ["structure"], "spine data")
+    require_keys(spine_data, ["structure"], "spine data")
     if not isinstance(spine_data["structure"], list):
         raise ValueError("spine.structure must be a list")
 

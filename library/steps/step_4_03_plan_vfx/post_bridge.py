@@ -13,12 +13,7 @@ Idempotent: Yes
 """
 import json
 import sys
-
-
-def _require_keys(obj, keys, context):
-    missing = [k for k in keys if k not in obj]
-    if missing:
-        raise ValueError(f"{context}: missing required keys: {missing}")
+from library.tools.pipeline_validation import require_keys
 
 
 # Style spec ranges for VFX parameters.
@@ -165,7 +160,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["vfx_creative"], "Input data")
+    require_keys(data, ["vfx_creative"], "step_4_03_plan_vfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("vfx_creative", []), list):

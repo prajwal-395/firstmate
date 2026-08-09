@@ -115,9 +115,9 @@ def main():
 
     segments = []
     for i, props in enumerate(props_list):
-        block_pos = props.pop("_block_position")
-        tl_start = props.pop("_timeline_start")
-        tl_end = props.pop("_timeline_end")
+        block_pos = props.get("_block_position")
+        tl_start = props.get("_timeline_start")
+        tl_end = props.get("_timeline_end")
         total_frames = props["durationInFrames"]
         num_subs = len(props.get("subtitles", []))
 
