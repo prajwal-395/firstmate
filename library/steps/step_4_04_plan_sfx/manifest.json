@@ -124,5 +124,18 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "b_roll_assignments",
+    "creative_direction",
+    "rough_cut_review",
+    "timed_spine",
+    "music_analysis",
+    "sfx_library_status",
+    "brand_effect",
+    "semantic_analysis_documents.*.scene_segments.*.event_logs",
+    "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
+    "temporal_event_indices.*.scene_boundaries",
+    "temporal_event_indices.*.motion_energy.high_motion_times"
+  ]
 }

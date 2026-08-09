@@ -117,5 +117,16 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "a_roll_assignments",
+    "b_roll_assignments",
+    "creative_direction",
+    "music_selection",
+    "rough_cut_review",
+    "timed_spine",
+    "brand_effect",
+    "temporal_event_indices.*.scene_boundaries",
+    "temporal_event_indices.*.motion_energy.high_motion_times"
+  ]
 }

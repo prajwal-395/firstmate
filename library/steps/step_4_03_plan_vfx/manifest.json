@@ -104,5 +104,14 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "a_roll_assignments",
+    "b_roll_assignments",
+    "creative_direction",
+    "rough_cut_review",
+    "timed_spine",
+    "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
+    "semantic_analysis_documents.*.scene_segments.*.visual_note"
+  ]
 }

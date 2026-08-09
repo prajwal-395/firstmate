@@ -100,5 +100,28 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "a_roll_assignments",
+    "creative_direction",
+    "timed_spine",
+    "clip_catalog.entries.*.filename",
+    "clip_catalog.entries.*.duration",
+    "clip_catalog.entries.*.width",
+    "clip_catalog.entries.*.height",
+    "clip_catalog.entries.*.rotation",
+    "clip_catalog.entries.*.fps",
+    "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
+    "semantic_analysis_documents.*.scene_segments.*.broll_topic_suitability",
+    "semantic_analysis_documents.*.scene_segments.*.broll_topic_avoid",
+    "semantic_analysis_documents.*.scene_segments.*.visual_note",
+    "semantic_analysis_documents.*.scene_segments.*.interest_score",
+    "temporal_event_indices.*.scene_boundaries",
+    "temporal_event_indices.*.motion_energy.high_motion_times",
+    "temporal_event_indices.*.motion_energy.peak_motion_times",
+    "temporal_event_indices.*.optical_flow_direction.dominant_motion",
+    "temporal_event_indices.*.face_presence.face_absent_times",
+    "temporal_event_indices.*.face_presence.face_present_times",
+    "temporal_event_indices.*.color_curves.temperature_curve"
+  ]
 }
