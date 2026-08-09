@@ -271,9 +271,18 @@ def run_smoke_test():
 
         # Test gate action (save gate first)
         from library.tools.review_gate import save_gate_snapshot
+        
+        # We need realistic output to test deep merge
+        initial_output = data.get("step_outputs", {}).get("creative_direction", {}) if "step_outputs" in data else {
+            "creative_direction": {
+                "target_mood": "motivational",
+                "target_energy": "building"
+            }
+        }
+        
         save_gate_snapshot(
             project_dir, "creative_direction", "Creative Direction",
-            data["project_root"] if "project_root" in data else {},
+            initial_output
         )
         resp = client.post("/api/gates/creative_direction/action", json={
             "action": "approve",
@@ -281,6 +290,48 @@ def run_smoke_test():
         })
         results.append(("POST gate action", resp.status_code))
         assert resp.status_code == 200
+
+        # Test gate action (reject)
+        resp = client.post("/api/gates/creative_direction/action", json={
+            "action": "reject",
+            "feedback": "No, fix this",
+        })
+        results.append(("POST gate action (reject)", resp.status_code))
+        assert resp.status_code == 200
+        
+        state = server._load_pipeline_state(project_dir)
+        assert state["step_outputs"]["creative_direction"].get("__rejected") is True
+        
+        # Test gate action (revise with deep merge)
+        resp = client.post("/api/gates/creative_direction/action", json={
+            "action": "revise",
+            "feedback": "Make it more energetic",
+            "revisions": {
+                "creative_direction": {
+                    "target_mood": "very energetic"
+                }
+            }
+        })
+        results.append(("POST gate action (revise)", resp.status_code))
+        assert resp.status_code == 200
+        
+        state = server._load_pipeline_state(project_dir)
+        cd = state["step_outputs"]["creative_direction"]["creative_direction"]
+        assert cd["target_mood"] == "very energetic"
+        assert cd["target_energy"] == "building"  # Unchanged
+        
+        # Test pipeline run and resume endpoints
+        import subprocess
+        from unittest.mock import patch
+        
+        with patch("subprocess.Popen") as mock_popen:
+            resp = client.post("/api/pipeline/run", json={"review_mode": True})
+            results.append(("POST /api/pipeline/run", resp.status_code))
+            assert resp.status_code == 200
+            
+            resp = client.post("/api/pipeline/resume")
+            results.append(("POST /api/pipeline/resume", resp.status_code))
+            assert resp.status_code == 200
 
         # Print results
         print("\n  Dashboard Smoke Test Results")
