@@ -61,6 +61,7 @@ function navigate(viewName, context) {
     const breadcrumb = document.getElementById('breadcrumb');
     const labels = {
         pipeline: 'Pipeline Overview',
+        messages: 'Messages',
         footage: 'Footage Library',
         transcript: 'Transcript',
         timeline: 'Timeline',
@@ -77,6 +78,9 @@ async function renderView(viewName, context) {
         switch (viewName) {
             case 'pipeline':
                 await renderPipelineView();
+                break;
+            case 'messages':
+                await renderMessagesView();
                 break;
             case 'footage':
                 await renderFootageLibrary();
@@ -227,6 +231,9 @@ function updateStatusCounts() {
 async function refreshData() {
     await Promise.all([loadProjectInfo(), loadSteps()]);
     renderView(state.currentView);
+    if (typeof renderMessagesView === 'function' && state.currentView !== 'messages') {
+        renderMessagesView(); // to update the badge
+    }
 }
 
 // ── Markdown Renderer (simple) ─────────────────────────────────

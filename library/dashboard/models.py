@@ -32,6 +32,43 @@ class GateAction(str, Enum):
     REVISE = "revise"              # Approve with modifications
 
 
+class MessageType(str, Enum):
+    DECISION = "decision"
+    STATUS = "status"
+    QUESTION = "question"
+    PREVIEW = "preview"
+    ERROR = "error"
+
+
+class DecisionOption(BaseModel):
+    id: str
+    label: str
+    description: str
+    thumbnail_url: Optional[str] = None
+
+
+class AgentMessage(BaseModel):
+    id: str
+    type: MessageType
+    step_id: Optional[str] = None
+    title: str
+    body: str
+    options: List[DecisionOption] = Field(default_factory=list)
+    preview_data: Optional[Dict[str, Any]] = None
+    requires_response: bool = False
+    created_at: str
+    responded_at: Optional[str] = None
+    response: Optional[Dict[str, Any]] = None
+
+
+class UserResponse(BaseModel):
+    message_id: str
+    action: str  # approve, reject, choose, comment
+    chosen_option_id: Optional[str] = None
+    comment: Optional[str] = None
+    annotations: Optional[Dict[str, Any]] = None
+
+
 # ── Step Models ─────────────────────────────────────────────────────
 
 class StepSummary(BaseModel):
