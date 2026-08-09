@@ -201,13 +201,16 @@ def apply_feedback_to_output(
         }
 
     if feedback.action == "revised":
-        merged = {**step_output}
-        for key, value in feedback.revisions.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                # Deep merge one level
-                merged[key] = {**merged[key], **value}
-            else:
-                merged[key] = value
+        def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+            result = {**target}
+            for k, v in source.items():
+                if isinstance(v, dict) and isinstance(result.get(k), dict):
+                    result[k] = deep_merge(result[k], v)
+                else:
+                    result[k] = v
+            return result
+
+        merged = deep_merge(step_output, feedback.revisions)
         merged["__revised"] = True
         merged["__revision_feedback"] = feedback.feedback
         return merged

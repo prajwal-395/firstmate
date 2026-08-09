@@ -390,6 +390,7 @@ def run_pipeline(
     dry_run: bool = False,
     auto_mode: bool = False,
     review_mode: bool = False,
+    resume_mode: bool = False,
 ):
     """Execute the pipeline DAG."""
     dag = load_dag()
@@ -443,6 +444,28 @@ def run_pipeline(
         
         # Check if already completed
         if node_id in state.get("steps_completed", {}):
+            if resume_mode:
+                from library.tools.review_gate import load_gate_feedback, apply_feedback_to_output
+                feedback = load_gate_feedback(project_dir, node_id)
+                if feedback:
+                    if feedback.action == "pending":
+                        print(f"  ⏸  {node_id}: gate is pending, stopping.", file=sys.stderr)
+                        break
+                    elif feedback.action == "rejected":
+                        print(f"  ✗  {node_id}: rejected by reviewer.", file=sys.stderr)
+                        failed.append(node_id)
+                        state.setdefault("failed_steps", []).append(node_id)
+                        save_pipeline_state(project_dir, state)
+                        break
+                    elif feedback.action == "revised":
+                        outputs = state.get("step_outputs", {})
+                        step_output = outputs.get(node_id, {})
+                        merged = apply_feedback_to_output(step_output, feedback)
+                        outputs[node_id] = merged
+                        state["step_outputs"] = outputs
+                        save_pipeline_state(project_dir, state)
+                        print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
+            
             print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
             completed.append(node_id)
             continue
@@ -489,6 +512,8 @@ def run_pipeline(
                     )
                     print(f"     ⏸ Review gate saved. Inspect at dashboard.",
                           file=sys.stderr)
+                    completed.append(node_id)
+                    break
                 
                 completed.append(node_id)
                 
@@ -548,7 +573,6 @@ def run_pipeline(
                 
         except Exception as e:
             print(f"     ✗ FAILED: {e}", file=sys.stderr)
-            failed.append(node_id)
             
             # Check error policy
             error_policy = node.get("error_policy", {}).get("policy", "fail")
@@ -556,10 +580,45 @@ def run_pipeline(
                 max_retries = node.get("error_policy", {}).get("max_retries", 2)
                 print(f"     Retry policy: up to {max_retries} retries", 
                       file=sys.stderr)
-                # TODO: implement retry loop
-            elif error_policy != "continue":
-                print(f"     Stopping pipeline due to failure.", file=sys.stderr)
-                break
+                success = False
+                for attempt in range(1, max_retries + 1):
+                    print(f"     [Retry {attempt}/{max_retries}]", file=sys.stderr)
+                    try:
+                        time.sleep(1)
+                        if impl["type"] == "deterministic":
+                            output = run_deterministic_step(impl["entry"], inputs)
+                            elapsed = time.time() - start_time
+                            state.setdefault("step_outputs", {})[node_id] = output
+                            state.setdefault("steps_completed", {})[node_id] = {
+                                "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "elapsed_s": round(elapsed, 1),
+                            }
+                            save_pipeline_state(project_dir, state)
+                            _export_step_for_review(project_dir, node_id, node["name"], output)
+                            
+                            if review_mode:
+                                _save_review_gate(project_dir, node_id, node["name"], output, inputs)
+                                print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
+                            
+                            success = True
+                            completed.append(node_id)
+                            break
+                    except Exception as retry_e:
+                        print(f"     ✗ FAILED (attempt {attempt}): {retry_e}", file=sys.stderr)
+                
+                if success:
+                    if review_mode:
+                        break
+                    continue
+                else:
+                    failed.append(node_id)
+                    print(f"     Stopping pipeline due to failure.", file=sys.stderr)
+                    break
+            else:
+                failed.append(node_id)
+                if error_policy != "continue":
+                    print(f"     Stopping pipeline due to failure.", file=sys.stderr)
+                    break
     
     # Summary
     print(f"\n{'═'*60}", file=sys.stderr)
@@ -622,6 +681,8 @@ def main():
                        help="Auto-complete hybrid steps (use bridge output as final)")
     parser.add_argument("--review", action="store_true",
                        help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
+    parser.add_argument("--resume", action="store_true",
+                       help="Resume pipeline from pending gates")
     args = parser.parse_args()
     
     # Resolve project directory from slug if provided
@@ -641,8 +702,34 @@ def main():
         dry_run=args.dry_run,
         auto_mode=args.auto,
         review_mode=args.review,
+        resume_mode=args.resume,
     )
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--project")
+    parser.add_argument("--slug")
+    args, _ = parser.parse_known_args()
+    
+    project_dir = args.project
+    if args.slug:
+        try:
+            from tools.paths import project_root
+            project_dir = str(project_root(args.slug))
+        except (ImportError, FileNotFoundError):
+            pass
+            
+    pid_file = os.path.join(project_dir, "pipeline.pid") if project_dir else None
+    if pid_file:
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+            
+    try:
+        main()
+    finally:
+        if pid_file and os.path.exists(pid_file):
+            try:
+                os.remove(pid_file)
+            except OSError:
+                pass

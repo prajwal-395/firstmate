@@ -104,6 +104,12 @@ def generate_summary(step_id: str, step_name: str, output: Dict[str, Any]) -> st
         "audio_mix": _summary_audio_mix,
         "creative_cohesion": _summary_creative_cohesion,
         "compile_manifest": _summary_compile_manifest,
+        "render": _summary_render,
+        "validate": _summary_validate,
+        "render_subtitles": _summary_render_subtitles,
+        "render_motion_graphics": _summary_render_motion_graphics,
+        "object_segmentation": _summary_object_segmentation,
+        "ocr_extraction": _summary_ocr_extraction,
     }
 
     formatter = formatters.get(step_id, _summary_generic)
@@ -447,6 +453,46 @@ def _summary_compile_manifest(name: str, out: dict) -> str:
     total_dur = manifest.get("total_duration_s", "")
     if total_dur:
         lines.append(f"**Total Duration**: {total_dur}s")
+    return "\n".join(lines)
+
+
+def _summary_render(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    if "output_file" in out:
+        lines.append(f"**Output File**: `{out['output_file']}`")
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
+    return "\n".join(lines)
+
+
+def _summary_validate(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    if "is_valid" in out:
+        lines.append(f"**Valid**: {out['is_valid']}")
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
+    return "\n".join(lines)
+
+
+def _summary_render_subtitles(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
+    return "\n".join(lines)
+
+
+def _summary_render_motion_graphics(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
+    return "\n".join(lines)
+
+
+def _summary_object_segmentation(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
+    return "\n".join(lines)
+
+
+def _summary_ocr_extraction(name: str, out: dict) -> str:
+    lines = [f"# {name}", ""]
+    lines.append(f"```json\n{json.dumps(out, indent=2)[:800]}\n```")
     return "\n".join(lines)
 
 
