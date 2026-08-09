@@ -339,6 +339,8 @@ def compile_manifest(out_dir: str) -> dict:
         sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_spec", []))
         sfx_preset = sfx_raw.get("fairlight_preset")
         sfx_ducking = sfx_raw.get("music_ducking")
+        if isinstance(sfx_ducking, list):
+            sfx_ducking = {"ducking_curves": sfx_ducking}
     else:
         sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
         sfx_preset = None
@@ -848,6 +850,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", [])))
         sfx_preset = sfx_raw.get("fairlight_preset")
         sfx_ducking = sfx_raw.get("music_ducking")
+        if isinstance(sfx_ducking, list):
+            sfx_ducking = {"ducking_curves": sfx_ducking}
     else:
         sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
         sfx_preset = None
@@ -1005,12 +1009,13 @@ def main():
         inputs = json.loads(sys.stdin.read())
 
         if "project_folder" in inputs:
-            # If project_folder is provided, try filesystem mode first
-            out_dir = os.path.join(inputs["project_folder"], "pipeline_output")
-            if os.path.isdir(out_dir):
-                manifest = compile_manifest(out_dir)
-                json.dump({"assembly_manifest": manifest}, sys.stdout, indent=2)
-                return
+            # If project_folder is provided, try filesystem mode first but only if legacy flag is set
+            if os.environ.get("LEGACY_MANIFEST_COMPILER") == "1":
+                out_dir = os.path.join(inputs["project_folder"], "pipeline_output")
+                if os.path.isdir(out_dir):
+                    manifest = compile_manifest(out_dir)
+                    json.dump({"assembly_manifest": manifest}, sys.stdout, indent=2)
+                    return
 
         # Otherwise compile from the input data directly
         result = compile_manifest_from_inputs(inputs)

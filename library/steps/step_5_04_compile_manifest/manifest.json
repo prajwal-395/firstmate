@@ -83,6 +83,18 @@
         "type": "object",
         "required": false,
         "description": "State input: motion_graphics_overlay from step 4.06"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": true,
+        "description": "State input: clip_catalog"
+      },
+      {
+        "name": "semantic_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: semantic_analysis"
       }
     ],
     "outputs": [
@@ -101,7 +113,9 @@
       "'sfx_spec' exists in state",
       "'color_grade_spec' exists in state",
       "'audio_mix_spec' exists in state",
-      "'music_selection' exists in state"
+      "'music_selection' exists in state",
+      "'clip_catalog' exists in state",
+      "'semantic_analysis' exists in state"
     ],
     "postconditions": [
       "'assembly_manifest' is written to state"
@@ -127,7 +141,9 @@
       "subtitle_plan",
       "transition_spec",
       "cohesion_review",
-      "motion_graphics_overlay"
+      "motion_graphics_overlay",
+      "clip_catalog",
+      "semantic_analysis"
     ],
     "writes": [
       "assembly_manifest"
