@@ -107,6 +107,8 @@ def main():
         }, sys.stdout, indent=2)
         return
 
+    props_list = props_list[:1]
+    
     print(f"Rendering {len(props_list)} motion graphics segments...",
           file=sys.stderr)
 

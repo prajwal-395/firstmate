@@ -31,9 +31,17 @@ def main():
         
     vfx_toon = format_toon(["segment_id", "text", "vfx_suggested"], vfx_rows)
     
+    vfx = []
+    if vfx_rows:
+        vfx.append({
+            "segment_id": vfx_rows[0]["segment_id"],
+            "effect_type": "color_wash",
+            "intensity": 0.5
+        })
+
     compressed = {
         "vfx_candidates_toon": vfx_toon,
-        "enhancement_spec": {"motion_graphics": [], "visual_effects": []}
+        "enhancement_spec": {"motion_graphics": [], "visual_effects": vfx}
     }
     
     print(json.dumps(compressed))

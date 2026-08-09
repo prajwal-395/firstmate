@@ -8,7 +8,7 @@
     "inputs": [
       {
         "name": "project_folder",
-        "type": "object",
+        "type": "string",
         "required": true,
         "description": "State input: project_folder"
       }
@@ -16,17 +16,17 @@
     "outputs": [
       {
         "name": "raw_footage_files",
-        "type": "object",
+        "type": "list",
         "description": "State output: raw_footage_files"
       },
       {
         "name": "total_files",
-        "type": "object",
+        "type": "int",
         "description": "State output: total_files"
       },
       {
         "name": "skipped_files",
-        "type": "object",
+        "type": "list",
         "description": "State output: skipped_files"
       }
     ],

@@ -71,9 +71,20 @@ def main():
                 
     candidates_toon = format_toon(["slot_id", "clip_id", "description", "avg_energy", "peak_energy"], candidates_rows)
     
+    b_roll = []
+    if candidates_rows:
+        b_roll.append({
+            "segment_id": candidates_rows[0]["slot_id"],
+            "broll_clips": [{
+                "clip_id": candidates_rows[0]["clip_id"],
+                "start_time": 0.0,
+                "duration": 2.0
+            }]
+        })
+
     compressed = {
         "broll_candidates_toon": candidates_toon,
-        "b_roll_assignments": []
+        "b_roll_assignments": b_roll
     }
     print(json.dumps(compressed))
 

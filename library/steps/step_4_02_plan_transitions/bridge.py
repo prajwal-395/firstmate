@@ -45,9 +45,17 @@ def main():
         
     cuts_toon = format_toon(["cut_time", "type", "beat_near_cut"], cut_rows)
     
+    transitions = []
+    if cut_rows:
+        transitions.append({
+            "cut_time": float(cut_rows[0]["cut_time"]),
+            "type": "cross_dissolve",
+            "duration": 0.5
+        })
+
     compressed = {
         "cuts_toon": cuts_toon,
-        "transition_spec": {"transitions": [], "default_cut": "hard"}
+        "transition_spec": {"transitions": transitions, "default_cut": "hard"}
     }
     
     print(json.dumps(compressed))
