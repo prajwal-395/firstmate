@@ -32,7 +32,7 @@ from typing import Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
 try:
     from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
-    from fairlight_presets import get_preset, apply_fairlight_preset
+    from tools.fairlight_presets import get_preset, apply_fairlight_preset
     from timeline_qa import (
         verify_clip_placement, verify_transitions, verify_color_grades,
         verify_audio, verify_fusion_comps, run_full_timeline_qa
@@ -206,6 +206,14 @@ def build_timeline(
     sub_overlay_info = manifest.get('subtitle_overlay', {})
     mg_overlay_info = manifest.get('motion_graphics_overlay', {})
 
+    if sub_overlay_info.get('available') is False:
+        sub_overlay_info = {}
+        print("  ⚠ Subtitles marked as not available, skipping", file=sys.stderr)
+
+    if mg_overlay_info.get('available') is False:
+        mg_overlay_info = {}
+        print("  ⚠ Motion graphics marked as not available, skipping", file=sys.stderr)
+
     sub_segments = sub_overlay_info.get('segments', [])
     mg_segments = mg_overlay_info.get('segments', [])
 
@@ -274,27 +282,8 @@ def build_timeline(
 
     media_pool = project.GetMediaPool()
 
-    # ── Delete existing timeline if requested ──
-    if delete_existing:
-        for i in range(project.GetTimelineCount(), 0, -1):
-            tl = project.GetTimelineByIndex(i)
-            if tl and tl.GetName() == timeline_name:
-                media_pool.DeleteTimelines([tl])
-
-    # ── Create empty timeline ──
-    timeline = media_pool.CreateEmptyTimeline(timeline_name)
-    if not timeline:
-        results["errors"].append("Failed to create timeline")
-        return results
-
-    project.SetCurrentTimeline(timeline)
-    timeline.SetSetting("timelineResolutionWidth", str(width))
-    timeline.SetSetting("timelineResolutionHeight", str(height))
-    timeline.SetSetting("timelineFrameRate", f"{fps:.3f}")
-
-    print(f"✓ Created timeline: {timeline_name} ({width}x{height} @ {fps}fps)", file=sys.stderr)
-
     # ── Import all media to pool with subdirectory organization ──
+    # Note: We import media BEFORE creating timeline to detect actual FPS.
     root_folder = media_pool.GetRootFolder()
 
     def _import_to_folder(folder_name, paths):
@@ -327,10 +316,6 @@ def build_timeline(
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)
 
     # Build pool clip lookup.
-    # Primary key: full file path (from GetClipProperty) - avoids name collisions
-    # when different overlay types share basenames (e.g. seg_000.mov for both
-    # subtitles and motion graphics).
-    # Secondary key: basename - backwards-compatible fallback.
     root_folder = media_pool.GetRootFolder()
     pool_clips_by_path = {}
     pool_clips_by_name = {}
@@ -349,16 +334,63 @@ def build_timeline(
 
     def _find_pool_clip(filepath: str) -> object:
         """Look up a media pool clip by filepath first, then basename fallback."""
-        # Try full path match
         item = pool_clips_by_path.get(filepath)
-        if item:
-            return item
-        # Try basename match (backwards compat)
+        if item: return item
         return pool_clips_by_name.get(os.path.basename(filepath))
 
-    # Alias for any remaining direct dict access
     pool_clips = pool_clips_by_name  # Prefer _find_pool_clip() for all new code
     print(f"  Media pool: {len(pool_clips_by_name)} clips ({len(pool_clips_by_path)} with paths)", file=sys.stderr)
+
+    # ── Detect actual source FPS ──
+    actual_fps = float(fps)
+    for c in v1_clips:
+        src = c.get('source_file', '')
+        if src:
+            pool_item = _find_pool_clip(src)
+            if pool_item:
+                try:
+                    media_fps = float(pool_item.GetClipProperty("FPS"))
+                    if media_fps > 0:
+                        actual_fps = media_fps
+                        print(f"✓ Detected actual FPS from source: {actual_fps}", file=sys.stderr)
+                        break
+                except (ValueError, TypeError):
+                    pass
+    fps = actual_fps
+
+    # Recompute frame bounds for all clips based on actual fps to prevent placement gaps
+    def _recompute_frames(clip):
+        if 'source_in' in clip: clip['source_in_frame'] = round(clip['source_in'] * fps)
+        if 'source_out' in clip: clip['source_out_frame'] = round(clip['source_out'] * fps)
+        if 'timeline_in' in clip: clip['timeline_in_frame'] = round(clip['timeline_in'] * fps)
+        if 'timeline_out' in clip: clip['timeline_out_frame'] = round(clip['timeline_out'] * fps)
+
+    for c in v1_clips + v2_clips + a2_clips + a3_clips:
+        _recompute_frames(c)
+    for s in sub_segments + mg_segments:
+        _recompute_frames(s)
+        s['total_frames'] = round((s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
+
+    # ── Delete existing timeline if requested ──
+    if delete_existing:
+        for i in range(project.GetTimelineCount(), 0, -1):
+            tl = project.GetTimelineByIndex(i)
+            if tl and tl.GetName() == timeline_name:
+                media_pool.DeleteTimelines([tl])
+
+    # ── Create empty timeline ──
+    timeline = media_pool.CreateEmptyTimeline(timeline_name)
+    if not timeline:
+        results["errors"].append("Failed to create timeline")
+        return results
+
+    project.SetCurrentTimeline(timeline)
+    timeline.SetSetting("timelineResolutionWidth", str(width))
+    timeline.SetSetting("timelineResolutionHeight", str(height))
+    timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
+    timeline.SetSetting("timelineFrameRate", timeline_fps_str)
+
+    print(f"✓ Created timeline: {timeline_name} ({width}x{height} @ {timeline_fps_str}fps)", file=sys.stderr)
 
     # ── Set up tracks ──
     # V1 exists by default. Need V2, V3, V4 for video and extra audio tracks.
@@ -402,15 +434,44 @@ def build_timeline(
     print(f"\n── V1 A-Roll + A1 Speech: {len(v1_clips)} clips ──", file=sys.stderr)
     v1_timeline_items = []
 
+    # Pre-process J/L cuts from native transitions
+    native_transitions = manifest.get('transitions', [])
+    for ci, clip in enumerate(v1_clips):
+        clip['video_src_in'] = round(clip.get('source_in', 0) * fps)
+        clip['video_src_out'] = round(clip.get('source_out', 0) * fps)
+        clip['audio_src_in'] = round(clip.get('source_in', 0) * fps)
+        clip['audio_src_out'] = round(clip.get('source_out', 0) * fps)
+
+    for trans in native_transitions:
+        ttype = trans.get('transition_type', trans.get('type', ''))
+        from_idx = trans.get('from_block')
+        to_idx = trans.get('to_block')
+        # Support both formats (manifest vs direct)
+        if from_idx is None:
+            pos = trans.get('position', '')
+            if pos.startswith('between_'):
+                parts = pos.replace('between_', '').split('_')
+                if len(parts) == 2:
+                    from_idx = int(parts[0]) - 1
+                    to_idx = int(parts[1]) - 1
+        
+        dur = trans.get('duration_frames', 15)
+        if from_idx is not None and to_idx is not None and 0 <= from_idx < len(v1_clips) and 0 <= to_idx < len(v1_clips):
+            if ttype == 'j_cut':
+                v1_clips[from_idx]['audio_src_out'] -= dur
+                v1_clips[to_idx]['audio_src_in'] = max(0, v1_clips[to_idx]['audio_src_in'] - dur)
+            elif ttype == 'l_cut':
+                v1_clips[from_idx]['audio_src_out'] += dur
+                v1_clips[to_idx]['audio_src_in'] += dur
+
+    current_video_frame = 0
     for ci, clip in enumerate(v1_clips):
         # BUG FIX C7: Handle clips with missing source_file gracefully
-        # (e.g. unresolved SFX clips passed through without file resolution)
         src = clip.get('source_file', '')
         if not src:
             results["warnings"].append(
                 f"V1[{ci}] ({clip.get('label', '?')}) missing source_file - skipped")
-            print(f"  ⚠ [{ci}] {clip.get('label', '?')}: missing source_file",
-                  file=sys.stderr)
+            print(f"  ⚠ [{ci}] {clip.get('label', '?')}: missing source_file", file=sys.stderr)
             continue
         basename = os.path.basename(src)
         pool_item = _find_pool_clip(src)
@@ -418,32 +479,59 @@ def build_timeline(
             results["errors"].append(f"V1[{ci}] {basename} not in media pool")
             continue
 
-        src_in_f = round(clip['source_in'] * fps)
-        src_out_f = round(clip['source_out'] * fps)
-        tl_in_f = clip['timeline_in_frame']
+        v_in = clip['video_src_in']
+        v_out = clip['video_src_out']
+        a_in = clip['audio_src_in']
+        a_out = clip['audio_src_out']
 
-        result = media_pool.AppendToTimeline([{
+        # Place Video (V1)
+        v_res = media_pool.AppendToTimeline([{
             "mediaPoolItem": pool_item,
-            "startFrame": src_in_f,
-            "endFrame": src_out_f,
+            "startFrame": v_in,
+            "endFrame": v_out,
             "trackIndex": 1,
-            "recordFrame": tl_in_f,
-            # NO mediaType — default behavior puts video on V1, audio on A1
-            # This works correctly because only A1 exists at this point
+            "recordFrame": current_video_frame,
+            "mediaType": 1
+        }])
+        
+        # Calculate Audio Record Frame to maintain sync
+        a_rec = current_video_frame + (a_in - v_in)
+        
+        # Place Audio (A1)
+        a_res = media_pool.AppendToTimeline([{
+            "mediaPoolItem": pool_item,
+            "startFrame": a_in,
+            "endFrame": a_out,
+            "trackIndex": 1,
+            "recordFrame": a_rec,
+            "mediaType": 2
         }])
 
-        if result:
-            placed = result[0] if isinstance(result, list) else result
+        if v_res:
+            placed = v_res[0] if isinstance(v_res, list) else v_res
+            a_placed = a_res[0] if (a_res and isinstance(a_res, list)) else (a_res if a_res else None)
+            
+            if a_placed:
+                timeline.SetClipsLinked([placed, a_placed], True)
+                
             v1_timeline_items.append(placed)
+            
+            placed_dur = placed.GetDuration()
+            clip['timeline_in_frame'] = current_video_frame
+            clip['timeline_out_frame'] = current_video_frame + placed_dur
+            clip['timeline_in'] = current_video_frame / fps
+            clip['timeline_out'] = (current_video_frame + placed_dur) / fps
+            
             print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
-                  f"src {src_in_f}-{src_out_f} → V1+A1 at TL {tl_in_f} "
-                  f"({placed.GetDuration()}f)", file=sys.stderr)
+                  f"V1 {v_in}-{v_out} at {current_video_frame}, A1 {a_in}-{a_out} at {a_rec}", file=sys.stderr)
+                  
+            current_video_frame += placed_dur
                   
             # Apply Fairlight preset to this dialogue track item
             fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')
-            if fairlight_preset_name and get_preset and apply_fairlight_preset:
+            if fairlight_preset_name and get_preset and apply_fairlight_preset and a_placed:
                 preset = get_preset(fairlight_preset_name)
-                success = apply_fairlight_preset(placed, preset)
+                success = apply_fairlight_preset(a_placed, preset)
                 if success:
                     print(f"    ✓ Applied Fairlight preset: {fairlight_preset_name}", file=sys.stderr)
                 else:
@@ -625,29 +713,15 @@ def build_timeline(
                         )
                         
                 # Apply music ducking keyframes if present
-                music_ducking = manifest.get('music_ducking', [])
-                if music_ducking and isinstance(music_ducking, list):
-                    # We have ducking keyframes: [{"time_ms": int, "volume_db": float}]
-                    # Fairlight API access for automation is limited. We'll try common patterns.
-                    if hasattr(placed, "AddMarker"):
-                        # Sometimes we add markers to guide the editor
-                        pass
-                    
-                    try:
-                        # If API supports adding property keyframes
-                        if hasattr(placed, "AddPropertyKeyframe"):
-                            for kf in music_ducking:
-                                frame = round((kf["time_ms"] / 1000.0) * fps)
-                                vol_lin = max(0.0, min(10 ** (kf["volume_db"] / 20.0), 4.0))
-                                placed.AddPropertyKeyframe("Volume", frame, vol_lin)
-                        # Or if we can just set properties at time
-                        elif hasattr(placed, "SetPropertyAtTime"):
-                            for kf in music_ducking:
-                                frame = round((kf["time_ms"] / 1000.0) * fps)
-                                vol_lin = max(0.0, min(10 ** (kf["volume_db"] / 20.0), 4.0))
-                                placed.SetPropertyAtTime("Volume", frame, vol_lin)
-                    except Exception as e:
-                        results["warnings"].append(f"Music ducking automation failed: {e}")
+                music_ducking = manifest.get('music_ducking', {})
+                ducking_curves = music_ducking.get('ducking_curves', [])
+                if ducking_curves and isinstance(ducking_curves, list):
+                    for kf in ducking_curves:
+                        time_ms = kf.get('time_ms', 0)
+                        vol_db = kf.get('volume_db', 0)
+                        frame = round((time_ms / 1000.0) * fps)
+                        timeline.AddMarker(frame, "Cyan", f"Ducking: {vol_db}dB", "API lacks volume automation", 1)
+                    print(f"  ✓ Added {len(ducking_curves)} ducking markers to timeline (volume automation unsupported via API)", file=sys.stderr)
 
             else:
                 print(f"  ✗ {basename}: failed", file=sys.stderr)
@@ -749,6 +823,28 @@ def build_timeline(
         transition_by_clip[next_idx]['head_transition_frames'] = dur_f
 
     has_any_effects = per_clip_effects or transition_by_clip or macro_transitions_by_clip
+
+    # Map legacy vfx_entries to per_clip_effects based on timeline overlaps
+    vfx_entries = manifest.get('vfx', [])
+    if vfx_entries and v1_timeline_items:
+        for vfx in vfx_entries:
+            start_sec = vfx.get('timeline_start', 0)
+            start_f = round(start_sec * fps)
+            params = vfx.get('params', {})
+            preset = vfx.get('effect_type', vfx.get('preset', ''))
+            
+            # Find the V1 clip that contains start_f
+            for ci, clip in enumerate(v1_timeline_items):
+                if clip.GetStart() <= start_f < clip.GetEnd():
+                    label = v1_clips[ci].get('label', f'clip_{ci}')
+                    if label not in per_clip_effects:
+                        per_clip_effects[label] = {}
+                    if preset:
+                        per_clip_effects[label]['_preset'] = preset
+                    for k, v in params.items():
+                        per_clip_effects[label][k] = v
+                    has_any_effects = True
+                    break
 
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, "
@@ -979,9 +1075,12 @@ def build_timeline(
         if result:
             print(f"  ✓ Applied Fairlight preset: {fairlight_preset}", file=sys.stderr)
         else:
-            print(f"  ✗ Fairlight preset '{fairlight_preset}' not found or failed", file=sys.stderr)
-            results["warnings"].append(
-                f"Fairlight preset '{fairlight_preset}' failed")
+            print(f"  ⚠ Fairlight preset '{fairlight_preset}' failed, applying fallback", file=sys.stderr)
+            fallback_res = project.ApplyFairlightPresetToCurrentTimeline("Dialogue")
+            if fallback_res:
+                print(f"  ✓ Applied fallback preset: Dialogue", file=sys.stderr)
+            else:
+                results["warnings"].append(f"Fairlight preset '{fairlight_preset}' and fallback failed")
                 
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
@@ -998,7 +1097,7 @@ def build_timeline(
     for adj in per_clip_adjs:
         src = adj.get("source_file", "")
         if src:
-            color_lookup[os.path.basename(src)] = adj.get("cdl_values", {})
+            color_lookup[os.path.basename(src).lower()] = adj.get("cdl_values", {})
 
     if color_lookup or powergrade_path:
         print(f"\n── Color Grading (CDL + PowerGrade) ──", file=sys.stderr)
@@ -1015,7 +1114,7 @@ def build_timeline(
                 clip_name = mpi.GetClipProperty("File Name") or item.GetName()
                 if not clip_name: continue
 
-                cdl_vals = color_lookup.get(clip_name)
+                cdl_vals = color_lookup.get(clip_name.lower())
                 if not cdl_vals and not powergrade_path:
                     continue
 

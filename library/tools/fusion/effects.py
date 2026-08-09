@@ -222,13 +222,18 @@ class fx:
         height: float = 1.8,
         soft: float = 0.35,
         blend: float = 0.25,
+        color: tuple = (0.0, 0.0, 0.0),
         res: tuple = (1080, 1920),
     ) -> EffectBlock:
-        """Elliptical vignette darkening.
+        """Elliptical vignette.
 
         Creates Background + EllipseMask + Merge triplet.
-        The Background is black (default), masked by an inverted ellipse,
-        then merged over the upstream image at reduced blend.
+        The Background is colored (default black), masked by an inverted
+        ellipse, then merged over the upstream image.
+
+        Args:
+            color: (r, g, b) floats 0-1 for the vignette color.
+                   Default (0,0,0) = black vignette.
         """
         bg_name = _next_name("Background")
         el_name = _next_name("Ellipse")
@@ -240,6 +245,9 @@ class fx:
         bg.set_input("GlobalOut", last_frame)
         bg.set_input("Width", res[0])
         bg.set_input("Height", res[1])
+        bg.set_input("TopLeftRed", color[0])
+        bg.set_input("TopLeftGreen", color[1])
+        bg.set_input("TopLeftBlue", color[2])
         bg.set_input("EffectMask", el_name, source="Mask")
         bg.pos = (330, 82)
 
@@ -255,15 +263,13 @@ class fx:
 
         merge = FusionNode(mg_name, "Merge")
         merge.set_input("Blend", blend)
-        # Background input is wired to upstream (the main chain)
-        # Foreground is the vignette overlay
         merge.set_input("Foreground", bg_name)
         merge.pos = (440, 0)
 
         return EffectBlock(
             nodes=[bg, ellipse, merge],
             input_name=mg_name,
-            input_key="Background",  # upstream wires into Merge.Background
+            input_key="Background",
             output_name=mg_name,
         )
 

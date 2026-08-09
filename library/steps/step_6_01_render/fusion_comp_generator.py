@@ -68,13 +68,16 @@ def generate_comp(
     head_transition_frames: int = 7,
     # Vignette
     vignette: bool = True,
-    vignette_width: float = 1.8,
-    vignette_height: float = 1.8,
+    vignette_width: Optional[float] = None,   # engine picks defaults by orientation
+    vignette_height: Optional[float] = None,   # engine picks defaults by orientation
     vignette_soft: float = 0.35,
     vignette_blend: float = 0.25,
+    vignette_color: Optional[tuple] = None,    # (r, g, b) 0-1; default black
     # Resolution (for vignette Background)
     width: int = 1080,
     height: int = 1920,
+    # Source clip resolution (orientation-aware vignette + Background)
+    source_res: Optional[tuple] = None,  # (w, h) e.g. (1920, 1080)
 ) -> str:
     """Generate a Fusion .comp file content as a Lua table string.
 
@@ -89,14 +92,16 @@ def generate_comp(
         film_grain*: Film grain overlay
         defocus*: Depth-of-field blur
         fade_in/out_frames: Opacity animation for transitions
-        vignette*: Vignette parameters
+        vignette*: Vignette parameters (None = auto from source orientation)
         width/height: Resolution for Background node
+        source_res: Source clip native resolution for orientation detection
 
     Returns:
         Complete .comp file content as string
     """
-    # Delegate to the composable engine with the same kwargs
+    # Delegate to the composable engine; filter out None values so
+    # the engine's orientation-aware defaults take effect.
     return CompEngine.from_params(clip_dur, **{
         k: v for k, v in locals().items()
-        if k != 'clip_dur'
+        if k != 'clip_dur' and v is not None
     })
