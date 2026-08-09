@@ -54,34 +54,16 @@ Select and place sound effects at appropriate moments in the timeline.
 - Layer with purpose (whoosh + bass hit for important transitions)
 - Match the music rhythm and energy
 
-### Precision tool: Onset detection (embedded)
+### Context data available:
 
-To find natural SFX placement points (claps, impacts, sharp sounds), run
-librosa onset detection on the extracted audio:
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.
 
-```python
-import librosa
-import numpy as np
+The `sfx_candidates_toon` table provides a summarized list of clips and events with the following fields:
+- `segment_id`: The ID of the segment.
+- `text`: Summary text for the segment.
+- `action_sfx_suggested`: Pre-computed suggestion on whether SFX are needed based on audio transients.
 
-y, sr = librosa.load("audio.wav", sr=22050)
-onset_frames = librosa.onset.detect(y=y, sr=sr, units='frames')
-onset_times = librosa.frames_to_time(onset_frames, sr=sr)
-# onset_times = [0.5, 1.2, 3.4, ...] — timestamps of transients
-```
-
-Use onset times to validate SFX placement: SFX paired with a natural
-audio transient (clap, impact) will feel more organic than SFX placed
-at arbitrary positions.
-
-### Precision tool: RMS energy contour (embedded)
-
-To identify prominent music moments (where SFX should be avoided):
-
-```python
-rms = librosa.feature.rms(y=y)[0]
-rms_times = librosa.frames_to_time(range(len(rms)), sr=sr)
-# High RMS = loud/prominent music — avoid SFX here
-```
+Use this data to decide which sound effects to apply.
 
 ---
 

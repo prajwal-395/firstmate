@@ -51,18 +51,17 @@ BPM for beat-aligned cuts.
 - J/L-cut audio overlaps max 1 second
 - Match energy of surrounding content
 
-### Beat grid calculation (for beat alignment):
+### Context data available:
 
-If the `music_selections` include a BPM value, compute the beat grid:
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.
 
-```
-beat_interval = 60.0 / bpm
-beat_positions = [music_start + (i * beat_interval) for i in range(num_beats)]
-```
+The `cuts_toon` table provides a summarized list of cut points with the following fields:
+- `cut_time`: The timeline position of the cut.
+- `type`: The classification of the cut (e.g. speech-to-speech, speech-to-broll).
+- `beat_near_cut`: Summary of whether a musical beat is near the cut.
 
-A cut point is "beat-aligned" if it falls within ±50ms of a beat position.
-For a 120 BPM track, beats fall every 0.5s. Prefer placing major creative
-transitions on these positions. Hard cuts don't need beat alignment.
+Use this data to decide which transitions to apply. Prefer placing major creative
+transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.
 
 ---
 
