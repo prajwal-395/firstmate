@@ -31,12 +31,7 @@ import sys
 from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.audio_ducker import compute_ducking_curves, compute_sfx_ducking
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
-
-
-def _require_keys(obj, keys, context):
-    missing = [k for k in keys if k not in obj]
-    if missing:
-        raise ValueError(f"{context}: missing required keys: {missing}")
+from library.tools.pipeline_validation import require_keys, require_type
 
 
 # Volume level → dB mapping
@@ -415,6 +410,8 @@ def resolve_sfx(
     if music_analysis and "duration" in music_analysis:
         music_dur = music_analysis["duration"]
     music_ducking = compute_ducking_curves(speech_segments, music_dur)
+    
+    require_type(music_ducking, list, "music_ducking", "step_4_04_plan_sfx/post_bridge.py")
 
     return {
         "sfx_list": resolved,
@@ -444,7 +441,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["sfx_creative", "music_analysis"], "Input data")
+    require_keys(data, ["sfx_creative", "music_analysis"], "step_4_04_plan_sfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("sfx_creative", []), list):

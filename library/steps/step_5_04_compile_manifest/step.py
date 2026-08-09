@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 from tools.manifest_validator import validate_manifest
+from tools.pipeline_validation import require_keys
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
     if not cohesion_review or not cohesion_review.get("adjustments"):
@@ -631,6 +632,21 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     IMPORTANT: Produces the same manifest shape as compile_manifest()
     so resolve_build_timeline.py can consume it identically.
     """
+    require_keys(
+        inputs,
+        [
+            "audio_spine",
+            "a_roll_assignments",
+            "b_roll_assignments",
+            "transition_spec",
+            "enhancement_spec",
+            "sfx_spec",
+            "color_grade_spec",
+            "audio_mix_spec"
+        ],
+        "step_5_04_compile_manifest/step.py"
+    )
+
     spine = inputs.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0

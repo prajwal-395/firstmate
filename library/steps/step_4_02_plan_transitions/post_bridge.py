@@ -19,11 +19,7 @@ import json
 import os
 import sys
 import math
-
-def _require_keys(obj, keys, context):
-    missing = [k for k in keys if k not in obj]
-    if missing:
-        raise ValueError(f"{context}: missing required keys: {missing}")
+from library.tools.pipeline_validation import require_keys
 
 
 def snap_to_beat(
@@ -290,7 +286,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["transition_creative", "music_selection"], "Input data")
+    require_keys(data, ["transition_creative", "music_selection"], "step_4_02_plan_transitions/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
     if not isinstance(data.get("transition_creative", []), list):

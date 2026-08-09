@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import json
+from library.tools.pipeline_validation import require_keys
 
 def format_toon(headers, rows):
     out = f"[{len(rows)}]{{{','.join(headers)}}}\n"
@@ -14,6 +15,8 @@ def main():
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
+
+    require_keys(data, ["clip_catalog", "a_roll_assignments"], "step_3_02_select_broll/bridge.py")
 
     aroll = data.get("a_roll_assignments", {})
     catalog = data.get("clip_catalog", {})

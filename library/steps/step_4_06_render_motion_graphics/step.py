@@ -112,10 +112,10 @@ def main():
 
     segments = []
     for i, props in enumerate(props_list):
-        block_pos = props.pop("_block_position")
-        tl_start = props.pop("_timeline_start")
-        tl_end = props.pop("_timeline_end")
-        block_type = props.pop("_block_type")
+        block_pos = props.get("_block_position")
+        tl_start = props.get("_timeline_start")
+        tl_end = props.get("_timeline_end")
+        block_type = props.get("_block_type")
         total_frames = props["durationInFrames"]
 
         segment_name = f"mg_block_{block_pos:02d}"

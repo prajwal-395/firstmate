@@ -2,6 +2,7 @@
 import sys
 import json
 import os
+from library.tools.pipeline_validation import require_keys
 
 def format_toon(headers, rows):
     out = f"[{len(rows)}]{{{','.join(headers)}}}\n"
@@ -15,6 +16,8 @@ def main():
     except Exception as e:
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
+
+    require_keys(data, ["temporal_index", "semantic_analysis_documents"], "step_2_02_speech_sequence/bridge.py")
 
     temporal_index = data.get("temporal_index", {})
     ti_dir = temporal_index.get("index_dir", "") if isinstance(temporal_index, dict) else ""
