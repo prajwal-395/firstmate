@@ -25,6 +25,18 @@ import time
 import argparse
 from pathlib import Path
 from collections import deque
+import re
+
+from library.tools.pipeline_logger import get_logger, step_timer
+
+class PreBridgeError(Exception): pass
+class LLMError(Exception): pass
+class PostBridgeError(Exception): pass
+
+def _is_transient_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return any(x in msg for x in ["network", "rate limit", "timeout", "503", "429", "connection", "socket", "500", "502", "too many requests"])
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
 from model_lifecycle import unload_all
@@ -280,6 +292,10 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         inputs["project_fps"] = catalog["project_fps"]
     if "project_resolution" in catalog:
         inputs["project_resolution"] = catalog["project_resolution"]
+        
+    brand_template = state.get("brand_template")
+    if brand_template:
+        inputs["brand_template"] = brand_template
 
     # Add brand template data if present
     if manifest:
@@ -338,43 +354,103 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         )
 
 
+@step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None) -> dict:
-    """Present an LLM step as a prompt for the user/Antigravity to complete.
+    """Present an LLM step and execute it using LLMClient.
     
-    In automated mode, this writes the prompt + context to a handoff file
-    and pauses execution. The LLM completes it and saves results.
-    
-    In interactive mode, this prints the prompt and waits for input.
+    In automated mode, this calls the LLM and returns the parsed output.
     """
+    raw_input_tokens = len(str(inputs).split()) * 1.3
+    
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     if manifest and "context_fields" in manifest:
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
         
+    projected_input_tokens = len(str(inputs).split()) * 1.3
+        
     from library.tools.toon_serializer import json_to_toon
     toon_str = json_to_toon(inputs)
+    
+    toon_input_tokens = len(toon_str.split()) * 1.3
+    reduction_pct = 100 * (1 - (toon_input_tokens / raw_input_tokens)) if raw_input_tokens > 0 else 0
+    
+    logger = get_logger()
+    if logger:
+        logger.log(
+            step_id=node_id,
+            event_type="llm_token_stats",
+            token_count={
+                "raw": int(raw_input_tokens),
+                "projected": int(projected_input_tokens),
+                "toon": int(toon_input_tokens),
+                "reduction_pct": round(reduction_pct, 1)
+            }
+        )
+        
     with open(prompt_path) as f:
         prompt = f.read()
+        
+    project_folder = inputs.get("project_folder", "")
+    brand_template = inputs.get("brand_template", "default_brand")
+    from library.tools.template_loader import TemplateLoader
     
-    print(f"\n{'─'*60}", file=sys.stderr)
-    print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
-    print(f"  Prompt: {prompt_path}", file=sys.stderr)
-    print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
-    print(f"{'─'*60}", file=sys.stderr)
-    print(f"\n  This step requires LLM judgment.", file=sys.stderr)
-    print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
-    print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
-    print(f"\n  When complete, save the output to:", file=sys.stderr)
-    print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
-    print(f"{'─'*60}\n", file=sys.stderr)
+    loader_instance = TemplateLoader(project_folder)
+    constraints = loader_instance.get_brand_constraints(brand_template, node_id)
+        
+    full_prompt = prompt + constraints + "\n\nContext:\n" + toon_str
     
-    # For non-interactive: return a marker indicating human/LLM needed
-    return {
-        "__status": "awaiting_llm",
-        "__prompt": prompt_path,
-        "__inputs_available": list(inputs.keys()),
-        "__context": toon_str,
-    }
+    llm_config = {}
+    if manifest and "llm_config" in manifest:
+        llm_config = manifest["llm_config"]
+        
+    provider = os.environ.get("PIPELINE_LLM_PROVIDER", llm_config.get("provider", "gemini"))
+    model = os.environ.get("PIPELINE_LLM_MODEL", llm_config.get("model", "gemini-2.5-flash"))
+    temperature = llm_config.get("temperature", 0.7)
+    max_output_tokens = llm_config.get("max_output_tokens", 4096)
+    
+    from library.tools.llm_client import LLMClient
+    client = LLMClient(provider, model, temperature=temperature, max_output_tokens=max_output_tokens)
+    
+    print(f"  Calling LLM ({provider}/{model}) for {node_id}...", file=sys.stderr)
+    result_text = client.generate(full_prompt)
+    
+    if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
+        print(f"\n{'─'*60}", file=sys.stderr)
+        print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
+        print(f"  Prompt: {prompt_path}", file=sys.stderr)
+        print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
+        print(f"{'─'*60}", file=sys.stderr)
+        print(f"\n  This step requires LLM judgment.", file=sys.stderr)
+        print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
+        print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
+        print(f"\n  When complete, save the output to:", file=sys.stderr)
+        print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
+        print(f"{'─'*60}\n", file=sys.stderr)
+        
+        return {
+            "__status": "awaiting_llm",
+            "__prompt": prompt_path,
+            "__inputs_available": list(inputs.keys()),
+            "__context": toon_str,
+        }
+        
+    try:
+        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
+        if json_match:
+            result_json = json_match.group(1)
+        else:
+            result_json = result_text
+        return json.loads(result_json)
+    except Exception as e:
+        print(f"  Warning: failed to parse LLM output as JSON: {e}", file=sys.stderr)
+        return {
+            "__status": "awaiting_llm",
+            "__prompt": prompt_path,
+            "__inputs_available": list(inputs.keys()),
+            "__context": toon_str,
+            "__llm_raw_output": result_text
+        }
 
 
 def run_subprocess(script_path: Path, inputs: dict) -> dict:
@@ -400,7 +476,8 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
             f"  stderr: {result.stderr[:500]}"
         )
 
-def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str) -> dict:
+@step_timer(step_id_kwarg="node_id")
+def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict = None) -> dict:
     """Run a hybrid step: pre-bridge handles context compression, LLM makes creative decision,
     and post-bridge resolves numerical constraints."""
     pre_bridge = step_dir / "bridge.py"
@@ -409,19 +486,27 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str) -> dict:
     
     compressed = dict(inputs)
     if pre_bridge.exists():
-        pre_output = run_subprocess(pre_bridge, inputs)
-        # Merge compressed context with any non-signal inputs
-        compressed.update(pre_output)
+        try:
+            pre_output = run_subprocess(pre_bridge, inputs)
+            compressed.update(pre_output)
+        except Exception as e:
+            raise PreBridgeError(f"Pre-bridge failed: {e}")
     
     # LLM creative decision on compressed context
-    llm_output = present_llm_step(prompt_path, compressed, node_id)
+    try:
+        llm_output = present_llm_step(prompt_path, compressed, node_id, manifest)
+    except Exception as e:
+        raise LLMError(f"LLM generation failed: {e}")
     
     if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
         return llm_output
         
     if post_bridge.exists():
-        final = run_subprocess(post_bridge, {**inputs, **llm_output})
-        return final
+        try:
+            final = run_subprocess(post_bridge, {**inputs, **llm_output})
+            return final
+        except Exception as e:
+            raise PostBridgeError(f"Post-bridge failed: {e}")
     
     return llm_output
 
@@ -438,6 +523,9 @@ def run_pipeline(
     resume_mode: bool = False,
 ):
     """Execute the pipeline DAG."""
+    # Initialize logger
+    get_logger(project_dir)
+    
     dag = load_dag()
     state = load_pipeline_state(project_dir)
     order = topological_sort(dag)
@@ -543,125 +631,98 @@ def run_pipeline(
         try:
             start_time = time.time()
             
-            if impl["type"] == "deterministic":
-                output = run_deterministic_step(impl["entry"], inputs)
-                elapsed = time.time() - start_time
-                print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
-                print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
-                
-                # Save state
-                state.setdefault("step_outputs", {})[node_id] = output
-                state.setdefault("steps_completed", {})[node_id] = {
-                    "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "elapsed_s": round(elapsed, 1),
-                }
-                save_pipeline_state(project_dir, state)
-                
-                # Export step output for dashboard review
-                _export_step_for_review(project_dir, node_id, node["name"], output, state)
-                
-                # Review gate: pause if review mode is enabled
-                if review_mode:
-                    _save_review_gate(
-                        project_dir, node_id, node["name"],
-                        output, inputs, state
-                    )
-                    print(f"     ⏸ Review gate saved. Inspect at dashboard.",
-                          file=sys.stderr)
-                    completed.append(node_id)
-                    break
-                
-                completed.append(node_id)
-                
-            elif impl["type"] == "hybrid":
-                if auto_mode:
-                    # In auto mode, use the pre-bridge context output as the final step output.
-                    step_dir_path = impl["step_dir"]
-                    pre_bridge = step_dir_path / "bridge.py"
-                    if pre_bridge.exists():
-                        auto_output = run_subprocess(pre_bridge, inputs)
+            def execute_step_once():
+                if impl["type"] == "deterministic":
+                    return run_deterministic_step(impl["entry"], inputs), False
+                elif impl["type"] == "hybrid":
+                    if auto_mode:
+                        # In auto mode, use the pre-bridge context output as the final step output.
+                        step_dir_path = impl["step_dir"]
+                        pre_bridge = step_dir_path / "bridge.py"
+                        if pre_bridge.exists():
+                            return run_subprocess(pre_bridge, inputs), False
+                        else:
+                            return inputs, False
                     else:
-                        auto_output = inputs
-                    
-                    state.setdefault("step_outputs", {})[node_id] = auto_output
-                    state.setdefault("steps_completed", {})[node_id] = {
-                        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        "note": "auto-completed via bridge (context only)",
-                    }
-                    save_pipeline_state(project_dir, state)
-                    completed.append(node_id)
+                        output = run_hybrid_step(impl["step_dir"], inputs, node_id, impl.get("manifest"))
+                        return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
+                elif impl["type"] == "llm_only":
+                    output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"))
+                    return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
                 else:
-                    output = run_hybrid_step(impl["step_dir"], enriched, node_id)
-                    if isinstance(output, dict) and output.get("__status") == "awaiting_llm":
-                        awaiting_llm.append(node_id)
-                        print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
-                        # Fix C1: Break out of the execution loop so downstream
-                        # steps don't fire with missing upstream data.
-                        break
+                    raise RuntimeError(f"Unknown implementation type: {impl['type']}")
+                    
+            error_policy = node.get("error_policy", {}).get("policy", "fail")
+            max_retries = node.get("error_policy", {}).get("max_retries", 3)
+            
+            success = False
+            for attempt in range(1, max_retries + 2):
+                try:
+                    output, is_awaiting = execute_step_once()
+                    success = True
+                    break
+                except Exception as step_e:
+                    is_trans = _is_transient_error(step_e)
+                    error_type = step_e.__class__.__name__
+                    if attempt <= max_retries and (error_policy == "retry" or is_trans):
+                        print(f"     ✗ FAILED ({error_type}): {step_e}", file=sys.stderr)
+                        print(f"     [Retry {attempt}/{max_retries} due to transient error/policy]", file=sys.stderr)
+                        time.sleep(2 ** attempt)
                     else:
-                        pass
+                        # Give up
+                        print(f"     ✗ FAILED ({error_type}): {step_e}", file=sys.stderr)
+                        logger = get_logger()
+                        if logger:
+                            logger.log(step_id=node_id, event_type="step_failed", error=str(step_e))
+                        state.setdefault("failed_steps", []).append(node_id)
+                        state.setdefault("step_errors", {})[node_id] = str(step_e)
+                        save_pipeline_state(project_dir, state)
+                        failed.append(node_id)
+                        break
 
-            elif impl["type"] == "llm_only":
-                output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"))
-                awaiting_llm.append(node_id)
-                print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
-                # Fix C1: Break out of the execution loop so downstream
-                # steps don't fire with missing upstream data.
+            if not success:
+                print(f"     Stopping pipeline due to failure.", file=sys.stderr)
                 break
                 
-            else:
-                print(f"     ⚠ Unknown implementation type: {impl['type']}", 
-                      file=sys.stderr)
-                failed.append(node_id)
+            if is_awaiting:
+                awaiting_llm.append(node_id)
+                print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                break
+                
+            # Success logic
+            elapsed = time.time() - start_time
+            print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
+            print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
+            
+            state.setdefault("step_outputs", {})[node_id] = output
+            state.setdefault("steps_completed", {})[node_id] = {
+                "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "elapsed_s": round(elapsed, 1),
+            }
+            if auto_mode and impl["type"] == "hybrid":
+                state["steps_completed"][node_id]["note"] = "auto-completed via bridge (context only)"
+            save_pipeline_state(project_dir, state)
+            
+            _export_step_for_review(project_dir, node_id, node["name"], output, state)
+            
+            if review_mode:
+                _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
+                print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
+                completed.append(node_id)
+                break
+                
+            completed.append(node_id)
                 
         except Exception as e:
-            print(f"     ✗ FAILED: {e}", file=sys.stderr)
-            
-            # Check error policy
-            error_policy = node.get("error_policy", {}).get("policy", "fail")
-            if error_policy == "retry":
-                max_retries = node.get("error_policy", {}).get("max_retries", 2)
-                print(f"     Retry policy: up to {max_retries} retries", 
-                      file=sys.stderr)
-                success = False
-                for attempt in range(1, max_retries + 1):
-                    print(f"     [Retry {attempt}/{max_retries}]", file=sys.stderr)
-                    try:
-                        time.sleep(1)
-                        if impl["type"] == "deterministic":
-                            output = run_deterministic_step(impl["entry"], inputs)
-                            elapsed = time.time() - start_time
-                            state.setdefault("step_outputs", {})[node_id] = output
-                            state.setdefault("steps_completed", {})[node_id] = {
-                                "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                                "elapsed_s": round(elapsed, 1),
-                            }
-                            save_pipeline_state(project_dir, state)
-                            _export_step_for_review(project_dir, node_id, node["name"], output, state)
-                            
-                            if review_mode:
-                                _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
-                                print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
-                            
-                            success = True
-                            completed.append(node_id)
-                            break
-                    except Exception as retry_e:
-                        print(f"     ✗ FAILED (attempt {attempt}): {retry_e}", file=sys.stderr)
-                
-                if success:
-                    if review_mode:
-                        break
-                    continue
-                else:
-                    failed.append(node_id)
-                    print(f"     Stopping pipeline due to failure.", file=sys.stderr)
-                    break
-            else:
-                failed.append(node_id)
-                if error_policy != "continue":
-                    print(f"     Stopping pipeline due to failure.", file=sys.stderr)
-                    break
+            # Unhandled errors outside step execution
+            print(f"     ✗ FAILED UNEXPECTEDLY: {e}", file=sys.stderr)
+            logger = get_logger()
+            if logger:
+                logger.log(step_id=node_id, event_type="step_failed", error=str(e))
+            state.setdefault("failed_steps", []).append(node_id)
+            save_pipeline_state(project_dir, state)
+            failed.append(node_id)
+            break
     
     # Summary
     print(f"\n{'═'*60}", file=sys.stderr)
@@ -727,7 +788,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--project", help="Project directory (absolute path)")
     group.add_argument("--slug", help="Project slug (looked up from project registry)")
-    parser.add_argument("--from", dest="from_step", help="Start from this step")
+    parser.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     parser.add_argument("--step", help="Run only this step")
     parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     parser.add_argument("--auto", action="store_true", 
