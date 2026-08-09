@@ -143,7 +143,8 @@ function openGateModal(stepId) {
         if (detail.summary_md) {
             body.innerHTML = `<div class="inspector-md">${markdownToHtml(detail.summary_md)}</div>`;
         } else {
-            body.innerHTML = `<div class="json-viewer">${JSON.stringify(detail.output, null, 2)}</div>`;
+            body.innerHTML = '';
+            body.appendChild(createJsonViewer(detail.output));
         }
     });
 
@@ -202,10 +203,48 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadProjectInfo() {
     try {
         state.project = await api('/project');
-        document.getElementById('project-name').textContent =
-            state.project.name || state.project.slug;
+        const select = document.getElementById('project-select');
+        if (select && state.project) {
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === state.project.project_root) {
+                    select.selectedIndex = i;
+                    break;
+                }
+            }
+        }
     } catch (err) {
-        document.getElementById('project-name').textContent = 'No project loaded';
+        console.error('No project loaded', err);
+    }
+}
+
+async function loadProjectsList() {
+    try {
+        const allProjects = await api('/projects');
+        const select = document.getElementById('project-select');
+        select.innerHTML = '';
+        allProjects.forEach(p => {
+            const hasData = p.steps_completed > 0 ? 'has data' : 'empty';
+            const text = `${p.name} (${p.slug}) - ${hasData}`;
+            const option = document.createElement('option');
+            option.value = p.project_root;
+            option.textContent = text;
+            if (state.project && p.project_root === state.project.project_root) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    } catch (err) {
+        console.error("Failed to load projects list", err);
+    }
+}
+
+async function switchProject(projectDir) {
+    if (!projectDir) return;
+    try {
+        await apiPost('/projects/select', { project_dir: projectDir });
+        await refreshData();
+    } catch (err) {
+        alert("Failed to switch project: " + err.message);
     }
 }
 
@@ -346,6 +385,7 @@ function escapeHtml(str) {
 // ── Initialization ─────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await loadProjectsList();
     await refreshData();
     navigate('pipeline');
 });

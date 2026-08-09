@@ -21,7 +21,11 @@
                     </svg>
                     <span>Review Dashboard</span>
                 </div>
-                <div id="project-name" class="project-name">Loading...</div>
+                <div class="project-selector" style="margin-top: 12px;">
+                    <select id="project-select" onchange="switchProject(this.value)" class="project-dropdown" style="width: 100%; padding: 6px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px;">
+                        <option value="">Loading projects...</option>
+                    </select>
+                </div>
             </div>
 
             <div class="nav-section">
@@ -146,6 +150,7 @@
     </div>
 
     <script src="/static/components/pipeline-view.js"></script>
+    <script src="/static/components/json-viewer.js"></script>
     <script src="/static/components/step-inspector.js"></script>
     <script src="/static/components/transcript-view.js"></script>
     <script src="/static/components/footage-library.js"></script>
