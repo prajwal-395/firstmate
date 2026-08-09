@@ -6,6 +6,10 @@ import numpy as np
 import tempfile
 import subprocess
 import os
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from model_lifecycle import managed_model
 
 try:
     import torch
@@ -163,37 +167,23 @@ def find_match_cut_candidates(masks_a: SegmentationResult, masks_b: Segmentation
 
 
 class ObjectSegmenter:
-    """Lazy-loaded singleton wrapper for SAM 2 video segmentation model."""
-    _instance = None
+    """Wrapper for SAM 2 video segmentation model using managed_model lifecycle."""
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._predictor = None
-            cls._instance._generator = None
-        return cls._instance
-        
-    def _ensure_loaded(self):
-        if self._predictor is None:
-            if build_sam2_video_predictor is None:
-                raise ImportError("sam2 is not installed.")
-                
-            print("Loading sam2.1-hiera-small...")
-            self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-            
-            # Use sam2.1-hiera-small configuration
-            model_cfg = "sam2.1_hiera_small.yaml"
-            ckpt = "sam2.1_hiera_small.pt"
-            
-            self._predictor = build_sam2_video_predictor(model_cfg, ckpt, device=self.device)
-            self._sam2 = build_sam2(model_cfg, ckpt, device=self.device)
-            self._generator = SAM2AutomaticMaskGenerator(self._sam2)
-            print("SAM 2 loaded.")
-            
     def segment_clip(self, video_path: str, sample_fps: float = 2.0) -> SegmentationResult:
         """Samples frames from the video, runs auto-mask generation, tracks objects across frames."""
-        self._ensure_loaded()
         
+        def _load_sam2():
+            if build_sam2_video_predictor is None:
+                raise ImportError("sam2 is not installed.")
+            print("Loading sam2.1-hiera-small...")
+            device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+            model_cfg = "sam2.1_hiera_small.yaml"
+            ckpt = "sam2.1_hiera_small.pt"
+            predictor = build_sam2_video_predictor(model_cfg, ckpt, device=device)
+            sam2 = build_sam2(model_cfg, ckpt, device=device)
+            generator = SAM2AutomaticMaskGenerator(sam2)
+            return predictor, generator
+
         # We need to extract frames to a temporary directory for SAM 2 predictor
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -219,16 +209,17 @@ class ObjectSegmenter:
             height, width = first_frame_img.shape[:2]
             resolution = (height, width)
             
-            # 1. Run automatic mask generation on the first frame to find objects
-            masks = self._generator.generate(first_frame_img)
-            
-            # Filter masks based on area or just take top N (to avoid tracking hundreds of tiny grains)
-            # Sort by area descending, take top 10 for performance
-            masks = sorted(masks, key=lambda x: x["area"], reverse=True)[:10]
-            
-            # 2. Init video predictor state
-            # Convert tmpdir path to str, sam2 expects string path to dir with JPEGs
-            inference_state = self._predictor.init_state(video_path=str(tmpdir_path))
+            with managed_model("sam2", _load_sam2) as (predictor, generator):
+                # 1. Run automatic mask generation on the first frame to find objects
+                masks = generator.generate(first_frame_img)
+                
+                # Filter masks based on area or just take top N (to avoid tracking hundreds of tiny grains)
+                # Sort by area descending, take top 10 for performance
+                masks = sorted(masks, key=lambda x: x["area"], reverse=True)[:10]
+                
+                # 2. Init video predictor state
+                # Convert tmpdir path to str, sam2 expects string path to dir with JPEGs
+                inference_state = predictor.init_state(video_path=str(tmpdir_path))
             
             objects_dict = {}
             for i, mask_data in enumerate(masks):
@@ -236,7 +227,7 @@ class ObjectSegmenter:
                 seg_mask = mask_data["segmentation"] # boolean numpy array
                 
                 # Add mask to predictor
-                _, out_obj_ids, out_mask_logits = self._predictor.add_new_mask(
+                _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
                     inference_state=inference_state,
                     frame_idx=0,
                     obj_id=i+1,
@@ -254,7 +245,7 @@ class ObjectSegmenter:
                 )
             
             # 3. Propagate masks across frames
-            for out_frame_idx, out_obj_ids, out_mask_logits in self._predictor.propagate_in_video(inference_state):
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
                 for i, obj_id in enumerate(out_obj_ids):
                     logits = out_mask_logits[i].cpu().numpy().squeeze()
                     # Apply threshold (typically > 0 for logits)

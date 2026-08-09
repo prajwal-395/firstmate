@@ -49,6 +49,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
+from model_lifecycle import load_model, unload_model
+
 
 # ── Audio extraction ─────────────────────────────────────────────────
 
@@ -149,66 +152,45 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
 
 # ── 2. Speech region detection (WhisperX: faster-whisper + wav2vec2) ──
 
-# Model cache — large-v3 takes ~3min to load, alignment model ~5s.
-# Cache both across clips to avoid reloading.
-_whisperx_transcribe_model = None
-_whisperx_align_model = None
-_whisperx_align_metadata = None
-_whisperx_align_device = None
-
-
 def _get_whisperx_models(model_size: str = "large-v3"):
-    """Load WhisperX transcription + alignment models, cached across calls.
+    """Load WhisperX transcription + alignment models using model_lifecycle.
 
     Transcription uses CTranslate2 (CPU-only on macOS).
     Alignment uses wav2vec2 via PyTorch — uses MPS on Apple Silicon
     for GPU acceleration, falls back to CPU.
     """
-    global _whisperx_transcribe_model
-    global _whisperx_align_model, _whisperx_align_metadata
-    global _whisperx_align_device
-
     import whisperx
 
-    if _whisperx_transcribe_model is None:
-        print(
-            f"  Loading WhisperX transcription model "
-            f"({model_size}, int8, cpu)...",
-            file=sys.stderr,
-        )
-        # CTranslate2 backend: CPU-only on macOS (no Metal/MPS support)
-        _whisperx_transcribe_model = whisperx.load_model(
-            model_size, device="cpu", compute_type="int8",
-        )
+    def _load_transcribe():
+        print(f"  Loading WhisperX transcription model ({model_size}, int8, cpu)...", file=sys.stderr)
+        return whisperx.load_model(model_size, device="cpu", compute_type="int8")
 
-    if _whisperx_align_model is None:
-        # Determine best device for alignment (PyTorch model)
+    def _load_align():
         import torch
         if torch.backends.mps.is_available():
-            _whisperx_align_device = "mps"
-            print(
-                "  Loading wav2vec2 alignment model (mps — GPU)...",
-                file=sys.stderr,
-            )
+            device = "mps"
+            print("  Loading wav2vec2 alignment model (mps — GPU)...", file=sys.stderr)
         else:
-            _whisperx_align_device = "cpu"
-            print(
-                "  Loading wav2vec2 alignment model (cpu)...",
-                file=sys.stderr,
-            )
+            device = "cpu"
+            print("  Loading wav2vec2 alignment model (cpu)...", file=sys.stderr)
+            
+        model, metadata = whisperx.load_align_model(language_code="en", device=device)
+        return (model, metadata, device)
 
-        _whisperx_align_model, _whisperx_align_metadata = \
-            whisperx.load_align_model(
-                language_code="en",
-                device=_whisperx_align_device,
-            )
+    transcribe_model = load_model("whisperx_transcribe", _load_transcribe)
+    align_model, align_metadata, align_device = load_model("whisperx_align", _load_align)
 
     return (
-        _whisperx_transcribe_model,
-        _whisperx_align_model,
-        _whisperx_align_metadata,
-        _whisperx_align_device,
+        transcribe_model,
+        align_model,
+        align_metadata,
+        align_device,
     )
+
+def _unload_whisperx_models():
+    """Unload WhisperX models when done with speech detection."""
+    unload_model("whisperx_transcribe")
+    unload_model("whisperx_align")
 
 
 def snap_word_boundaries_to_onsets(
@@ -414,6 +396,8 @@ def detect_speech_regions(
         )
         import traceback
         traceback.print_exc(file=sys.stderr)
+    finally:
+        _unload_whisperx_models()
 
     return regions
 

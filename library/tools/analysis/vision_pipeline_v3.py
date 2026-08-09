@@ -31,6 +31,9 @@ import numpy as np
 from mlx_vlm import load, generate
 from mlx_vlm.prompt_utils import apply_chat_template
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from model_lifecycle import managed_model
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Config
@@ -325,14 +328,12 @@ def parse_json_object(text):
 class VisionAnalyzer:
     """Wraps Gemma4 12B (MLX) for multi-pass video analysis."""
 
-    def __init__(self):
-        print(f"\n{'─'*60}")
-        print(f"  Loading {MODEL_ID}...")
-        print(f"{'─'*60}")
+    def __init__(self, model, proc):
         t0 = time.time()
-        self.model, self.proc = load(MODEL_ID)
+        self.model = model
+        self.proc = proc
         self.load_time = time.time() - t0
-        print(f"  Model loaded in {self.load_time:.1f}s")
+        print(f"  Model loaded/bound in {self.load_time:.1f}s")
 
     def analyze(self, prompt, images=None, video=None, max_tokens=512):
         """Run a single analysis pass. Returns (text, elapsed_seconds).
@@ -1293,82 +1294,83 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False)
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load model once
-    analyzer = VisionAnalyzer()
-
     all_profiles = []
     total_start = time.time()
     skipped = 0
 
-    for i, clip_path in enumerate(clips, 1):
-        clip_path = Path(clip_path)
-        if not clip_path.exists():
-            print(f"\n  ⚠ Skipping {clip_path} (not found)")
-            continue
+    with managed_model("gemma-4", lambda: load(MODEL_ID)) as (model, proc):
+        # Load model once
+        analyzer = VisionAnalyzer(model, proc)
 
-        # Check for existing profile
-        out_path = output_dir / f"clip_profile_{clip_path.stem}_v3.json"
-        if out_path.exists() and not force:
-            print(f"\n  ⏭ Skipping {clip_path.name} (profile exists, use --force to re-analyze)")
-            try:
-                with open(out_path) as f:
-                    all_profiles.append(json.load(f))
-            except Exception:
-                pass
-            skipped += 1
-            continue
+        for i, clip_path in enumerate(clips, 1):
+            clip_path = Path(clip_path)
+            if not clip_path.exists():
+                print(f"\n  ⚠ Skipping {clip_path} (not found)")
+                continue
+    
+            # Check for existing profile
+            out_path = output_dir / f"clip_profile_{clip_path.stem}_v3.json"
+            if out_path.exists() and not force:
+                print(f"\n  ⏭ Skipping {clip_path.name} (profile exists, use --force to re-analyze)")
+                try:
+                    with open(out_path) as f:
+                        all_profiles.append(json.load(f))
+                except Exception:
+                    pass
+                skipped += 1
+                continue
+    
+            print(f"\n{'━'*60}")
+            print(f"  Clip {i}/{len(clips)}: {clip_path.name}")
+            print(f"{'━'*60}")
+    
+            # Step 0: Probe metadata
+            meta = probe_clip(clip_path)
+            if not meta:
+                print(f"  ⚠ No video stream found, skipping")
+                continue
+    
+            duration = meta["duration_s"]
+            print(f"  Duration: {duration:.1f}s | "
+                  f"{meta['resolution'][0]}x{meta['resolution'][1]} @ {meta['fps']}fps")
+    
+            # Load temporal index
+            temporal_idx = load_temporal_index(clip_path)
+            if temporal_idx:
+                n_speech = len(temporal_idx.get("speech_regions", []))
+                n_boundaries = len(get_scene_boundaries(temporal_idx))
+                print(f"  Temporal index: loaded ({n_speech} speech regions, "
+                      f"{n_boundaries} scene boundaries)")
+            else:
+                print(f"  Temporal index: not found")
+    
+            # Load transcript
+            transcript = load_transcript_text(clip_path, output_dir)
+            if transcript:
+                print(f"  Transcript: \"{transcript[:80]}...\"" if len(transcript) > 80
+                      else f"  Transcript: \"{transcript}\"")
+            else:
+                print(f"  Transcript: (none)")
 
-        print(f"\n{'━'*60}")
-        print(f"  Clip {i}/{len(clips)}: {clip_path.name}")
-        print(f"{'━'*60}")
+            # Extract frames (for objects — 1 per 5s)
+            frames = extract_frames(clip_path, duration, cache_dir)
+            print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
-        # Step 0: Probe metadata
-        meta = probe_clip(clip_path)
-        if not meta:
-            print(f"  ⚠ No video stream found, skipping")
-            continue
+            # Extract video clips (for actions — 10s segments)
+            video_clips = extract_video_clips(clip_path, duration, cache_dir)
+            print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s")
 
-        duration = meta["duration_s"]
-        print(f"  Duration: {duration:.1f}s | "
-              f"{meta['resolution'][0]}x{meta['resolution'][1]} @ {meta['fps']}fps")
+            # Run analysis
+            profile = analyze_clip(
+                analyzer, meta, frames, video_clips, transcript,
+                temporal_idx, cache_dir,
+            )
+            all_profiles.append(profile)
 
-        # Load temporal index
-        temporal_idx = load_temporal_index(clip_path)
-        if temporal_idx:
-            n_speech = len(temporal_idx.get("speech_regions", []))
-            n_boundaries = len(get_scene_boundaries(temporal_idx))
-            print(f"  Temporal index: loaded ({n_speech} speech regions, "
-                  f"{n_boundaries} scene boundaries)")
-        else:
-            print(f"  Temporal index: not found")
-
-        # Load transcript
-        transcript = load_transcript_text(clip_path, output_dir)
-        if transcript:
-            print(f"  Transcript: \"{transcript[:80]}...\"" if len(transcript) > 80
-                  else f"  Transcript: \"{transcript}\"")
-        else:
-            print(f"  Transcript: (none)")
-
-        # Extract frames (for objects — 1 per 5s)
-        frames = extract_frames(clip_path, duration, cache_dir)
-        print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
-
-        # Extract video clips (for actions — 10s segments)
-        video_clips = extract_video_clips(clip_path, duration, cache_dir)
-        print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s")
-
-        # Run analysis
-        profile = analyze_clip(
-            analyzer, meta, frames, video_clips, transcript,
-            temporal_idx, cache_dir,
-        )
-        all_profiles.append(profile)
-
-        # Save individual profile
-        with open(out_path, "w") as f:
-            json.dump(profile, f, indent=2)
-        print(f"  Saved: {out_path}")
+            # Save individual profile
+            with open(out_path, "w") as f:
+                json.dump(profile, f, indent=2)
+            print(f"  Saved: {out_path}")
 
     # Save combined index
     total_time = time.time() - total_start

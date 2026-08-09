@@ -805,8 +805,8 @@ def build_timeline(
                 continue
                 
             tl_clip = v1_items[ci]
-            clip_dur = (tl_clip.GetSourceEndFrame()
-                        - tl_clip.GetSourceStartFrame() + 1)
+            mpi = tl_clip.GetMediaPoolItem()
+            clip_dur = int(mpi.GetClipProperty('Frames'))
                         
             # Apply macro transition if it exists
             macro_applied = False

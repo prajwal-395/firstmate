@@ -26,6 +26,9 @@ import argparse
 from pathlib import Path
 from collections import deque
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
+from model_lifecycle import unload_all
+
 
 # ── Path Configuration ──────────────────────────────────────────────
 
@@ -448,7 +451,18 @@ def run_pipeline(
     failed = []
     awaiting_llm = []
     
+    current_phase = None
+    
     for node_id in steps_to_run:
+        # Extract phase from node_id (e.g. 'step_1_01_scan' -> '1')
+        parts = node_id.split('_')
+        phase = parts[1] if len(parts) > 1 else None
+        if phase and current_phase and phase != current_phase:
+            print(f"\n  [Phase Transition] {current_phase} -> {phase}. Freeing VRAM...", file=sys.stderr)
+            unload_all()
+        if phase:
+            current_phase = phase
+            
         node = nodes[node_id]
         step_dir = get_step_dir(node)
         impl = get_step_implementation(step_dir)
