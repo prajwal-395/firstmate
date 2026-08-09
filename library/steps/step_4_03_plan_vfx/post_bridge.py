@@ -160,16 +160,20 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    require_keys(data, ["vfx_creative"], "step_4_03_plan_vfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
-    if not isinstance(data.get("vfx_creative", []), list):
-        raise ValueError("vfx_creative must be a list")
-    for vfx in data.get("vfx_creative", []):
-        if not isinstance(vfx, dict):
-            raise ValueError("Items in vfx_creative must be dictionaries")
+        
+    creative = data.get("vfx_creative")
+    if "llm_raw_response" in data:
+        creative = data["llm_raw_response"]
+        
+    if not isinstance(creative, list):
+        import sys
+        print(f"  Warning: LLM returned invalid response for plan_vfx. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
+        creative = []
+        
+    creative = [v for v in creative if isinstance(v, dict)]
 
-    creative = data.get("vfx_creative", [])
     spine = data.get("timed_spine", {})
     fps = data.get("frame_rate", 30.0)
 

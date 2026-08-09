@@ -441,16 +441,21 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    require_keys(data, ["sfx_creative", "music_analysis"], "step_4_04_plan_sfx/post_bridge.py")
+    require_keys(data, ["music_analysis"], "step_4_04_plan_sfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
-    if not isinstance(data.get("sfx_creative", []), list):
-        raise ValueError("sfx_creative must be a list")
-    for sfx in data.get("sfx_creative", []):
-        if not isinstance(sfx, dict):
-            raise ValueError("Items in sfx_creative must be dictionaries")
 
-    creative = data.get("sfx_creative", [])
+    creative = data.get("sfx_creative")
+    if "llm_raw_response" in data:
+        creative = data["llm_raw_response"]
+        
+    if not isinstance(creative, list):
+        import sys
+        print(f"  Warning: LLM returned invalid response for plan_sfx. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
+        creative = []
+        
+    creative = [v for v in creative if isinstance(v, dict)]
+
     spine = data.get("timed_spine", {})
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
