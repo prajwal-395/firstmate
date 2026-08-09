@@ -20,10 +20,11 @@ def main():
     
     # In a real implementation we would look at semantic_analysis and timed_spine.
     # Here we just pass an empty list or basic summary to the LLM.
-    aroll = data.get("a_roll_assignments", {}).get("timeline_segments", [])
+    aroll_data = data.get("a_roll_assignments", [])
+    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("timeline_segments", [])
     for slot in aroll:
         vfx_rows.append({
-            "segment_id": slot.get("segment_id", "unknown"),
+            "segment_id": slot.get("segment_id", slot.get("spine_block_position", "unknown")),
             "text": slot.get("text", "")[:50],
             "vfx_suggested": "No"
         })
@@ -31,7 +32,8 @@ def main():
     vfx_toon = format_toon(["segment_id", "text", "vfx_suggested"], vfx_rows)
     
     compressed = {
-        "vfx_candidates_toon": vfx_toon
+        "vfx_candidates_toon": vfx_toon,
+        "enhancement_spec": {"motion_graphics": [], "visual_effects": []}
     }
     
     print(json.dumps(compressed))

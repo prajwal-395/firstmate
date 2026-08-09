@@ -247,7 +247,7 @@ def main():
 
     print(f"{'='*60}\n", file=sys.stderr)
 
-    json.dump(result, sys.stdout, indent=2)
+    json.dump({"rough_cut_review": result}, sys.stdout, indent=2)
 
     if not result["passed"]:
         sys.exit(1)

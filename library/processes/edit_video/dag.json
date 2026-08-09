@@ -570,7 +570,7 @@
       "from": "render",
       "to": "validate",
       "data_mapping": {
-        "rendered_output": "rendered_output"
+        "render_output": "rendered_output"
       }
     },
     {

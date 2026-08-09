@@ -117,8 +117,8 @@ def main():
         tl_end = props.get("_timeline_end")
         block_type = props.get("_block_type")
         total_frames = props["durationInFrames"]
-
-        segment_name = f"mg_block_{block_pos:02d}"
+        safe_pos = str(block_pos).replace(" ", "_")
+        segment_name = f"mg_block_{safe_pos}"
         overlay_path = os.path.join(mg_output_dir, f"{segment_name}.mov")
         props_path = os.path.join(mg_output_dir, f"{segment_name}_props.json")
 

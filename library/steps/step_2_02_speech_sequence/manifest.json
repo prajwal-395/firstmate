@@ -87,6 +87,7 @@
     "semantic_analysis_documents.*.scene_segments.*.tags",
     "temporal_index.*.speech_regions",
     "temporal_index.*.scene_boundaries",
+    "temporal_index.index_dir",
     "clip_catalog.entries.*.filename",
     "clip_catalog.entries.*.duration"
   ]

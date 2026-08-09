@@ -82,8 +82,19 @@ def generate_motion_props(
         progress_end = block_end / total_duration
 
         # Only show upper third on hook and first speech block
-        show_upper_third = block_type == "hook" or (
-            block_type == "speech" and block_position <= 2
+        block_idx = 0
+        if isinstance(block_position, str):
+            if block_position.startswith("body_"):
+                try:
+                    block_idx = int(block_position.split("_")[1])
+                except:
+                    pass
+        elif isinstance(block_position, int):
+            block_idx = block_position
+
+        show_upper_third = (
+            block_type == "hook"
+            or (block_type == "speech" and block_idx <= 2)
         )
 
         # B-roll blocks: show accents but not upper third or progress

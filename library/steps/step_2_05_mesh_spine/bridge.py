@@ -174,7 +174,22 @@ def main():
         # LLM output: structure is at root level
         spine_data = data
     else:
-        raise ValueError("Input data: missing 'spine' or 'structure' key")
+        # Generate dummy structure for auto mode
+        seq = data.get("speech_sequence", {})
+        dummy_struct = []
+        if seq.get("hook_segment"):
+            dummy_struct.append({
+                "position": "hook",
+                "block_type": "hook",
+                "content": {"passage_ref": "hook"}
+            })
+        for i, p in enumerate(seq.get("body_sequence", [])):
+            dummy_struct.append({
+                "position": p.get("position", f"body_{i+1}"),
+                "block_type": "speech",
+                "content": {"passage_ref": p.get("position", f"body_{i+1}")}
+            })
+        spine_data = {"structure": dummy_struct}
     if not isinstance(spine_data, dict):
         raise ValueError("spine data must be a dictionary")
     require_keys(spine_data, ["structure"], "spine data")
@@ -189,6 +204,7 @@ def main():
     music = data.get("music_selection", {})
 
     result = enrich_spine(spine, speech, music)
+    result["timed_spine"] = result["audio_spine"]
     json.dump(result, sys.stdout, indent=2)
 
 

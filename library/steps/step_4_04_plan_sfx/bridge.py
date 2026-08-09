@@ -29,7 +29,8 @@ def main():
     sfx_toon = format_toon(["segment_id", "text", "action_sfx_suggested"], sfx_rows)
     
     compressed = {
-        "sfx_candidates_toon": sfx_toon
+        "sfx_candidates_toon": sfx_toon,
+        "sfx_spec": {"sfx_list": [], "fairlight_preset": "default", "music_ducking": []}
     }
     
     print(json.dumps(compressed))

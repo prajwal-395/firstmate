@@ -46,7 +46,7 @@
     "outputs": [
       {
         "name": "b_roll_assignments",
-        "type": "object",
+        "type": "array",
         "description": "State output: b_roll_assignments"
       }
     ],
