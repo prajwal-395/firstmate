@@ -83,8 +83,8 @@ def test_e2e_pipeline_run(mock_present_llm, mock_subprocess, mock_deterministic,
             
             state = load_pipeline_state(str(temp_project))
             
-            # Since it hits creative_direction (llm_only), it will break and await.
-            assert "creative_direction" in summary["awaiting_llm"]
+            # We mocked present_llm_step to return __status: complete, so it completes.
+            assert "creative_direction" in summary["completed"]
             
             # To test beyond llm_only, we can run just a deterministic step
             summary2 = run_pipeline(str(temp_project), single_step="mesh_spine")

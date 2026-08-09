@@ -11,7 +11,7 @@ class PipelineLogger:
         self.log_file = self.project_dir / "pipeline_output" / "pipeline_log.jsonl"
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         
-    def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None):
+    def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None):
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "step_id": step_id,
@@ -25,6 +25,10 @@ class PipelineLogger:
             entry["error"] = error
         if gate_decision is not None:
             entry["gate_decision"] = gate_decision
+        if backend is not None:
+            entry["backend"] = backend
+        if latency is not None:
+            entry["latency"] = latency
             
         json_line = json.dumps(entry)
         

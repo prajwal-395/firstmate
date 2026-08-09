@@ -66,6 +66,11 @@ class TestIntegration(unittest.TestCase):
             "color_grade_spec": spec,
             "audio_spine": {"structure": []},
             "a_roll_assignments": [],
+            "b_roll_assignments": [],
+            "transition_spec": [],
+            "enhancement_spec": [],
+            "sfx_spec": [],
+            "audio_mix_spec": {}
         }
         manifest = compile_manifest_from_inputs(inputs)["assembly_manifest"]
         
@@ -105,7 +110,13 @@ class TestIntegration(unittest.TestCase):
                     {"clip_id": "c_lowres"},
                     {"clip_id": "c_standard"}
                 ]
-            }
+            },
+            "b_roll_assignments": [],
+            "transition_spec": [],
+            "enhancement_spec": [],
+            "sfx_spec": [],
+            "color_grade_spec": {},
+            "audio_mix_spec": {}
         }
         
         manifest = compile_manifest_from_inputs(inputs)["assembly_manifest"]

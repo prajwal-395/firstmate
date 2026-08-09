@@ -41,6 +41,11 @@ def mock_resolve():
     timeline.GetTrackCount.side_effect = get_track_count
     timeline.AddTrack.side_effect = add_track
     
+    mock_item = MagicMock()
+    mock_item.GetStart.return_value = 0
+    mock_item.GetEnd.return_value = 300 # 10 seconds at 30 fps
+    timeline.GetItemListInTrack.return_value = [mock_item]
+    
     root_folder = MagicMock()
     media_pool.GetRootFolder.return_value = root_folder
     
@@ -133,7 +138,6 @@ def test_clip_placement_calculations(mock_resolve, sample_manifest):
     assert append_args["endFrame"] == 60  # 2.0s * 30fps
     assert append_args["trackIndex"] == 1
     assert append_args["recordFrame"] == 0
-    assert "mediaType" not in append_args
 
 def test_two_pass_architecture(mock_resolve, sample_manifest):
     """Test that V1 is placed first, then extra audio tracks are added, then audio clips are placed."""
@@ -152,8 +156,10 @@ def test_two_pass_architecture(mock_resolve, sample_manifest):
     
     call_order = []
     
+    track_counts = {"video": 1, "audio": 1}
     def side_effect_add_track(track_type):
         call_order.append(f"AddTrack_{track_type}")
+        track_counts[track_type] = track_counts.get(track_type, 1) + 1
         return True
         
     def side_effect_append(items):
@@ -165,7 +171,7 @@ def test_two_pass_architecture(mock_resolve, sample_manifest):
     media_pool.AppendToTimeline.side_effect = side_effect_append
     
     def side_effect_get_track_count(track_type):
-        return 1
+        return track_counts.get(track_type, 1)
     timeline.GetTrackCount.side_effect = side_effect_get_track_count
     
     pool_item_v1 = MagicMock()

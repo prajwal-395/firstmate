@@ -38,8 +38,8 @@ def sample_speech_regions():
 
 def test_analyze_prosody_no_parselmouth(monkeypatch):
     """Test error handling when parselmouth is not installed."""
-    # Temporarily remove parselmouth from sys.modules to simulate ImportError
-    monkeypatch.delitem(sys.modules, 'parselmouth')
+    # Set to None to guarantee ImportError
+    monkeypatch.setitem(sys.modules, 'parselmouth', None)
     
     result = analyze_prosody("dummy.wav")
     assert result["method"] is None
@@ -70,13 +70,18 @@ def test_analyze_prosody_success(sample_speech_regions):
             return MagicMock()
         return MagicMock()
 
+    mock_praat = MagicMock()
     mock_praat.call.side_effect = side_effect
+    
+    mock_parselmouth = MagicMock()
+    mock_parselmouth.praat = mock_praat
     
     mock_s = MagicMock()
     mock_s.duration = 0.05
     mock_parselmouth.Sound.return_value = mock_s
     
-    result = analyze_prosody("dummy.wav", sample_speech_regions)
+    with patch.dict(sys.modules, {'parselmouth': mock_parselmouth, 'parselmouth.praat': mock_praat}):
+        result = analyze_prosody("dummy.wav", sample_speech_regions)
     
     assert result["method"] == "parselmouth-praat"
     assert "pitch_stats" in result
@@ -95,13 +100,18 @@ def test_speaking_rate_calculation(sample_speech_regions):
             return float('nan')
         return MagicMock()
 
+    mock_praat = MagicMock()
     mock_praat.call.side_effect = side_effect
+    
+    mock_parselmouth = MagicMock()
+    mock_parselmouth.praat = mock_praat
     
     mock_s = MagicMock()
     mock_s.duration = 0.02
     mock_parselmouth.Sound.return_value = mock_s
     
-    result = analyze_prosody("dummy.wav", sample_speech_regions)
+    with patch.dict(sys.modules, {'parselmouth': mock_parselmouth, 'parselmouth.praat': mock_praat}):
+        result = analyze_prosody("dummy.wav", sample_speech_regions)
     
     assert "speaking_rate" in result
     sr = result["speaking_rate"]
@@ -150,21 +160,26 @@ def test_voice_quality_categories():
             return MagicMock()
         return side_effect
 
+    mock_praat = MagicMock()
+    mock_parselmouth = MagicMock()
+    mock_parselmouth.praat = mock_praat
+    
     mock_s = MagicMock()
     mock_s.duration = 0.02
     mock_parselmouth.Sound.return_value = mock_s
     
-    # Test "clear" (> 20)
-    mock_praat.call.side_effect = create_mock_call(25.0)
-    res1 = analyze_prosody("dummy.wav")
-    assert res1["voice_quality"]["quality_assessment"] == "clear"
-    
-    # Test "slightly_breathy" (10-20)
-    mock_praat.call.side_effect = create_mock_call(15.0)
-    res2 = analyze_prosody("dummy.wav")
-    assert res2["voice_quality"]["quality_assessment"] == "slightly_breathy"
-    
-    # Test "breathy" (< 10)
-    mock_praat.call.side_effect = create_mock_call(5.0)
-    res3 = analyze_prosody("dummy.wav")
-    assert res3["voice_quality"]["quality_assessment"] == "breathy"
+    with patch.dict(sys.modules, {'parselmouth': mock_parselmouth, 'parselmouth.praat': mock_praat}):
+        # Test "clear" (> 20)
+        mock_praat.call.side_effect = create_mock_call(25.0)
+        res1 = analyze_prosody("dummy.wav")
+        assert res1["voice_quality"]["quality_assessment"] == "clear"
+        
+        # Test "slightly_breathy" (10-20)
+        mock_praat.call.side_effect = create_mock_call(15.0)
+        res2 = analyze_prosody("dummy.wav")
+        assert res2["voice_quality"]["quality_assessment"] == "slightly_breathy"
+        
+        # Test "breathy" (< 10)
+        mock_praat.call.side_effect = create_mock_call(5.0)
+        res3 = analyze_prosody("dummy.wav")
+        assert res3["voice_quality"]["quality_assessment"] == "breathy"

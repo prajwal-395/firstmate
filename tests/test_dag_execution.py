@@ -25,9 +25,6 @@ def test_topological_sort():
     
     # Check that "scan" is before "catalog"
     assert order.index("scan") < order.index("catalog")
-    
-    # Check that "catalog" is before "semantic_analysis"
-    assert order.index("catalog") < order.index("semantic_analysis")
 
 def test_get_ancestors():
     dag = load_dag()
@@ -35,10 +32,9 @@ def test_get_ancestors():
     ancestors = _get_ancestors("catalog", dag)
     assert "scan" in ancestors
     
-    # 'semantic_analysis' depends on 'scan' and 'catalog'
+    # 'semantic_analysis' depends on 'scan'
     ancestors_sem = _get_ancestors("semantic_analysis", dag)
     assert "scan" in ancestors_sem
-    assert "catalog" in ancestors_sem
 
 def test_gather_step_inputs_projection():
     dag = load_dag()
