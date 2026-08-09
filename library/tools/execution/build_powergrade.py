@@ -47,6 +47,22 @@ import time
 def get_resolve():
     """Connect to DaVinci Resolve scripting API."""
     try:
+        from library.tools.resolve_health import check_resolve_connection
+        os.environ.setdefault(
+            "RESOLVE_SCRIPT_API",
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
+        )
+        os.environ.setdefault(
+            "RESOLVE_SCRIPT_LIB",
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
+        )
+        health = check_resolve_connection()
+        if health.get("success"):
+            return health["resolve"]
+    except ImportError:
+        pass
+
+    try:
         # Method 1: Direct import (works when run from Resolve console)
         import DaVinciResolveScript as dvr
         return dvr.scriptapp("Resolve")

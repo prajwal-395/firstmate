@@ -60,6 +60,14 @@ def _get_resolve():
             "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
         )
 
+        try:
+            from library.tools.resolve_health import check_resolve_connection
+            health = check_resolve_connection()
+            if health.get("success"):
+                return health["resolve"]
+        except ImportError:
+            pass
+
         import DaVinciResolveScript as dvr
         resolve = dvr.scriptapp("Resolve")
         return resolve
