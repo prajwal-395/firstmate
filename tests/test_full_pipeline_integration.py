@@ -50,7 +50,14 @@ def test_color_grade_look_match_chain():
     inputs = {
         "color_grade_spec": {
             "cdl": cdl
-        }
+        },
+        "audio_spine": {"structure": []},
+        "a_roll_assignments": [],
+        "b_roll_assignments": [],
+        "transition_spec": [],
+        "enhancement_spec": [],
+        "sfx_spec": [],
+        "audio_mix_spec": {}
     }
     manifest = compile_manifest_from_inputs(inputs)
     assert "assembly_manifest" in manifest

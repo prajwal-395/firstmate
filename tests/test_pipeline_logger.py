@@ -29,6 +29,8 @@ def test_pipeline_logger_basic():
 
 def test_step_timer_decorator():
     with tempfile.TemporaryDirectory() as tmpdir:
+        import library.tools.pipeline_logger as pl
+        pl._logger_instance = None
         # Initialize the singleton logger
         logger = get_logger(tmpdir)
         

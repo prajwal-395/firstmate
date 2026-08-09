@@ -67,9 +67,10 @@ def test_find_match_cut_candidates():
 @patch('library.tools.analysis.object_segmentation.build_sam2_video_predictor')
 @patch('library.tools.analysis.object_segmentation.build_sam2')
 @patch('library.tools.analysis.object_segmentation.SAM2AutomaticMaskGenerator')
+@patch('library.tools.analysis.object_segmentation.torch')
 @patch('subprocess.run')
 @patch('cv2.imread')
-def test_segment_clip(mock_imread, mock_run, mock_generator, mock_build_sam2, mock_build_predictor):
+def test_segment_clip(mock_imread, mock_run, mock_torch, mock_generator, mock_build_sam2, mock_build_predictor):
     # Mocking SAM 2 setup
     mock_pred_instance = MagicMock()
     mock_build_predictor.return_value = mock_pred_instance

@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 sys.modules['librosa'] = MagicMock()
 sys.modules['librosa.onset'] = MagicMock()
 sys.modules['librosa.feature'] = MagicMock()
-sys.modules['numpy'] = MagicMock()
 
 from library.tools.execution.sfx_placer import (
     snap_to_beat,
