@@ -93,9 +93,10 @@ function renderStepCard(step) {
     if (step.status === 'completed' || step.status === 'gate_pending') {
         actions += `<button class="btn btn-ghost text-sm" onclick="event.stopPropagation(); openStep('${step.id}')">Inspect</button>`;
     }
+    
+    // We will need to query the actual gate status. In pipeline-view, step.status tells us if it's gate_pending.
     if (step.status === 'gate_pending') {
-        actions += `<span class="step-badge review">Review</span>`;
-        actions += `<button class="btn btn-ghost text-sm" onclick="event.stopPropagation(); openGateModal('${step.id}')">Review</button>`;
+        actions += renderGateControls(step.id, 'pending');
     }
 
     return `

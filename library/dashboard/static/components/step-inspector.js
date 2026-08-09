@@ -29,9 +29,9 @@ async function renderStepDetail(stepId) {
 
         // Gate controls
         if (detail.status === 'gate_pending' || (gateInfo && gateInfo.status === 'pending')) {
-            html += `<button class="btn btn-primary" onclick="openGateModal('${stepId}')">&#9888; Review & Approve</button>`;
+            html += renderGateControls(stepId, 'pending');
         } else if (gateInfo && gateInfo.status !== 'none') {
-            html += `<span class="step-badge" style="background: rgba(63,185,80,0.15); color: var(--color-completed);">${escapeHtml(gateInfo.status)}</span>`;
+            html += renderGateControls(stepId, gateInfo.status);
         }
 
         html += `</div>`;
@@ -65,11 +65,14 @@ async function renderStepDetail(stepId) {
         // Annotations tab
         if (annotations.length) {
             html += `<div id="annotations-${stepId}" class="step-detail-body hidden">`;
-            for (const ann of annotations) {
-                html += `<div class="inspector-field">`;
+            for (let i = 0; i < annotations.length; i++) {
+                const ann = annotations[i];
+                html += `<div class="inspector-field" style="position: relative; padding-right: 24px;">`;
                 html += `<div class="inspector-field-label">${escapeHtml(ann.annotation_type)} - ${escapeHtml(ann.created_at || '')}</div>`;
                 html += `<div class="inspector-field-value">${escapeHtml(ann.content)}</div>`;
-                if (ann.tag) html += `<div class="clip-tag mt-2">${escapeHtml(ann.tag)}</div>`;
+                if (ann.tag) html += `<div class="clip-tag mt-2" style="display: inline-block;">${escapeHtml(ann.tag)}</div>`;
+                if (ann.target_path) html += `<div class="clip-tag mt-2" style="display: inline-block; background: rgba(188,140,255,0.1); color: var(--accent-purple);">${escapeHtml(ann.target_path)}</div>`;
+                html += `<button class="btn btn-ghost text-sm" style="position: absolute; top: 0; right: 0; color: var(--color-failed); padding: 2px 6px;" title="Delete" onclick="deleteAnnotation('${stepId}', ${i})">&#10005;</button>`;
                 html += `</div>`;
             }
             html += `</div>`;
@@ -101,14 +104,26 @@ async function renderStepDetail(stepId) {
         html += `
             <div class="mt-4">
                 <div class="inspector-section-title">Add Annotation</div>
-                <div style="display: flex; gap: 8px; align-items: flex-end;">
-                    <div style="flex: 1;">
-                        <textarea id="new-annotation-${stepId}" placeholder="Add a note, comment, or instruction for the LLM..."
-                            style="width:100%; min-height:60px; background: var(--bg-tertiary); border: 1px solid var(--border-primary);
-                            border-radius: 6px; padding: 8px; font-family: var(--font-sans); font-size: 13px;
-                            color: var(--text-primary); resize: vertical;"></textarea>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; gap: 8px;">
+                        <select id="new-annotation-type-${stepId}" class="btn" style="background: var(--bg-tertiary);">
+                            <option value="comment">Comment</option>
+                            <option value="highlight">Highlight</option>
+                            <option value="cut">Cut</option>
+                            <option value="must_include">Must Include</option>
+                        </select>
+                        <input type="text" id="new-annotation-tag-${stepId}" placeholder="Tag (optional)" class="btn" style="flex: 1; background: var(--bg-tertiary); cursor: text;">
+                        <input type="text" id="new-annotation-target-${stepId}" placeholder="Target Path (optional)" class="btn" style="flex: 1; background: var(--bg-tertiary); cursor: text;">
                     </div>
-                    <button class="btn btn-primary" onclick="submitAnnotation('${stepId}')">Add</button>
+                    <div style="display: flex; gap: 8px; align-items: flex-end;">
+                        <div style="flex: 1;">
+                            <textarea id="new-annotation-${stepId}" placeholder="Add a note, comment, or instruction for the LLM..."
+                                style="width:100%; min-height:60px; background: var(--bg-tertiary); border: 1px solid var(--border-primary);
+                                border-radius: 6px; padding: 8px; font-family: var(--font-sans); font-size: 13px;
+                                color: var(--text-primary); resize: vertical;"></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="submitAnnotation('${stepId}')">Add</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -145,20 +160,34 @@ function showStepTab(tabEl, targetId) {
 
 async function submitAnnotation(stepId) {
     const textarea = document.getElementById(`new-annotation-${stepId}`);
+    const typeSelect = document.getElementById(`new-annotation-type-${stepId}`);
+    const tagInput = document.getElementById(`new-annotation-tag-${stepId}`);
+    const targetInput = document.getElementById(`new-annotation-target-${stepId}`);
+
     const content = textarea.value.trim();
     if (!content) return;
 
     try {
         await apiPost(`/steps/${stepId}/annotations`, {
             annotations: [{
-                annotation_type: 'comment',
+                annotation_type: typeSelect ? typeSelect.value : 'comment',
                 content: content,
+                tag: tagInput ? tagInput.value.trim() : '',
+                target_path: targetInput ? targetInput.value.trim() : ''
             }],
         });
-        textarea.value = '';
-        // Re-render to show new annotation
         await renderStepDetail(stepId);
     } catch (err) {
         alert(`Error saving annotation: ${err.message}`);
+    }
+}
+
+async function deleteAnnotation(stepId, annIdx) {
+    if (!confirm('Delete this annotation?')) return;
+    try {
+        await api(`/steps/${stepId}/annotations/${annIdx}`, { method: 'DELETE' });
+        await renderStepDetail(stepId);
+    } catch (err) {
+        alert(`Error deleting annotation: ${err.message}`);
     }
 }

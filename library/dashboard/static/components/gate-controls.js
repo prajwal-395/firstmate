@@ -14,11 +14,12 @@
 function renderGateControls(stepId, gateStatus) {
     if (gateStatus === 'pending') {
         return `
-            <div style="display: flex; gap: 6px; margin-top: 8px;">
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <span class="step-badge review">Review</span>
                 <button class="btn btn-approve text-sm" onclick="event.stopPropagation(); quickGateAction('${stepId}', 'approve')">
                     &#10003; Approve
                 </button>
-                <button class="btn btn-primary text-sm" onclick="event.stopPropagation(); openGateModal('${stepId}')">
+                <button class="btn btn-ghost text-sm" onclick="event.stopPropagation(); openGateModal('${stepId}')">
                     &#9998; Review
                 </button>
             </div>

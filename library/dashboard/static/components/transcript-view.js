@@ -30,7 +30,16 @@ async function renderTranscriptView() {
         const annMap = {};
         for (const ann of annotations) {
             const key = ann.target_path || '';
-            if (key) annMap[key] = ann;
+            if (key) {
+                const lastUnderscore = key.lastIndexOf('_');
+                if (lastUnderscore > 0) {
+                    const clipId = key.substring(0, lastUnderscore);
+                    const start = parseFloat(key.substring(lastUnderscore + 1)).toFixed(3);
+                    const normKey = `${clipId}_${start}`;
+                    if (!annMap[normKey]) annMap[normKey] = [];
+                    annMap[normKey].push(ann);
+                }
+            }
         }
 
         let html = '';
@@ -56,7 +65,8 @@ async function renderTranscriptView() {
         // Render regions
         for (let i = 0; i < transcript.regions.length; i++) {
             const region = transcript.regions[i];
-            const regionKey = `${region.clip_id}_${region.start}`;
+            const normStart = parseFloat(region.start).toFixed(3);
+            const regionKey = `${region.clip_id}_${normStart}`;
 
             // Assign clip color
             if (!clipColors[region.clip_id]) {
@@ -66,9 +76,9 @@ async function renderTranscriptView() {
             const color = clipColors[region.clip_id];
 
             // Check for annotations
-            const ann = annMap[regionKey];
-            const isHighlighted = ann?.tag === 'must_include' || ann?.annotation_type === 'highlight';
-            const isStruck = ann?.tag === 'cut' || ann?.annotation_type === 'strikethrough';
+            const anns = annMap[regionKey] || [];
+            const isHighlighted = anns.some(a => a.tag === 'must_include' || a.annotation_type === 'highlight');
+            const isStruck = anns.some(a => a.tag === 'cut' || a.annotation_type === 'strikethrough');
 
             const classes = ['transcript-region'];
             if (isHighlighted) classes.push('highlighted');
@@ -92,8 +102,29 @@ async function renderTranscriptView() {
             html += `<button class="transcript-action-btn strike" title="Cut this"
                         onclick="event.stopPropagation(); annotateRegion(${i}, 'strikethrough', 'cut')">&#10007;</button>`;
             html += `<button class="transcript-action-btn" title="Add comment"
-                        onclick="event.stopPropagation(); commentOnRegion(${i})">&#128172;</button>`;
+                        onclick="event.stopPropagation(); showCommentInput(${i})">&#128172;</button>`;
             html += `</div>`;
+
+            // Inline comment input
+            html += `<div id="comment-input-${i}" style="display: none; margin-top: 8px;" onclick="event.stopPropagation();">
+                        <input type="text" id="comment-text-${i}" placeholder="Add a comment..." style="width: 100%; padding: 4px; margin-bottom: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 4px;" onkeypress="if(event.key === 'Enter') submitRegionComment(${i})">
+                        <div style="display: flex; gap: 4px;">
+                            <button class="btn btn-primary text-sm" onclick="submitRegionComment(${i})">Save</button>
+                            <button class="btn btn-ghost text-sm" onclick="document.getElementById('comment-input-${i}').style.display = 'none'">Cancel</button>
+                        </div>
+                     </div>`;
+
+            // Show existing annotations if any
+            if (anns.length > 0) {
+                html += `<div style="margin-top: 8px; border-top: 1px solid var(--border-primary); padding-top: 4px;">`;
+                for (const ann of anns) {
+                    const tagHtml = ann.tag ? `<span class="clip-tag">${escapeHtml(ann.tag)}</span> ` : '';
+                    html += `<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
+                        <strong>${escapeHtml(ann.annotation_type)}</strong>: ${tagHtml}${escapeHtml(ann.content)}
+                    </div>`;
+                }
+                html += `</div>`;
+            }
 
             html += `</div>`;
         }
@@ -131,8 +162,19 @@ async function annotateRegion(regionIdx, annotationType, tag) {
     }
 }
 
-function commentOnRegion(regionIdx) {
-    const comment = prompt('Add a comment for this transcript region:');
+function showCommentInput(regionIdx) {
+    const div = document.getElementById(`comment-input-${regionIdx}`);
+    if (div) {
+        div.style.display = 'block';
+        const input = document.getElementById(`comment-text-${regionIdx}`);
+        if (input) input.focus();
+    }
+}
+
+function submitRegionComment(regionIdx) {
+    const input = document.getElementById(`comment-text-${regionIdx}`);
+    if (!input) return;
+    const comment = input.value.trim();
     if (!comment) return;
 
     api('/transcript').then(async transcript => {

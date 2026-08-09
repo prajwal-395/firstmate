@@ -250,25 +250,79 @@ function markdownToHtml(md) {
         .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
         // Unordered list
         .replace(/^- (.+)$/gm, '<li>$1</li>')
-        // Tables (basic)
-        .replace(/\|(.+)\|/g, (match) => {
-            const cells = match.split('|').filter(c => c.trim());
-            if (cells.every(c => /^[\s-:]+$/.test(c))) return ''; // separator row
-            const tag = 'td';
-            return '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+        // Tables
+        .replace(/(?:^|\n)((?:\|[^\n]+\|\n?)+)/g, (match, p1) => {
+            const lines = p1.trim().split('\n');
+            let rows = '';
+            lines.forEach((line, i) => {
+                const cells = line.split('|').slice(1, -1);
+                if (cells.every(c => /^[\s-:]+$/.test(c))) return; // separator row
+                const tag = i === 0 ? 'th' : 'td';
+                rows += '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+            });
+            return '\n<table>' + rows + '</table>\n';
         })
         // Paragraphs (lines not yet wrapped)
-        .replace(/^(?!<[h|l|b|p|t|c])(.*\S.*)$/gm, '<p>$1</p>');
+        .replace(/^(?!<(?:h[1-6]|ul|ol|li|blockquote|p|table|tr|td|th|thead|tbody|pre|div|!--)\b)(.*\S.*)$/gm, '<p>$1</p>');
 
     // Wrap consecutive <li> in <ul>
-    html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
-    // Wrap consecutive <tr> in <table>
-    html = html.replace(/(<tr>[\s\S]*?<\/tr>)/g, '<table>$1</table>');
+    html = html.replace(/((?:<li>[\s\S]*?<\/li>\s*)+)/g, '<ul>$1</ul>');
 
     // Clean up empty paragraphs
     html = html.replace(/<p>\s*<\/p>/g, '');
 
     return html;
+}
+
+// ── Pipeline Controls ──────────────────────────────────────────
+
+let pipelinePollInterval = null;
+
+async function startPipeline() {
+    try {
+        await apiPost('/pipeline/run', {});
+        startPolling();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function resumePipeline() {
+    try {
+        await apiPost('/pipeline/resume', {});
+        startPolling();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function pausePipeline() {
+    try {
+        await apiPost('/pipeline/pause', {});
+        stopPolling();
+        await refreshData();
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+function startPolling() {
+    if (!pipelinePollInterval) {
+        pipelinePollInterval = setInterval(async () => {
+            const status = await api('/pipeline/status');
+            await refreshData();
+            if (!status.is_running) {
+                stopPolling();
+            }
+        }, 5000);
+    }
+}
+
+function stopPolling() {
+    if (pipelinePollInterval) {
+        clearInterval(pipelinePollInterval);
+        pipelinePollInterval = null;
+    }
 }
 
 // ── Escaping ───────────────────────────────────────────────────

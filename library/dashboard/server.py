@@ -81,6 +81,7 @@ _project_dir: Optional[str] = None
 _project_slug: Optional[str] = None
 
 
+
 def _get_project_dir() -> str:
     """Get the current project directory, raising if not set."""
     if not _project_dir:
@@ -381,6 +382,17 @@ async def save_annotations_endpoint(step_id: str, batch: AnnotationBatch):
     return {"status": "ok", "count": len(existing)}
 
 
+@app.delete("/api/steps/{step_id}/annotations/{ann_idx}")
+async def delete_annotation(step_id: str, ann_idx: int):
+    """Delete an annotation by index."""
+    project_dir = _get_project_dir()
+    existing = _load_annotations(project_dir, step_id)
+    if 0 <= ann_idx < len(existing):
+        existing.pop(ann_idx)
+        _save_annotations(project_dir, step_id, existing)
+    return {"status": "ok", "count": len(existing)}
+
+
 # ── Transcript Endpoint ───────────────────────────────────────────
 
 @app.get("/api/transcript")
@@ -534,6 +546,17 @@ async def get_timeline():
             text=a.get("text", "")[:80],
             thumbnail_url=get_thumbnail_url(project_dir, a.get("clip_id", "")),
         ))
+        
+        blocks.append(TimelineBlock(
+            id=f"a1_{a.get('entry_id', i)}",
+            track="A1",
+            clip_id=a.get("clip_id", ""),
+            clip_name=a.get("clip_id", ""),
+            start_s=start,
+            end_s=end,
+            duration_s=end - start,
+            block_type="a_roll_audio",
+        ))
         total_dur = max(total_dur, end)
 
     # B-roll assignments
@@ -556,6 +579,20 @@ async def get_timeline():
             duration_s=dur,
             block_type="b_roll",
             thumbnail_url=get_thumbnail_url(project_dir, b.get("clip_id", "")),
+        ))
+
+    # Music track (A2)
+    music = outputs.get("music_selection", {}).get("music_track", outputs.get("music_selection", {}))
+    if isinstance(music, dict) and (music.get("track_id") or music.get("title")):
+        blocks.append(TimelineBlock(
+            id="music_1",
+            track="A2",
+            clip_id=music.get("track_id", "music"),
+            clip_name=music.get("title", music.get("track_id", "Music")),
+            start_s=0.0,
+            end_s=total_dur,
+            duration_s=total_dur,
+            block_type="music",
         ))
 
     return TimelineView(
@@ -624,6 +661,9 @@ async def pipeline_status():
         pending_gates=pending,
         failed_steps=state.get("failed_steps", []),
     )
+
+
+
 
 
 # ── Thumbnails ────────────────────────────────────────────────────
