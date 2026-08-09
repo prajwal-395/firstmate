@@ -31,10 +31,10 @@ def main():
     # The manifest declares temporal_index as a required input - use it to
     # focus prosody analysis on voiced segments only (avoids wasting compute
     # on silence and improves pitch/rate accuracy).
-    temporal_index = data.get("temporal_index", {})
+    temporal_index = data.get("temporal_index", data)
     speech_boundaries = {}
     if isinstance(temporal_index, dict):
-        index_dir = temporal_index.get("index_dir", "")
+        index_dir = temporal_index.get("index_dir", "") or data.get("index_dir", "")
         if index_dir and os.path.isdir(index_dir):
             for ti_file in glob.glob(os.path.join(index_dir, "*.json")):
                 clip_id = os.path.splitext(os.path.basename(ti_file))[0]

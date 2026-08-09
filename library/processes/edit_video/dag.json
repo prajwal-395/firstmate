@@ -221,10 +221,7 @@
     },
     {
       "from": "temporal_index",
-      "to": "prosody_analysis",
-      "data_mapping": {
-        "temporal_index": "temporal_index"
-      }
+      "to": "prosody_analysis"
     },
     {
       "from": "scan",
