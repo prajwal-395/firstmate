@@ -134,6 +134,24 @@ def get_step_implementation(step_dir: Path) -> dict:
     
     determinism = manifest.get("determinism", "unknown")
     
+    runtime = manifest.get("implementation", {}).get("default", {}).get("runtime", "")
+    if runtime == "llm":
+        if has_bridge_py or (step_dir / "post_bridge.py").exists():
+            return {
+                "type": "hybrid",
+                "step_dir": step_dir,
+                "prompt": str(step_dir / "handoff.md"),
+                "determinism": determinism,
+                "manifest": manifest,
+            }
+        else:
+            return {
+                "type": "llm_only",
+                "prompt": str(step_dir / "handoff.md"),
+                "determinism": determinism,
+                "manifest": manifest,
+            }
+            
     if has_step_py and not has_handoff_md:
         return {
             "type": "deterministic",
@@ -323,8 +341,21 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
 
     if step_type == "llm_only" and manifest and "context_fields" in manifest:
+        saved_project_folder = inputs.get("project_folder", "")
+        saved_fps = inputs.get("project_fps")
+        saved_res = inputs.get("project_resolution")
+        saved_brand_template = inputs.get("brand_template")
+        
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
+        
+        inputs["project_folder"] = saved_project_folder
+        if saved_fps is not None:
+            inputs["project_fps"] = saved_fps
+        if saved_res is not None:
+            inputs["project_resolution"] = saved_res
+        if saved_brand_template is not None:
+            inputs["brand_template"] = saved_brand_template
 
     return inputs
 
@@ -367,8 +398,21 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     if manifest and "context_fields" in manifest:
+        saved_project_folder = inputs.get("project_folder", "")
+        saved_fps = inputs.get("project_fps")
+        saved_res = inputs.get("project_resolution")
+        saved_brand_template = inputs.get("brand_template", "default_brand")
+        
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
+        
+        inputs["project_folder"] = saved_project_folder
+        if saved_fps is not None:
+            inputs["project_fps"] = saved_fps
+        if saved_res is not None:
+            inputs["project_resolution"] = saved_res
+        if saved_brand_template is not None:
+            inputs["brand_template"] = saved_brand_template
         
     projected_input_tokens = len(str(inputs).split()) * 1.3
         
@@ -604,7 +648,12 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
         
     if post_bridge.exists():
         try:
-            final = run_subprocess(post_bridge, {**inputs, **llm_output})
+            merge_data = dict(inputs)
+            if isinstance(llm_output, dict):
+                merge_data.update(llm_output)
+            else:
+                merge_data["llm_raw_response"] = llm_output
+            final = run_subprocess(post_bridge, merge_data)
             return final
         except Exception as e:
             raise PostBridgeError(f"Post-bridge failed: {e}")
