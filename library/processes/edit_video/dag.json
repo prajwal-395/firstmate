@@ -234,7 +234,7 @@
       "from": "temporal_index",
       "to": "creative_direction",
       "data_mapping": {
-        "temporal_index": "temporal_index"
+        "temporal_event_indices": "temporal_index"
       }
     },
     {
@@ -262,7 +262,7 @@
       "from": "temporal_index",
       "to": "speech_sequence",
       "data_mapping": {
-        "temporal_index": "temporal_index"
+        "temporal_event_indices": "temporal_index"
       }
     },
     {
