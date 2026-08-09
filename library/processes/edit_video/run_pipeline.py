@@ -344,7 +344,7 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
     if result.returncode != 0:
         raise RuntimeError(
             f"Step failed (exit {result.returncode}):\n"
-            f"  stderr: {result.stderr[:500]}"
+            f"  stderr: {result.stderr}"
         )
     
     try:

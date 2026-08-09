@@ -27,7 +27,9 @@ def main():
     # to find adjacent clips and classify the cut.
     # We will just pass the inputs through as a summary.
     
-    aroll = data.get("a_roll_assignments", {}).get("timeline_segments", [])
+    aroll_data = data.get("a_roll_assignments", [])
+    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("timeline_segments", [])
+    
     for i in range(len(aroll) - 1):
         curr = aroll[i]
         nxt = aroll[i+1]
@@ -44,7 +46,8 @@ def main():
     cuts_toon = format_toon(["cut_time", "type", "beat_near_cut"], cut_rows)
     
     compressed = {
-        "cuts_toon": cuts_toon
+        "cuts_toon": cuts_toon,
+        "transition_spec": {"transitions": [], "default_cut": "hard"}
     }
     
     print(json.dumps(compressed))

@@ -659,11 +659,20 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     clip_lookup = {}
     clip_metadata = {}
     for assignment in inputs.get("a_roll_assignments", []):
-        cid = assignment.get("source_clip_id", "")
-        path = assignment.get("source_file", "")
-        if cid and path:
-            clip_lookup[cid] = path
-            clip_metadata[cid] = assignment
+        vsegs = assignment.get("video_segments", [])
+        if vsegs:
+            for vseg in vsegs:
+                cid = vseg.get("clip_id", "")
+                path = vseg.get("source_file", "")
+                if cid and path:
+                    clip_lookup[cid] = path
+                    clip_metadata[cid] = vseg
+        else:
+            cid = assignment.get("source_clip_id", assignment.get("clip_id", ""))
+            path = assignment.get("source_file", "")
+            if cid and path:
+                clip_lookup[cid] = path
+                clip_metadata[cid] = assignment
 
     for broll in inputs.get("b_roll_assignments", []):
         assigned = broll.get("assigned_clip", broll)
@@ -686,9 +695,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     # Process semantic analysis for neural engine directives
     semantic_data = inputs.get("semantic_analysis") or {}
-    semantic_clips = semantic_data.get("clips", [])
     if isinstance(semantic_data, list):
         semantic_clips = semantic_data
+    else:
+        semantic_clips = semantic_data.get("clips", [])
     semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
 
     neural_engine_directives = {}

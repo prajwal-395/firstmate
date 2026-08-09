@@ -22,7 +22,7 @@
     "outputs": [
       {
         "name": "a_roll_assignments",
-        "type": "object",
+        "type": "array",
         "description": "State output: a_roll_assignments"
       }
     ],

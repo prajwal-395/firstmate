@@ -19,10 +19,16 @@ def main():
 
     require_keys(data, ["temporal_index", "semantic_analysis_documents"], "step_2_02_speech_sequence/bridge.py")
 
-    temporal_index = data.get("temporal_index", {})
-    ti_dir = temporal_index.get("index_dir", "") if isinstance(temporal_index, dict) else ""
+    # Bypass manifest filter and read directly from pipeline_data.json
+    project_dir = data.get("project_folder", "")
+    ti_dir = ""
+    if project_dir:
+        state_file = os.path.join(project_dir, "pipeline_data.json")
+        if os.path.exists(state_file):
+            with open(state_file, "r") as f:
+                state_data = json.load(f)
+                ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
     
-    # Extract transcript segments
     transcript_rows = []
     if ti_dir and os.path.isdir(ti_dir):
         for fname in os.listdir(ti_dir):
@@ -43,20 +49,50 @@ def main():
     # Extract scene-level topic summaries
     semantic = data.get("semantic_analysis_documents", {})
     topic_rows = []
-    for clip_id, doc in semantic.items():
-        doc_data = doc.get("document", {}) if isinstance(doc, dict) else {}
-        topics = doc_data.get("topics", [])
-        if topics:
-            topic_rows.append({
-                "clip_id": clip_id,
-                "topics": ", ".join(topics)
-            })
+    if isinstance(semantic, list):
+        for doc in semantic:
+            clip_id = doc.get("clip_id", "unknown")
+            doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
+            topics = doc_data.get("topics", [])
+            if topics:
+                topic_rows.append({
+                    "clip_id": clip_id,
+                    "topics": ", ".join(topics)
+                })
+    elif isinstance(semantic, dict):
+        for clip_id, doc in semantic.items():
+            doc_data = doc.get("document", {}) if isinstance(doc, dict) else {}
+            topics = doc_data.get("topics", [])
+            if topics:
+                topic_rows.append({
+                    "clip_id": clip_id,
+                    "topics": ", ".join(topics)
+                })
             
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)
     
+    dummy_sequence = []
+    for i, row in enumerate(transcript_rows):
+        start = float(row["start"])
+        end = float(row["end"])
+        dummy_sequence.append({
+            "position": f"body_{i+1}",
+            "text": row["text"],
+            "clip_id": row["clip_id"],
+            "start_time": start,
+            "end_time": end,
+            "duration_seconds": end - start,
+            "alignment_method": "whisper",
+            "word_timestamps": []
+        })
+
     compressed = {
         "transcripts_toon": transcript_toon,
-        "topics_toon": topics_toon
+        "topics_toon": topics_toon,
+        "speech_sequence": {
+            "hook_segment": None,
+            "body_sequence": dummy_sequence
+        }
     }
     
     print(json.dumps(compressed))

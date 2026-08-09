@@ -15,9 +15,9 @@
     ],
     "outputs": [
       {
-        "name": "rendered_output",
+        "name": "render_output",
         "type": "object",
-        "description": "State output: rendered_output"
+        "description": "State output: render_output"
       }
     ],
     "preconditions": [
@@ -38,7 +38,7 @@
       "project_folder"
     ],
     "writes": [
-      "rendered_output"
+      "render_output"
     ]
   },
   "dependencies": [

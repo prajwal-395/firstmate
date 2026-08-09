@@ -133,7 +133,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
             
     # Engagement score check
     if isinstance(speech_sequence, dict):
-        hook = speech_sequence.get("hook_segment", {})
+        hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence", [])
         
         hook_eng = hook.get("engagement", 0)

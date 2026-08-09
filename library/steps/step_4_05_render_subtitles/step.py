@@ -121,7 +121,10 @@ def main():
         total_frames = props["durationInFrames"]
         num_subs = len(props.get("subtitles", []))
 
-        segment_name = f"sub_block_{block_pos:02d}"
+        # Generate output path
+        # block_pos may be a string like "body_1" or "hook"
+        safe_pos = str(block_pos).replace(" ", "_")
+        segment_name = f"sub_block_{safe_pos}"
         overlay_path = os.path.join(sub_output_dir, f"{segment_name}.mov")
         props_path = os.path.join(sub_output_dir, f"{segment_name}_props.json")
 

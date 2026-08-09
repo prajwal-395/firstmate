@@ -93,6 +93,8 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
             # Speech block — assign video for each segment
             content = block.get("content", {})
             segments = content.get("segments", [])
+            if not segments and "clip_id" in content:
+                segments = [content]
 
             video_segments = []
             for seg in segments:
@@ -109,8 +111,8 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                     )
 
                 # Verify timestamps are within source file duration
-                video_in = seg.get("start_time", 0.0)
-                video_out = seg.get("end_time", 0.0)
+                video_in = seg.get("start_time", seg.get("source_start", 0.0))
+                video_out = seg.get("end_time", seg.get("source_end", 0.0))
                 clip_duration = clip.get("duration_seconds", 0)
 
                 if video_out > clip_duration + 0.5:  # 0.5s tolerance
