@@ -46,48 +46,16 @@ apply. Focus on talking head clips that need subtle movement.
 - Easing: Bezier curves, not linear
 - Effects modify display, not timeline positions
 
-### Precision tool: Motion detection (embedded)
+### Context data available:
 
-To determine if a clip is already dynamic (and doesn't need added movement),
-use OpenCV optical flow:
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.
 
-```python
-import cv2
-import numpy as np
+The `vfx_candidates_toon` table provides a summarized list of clips with the following fields:
+- `segment_id`: The ID of the segment.
+- `text`: Summary text for the segment.
+- `vfx_suggested`: Pre-computed suggestion on whether VFX are needed based on motion/pose data.
 
-cap = cv2.VideoCapture("clip.mp4")
-ret, prev = cap.read()
-prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
-motion_scores = []
-
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-    magnitude = np.sqrt(flow[..., 0]**2 + flow[..., 1]**2)
-    motion_scores.append(np.mean(magnitude))
-    prev_gray = gray
-
-avg_motion = np.mean(motion_scores)
-# avg_motion < 1.0 → static (needs slow_zoom)
-# avg_motion > 3.0 → dynamic (skip effects)
-```
-
-### Precision tool: Face/pose landmarks (embedded)
-
-To find exact frames of smiles, head turns, or hand gestures for
-`zoom_emphasis` timing:
-
-```python
-import mediapipe as mp
-
-mp_face = mp.solutions.face_mesh
-face_mesh = mp_face.FaceMesh(static_image_mode=False)
-# Process frames to find expression changes (smile onset, head turn)
-# Use the frame timestamp as the trigger_time for zoom_emphasis
-```
+Use this data to decide which effects to apply.
 
 ---
 

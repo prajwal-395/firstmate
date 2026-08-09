@@ -64,11 +64,11 @@ Each passage needs:
 - flow_note (how this passage connects to the next)
 
 ### Timestamp resolution:
-For each passage you select, look up the temporal event index for that
-clip_id and find the speech_region containing the verbatim text. Use the
-region's `start` and `end` values directly. For word-level precision
-(e.g., trimming a hook to specific words), use `words[].start` and
-`words[].end`.
+For each passage you select, look up the `transcripts_toon` data for that
+clip_id and find the region containing the verbatim text. Use the
+region's `start` and `end` values directly.
+
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, and `clip_id`, `topics` for topics.
 
 **Excluded passages**: Document what was considered and why it was cut —
 for transparency and potential revision.

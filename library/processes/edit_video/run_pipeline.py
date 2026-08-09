@@ -140,15 +140,15 @@ def get_step_implementation(step_dir: Path) -> dict:
             "determinism": determinism,
             "manifest": manifest,
         }
-    elif has_bridge_py and has_handoff_md:
+    elif (has_bridge_py or (step_dir / "post_bridge.py").exists()) and has_handoff_md:
         return {
             "type": "hybrid",
-            "entry": str(step_dir / "bridge.py"),
+            "step_dir": step_dir,
             "prompt": str(step_dir / "handoff.md"),
             "determinism": determinism,
             "manifest": manifest,
         }
-    elif has_handoff_md and not has_bridge_py and not has_step_py:
+    elif has_handoff_md and not (has_bridge_py or (step_dir / "post_bridge.py").exists()) and not has_step_py:
         return {
             "type": "llm_only",
             "prompt": str(step_dir / "handoff.md"),
@@ -377,34 +377,53 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     }
 
 
-def run_hybrid_step(bridge_path: str, prompt_path: str, inputs: dict) -> dict:
-    """Run a hybrid step: bridge.py handles the deterministic parts
-    and produces context for the LLM prompt."""
-    # Run bridge first to enrich inputs
+def run_subprocess(script_path: Path, inputs: dict) -> dict:
+    """Run a Python script via subprocess with JSON stdin/stdout."""
     result = subprocess.run(
-        ["python3", bridge_path],
+        ["python3", str(script_path)],
         input=json.dumps(inputs),
         capture_output=True,
         text=True,
         timeout=600,
     )
-    
     if result.returncode != 0:
         raise RuntimeError(
-            f"Bridge failed (exit {result.returncode}):\n"
+            f"Script {script_path.name} failed (exit {result.returncode}):\n"
             f"  stderr: {result.stderr[:500]}"
         )
-    
     try:
-        enriched = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError:
         raise RuntimeError(
-            f"Bridge produced invalid JSON:\n"
+            f"Script {script_path.name} produced invalid JSON:\n"
             f"  stdout: {result.stdout[:500]}\n"
             f"  stderr: {result.stderr[:500]}"
         )
+
+def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str) -> dict:
+    """Run a hybrid step: pre-bridge handles context compression, LLM makes creative decision,
+    and post-bridge resolves numerical constraints."""
+    pre_bridge = step_dir / "bridge.py"
+    post_bridge = step_dir / "post_bridge.py"
+    prompt_path = str(step_dir / "handoff.md")
     
-    return enriched
+    compressed = dict(inputs)
+    if pre_bridge.exists():
+        pre_output = run_subprocess(pre_bridge, inputs)
+        # Merge compressed context with any non-signal inputs
+        compressed.update(pre_output)
+    
+    # LLM creative decision on compressed context
+    llm_output = present_llm_step(prompt_path, compressed, node_id)
+    
+    if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
+        return llm_output
+        
+    if post_bridge.exists():
+        final = run_subprocess(post_bridge, {**inputs, **llm_output})
+        return final
+    
+    return llm_output
 
 
 # ── Main Runner ─────────────────────────────────────────────────────
@@ -555,15 +574,14 @@ def run_pipeline(
                 completed.append(node_id)
                 
             elif impl["type"] == "hybrid":
-                # Run bridge for enrichment, then present for LLM
-                enriched = run_hybrid_step(
-                    impl["entry"], impl["prompt"], inputs
-                )
-                
                 if auto_mode:
-                    # In auto mode, use the bridge output as the final step output,
-                    # without wrapping it in metadata that breaks downstream schema validation.
-                    auto_output = enriched
+                    # In auto mode, use the pre-bridge context output as the final step output.
+                    step_dir_path = impl["step_dir"]
+                    pre_bridge = step_dir_path / "bridge.py"
+                    if pre_bridge.exists():
+                        auto_output = run_subprocess(pre_bridge, inputs)
+                    else:
+                        auto_output = inputs
                     
                     state.setdefault("step_outputs", {})[node_id] = auto_output
                     state.setdefault("steps_completed", {})[node_id] = {
@@ -573,12 +591,15 @@ def run_pipeline(
                     save_pipeline_state(project_dir, state)
                     completed.append(node_id)
                 else:
-                    output = present_llm_step(impl["prompt"], enriched, node_id, manifest=impl.get("manifest"))
-                    awaiting_llm.append(node_id)
-                    print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
-                    # Fix C1: Break out of the execution loop so downstream
-                    # steps don't fire with missing upstream data.
-                    break
+                    output = run_hybrid_step(impl["step_dir"], enriched, node_id)
+                    if isinstance(output, dict) and output.get("__status") == "awaiting_llm":
+                        awaiting_llm.append(node_id)
+                        print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
+                        # Fix C1: Break out of the execution loop so downstream
+                        # steps don't fire with missing upstream data.
+                        break
+                    else:
+                        pass
 
             elif impl["type"] == "llm_only":
                 output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"))

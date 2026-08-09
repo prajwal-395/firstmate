@@ -165,29 +165,16 @@ Once you've chosen a candidate clip and the target scene segment:
   and pacing should drive the duration. A quick illustrative cut may be
   1 second; an establishing visual may run 3-4 seconds.
 
-### Temporal index data available per clip:
+### Candidate data available:
 
-The temporal event index for each B-roll candidate provides:
-- **scene_boundaries**: Natural visual cut points. Use for clean in/out anchoring.
-- **motion_energy**: Per-frame visual motion (30Hz). High = camera or subject moving.
-  Use `high_motion_times` and `peak_motion_times` for the most dynamic sub-ranges.
-- **energy_curve**: Per-frame audio energy (30Hz). Higher = louder / more dynamic audio.
-- **optical_flow_direction**: Dominant motion vector per sample (5Hz) + `dominant_motion`
-  classification: `"static"` | `"pan_left"` | `"pan_right"` | `"tilt_up"` |
-  `"tilt_down"` | `"handheld"` | `"mixed"` | `"unknown"`. Use to match camera
-  character with the editorial intent of the placement.
-- **camera_motion_decomposition**: Per-sample breakdown (5Hz) into `translation_x`,
-  `translation_y`, `zoom_factor`, `residual`. Use to detect existing zooms (avoid
-  adding VFX zoom on top) or deliberate pans.
-- **face_presence**: Presence confidence per sample (5Hz). Use `face_absent_times`
-  to find sub-ranges where the subject's face is off-screen (pure environmental
-  B-roll). Use `face_present_times` when the creator should be visible.
-- **color_curves**: Per-second (1Hz) `hue_values`, `brightness_values`,
-  `saturation_values`, `temperature_curve` (warm/neutral/cool). Match color
-  temperature to surrounding A-roll for visual coherence.
-- **speech_activity**: Binary 30Hz curve — is speech happening at each frame?
-  Most B-roll clips have no speech, but this guards against accidentally cutting
-  into a clip where the subject is speaking off-camera.
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.
+
+The `broll_candidates_toon` table provides pre-filtered candidates for each placement slot with the following fields:
+- `slot_id`: The ID of the non-speech block or speech segment.
+- `clip_id`: The candidate B-roll clip.
+- `description`: Visual description of the clip from semantic analysis.
+- `avg_energy`: Average energy/motion summary.
+- `peak_energy`: Peak energy/motion summary.
 
 The bridge will automatically snap in/out points to scene boundaries
 and prefer high-energy/high-motion segments when resolving your
