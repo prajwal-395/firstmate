@@ -200,6 +200,92 @@ async def root():
 
 # ── Project Endpoints ──────────────────────────────────────────────
 
+from pydantic import BaseModel
+class SelectProjectRequest(BaseModel):
+    project_dir: str
+
+@app.get("/api/projects")
+async def get_projects():
+    """List all available projects (registered and unregistered)."""
+    from library.tools.project_registry import list_projects
+    from library.tools.paths import PROJECTS_ROOT
+
+    registered = list_projects()
+    registered_paths = {str(p.project_root) for p in registered}
+    
+    projects = []
+    
+    # 1. Add registered
+    for config in registered:
+        state = _load_pipeline_state(str(config.project_root))
+        completed = state.get("steps_completed", {})
+        projects.append(ProjectInfo(
+            slug=config.slug,
+            name=config.name,
+            client=config.client,
+            status=config.status.value,
+            resolution=config.source.resolution,
+            fps=config.source.fps,
+            raw_footage_count=0,
+            steps_completed=len(completed),
+            total_steps=0,
+            project_root=str(config.project_root),
+        ))
+
+    # 2. Scan for unregistered
+    if PROJECTS_ROOT and PROJECTS_ROOT.exists():
+        for entry in PROJECTS_ROOT.iterdir():
+            if not entry.is_dir() or entry.name.startswith((".", "_")):
+                continue
+            
+            # Flat layout
+            if str(entry) not in registered_paths:
+                if (entry / "pipeline_data.json").exists() or (entry / "project.yaml").exists():
+                    state = _load_pipeline_state(str(entry))
+                    completed = state.get("steps_completed", {})
+                    projects.append(ProjectInfo(
+                        slug=entry.name,
+                        name=entry.name,
+                        client="",
+                        status="unregistered",
+                        resolution="1080x1920",
+                        fps=30,
+                        raw_footage_count=0,
+                        steps_completed=len(completed),
+                        total_steps=0,
+                        project_root=str(entry),
+                    ))
+            
+            # Grouped layout
+            for sub_entry in entry.iterdir():
+                if not sub_entry.is_dir() or sub_entry.name.startswith((".", "_")):
+                    continue
+                if str(sub_entry) not in registered_paths:
+                    if (sub_entry / "pipeline_data.json").exists() or (sub_entry / "project.yaml").exists():
+                        state = _load_pipeline_state(str(sub_entry))
+                        completed = state.get("steps_completed", {})
+                        projects.append(ProjectInfo(
+                            slug=sub_entry.name,
+                            name=sub_entry.name,
+                            client=entry.name,
+                            status="unregistered",
+                            resolution="1080x1920",
+                            fps=30,
+                            raw_footage_count=0,
+                            steps_completed=len(completed),
+                            total_steps=0,
+                            project_root=str(sub_entry),
+                        ))
+                        
+    return projects
+
+@app.post("/api/projects/select")
+async def select_project(request: SelectProjectRequest):
+    global _project_dir, _project_slug
+    _project_dir = request.project_dir
+    _project_slug = os.path.basename(request.project_dir)
+    return {"status": "ok"}
+
 @app.get("/api/project")
 async def get_project():
     """Get current project info."""
@@ -821,13 +907,36 @@ async def serve_thumbnail(filename: str):
 # ── Server Startup ────────────────────────────────────────────────
 
 def start_server(
-    project_dir: str,
+    project_dir: Optional[str] = None,
     slug: str = "",
     host: str = "127.0.0.1",
     port: int = 8420,
 ):
     """Start the dashboard server."""
     global _project_dir, _project_slug
+    
+    if not project_dir:
+        from library.tools.paths import PROJECTS_ROOT
+        all_dirs = []
+        if PROJECTS_ROOT and PROJECTS_ROOT.exists():
+            for entry in PROJECTS_ROOT.rglob("pipeline_data.json"):
+                all_dirs.append(entry.parent)
+            for entry in PROJECTS_ROOT.rglob("project.yaml"):
+                all_dirs.append(entry.parent)
+        
+        all_dirs = list(set(all_dirs))
+        if all_dirs:
+            def get_mtime(d):
+                p_data = d / "pipeline_data.json"
+                if p_data.exists(): return p_data.stat().st_mtime
+                return d.stat().st_mtime
+            
+            all_dirs.sort(key=get_mtime, reverse=True)
+            project_dir = str(all_dirs[0])
+            slug = all_dirs[0].name
+        else:
+            raise RuntimeError("No projects found to auto-discover. Start server with --project.")
+
     _project_dir = os.path.abspath(project_dir)
     _project_slug = slug
 
@@ -843,7 +952,7 @@ def main():
     """CLI entry point."""
     import argparse
     parser = argparse.ArgumentParser(description="Review Dashboard Server")
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--project", help="Project directory (absolute path)")
     group.add_argument("--slug", help="Project slug (looked up from registry)")
     parser.add_argument("--host", default="127.0.0.1")

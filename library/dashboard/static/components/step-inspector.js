@@ -59,7 +59,7 @@ async function renderStepDetail(stepId) {
 
         // JSON tab (hidden by default)
         html += `<div id="json-${stepId}" class="step-detail-body hidden">`;
-        html += `<div class="json-viewer">${escapeHtml(JSON.stringify(detail.output, null, 2))}</div>`;
+        html += `<div id="json-viewer-${stepId}"></div>`;
         html += `</div>`;
 
         // Annotations tab
@@ -94,7 +94,7 @@ async function renderStepDetail(stepId) {
             if (gateInfo.feedback.revisions && Object.keys(gateInfo.feedback.revisions).length) {
                 html += `<div class="inspector-section">`;
                 html += `<div class="inspector-section-title">Revisions</div>`;
-                html += `<div class="json-viewer">${escapeHtml(JSON.stringify(gateInfo.feedback.revisions, null, 2))}</div>`;
+                html += `<div id="revisions-viewer-${stepId}"></div>`;
                 html += `</div>`;
             }
             html += `</div>`;
@@ -129,6 +129,37 @@ async function renderStepDetail(stepId) {
         `;
 
         container.innerHTML = html;
+
+        // Setup JSON viewer
+        const jsonContainer = document.getElementById(`json-viewer-${stepId}`);
+        if (jsonContainer) {
+            const structured = renderStructuredOutput(detail.output);
+            if (structured) {
+                jsonContainer.appendChild(structured);
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn btn-ghost text-sm mt-4 mb-2';
+                toggleBtn.textContent = 'Show Raw JSON';
+                jsonContainer.appendChild(toggleBtn);
+                
+                const rawContainer = document.createElement('div');
+                rawContainer.style.display = 'none';
+                rawContainer.appendChild(createJsonViewer(detail.output));
+                jsonContainer.appendChild(rawContainer);
+                
+                toggleBtn.onclick = () => {
+                    const isHidden = rawContainer.style.display === 'none';
+                    rawContainer.style.display = isHidden ? 'block' : 'none';
+                    toggleBtn.textContent = isHidden ? 'Hide Raw JSON' : 'Show Raw JSON';
+                };
+            } else {
+                jsonContainer.appendChild(createJsonViewer(detail.output));
+            }
+        }
+
+        const revContainer = document.getElementById(`revisions-viewer-${stepId}`);
+        if (revContainer && gateInfo && gateInfo.feedback && gateInfo.feedback.revisions) {
+            revContainer.appendChild(createJsonViewer(gateInfo.feedback.revisions));
+        }
     } catch (err) {
         container.innerHTML = `
             <div class="empty-state">
@@ -191,3 +222,96 @@ async function deleteAnnotation(stepId, annIdx) {
         alert(`Error deleting annotation: ${err.message}`);
     }
 }
+
+function renderStructuredOutput(output) {
+    if (!output) return null;
+    
+    // 1. Clip catalog
+    if (output.clip_catalog) {
+        let clips = output.clip_catalog;
+        if (!Array.isArray(clips)) clips = Object.values(clips);
+        
+        let html = '<div style="display:flex; flex-direction:column; gap:16px;">';
+        clips.forEach(clip => {
+            const filename = escapeHtml(clip.filename || clip.clip_id || '');
+            const dur = parseFloat(clip.duration || clip.duration_s || 0).toFixed(2);
+            const res = escapeHtml(clip.resolution || '');
+            const fps = escapeHtml(clip.fps || '');
+            const thumb = `/thumbnails/${encodeURIComponent(clip.clip_id || filename)}`;
+            
+            html += `
+            <div style="display:flex; gap:16px; background:var(--bg-tertiary); padding:12px; border-radius:8px;">
+                <img src="${thumb}" onerror="this.style.display='none'" style="width:120px; height:auto; object-fit:contain; background:#000; border-radius:4px;">
+                <div>
+                    <div style="font-weight:bold; margin-bottom:8px;">${filename}</div>
+                    <table style="font-size:12px; color:var(--text-secondary);">
+                        <tr><td style="padding-right:16px;">Duration:</td><td>${dur}s</td></tr>
+                        <tr><td style="padding-right:16px;">Resolution:</td><td>${res}</td></tr>
+                        <tr><td style="padding-right:16px;">FPS:</td><td>${fps}</td></tr>
+                    </table>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return div;
+    }
+    
+    // 2. Speech sequence
+    if (output.speech_sequence || output.sequence) {
+        let seq = output.speech_sequence || output.sequence;
+        if (!Array.isArray(seq)) seq = Object.values(seq);
+        
+        let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+        seq.forEach((item) => {
+            const start = parseFloat(item.start || item.timeline_start || 0).toFixed(2);
+            const end = parseFloat(item.end || item.timeline_end || 0).toFixed(2);
+            const text = escapeHtml(item.text || '');
+            html += `
+            <div style="background:var(--bg-tertiary); padding:12px; border-radius:8px; border-left: 4px solid var(--accent-cyan);">
+                <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">${start}s - ${end}s</div>
+                <div>${text}</div>
+            </div>`;
+        });
+        html += '</div>';
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return div;
+    }
+    
+    // 3. Timeline / A-roll / B-roll
+    if (output.a_roll_assignments || output.b_roll_assignments || output.timeline) {
+        let items = output.a_roll_assignments || output.b_roll_assignments || output.timeline;
+        if (!Array.isArray(items)) items = Object.values(items);
+        
+        let html = '<table style="width:100%; border-collapse:collapse; text-align:left; font-size:13px;">';
+        html += `<tr style="border-bottom:1px solid var(--border-primary); color:var(--text-muted);">
+            <th style="padding:8px;">Clip</th>
+            <th style="padding:8px;">Start</th>
+            <th style="padding:8px;">End</th>
+            <th style="padding:8px;">Text/Notes</th>
+        </tr>`;
+        
+        items.forEach(item => {
+            const clip = escapeHtml(item.clip_id || item.filename || '');
+            const start = parseFloat(item.timeline_start || item.start || 0).toFixed(2);
+            const end = parseFloat(item.timeline_end || item.end || 0).toFixed(2);
+            const text = escapeHtml(item.text || item.notes || '');
+            
+            html += `<tr style="border-bottom:1px solid var(--border-primary);">
+                <td style="padding:8px; color:var(--accent-cyan);">${clip}</td>
+                <td style="padding:8px;">${start}s</td>
+                <td style="padding:8px;">${end}s</td>
+                <td style="padding:8px;">${text}</td>
+            </tr>`;
+        });
+        html += '</table>';
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return div;
+    }
+    
+    return null;
+}
+
