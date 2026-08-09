@@ -122,10 +122,12 @@ def compile_manifest(out_dir: str) -> dict:
     spine = spine_data.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0
-    fps = spine.get("frame_rate", 30.0)
 
     # Build clip_id → source_file lookup from catalog
     catalog_data = load(out_dir, "step_1_02.json")
+    fps = catalog_data.get("project_fps", spine.get("frame_rate", 30.0))
+    proj_res = catalog_data.get("project_resolution", [1080, 1920])
+    
     clip_lookup = {}
     clip_metadata = {}
     for clip in catalog_data.get("clip_catalog", []):
@@ -170,9 +172,9 @@ def compile_manifest(out_dir: str) -> dict:
         if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
             directives["magic_mask"] = True
             
-        width = meta.get("width", 1080)
-        height = meta.get("height", 1920)
-        proj_w, proj_h = 1080, 1920
+        width = meta.get("width", proj_res[0])
+        height = meta.get("height", proj_res[1])
+        proj_w, proj_h = proj_res[0], proj_res[1]
         proj_max = max(proj_w, proj_h)
         clip_max = max(width, height)
         # If low res
@@ -541,7 +543,7 @@ def compile_manifest(out_dir: str) -> dict:
     manifest = {
         "project": {
             "name": "Pipeline_Edit",
-            "resolution": [1080, 1920],
+            "resolution": proj_res,
             "frame_rate": fps,
             "duration_seconds": round(total_duration, 2),
         },
@@ -632,7 +634,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     spine = inputs.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0
-    fps = spine.get("frame_rate", 30.0)
+    fps = inputs.get("project_fps", spine.get("frame_rate", 30.0))
+    proj_res = inputs.get("project_resolution", [1080, 1920])
 
     # Build clip lookup from a_roll_assignments
     clip_lookup = {}
@@ -687,9 +690,9 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
             directives["magic_mask"] = True
             
-        width = meta.get("width", 1080)
-        height = meta.get("height", 1920)
-        proj_w, proj_h = 1080, 1920
+        width = meta.get("width", proj_res[0])
+        height = meta.get("height", proj_res[1])
+        proj_w, proj_h = proj_res[0], proj_res[1]
         proj_max = max(proj_w, proj_h)
         clip_max = max(width, height)
         if clip_max < proj_max * 0.8:
@@ -925,7 +928,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     manifest = {
         "project": {
             "name": "Pipeline_Edit",
-            "resolution": [1080, 1920],
+            "resolution": proj_res,
             "frame_rate": fps,
             "duration_seconds": round(total_duration, 2),
         },

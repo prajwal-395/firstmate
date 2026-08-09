@@ -94,8 +94,10 @@ def main():
     os.makedirs(sub_output_dir, exist_ok=True)
 
     # Generate per-block props
-    fps = 30
-    props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps)
+    fps = data.get("project_fps", 30)
+    width = data.get("project_resolution", [1080, 1920])[0]
+    height = data.get("project_resolution", [1080, 1920])[1]
+    props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps, width=width, height=height)
 
     if not props_list:
         print("WARNING: No subtitle blocks to render", file=sys.stderr)

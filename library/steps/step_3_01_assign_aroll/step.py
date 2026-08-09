@@ -20,10 +20,10 @@ TARGET_HEIGHT = 1920
 TARGET_FRAME_RATE = 30.0
 
 
-def needs_conform(clip: dict) -> bool:
+def needs_conform(clip: dict, target_width: int, target_height: int, target_fps: float) -> bool:
     """
     Check if a clip needs conforming to target output specs.
-    True if resolution, frame rate, or rotation differs from 1080x1920 portrait.
+    True if resolution, frame rate, or rotation differs from target.
     """
     w = clip.get("width", 0)
     h = clip.get("height", 0)
@@ -35,14 +35,14 @@ def needs_conform(clip: dict) -> bool:
         # Swap width/height for rotated clips
         w, h = h, w
 
-    if w != TARGET_WIDTH or h != TARGET_HEIGHT:
+    if w != target_width or h != target_height:
         return True
-    if fps and abs(fps - TARGET_FRAME_RATE) > 0.1:
+    if fps and abs(fps - target_fps) > 0.1:
         return True
     return False
 
 
-def assign_a_roll(audio_spine: dict, clip_catalog: list) -> dict:
+def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 1080, target_height: int = 1920, target_fps: float = 30.0) -> dict:
     """
     Map speech blocks and hook to their A-roll video source files.
     """
@@ -86,7 +86,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list) -> dict:
                 "height": clip.get("height"),
                 "frame_rate": clip.get("frame_rate"),
                 "rotation": clip.get("rotation", 0),
-                "needs_conform": needs_conform(clip),
+                "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
             }
 
         elif block_type == "speech":
@@ -132,7 +132,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list) -> dict:
                     "height": clip.get("height"),
                     "frame_rate": clip.get("frame_rate"),
                     "rotation": clip.get("rotation", 0),
-                    "needs_conform": needs_conform(clip),
+                    "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
                 })
 
             # --- Hook overlap guard ---
@@ -231,9 +231,13 @@ def main():
     input_data = json.loads(sys.stdin.read())
     audio_spine = input_data["audio_spine"]
     clip_catalog = input_data["clip_catalog"]
+    
+    target_fps = input_data.get("project_fps", 30.0)
+    target_width = input_data.get("project_resolution", [1080, 1920])[0]
+    target_height = input_data.get("project_resolution", [1080, 1920])[1]
 
     try:
-        result = assign_a_roll(audio_spine, clip_catalog)
+        result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps)
     except ValueError as e:
         print(json.dumps({"error": str(e), "step": "3.1_assign_aroll"}))
         sys.exit(1)

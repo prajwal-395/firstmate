@@ -243,6 +243,22 @@ def catalog_footage(raw_footage_files: list) -> dict:
         entry["clip_id"] = f"clip_{i + 1:03d}"
         entry["source_order"] = i + 1
 
+    # --- Derive project fps and resolution ---
+    fps_counts = {}
+    res_counts = {}
+    for entry in entries:
+        fps = entry.get("frame_rate")
+        if fps:
+            fps_counts[fps] = fps_counts.get(fps, 0) + 1
+        w = entry.get("width")
+        h = entry.get("height")
+        if w and h:
+            res = (w, h)
+            res_counts[res] = res_counts.get(res, 0) + 1
+            
+    project_fps = max(fps_counts, key=fps_counts.get) if fps_counts else 30.0
+    project_res = list(max(res_counts, key=res_counts.get)) if res_counts else [1080, 1920]
+
     # --- Verification ---
     # No null values for critical fields
     for entry in entries:
@@ -263,6 +279,8 @@ def catalog_footage(raw_footage_files: list) -> dict:
         "clip_catalog": entries,
         "total_clips": len(entries),
         "skipped_files": skipped,
+        "project_fps": project_fps,
+        "project_resolution": project_res,
     }
 
 
