@@ -302,6 +302,9 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         step_inputs = [inp.get("name") for inp in manifest.get("interface", {}).get("inputs", [])]
         brand_template_path = state.get("brand_template")
         
+        if "sfx_library" in step_inputs and "sfx_library" in state:
+            inputs["sfx_library"] = state["sfx_library"]
+            
         if brand_template_path or any(x in step_inputs for x in ["brand_style", "brand_effect", "brand_content"]):
             try:
                 import sys
@@ -355,8 +358,8 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
 
 
 @step_timer(step_id_kwarg="node_id")
-def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None) -> dict:
-    """Present an LLM step and execute it using LLMClient.
+def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300) -> dict:
+    """Present an LLM step and execute it using LLMClient or AGY backend.
     
     In automated mode, this calls the LLM and returns the parsed output.
     """
@@ -400,6 +403,75 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         
     full_prompt = prompt + constraints + "\n\nContext:\n" + toon_str
     
+    if full_auto == "agy":
+        import datetime
+        from pathlib import Path
+        project_folder = inputs.get("project_folder", "")
+        if not project_folder:
+            raise LLMError("project_folder required in inputs for agy backend")
+            
+        requests_dir = Path(project_folder) / "pipeline_output" / "llm_requests"
+        responses_dir = Path(project_folder) / "pipeline_output" / "llm_responses"
+        requests_dir.mkdir(parents=True, exist_ok=True)
+        responses_dir.mkdir(parents=True, exist_ok=True)
+        
+        req_file = requests_dir / f"{node_id}.json"
+        res_file = responses_dir / f"{node_id}.json"
+        
+        if res_file.exists():
+            res_file.unlink()
+            
+        expected_schema_str = ""
+        if manifest:
+            outputs = manifest.get("interface", {}).get("outputs", [])
+            expected_schema_str = json.dumps(outputs)
+            
+        req_data = {
+            "step_id": node_id,
+            "prompt": prompt,
+            "context": toon_str,
+            "expected_schema": expected_schema_str,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }
+        
+        with open(req_file, "w") as f:
+            json.dump(req_data, f, indent=2)
+            
+        print(f"LLM_REQUEST_READY: {req_file}", file=sys.stdout)
+        sys.stdout.flush()
+        
+        print(f"  Waiting for AGY response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
+        start_wait = time.time()
+        start_time_llm = time.time()
+        
+        while time.time() - start_wait < llm_timeout:
+            if res_file.exists():
+                time.sleep(0.5) # allow write flush
+                try:
+                    with open(res_file, "r") as f:
+                        res_content = f.read()
+                    res_json = json.loads(res_content)
+                except Exception as e:
+                    raise LLMError(f"Failed to read or parse AGY LLM response as JSON: {e}")
+                    
+                if logger:
+                    response_tokens = len(res_content.split()) * 1.3
+                    logger.log(
+                        step_id=node_id,
+                        event_type="llm_generation",
+                        backend="agy",
+                        latency=round(time.time() - start_time_llm, 2),
+                        token_count={
+                            "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
+                            "response": int(response_tokens)
+                        }
+                    )
+                return res_json
+                
+            time.sleep(2)
+            
+        raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
+
     llm_config = {}
     if manifest and "llm_config" in manifest:
         llm_config = manifest["llm_config"]
@@ -413,8 +485,37 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     client = LLMClient(provider, model, temperature=temperature, max_output_tokens=max_output_tokens)
     
     print(f"  Calling LLM ({provider}/{model}) for {node_id}...", file=sys.stderr)
-    result_text = client.generate(full_prompt)
+    start_time_llm = time.time()
+    result_text = client.generate(full_prompt, system="You are a video editor and pipeline orchestrator.")
+    latency = time.time() - start_time_llm
     
+    if full_auto == "api":
+        if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
+            raise LLMError("API call failed or returned empty response.")
+            
+        if logger:
+            response_tokens = len(result_text.split()) * 1.3
+            logger.log(
+                step_id=node_id,
+                event_type="llm_generation",
+                backend="api",
+                latency=round(latency, 2),
+                token_count={
+                    "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
+                    "response": int(response_tokens)
+                }
+            )
+            
+        try:
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
+            if json_match:
+                result_json = json_match.group(1)
+            else:
+                result_json = result_text
+            return json.loads(result_json)
+        except Exception as e:
+            raise LLMError(f"Failed to parse LLM JSON output from API: {e}\nRaw output: {result_text[:200]}")
+
     if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
         print(f"\n{'─'*60}", file=sys.stderr)
         print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
@@ -477,7 +578,7 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
         )
 
 @step_timer(step_id_kwarg="node_id")
-def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict = None) -> dict:
+def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300) -> dict:
     """Run a hybrid step: pre-bridge handles context compression, LLM makes creative decision,
     and post-bridge resolves numerical constraints."""
     pre_bridge = step_dir / "bridge.py"
@@ -494,7 +595,7 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     
     # LLM creative decision on compressed context
     try:
-        llm_output = present_llm_step(prompt_path, compressed, node_id, manifest)
+        llm_output = present_llm_step(prompt_path, compressed, node_id, manifest, full_auto, llm_timeout)
     except Exception as e:
         raise LLMError(f"LLM generation failed: {e}")
     
@@ -521,6 +622,8 @@ def run_pipeline(
     auto_mode: bool = False,
     review_mode: bool = False,
     resume_mode: bool = False,
+    full_auto: str = None,
+    llm_timeout: int = 300,
 ):
     """Execute the pipeline DAG."""
     # Initialize logger
@@ -644,10 +747,10 @@ def run_pipeline(
                         else:
                             return inputs, False
                     else:
-                        output = run_hybrid_step(impl["step_dir"], inputs, node_id, impl.get("manifest"))
+                        output = run_hybrid_step(impl["step_dir"], inputs, node_id, impl.get("manifest"), full_auto, llm_timeout)
                         return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
                 elif impl["type"] == "llm_only":
-                    output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"))
+                    output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"), full_auto=full_auto, llm_timeout=llm_timeout)
                     return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
                 else:
                     raise RuntimeError(f"Unknown implementation type: {impl['type']}")
@@ -797,6 +900,10 @@ def main():
                        help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
     parser.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
+    parser.add_argument("--full-auto", choices=["agy", "api"],
+                       help="Run full pipeline autonomously using specified LLM backend")
+    parser.add_argument("--llm-timeout", type=int, default=300,
+                       help="Timeout for LLM response in agy backend")
     args = parser.parse_args()
     
     # Resolve project directory from slug if provided
@@ -808,7 +915,6 @@ def main():
         except (ImportError, FileNotFoundError) as e:
             print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
             sys.exit(1)
-    
     run_pipeline(
         project_dir=project_dir,
         from_step=args.from_step,
@@ -817,6 +923,8 @@ def main():
         auto_mode=args.auto,
         review_mode=args.review,
         resume_mode=args.resume,
+        full_auto=args.full_auto,
+        llm_timeout=args.llm_timeout,
     )
 
 
