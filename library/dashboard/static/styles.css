@@ -713,7 +713,15 @@ body {
 }
 
 .timeline-block.music {
-    background: var(--color-revise);
+    background: rgba(158, 106, 3, 0.4);
+    border-left: 3px solid var(--color-revise);
+    color: var(--text-primary);
+}
+
+.timeline-block.a_roll_audio {
+    background: rgba(88, 166, 255, 0.4);
+    border-left: 3px solid var(--accent-blue);
+    color: var(--text-primary);
 }
 
 .timeline-empty {

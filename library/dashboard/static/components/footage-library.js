@@ -5,14 +5,17 @@
  * duration, mood tags, and interest scores. Supports annotation tagging.
  */
 
+let footageFilters = { search: '', mood: '', object: '' };
+let currentClips = [];
+
 async function renderFootageLibrary() {
     const container = document.getElementById('footage-content');
     container.innerHTML = '<div class="empty-state"><div class="empty-state-text">Loading clips...</div></div>';
 
     try {
-        const clips = await api('/clips');
+        currentClips = await api('/clips');
 
-        if (!clips.length) {
+        if (!currentClips.length) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">&#127909;</div>
@@ -24,16 +27,33 @@ async function renderFootageLibrary() {
             return;
         }
 
-        let html = '';
-
-        // Sort by interest score (highest first)
-        const sorted = [...clips].sort((a, b) => (b.interest_score || 0) - (a.interest_score || 0));
-
-        for (const clip of sorted) {
-            html += renderClipCard(clip);
+        const moods = new Set();
+        const objects = new Set();
+        for (const c of currentClips) {
+            (c.mood_tags || []).forEach(m => moods.add(m));
+            (c.detected_objects || []).forEach(o => objects.add(o));
         }
 
+        const moodOpts = Array.from(moods).sort().map(m => `<option value="${escapeHtml(m)}" ${footageFilters.mood === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('');
+        const objOpts = Array.from(objects).sort().map(o => `<option value="${escapeHtml(o)}" ${footageFilters.object === o ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
+
+        let html = `
+            <div style="margin-bottom: 16px; display: flex; gap: 8px;">
+                <input type="text" id="footage-search" placeholder="Search clips (ID, tags, transcript)..." style="flex: 1; padding: 6px 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); color: var(--text-primary);" value="${escapeHtml(footageFilters.search)}" oninput="footageFilters.search = this.value; filterFootage()">
+                <select id="footage-mood" class="btn" style="background: var(--bg-tertiary);" onchange="footageFilters.mood = this.value; filterFootage()">
+                    <option value="">All Moods</option>
+                    ${moodOpts}
+                </select>
+                <select id="footage-object" class="btn" style="background: var(--bg-tertiary);" onchange="footageFilters.object = this.value; filterFootage()">
+                    <option value="">All Objects</option>
+                    ${objOpts}
+                </select>
+            </div>
+            <div id="footage-grid-content" class="footage-grid"></div>
+        `;
+
         container.innerHTML = html;
+        filterFootage();
 
     } catch (err) {
         container.innerHTML = `
@@ -42,6 +62,34 @@ async function renderFootageLibrary() {
             </div>
         `;
     }
+}
+
+function filterFootage() {
+    const container = document.getElementById('footage-grid-content');
+    if (!container) return;
+
+    const s = footageFilters.search.toLowerCase();
+    const m = footageFilters.mood;
+    const o = footageFilters.object;
+
+    const filtered = currentClips.filter(c => {
+        if (m && !(c.mood_tags || []).includes(m)) return false;
+        if (o && !(c.detected_objects || []).includes(o)) return false;
+        if (s) {
+            const text = `${c.clip_id} ${(c.mood_tags || []).join(' ')} ${(c.detected_objects || []).join(' ')} ${c.transcript_excerpt || ''}`.toLowerCase();
+            if (!text.includes(s)) return false;
+        }
+        return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => (b.interest_score || 0) - (a.interest_score || 0));
+    
+    if (!sorted.length) {
+        container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">No clips match the filters.</div>';
+        return;
+    }
+
+    container.innerHTML = sorted.map(renderClipCard).join('');
 }
 
 function renderClipCard(clip) {

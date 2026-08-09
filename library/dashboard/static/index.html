@@ -65,6 +65,9 @@
             <header id="topbar">
                 <div id="breadcrumb" class="breadcrumb">Pipeline Overview</div>
                 <div class="topbar-actions">
+                    <button id="pipeline-start-btn" class="btn btn-primary" onclick="startPipeline()">&#9654; Start</button>
+                    <button id="pipeline-resume-btn" class="btn btn-primary" onclick="resumePipeline()">&#9654; Resume</button>
+                    <button id="pipeline-pause-btn" class="btn btn-reject" onclick="pausePipeline()">&#10074;&#10074; Pause</button>
                     <button id="refresh-btn" class="btn btn-ghost" onclick="refreshData()">
                         &#8635; Refresh
                     </button>
