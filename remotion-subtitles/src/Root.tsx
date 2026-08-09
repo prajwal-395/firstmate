@@ -5,27 +5,27 @@ import {
   SubtitleOverlay,
   subtitleOverlaySchema,
   type SubtitleOverlayProps,
-} from "./SubtitleOverlay";
+} from "./compositions/SubtitleOverlay";
 import {
   MotionGraphics,
   motionGraphicsSchema,
   type MotionGraphicsProps,
-} from "./MotionGraphics";
+} from "./compositions/MotionGraphics";
 import {
   LucieEndCard,
   lucieEndCardSchema,
   type LucieEndCardProps,
-} from "./LucieEndCard";
+} from "./compositions/LucieEndCard";
 import {
   LucieLogoAnimation,
   lucieLogoAnimationSchema,
   type LucieLogoAnimationProps,
-} from "./LucieLogoAnimation";
+} from "./compositions/LucieLogoAnimation";
 import {
   FourthWallOverlay,
   fourthWallOverlaySchema,
   type FourthWallOverlayProps,
-} from "./FourthWallOverlay";
+} from "./compositions/FourthWallOverlay";
 
 /**
  * Dynamic metadata calculation for SubtitleOverlay — sets duration, fps,
