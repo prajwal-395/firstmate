@@ -23,10 +23,10 @@ import sys
 from datetime import datetime
 
 
-def extract_metadata(filepath: str) -> dict | None:
+def extract_metadata(filepath: str) -> dict:
     """
     Extract technical metadata from a video file using ffprobe.
-    Returns a dict of metadata fields, or None if extraction fails.
+    Returns a dict of metadata fields, or a dict with an 'error' key if extraction fails.
     """
     try:
         result = subprocess.run(
@@ -46,28 +46,22 @@ def extract_metadata(filepath: str) -> dict | None:
         raise RuntimeError(
             "ffprobe not found. Install ffmpeg: brew install ffmpeg"
         )
-    except subprocess.TimeoutExpired:
-        print(
-            f"WARNING: ffprobe timed out for {filepath}",
-            file=sys.stderr,
-        )
-        return None
+    except subprocess.TimeoutExpired as e:
+        err_msg = f"ffprobe timed out after {e.timeout}s"
+        print(f"WARNING: {err_msg} for {filepath}", file=sys.stderr)
+        return {"error": err_msg, "timeout_duration": e.timeout}
 
     if result.returncode != 0:
-        print(
-            f"WARNING: ffprobe failed for {filepath}: {result.stderr[:200]}",
-            file=sys.stderr,
-        )
-        return None
+        err_msg = f"ffprobe failed (exit {result.returncode}): {result.stderr[:200]}"
+        print(f"WARNING: {err_msg} for {filepath}", file=sys.stderr)
+        return {"error": err_msg}
 
     try:
         probe = json.loads(result.stdout)
     except json.JSONDecodeError:
-        print(
-            f"WARNING: ffprobe returned invalid JSON for {filepath}",
-            file=sys.stderr,
-        )
-        return None
+        err_msg = f"ffprobe returned invalid JSON"
+        print(f"WARNING: {err_msg} for {filepath}", file=sys.stderr)
+        return {"error": err_msg}
 
     # Find video and audio streams
     video_stream = None
@@ -79,11 +73,9 @@ def extract_metadata(filepath: str) -> dict | None:
             audio_stream = stream
 
     if not video_stream:
-        print(
-            f"WARNING: No video stream found in {filepath}",
-            file=sys.stderr,
-        )
-        return None
+        err_msg = "No video stream found"
+        print(f"WARNING: {err_msg} in {filepath}", file=sys.stderr)
+        return {"error": err_msg}
 
     fmt = probe.get("format", {})
     fmt_tags = fmt.get("tags", {})
@@ -201,10 +193,12 @@ def catalog_footage(raw_footage_files: list) -> dict:
             continue
 
         metadata = extract_metadata(filepath)
-        if metadata is None:
+        if metadata is None or "error" in metadata:
+            err = metadata.get("error", "metadata extraction failed") if metadata else "metadata extraction failed"
             skipped.append({
                 "path": filepath,
-                "reason": "metadata extraction failed"
+                "reason": err,
+                "timeout_duration": metadata.get("timeout_duration") if metadata else None
             })
             continue
 

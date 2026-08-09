@@ -369,14 +369,19 @@ def run_hybrid_step(bridge_path: str, prompt_path: str, inputs: dict) -> dict:
     )
     
     if result.returncode != 0:
-        print(f"  Bridge stderr: {result.stderr[:300]}", file=sys.stderr)
-        # Bridge failure is non-fatal — fall through to LLM with original inputs
-        enriched = inputs
-    else:
-        try:
-            enriched = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            enriched = inputs
+        raise RuntimeError(
+            f"Bridge failed (exit {result.returncode}):\n"
+            f"  stderr: {result.stderr[:500]}"
+        )
+    
+    try:
+        enriched = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"Bridge produced invalid JSON:\n"
+            f"  stdout: {result.stdout[:500]}\n"
+            f"  stderr: {result.stderr[:500]}"
+        )
     
     return enriched
 
@@ -502,13 +507,13 @@ def run_pipeline(
                 save_pipeline_state(project_dir, state)
                 
                 # Export step output for dashboard review
-                _export_step_for_review(project_dir, node_id, node["name"], output)
+                _export_step_for_review(project_dir, node_id, node["name"], output, state)
                 
                 # Review gate: pause if review mode is enabled
                 if review_mode:
                     _save_review_gate(
                         project_dir, node_id, node["name"],
-                        output, inputs,
+                        output, inputs, state
                     )
                     print(f"     ⏸ Review gate saved. Inspect at dashboard.",
                           file=sys.stderr)
@@ -524,24 +529,9 @@ def run_pipeline(
                 )
                 
                 if auto_mode:
-                    # Fix H1: Bridge output is context prepared for the LLM,
-                    # NOT the final step output.  Storing it verbatim sends
-                    # wrong data shapes downstream.  Mark it clearly so
-                    # consumers can distinguish bridge context from real
-                    # LLM-completed output.
-                    auto_output = {
-                        "__status": "auto_bridge",
-                        "__bridge_context": enriched,
-                        "__note": (
-                            "This is bridge-generated context, not final "
-                            "step output. The LLM interaction was skipped "
-                            "in --auto mode."
-                        ),
-                    }
-                    if isinstance(enriched, dict):
-                        for k, v in enriched.items():
-                            if k not in auto_output:
-                                auto_output[k] = v
+                    # In auto mode, use the bridge output as the final step output,
+                    # without wrapping it in metadata that breaks downstream schema validation.
+                    auto_output = enriched
                     
                     state.setdefault("step_outputs", {})[node_id] = auto_output
                     state.setdefault("steps_completed", {})[node_id] = {
@@ -594,10 +584,10 @@ def run_pipeline(
                                 "elapsed_s": round(elapsed, 1),
                             }
                             save_pipeline_state(project_dir, state)
-                            _export_step_for_review(project_dir, node_id, node["name"], output)
+                            _export_step_for_review(project_dir, node_id, node["name"], output, state)
                             
                             if review_mode:
-                                _save_review_gate(project_dir, node_id, node["name"], output, inputs)
+                                _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
                                 print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
                             
                             success = True
@@ -648,16 +638,21 @@ def run_pipeline(
     return summary
 
 
-def _export_step_for_review(project_dir, step_id, step_name, output):
+def _export_step_for_review(project_dir, step_id, step_name, output, state=None):
     """Export step output for dashboard review (non-critical, best-effort)."""
     try:
         from library.tools.step_exporter import export_step_output
         export_step_output(project_dir, step_id, step_name, output)
     except Exception as e:
-        print(f"     (step export skipped: {e})", file=sys.stderr)
+        import traceback
+        err_msg = f"Dashboard export failed for {step_id}: {e}\n{traceback.format_exc()}"
+        print(f"     ⚠ {err_msg}", file=sys.stderr)
+        if state is not None:
+            state.setdefault("warnings", []).append(err_msg)
+            save_pipeline_state(project_dir, state)
 
 
-def _save_review_gate(project_dir, step_id, step_name, output, inputs):
+def _save_review_gate(project_dir, step_id, step_name, output, inputs, state=None):
     """Save a review gate snapshot (non-critical, best-effort)."""
     try:
         from library.tools.review_gate import save_gate_snapshot
@@ -666,7 +661,12 @@ def _save_review_gate(project_dir, step_id, step_name, output, inputs):
             upstream_context={k: str(type(v).__name__) for k, v in inputs.items()},
         )
     except Exception as e:
-        print(f"     (gate save skipped: {e})", file=sys.stderr)
+        import traceback
+        err_msg = f"Review gate save failed for {step_id}: {e}\n{traceback.format_exc()}"
+        print(f"     ⚠ {err_msg}", file=sys.stderr)
+        if state is not None:
+            state.setdefault("warnings", []).append(err_msg)
+            save_pipeline_state(project_dir, state)
 
 
 def main():
