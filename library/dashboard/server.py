@@ -43,6 +43,8 @@ from library.dashboard.models import (
     TimelineView,
     TranscriptRegion,
     TranscriptView,
+    AgentMessage,
+    UserResponse,
 )
 from library.tools.review_gate import (
     apply_feedback_to_output,
@@ -87,6 +89,45 @@ def _get_project_dir() -> str:
     if not _project_dir:
         raise HTTPException(500, "No project directory configured. Start the server with --project.")
     return _project_dir
+
+
+# Global event for long-polling
+message_response_event = asyncio.Event()
+
+# ── Message Helpers ─────────────────────────────────────────────────
+
+def _messages_dir(project_dir: str) -> Path:
+    p = Path(project_dir) / "pipeline_output" / "messages"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _load_message(project_dir: str, message_id: str) -> Optional[dict]:
+    p = _messages_dir(project_dir) / f"{message_id}.json"
+    if not p.exists():
+        return None
+    with open(p) as f:
+        return json.load(f)
+
+
+def _save_message(project_dir: str, message: dict):
+    p = _messages_dir(project_dir) / f"{message['id']}.json"
+    with open(p, "w") as f:
+        json.dump(message, f, indent=2)
+
+
+def _list_messages(project_dir: str) -> List[dict]:
+    d = _messages_dir(project_dir)
+    if not d.exists():
+        return []
+    messages = []
+    for f in d.glob("*.json"):
+        with open(f) as fp:
+            try:
+                messages.append(json.load(fp))
+            except Exception:
+                pass
+    return sorted(messages, key=lambda x: x.get("created_at", ""), reverse=True)
 
 
 # ── Pipeline State Helpers ──────────────────────────────────────────
@@ -352,6 +393,105 @@ async def gate_action(step_id: str, request: GateActionRequest):
                 _save_pipeline_state(project_dir, state)
 
     return {"status": "ok", "action": request.action.value, "step_id": step_id}
+
+
+# ── Message Endpoints ──────────────────────────────────────────────
+
+@app.post("/api/messages")
+async def create_message(message: AgentMessage):
+    """Agent posts a new message."""
+    project_dir = _get_project_dir()
+    _save_message(project_dir, message.model_dump())
+    return {"status": "ok", "id": message.id}
+
+
+@app.get("/api/messages")
+async def get_messages():
+    """Get all messages."""
+    project_dir = _get_project_dir()
+    return _list_messages(project_dir)
+
+
+@app.get("/api/messages/pending")
+async def get_pending_messages():
+    """Get messages awaiting user response."""
+    project_dir = _get_project_dir()
+    msgs = _list_messages(project_dir)
+    return [m for m in msgs if m.get("requires_response") and not m.get("responded_at")]
+
+
+@app.post("/api/messages/{message_id}/respond")
+async def respond_to_message(message_id: str, response: UserResponse):
+    """User submits a response to a message."""
+    project_dir = _get_project_dir()
+    msg = _load_message(project_dir, message_id)
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    
+    msg["responded_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    msg["response"] = response.model_dump()
+    _save_message(project_dir, msg)
+    
+    # Notify pollers
+    message_response_event.set()
+    message_response_event.clear()
+    
+    # Sync gate status if this is a decision tied to a step
+    step_id = msg.get("step_id")
+    if step_id and msg.get("type") == "decision":
+        mapped_action = "approved"
+        if response.action == "reject":
+            mapped_action = "rejected"
+        elif response.action in ("revise", "comment", "choose"):
+            mapped_action = "revised"
+            
+        save_gate_feedback(
+            project_dir,
+            step_id,
+            action=mapped_action,
+            feedback=response.comment or "",
+            revisions=response.annotations or {}
+        )
+        
+        # Apply feedback if approved or revised
+        if mapped_action in ("approved", "revised"):
+            state = _load_pipeline_state(project_dir)
+            outputs = state.get("step_outputs", {})
+            step_output = outputs.get(step_id, {})
+
+            if mapped_action == "revised" and response.annotations:
+                feedback = load_gate_feedback(project_dir, step_id)
+                if feedback:
+                    merged = apply_feedback_to_output(step_output, feedback)
+                    outputs[step_id] = merged
+                    state["step_outputs"] = outputs
+                    _save_pipeline_state(project_dir, state)
+
+    return {"status": "ok"}
+
+
+@app.get("/api/messages/poll")
+async def poll_messages(message_id: Optional[str] = None, timeout: int = 300):
+    """Long-poll endpoint that blocks until a response exists."""
+    project_dir = _get_project_dir()
+    
+    # Check if already responded
+    if message_id:
+        msg = _load_message(project_dir, message_id)
+        if msg and msg.get("response"):
+            return msg.get("response")
+
+    try:
+        await asyncio.wait_for(message_response_event.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return {"status": "timeout"}
+    
+    if message_id:
+        msg = _load_message(project_dir, message_id)
+        if msg and msg.get("response"):
+            return msg.get("response")
+    
+    return {"status": "event_fired"}
 
 
 # ── Annotation Endpoints ──────────────────────────────────────────

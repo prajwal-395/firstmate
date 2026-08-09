@@ -29,6 +29,10 @@
                 <button class="nav-item active" data-view="pipeline" onclick="navigate('pipeline')">
                     <span class="nav-icon">&#9654;</span> Pipeline
                 </button>
+                <button class="nav-item" data-view="messages" onclick="navigate('messages')">
+                    <span class="nav-icon">&#128233;</span> Messages
+                    <span id="messages-badge" class="nav-badge" style="display: none">0</span>
+                </button>
                 <button class="nav-item" data-view="footage" onclick="navigate('footage')">
                     <span class="nav-icon">&#127909;</span> Footage Library
                 </button>
@@ -77,6 +81,10 @@
             <!-- Content views (one visible at a time) -->
             <div id="view-pipeline" class="view active">
                 <div id="pipeline-content" class="pipeline-grid"></div>
+            </div>
+
+            <div id="view-messages" class="view">
+                <div id="messages-content" class="messages-container"></div>
             </div>
 
             <div id="view-footage" class="view">
@@ -143,6 +151,7 @@
     <script src="/static/components/footage-library.js"></script>
     <script src="/static/components/timeline-view.js"></script>
     <script src="/static/components/gate-controls.js"></script>
+    <script src="/static/components/message-feed.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>
