@@ -103,21 +103,12 @@ Once you've chosen a candidate clip and the target scene segment:
 
 ```json
 {
-  "b_roll_assignments": [
+  "broll_creative": [
     {
       "spine_block_position": 2,
-      "block_type": "intro",
-      "timeline_start": 2.0,
-      "timeline_end": 5.0,
-      "assigned_clip": {
-        "clip_id": "string",
-        "source_file": "string",
-        "video_in": 0.0,
-        "video_out": 3.0,
-        "duration_seconds": 3.0,
-        "needs_conform": true,
-        "selection_rationale": "string"
-      }
+      "clip_id": "string",
+      "preferred_moment": "string (description of the moment in the clip)",
+      "selection_rationale": "string"
     }
   ],
   "b_roll_interjections": [
@@ -194,7 +185,7 @@ creative selections.
 | Reads | `a_roll_assignments` (what's already placed — avoid conflicts) |
 | Reads | `creative_direction` (mood/energy guidance) |
 | Reads | `style_specification` |
-| Writes | `b_roll_assignments` |
+| Writes | `broll_creative` |
 | Writes | `b_roll_interjections` |
 
 ---

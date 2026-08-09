@@ -336,17 +336,51 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    _require_keys(data, ["broll_creative", "clip_catalog", "semantic_analysis_documents"], "Input data")
+    _require_keys(data, ["clip_catalog", "semantic_analysis_documents"], "Input data")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
-    if not isinstance(data["broll_creative"], list):
-        raise ValueError("broll_creative must be a list")
-    for broll in data["broll_creative"]:
+
+    broll_creative = data.get("broll_creative", [])
+    if not isinstance(broll_creative, list):
+        broll_creative = []
+
+    # Deterministic fallback if LLM response is empty/missing
+    if not broll_creative:
+        toon_data = data.get("broll_candidates_toon", "")
+        if toon_data:
+            lines = toon_data.strip().split("\n")
+            if len(lines) > 1:
+                slots = set()
+                for line in lines[1:]:
+                    parts = line.split("\t")
+                    if len(parts) >= 2:
+                        slot_id = parts[0]
+                        clip_id = parts[1]
+                        if slot_id not in slots:
+                            slots.add(slot_id)
+                            try:
+                                parsed_slot = int(slot_id)
+                            except ValueError:
+                                parsed_slot = slot_id
+                            broll_creative.append({
+                                "clip_id": clip_id,
+                                "spine_block_position": parsed_slot,
+                                "preferred_moment": "",
+                                "selection_rationale": "Fallback selection due to empty LLM response"
+                            })
+
+    if not broll_creative:
+        print(json.dumps({
+            "error": "Missing: broll_creative",
+            "step": "3.2_bridge",
+        }))
+        sys.exit(1)
+
+    for broll in broll_creative:
         if not isinstance(broll, dict):
             raise ValueError("Items in broll_creative must be dictionaries")
         _require_keys(broll, ["clip_id", "spine_block_position"], "broll_creative item")
 
-    broll_creative = data.get("broll_creative", [])
     clip_catalog = data.get("clip_catalog", [])
     semantic_docs = data.get("semantic_analysis_documents", [])
     temporal_raw = data.get("temporal_event_indices", [])
@@ -355,13 +389,6 @@ def main():
     
     target_width = data.get("project_resolution", [1080, 1920])[0]
     target_height = data.get("project_resolution", [1080, 1920])[1]
-
-    if not broll_creative:
-        print(json.dumps({
-            "error": "Missing: broll_creative",
-            "step": "3.2_bridge",
-        }))
-        sys.exit(1)
 
     result = resolve_broll(
         broll_creative, clip_catalog, semantic_docs,
