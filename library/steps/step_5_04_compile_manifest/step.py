@@ -35,57 +35,6 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
 
 
 
-
-def _match_sfx_file(sfx_type, sfx_index_entries):
-    """Match sfx_type to an actual audio file from the library.
-
-    Uses keyword matching against descriptions, folder categories,
-    and filenames. Returns (file_path, duration) or (None, None).
-    """
-    if not sfx_index_entries:
-        return None, None
-
-    # Type → search keywords mapping
-    type_keywords = {
-        "whoosh":         ["whoosh", "swish", "air", "wind", "sweep"],
-        "swish":          ["swish", "whoosh", "sweep"],
-        "bass_impact":    ["impact", "bass", "hit", "boom", "thud",
-                           "punch", "slam"],
-        "riser":          ["riser", "rise", "swell", "build", "tension"],
-        "click":          ["click", "tick", "tap", "snap"],
-        "tick":           ["tick", "click", "tap"],
-        "reverse_cymbal": ["reverse", "cymbal", "crash"],
-        "swell":          ["swell", "pad", "atmosphere", "rise"],
-    }
-    keywords = type_keywords.get(sfx_type, [sfx_type])
-
-    # Score each candidate
-    best_score = 0
-    best_entry = None
-    for entry in sfx_index_entries:
-        score = 0
-        desc = (entry.get("description", "") or "").lower()
-        cat = (entry.get("folder_category", "") or "").lower()
-        fname = (entry.get("file", "") or "").lower()
-        searchable = f"{desc} {cat} {fname}"
-
-        for kw in keywords:
-            if kw in searchable:
-                score += 1
-
-        if score > best_score:
-            best_score = score
-            best_entry = entry
-
-    if best_entry and best_score > 0:
-        path = best_entry.get("path", "")
-        dur = (best_entry.get("technical", {})
-               .get("basic", {}).get("duration", 0.5))
-        return path, dur
-
-    return None, None
-
-
 def _resolve_source(block_or_clip: dict, clip_lookup: dict) -> str:
     """Resolve source_file from source_file field or clip_id lookup.
 
@@ -146,17 +95,54 @@ def load(out_dir, filename):
     return {}
 
 
+def _match_sfx_file(sfx_type, sfx_index_entries):
+    """Match sfx_type to an actual audio file from the library.
 
-def _verify_overlay(overlay_dict):
-    if not overlay_dict or not isinstance(overlay_dict, dict):
-        return {"available": False, "segments": []}
-    if overlay_dict.get("segments"):
-        valid_segments = [s for s in overlay_dict["segments"] if os.path.exists(s.get("overlay_path", ""))]
-        overlay_dict["segments"] = valid_segments
-        overlay_dict["available"] = len(valid_segments) > 0
-    else:
-        overlay_dict["available"] = False
-    return overlay_dict
+    Uses keyword matching against descriptions, folder categories,
+    and filenames. Returns (file_path, duration) or (None, None).
+    """
+    if not sfx_index_entries:
+        return None, None
+
+    # Type → search keywords mapping
+    type_keywords = {
+        "whoosh":         ["whoosh", "swish", "air", "wind", "sweep"],
+        "swish":          ["swish", "whoosh", "sweep"],
+        "bass_impact":    ["impact", "bass", "hit", "boom", "thud",
+                           "punch", "slam"],
+        "riser":          ["riser", "rise", "swell", "build", "tension"],
+        "click":          ["click", "tick", "tap", "snap"],
+        "tick":           ["tick", "click", "tap"],
+        "reverse_cymbal": ["reverse", "cymbal", "crash"],
+        "swell":          ["swell", "pad", "atmosphere", "rise"],
+    }
+    keywords = type_keywords.get(sfx_type, [sfx_type])
+
+    # Score each candidate
+    best_score = 0
+    best_entry = None
+    for entry in sfx_index_entries:
+        score = 0
+        desc = (entry.get("description", "") or "").lower()
+        cat = (entry.get("folder_category", "") or "").lower()
+        fname = (entry.get("file", "") or "").lower()
+        searchable = f"{desc} {cat} {fname}"
+
+        for kw in keywords:
+            if kw in searchable:
+                score += 1
+
+        if score > best_score:
+            best_score = score
+            best_entry = entry
+
+    if best_entry and best_score > 0:
+        path = best_entry.get("path", "")
+        dur = (best_entry.get("technical", {})
+               .get("basic", {}).get("duration", 0.5))
+        return path, dur
+
+    return None, None
 
 def compile_manifest(out_dir: str) -> dict:
     # Load pipeline step outputs
@@ -173,7 +159,6 @@ def compile_manifest(out_dir: str) -> dict:
     color_data = load(out_dir, "step_5_01.json")
     audio_mix_data = load(out_dir, "step_5_02.json")
     semantic_data = load(out_dir, "step_1_03.json")
-    temporal_data = load(out_dir, "step_1_04.json")
 
     # Subtitle overlay from step 4.05 (Remotion render)
     subtitle_overlay_data = load(out_dir, "step_4_05.json")
@@ -219,23 +204,12 @@ def compile_manifest(out_dir: str) -> dict:
         semantic_clips = semantic_data["semantic_analysis"]
     semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
 
-    temporal_data = inputs.get("temporal_index", {})
-    if isinstance(temporal_data, list):
-        temporal_indices = temporal_data
-    else:
-        temporal_indices = temporal_data.get("temporal_event_indices", [])
-    temporal_lookup = {c.get("clip_id"): c for c in temporal_indices}
-
-    temporal_indices = temporal_data.get("temporal_event_indices", [])
-    temporal_lookup = {c.get("clip_id"): c for c in temporal_indices}
-
     neural_engine_directives = {}
 
     def compute_neural_directives(clip_id, clip_entry):
         directives = {}
         sem = semantic_lookup.get(clip_id, {})
         meta = clip_metadata.get(clip_id, {})
-        temp = temporal_lookup.get(clip_id, {})
         
         # Determine tags/description
         tags = sem.get("tags", []) + sem.get("keywords", [])
@@ -244,20 +218,6 @@ def compile_manifest(out_dir: str) -> dict:
         
         if "handheld" in text_data or "shaky" in text_data:
             directives["stabilize"] = True
-            
-        index_path = temp.get("index_path", "")
-        if index_path and os.path.exists(index_path):
-            try:
-                with open(index_path) as f:
-                    clip_index = json.load(f)
-                motion_energy = clip_index.get("motion_energy", {})
-                values = motion_energy.get("values", [])
-                if values:
-                    avg_motion = sum(values) / len(values)
-                    if avg_motion > 0.5:
-                        directives["stabilize"] = True
-            except (json.JSONDecodeError, IOError):
-                pass
             
         if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
             directives["magic_mask"] = True
@@ -469,45 +429,6 @@ def compile_manifest(out_dir: str) -> dict:
                 pass
 
 
-        # Type → search keywords mapping
-        type_keywords = {
-            "whoosh":         ["whoosh", "swish", "air", "wind", "sweep"],
-            "swish":          ["swish", "whoosh", "sweep"],
-            "bass_impact":    ["impact", "bass", "hit", "boom", "thud",
-                               "punch", "slam"],
-            "riser":          ["riser", "rise", "swell", "build", "tension"],
-            "click":          ["click", "tick", "tap", "snap"],
-            "tick":           ["tick", "click", "tap"],
-            "reverse_cymbal": ["reverse", "cymbal", "crash"],
-            "swell":          ["swell", "pad", "atmosphere", "rise"],
-        }
-        keywords = type_keywords.get(sfx_type, [sfx_type])
-
-        # Score each candidate
-        best_score = 0
-        best_entry = None
-        for entry in sfx_index_entries:
-            score = 0
-            desc = (entry.get("description", "") or "").lower()
-            cat = (entry.get("folder_category", "") or "").lower()
-            fname = (entry.get("file", "") or "").lower()
-            searchable = f"{desc} {cat} {fname}"
-
-            for kw in keywords:
-                if kw in searchable:
-                    score += 1
-
-            if score > best_score:
-                best_score = score
-                best_entry = entry
-
-        if best_entry and best_score > 0:
-            path = best_entry.get("path", "")
-            dur = (best_entry.get("technical", {})
-                   .get("basic", {}).get("duration", 0.5))
-            return path, dur
-
-        return None, None
 
     # Compile SFX into builder-compatible format
     a3_clips = []
@@ -623,15 +544,6 @@ def compile_manifest(out_dir: str) -> dict:
         "fairlight_preset": audio_preset,
     }
 
-    music_automation = audio_mix_data.get("audio_mix_spec", {}).get("music_automation", [])
-    if music_automation:
-        music_ducking_config = {"ducking_curves": music_automation}
-    else:
-        music_ducking_config = sfx_ducking or {
-            "speech_volume_db": -18,
-            "gap_volume_db": -10,
-        }
-
     # ── Compile ──
     manifest = {
         "project": {
@@ -662,7 +574,7 @@ def compile_manifest(out_dir: str) -> dict:
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
-        "sfx": sfx_list,  # all SFX entries (for render step)
+        "sfx": sfx_passthrough,  # unresolved SFX entries (for reference)
         "fusion_effects": {
             "per_clip": per_clip_effects,
             "transitions": fusion_transitions,
@@ -671,7 +583,10 @@ def compile_manifest(out_dir: str) -> dict:
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
-        "music_ducking": music_ducking_config,
+        "music_ducking": sfx_ducking or {
+            "speech_volume_db": -18,
+            "gap_volume_db": -10,
+        },
         "_spine_blocks": [
             {
                 "timeline_start": b.get("timeline_start", 0),
@@ -682,8 +597,10 @@ def compile_manifest(out_dir: str) -> dict:
             }
             for b in structure
         ],
-        "subtitle_overlay": _verify_overlay(subtitle_overlay_data.get("subtitle_overlay", {})),
-        "motion_graphics_overlay": _verify_overlay(motion_graphics_overlay_data.get("motion_graphics_overlay", {})),
+        "subtitle_overlay": subtitle_overlay_data.get(
+            "subtitle_overlay", {}),
+        "motion_graphics_overlay": motion_graphics_overlay_data.get(
+            "motion_graphics_overlay", {}),
     }
 
     # Print summary
@@ -786,45 +703,19 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         semantic_clips = semantic_data.get("clips", [])
     semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
 
-    temporal_data = inputs.get("temporal_index", {})
-    if isinstance(temporal_data, list):
-        temporal_indices = temporal_data
-    else:
-        temporal_indices = temporal_data.get("temporal_event_indices", [])
-    temporal_lookup = {c.get("clip_id"): c for c in temporal_indices}
-
-    temporal_indices = temporal_data.get("temporal_event_indices", [])
-    temporal_lookup = {c.get("clip_id"): c for c in temporal_indices}
-
     neural_engine_directives = {}
 
     def compute_neural_directives(clip_id, clip_entry):
         directives = {}
         sem = semantic_lookup.get(clip_id, {})
         meta = clip_metadata.get(clip_id, {})
-        temp = temporal_lookup.get(clip_id, {})
         
-        # Determine tags/description
         tags = sem.get("tags", []) + sem.get("keywords", [])
         description = sem.get("description", "")
         text_data = " ".join(tags).lower() + " " + description.lower()
         
         if "handheld" in text_data or "shaky" in text_data:
             directives["stabilize"] = True
-            
-        index_path = temp.get("index_path", "")
-        if index_path and os.path.exists(index_path):
-            try:
-                with open(index_path) as f:
-                    clip_index = json.load(f)
-                motion_energy = clip_index.get("motion_energy", {})
-                values = motion_energy.get("values", [])
-                if values:
-                    avg_motion = sum(values) / len(values)
-                    if avg_motion > 0.5:
-                        directives["stabilize"] = True
-            except (json.JSONDecodeError, IOError):
-                pass
             
         if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
             directives["magic_mask"] = True
@@ -834,7 +725,6 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         proj_w, proj_h = proj_res[0], proj_res[1]
         proj_max = max(proj_w, proj_h)
         clip_max = max(width, height)
-        # If low res
         if clip_max < proj_max * 0.8:
             directives["super_scale"] = 2
             
@@ -1002,15 +892,6 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "fairlight_preset": audio_preset,
     }
 
-    music_automation = audio_mix_data.get("music_automation", [])
-    if music_automation:
-        music_ducking_config = {"ducking_curves": music_automation}
-    else:
-        music_ducking_config = sfx_ducking or {
-            "speech_volume_db": -18,
-            "gap_volume_db": -10,
-        }
-
     sfx_library_path = os.environ.get("PIPELINE_SFX_LIBRARY", "")
     if not sfx_library_path:
         try:
@@ -1105,7 +986,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
-        "sfx": sfx_list,  # all SFX entries (for render step)
+        "sfx": sfx_passthrough,  # unresolved SFX entries (for reference)
         "fusion_effects": {
             "per_clip": per_clip_effects,
             "transitions": fusion_transitions,
@@ -1114,7 +995,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "audio": audio_config,
         "color_grade": inputs.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data,
-        "music_ducking": music_ducking_config,
+        "music_ducking": sfx_ducking or {
+            "speech_volume_db": -18,
+            "gap_volume_db": -10,
+        },
         "_spine_blocks": [
             {
                 "timeline_start": b.get("timeline_start", 0),
@@ -1125,8 +1009,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             }
             for b in structure
         ],
-        "subtitle_overlay": _verify_overlay(inputs.get("subtitle_overlay", {})),
-        "motion_graphics_overlay": _verify_overlay(inputs.get("motion_graphics_overlay", {})),
+        "subtitle_overlay": inputs.get("subtitle_overlay", {}),
+        "motion_graphics_overlay": inputs.get("motion_graphics_overlay", {}),
     }
 
     errors = validate_manifest(manifest)

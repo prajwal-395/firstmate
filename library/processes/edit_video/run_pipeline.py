@@ -475,6 +475,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             "prompt": prompt,
             "context": toon_str,
             "expected_schema": expected_schema_str,
+            "project_folder": project_folder,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
         
@@ -634,6 +635,8 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
         try:
             pre_output = run_subprocess(pre_bridge, inputs)
             compressed.update(pre_output)
+            if "project_folder" not in compressed or not compressed["project_folder"]:
+                compressed["project_folder"] = inputs.get("project_folder", "")
         except Exception as e:
             raise PreBridgeError(f"Pre-bridge failed: {e}")
     
