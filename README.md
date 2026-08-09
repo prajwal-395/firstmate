@@ -15,7 +15,7 @@ An end-to-end automated video editing pipeline for shortform (30–60s, vertical
 │   └── style_specification.md ← Creator's editing style codified
 │
 ├── library/                   ← Pilot step implementations
-│   ├── steps/                 ← 24 atomic steps (phases 0–6)
+│   ├── steps/                 ← 28 atomic steps (phases 0–6)
 │   ├── processes/edit_video/  ← DAG + manifest for the full pipeline
 │   └── tools/                 ← Video-specific utilities
 │       ├── frame_utils.py     ← Frame/seconds conversion (single rounding boundary)
@@ -36,27 +36,47 @@ An end-to-end automated video editing pipeline for shortform (30–60s, vertical
 | Phase | Steps | Purpose |
 |-------|-------|---------|
 | 0. Pre-requisites | 0.01 | Validate SFX library |
-| 1. Ingest & Index | 1.01-1.05 | Scan, catalog, analyze, temporally index, prosody analysis |
+| 1. Ingest & Index | 1.01-1.07 | Scan, catalog, analyze, temporally index, prosody analysis, segmentation, OCR |
 | 2. Plan | 2.01-2.06 | Creative direction, speech sequencing, music selection, analysis, spine |
 | 3. Rough Cut | 3.01-3.03 | A-roll assignment, B-roll selection, rough cut review |
-| 4. Polish | 4.01-4.05 | Subtitles, transitions, VFX, SFX planning, subtitle rendering |
-| 5. Finish | 5.01-5.04 | Color grading, audio mixing, manifest compilation |
+| 4. Polish | 4.01-4.06 | Subtitles, transitions, VFX, SFX planning, subtitle rendering, motion graphics |
+| 5. Finish | 5.01-5.04 | Color grading, audio mixing, creative cohesion, manifest compilation |
 | 6. Export | 6.01-6.02 | Render and validate output |
 
-> **Note:** Steps 2.03 and 5.03 are intentionally skipped in the numbering.
-> 2.03 was merged into 2.02 during decomposition. 5.03 (audio normalization)
-> was folded into 5.02 (audio mix).
+> **Note:** Step 2.03 is intentionally skipped in the numbering.
+> 2.03 was merged into 2.02 during decomposition.
 
-## Running the Pipeline
+## Project Management CLI
+
+Manage projects and run the pipeline using `manage_project.py`:
 
 ```bash
-# From the repo root
-python3 -m orchestrator run \
-    --dag video_editing_pilot/library/processes/edit_video/dag.json \
-    --library video_editing_pilot/library/ \
-    --state '{"project_dir": "/path/to/footage"}' \
-    --llm-backend openai \
-    --llm-model gpt-4o
+# Initialize the projects root directory
+python3 manage_project.py init-root
+
+# Create a new project
+python3 manage_project.py new <slug> --name "Project Name" \
+    [--client CLIENT] [--template TEMPLATE] [--source-type TYPE] \
+    [--resolution WxH] [--fps FPS] [--resolve-name NAME] \
+    [--tags TAGS] [--description DESC]
+
+# List projects
+python3 manage_project.py list [--status STATUS] [--client CLIENT]
+
+# Show project status or config
+python3 manage_project.py status <slug>
+python3 manage_project.py info <slug>
+
+# Run the pipeline
+python3 manage_project.py run <slug> \
+    [--from STEP] [--step STEP] [--dry-run] [--auto] [--review]
+
+# Start dashboard
+python3 manage_project.py dashboard [<slug>] [--port PORT]
+
+# Relink and archive
+python3 manage_project.py relink [<slug>] [--scan]
+python3 manage_project.py archive <slug>
 ```
 
 ## Architecture Notes

@@ -34,7 +34,7 @@ The repository is structured to separate the pipeline engine from project data.
 
 The pipeline is defined as a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`.
 Execution order is resolved via topological sort.
-The DAG groups steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
+The DAG groups 28 atomic steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
 
 Run the pipeline using the project manager CLI: `python3 manage_project.py run <slug>`.
 Use `--from <step_id>` to resume execution starting from a specific step.
