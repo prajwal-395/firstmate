@@ -81,7 +81,7 @@ def _read_file_duration(filepath):
 
 # ─── SFX Overlap-Aware Track Allocator ───────────────────────
 
-def _allocate_sfx_tracks(sfx_clips, base_track_index=3):
+def _allocate_sfx_tracks(sfx_clips, base_track_index=3, fps=30.0):
     """Allocate SFX clips across multiple audio tracks to avoid overlap.
 
     Returns list of (clip, track_index) tuples.
@@ -99,7 +99,7 @@ def _allocate_sfx_tracks(sfx_clips, base_track_index=3):
 
     for clip in sorted_clips:
         tl_start = clip.get('timeline_in_frame', 0)
-        tl_end = clip.get('timeline_out_frame', tl_start + 30)
+        tl_end = clip.get('timeline_out_frame', tl_start + round(fps))
 
         # Find first available track (no overlap)
         assigned_track = None
@@ -367,7 +367,7 @@ def build_timeline(
     has_mg = bool(mg_segments)
 
     # Calculate how many SFX tracks we need
-    sfx_allocations = _allocate_sfx_tracks(a3_clips, base_track_index=3)
+    sfx_allocations = _allocate_sfx_tracks(a3_clips, base_track_index=3, fps=fps)
     max_sfx_track = max((t for _, t in sfx_allocations), default=2)
     num_audio_tracks_needed = max(max_sfx_track, 2)  # at least A1(speech) + A2(music)
 

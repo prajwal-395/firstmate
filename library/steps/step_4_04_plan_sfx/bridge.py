@@ -458,7 +458,7 @@ def main():
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     music = data.get("music_analysis", {})
-    fps = data.get("frame_rate", 30.0)
+    fps = data.get("project_fps", data.get("frame_rate", 30.0))
     
     cd = data.get("creative_direction", {})
     prosody = data.get("prosody_analysis", {})

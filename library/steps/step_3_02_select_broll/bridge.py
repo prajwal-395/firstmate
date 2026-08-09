@@ -352,6 +352,9 @@ def main():
     temporal_raw = data.get("temporal_event_indices", [])
     temporal_indices = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     timed_spine = data.get("timed_spine", {})
+    
+    target_width = data.get("project_resolution", [1080, 1920])[0]
+    target_height = data.get("project_resolution", [1080, 1920])[1]
 
     if not broll_creative:
         print(json.dumps({
@@ -363,6 +366,7 @@ def main():
     result = resolve_broll(
         broll_creative, clip_catalog, semantic_docs,
         temporal_indices, timed_spine,
+        target_resolution=(target_width, target_height),
     )
     # H6 fix: Include b_roll_interjections from LLM output in bridge output.
     # The handoff.md defines interjections as overlay B-roll over speech blocks.

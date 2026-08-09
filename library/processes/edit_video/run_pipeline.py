@@ -269,8 +269,14 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 # No explicit mapping - merge all outputs
                 inputs.update(source_outputs)
 
-    # Always include project folder
+    # Always include project folder, fps, and resolution
     inputs["project_folder"] = state.get("project_folder", "")
+    
+    catalog = state.get("step_outputs", {}).get("catalog", {})
+    if "project_fps" in catalog:
+        inputs["project_fps"] = catalog["project_fps"]
+    if "project_resolution" in catalog:
+        inputs["project_resolution"] = catalog["project_resolution"]
 
     # Add brand template data if present
     if manifest:

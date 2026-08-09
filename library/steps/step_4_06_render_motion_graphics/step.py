@@ -89,9 +89,11 @@ def main():
     os.makedirs(mg_output_dir, exist_ok=True)
 
     # Generate per-block props
-    fps = 30
+    fps = data.get("project_fps", 30)
+    width = data.get("project_resolution", [1080, 1920])[0]
+    height = data.get("project_resolution", [1080, 1920])[1]
     props_list = generate_motion_props(
-        enhancement_spec, creative_direction, audio_spine, fps=fps
+        enhancement_spec, creative_direction, audio_spine, fps=fps, width=width, height=height
     )
 
     if not props_list:
