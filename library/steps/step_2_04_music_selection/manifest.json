@@ -63,5 +63,8 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "creative_direction"
+  ]
 }

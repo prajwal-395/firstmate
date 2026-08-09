@@ -101,5 +101,16 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "semantic_analysis_documents.*.summary",
+    "semantic_analysis_documents.*.scene_segments.*.shot_size",
+    "semantic_analysis_documents.*.scene_segments.*.setting",
+    "temporal_index.*.transcripts",
+    "temporal_index.*.scene_boundaries",
+    "prosody_analysis.speaking_rate",
+    "clip_catalog.entries.*.filename",
+    "clip_catalog.entries.*.duration",
+    "clip_catalog.entries.*.topic_tags"
+  ]
 }

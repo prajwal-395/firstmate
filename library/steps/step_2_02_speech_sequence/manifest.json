@@ -79,5 +79,15 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "creative_direction",
+    "semantic_analysis_documents.*.summary",
+    "semantic_analysis_documents.*.scene_segments.*.interest_score",
+    "semantic_analysis_documents.*.scene_segments.*.tags",
+    "temporal_index.*.speech_regions",
+    "temporal_index.*.scene_boundaries",
+    "clip_catalog.entries.*.filename",
+    "clip_catalog.entries.*.duration"
+  ]
 }

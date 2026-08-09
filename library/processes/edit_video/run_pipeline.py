@@ -229,7 +229,7 @@ def save_pipeline_state(project_dir: str, state: dict):
         json.dump(state, f, indent=2)
 
 
-def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None) -> dict:
+def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None, step_type: str = "unknown") -> dict:
     """Gather inputs for a step from upstream outputs using edge data_mappings.
 
     Raises RuntimeError when a declared data_mapping source key is missing
@@ -303,6 +303,10 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 import sys
                 print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
 
+    if step_type == "llm_only" and manifest and "context_fields" in manifest:
+        from library.tools.context_projector import project_fields
+        inputs = project_fields(inputs, manifest["context_fields"])
+
     return inputs
 
 
@@ -334,7 +338,7 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         )
 
 
-def present_llm_step(prompt_path: str, inputs: dict, node_id: str) -> dict:
+def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None) -> dict:
     """Present an LLM step as a prompt for the user/Antigravity to complete.
     
     In automated mode, this writes the prompt + context to a handoff file
@@ -342,6 +346,13 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str) -> dict:
     
     In interactive mode, this prints the prompt and waits for input.
     """
+    # For hybrid steps, inputs may not be projected yet. Project them now if needed.
+    if manifest and "context_fields" in manifest:
+        from library.tools.context_projector import project_fields
+        inputs = project_fields(inputs, manifest["context_fields"])
+        
+    from library.tools.toon_serializer import json_to_toon
+    toon_str = json_to_toon(inputs)
     with open(prompt_path) as f:
         prompt = f.read()
     
@@ -362,6 +373,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str) -> dict:
         "__status": "awaiting_llm",
         "__prompt": prompt_path,
         "__inputs_available": list(inputs.keys()),
+        "__context": toon_str,
     }
 
 
@@ -506,7 +518,7 @@ def run_pipeline(
             continue
         
         # Gather inputs from upstream (pass manifest for optional-input checking)
-        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"))
+        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"))
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
         
         try:
@@ -561,7 +573,7 @@ def run_pipeline(
                     save_pipeline_state(project_dir, state)
                     completed.append(node_id)
                 else:
-                    output = present_llm_step(impl["prompt"], enriched, node_id)
+                    output = present_llm_step(impl["prompt"], enriched, node_id, manifest=impl.get("manifest"))
                     awaiting_llm.append(node_id)
                     print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
                     # Fix C1: Break out of the execution loop so downstream
@@ -569,7 +581,7 @@ def run_pipeline(
                     break
 
             elif impl["type"] == "llm_only":
-                output = present_llm_step(impl["prompt"], inputs, node_id)
+                output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"))
                 awaiting_llm.append(node_id)
                 print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
                 # Fix C1: Break out of the execution loop so downstream
