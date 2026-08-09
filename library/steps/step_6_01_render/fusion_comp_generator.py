@@ -80,8 +80,7 @@ def generate_comp(
 
     Args:
         clip_dur: SOURCE clip total frame count (NOT timeline duration).
-                  Use clip.GetSourceEndFrame() - clip.GetSourceStartFrame() + 1
-                  or int(mpi.GetClipProperty('Frames')).
+                  Use int(mpi.GetClipProperty('Frames')).
                   Fusion comps operate on the full source media range.
         zoom_start/mid/end: BezierSpline keyframes for Transform.Size
         pan_start/end: Path keyframes for Transform.Center (optional)

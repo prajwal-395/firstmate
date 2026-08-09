@@ -105,7 +105,7 @@ Always use `Blend` instead of `BlendClone` for Merge opacity.
 Always include `GlobalOut` on Background nodes matching the clip duration.
 Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
 Always use the SOURCE clip frame count for `clip_dur`, not `clip.GetDuration()`.
-Use `clip.GetSourceEndFrame() - clip.GetSourceStartFrame() + 1` or `int(mpi.GetClipProperty('Frames'))` for source frame counts.
+Use `int(mpi.GetClipProperty('Frames'))` for source frame counts.
 
 ### Fusion .comp Frame Mapping
 Fusion compositions operate on the source clip's full frame range, not the timeline's trimmed duration.
