@@ -1,0 +1,125 @@
+{
+  "project_folder": "/tmp/mock_project",
+  "step_outputs": {
+    "catalog": {
+      "clip_catalog": [
+        {
+          "clip_id": "clip_01",
+          "filename": "A001C001_240801_R1ZA.mov",
+          "filepath": "/tmp/mock_project/raw/A001C001_240801_R1ZA.mov",
+          "duration_s": 10.5,
+          "resolution": "1920x1080",
+          "fps": 30.0,
+          "has_audio": true
+        },
+        {
+          "clip_id": "clip_02",
+          "filename": "A001C002_240801_R1ZA.mov",
+          "filepath": "/tmp/mock_project/raw/A001C002_240801_R1ZA.mov",
+          "duration_s": 5.0,
+          "resolution": "1920x1080",
+          "fps": 30.0,
+          "has_audio": true
+        },
+        {
+          "clip_id": "clip_03",
+          "filename": "A001C003_240801_R1ZA.mov",
+          "filepath": "/tmp/mock_project/raw/A001C003_240801_R1ZA.mov",
+          "duration_s": 15.2,
+          "resolution": "1920x1080",
+          "fps": 30.0,
+          "has_audio": false
+        }
+      ]
+    },
+    "temporal_index": {
+      "temporal_index": [
+        {
+          "clip_id": "clip_01",
+          "speech_regions": [
+            {
+              "start": 0.5,
+              "end": 4.5,
+              "text": "Welcome to the video.",
+              "speaker": "SPEAKER_00"
+            }
+          ],
+          "energy_curve": {
+            "timestamps": [0.0, 5.0, 10.0],
+            "values": [0.5, 0.8, 0.3]
+          }
+        },
+        {
+          "clip_id": "clip_02",
+          "speech_regions": [
+            {
+              "start": 1.0,
+              "end": 3.0,
+              "text": "This is great.",
+              "speaker": "SPEAKER_00"
+            }
+          ],
+          "energy_curve": {
+            "timestamps": [0.0, 2.5, 5.0],
+            "values": [0.6, 0.9, 0.6]
+          }
+        },
+        {
+          "clip_id": "clip_03",
+          "speech_regions": [],
+          "energy_curve": {
+            "timestamps": [0.0, 7.5, 15.0],
+            "values": [0.2, 0.3, 0.2]
+          }
+        }
+      ]
+    },
+    "semantic_analysis": {
+      "semantic_analysis_documents": [
+        {
+          "clip_id": "clip_01",
+          "summary": "Person speaking to camera outdoors.",
+          "overall_mood": "energetic",
+          "overall_energy": "high",
+          "detected_objects": {"person": 1, "tree": 2},
+          "interest_score": 0.85
+        },
+        {
+          "clip_id": "clip_02",
+          "summary": "Close up of person speaking.",
+          "overall_mood": "intense",
+          "overall_energy": "medium",
+          "detected_objects": {"person": 1},
+          "interest_score": 0.70
+        },
+        {
+          "clip_id": "clip_03",
+          "summary": "Drone shot of mountains.",
+          "overall_mood": "calm",
+          "overall_energy": "low",
+          "detected_objects": {"mountain": 3, "sky": 1},
+          "interest_score": 0.90
+        }
+      ]
+    },
+    "prosody_analysis": {
+      "prosody_analysis": {
+        "clip_01": {
+          "pitch_mean": 150.5,
+          "pace_wpm": 130
+        },
+        "clip_02": {
+          "pitch_mean": 160.0,
+          "pace_wpm": 140
+        }
+      }
+    }
+  },
+  "steps_completed": {
+    "scan": {"completed_at": "2024-08-01T12:00:00", "elapsed_s": 2},
+    "catalog": {"completed_at": "2024-08-01T12:00:05", "elapsed_s": 5},
+    "temporal_index": {"completed_at": "2024-08-01T12:01:00", "elapsed_s": 55},
+    "semantic_analysis": {"completed_at": "2024-08-01T12:02:00", "elapsed_s": 60},
+    "prosody_analysis": {"completed_at": "2024-08-01T12:02:10", "elapsed_s": 10}
+  }
+}
