@@ -122,19 +122,19 @@ def verify_color_grades(timeline, track_items, manifest_color) -> QAReport:
                         actual_cdl = {"Slope": slope}
                         
                 if actual_cdl and isinstance(actual_cdl, dict):
-                    # compare slope/offset/power
-                    # Tolerance: ±0.01 for each value
-                    # The prompt implies we compare the actual values. Since the API might return strings like "1.000 1.000 1.000", we should parse.
-                    # This is just a stub logic to satisfy the requirements.
-                    slope_str = actual_cdl.get("Slope", "")
-                    if slope_str:
-                        parts = [float(x) for x in slope_str.split()]
+                    # Compare Slope, Offset, Power
+                    for key in ["Slope", "Offset", "Power"]:
+                        actual_str = actual_cdl.get(key, "")
+                        if not actual_str:
+                            continue
+                        # e.g., "1.000 1.000 1.000"
+                        parts = [float(x) for x in actual_str.split()]
                         if parts:
-                            exp_slope = cdl_vals.get("slope_r", 1.0)
-                            if abs(parts[0] - exp_slope) > 0.01:
+                            exp_val = cdl_vals.get(f"{key.lower()}_r", 1.0 if key != "Offset" else 0.0)
+                            if abs(parts[0] - exp_val) > 0.01:
                                 report.checks.append(QACheck(
-                                    name=f"{clip_name}_slope_r", passed=False,
-                                    expected=exp_slope, actual=parts[0]
+                                    name=f"{clip_name}_{key.lower()}_r", passed=False,
+                                    expected=exp_val, actual=parts[0]
                                 ))
                                 report.passed = False
             except Exception:
