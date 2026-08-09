@@ -1,61 +1,75 @@
-# Video Editing Pipeline - Agent Rules
+# Video Editing Pipeline
 
-## Project Overview
-This is an automated video editing pipeline that takes raw footage through 24 steps
-from analysis to final DaVinci Resolve assembly. The pipeline lives in `library/steps/`.
+You are an autonomous agent operating the video editing pipeline.
+This manual explains how to navigate the repository, run the pipeline, and make editorial decisions.
 
-## Architecture
-```
-Step 1.x  - Ingest & Analysis (scan, catalog, semantic, temporal, prosody)
-Step 2.x  - Creative Planning (direction, speech sequence, music, spine)
-Step 3.x  - Assembly (A-roll, B-roll, rough cut review)
-Step 4.x  - Post-Production (subtitles, transitions, VFX, SFX planning)
-Step 5.x  - Finishing (color grade, audio mix, manifest compilation)
-Step 6.x  - Render (Resolve timeline build, output validation)
-```
+## 1. Identity and purpose
 
-Each step reads from and writes to a shared output directory as `step_X_YY.json`.
-The final `assembly_manifest.json` (from step 5.04) drives `resolve_build_timeline.py`.
+This repository is the engine for an automated video editing pipeline.
+It takes raw footage, analyzes it, and generates a fully assembled DaVinci Resolve timeline.
+It produces shortform vertical videos with subtitles, B-roll, SFX, and music.
+The engine does not store project data itself.
+Project assets and pipeline outputs live in isolated directories outside the repository.
+Agents and human editors use this system to automate the tedious parts of video assembly while retaining creative control.
 
-## Brand Template Registry
-The project uses a structured brand template system to provide stylistic inputs to pipeline steps without raw LLM context stuffing.
-- **Brand Template Schema:** `library/schemas/brand_template.py` (has `StyleSlots`, `EffectSlots`, `ContentSlots`)
-- **Default Template:** `library/templates/default_brand.yaml`
-- **Registry & Loader:** `library/tools/brand_registry.py` (`load_brand_template`, `query_slots`, `validate_template`)
-- **Pipeline Integration:** `brand_template` is an optional pipeline parameter in `edit_video/manifest.json`. `gather_step_inputs` injects requested slots (`brand_style`, `brand_effect`, `brand_content`) into steps that declare them in their manifest (e.g. `step_2_01`, `step_4_02`, `step_4_04`, `step_5_01`).
+## 2. Repo layout
 
-## OCR Extraction
-The pipeline uses EasyOCR (Step 1.07) for precise text extraction with bounding boxes and temporal tracking. This replaces best-effort LLM descriptions by providing structured data (confidence scores, normalized coordinates, and deduplicated appearance ranges).
+The repository is structured to separate the pipeline engine from project data.
 
-## Preset Library & Indexer
-Reusable assets are indexed with companion `.meta.json` files.
-- **Presets Directory:** `library/presets/` with subdirectories (`powergrades`, `fusion-macros`, `luts`, `dctls`, `fairlight`)
-- **Metadata Schema:** `library/schemas/preset_metadata.py`
-- **Indexer & Search:** `library/tools/preset_indexer.py` (`scan_library`, `find_presets`, `find_preset_for_mood`)
+- `library/`: Core pipeline implementation and shared Python modules.
+- `library/processes/`: Defines complete pipelines like `edit_video` with its `dag.json` and `manifest.json`.
+- `library/steps/`: Individual pipeline steps, organized by phase (e.g., `step_1_01_scan_project`).
+- `library/tools/`: Shared utilities for Resolve scripting, vision analysis, and file management.
+- `library/schemas/`: Pydantic data schemas defining pipeline state and project configurations.
+- `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
+- `library/templates/`: Brand templates defining styles, effects, and content rules.
+- `library/presets/`: Reusable assets indexed with metadata for powergrades, LUTs, and Fusion macros.
+- `remotion-subtitles/`: Node.js React application used to render subtitle overlays.
+- `scripts/`: Assorted bash helper scripts for environment setup and maintenance.
+- `tests/`: Unit and integration tests for the pipeline engine.
+- `manage_project.py`: Top-level CLI for creating, listing, and running projects.
+- `requirements.txt`: Python dependencies required by the pipeline.
 
-## Visual QA System
-The project implements a dual-path visual QA feedback loop that combines synchronous inline frame evaluation with asynchronous video segment analysis:
+## 3. Pipeline execution
 
-- **Frame Grabs (sync path):** The orchestrating LLM grabs a frame via MCP `gallery_stills > grab_and_export`, receives base64 PNG inline, and analyzes it directly using its own vision capabilities. The MCP call chain is: `save_state` > `open_page('color')` > navigate to frame > `grab_and_export(cleanup=true, delete_after=true)` > analyze inline > `restore_state`. Prompts come from `visual_qa_prompts.py`. Best for spot checks, color grade verification, and static VFX validation.
-- **Video Segments (async path):** `segment_renderer.py` renders a timeline range to a temporary file via the Resolve Deliver page. `video_segment_analyzer.py` runs deterministic checks (ffmpeg for black frames, freeze, audio levels) plus Gemma 4 12B vision analysis. Results feed back as text context to the orchestrating LLM. Best for transition smoothness, motion quality, and temporal consistency.
-- **Feedback Loop:** `qa_feedback_loop.py` coordinates retry cycles. On failure, it generates adjustment prompts for the relevant pipeline step and re-evaluates up to `max_retries` (default 3, configured in the manifest `visual_qa` block).
+The pipeline is defined as a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`.
+Execution order is resolved via topological sort.
+The DAG groups steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
 
-### Key Files
-- `library/tools/visual_qa_router.py` - Dual-path router for frame grab and video segment QA plans
-- `library/tools/segment_renderer.py` - Renders timeline ranges or single frames via Resolve Deliver page
-- `library/tools/video_segment_analyzer.py` - Runs deterministic ffmpeg checks and Gemma 4 12B vision analysis
-- `library/tools/qa_feedback_loop.py` - Coordinates iterative retry cycles and adjustment prompt generation
-- `library/tools/visual_qa_prompts.py` - Standardized prompt templates and JSON schemas for LLM visual QA
-- `library/tools/timeline_qa.py` - QA data structures (`VisualQACheck`, `VisualQAReport`) and logging hooks
+Run the pipeline using the project manager CLI: `python3 manage_project.py run <slug>`.
+Use `--from <step_id>` to resume execution starting from a specific step.
+Use `--step <step_id>` to run one isolated step.
+Use `--auto` to auto-complete hybrid steps using bridge output instead of pausing for LLM input.
+Use `--review` to enable review gates that pause the pipeline for human inspection on the dashboard.
+Use `--resume` to continue the pipeline after a review gate is approved or revised.
+Use `--dry-run` to print the execution plan without running steps.
 
-## Object Segmentation & Tracking (SAM 2)
-The project uses Meta's SAM 2 (`sam2.1-hiera-small`) for video object segmentation.
-- **Pipeline Step:** `step_1_06_object_segmentation` processes clips to extract tracking IDs and RLE-encoded binary masks.
-- **Implementation:** `library/tools/analysis/object_segmentation.py` handles auto-mask generation and mask propagation across frames using the SAM 2 video predictor.
-- **Match Cuts:** The module includes `find_match_cut_candidates` to align objects between clips via silhouette overlap (IoU).
-## DaVinci Resolve Scripting - CRITICAL RULES
+Steps come in three implementation types based on their contents.
+Deterministic steps have a `step.py` and run automatically using JSON stdin/stdout.
+Hybrid steps have a `bridge.py` that pre-computes context and a `handoff.md` prompt for an LLM to complete the step.
+LLM-only steps have only a `handoff.md` prompt and require an LLM to generate the output from upstream context.
+
+Pipeline state is stored in `pipeline_data.json` at the root of each project directory.
+The state file tracks completed steps and stores all JSON outputs under `step_outputs`.
+Inspect `pipeline_data.json` to debug data flow or verify upstream step results.
+
+## 4. Dashboard
+
+The dashboard provides a human-in-the-loop review layer for the pipeline.
+Launch the dashboard using `python3 manage_project.py dashboard <slug>`.
+The dashboard serves a pipeline view, a footage library, a transcript view, and a timeline view.
+Review gates pause pipeline execution to allow human inspection of step outputs.
+Reviewers can approve, reject, or revise the outputs through the dashboard interface.
+Rejected gates halt the pipeline entirely.
+Revised gates apply the reviewer's modifications directly to the step output in `pipeline_data.json`.
+The dashboard also captures annotations and feedback as structured data for agent communication.
+
+## 5. DaVinci Resolve integration - CRITICAL RULES
+
+These constraints are hard-won knowledge and must be followed exactly when scripting DaVinci Resolve.
 
 ### Connection
+Resolve must be running with a project open before executing Resolve-dependent steps.
 ```python
 import sys, os
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
@@ -64,145 +78,109 @@ os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolv
 import DaVinciResolveScript as dvr
 resolve = dvr.scriptapp("Resolve")
 ```
-If `resolve` is `None`, Resolve is not running or not fully loaded. Retry with delay.
+If `resolve` is `None`, Resolve is not running or not fully loaded, so retry with a delay.
+
+### Process isolation
+Never create a timeline and use `ImportFusionComp` in the same Python process.
+Clip references go stale after timeline creation.
+Always import comps in a separate script or process.
+One `ImportFusionComp` returns a Composition object, not a boolean, so check `clip.GetFusionCompNameList()` to verify success.
+Tool loading is lazy and `GetToolList()` may show 0 tools immediately after import.
+For reliable bulk comp building, use `comp.AddTool()` on the Fusion page to bypass lazy loading.
 
 ### Fusion .comp Files - NEVER DO THESE
-1. **NEVER use `ApplyMode`** in a Merge node - crashes Resolve (SIGSEGV)
-2. **NEVER use `Path {}` when a Merge node exists** in the same comp - black output
-3. **NEVER use `BlendClone`** - silently ignored; use `Blend`
-4. **NEVER use `Tools = ordered() {`** - use `Tools = {`
-5. **NEVER omit `GlobalOut`** on Background nodes - stops rendering mid-clip
-6. **NEVER set DirectionalBlur Length > 5** - creates artifacts and edge tiling
-7. **NEVER set transition zoom > 1.04** - too aggressive, breaks immersion
+Never use `ApplyMode` in a Merge node because it crashes Resolve with a SIGSEGV.
+Never use `Path {}` when a Merge node exists in the same comp because it causes black output.
+Never use `BlendClone` because it is silently ignored, use `Blend` instead.
+Never use `Tools = ordered() {` because it fails, use `Tools = {` instead.
+Never omit `GlobalOut` on Background nodes because it stops rendering mid-clip.
+Never set DirectionalBlur Length greater than 5 because it creates artifacts and edge tiling.
+Never set transition zoom greater than 1.04 because it is too aggressive and breaks immersion.
 
 ### Fusion .comp Files - ALWAYS DO THESE
-1. Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes
-2. Always include `MaskWidth`, `MaskHeight`, `PixelAspect` on EllipseMask
-3. Always wire `Transform1.Input <- MediaIn1.Output` explicitly
-4. Always use `Blend` (not `BlendClone`) for Merge opacity
-5. Always include `GlobalOut` on Background nodes matching clip duration
-6. For animated pan/center, use static `Center = Input { Value = { x, y }, },`
-7. **Always use SOURCE clip frame count for `clip_dur`** - NOT `clip.GetDuration()` (timeline duration). Fusion comps operate on the full source media range. Use `clip.GetSourceEndFrame() - clip.GetSourceStartFrame() + 1` or `MediaPoolItem.GetClipProperty('Frames')`.
+Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes.
+Always include `MaskWidth`, `MaskHeight`, and `PixelAspect` on EllipseMask.
+Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
+Always use `Blend` instead of `BlendClone` for Merge opacity.
+Always include `GlobalOut` on Background nodes matching the clip duration.
+Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
+Always use the SOURCE clip frame count for `clip_dur`, not `clip.GetDuration()`.
+Use `clip.GetSourceEndFrame() - clip.GetSourceStartFrame() + 1` or `int(mpi.GetClipProperty('Frames'))` for source frame counts.
 
-### Fusion .comp Frame Mapping - CRITICAL
-Fusion compositions operate on the **source clip's full frame range**, not the
-timeline's trimmed duration. A clip with 513 source frames placed as 410 frames
-on the timeline will have Fusion frame range 0-512, not 0-409.
+### Fusion .comp Frame Mapping
+Fusion compositions operate on the source clip's full frame range, not the timeline's trimmed duration.
+A clip with 513 source frames placed as 410 frames on the timeline has a Fusion frame range of 0-512.
+Using timeline duration for keyframes causes transitions to fire early and hold for the remaining frames.
 
-- `clip.GetDuration()` - timeline duration (WRONG for keyframes)
-- `clip.GetSourceEndFrame() - clip.GetSourceStartFrame() + 1` - source frame count (CORRECT)
-- `int(mpi.GetClipProperty('Frames'))` - also correct
+### Default Transition Values
+Brightness Flash uses `Brightness = 0.67`, `Saturation = 1.83`, and animates `Blend` 0-1 with Sine easing.
+Crash Zoom uses Transform `Scale = 0.4`, `Offset = 0.6` with a range of 0.6-1.0, Quad easing, and mirrored.
+Glow uses `SoftGlow.Gain = 5.0` and `SoftGlow.XGlowSize = 100` with linear easing.
+Default easing curves use `LUTLookup` driven by the system `Transition` variable for Edit page transitions.
+For per-clip Fusion comps, replicate easing with `BezierSpline.sampled()` pre-baked keyframes.
 
-If keyframes are set at `clip.GetDuration() - 1` instead of the source end frame,
-transitions will fire early (at ~80% of the clip) and hold for the remaining frames.
-
-### Default Transition Values (from .drfx analysis)
-- **Brightness Flash**: `Brightness = 0.67`, `Saturation = 1.83`, animate `Blend` 0-1 with Sine easing
-- **Crash Zoom**: Transform `Scale = 0.4, Offset = 0.6` (range 0.6-1.0), Quad easing, mirrored
-- **Glow**: `SoftGlow.Gain = 5.0`, `SoftGlow.XGlowSize = 100`, linear easing
-- Default easing curves: Sine (flash), Quad (zoom), Cubic (dissolve), Quart (smooth dissolve)
-- Transitions use `LUTLookup` driven by system `Transition` variable (only in Edit page transitions)
-- For per-clip Fusion comps, replicate with `BezierSpline.sampled()` pre-baked easing keyframes
-
-### Visual Verification
-Render single frames to verify effects look correct:
-```python
-resolve.OpenPage("deliver")
-project.SetRenderSettings({
-    "TargetDir": "/tmp/screenshots", "CustomName": "frame_45",
-    "FormatWidth": 1080, "FormatHeight": 1920,
-    "MarkIn": 45, "MarkOut": 45,
-})
-project.AddRenderJob()
-project.StartRendering()
-# Convert: ffmpeg -y -i frame_45.mov -frames:v 1 frame_45.png
-```
-- File size < 2KB = black/broken frame
-- File size 30-150KB = real video content
+### V2 Overlay Track
+Track V2 is for additive overlays only and its Fusion comps cannot read V1 video content.
+Use V2 for dip-to-black, color washes, letterbox bars, and particle effects.
+Do not use V2 for flash, blur, or zoom effects because they require processing the underlying video content on V1.
+Adjustment Clips cannot go on V2 because `InsertGeneratorIntoTimeline` always targets V1.
+Import one `transparent_1080x1920_30fps.mov` clip and reuse it via `AppendToTimeline` with `clipInfo` targeting `trackIndex: 2`.
+Use `SetProperty('CompositeMode', n)` to set composite modes, where 0 is Normal and 5 is Screen.
+Use `timeline.SetTrackEnable('video', 2, False/True)` to toggle V2 visibility.
 
 ### Media Pool Name Collisions
-Overlay segments (subtitles, motion graphics) from different sources often share
-generic filenames like `seg_000.mov`. When imported into the same media pool,
-`pool_clips[basename]` silently picks the wrong clip. Always:
-1. **Prefix filenames** with their context: `sub_craig_seg_000.mov`, `mg_intro_seg_000.mov`
-2. **Look up by filepath first**, then fall back to basename. `resolve_build_timeline.py`
-   uses `_find_pool_clip(filepath)` which checks `GetClipProperty("File Path")` first.
+Overlay segments from different sources often share generic filenames like `seg_000.mov`.
+Importing them into the same media pool causes basename lookups to silently pick the wrong clip.
+Prefix filenames with their context, such as `sub_craig_seg_000.mov`.
+Look up clips by filepath first using `GetClipProperty("File Path")` before falling back to basename.
 
 ### Audio Track Flooding Prevention
-iPhone MOVs have multiple audio streams. Place V1 clips WHILE ONLY A1 EXISTS.
-Then add A2+ tracks and place music/SFX with `mediaType: 2`.
+iPhone MOVs contain multiple audio streams.
+Place V1 clips while only track A1 exists to prevent flooding the timeline with empty tracks.
+Add A2 and subsequent tracks afterward, and place music or SFX with `mediaType: 2`.
 
-### ImportFusionComp Reliability Rules
-1. **NEVER create timeline and ImportFusionComp in the same Python process** - clip references go stale after timeline creation. Always import comps in a separate script/process.
-2. **One ImportFusionComp returns a Composition object** (not True/False). Check `clip.GetFusionCompNameList()` to verify.
-3. **Tool loading is lazy** - `GetToolList()` may show 0 tools immediately after import. Tools load when the clip is visited on the Fusion page or during playback.
-4. **For reliable bulk comp building, use `comp.AddTool()` on the Fusion page** - this bypasses ImportFusionComp's lazy loading entirely.
+### Visual Verification
+Render single frames via the Deliver page to verify effects look correct.
+A frame file size under 2KB indicates a broken or black frame.
+A frame file size between 30-150KB indicates real video content.
 
-### Fusion AddTool API (Live Node Building)
-Use this to build node graphs programmatically on the Fusion page:
-```python
-resolve.OpenPage('fusion')
-# Navigate to clip
-timeline.SetCurrentTimecode(timecode_string)
-comp = clip.GetFusionCompByName(clip.GetFusionCompNameList()[0])
-# Add tools
-bg = comp.AddTool('Background', x_pos, y_pos)
-bg.TopLeftRed = 0
-bg.Width = 1080
-# Keyframe via Lua BezierSpline (Python keyframing doesn't work)
-comp.Execute(f'''
-local bg = comp:FindTool("{bg.Name}")
-bg.TopLeftAlpha = comp:BezierSpline({{
-    Points = {{
-        [0] = {{ 0, Flags = {{ Linear = true }} }},
-        [15] = {{ 0.85, Flags = {{ Linear = true }} }},
-        [30] = {{ 0, Flags = {{ Linear = true }} }},
-    }}
-}})
-''')
-# Wire to output
-mo = comp.FindTool('MediaOut1')
-mo.Input = bg.Output
-```
+### Marker and timeline item API patterns
+Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()` for managing timeline markers and items.
+Follow the established patterns in `timeline_item_markers` and related tools for robust interaction.
 
-### V2 Overlay Track - CRITICAL RULES
-1. **V2 is for ADDITIVE overlays only** - V2 Fusion comps can only access V2's own MediaIn (the transparent clip). They CANNOT read V1 video content.
-2. **Use V2 for**: dip-to-black (Background + animated alpha), color washes, letterbox bars, particle effects - anything that GENERATES its own pixels.
-3. **Do NOT use V2 for**: flash/brightness, defocus/blur, zoom - these process video content and MUST stay on V1 where the footage lives.
-4. **Adjustment Clips cannot go on V2** - `InsertGeneratorIntoTimeline` always targets V1. Use a transparent MOV clip on V2 instead.
-5. **One transparent clip, multiple placements** - import one `transparent_1080x1920_30fps.mov` and reuse via `AppendToTimeline` with `clipInfo` targeting `trackIndex: 2`.
-6. **Composite modes**: `SetProperty('CompositeMode', n)` - 0=Normal, 1=Add, 5=Screen, etc. Normal mode respects Fusion alpha output.
-7. **Track visibility**: `timeline.SetTrackEnable('video', 2, False/True)` to toggle V2.
+## 6. Data flow
 
-### DaVinci Default Transition Values (from Templates.drfx)
-When building transitions, use these DaVinci-native values:
-- **Brightness Flash**: `Brightness = 0.67`, `Saturation = 1.83`
-- **Glow**: `SoftGlow.Gain = 5.0`, `SoftGlow.XGlowSize = 100`
-- **Crash Zoom**: Transform `zoom scale = 0.4, offset = 0.6` (range 0.6-1.0)
-- **Cross Dissolve**: `Dissolve.Mix` with Quart easing
-- Default easing curves use `LUTLookup` with `Sine`, `Quad`, or `Cubic` easing
+Data flows through the pipeline via `pipeline_data.json`.
+Each step reads required upstream outputs from this file based on the DAG's `data_mapping` edges.
+Each step writes its own output back to `pipeline_data.json` under `step_outputs.<step_id>`.
+The `catalog` output contains video metadata, durations, and file paths.
+The `semantic_analysis` output contains mood, energy, visual descriptions, and detected objects.
+The `speech_sequence` output orders speech segments into a coherent narrative.
+The `aroll_assignments` output maps narrative blocks to specific source clips and timeline ranges.
+The `broll_selections` output assigns secondary footage to cover A-roll segments.
+The `compile_manifest` output consolidates all decisions into an `assembly_manifest.json` that drives the final Resolve render.
 
-## File Conventions
-- Step outputs: `step_X_YY.json` (no version suffixes)
-- Fusion comps: generated at runtime by `fusion_comp_generator.py`
-- Transitions: generated by `fusion_transition_generator.py`
-- Final manifest: `assembly_manifest.json`
-- Transparent overlay clip: `library/assets/transparent_1080x1920_30fps.mov`
+## 7. Project management
 
-## Key Files
-- `library/steps/step_6_01_render/resolve_build_timeline.py` - main Resolve assembly script
-- `library/steps/step_6_01_render/fusion_comp_generator.py` - VFX .comp generator
-- `library/steps/step_6_01_render/fusion_transition_generator.py` - transition .comp generator
-- `library/steps/step_5_04_compile_manifest/step.py` - manifest compiler
-- `library/tools/frame_utils.py` - timecode/frame conversion utilities
-- `library/tools/fusion/engine.py` - CompEngine for composable Fusion comp building
-- `library/tools/fusion/effects.py` - fx.* composable effect blocks
-- `library/tools/fusion/nodes.py` - FusionNode, BezierSpline, FusionComp primitives
+Manage projects using the `manage_project.py` CLI tool.
+Create new projects with `python3 manage_project.py new <slug> --name "Project Name"`.
+Project configurations are stored in `project.yaml` within each project directory.
+The `ProjectConfig` schema defines source settings, pipeline options, and Resolve bindings.
+The project registry scans the root directory to list and manage all available projects.
+Multi-project environments group projects by client folders if specified during creation.
 
-## Timeline Settings
-- Resolution: 1080x1920 (vertical/portrait for social media)
-- Frame rate: 30fps (from source iPhone footage)
-- Project database: Resolve Disk Database (local)
+## 8. Environment and dependencies
+
+The pipeline requires specific environment variables and dependencies to function.
+Set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to point to your DaVinci Resolve installation.
+Set `HF_TOKEN` for HuggingFace models like Audio Flamingo Next.
+Set `PIPELINE_SFX_LIBRARY` to the absolute path of the sound effects library.
+Set `PIPELINE_MUSIC_LIBRARY` to the absolute path of the background music library.
+Set `PIPELINE_PROJECTS_ROOT` to the directory where video projects are stored.
+Python dependencies are listed in `requirements.txt` and must be installed in the environment.
+External tools include `ffmpeg` and `ffprobe` for media processing.
+Node.js is required to run Remotion for subtitle rendering.
+GPU acceleration is required for models including Gemma 4, SAM 2, WhisperX, and EasyOCR.
 
 ## Maintaining this file
 
