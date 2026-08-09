@@ -349,7 +349,7 @@ def main():
     # run
     p_run = sub.add_parser("run", help="Run the pipeline for a project")
     p_run.add_argument("slug", help="Project slug")
-    p_run.add_argument("--from", dest="from_step", help="Start from this step")
+    p_run.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     p_run.add_argument("--step", help="Run only this step")
     p_run.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
