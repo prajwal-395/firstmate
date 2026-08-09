@@ -205,6 +205,7 @@ def serialize_timeline_state(
                 clip_data["retime"] = {
                     "process": properties.get("RetimeProcess", ""),
                     "motion_estimation": properties.get("MotionEstimation", ""),
+                    "speed_ratio": properties.get("Speed", 1.0),
                 }
                 
                 # Audio
