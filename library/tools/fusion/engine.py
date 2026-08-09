@@ -188,7 +188,15 @@ class CompEngine:
             height=params.get("height", 1920),
         )
 
-        res = (params.get("width", 1080), params.get("height", 1920))
+        # Fusion comps operate in the source clip's native resolution,
+        # not the timeline's. When source_res is provided, use it for
+        # ALL Background nodes (vignette, fade, transitions). The
+        # timeline scaling/letterboxing happens AFTER Fusion.
+        source_res = params.get("source_res", None)
+        if source_res:
+            res = tuple(source_res)
+        else:
+            res = (params.get("width", 1080), params.get("height", 1920))
 
         # Zoom
         zoom_start = params.get("zoom_start", 1.0)
@@ -245,12 +253,20 @@ class CompEngine:
 
         # Vignette
         if params.get("vignette", True):
+            # Compute ellipse proportional to source frame.
+            # EllipseMask Width/Height are in a square normalized space,
+            # so we derive Height from the source aspect ratio.
+            default_w = 1.0
+            default_h = 1.0
+            if source_res:
+                default_h = source_res[1] / source_res[0]
             engine.add(fx.vignette(
                 clip_dur=clip_dur,
-                width=params.get("vignette_width", 1.8),
-                height=params.get("vignette_height", 1.8),
+                width=params.get("vignette_width", default_w),
+                height=params.get("vignette_height", default_h),
                 soft=params.get("vignette_soft", 0.35),
                 blend=params.get("vignette_blend", 0.25),
+                color=params.get("vignette_color", (0.0, 0.0, 0.0)),
                 res=res,
             ))
 
