@@ -279,13 +279,13 @@ def compile_manifest(out_dir: str) -> dict:
         compute_neural_directives(get_clip_id(clip), v2_clip)
     # B-roll interjections
     for interj in broll_data.get("b_roll_interjections", []):
-        clip = interj["assigned_clip"]
+        clip = interj.get("assigned_clip", interj)
         v2_clip = {
             "source_file": resolve_source(clip),
-            "source_in": clip["video_in"],
-            "source_out": clip["video_out"],
-            "timeline_in": interj["timeline_start"],
-            "timeline_out": interj["timeline_end"],
+            "source_in": clip.get("video_in", interj.get("video_in", 0)),
+            "source_out": clip.get("video_out", interj.get("video_out", 0)),
+            "timeline_in": interj.get("timeline_start", 0.0),
+            "timeline_out": interj.get("timeline_end", 0.0),
             "video_only": True,
             "label": f"interjection_{interj.get('over_spine_block_position', 0)}",
         }

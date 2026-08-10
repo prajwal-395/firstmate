@@ -460,8 +460,8 @@ def build_timeline(
             if pos.startswith('between_'):
                 parts = pos.replace('between_', '').split('_')
                 if len(parts) == 2:
-                    from_idx = int(parts[0]) - 1
-                    to_idx = int(parts[1]) - 1
+                    from_idx = int(parts[0])
+                    to_idx = int(parts[1])
                     
         # Resolve from_block/to_block IDs to actual indices in v1_clips
         from_clip_idx = None
