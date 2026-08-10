@@ -288,11 +288,11 @@ def resolve_broll(
             continue
 
         spine_block = block_lookup.get(spine_pos, {})
-        block_duration = spine_block.get("duration_seconds", 2.0)
         timeline_start = spine_block.get("timeline_start", 0.0)
         timeline_end = spine_block.get(
-            "timeline_end", timeline_start + block_duration
+            "timeline_end", timeline_start + spine_block.get("duration_seconds", 2.0)
         )
+        block_duration = timeline_end - timeline_start
 
         clip_analysis = analysis_lookup.get(clip_id, {})
         clip_index = index_lookup.get(clip_id, {})
