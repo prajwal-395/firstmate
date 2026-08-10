@@ -42,8 +42,11 @@ if not PROJECT_DIR:
     except (ImportError, FileNotFoundError, OSError):
         pass
 if not PROJECT_DIR:
-    print("Error: Set PIPELINE_TEST_PROJECT env var to a project directory", file=sys.stderr)
-    sys.exit(1)
+    if "pytest" in sys.modules:
+        pass # Allow pytest collection to succeed, tests can skip themselves
+    else:
+        print("Error: Set PIPELINE_TEST_PROJECT env var to a project directory", file=sys.stderr)
+        sys.exit(1)
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "pipeline_output")
 PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIBRARY_DIR = os.path.join(PILOT_ROOT, "library")
