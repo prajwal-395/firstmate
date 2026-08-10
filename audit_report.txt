@@ -1,0 +1,9 @@
+Convergence Audit Report: Phase 5 & 6
+
+Bugs Found & Fixed:
+1. Data Flow Bug in step_5_04_compile_manifest:
+- In `compile_manifest_from_inputs`, `inputs.get("sfx_spec")` receives the full output object from step 4.04 (`{"sfx_spec": {"sfx_list": ...}}` or `{"sfx_plan": {"sfx_list": ...}}`) due to the DAG orchestrator mapping. The `sfx_list` extraction incorrectly tried to extract it directly from the outer wrapper object without first unpacking the inner `sfx_plan` or `sfx_events` dictionaries, which resulted in `sfx_list` silently defaulting to an empty list, completely dropping all sound effects during orchestrator-driven runs. Fixed by adding the `sfx_plan` unwrap logic to mirror the file-based `compile_manifest` execution mode.
+- Addressed similar `audio_mix_spec` wrapper unpacking issues in the same block.
+
+2. Logic Bug in library/tools/execution/apply_fusion_comps.py:
+- Fixed a mutually-exclusive execution logic flaw where `elif vfx_entries:` was incorrectly blocking non-comp VFX (e.g. `zoom_pulse` applied directly to timeline items via `SetProperty`) from running if `has_any_effects` was True (which happens whenever *any* per-clip Fusion macro or effect was assigned elsewhere in the timeline). Changed `elif vfx_entries:` to an independent `if vfx_entries:` check to ensure timeline properties are successfully applied regardless of Fusion comp generation status.

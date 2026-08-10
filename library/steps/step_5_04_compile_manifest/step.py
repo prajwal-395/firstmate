@@ -969,7 +969,12 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     # SFX: Resolve SFX file paths using the SFX library.
     # BUG FIX C6: Previously skipped SFX resolution entirely, passing raw
     # unresolved specs that lack source_file paths needed by the render step.
-    sfx_raw = inputs.get("sfx_spec", [])
+    sfx_data = inputs.get("sfx_spec", {})
+    if isinstance(sfx_data, dict):
+        sfx_raw = sfx_data.get("sfx_plan", sfx_data.get("sfx_events", sfx_data.get("sfx_spec", sfx_data)))
+    else:
+        sfx_raw = sfx_data
+
     if isinstance(sfx_raw, dict):
         sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", [])))
         sfx_preset = sfx_raw.get("fairlight_preset")
@@ -983,7 +988,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})
-    audio_preset = sfx_preset or audio_mix_data.get("fairlight_preset", "")
+    inner_audio = audio_mix_data.get("audio_mix_spec", audio_mix_data) if isinstance(audio_mix_data, dict) else audio_mix_data
+    audio_preset = sfx_preset or inner_audio.get("fairlight_preset", "") if isinstance(inner_audio, dict) else sfx_preset
     audio_config = {
         "fairlight_preset": audio_preset,
     }
