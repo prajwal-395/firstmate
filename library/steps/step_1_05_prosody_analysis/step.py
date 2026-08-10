@@ -33,7 +33,17 @@ def main():
     # on silence and improves pitch/rate accuracy).
     temporal_index = data.get("temporal_index", data)
     speech_boundaries = {}
-    if isinstance(temporal_index, dict):
+    
+    if isinstance(temporal_index, list):
+        for idx in temporal_index:
+            clip_id = idx.get("clip_id", "")
+            regions = idx.get("speech_regions", [])
+            if clip_id and regions:
+                speech_boundaries[clip_id] = [
+                    {"start": r.get("start", 0), "end": r.get("end", 0)}
+                    for r in regions
+                ]
+    elif isinstance(temporal_index, dict):
         # Primary path: read from per-clip JSON files on disk
         index_dir = temporal_index.get("index_dir", "") or data.get("index_dir", "")
         if index_dir and os.path.isdir(index_dir):

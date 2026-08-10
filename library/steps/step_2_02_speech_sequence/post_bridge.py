@@ -356,9 +356,25 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    # C2 fix: Read index_dir from temporal_index object, not from root key.
     temporal_index = data.get("temporal_index", {})
-    ti_dir = temporal_index.get("index_dir", "") if isinstance(temporal_index, dict) else ""
+    ti_dir = ""
+    if isinstance(temporal_index, dict):
+        ti_dir = temporal_index.get("index_dir", "")
+    elif isinstance(temporal_index, list) and len(temporal_index) > 0:
+        first = temporal_index[0]
+        if isinstance(first, dict) and "index_path" in first:
+            ti_dir = os.path.dirname(first["index_path"])
+            
+    if not ti_dir or not os.path.isdir(ti_dir):
+        # Fallback to pipeline_data.json like bridge.py
+        project_dir = data.get("project_folder", "")
+        if project_dir:
+            state_file = os.path.join(project_dir, "pipeline_data.json")
+            if os.path.exists(state_file):
+                with open(state_file, "r") as f:
+                    state_data = json.load(f)
+                    ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
+                    
     if not ti_dir or not os.path.isdir(ti_dir):
         print(json.dumps({"error": f"Invalid temporal_index.index_dir: {ti_dir}",
                           "step": "2.02_bridge"}))
