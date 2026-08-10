@@ -46,7 +46,9 @@ def run(inputs: dict) -> dict:
             "render_output": {
                 "timeline_name": result.get("timeline_name"),
                 "status": "success",
-                "tracks_created": result.get("tracks", {}),
+                "success": result.get("success", True),
+                "errors": result.get("errors", []),
+                "tracks": result.get("tracks", {}),
                 "warnings": result.get("warnings", [])
             }
         }
