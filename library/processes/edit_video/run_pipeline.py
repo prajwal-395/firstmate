@@ -34,8 +34,10 @@ class LLMError(Exception): pass
 class PostBridgeError(Exception): pass
 
 def _is_transient_error(e: Exception) -> bool:
+    if isinstance(e, subprocess.TimeoutExpired):
+        return True
     msg = str(e).lower()
-    return any(x in msg for x in ["network", "rate limit", "timeout", "503", "429", "connection", "socket", "500", "502", "too many requests"])
+    return any(x in msg for x in ["network", "rate limit", "timeout", "timed out", "503", "429", "connection", "socket", "500", "502", "too many requests"])
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
