@@ -137,36 +137,6 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                     "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
                 })
 
-            # --- Hook overlap guard ---
-            # If the hook is a teaser of the first body segment (common
-            # shortform technique), the body should start AFTER the hook
-            # ends to avoid repeating the same audio.
-            if hook_assignment and video_segments:
-                for vs in video_segments:
-                    if (vs["clip_id"] == hook_assignment["clip_id"]
-                            and vs["video_in"] < hook_assignment["video_out"]
-                            and vs["video_out"] > hook_assignment["video_in"]):
-                        old_in = vs["video_in"]
-                        vs["video_in"] = hook_assignment["video_out"]
-                        vs["duration_seconds"] = round(
-                            vs["video_out"] - vs["video_in"], 3
-                        )
-                        if vs["duration_seconds"] <= 0:
-                            print(
-                                f"WARNING: Hook overlap consumed entire "
-                                f"segment from {clip_id}",
-                                file=sys.stderr,
-                            )
-                        else:
-                            print(
-                                f"INFO: Adjusted body segment {vs['clip_id']} "
-                                f"start from {old_in}s to {vs['video_in']}s "
-                                f"to avoid hook repetition",
-                                file=sys.stderr,
-                            )
-                
-                # Filter out segments consumed by the hook to prevent duration bugs
-                video_segments = [vs for vs in video_segments if vs["duration_seconds"] > 0]
 
             a_roll_assignments.append({
                 "spine_block_position": block["position"],

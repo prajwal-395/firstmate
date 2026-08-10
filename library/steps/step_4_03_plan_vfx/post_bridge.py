@@ -63,7 +63,12 @@ def resolve_vfx(
 
     resolved = []
     for vfx in creative_plan:
-        pos = vfx.get("target_block_position")
+        pos = vfx.get("target_block_position", vfx.get("segment_id"))
+        if pos is not None:
+            try:
+                pos = int(pos)
+            except ValueError:
+                pass
         block = block_lookup.get(pos, {})
         tl_start = block.get("timeline_start", 0.0)
         tl_end = block.get("timeline_end", tl_start + 5.0)
@@ -114,8 +119,12 @@ def inject_default_ken_burns(
     # Find which spine positions already have VFX assigned
     covered_positions = set()
     for vfx in creative_plan:
-        pos = vfx.get("target_block_position")
+        pos = vfx.get("target_block_position", vfx.get("segment_id"))
         if pos is not None:
+            try:
+                pos = int(pos)
+            except ValueError:
+                pass
             covered_positions.add(pos)
 
     # Inject defaults for uncovered A-roll blocks > KEN_BURNS_MIN_DURATION_S

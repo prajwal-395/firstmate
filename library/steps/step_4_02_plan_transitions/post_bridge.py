@@ -324,7 +324,22 @@ def main():
             
         semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
         
-        existing_cuts = {t.get("cut_point_position") for t in creative if "cut_point_position" in t}
+        existing_cuts = set()
+        for t in creative:
+            pos = t.get("cut_point_position")
+            if pos is None:
+                original_tl = t.get("cut_point_original", t.get("cut_point_timeline", 0.0))
+                best_pos = None
+                best_dist = float("inf")
+                for b in spine_blocks:
+                    dist = abs(b.get("timeline_start", 0.0) - original_tl)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_pos = b.get("position")
+                pos = best_pos
+                t["cut_point_position"] = pos
+            if pos is not None:
+                existing_cuts.add(pos)
         
         for i in range(1, len(spine_blocks)):
             prev_block = spine_blocks[i-1]
