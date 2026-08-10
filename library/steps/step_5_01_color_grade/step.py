@@ -274,21 +274,31 @@ def main():
 
     # A-roll assignments
     for assignment in input_data.get("a_roll_assignments", []):
-        for seg in assignment.get("video_segments", []):
+        vsegs = assignment.get("video_segments", [])
+        if vsegs:
+            for seg in vsegs:
+                entries.append({
+                    "track": "V1",
+                    "clip_id": seg.get("clip_id", assignment.get("source_clip_id", "")),
+                    "entry_id": seg.get("segment_id", ""),
+                    "source_file": seg.get("source_file", assignment.get("source_file", "")),
+                })
+        else:
             entries.append({
                 "track": "V1",
-                "clip_id": seg.get("clip_id", assignment.get("source_clip_id", "")),
-                "entry_id": seg.get("segment_id", ""),
-                "source_file": seg.get("source_file", assignment.get("source_file", "")),
+                "clip_id": assignment.get("source_clip_id", assignment.get("clip_id", "")),
+                "entry_id": assignment.get("assignment_id", ""),
+                "source_file": assignment.get("source_file", ""),
             })
 
     # B-roll assignments
     for broll in input_data.get("b_roll_assignments", []):
+        assigned = broll.get("assigned_clip", broll)
         entries.append({
             "track": "V2",
-            "clip_id": broll.get("clip_id", broll.get("source_clip_id", "")),
+            "clip_id": assigned.get("clip_id", assigned.get("source_clip_id", "")),
             "entry_id": broll.get("assignment_id", ""),
-            "source_file": broll.get("source_file", ""),
+            "source_file": assigned.get("source_file", broll.get("source_file", "")),
         })
 
     shot_list = {"entries": entries}

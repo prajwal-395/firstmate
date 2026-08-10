@@ -840,10 +840,18 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         })
 
     # Subtitles
-    subtitles = inputs.get("subtitle_plan", {}).get("subtitle_entries",
-                    inputs.get("subtitle_plan", {}).get("subtitles", []))
+    subtitle_data = inputs.get("subtitle_plan", {})
+    subtitles = subtitle_data.get("subtitle_entries", subtitle_data.get("subtitles", []))
 
+    for sub in subtitles:
+        if "entry_id" in sub and "id" not in sub:
+            sub["id"] = sub.pop("entry_id")
 
+    subtitles.sort(key=lambda s: s.get("timeline_start", 0))
+    for i, sub in enumerate(subtitles, 1):
+        sub["id"] = i
+        if "timeline_start_frame" not in sub:
+            convert_subtitle_to_frames(sub, fps)
 
     # VFX: Extract and integrate enhancement specs into per-clip effects.
     # BUG FIX C6: Previously hardcoded per_clip to {} and transitions to [],
