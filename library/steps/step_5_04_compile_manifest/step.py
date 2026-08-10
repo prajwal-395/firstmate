@@ -272,7 +272,7 @@ def compile_manifest(out_dir: str) -> dict:
             "timeline_in": broll["timeline_start"],
             "timeline_out": broll["timeline_end"],
             "video_only": True,
-            "label": f"broll_{broll['spine_block_position']}",
+            "label": f"broll_{broll.get('spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
@@ -287,7 +287,7 @@ def compile_manifest(out_dir: str) -> dict:
             "timeline_in": interj["timeline_start"],
             "timeline_out": interj["timeline_end"],
             "video_only": True,
-            "label": f"interjection_{interj['over_spine_block_position']}",
+            "label": f"interjection_{interj.get('over_spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
@@ -436,16 +436,15 @@ def compile_manifest(out_dir: str) -> dict:
     for si, sfx_entry in enumerate(sfx_list):
         sfx_type = sfx_entry.get("sfx_type", "whoosh")
         tl_start_sec = sfx_entry.get("timeline_start", 0.0)
-        tl_end_sec = sfx_entry.get("timeline_end",
-                                    tl_start_sec + sfx_entry.get(
-                                        "duration_seconds", 0.5))
         vol_db = sfx_entry.get("volume_db", -14)
 
-        # Resolve to actual file
         source_file, lib_dur = _match_sfx_file(sfx_type, sfx_index)
+        
+        tl_end_sec = sfx_entry.get("timeline_end")
+        if not tl_end_sec:
+            tl_end_sec = tl_start_sec + (lib_dur if lib_dur else sfx_entry.get("duration_seconds", 0.5))
 
         if source_file and os.path.exists(source_file):
-            sfx_dur_sec = tl_end_sec - tl_start_sec
             a3_clips.append({
                 "source_file": source_file,
                 "source_in": 0.0,
@@ -721,8 +720,12 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     for broll in inputs.get("b_roll_assignments", []):
         assigned = broll.get("assigned_clip", broll)
         cid = assigned.get("source_clip_id", assigned.get("clip_id"))
-        if cid and cid not in clip_metadata:
-            clip_metadata[cid] = assigned
+        path = assigned.get("source_file", "")
+        if cid:
+            if cid not in clip_metadata:
+                clip_metadata[cid] = assigned
+            if path and cid not in clip_lookup:
+                clip_lookup[cid] = path
 
     def resolve_source(block_or_clip):
         return _resolve_source(block_or_clip, clip_lookup)
@@ -1021,12 +1024,13 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     for si, sfx_entry in enumerate(sfx_list):
         sfx_type = sfx_entry.get("sfx_type", "whoosh")
         tl_start_sec = sfx_entry.get("timeline_start", 0.0)
-        tl_end_sec = sfx_entry.get("timeline_end",
-                                    tl_start_sec + sfx_entry.get(
-                                        "duration_seconds", 0.5))
         vol_db = sfx_entry.get("volume_db", -14)
 
         source_file, lib_dur = _match_sfx_file(sfx_type, sfx_index)
+        
+        tl_end_sec = sfx_entry.get("timeline_end")
+        if not tl_end_sec:
+            tl_end_sec = tl_start_sec + (lib_dur if lib_dur else sfx_entry.get("duration_seconds", 0.5))
 
         if source_file and os.path.exists(source_file):
             a3_clips.append({

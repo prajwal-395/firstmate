@@ -164,9 +164,9 @@ def apply_fusion_comps(manifest):
                 duration_ms = macro_trans.get("duration_ms", 500)
                 macro_applied = apply_macro_to_transition(tl_clip, macro_data, duration_ms)
                 if macro_applied:
-                    print(f"  ✓ [{ci}] {label}: Applied Fusion Macro transition", file=sys.stderr)
+                    print(f"  ✓ [{orig_ci}] {label}: Applied Fusion Macro transition", file=sys.stderr)
                 else:
-                    print(f"  ⚠ [{ci}] {label}: Macro transition failed, falling back to dissolve", file=sys.stderr)
+                    print(f"  ⚠ [{orig_ci}] {label}: Macro transition failed, falling back to dissolve", file=sys.stderr)
                     effects["tail_transition"] = "fade_to_black"
                     effects["tail_transition_frames"] = 12
 
@@ -193,7 +193,7 @@ def apply_fusion_comps(manifest):
                 tools = comp.GetToolList() if comp else {}
                 real_tools = [t for t in tools.values() if t.GetAttrs().get('TOOLS_RegID') not in ('MediaIn', 'MediaOut')]
                 if len(real_tools) == 0:
-                    print(f"  ✗ [{ci}] {label}: empty comp (bad file)", file=sys.stderr)
+                    print(f"  ✗ [{orig_ci}] {label}: empty comp (bad file)", file=sys.stderr)
                     continue
                 parts = []
                 xf = comp.FindTool("Transform1")
@@ -207,9 +207,9 @@ def apply_fusion_comps(manifest):
                 if tt: parts.append(f"tail={tt}")
                 if ht: parts.append(f"head={ht}")
                 detail = f" ({', '.join(parts)})" if parts else ""
-                print(f"  ✓ [{ci}] {label}: {len(real_tools)} tools{detail}", file=sys.stderr)
+                print(f"  ✓ [{orig_ci}] {label}: {len(real_tools)} tools{detail}", file=sys.stderr)
             else:
-                print(f"  ✗ [{ci}] {label}: ImportFusionComp failed", file=sys.stderr)
+                print(f"  ✗ [{orig_ci}] {label}: ImportFusionComp failed", file=sys.stderr)
 
     elif vfx_entries:
         for vfx in vfx_entries:
