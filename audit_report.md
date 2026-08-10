@@ -1,11 +1,19 @@
-# Convergence Audit - Phase 1 & 2
+# Pipeline Logic Bugs Audit (Phase 3 & 4)
 
-## Pipeline Logic Bugs Found and Fixed
+During the audit, the following pipeline logic bugs were found and fixed:
 
-1. **Audio Cache Collision in Temporal Indexing (`step_1_04_temporal_index/step.py`)**
-   - **Bug**: `extract_audio_16k` used the `video_path`'s basename to construct the cached `.wav` filename. If a project had multiple raw files with the same name (e.g. `raw/cam_a/IMG_001.MOV` and `raw/cam_b/IMG_001.MOV`), they would overwrite each other in the `audio_cache` directory, causing silent data loss where the audio processed for the second file actually belonged to the first file.
-   - **Fix**: Modified `extract_audio_16k` to take `clip_id` (e.g., `clip_001`) as an argument and use it as the base filename for caching, which is guaranteed to be unique.
+1. **`step_4_06_render_motion_graphics/step.py` (Motion Graphics Rendering Bug)**
+   - **Bug:** The render list was truncated (`props_list = props_list[:1]`), limiting rendering to only the very first segment.
+   - **Fix:** Removed the truncating slice so all motion graphics segments are rendered correctly.
 
-2. **Incorrect Total Duration Validation (`step_2_02_speech_sequence/post_bridge.py`)**
-   - **Bug**: The `total_duration` calculation only summed the durations of the `body_sequence` passages. It completely ignored the `hook_segment` duration. This caused the calculated total speech duration to be artificially lower than the true duration, which could lead to incorrect validation bounds failures.
-   - **Fix**: Included the `hook_segment` (if present) in the `total_duration` calculation before summing the body passages.
+2. **`step_4_03_plan_vfx/post_bridge.py` (Manifest Schema Compliance Bug)**
+   - **Bug:** The output `enhancement_spec` was returning a direct list of effects (`{"enhancement_spec": result}`). The manifest schema and downstream steps expect a dictionary grouping by effect type (e.g., `{"enhancement_spec": {"visual_effects": result}}`). This caused downstream data malformation.
+   - **Fix:** Wrapped the `result` inside `{"visual_effects": result}`.
+
+3. **`step_4_02_plan_transitions/post_bridge.py` (Transition Planning Crash)**
+   - **Bug:** The code indexed blocks directly using `outgoing = block_lookup.get(pos - 1, {})` expecting `pos` to be an integer. Spine block positions are occasionally strings (e.g. `"body_1"`), leading to a `TypeError` at runtime.
+   - **Fix:** Refactored the array lookup to find the block's true list index in `spine_blocks`, providing robust access to the incoming/outgoing blocks.
+
+4. **`step_3_02_select_broll/post_bridge.py` (B-Roll Duration Bug)**
+   - **Bug:** `block_duration` was extracted directly from `duration_seconds`, which can be stale if the `timed_spine` step shifted the timestamps.
+   - **Fix:** Updated the calculation to dynamically resolve `block_duration = timeline_end - timeline_start` for robust syncing.

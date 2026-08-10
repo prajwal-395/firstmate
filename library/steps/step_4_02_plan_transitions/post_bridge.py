@@ -43,8 +43,8 @@ def snap_to_beat(
 
 
 def resolve_cut_point(
-    cut_position: int,
-    block_lookup: dict,
+    incoming: dict,
+    outgoing: dict,
     ti_lookup: dict,
     beat_grid: list,
 ) -> dict:
@@ -54,8 +54,8 @@ def resolve_cut_point(
     the natural end point based on signal data.
 
     Args:
-        cut_position: Spine block position the transition leads INTO
-        block_lookup: {position: block_dict}
+        incoming: The incoming spine block
+        outgoing: The outgoing spine block
         ti_lookup: {clip_id: temporal_index_dict}
         beat_grid: List of beat positions in timeline domain
 
@@ -66,11 +66,8 @@ def resolve_cut_point(
             "word_beat_coincidence": bool
         }
     """
-    incoming = block_lookup.get(cut_position, {})
     incoming_start = incoming.get("timeline_start", 0.0)
 
-    # Find the outgoing block (position - 1)
-    outgoing = block_lookup.get(cut_position - 1, {})
     outgoing_type = outgoing.get("block_type", "")
     outgoing_clip_id = outgoing.get("clip_id", "")
 
@@ -205,10 +202,17 @@ def resolve_transitions(
                     best_pos = b["position"]
             pos = best_pos
 
-        block = block_lookup.get(pos, {})
+        # Find block index for robust incoming/outgoing resolution
+        block_idx = -1
+        for i, b in enumerate(spine_blocks):
+            if b.get("position") == pos:
+                block_idx = i
+                break
+                
+        block = spine_blocks[block_idx] if block_idx >= 0 else {}
         original_tl = block.get("timeline_start", 0.0)
         
-        outgoing = block_lookup.get(pos - 1, {})
+        outgoing = spine_blocks[block_idx - 1] if block_idx > 0 else {}
 
         # Use the content-aware transition selector
         selected_trans = select_transition(
@@ -242,7 +246,10 @@ def resolve_transitions(
 
         # Resolve the precise cut point
         cut_info = resolve_cut_point(
-            pos, block_lookup, ti_lookup, beat_positions,
+            incoming=block,
+            outgoing=outgoing,
+            ti_lookup=ti_lookup,
+            beat_grid=beat_positions,
         )
         cut_time = cut_info["cut_time"]
 
