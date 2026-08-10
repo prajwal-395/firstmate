@@ -482,11 +482,21 @@ def build_timeline(
         dur = trans.get('duration_frames', 15)
         if from_clip_idx is not None and to_clip_idx is not None:
             if ttype == 'j_cut':
-                v1_clips[from_clip_idx]['audio_src_out'] -= dur
-                v1_clips[to_clip_idx]['audio_src_in'] = max(0, v1_clips[to_clip_idx]['audio_src_in'] - dur)
+                # to_clip can only go back by its available head
+                actual_dur = min(dur, v1_clips[to_clip_idx]['audio_src_in'])
+                # from_clip can only give up what it has
+                from_clip_len = v1_clips[from_clip_idx]['audio_src_out'] - v1_clips[from_clip_idx]['audio_src_in']
+                actual_dur = min(actual_dur, from_clip_len)
+                
+                v1_clips[from_clip_idx]['audio_src_out'] -= actual_dur
+                v1_clips[to_clip_idx]['audio_src_in'] -= actual_dur
             elif ttype == 'l_cut':
-                v1_clips[from_clip_idx]['audio_src_out'] += dur
-                v1_clips[to_clip_idx]['audio_src_in'] += dur
+                # to_clip can only give up what it has
+                to_clip_len = v1_clips[to_clip_idx]['audio_src_out'] - v1_clips[to_clip_idx]['audio_src_in']
+                actual_dur = min(dur, to_clip_len)
+                
+                v1_clips[from_clip_idx]['audio_src_out'] += actual_dur
+                v1_clips[to_clip_idx]['audio_src_in'] += actual_dur
 
     current_video_frame = 0
     for ci, clip in enumerate(v1_clips):

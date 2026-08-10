@@ -1,21 +1,13 @@
-# Phase 3 & 4 Convergence Audit Report
+# Convergence Audit: Phase 5 & 6 Pipeline Logic
 
-## Scope
-- Phase 3 (steps 3.01 - 3.03)
-- Phase 4 (steps 4.01 - 4.06)
-- Remotion subtitles
+## Findings
 
-## Findings & Fixes
-The following pipeline logic bugs were found and fixed:
+1. **Bug Found:** Data loss and silent gaps in J-cut and L-cut handling inside `resolve_build_timeline.py`.
+   - **Details:** The timeline builder's logic for pre-processing J-cuts decreased `audio_src_out` of the preceding clip by the full transition duration, while bounding the next clip's `audio_src_in` adjustment to its available head media `max(0, ... - dur)`. This discrepancy created a silent gap in the A1 track when the next clip didn't have enough head media. Similarly, L-cuts extended `audio_src_out` of the preceding clip and `audio_src_in` of the next clip without capping them to the actual media limits, which could cause Resolve's `AppendToTimeline` to fail or create gaps.
+   - **Fix:** Implemented proper clamping. `actual_dur` is now strictly bound by the available media limits of both clips (`from_clip_len` and `audio_src_in`/`to_clip_len`), ensuring that both ends of the cut adjust symmetrically without violating media bounds.
 
-1. **Subtitle Alignment Offset Bug (`step_4_01_plan_subtitles/step.py`)**
-   - **Bug**: The code used `seg.get("start_time", 0.0)` for speech segments. Legacy pipeline segments use `source_start` instead of `start_time`. This caused the script to wrongly default `seg_source_start` to `0.0`. This subsequently caused the word-level timestamps to receive a massive incorrect timeline offset calculation.
-   - **Fix**: Added proper fallback `seg.get("start_time", seg.get("source_start", 0.0))` to correctly calculate `source_dur` and V1 source offset.
+2. **Bug Found:** Silent failure to populate `clip_lookup` in `step_5_04_compile_manifest` (orchestrator mode).
+   - **Details:** When compiling the manifest from upstream JSON inputs, the `a_roll_assignments` processor iterated over `video_segments` and fell back to `vseg.get("clip_id")` and `vseg.get("source_file")`. However, it failed to inherit `source_clip_id` or `source_file` from the parent `assignment` object if the `vseg` was sparsely populated. This caused `cid` or `path` to be empty strings, skipping the `clip_lookup` registration entirely and causing missing media downstream.
+   - **Fix:** Updated the fallback lookup logic to `assignment.get("source_clip_id", assignment.get("clip_id", ""))` and `assignment.get("source_file", "")`.
 
-2. **Position Lookup Type Mismatches (`step_4_01`, `step_3_02`, `step_4_02`, `step_4_03`)**
-   - **Bug**: Across several bridges and post-bridges, spine block `position` lookup relied on exact dictionary key matching. The pipeline `audio_spine` uses string positions (e.g. `"1"`, `"hook"`, `"body_1"`), but LLM generative outputs or legacy spines occasionally emit or cast positions as integers. This silent mismatch caused lookups to fail, resulting in B-roll and VFX defaulting their timeline start coordinates to `0.0` or throwing transitions out of sync.
-   - **Fix**: Standardized all `block_lookup` dictionaries and `passage_lookup` tuples to cast the position identifier to `str()` before matching, guaranteeing reliable O(1) alignment between LLM plans and the audio spine.
-
-3. **Music Ducking Dropped Without Prosody (`step_4_04_plan_sfx/post_bridge.py`)**
-   - **Bug**: If `prosody_analysis` was absent or failed upstream, the bridge used an empty `pass` in the fallback block for speech segments. This caused `compute_ducking_curves` to receive an empty list, completely disabling music audio ducking during speech blocks.
-   - **Fix**: Implemented a robust fallback that constructs `speech_segments` directly from `spine_blocks` (using `timeline_start` and `timeline_end` of speech blocks) when prosody analysis is missing, guaranteeing music ducking remains active.
+Both logic bugs have been fixed and committed. No further pipeline logic bugs were found in Phase 5, Phase 6, or execution tools.
