@@ -41,12 +41,6 @@
         "type": "object",
         "required": true,
         "description": "State input: color_grade_spec"
-      },
-      {
-        "name": "brand_template",
-        "type": "object",
-        "required": false,
-        "description": "State input: brand_template"
       }
     ],
     "outputs": [
@@ -78,8 +72,7 @@
       "transition_spec",
       "enhancement_spec",
       "sfx_spec",
-      "color_grade_spec",
-      "brand_template"
+      "color_grade_spec"
     ],
     "writes": [
       "cohesion_review"

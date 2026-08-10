@@ -75,6 +75,37 @@ for transparency and potential revision.
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+editorial vision as a rich markdown document. Read it before selecting
+passages. The brief may describe:
+
+- The narrative angle or story arc to pursue
+- Which moments or themes to prioritize
+- Tone and pacing preferences for the monologue
+
+Let the brief guide your selection and ordering decisions. If no creative
+brief is provided, rely on the creative direction output from Step 2.1.
+
+## Duration Limit
+
+Read `project_config.target_duration_seconds` from the input (an integer,
+e.g. `60`). This value comes from the project's `project.json`.
+
+- The total speech sequence MUST fit within this target duration. Select
+  only the strongest passages. If all candidate passages sum to more than
+  the target, aggressively cut - keep only passages that directly serve the
+  creative direction's narrative theme and key moments.
+- Aim for ~75% of the target as your speech content duration (leaving room
+  for B-roll and transitions).
+- Document in `excluded_passages` any passages cut to meet the duration
+  target, with `reason_excluded: "cut to meet duration target of Xs"`.
+
+If `project_config` is not available, default to a 60 second target.
+
+---
+
 ## Output Format
 
 ```json

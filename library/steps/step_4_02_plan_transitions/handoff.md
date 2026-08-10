@@ -65,6 +65,23 @@ transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+transition style preferences as natural language. Read it for:
+
+- Preferred transition feel (snappy cuts, smooth dissolves, rhythmic
+  beat-synced cuts, etc.)
+- Moments that warrant special creative transitions vs. hard cuts
+- Overall pacing philosophy for transitions
+
+Let the brief guide your transition type and duration choices. Hard cuts are
+always appropriate for dialogue-to-dialogue transitions regardless of brief
+guidance. If no creative brief is provided, rely on the creative direction
+energy profile.
+
+---
+
 ## Output Format
 
 ```json

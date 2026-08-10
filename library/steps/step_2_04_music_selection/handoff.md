@@ -88,6 +88,24 @@ Given the creative direction, find and prepare music for the video.
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+sonic and musical preferences as natural language. Read it for:
+
+- Preferred music genres and sonic qualities
+- Specific artists, tracks, or vibes to emulate
+- Music energy and mood descriptions
+- Any tracks or styles to avoid
+
+Use the brief to shape your YouTube search queries and selection criteria.
+The brief takes priority over all other genre guidance.
+
+If `brand_content.music_genre` is also present (a list of genre strings),
+use it as a secondary search hint alongside the brief's guidance.
+
+---
+
 ## Output Format
 
 ```json

@@ -41,6 +41,12 @@
         "type": "object",
         "required": true,
         "description": "State input: timed_spine"
+      },
+      {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -70,6 +76,7 @@
     "reads": [
       "a_roll_assignments",
       "b_roll_assignments",
+      "creative_brief",
       "creative_direction",
       "project_folder",
       "rough_cut_review",

@@ -31,16 +31,10 @@
         "description": "State input: clip_catalog"
       },
       {
-        "name": "brand_style",
-        "type": "object",
+        "name": "creative_brief",
+        "type": "string",
         "required": false,
-        "description": "Brand style slots"
-      },
-      {
-        "name": "brand_content",
-        "type": "object",
-        "required": false,
-        "description": "Brand content slots"
+        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -67,12 +61,11 @@
   },
   "state": {
     "reads": [
+      "creative_brief",
       "project_folder",
       "prosody_analysis",
       "semantic_analysis_documents",
-      "temporal_index",
-      "brand_style",
-      "brand_content"
+      "temporal_index"
     ],
     "writes": [
       "creative_direction"

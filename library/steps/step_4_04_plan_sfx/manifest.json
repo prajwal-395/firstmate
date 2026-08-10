@@ -55,10 +55,10 @@
         "description": "State input: music_analysis"
       },
       {
-        "name": "brand_effect",
-        "type": "object",
+        "name": "creative_brief",
+        "type": "string",
         "required": false,
-        "description": "Brand effect slots"
+        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -87,6 +87,7 @@
     "reads": [
       "audio_spine",
       "b_roll_assignments",
+      "creative_brief",
       "creative_direction",
       "music_analysis",
       "project_folder",
@@ -94,8 +95,7 @@
       "semantic_analysis_documents",
       "sfx_library_status",
       "temporal_event_indices",
-      "timed_spine",
-      "brand_effect"
+      "timed_spine"
     ],
     "writes": [
       "sfx_spec"
@@ -132,7 +132,6 @@
     "timed_spine",
     "music_analysis",
     "sfx_library_status",
-    "brand_effect",
     "semantic_analysis_documents.*.scene_segments.*.event_logs",
     "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
     "temporal_event_indices.*.scene_boundaries",

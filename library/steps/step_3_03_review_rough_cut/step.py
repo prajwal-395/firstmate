@@ -161,22 +161,76 @@ def check_no_duplicate_ranges(a_roll_assignments: list) -> dict:
     }
 
 
+def check_total_duration(a_roll_assignments: list, audio_spine: dict,
+                         data: dict) -> dict:
+    """
+    Total timeline duration must not exceed the target duration by more
+    than 50%.  This is a hard mechanical check - not LLM judgment.
+
+    Reads target from project_config.target_duration_seconds (set by
+    step_1_01 from project.json).  Defaults to 60 seconds.
+    """
+    # Compute actual duration from audio_spine or a_roll_assignments
+    actual_duration = 0.0
+
+    # Try audio_spine first (most accurate representation of timeline length)
+    structure = audio_spine.get("structure", []) if isinstance(audio_spine, dict) else []
+    if structure:
+        actual_duration = max(
+            (block.get("timeline_end", 0) for block in structure),
+            default=0.0,
+        )
+
+    # Fallback to a_roll_assignments
+    if actual_duration <= 0 and a_roll_assignments:
+        actual_duration = max(
+            (ar.get("timeline_end", 0) for ar in a_roll_assignments),
+            default=0.0,
+        )
+
+    # Determine target duration from project_config
+    target_duration = 60.0  # default
+    project_config = data.get("project_config", {})
+    if isinstance(project_config, dict):
+        pct = project_config.get("target_duration_seconds")
+        if pct is not None and float(pct) > 0:
+            target_duration = float(pct)
+
+    threshold = target_duration * 1.5
+    exceeded = actual_duration > threshold
+
+    result = {
+        "passed": not exceeded,
+        "actual_duration_seconds": round(actual_duration, 2),
+        "target_duration_seconds": round(target_duration, 2),
+        "threshold_seconds": round(threshold, 2),
+    }
+    if exceeded:
+        result["overshoot_ratio"] = round(actual_duration / target_duration, 2)
+
+    return result
+
+
 def run_mechanical_checks(data: dict) -> dict:
     """Run all mechanical checks and return combined result."""
     a_rolls = data.get("a_roll_assignments", [])
     b_rolls = data.get("b_roll_assignments", [])
     project_folder = data.get("project_folder", ".")
 
+    audio_spine = data.get("audio_spine", {})
+
     duration = check_duration_invariant(a_rolls)
     continuity = check_timeline_continuity(a_rolls)
     source_files = check_source_files(a_rolls, b_rolls, project_folder)
     duplicates = check_no_duplicate_ranges(a_rolls)
+    total_dur = check_total_duration(a_rolls, audio_spine, data)
 
     all_passed = all([
         duration["passed"],
         continuity["passed"],
         source_files["passed"],
         duplicates["passed"],
+        total_dur["passed"],
     ])
 
     result = {
@@ -186,6 +240,7 @@ def run_mechanical_checks(data: dict) -> dict:
             "timeline_continuity": continuity,
             "source_files_exist": source_files,
             "no_duplicate_ranges": duplicates,
+            "total_duration": total_dur,
         },
     }
 
@@ -215,6 +270,13 @@ def run_mechanical_checks(data: dict) -> dict:
             rejection_reasons.append(
                 f"Overlapping ranges: {c['clip_a']} and {c['clip_b']}"
             )
+    if not total_dur["passed"]:
+        rejection_reasons.append(
+            f"Total duration ({total_dur['actual_duration_seconds']}s) exceeds "
+            f"target ({total_dur['target_duration_seconds']}s) by more than 50% "
+            f"(threshold: {total_dur['threshold_seconds']}s, "
+            f"ratio: {total_dur.get('overshoot_ratio', 'N/A')}x)"
+        )
 
     result["rejection_reasons"] = rejection_reasons
 

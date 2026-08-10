@@ -49,16 +49,16 @@
         "description": "State input: timed_spine"
       },
       {
-        "name": "brand_effect",
-        "type": "object",
-        "required": false,
-        "description": "Brand effect slots"
-      },
-      {
         "name": "semantic_analysis",
         "type": "object",
         "required": false,
         "description": "Semantic analysis output"
+      },
+      {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -87,13 +87,13 @@
     "reads": [
       "a_roll_assignments",
       "b_roll_assignments",
+      "creative_brief",
       "creative_direction",
       "music_selection",
       "project_folder",
       "rough_cut_review",
       "temporal_event_indices",
       "timed_spine",
-      "brand_effect",
       "semantic_analysis"
     ],
     "writes": [
@@ -132,7 +132,6 @@
     "music_selection",
     "rough_cut_review",
     "timed_spine",
-    "brand_effect",
     "temporal_event_indices.*.scene_boundaries",
     "temporal_event_indices.*.motion_energy.high_motion_times"
   ]

@@ -243,7 +243,7 @@ def load_pipeline_state(project_dir: str) -> dict:
             process_manifest = json.load(f)
         for inp in process_manifest.get("interface", {}).get("inputs", []):
             name = inp.get("name", "")
-            if name in ("sfx_library", "music_library", "brand_template") and name not in state:
+            if name in ("sfx_library", "music_library", "brand_template", "creative_brief") and name not in state:
                 default = inp.get("default", "")
                 if default:
                     state[name] = default
@@ -340,11 +340,27 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 import sys
                 print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
 
+        # Inject creative brief markdown content when the step declares it
+        if "creative_brief" in step_inputs:
+            brief_path = state.get("creative_brief", "")
+            if brief_path:
+                try:
+                    project_folder = state.get("project_folder", "")
+                    if not os.path.isabs(brief_path) and project_folder:
+                        brief_path = os.path.join(project_folder, brief_path)
+                    if os.path.exists(brief_path):
+                        with open(brief_path, "r", encoding="utf-8") as bf:
+                            inputs["creative_brief"] = bf.read()
+                except Exception as e:
+                    import sys
+                    print(f"Warning: failed to load creative brief: {e}", file=sys.stderr)
+
     if step_type == "llm_only" and manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
         saved_res = inputs.get("project_resolution")
         saved_brand_template = inputs.get("brand_template")
+        saved_creative_brief = inputs.get("creative_brief")
         
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
@@ -356,6 +372,8 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
             inputs["project_resolution"] = saved_res
         if saved_brand_template is not None:
             inputs["brand_template"] = saved_brand_template
+        if saved_creative_brief is not None:
+            inputs["creative_brief"] = saved_creative_brief
 
     return inputs
 
@@ -402,6 +420,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         saved_fps = inputs.get("project_fps")
         saved_res = inputs.get("project_resolution")
         saved_brand_template = inputs.get("brand_template", "default_brand")
+        saved_creative_brief = inputs.get("creative_brief")
         
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
@@ -413,6 +432,8 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             inputs["project_resolution"] = saved_res
         if saved_brand_template is not None:
             inputs["brand_template"] = saved_brand_template
+        if saved_creative_brief is not None:
+            inputs["creative_brief"] = saved_creative_brief
         
     projected_input_tokens = len(str(inputs).split()) * 1.3
         
