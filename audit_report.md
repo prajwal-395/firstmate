@@ -1,16 +1,8 @@
-# Convergence Audit Phase 1 & 2
+CONVERGENCE AUDIT COMPLETE
 
-I have completed the convergence audit for pipeline logic bugs in Phase 1 (steps 1.01-1.07) and Phase 2 (steps 2.01-2.05).
+3 pipeline logic bugs found and fixed:
+1. `step_6_01_render/resolve_build_timeline.py`: Missing `overlay_path` fallback for `mg_segments`. The manifest's legacy `overlay_path` field inside `mg_overlay_info` was ignored, causing motion graphics overlays to be dropped silently if `mg_segments` wasn't explicitly populated in the manifest and no argument was passed. Added the fallback matching subtitles.
+2. `step_5_04_compile_manifest/step.py`: In orchestrator mode (`compile_manifest_from_inputs`), `transition` parsing failed to handle `"position": "between_X_Y"` to enrich transitions with `from_block` and `cut_point_timeline`. This caused `fusion_transitions` to fall back to using list indices instead of block mappings, applying transitions to wrong clips if clip counts differed. Added the missing enrichment block from standalone mode.
+3. `step_5_04_compile_manifest/step.py`: Completely ignored `video_segments` data produced by `step_3_01_a_roll_assignments`. It built `v1_clips` straight from `audio_spine.structure`, effectively losing any visual cuts (e.g. jump cuts) introduced by step 3.01. Fixed both standalone and orchestrator modes to use `a_roll_assignments` and build `v1_clips` accurately.
 
-## Bugs Found & Fixed
-
-### 1. `step_1_07_ocr_extraction/step.py` (Temporal Index Resolution)
-**Bug:** The script hardcoded `temporal_dir` to `os.path.join(analysis_dir, 'temporal_index')` (i.e., `raw/analysis/temporal_index`) instead of dynamically resolving the `index_dir` from the `temporal_index` pipeline state input. Because `step_1_04_temporal_index` writes to `pipeline_output/temporal_index` by default (unless running a cache hit from `raw/`), this caused the OCR step to fail to find the scene boundaries when running fresh.
-**Fix:** Modified `step_1_07_ocr_extraction/step.py` to extract `index_dir` from the `temporal_index` state input (handling both list and dict formats) and gracefully fall back to the hardcoded path.
-
-### 2. `step_2_02_speech_sequence/post_bridge.py` (Semantic Data Key Mismatch)
-**Bug:** The script attempted to fetch semantic data using `data.get("semantic_analysis", {})` instead of `data.get("semantic_analysis_documents", {})`. As defined by the manifest and pipeline data structures, the key is `semantic_analysis_documents`. This bug resulted in an empty dictionary being passed to the `compute_engagement` scorer, degrading its logic.
-**Fix:** Updated `post_bridge.py` to properly use the `semantic_analysis_documents` key.
-
-## Conclusion
-The bugs were fixed and committed to the `fm/audit11-phase-1-2` branch. No other logic bugs were found.
+CLEAN PASS - no pipeline logic bugs remaining.

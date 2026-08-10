@@ -245,7 +245,15 @@ def build_timeline(
             'timeline_end': total_duration,
             'total_frames': round(total_duration * fps),
         }]
-
+    if not mg_segments:
+        legacy_mg = mg_overlay_info.get('overlay_path', '')
+        if legacy_mg and os.path.exists(legacy_mg):
+            mg_segments = [{
+                'overlay_path': legacy_mg,
+                'timeline_start': 0,
+                'timeline_end': total_duration,
+                'total_frames': round(total_duration * fps),
+            }]
     results = {
         "success": False,
         "timeline_name": timeline_name,

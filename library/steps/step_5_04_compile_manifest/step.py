@@ -147,6 +147,7 @@ def _match_sfx_file(sfx_type, sfx_index_entries):
 def compile_manifest(out_dir: str) -> dict:
     # Load pipeline step outputs
     spine_data = load(out_dir, "step_2_05.json")
+    aroll_data = load(out_dir, "step_3_01.json")
     broll_data = load(out_dir, "step_3_02.json")
     speech_data = load(out_dir, "step_2_02.json")
     transition_data = load(out_dir, "step_4_02.json")
@@ -234,32 +235,76 @@ def compile_manifest(out_dir: str) -> dict:
         if directives:
             neural_engine_directives[clip_entry["label"]] = directives
 
+    a_roll_dict = {}
+    for assignment in aroll_data.get("a_roll_assignments", []):
+        pos = assignment.get("spine_block_position")
+        if pos is not None:
+            a_roll_dict[pos] = assignment
+    hook_assignment = aroll_data.get("hook_assignment", {})
+    if hook_assignment and "spine_block_position" in hook_assignment:
+        a_roll_dict[hook_assignment["spine_block_position"]] = hook_assignment
+
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
     for block in structure:
         if block["block_type"] in ("speech", "hook"):
-            # Extract link_group_id from the block's content or from
-            # the A-roll assignment data that was merged in.
             content = block.get("content") or {}
             lgid = (block.get("link_group_id")
                     or content.get("link_group_id"))
 
-            clip = {
-                "source_file": resolve_source(block),
-                "source_in": block["source_start"],
-                "source_out": block["source_end"],
-                "timeline_in": block["timeline_start"],
-                "timeline_out": block["timeline_end"],
-                "timeline_in_frame": block.get("timeline_start_frame"),
-                "timeline_out_frame": block.get("timeline_end_frame"),
-                "link_group_id": lgid,
-                "label": f"{block['block_type']}_{block['position']}",
-            }
-            # Fill frame fields from seconds if spine didn't provide them
-            if clip["timeline_in_frame"] is None:
-                convert_clip_to_frames(clip, fps)
-            v1_clips.append(clip)
-            compute_neural_directives(get_clip_id(block), clip)
+            assignment = a_roll_dict.get(block.get("position"))
+            
+            if assignment and assignment.get("video_segments"):
+                current_tl_in = block.get("timeline_start", 0.0)
+                for seg_idx, seg in enumerate(assignment["video_segments"]):
+                    dur = seg.get("duration_seconds", seg.get("video_out", 0) - seg.get("video_in", 0))
+                    clip = {
+                        "source_file": resolve_source(seg),
+                        "source_in": seg.get("video_in", 0.0),
+                        "source_out": seg.get("video_out", 0.0),
+                        "timeline_in": current_tl_in,
+                        "timeline_out": current_tl_in + dur,
+                        "timeline_in_frame": None,
+                        "timeline_out_frame": None,
+                        "link_group_id": seg.get("link_group_id", lgid),
+                        "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
+                    }
+                    convert_clip_to_frames(clip, fps)
+                    v1_clips.append(clip)
+                    compute_neural_directives(get_clip_id(seg), clip)
+                    current_tl_in += dur
+            elif assignment:
+                clip = {
+                    "source_file": resolve_source(assignment),
+                    "source_in": assignment.get("video_in", block.get("source_start", 0.0)),
+                    "source_out": assignment.get("video_out", block.get("source_end", 0.0)),
+                    "timeline_in": block.get("timeline_start", 0.0),
+                    "timeline_out": block.get("timeline_end", 0.0),
+                    "timeline_in_frame": block.get("timeline_start_frame"),
+                    "timeline_out_frame": block.get("timeline_end_frame"),
+                    "link_group_id": lgid,
+                    "label": f"{block['block_type']}_{block['position']}",
+                }
+                if clip["timeline_in_frame"] is None:
+                    convert_clip_to_frames(clip, fps)
+                v1_clips.append(clip)
+                compute_neural_directives(get_clip_id(assignment), clip)
+            else:
+                clip = {
+                    "source_file": resolve_source(block),
+                    "source_in": block.get("source_start", 0.0),
+                    "source_out": block.get("source_end", 0.0),
+                    "timeline_in": block.get("timeline_start", 0.0),
+                    "timeline_out": block.get("timeline_end", 0.0),
+                    "timeline_in_frame": block.get("timeline_start_frame"),
+                    "timeline_out_frame": block.get("timeline_end_frame"),
+                    "link_group_id": lgid,
+                    "label": f"{block['block_type']}_{block['position']}",
+                }
+                if clip["timeline_in_frame"] is None:
+                    convert_clip_to_frames(clip, fps)
+                v1_clips.append(clip)
+                compute_neural_directives(get_clip_id(block), clip)
 
     # ── V2: B-Roll clips ──
     v2_clips = []
@@ -778,27 +823,75 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         if directives:
             neural_engine_directives[clip_entry["label"]] = directives
 
+    a_roll_dict = {}
+    for assignment in inputs.get("a_roll_assignments", []):
+        pos = assignment.get("spine_block_position")
+        if pos is not None:
+            a_roll_dict[pos] = assignment
+    hook_assignment = inputs.get("hook_assignment", {})
+    if hook_assignment and "spine_block_position" in hook_assignment:
+        a_roll_dict[hook_assignment["spine_block_position"]] = hook_assignment
+
     # V1: A-Roll clips from spine speech blocks
     v1_clips = []
     for block in structure:
         if block.get("block_type") in ("speech", "hook"):
             content = block.get("content") or {}
             lgid = block.get("link_group_id") or content.get("link_group_id")
-            clip = {
-                "source_file": resolve_source(block),
-                "source_in": block.get("source_start", 0.0),
-                "source_out": block.get("source_end", 0.0),
-                "timeline_in": block.get("timeline_start", 0.0),
-                "timeline_out": block.get("timeline_end", 0.0),
-                "timeline_in_frame": block.get("timeline_start_frame"),
-                "timeline_out_frame": block.get("timeline_end_frame"),
-                "link_group_id": lgid,
-                "label": f"{block['block_type']}_{block['position']}",
-            }
-            if clip["timeline_in_frame"] is None:
-                convert_clip_to_frames(clip, fps)
-            v1_clips.append(clip)
-            compute_neural_directives(get_clip_id(block), clip)
+            
+            assignment = a_roll_dict.get(block.get("position"))
+            
+            if assignment and assignment.get("video_segments"):
+                current_tl_in = block.get("timeline_start", 0.0)
+                for seg_idx, seg in enumerate(assignment["video_segments"]):
+                    dur = seg.get("duration_seconds", seg.get("video_out", 0) - seg.get("video_in", 0))
+                    clip = {
+                        "source_file": resolve_source(seg),
+                        "source_in": seg.get("video_in", 0.0),
+                        "source_out": seg.get("video_out", 0.0),
+                        "timeline_in": current_tl_in,
+                        "timeline_out": current_tl_in + dur,
+                        "timeline_in_frame": None,
+                        "timeline_out_frame": None,
+                        "link_group_id": seg.get("link_group_id", lgid),
+                        "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
+                    }
+                    convert_clip_to_frames(clip, fps)
+                    v1_clips.append(clip)
+                    compute_neural_directives(get_clip_id(seg), clip)
+                    current_tl_in += dur
+            elif assignment:
+                clip = {
+                    "source_file": resolve_source(assignment),
+                    "source_in": assignment.get("video_in", block.get("source_start", 0.0)),
+                    "source_out": assignment.get("video_out", block.get("source_end", 0.0)),
+                    "timeline_in": block.get("timeline_start", 0.0),
+                    "timeline_out": block.get("timeline_end", 0.0),
+                    "timeline_in_frame": block.get("timeline_start_frame"),
+                    "timeline_out_frame": block.get("timeline_end_frame"),
+                    "link_group_id": lgid,
+                    "label": f"{block['block_type']}_{block['position']}",
+                }
+                if clip["timeline_in_frame"] is None:
+                    convert_clip_to_frames(clip, fps)
+                v1_clips.append(clip)
+                compute_neural_directives(get_clip_id(assignment), clip)
+            else:
+                clip = {
+                    "source_file": resolve_source(block),
+                    "source_in": block.get("source_start", 0.0),
+                    "source_out": block.get("source_end", 0.0),
+                    "timeline_in": block.get("timeline_start", 0.0),
+                    "timeline_out": block.get("timeline_end", 0.0),
+                    "timeline_in_frame": block.get("timeline_start_frame"),
+                    "timeline_out_frame": block.get("timeline_end_frame"),
+                    "link_group_id": lgid,
+                    "label": f"{block['block_type']}_{block['position']}",
+                }
+                if clip["timeline_in_frame"] is None:
+                    convert_clip_to_frames(clip, fps)
+                v1_clips.append(clip)
+                compute_neural_directives(get_clip_id(block), clip)
 
     # V2: B-Roll clips
     v2_clips = []
@@ -915,6 +1008,45 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         
     apply_cohesion_adjustments(transitions, inputs.get("cohesion_review", {}))
 
+    # Build spine-block-end lookup: position → timeline_end seconds
+    block_end_by_pos = {}
+    for b in structure:
+        if "position" in b:
+            block_end_by_pos[b["position"]] = b.get(
+                "timeline_end", b.get("timeline_end_frame", 0) / fps)
+
+    enriched_transitions = []
+    for t in transitions:
+        enriched = dict(t)
+        pos = t.get("position", "")
+        if pos.startswith("between_"):
+            parts = pos.replace("between_", "").split("_")
+            try:
+                from_block = int(parts[0])
+                to_block = int(parts[1])
+                enriched["from_block"] = from_block
+                enriched["to_block"] = to_block
+                enriched["cut_point_timeline"] = block_end_by_pos.get(
+                    from_block, 0.0)
+            except (ValueError, IndexError):
+                pass
+
+        ttype = t.get("type", "")
+        type_map = {
+            "cross_dissolve": "cross_dissolve",
+            "dip_to_black": "dip_to_black",
+            "fade_in": "fade_in",
+            "fade_out": "fade_out",
+        }
+        enriched["transition_type"] = type_map.get(ttype, ttype)
+
+        dur_frames = t.get("duration_frames", 15)
+        enriched["duration_seconds"] = dur_frames / fps
+        enriched["duration_frames"] = dur_frames
+
+        enriched_transitions.append(enriched)
+
+    transitions = enriched_transitions
     # Convert transitions to fusion comp format (same mapping as file mode)
     fusion_transitions = []
     for ti, t in enumerate(transitions):
