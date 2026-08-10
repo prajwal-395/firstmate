@@ -54,13 +54,8 @@ def generate_subtitle_props_per_block(
         block_entries = block_groups[block_pos]
         
         block_info = block_lookup.get(block_pos)
-        if block_info:
-            block_timeline_start = block_info.get("timeline_start", 0.0)
-            block_source_start = block_info.get("source_start", 0.0)
-            offset = block_timeline_start - block_source_start
-            for e in block_entries:
-                e['timeline_start'] += offset
-                e['timeline_end'] += offset
+        # 4.01 subtitle_entries are already in the timeline domain.
+        # No offset should be applied here.
 
         # Determine block timeline range from the entries
         block_tl_start = min(e['timeline_start'] for e in block_entries)
