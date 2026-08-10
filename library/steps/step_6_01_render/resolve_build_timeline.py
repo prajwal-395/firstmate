@@ -447,8 +447,8 @@ def build_timeline(
             src_out = src_in + dur if dur > 0 else src_in + 3.5
         clip['video_src_in'] = round(src_in * fps)
         clip['video_src_out'] = round(src_out * fps)
-        clip['audio_src_in'] = round(src_in * fps)
-        clip['audio_src_out'] = round(src_out * fps)
+        clip['audio_src_in'] = round(clip.get('audio_src_in', src_in) * fps)
+        clip['audio_src_out'] = round(clip.get('audio_src_out', src_out) * fps)
 
     for trans in native_transitions:
         ttype = trans.get('transition_type', trans.get('type', ''))
