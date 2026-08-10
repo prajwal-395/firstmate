@@ -1645,8 +1645,8 @@ def build_temporal_index(
             results.append({
                 "clip_id": clip_id,
                 "index_path": index_path,
-                "scenes": len(index["scene_boundaries"]),
-                "speech_regions": len(index["speech_regions"]),
+                "scenes": index["scene_boundaries"],
+                "speech_regions": index["speech_regions"],
                 "speech_duration": round(
                     sum(r["end"] - r["start"]
                         for r in index["speech_regions"]),
@@ -1836,8 +1836,8 @@ def main():
                 cached_summaries.append({
                     "clip_id": clip_id,
                     "index_path": index_path,
-                    "scenes": len(idx.get("scene_boundaries", [])),
-                    "speech_regions": len(idx.get("speech_regions", [])),
+                    "scenes": idx.get("scene_boundaries", []),
+                    "speech_regions": idx.get("speech_regions", []),
                     "speech_duration": round(
                         sum(r["end"] - r["start"]
                             for r in idx.get("speech_regions", [])),
@@ -1858,16 +1858,14 @@ def main():
                 f"{'=' * 50}",
                 file=sys.stderr,
             )
-            # Output under the key 'temporal_index' that the DAG expects
+            # Output directly for DAG compatibility
             json.dump({
-                "temporal_index": {
-                    "temporal_event_indices": cached_summaries,
-                    "full_indices": cached_indices,
-                    "total_indexed": len(cached_indices),
-                    "total_failed": 0,
-                    "index_dir": cache_dir,
-                    "source": "cache",
-                },
+                "temporal_event_indices": cached_summaries,
+                "full_indices": cached_indices,
+                "total_indexed": len(cached_indices),
+                "total_failed": 0,
+                "index_dir": cache_dir,
+                "source": "cache",
             }, sys.stdout, indent=2)
             return
         else:
@@ -1893,8 +1891,8 @@ def main():
         file=sys.stderr,
     )
 
-    # Wrap under 'temporal_index' key for DAG compatibility
-    json.dump({"temporal_index": result}, sys.stdout, indent=2)
+    # Output directly for DAG compatibility
+    json.dump(result, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

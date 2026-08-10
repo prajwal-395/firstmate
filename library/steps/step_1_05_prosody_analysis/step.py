@@ -61,10 +61,10 @@ def main():
 
     # Resolve audio files from footage
     audio_files = []
-    for item in raw_footage_files:
+    for i, item in enumerate(raw_footage_files):
         path = item["path"] if isinstance(item, dict) else item
         if os.path.exists(path):
-            clip_id = os.path.splitext(os.path.basename(path))[0]
+            clip_id = f"clip_{i + 1:03d}"
             audio_files.append({"path": path, "clip_id": clip_id})
 
     if not audio_files:
@@ -100,8 +100,8 @@ def main():
 
     # Check which clips already have prosody data
     existing = set()
-    for f in glob.glob(os.path.join(output_dir, "prosody_*.json")):
-        clip_id = os.path.basename(f).replace("prosody_", "").replace(".json", "")
+    for f in glob.glob(os.path.join(output_dir, "*_prosody.json")):
+        clip_id = os.path.basename(f).replace("_prosody.json", "")
         existing.add(clip_id)
 
     missing = [af for af in audio_files if af["clip_id"] not in existing]
@@ -137,8 +137,8 @@ def main():
 
     # Collect all prosody profiles
     profiles = {}
-    for f in sorted(glob.glob(os.path.join(output_dir, "prosody_*.json"))):
-        clip_id = os.path.basename(f).replace("prosody_", "").replace(".json", "")
+    for f in sorted(glob.glob(os.path.join(output_dir, "*_prosody.json"))):
+        clip_id = os.path.basename(f).replace("_prosody.json", "")
         try:
             with open(f) as fp:
                 profiles[clip_id] = json.load(fp)

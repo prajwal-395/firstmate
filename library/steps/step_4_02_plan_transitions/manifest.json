@@ -63,6 +63,11 @@
     ],
     "outputs": [
       {
+        "name": "cuts_toon",
+        "type": "string",
+        "description": "State output: cuts_toon"
+      },
+      {
         "name": "transition_spec",
         "type": "object",
         "description": "State output: transition_spec"
@@ -97,6 +102,7 @@
       "semantic_analysis"
     ],
     "writes": [
+      "cuts_toon",
       "transition_spec"
     ]
   },

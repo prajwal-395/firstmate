@@ -24,6 +24,16 @@
         "name": "a_roll_assignments",
         "type": "array",
         "description": "State output: a_roll_assignments"
+      },
+      {
+        "name": "hook_assignment",
+        "type": "any",
+        "description": "State output: hook_assignment"
+      },
+      {
+        "name": "total_a_roll_segments",
+        "type": "int",
+        "description": "State output: total_a_roll_segments"
       }
     ],
     "preconditions": [
@@ -46,7 +56,9 @@
       "project_folder"
     ],
     "writes": [
-      "a_roll_assignments"
+      "a_roll_assignments",
+      "hook_assignment",
+      "total_a_roll_segments"
     ]
   },
   "dependencies": [

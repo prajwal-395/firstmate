@@ -698,6 +698,16 @@ def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> N
             expected_type = type_map.get(expected_type_str)
             if expected_type and not isinstance(val, expected_type):
                 raise RuntimeError(f"Step '{node_id}' output '{key}' expected type {expected_type_str}, got {type(val).__name__}")
+                
+        if is_required:
+            is_empty = False
+            if isinstance(val, (list, dict, str)) and len(val) == 0:
+                is_empty = True
+            elif isinstance(val, int) and val == 0 and key.startswith("total_") and key != "total_failed":
+                is_empty = True
+                
+            if is_empty:
+                raise RuntimeError(f"Step '{node_id}' output '{key}' is semantically empty: {val}")
 
 
 # ── Main Runner ─────────────────────────────────────────────────────

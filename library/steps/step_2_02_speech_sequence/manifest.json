@@ -27,6 +27,16 @@
     ],
     "outputs": [
       {
+        "name": "transcripts_toon",
+        "type": "string",
+        "description": "State output: transcripts_toon"
+      },
+      {
+        "name": "topics_toon",
+        "type": "string",
+        "description": "State output: topics_toon"
+      },
+      {
         "name": "speech_sequence",
         "type": "array",
         "description": "State output: speech_sequence"
@@ -53,6 +63,8 @@
       "temporal_index"
     ],
     "writes": [
+      "transcripts_toon",
+      "topics_toon",
       "speech_sequence"
     ]
   },
