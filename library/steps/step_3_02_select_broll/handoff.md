@@ -99,6 +99,21 @@ Once you've chosen a candidate clip and the target scene segment:
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+editorial vision as natural language. Read it for:
+
+- B-roll density and pacing preferences (fast-cut vs. breathing room)
+- Visual style preferences (dynamic handheld vs. static beauty shots)
+- Specific types of B-roll imagery to favor or avoid
+
+Let the brief guide how frequently and aggressively you interject B-roll.
+If no creative brief is provided, follow the creative direction's energy
+profile to calibrate B-roll density.
+
+---
+
 ## Output Format
 
 ```json

@@ -64,6 +64,28 @@ A creative direction document containing:
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+creative direction as a rich markdown document. Read it in full before making
+any creative decisions. The brief may specify:
+
+- Target mood, tone, and visual style
+- Energy and pacing preferences
+- Music genre and sonic direction
+- Key moments or narrative beats to prioritize
+- Duration targets and content scope
+
+Your creative direction should honor the brief's intent. Where the footage
+supports the brief naturally, lean into it. Where the footage suggests a
+different direction, document the tension in your `rationale` and explain
+your choice.
+
+If no creative brief is provided, derive the creative direction entirely
+from the footage analysis.
+
+---
+
 ## Output Format
 
 ```json

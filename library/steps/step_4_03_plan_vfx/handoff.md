@@ -59,6 +59,21 @@ Use this data to decide which effects to apply.
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+VFX and motion design preferences as natural language. Read it for:
+
+- Desired motion intensity (subtle and minimal vs. aggressive and dynamic)
+- Specific effect types to use or avoid
+- How visually restrained or energetic the final video should feel
+
+Let the brief guide how many effects you apply and how aggressive the
+parameters are. If no creative brief is provided, match the VFX intensity
+to the creative direction's energy profile.
+
+---
+
 ## Output Format
 
 ```json

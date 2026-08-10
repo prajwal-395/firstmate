@@ -14,15 +14,10 @@ def map_energy(energy_str):
         return "calm"
     return "moderate"
 
-def extract_cuts_per_minute(creative_direction, brand_template):
+def extract_cuts_per_minute(creative_direction):
     pacing = creative_direction.get("pacing", {})
     if isinstance(pacing, dict) and "cuts_per_minute" in pacing:
         return pacing["cuts_per_minute"]
-    # Fallback to brand template
-    if brand_template and "style" in brand_template:
-        if "pacing" in brand_template["style"]:
-            if "cuts_per_minute" in brand_template["style"]["pacing"]:
-                return brand_template["style"]["pacing"]["cuts_per_minute"]
     return None
 
 def review_creative_cohesion(inputs: dict) -> dict:
@@ -41,7 +36,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
 
     color_grade_spec = inputs.get("color_grade_spec", {})
     speech_sequence = inputs.get("speech_sequence", {})
-    brand_template = inputs.get("brand_template", {})
+    project_config = inputs.get("project_config", {})
 
     warnings = []
     adjustments = []
@@ -123,7 +118,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
         score -= 5
 
     # 2. Pacing Consistency Check
-    cuts_per_min_target = extract_cuts_per_minute(creative_direction, brand_template)
+    cuts_per_min_target = extract_cuts_per_minute(creative_direction)
     if cuts_per_min_target is not None:
         actual_cuts_per_min = (len(transitions) / total_duration) * 60 if total_duration > 0 else 0
         diff = abs(actual_cuts_per_min - cuts_per_min_target)
@@ -150,27 +145,24 @@ def review_creative_cohesion(inputs: dict) -> dict:
                 "reason": "Highest engagement segments should be front-loaded for hooks"
             })
 
-    # 3. Brand Consistency Check
-    if brand_template:
-        effect_slots = brand_template.get("effect", {})
-        style_slots = brand_template.get("style", {})
-        
-        allowed_transitions = effect_slots.get("transition_types", [])
-        if allowed_transitions:
-            for t in transitions:
-                ttype = t.get("transition_type", t.get("type", ""))
-                if ttype and ttype not in allowed_transitions and ttype not in ["cut", "hard_cut"]:
-                    warnings.append(f"Transition '{ttype}' not in brand template allowed types")
-                    score -= 5
-                    
-        brand_palette = style_slots.get("color_palette", [])
-        if brand_palette and color_mood:
-            palette_str = " ".join(str(c).lower() for c in brand_palette)
-            # Warn if the color grade mood has no overlap with brand palette descriptors
-            grade_words = set(color_mood.split())
-            palette_words = set(palette_str.split())
-            if not grade_words & palette_words:
-                warnings.append(f"Color grade mood '{color_mood}' does not reference brand palette")
+    # 3. Duration Warning
+    # Check actual duration against project_config.target_duration_seconds
+    if isinstance(project_config, dict):
+        target_dur = project_config.get("target_duration_seconds")
+        if target_dur is not None:
+            target_dur = float(target_dur)
+            # Warn if more than 50% over or under target
+            if total_duration > target_dur * 1.5:
+                warnings.append(
+                    f"Duration warning: actual duration ({total_duration:.1f}s) "
+                    f"exceeds target ({target_dur:.0f}s) by more than 50%"
+                )
+                score -= 3
+            elif total_duration < target_dur * 0.5:
+                warnings.append(
+                    f"Duration warning: actual duration ({total_duration:.1f}s) "
+                    f"is less than half the target ({target_dur:.0f}s)"
+                )
                 score -= 3
 
     # 4. Output Adjustments

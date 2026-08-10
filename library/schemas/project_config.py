@@ -52,6 +52,7 @@ class SourceConfig:
 class PipelineConfig:
     """Pipeline-specific configuration for this project."""
     brand_template: str = "default_brand"  # reference to library/templates/
+    creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
 
@@ -167,6 +168,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
 
     pipeline = PipelineConfig(
         brand_template=pipeline_data.get("brand_template", "default_brand"),
+        creative_brief=pipeline_data.get("creative_brief", ""),
         sfx_library=pipeline_data.get("sfx_library", ""),
         music_library=pipeline_data.get("music_library", ""),
     )
@@ -215,6 +217,7 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         },
         "pipeline": {
             "brand_template": config.pipeline.brand_template,
+            "creative_brief": config.pipeline.creative_brief,
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,
         },

@@ -67,6 +67,21 @@ Use this data to decide which sound effects to apply.
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+sound design preferences as natural language. Read it for:
+
+- Desired SFX density (minimal and clean vs. richly layered)
+- Types of sounds to favor or avoid
+- Moments that deserve special sonic emphasis
+
+Let the brief guide how many effects you place and their character. If no
+creative brief is provided, follow the default 5-10 SFX guideline scaled
+to the creative direction's energy.
+
+---
+
 ## Output Format
 
 ```json
