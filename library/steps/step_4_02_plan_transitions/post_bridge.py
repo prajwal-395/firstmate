@@ -230,10 +230,10 @@ def resolve_transitions(
         if ttype in ("hard_cut", "cut", "jump_cut"):
             dur_frames = 0
         elif ttype == "macro":
-            dur_frames = int((selected_trans["duration_ms"] / 1000.0) * frame_rate)
+            dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
         else:
             # For dissolve/wipe, we might fall back to LLM feel if needed, but selector returns duration_ms
-            dur_frames = int((selected_trans["duration_ms"] / 1000.0) * frame_rate)
+            dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
             if dur_frames == 0:
                 duration_map = {
                     "instant": 0,

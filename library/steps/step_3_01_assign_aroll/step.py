@@ -78,9 +78,6 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                 "timeline_start_frame": block.get("timeline_start_frame"),
                 "timeline_end_frame": block.get("timeline_end_frame"),
                 "duration_frames": block.get("duration_frames"),
-                # Explicit A/V link: the XMEML generator uses this to
-                # emit reciprocal <link> blocks between the video
-                # clipitem on V1 and its audio partner on A1.
                 "link_group_id": block.get("link_group_id", str(uuid.uuid4())),
                 "width": clip.get("width"),
                 "height": clip.get("height"),
@@ -88,6 +85,29 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                 "rotation": clip.get("rotation", 0),
                 "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
             }
+
+            a_roll_assignments.append({
+                "spine_block_position": block["position"],
+                "block_type": "hook",
+                "timeline_start": block.get("timeline_start", 0.0),
+                "timeline_end": block.get("timeline_end", 0.0),
+                "timeline_start_frame": block.get("timeline_start_frame"),
+                "timeline_end_frame": block.get("timeline_end_frame"),
+                "duration_frames": block.get("duration_frames"),
+                "video_segments": [{
+                    "clip_id": clip_id,
+                    "source_file": hook_assignment["source_file"],
+                    "video_in": hook_assignment["video_in"],
+                    "video_out": hook_assignment["video_out"],
+                    "duration_seconds": hook_assignment["duration_seconds"],
+                    "link_group_id": hook_assignment["link_group_id"],
+                    "width": hook_assignment["width"],
+                    "height": hook_assignment["height"],
+                    "frame_rate": hook_assignment["frame_rate"],
+                    "rotation": hook_assignment["rotation"],
+                    "needs_conform": hook_assignment["needs_conform"],
+                }],
+            })
 
         elif block_type == "speech":
             # Speech block — assign video for each segment
@@ -150,10 +170,10 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
             })
 
     # --- Verification ---
-    # Every speech block has a video assignment
-    speech_blocks = [b for b in structure if b["block_type"] == "speech"]
+    # Every speech and hook block has a video assignment
+    speech_blocks = [b for b in structure if b["block_type"] in ("speech", "hook")]
     assert len(a_roll_assignments) == len(speech_blocks), \
-        f"Assignment count ({len(a_roll_assignments)}) != speech blocks ({len(speech_blocks)})"
+        f"Assignment count ({len(a_roll_assignments)}) != speech and hook blocks ({len(speech_blocks)})"
 
     # Hook has a video assignment
     if any(b["block_type"] == "hook" for b in structure):

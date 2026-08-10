@@ -412,7 +412,7 @@ def generate_subtitles(
                     continue
 
                 clip_id = seg.get("clip_id")
-                position = seg.get("position")
+                position = seg.get("position", content.get("passage_ref", block.get("position")))
 
                 # Try to find word timestamps:
                 # 1. Directly in content (enriched spine)
@@ -574,6 +574,8 @@ def generate_subtitles(
                             prev = group[-2]
                             if last["timeline_start"] < prev["timeline_end"]:
                                 last["timeline_start"] = round(prev["timeline_end"], 3)
+                                if last["timeline_end"] <= last["timeline_start"]:
+                                    last["timeline_end"] = round(last["timeline_start"] + 0.1, 3)
 
     # --- Verification ---
 
