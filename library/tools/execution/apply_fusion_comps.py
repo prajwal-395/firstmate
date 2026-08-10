@@ -62,6 +62,22 @@ def apply_fusion_comps(manifest):
 
     # Map legacy vfx_entries
     v1_items = timeline.GetItemListInTrack("video", 1) or []
+    
+    # Build mapping from original v1_clips index to actual v1_items index
+    orig_to_item = {}
+    item_idx = 0
+    for orig_ci, clip_spec in enumerate(v1_clips):
+        if item_idx >= len(v1_items):
+            break
+        src = clip_spec.get('source_file', '')
+        if not src:
+            continue
+        mpi = v1_items[item_idx].GetMediaPoolItem()
+        mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
+        if mpi_path == src or os.path.basename(mpi_path) == os.path.basename(src):
+            orig_to_item[orig_ci] = item_idx
+            item_idx += 1
+            
     vfx_entries = manifest.get('vfx', [])
     if vfx_entries and v1_items:
         for vfx in vfx_entries:
@@ -70,16 +86,18 @@ def apply_fusion_comps(manifest):
             params = vfx.get('params', {})
             preset = vfx.get('effect_type', vfx.get('preset', ''))
             
-            for ci, clip in enumerate(v1_items):
+            for idx, clip in enumerate(v1_items):
                 if clip.GetStart() <= start_f < clip.GetEnd():
-                    label = v1_clips[ci].get('label', f'clip_{ci}') if ci < len(v1_clips) else f'clip_{ci}'
-                    if label not in per_clip_effects:
-                        per_clip_effects[label] = {}
-                    if preset:
-                        per_clip_effects[label]['_preset'] = preset
-                    for k, v in params.items():
-                        per_clip_effects[label][k] = v
-                    has_any_effects = True
+                    orig_ci = next((k for k, v in orig_to_item.items() if v == idx), None)
+                    if orig_ci is not None:
+                        label = v1_clips[orig_ci].get('label', f'clip_{orig_ci}')
+                        if label not in per_clip_effects:
+                            per_clip_effects[label] = {}
+                        if preset:
+                            per_clip_effects[label]['_preset'] = preset
+                        for k, v in params.items():
+                            per_clip_effects[label][k] = v
+                        has_any_effects = True
                     break
 
     if has_any_effects:
@@ -106,8 +124,11 @@ def apply_fusion_comps(manifest):
         )
         os.makedirs(comp_dir, exist_ok=True)
 
-        for ci, clip_spec in enumerate(v1_clips):
-            label = clip_spec.get('label', f'clip_{ci}')
+        for orig_ci, clip_spec in enumerate(v1_clips):
+            if orig_ci not in orig_to_item:
+                continue
+            item_idx = orig_to_item[orig_ci]
+            label = clip_spec.get('label', f'clip_{orig_ci}')
 
             effects = per_clip_effects.get(label, {})
             if not effects and label in SEGMENT_PRESETS:
@@ -123,18 +144,15 @@ def apply_fusion_comps(manifest):
                 base.update({k: v for k, v in effects.items() if k != '_preset'})
                 effects = base
 
-            trans_params = transition_by_clip.get(ci, {})
+            trans_params = transition_by_clip.get(orig_ci, {})
             if trans_params:
                 effects.update(trans_params)
 
-            macro_trans = macro_transitions_by_clip.get(ci, None)
+            macro_trans = macro_transitions_by_clip.get(orig_ci, None)
             if not effects and not macro_trans:
                 continue
 
-            if ci >= len(v1_items):
-                continue
-                
-            tl_clip = v1_items[ci]
+            tl_clip = v1_items[item_idx]
             mpi = tl_clip.GetMediaPoolItem()
             if not mpi:
                 continue

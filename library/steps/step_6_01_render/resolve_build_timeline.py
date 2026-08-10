@@ -435,6 +435,7 @@ def build_timeline(
     # At this point only A1 exists, so default placement puts audio on A1
     print(f"\n── V1 A-Roll + A1 Speech: {len(v1_clips)} clips ──", file=sys.stderr)
     v1_timeline_items = []
+    v1_placed_labels = []
 
     # Pre-process J/L cuts from native transitions
     native_transitions = manifest.get('transitions', [])
@@ -522,6 +523,7 @@ def build_timeline(
                 timeline.SetClipsLinked([placed, a_placed], True)
                 
             v1_timeline_items.append(placed)
+            v1_placed_labels.append(clip.get('label', basename))
             
             placed_dur = placed.GetDuration()
             clip['timeline_in_frame'] = current_video_frame
@@ -569,6 +571,7 @@ def build_timeline(
     if v2_clips:
         print(f"\n── V2 B-Roll: {len(v2_clips)} clips ──", file=sys.stderr)
         v2_count = 0
+        v2_placed_labels = []
         for ci, clip in enumerate(v2_clips):
             basename = os.path.basename(clip['source_file'])
             pool_item = _find_pool_clip(clip['source_file'])
@@ -596,6 +599,7 @@ def build_timeline(
 
             if result:
                 v2_count += 1
+                v2_placed_labels.append(clip.get('label', basename))
                 print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}", file=sys.stderr)
             else:
                 print(f"  ✗ [{ci}] {basename}: failed", file=sys.stderr)
@@ -844,19 +848,8 @@ def build_timeline(
     if neural_directives and apply_stabilization is not None:
         print(f"\n── Neural Engine: {len(neural_directives)} clips ──", file=sys.stderr)
         # Apply to V1
-        for item in (timeline.GetItemListInTrack("video", 1) or []):
-            label = item.GetName()  # Actually item.GetName() returns the pool item name.
-            # Wait, the label in manifest is like "hook_0". We can find it by index or pool name.
-            # resolve_build_timeline.py doesn't set clip name in timeline easily, 
-            # let's just match using v1_clips order or label.
-            # We already have v1_items, but let's iterate them.
-            pass
-            
-        # We stored v1_timeline_items earlier in the script. Wait, let's use the loop from V1 placement.
-        # Actually it's better to do this inside the script, we can just iterate v1_clips and v1_items.
         v1_items = timeline.GetItemListInTrack("video", 1) or []
-        for ci, clip_spec in enumerate(v1_clips):
-            label = clip_spec.get('label', f'clip_{ci}')
+        for ci, label in enumerate(v1_placed_labels):
             if label in neural_directives and ci < len(v1_items):
                 directives = neural_directives[label]
                 tl_clip = v1_items[ci]
@@ -873,8 +866,9 @@ def build_timeline(
                     
         # Apply to V2
         v2_items = timeline.GetItemListInTrack("video", 2) or []
-        for ci, clip_spec in enumerate(v2_clips):
-            label = clip_spec.get('label', f'broll_{ci}')
+        # if v2_clips is empty, v2_placed_labels might not exist if it was skipped entirely
+        v2_labels = v2_placed_labels if 'v2_placed_labels' in locals() else []
+        for ci, label in enumerate(v2_labels):
             if label in neural_directives and ci < len(v2_items):
                 directives = neural_directives[label]
                 tl_clip = v2_items[ci]
