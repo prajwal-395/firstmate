@@ -285,7 +285,7 @@ def generate_subtitles(
         hook = speech_sequence["hook_segment"]
         passage_lookup[("hook", hook.get("clip_id"))] = hook
     for passage in speech_sequence.get("body_sequence", []):
-        key = (passage.get("position"), passage.get("clip_id"))
+        key = (str(passage.get("position")), passage.get("clip_id"))
         passage_lookup[key] = passage
 
     subtitle_entries = []
@@ -419,11 +419,11 @@ def generate_subtitles(
                 # 2. In passage_lookup (legacy)
                 word_ts = content.get("word_timestamps", [])
                 if not word_ts:
-                    passage = passage_lookup.get((position, clip_id), {})
+                    passage = passage_lookup.get((str(position), clip_id), {})
                     word_ts = passage.get("word_timestamps", [])
 
-                seg_source_start = seg.get("start_time", 0.0)
-                seg_source_end = seg.get("end_time", 0.0)
+                seg_source_start = seg.get("start_time", seg.get("source_start", 0.0))
+                seg_source_end = seg.get("end_time", seg.get("source_end", 0.0))
                 source_dur = seg_source_end - seg_source_start
                 
                 # Each segment plays at 1x speed, so its timeline duration is its source duration.

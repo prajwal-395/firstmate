@@ -59,17 +59,12 @@ def resolve_vfx(
 ) -> list:
     """Resolve creative VFX plan to execution specs."""
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
-    block_lookup = {b["position"]: b for b in spine_blocks}
+    block_lookup = {str(b["position"]): b for b in spine_blocks if "position" in b}
 
     resolved = []
     for vfx in creative_plan:
         pos = vfx.get("target_block_position", vfx.get("segment_id"))
-        if pos is not None:
-            try:
-                pos = int(pos)
-            except ValueError:
-                pass
-        block = block_lookup.get(pos, {})
+        block = block_lookup.get(str(pos), {})
         tl_start = block.get("timeline_start", 0.0)
         tl_end = block.get("timeline_end", tl_start + 5.0)
 

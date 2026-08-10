@@ -205,7 +205,7 @@ def resolve_transitions(
         # Find block index for robust incoming/outgoing resolution
         block_idx = -1
         for i, b in enumerate(spine_blocks):
-            if b.get("position") == pos:
+            if str(b.get("position")) == str(pos):
                 block_idx = i
                 break
                 

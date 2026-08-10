@@ -384,10 +384,14 @@ def resolve_sfx(
     speech_segments = []
     if prosody_analysis and "speech_segments" in prosody_analysis:
         speech_segments = prosody_analysis["speech_segments"]
-    elif temporal_indices:
-        # Fallback to temporal index word ends
-        # (Very naive fallback just to have some segments)
-        pass
+    elif spine_blocks:
+        # Fallback to spine blocks to ensure ducking is applied
+        for block in spine_blocks:
+            if block.get("block_type") in ("speech", "hook"):
+                speech_segments.append({
+                    "start_time": block.get("timeline_start", 0.0),
+                    "end_time": block.get("timeline_end", 0.0)
+                })
 
     if speech_segments:
         # compute_sfx_ducking expects {"start_time": x, "end_time": y}

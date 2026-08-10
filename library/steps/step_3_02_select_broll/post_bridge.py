@@ -269,7 +269,7 @@ def resolve_broll(
 
     # Build spine block lookup for timeline positions
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
-    block_lookup = {b["position"]: b for b in spine_blocks}
+    block_lookup = {str(b["position"]): b for b in spine_blocks if "position" in b}
 
     assignments = []
 
@@ -287,7 +287,7 @@ def resolve_broll(
             )
             continue
 
-        spine_block = block_lookup.get(spine_pos, {})
+        spine_block = block_lookup.get(str(spine_pos), {})
         timeline_start = spine_block.get("timeline_start", 0.0)
         timeline_end = spine_block.get(
             "timeline_end", timeline_start + spine_block.get("duration_seconds", 2.0)
