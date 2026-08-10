@@ -323,12 +323,28 @@ def enrich_speech_sequence(
     # Enrich hook segment
     hook = result.get("hook_segment")
     if hook and not hook.get("word_timestamps"):
+        # Extract start/end for fallback
+        start_val = hook.get("start") if hook.get("start") is not None else hook.get("start_time")
+        end_val = hook.get("end") if hook.get("end") is not None else hook.get("end_time")
+        try:
+            start = float(start_val)
+            end = float(end_val)
+        except (TypeError, ValueError):
+            start = None
+            end = None
+            
         enrichment = enrich_passage(hook, "Hook")
         hook["word_timestamps"] = enrichment["word_timestamps"]
+        
         if enrichment["start_time"] is not None:
             hook["start_time"] = enrichment["start_time"]
             hook["end_time"] = enrichment["end_time"]
-            hook["duration_seconds"] = round(enrichment["end_time"] - enrichment["start_time"], 3)
+        else:
+            hook["start_time"] = start
+            hook["end_time"] = end
+            
+        if hook.get("start_time") is not None and hook.get("end_time") is not None:
+            hook["duration_seconds"] = round(hook["end_time"] - hook["start_time"], 3)
         if compute_engagement:
             hook["engagement"] = compute_engagement(hook, prosody_data, semantic_data, result)
 
@@ -336,12 +352,29 @@ def enrich_speech_sequence(
     body = result.get("body_sequence", [])
     for passage in body:
         pos = passage.get("position", "?")
+        
+        # Extract start/end for fallback
+        start_val = passage.get("start") if passage.get("start") is not None else passage.get("start_time")
+        end_val = passage.get("end") if passage.get("end") is not None else passage.get("end_time")
+        try:
+            start = float(start_val)
+            end = float(end_val)
+        except (TypeError, ValueError):
+            start = None
+            end = None
+
         enrichment = enrich_passage(passage, f"Body[{pos}]")
         passage["word_timestamps"] = enrichment["word_timestamps"]
+        
         if enrichment["start_time"] is not None:
             passage["start_time"] = enrichment["start_time"]
             passage["end_time"] = enrichment["end_time"]
-            passage["duration_seconds"] = round(enrichment["end_time"] - enrichment["start_time"], 3)
+        else:
+            passage["start_time"] = start
+            passage["end_time"] = end
+            
+        if passage.get("start_time") is not None and passage.get("end_time") is not None:
+            passage["duration_seconds"] = round(passage["end_time"] - passage["start_time"], 3)
         if compute_engagement:
             passage["engagement"] = compute_engagement(passage, prosody_data, semantic_data, result)
 

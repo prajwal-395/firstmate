@@ -1,9 +1,17 @@
-Convergence Audit Report: Phase 5 & 6
+CONVERGENCE AUDIT - Pipeline Logic Bugs
 
-Bugs Found & Fixed:
-1. Data Flow Bug in step_5_04_compile_manifest:
-- In `compile_manifest_from_inputs`, `inputs.get("sfx_spec")` receives the full output object from step 4.04 (`{"sfx_spec": {"sfx_list": ...}}` or `{"sfx_plan": {"sfx_list": ...}}`) due to the DAG orchestrator mapping. The `sfx_list` extraction incorrectly tried to extract it directly from the outer wrapper object without first unpacking the inner `sfx_plan` or `sfx_events` dictionaries, which resulted in `sfx_list` silently defaulting to an empty list, completely dropping all sound effects during orchestrator-driven runs. Fixed by adding the `sfx_plan` unwrap logic to mirror the file-based `compile_manifest` execution mode.
-- Addressed similar `audio_mix_spec` wrapper unpacking issues in the same block.
+Scope: Phase 1 (1.01-1.07) and Phase 2 (2.01-2.05)
 
-2. Logic Bug in library/tools/execution/apply_fusion_comps.py:
-- Fixed a mutually-exclusive execution logic flaw where `elif vfx_entries:` was incorrectly blocking non-comp VFX (e.g. `zoom_pulse` applied directly to timeline items via `SetProperty`) from running if `has_any_effects` was True (which happens whenever *any* per-clip Fusion macro or effect was assigned elsewhere in the timeline). Changed `elif vfx_entries:` to an independent `if vfx_entries:` check to ensure timeline properties are successfully applied regardless of Fusion comp generation status.
+Found and Fixed 3 Pipeline Logic Bugs:
+
+1. step_1_02_catalog_footage/step.py: Mixed timezone-naive and timezone-aware datetimes
+- Bug: `parse_creation_time` returned a timezone-aware datetime if the format contained an offset (`%z`), but `os.path.getmtime` fallback returned a timezone-naive datetime string which was parsed as naive. When sorting the catalog, comparing an offset-naive and offset-aware datetime caused a `TypeError` crash.
+- Fix: Modified `parse_creation_time` to always call `.replace(tzinfo=None)`, ensuring all returned datetimes are naive and safe to sort.
+
+2. step_1_06_object_segmentation/step.py: Silent Data Loss via Stem Collisions
+- Bug: The step saved segmentation files using `f"{Path(clip_path).stem}_segmentation.json"`. If multiple source clips in different directories shared the same filename (e.g., `raw/A/video.mp4` and `raw/B/video.mp4`), they would silently overwrite each other in the output directory, causing data loss for downstream steps.
+- Fix: Updated the save logic to rename the output file to use `f"{clip_id}_segmentation.json"`, mirroring the safe logic used in step 1.03.
+
+3. step_2_02_speech_sequence/post_bridge.py: Missing Timestamps Causing Downstream Crashes
+- Bug: When `collect_words_in_range` failed to find word timestamps (e.g., WhisperX missed a word or transcription misalignment), `enrichment["start_time"]` returned `None`. The script then skipped setting `passage["start_time"]` and `passage["end_time"]`. Because the original passage only had `"start"` and `"end"`, downstream steps (like step 2.05) attempting to read `"start_time"` would receive `None`, leading to a `TypeError` when calculating source duration.
+- Fix: Modified the enrichment loop to strictly enforce fallback to the original `"start"` and `"end"` hints if the enriched `start_time` is `None`, ensuring downstream steps always receive valid float boundaries.

@@ -165,7 +165,8 @@ def parse_creation_time(ct_str: str | None) -> datetime | None:
         "%Y-%m-%dT%H:%M:%S",
     ]:
         try:
-            return datetime.strptime(ct_str, fmt)
+            dt = datetime.strptime(ct_str, fmt)
+            return dt.replace(tzinfo=None)
         except ValueError:
             continue
     return None

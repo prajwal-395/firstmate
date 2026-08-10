@@ -35,11 +35,19 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str):
             # Save the detailed masks and metadata to output_dir
             seg_result.save(str(out_dir_path))
             
+            # Rename output to use clip_id instead of stem to prevent collisions
+            stem = Path(clip_path).stem
+            old_file = out_dir_path / f"{stem}_segmentation.json"
+            new_file_name = f"{clip_id}_segmentation.json"
+            new_file = out_dir_path / new_file_name
+            if old_file.exists() and old_file != new_file:
+                os.rename(old_file, new_file)
+            
             # Add summary to step results
             results.append({
                 "clip_id": clip_id,
                 "video_path": clip_path,
-                "segmentation_file": f"{Path(clip_path).stem}_segmentation.json",
+                "segmentation_file": new_file_name,
                 "object_count": len(seg_result.objects)
             })
             
