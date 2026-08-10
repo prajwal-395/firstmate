@@ -401,6 +401,12 @@ def main():
     interjections = data.get("b_roll_interjections", [])
     if interjections:
         result["b_roll_interjections"] = interjections
+        
+    total_broll = len(result.get("b_roll_assignments", [])) + len(interjections)
+    if total_broll < 3:
+        print(json.dumps({"error": f"Only {total_broll} B-roll clips selected. You MUST select 5-15 B-roll clips for a 60-second video.", "step": "3.02_bridge"}))
+        sys.exit(1)
+
     json.dump(result, sys.stdout, indent=2)
 
 

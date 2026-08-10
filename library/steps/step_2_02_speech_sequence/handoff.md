@@ -161,7 +161,8 @@ If `project_config` is not available, default to a 60 second target.
 
 | Parameter | Value |
 |-----------|-------|
-| Minimum body passages | 3 |
+| Target body passages | 10-15 (strictly select exactly 10-15 of the strongest passages) |
+| Target total duration| MUST be between 30 and 60 seconds (sum of passage durations) |
 | Hook duration target | 1-3 seconds (per style spec) |
 | Default sequence order | Chronological source_order |
 

@@ -57,7 +57,9 @@ def main():
                 clip_sem = clip_sem_raw.get("document", clip_sem_raw) if isinstance(clip_sem_raw, dict) else {}
                 
             desc = clip_sem.get("visual_description", "")[:100]
-            
+            if not desc or len(desc) < 10:
+                continue
+                
             candidates_rows.append({
                 "slot_id": str(slot_id),
                 "clip_id": clip_id,
@@ -66,7 +68,7 @@ def main():
                 "peak_energy": "0.8"
             })
             count += 1
-            if count >= 5:
+            if count >= 30:
                 break
                 
     candidates_toon = format_toon(["slot_id", "clip_id", "description", "avg_energy", "peak_energy"], candidates_rows)

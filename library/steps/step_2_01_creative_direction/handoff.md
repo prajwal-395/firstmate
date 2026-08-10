@@ -90,14 +90,17 @@ from the footage analysis.
 
 ```json
 {
-  "narrative_theme": "string",
-  "target_mood": "string",
-  "target_energy": "low | medium | high | building | dynamic",
-  "energy_arc": "string",
-  "emotional_landscape": "string",
-  "audience_emotion": "string",
-  "key_moments": ["string", "string", "..."],
-  "rationale": "string"
+  "narrative_theme": "A creative journey of committing to a daily post.",
+  "target_mood": "motivational",
+  "target_energy": "building",
+  "energy_arc": "start high with a bold claim -> sustain through doubt -> build to final resolve",
+  "emotional_landscape": "Vulnerable at the start, transitioning to determined excitement.",
+  "audience_emotion": "inspired to start their own project",
+  "key_moments": [
+    "clip_008: The subject excitedly announcing the 'post a day' challenge.",
+    "clip_012: The vulnerable reflection behind the bar market about the difficulty."
+  ],
+  "rationale": "This direction leverages the strongest emotional peaks in the footage while maintaining an engaging arc."
 }
 ```
 

@@ -52,6 +52,7 @@ B-roll clips from the catalog.
   speech may be longer. Let the content and pacing drive the duration.
 - Purpose: visual variety, illustrating speech content, breaking up
   talking head
+- Quantity: You MUST plan exactly 5-15 B-roll insertions across the video. Selecting 0 or 1 is a failure.
 
 ### Selection: 3-step process
 
