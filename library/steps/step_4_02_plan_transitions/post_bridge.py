@@ -295,7 +295,6 @@ def main():
         creative = data["llm_raw_response"]
         
     if not isinstance(creative, list):
-        import sys
         print(f"  Warning: LLM returned invalid response for plan_transitions. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
         creative = []
         

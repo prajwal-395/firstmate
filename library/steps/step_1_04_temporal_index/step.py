@@ -1613,9 +1613,13 @@ def build_temporal_index(
     Produces one JSON file per clip in <output_dir>/temporal_index/.
     """
     index_dir = os.path.join(output_dir, "temporal_index")
+    # Resolve to absolute path so downstream steps can find the
+    # per-clip JSON files regardless of their own CWD.
+    index_dir = os.path.abspath(index_dir)
     os.makedirs(index_dir, exist_ok=True)
 
     results = []
+    full_indices = []
     total = len(raw_footage_files)
 
     for i, file_info in enumerate(raw_footage_files):
@@ -1642,6 +1646,9 @@ def build_temporal_index(
             with open(index_path, "w", encoding="utf-8") as f:
                 json.dump(index, f, indent=2)
 
+            # Keep full index for downstream steps that need speech_regions
+            full_indices.append(index)
+
             results.append({
                 "clip_id": clip_id,
                 "index_path": index_path,
@@ -1651,6 +1658,10 @@ def build_temporal_index(
                     sum(r["end"] - r["start"]
                         for r in index["speech_regions"]),
                     2,
+                ),
+                "total_words": sum(
+                    len(r.get("words", []))
+                    for r in index["speech_regions"]
                 ),
                 "energy_peaks": len(index["energy_curve"]["peak_times"]),
                 "audio_events": len(index["audio_events"]),
@@ -1671,6 +1682,7 @@ def build_temporal_index(
 
     return {
         "temporal_event_indices": results,
+        "full_indices": full_indices,
         "total_indexed": sum(1 for r in results if "error" not in r),
         "total_failed": sum(1 for r in results if "error" in r),
         "index_dir": index_dir,
@@ -1816,11 +1828,15 @@ def main():
     project_folder = input_data.get("project_folder", "")
     cache_dir = ""
     if project_folder:
-        cache_dir = os.path.join(project_folder, "raw", "analysis", "temporal_index")
+        cache_dir = os.path.abspath(
+            os.path.join(project_folder, "raw", "analysis", "temporal_index")
+        )
     elif raw_files:
         first_path = raw_files[0] if isinstance(raw_files[0], str) else raw_files[0].get("path", "")
         if first_path:
-            cache_dir = os.path.join(os.path.dirname(first_path), "analysis", "temporal_index")
+            cache_dir = os.path.abspath(
+                os.path.join(os.path.dirname(first_path), "analysis", "temporal_index")
+            )
 
     if cache_dir and os.path.isdir(cache_dir):
         # Load existing indices

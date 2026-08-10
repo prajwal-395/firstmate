@@ -26,7 +26,11 @@
     "dev": "remotion studio",
     "build": "remotion bundle",
     "upgrade": "remotion upgrade",
-    "lint": "eslint src && tsc"
+    "lint": "eslint src && tsc",
+    "postinstall": "npx zod-check || true"
+  },
+  "overrides": {
+    "zod": "$zod"
   },
   "sideEffects": [
     "*.css"

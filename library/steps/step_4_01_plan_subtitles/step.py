@@ -142,6 +142,10 @@ def split_into_groups(
             "start": current_words[0]["start"],
             "end": current_words[-1]["end"],
             "word_count": len(current_words),
+            "_words": [
+                {"word": w["word"], "start": w["start"], "end": w["end"]}
+                for w in current_words
+            ],
         })
         current_words.clear()
 
@@ -226,6 +230,17 @@ def split_text_proportional(
         g_dur = duration * (g["word_count"] / total_words)
         g["start"] = round(pos, 3)
         g["end"] = round(pos + g_dur, 3)
+        # Synthesize proportional per-word timing
+        g_words = g["text"].split()
+        n_gw = len(g_words)
+        per_word_dur = g_dur / max(n_gw, 1)
+        g["_words"] = []
+        for wi, tw in enumerate(g_words):
+            g["_words"].append({
+                "word": tw,
+                "start": round(pos + wi * per_word_dur, 3),
+                "end": round(pos + (wi + 1) * per_word_dur, 3),
+            })
         pos += g_dur
 
     return groups
@@ -360,6 +375,14 @@ def generate_subtitles(
                     "emphasis_words": identify_emphasis_words(entry_text),
                     "spine_block_position": block["position"],
                     "word_count": g["word_count"],
+                    "words": [
+                        {
+                            "word": w["word"].lower().strip(),
+                            "start": w["start"],
+                            "end": w["end"],
+                        }
+                        for w in g.get("_words", [])
+                    ],
                 })
 
         elif block_type == "speech":
@@ -465,6 +488,14 @@ def generate_subtitles(
                         "emphasis_words": identify_emphasis_words(entry_text),
                         "spine_block_position": block["position"],
                         "word_count": g["word_count"],
+                        "words": [
+                            {
+                                "word": w["word"].lower().strip(),
+                                "start": w["start"],
+                                "end": w["end"],
+                            }
+                            for w in g.get("_words", [])
+                        ],
                     })
 
     # ── Enforce minimum display duration PER BLOCK ──

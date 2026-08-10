@@ -86,24 +86,36 @@ def generate_subtitle_props_per_block(
             start_frame = round(start_s * fps)
             end_frame = round(end_s * fps)
 
-            # Build per-word timing if available
+            # Build per-word timing
             word_timings = []
-            text_words = entry['text'].split()
+            entry_words = entry.get('words', [])
 
-            # Step 4.01 doesn't include per-word frame timing in its output,
-            # so distribute words evenly across the subtitle duration.
-            # The Remotion component uses these for karaoke-style word reveal.
-            duration_frames = end_frame - start_frame
-            per_word = max(1, duration_frames // max(len(text_words), 1))
-            for wi, tw in enumerate(text_words):
-                word_timings.append({
-                    "word": tw,
-                    "startFrame": start_frame + wi * per_word,
-                    "endFrame": min(
-                        start_frame + (wi + 1) * per_word,
-                        end_frame,
-                    ),
-                })
+            if entry_words:
+                # Use actual per-word timing from plan_subtitles (step 4.01),
+                # converting timeline seconds to render-relative frames.
+                for w in entry_words:
+                    w_start_s = w['start'] - render_start
+                    w_end_s = w['end'] - render_start
+                    word_timings.append({
+                        "word": w['word'],
+                        "startFrame": max(start_frame, round(w_start_s * fps)),
+                        "endFrame": min(end_frame, round(w_end_s * fps)),
+                    })
+            else:
+                # Fallback: distribute words evenly across the subtitle
+                # duration when per-word timing is not available.
+                text_words = entry['text'].split()
+                duration_frames = end_frame - start_frame
+                per_word = max(1, duration_frames // max(len(text_words), 1))
+                for wi, tw in enumerate(text_words):
+                    word_timings.append({
+                        "word": tw,
+                        "startFrame": start_frame + wi * per_word,
+                        "endFrame": min(
+                            start_frame + (wi + 1) * per_word,
+                            end_frame,
+                        ),
+                    })
 
             # Detect emphasis words
             emphasis_words = entry.get('emphasis_words', [])

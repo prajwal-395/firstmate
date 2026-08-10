@@ -16,3 +16,4 @@ public/brand/*
 
 # Props files are generated per-project render
 public/*Props.json
+build

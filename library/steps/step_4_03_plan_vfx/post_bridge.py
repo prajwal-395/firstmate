@@ -145,7 +145,6 @@ def inject_default_ken_burns(
         injected_count += 1
 
     if injected_count > 0:
-        import sys
         print(
             f"  Ken Burns: injected {injected_count} default zoom effects"
             f" on uncovered A-roll clips",
@@ -160,6 +159,7 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
+    require_keys(data, ["a_roll_assignments"], "step_4_03_plan_vfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
         
@@ -168,7 +168,6 @@ def main():
         creative = data["llm_raw_response"]
         
     if not isinstance(creative, list):
-        import sys
         print(f"  Warning: LLM returned invalid response for plan_vfx. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
         creative = []
         
