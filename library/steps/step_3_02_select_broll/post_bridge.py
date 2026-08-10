@@ -254,6 +254,7 @@ def _snap_to_boundary(
 
 def resolve_broll(
     broll_creative: list,
+    broll_interjections: list,
     clip_catalog: list,
     semantic_docs: list,
     temporal_indices: list,
@@ -328,7 +329,60 @@ def resolve_broll(
             "video_only": True,  # B-roll audio should NOT be linked
         })
 
-    return {"b_roll_assignments": assignments}
+    resolved_interjections = []
+    for interj in broll_interjections:
+        clip_id = interj.get("clip_id")
+        if not clip_id:
+            continue
+        spine_pos = interj.get("over_spine_block_position")
+        preferred_moment = interj.get("preferred_moment", "")
+        rationale = interj.get("selection_rationale", "")
+        purpose = interj.get("purpose", "")
+
+        clip = catalog_lookup.get(clip_id)
+        if not clip:
+            print(f"WARNING: interjection clip_id '{clip_id}' not in catalog, skipping", file=sys.stderr)
+            continue
+
+        timeline_start = interj.get("timeline_start", 0.0)
+        timeline_end = interj.get("timeline_end", timeline_start + 2.0)
+        block_duration = timeline_end - timeline_start
+
+        clip_analysis = analysis_lookup.get(clip_id, {})
+        clip_index = index_lookup.get(clip_id, {})
+        clip_duration = clip.get("duration_seconds", 10.0)
+
+        video_in, video_out = find_best_segment(
+            preferred_moment, clip_analysis, clip_index, clip_duration, block_duration
+        )
+
+        clip_res = (
+            clip.get("resolution_width", target_resolution[0]),
+            clip.get("resolution_height", target_resolution[1]),
+        )
+        needs_conform = clip_res != target_resolution
+
+        resolved_interjections.append({
+            "over_spine_block_position": spine_pos,
+            "timeline_start": timeline_start,
+            "timeline_end": timeline_end,
+            "purpose": purpose,
+            "assigned_clip": {
+                "clip_id": clip_id,
+                "source_file": clip.get("source_file", clip.get("path", clip.get("file_path"))),
+                "video_in": video_in,
+                "video_out": video_out,
+                "duration_seconds": round(video_out - video_in, 3),
+                "needs_conform": needs_conform,
+                "selection_rationale": rationale,
+                "video_only": True,
+            }
+        })
+
+    return {
+        "b_roll_assignments": assignments,
+        "b_roll_interjections": resolved_interjections,
+    }
 
 
 def main():
@@ -390,17 +444,13 @@ def main():
     target_width = data.get("project_resolution", [1080, 1920])[0]
     target_height = data.get("project_resolution", [1080, 1920])[1]
 
+    interjections = data.get("b_roll_interjections", [])
+
     result = resolve_broll(
-        broll_creative, clip_catalog, semantic_docs,
+        broll_creative, interjections, clip_catalog, semantic_docs,
         temporal_indices, timed_spine,
         target_resolution=(target_width, target_height),
     )
-    # H6 fix: Include b_roll_interjections from LLM output in bridge output.
-    # The handoff.md defines interjections as overlay B-roll over speech blocks.
-    # Without passing them through, Phase 3+ loses visual variety data.
-    interjections = data.get("b_roll_interjections", [])
-    if interjections:
-        result["b_roll_interjections"] = interjections
         
     total_broll = len(result.get("b_roll_assignments", [])) + len(interjections)
     if total_broll < 5 or total_broll > 20:

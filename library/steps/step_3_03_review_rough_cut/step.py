@@ -91,7 +91,7 @@ def check_timeline_continuity(a_roll_assignments: list) -> dict:
 
 
 def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
-                        project_folder: str) -> dict:
+                        b_roll_interjections: list, project_folder: str) -> dict:
     """
     Every source_file must resolve to an existing file on disk.
     """
@@ -127,6 +127,22 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
         if not os.path.exists(full_path):
             missing.append({
                 "clip_id": br.get("clip_id", "?"),
+                "source_file": sf,
+                "resolved_path": full_path,
+            })
+    # B-roll interjections: source_file is in assigned_clip
+    for interj in (b_roll_interjections or []):
+        clip = interj.get("assigned_clip", {})
+        sf = clip.get("source_file")
+        if not sf:
+            continue
+        if not os.path.isabs(sf):
+            full_path = os.path.join(project_folder, sf)
+        else:
+            full_path = sf
+        if not os.path.exists(full_path):
+            missing.append({
+                "clip_id": clip.get("clip_id", "?"),
                 "source_file": sf,
                 "resolved_path": full_path,
             })
@@ -215,13 +231,14 @@ def run_mechanical_checks(data: dict) -> dict:
     """Run all mechanical checks and return combined result."""
     a_rolls = data.get("a_roll_assignments", [])
     b_rolls = data.get("b_roll_assignments", [])
+    b_interjections = data.get("b_roll_interjections", [])
     project_folder = data.get("project_folder", ".")
 
     audio_spine = data.get("audio_spine", {})
 
     duration = check_duration_invariant(a_rolls)
     continuity = check_timeline_continuity(a_rolls)
-    source_files = check_source_files(a_rolls, b_rolls, project_folder)
+    source_files = check_source_files(a_rolls, b_rolls, b_interjections, project_folder)
     duplicates = check_no_duplicate_ranges(a_rolls)
     total_dur = check_total_duration(a_rolls, audio_spine, data)
 
