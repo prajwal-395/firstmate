@@ -30,7 +30,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
 
     sfx_spec_raw = inputs.get("sfx_spec", [])
     if isinstance(sfx_spec_raw, dict):
-        sfx = sfx_spec_raw.get("sfx_plan", sfx_spec_raw.get("sfx_events", sfx_spec_raw.get("sfx_spec", [])))
+        sfx = sfx_spec_raw.get("sfx_list", sfx_spec_raw.get("sfx_plan", sfx_spec_raw.get("sfx_events", sfx_spec_raw.get("sfx_spec", []))))
     else:
         sfx = sfx_spec_raw if isinstance(sfx_spec_raw, list) else []
 

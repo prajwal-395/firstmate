@@ -797,213 +797,30 @@ def build_timeline(
     # ══════════════════════════════════════════════════════════
     # APPLY FUSION .comp FILES (animated VFX + transitions per clip)
     # ══════════════════════════════════════════════════════════
-    # IMPORTANT: Each clip can only have ONE active Fusion composition.
-    # ImportFusionComp adds alongside existing comps, but only one is
-    # active — creating orphan comps is a silent error. So we bake
-    # transitions directly INTO the VFX .comp for each clip.
-    fusion_effects = manifest.get('fusion_effects', {})
-    per_clip_effects = fusion_effects.get('per_clip', {})
-    transition_specs = fusion_effects.get('transitions', [])
-
-    # Build transition lookup: clip_index → {tail_transition, head_transition}
-    transition_by_clip = {}
-    macro_transitions_by_clip = {}
-    for tspec in transition_specs:
-        ttype = tspec.get('type', 'cut')
-        if ttype in ('cut', 'hard_cut', '', None):
-            continue
+    # CRITICAL RULE FIX: We must run ImportFusionComp in a separate process
+    # because clip references go stale after timeline creation.
+    import tempfile
+    import subprocess
+    
+    script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tools', 'execution', 'apply_fusion_comps.py')
+    if os.path.exists(script_path):
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
+            json.dump(manifest, tf)
+            temp_manifest = tf.name
             
-        after_idx = tspec.get('after_clip', 0)
+        cmd = [sys.executable, script_path, temp_manifest]
+        print(f"\n── Launching subprocess for Fusion Comps ──", file=sys.stderr)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
         
-        if ttype == 'macro':
-            macro_transitions_by_clip[after_idx] = tspec
-            continue
+        if proc.returncode != 0:
+            results["warnings"].append(f"Fusion subprocess failed: {proc.stderr}")
+            print(f"  ✗ Fusion Comps Subprocess Failed", file=sys.stderr)
+        else:
+            print(proc.stderr, file=sys.stderr)
             
-        dur_f = tspec.get('duration_frames', 12)
-        # Outgoing clip gets tail transition
-        transition_by_clip.setdefault(after_idx, {})
-        transition_by_clip[after_idx]['tail_transition'] = ttype
-        transition_by_clip[after_idx]['tail_transition_frames'] = dur_f
-        # Incoming clip gets head transition
-        next_idx = after_idx + 1
-        transition_by_clip.setdefault(next_idx, {})
-        transition_by_clip[next_idx]['head_transition'] = ttype
-        transition_by_clip[next_idx]['head_transition_frames'] = dur_f
-
-    has_any_effects = per_clip_effects or transition_by_clip or macro_transitions_by_clip
-
-    # Map legacy vfx_entries to per_clip_effects based on timeline overlaps
-    vfx_entries = manifest.get('vfx', [])
-    if vfx_entries and v1_timeline_items:
-        for vfx in vfx_entries:
-            start_sec = vfx.get('timeline_start', 0)
-            start_f = round(start_sec * fps)
-            params = vfx.get('params', {})
-            preset = vfx.get('effect_type', vfx.get('preset', ''))
-            
-            # Find the V1 clip that contains start_f
-            for ci, clip in enumerate(v1_timeline_items):
-                if clip.GetStart() <= start_f < clip.GetEnd():
-                    label = v1_clips[ci].get('label', f'clip_{ci}')
-                    if label not in per_clip_effects:
-                        per_clip_effects[label] = {}
-                    if preset:
-                        per_clip_effects[label]['_preset'] = preset
-                    for k, v in params.items():
-                        per_clip_effects[label][k] = v
-                    has_any_effects = True
-                    break
-
-    if has_any_effects:
-        print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, "
-              f"{len(transition_specs)} transitions ──",
-              file=sys.stderr)
-        
-        try:
-            from fusion_macro_loader import apply_macro_to_transition
-        except ImportError:
-            apply_macro_to_transition = None
-
-        from fusion_comp_generator import generate_comp, write_comp, SEGMENT_PRESETS
-
-        comp_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), 'fusion_comps')
-        os.makedirs(comp_dir, exist_ok=True)
-
-        v1_items = timeline.GetItemListInTrack("video", 1) or []
-
-        for ci, clip_spec in enumerate(v1_clips):
-            label = clip_spec.get('label', f'clip_{ci}')
-
-            # Gather VFX effects
-            effects = per_clip_effects.get(label, {})
-            if not effects and label in SEGMENT_PRESETS:
-                effects = dict(SEGMENT_PRESETS[label])
-            elif effects:
-                effects = dict(effects)
-            else:
-                effects = {}
-
-            # Handle _preset references
-            preset_name = effects.pop('_preset', None)
-            if preset_name and preset_name in SEGMENT_PRESETS:
-                base = dict(SEGMENT_PRESETS[preset_name])
-                base.update({k: v for k, v in effects.items()
-                            if k != '_preset'})
-                effects = base
-
-            # Merge transition params into this clip's effects
-            trans_params = transition_by_clip.get(ci, {})
-            if trans_params:
-                effects.update(trans_params)
-
-            # Check if this clip has a macro transition after it
-            macro_trans = macro_transitions_by_clip.get(ci, None)
-
-            if not effects and not macro_trans:
-                continue
-
-            if ci >= len(v1_items):
-                results["warnings"].append(
-                    f"VFX: clip {ci} ({label}) not on timeline")
-                continue
-                
-            tl_clip = v1_items[ci]
-            mpi = tl_clip.GetMediaPoolItem()
-            clip_dur = int(mpi.GetClipProperty('Frames'))
-                        
-            # Apply macro transition if it exists
-            macro_applied = False
-            if macro_trans and apply_macro_to_transition:
-                macro_data = macro_trans.get("macro_preset", {})
-                duration_ms = macro_trans.get("duration_ms", 500)
-                macro_applied = apply_macro_to_transition(tl_clip, macro_data, duration_ms)
-                if macro_applied:
-                    print(f"  ✓ [{ci}] {label}: Applied Fusion Macro transition", file=sys.stderr)
-                else:
-                    print(f"  ⚠ [{ci}] {label}: Macro transition failed, falling back to dissolve", file=sys.stderr)
-                    effects["tail_transition"] = "fade_to_black"
-                    effects["tail_transition_frames"] = 12
-
-            if not effects:
-                continue
-
-            # If only transitions, add minimal defaults
-            if 'zoom_start' not in effects:
-                effects.setdefault('zoom_start', 1.0)
-                effects.setdefault('zoom_mid', 1.0)
-                effects.setdefault('zoom_end', 1.0)
-                effects.setdefault('vignette', False)
-
-            # Generate unified .comp (VFX + transitions in one)
-            comp_content = generate_comp(clip_dur, **effects)
-            comp_path = write_comp(
-                os.path.join(comp_dir, f"{label.lower()}.comp"),
-                comp_content
-            )
-
-            # Clear ALL existing comps to prevent orphans
-            for cn in (tl_clip.GetFusionCompNameList() or []):
-                tl_clip.DeleteFusionCompByName(cn)
-
-            result = tl_clip.ImportFusionComp(comp_path)
-
-            # AUDIT FIX: ImportFusionComp returns truthy even for
-            # empty/malformed files. Verify tools actually loaded.
-            if result:
-                comp_names = tl_clip.GetFusionCompNameList()
-                comp = (tl_clip.GetFusionCompByName(comp_names[0])
-                        if comp_names else None)
-                tools = comp.GetToolList() if comp else {}
-                real_tools = [
-                    t for t in tools.values()
-                    if t.GetAttrs().get('TOOLS_RegID')
-                    not in ('MediaIn', 'MediaOut')
-                ]
-
-                if len(real_tools) == 0:
-                    results["warnings"].append(
-                        f"VFX: {label} imported empty comp (0 tools)")
-                    print(f"  ✗ [{ci}] {label}: empty comp (bad file)", file=sys.stderr)
-                    continue
-
-                parts = []
-                xf = comp.FindTool("Transform1")
-                if xf:
-                    v0 = xf.GetInput("Size", 0)
-                    vm = xf.GetInput("Size", clip_dur // 2)
-                    if v0 and vm:
-                        parts.append(f"zoom:{v0:.3f}→{vm:.3f}")
-                tt = effects.get('tail_transition')
-                ht = effects.get('head_transition')
-                if tt:
-                    parts.append(f"tail={tt}")
-                if ht:
-                    parts.append(f"head={ht}")
-
-                detail = f" ({', '.join(parts)})" if parts else ""
-                print(f"  ✓ [{ci}] {label}: {len(real_tools)} tools"
-                      f"{detail}", file=sys.stderr)
-            else:
-                results["warnings"].append(
-                    f"VFX: ImportFusionComp failed for {label}")
-                print(f"  ✗ [{ci}] {label}: ImportFusionComp failed", file=sys.stderr)
-
-    elif vfx_entries:
-        # Legacy fallback: static SetProperty for simple zoom
-        print(f"\n── VFX (legacy): {len(vfx_entries)} entries ──", file=sys.stderr)
-        for vfx in vfx_entries:
-            vfx_type = vfx.get('type', '')
-            if vfx_type == 'zoom_pulse':
-                vfx_start_f = round(vfx.get('timeline_start', 0) * fps)
-                for item in (timeline.GetItemListInTrack("video", 1) or []):
-                    if item.GetStart() <= vfx_start_f < item.GetEnd():
-                        item.SetProperty("ZoomX", 1.05)
-                        item.SetProperty("ZoomY", 1.05)
-                        print(f"  ✓ zoom_pulse on {item.GetName()}"
-                              f" at {vfx_start_f}f",
-                              file=sys.stderr)
-                        break
+        os.remove(temp_manifest)
+    else:
+        results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
     if verify_fusion_comps:
         _run_qa(verify_fusion_comps(timeline, None, manifest.get("vfx", {})))
