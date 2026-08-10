@@ -17,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "State input: clip_catalog"
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "State input: project_folder"
       }
     ],
     "outputs": [
@@ -41,6 +47,7 @@
   },
   "state": {
     "reads": [
+      "project_folder",
       "raw_footage_files",
       "clip_catalog"
     ],

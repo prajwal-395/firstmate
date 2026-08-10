@@ -52,7 +52,16 @@ def main():
     # Find clips that need analysis
     all_clips = []
     missing_clips = []
-    for fpath in sorted(glob.glob(os.path.join(raw_dir, '*.MOV')) + glob.glob(os.path.join(raw_dir, '*.MP4')) + glob.glob(os.path.join(raw_dir, '*.mp4'))):
+    # C8 fix: Use state raw_footage_files instead of hardcoded glob to support all video formats
+    # and to preserve clip_id assigned in step_1_01 for pipeline synchronization.
+    for file_info in raw_footage_files:
+        if isinstance(file_info, dict):
+            fpath = file_info["path"]
+            clip_id = file_info.get("clip_id", "")
+        else:
+            fpath = file_info
+            clip_id = ""
+            
         clip_name = os.path.splitext(os.path.basename(fpath))[0]
         all_clips.append(fpath)
         if clip_name not in existing_profiles:
@@ -82,12 +91,25 @@ def main():
     
     # Collect ALL clip profiles (existing + new)
     profiles = []
+    
+    # Create lookup map for clip_id from raw_footage_files
+    clip_id_map = {}
+    for file_info in raw_footage_files:
+        if isinstance(file_info, dict) and "path" in file_info and "clip_id" in file_info:
+            clip_name = os.path.splitext(os.path.basename(file_info["path"]))[0]
+            clip_id_map[clip_name] = file_info["clip_id"]
+
     for f in sorted(glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json'))):
         if '_video_only' in f:
             continue  # Skip partial profiles
         with open(f) as fp:
             try:
-                profiles.append(json.load(fp))
+                profile_data = json.load(fp)
+                # Inject clip_id for downstream synchronization
+                clip_name = os.path.basename(f).replace('clip_profile_', '').replace('.json', '')
+                if clip_name in clip_id_map:
+                    profile_data["clip_id"] = clip_id_map[clip_name]
+                profiles.append(profile_data)
             except json.JSONDecodeError:
                 print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
     

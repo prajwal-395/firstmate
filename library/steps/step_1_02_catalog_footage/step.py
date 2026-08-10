@@ -207,6 +207,7 @@ def catalog_footage(raw_footage_files: list) -> dict:
             "source_file": filepath,  # Alias for downstream steps (3.1, 3.3)
             "filename": file_info["filename"],
             "file_size_bytes": file_info["size_bytes"],
+            "clip_id": file_info.get("clip_id", ""),
             **metadata,
         })
 
@@ -238,9 +239,8 @@ def catalog_footage(raw_footage_files: list) -> dict:
         e["filename"],
     ))
 
-    # --- Assign clip_id and source_order ---
+    # --- Assign source_order ---
     for i, entry in enumerate(entries):
-        entry["clip_id"] = f"clip_{i + 1:03d}"
         entry["source_order"] = i + 1
 
     # --- Derive project fps and resolution ---
