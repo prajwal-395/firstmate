@@ -529,10 +529,28 @@ def compile_manifest(out_dir: str) -> dict:
         comp_type = type_map.get(ttype, ttype)
         if comp_type in ("cut", "hard_cut", ""):
             continue
+            
+        after_clip = t.get("from_block", ti)
+        if "cut_time" in t:
+            cut_time = t["cut_time"]
+            closest_diff = 999
+            closest_idx = ti
+            for i, clip in enumerate(v1_clips):
+                diff = abs(clip.get("timeline_out", 0) - cut_time)
+                if diff < closest_diff:
+                    closest_diff = diff
+                    closest_idx = i
+            if closest_diff < 0.2:
+                after_clip = closest_idx
+
+        dur_frames = t.get("duration_frames")
+        if dur_frames is None:
+            dur_frames = int(t.get("duration", 0.5) * fps)
+
         trans_obj = {
             "type": comp_type,
-            "after_clip": t.get("from_block", ti),
-            "duration_frames": t.get("duration_frames", 15),
+            "after_clip": after_clip,
+            "duration_frames": dur_frames,
         }
         if "macro_preset" in t:
             trans_obj["macro_preset"] = t["macro_preset"]
@@ -869,10 +887,28 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         comp_type = type_map.get(ttype, ttype)
         if comp_type in ("cut", "hard_cut", ""):
             continue
+
+        after_clip = t.get("from_block", ti)
+        if "cut_time" in t:
+            cut_time = t["cut_time"]
+            closest_diff = 999
+            closest_idx = ti
+            for i, clip in enumerate(v1_clips):
+                diff = abs(clip.get("timeline_out", 0) - cut_time)
+                if diff < closest_diff:
+                    closest_diff = diff
+                    closest_idx = i
+            if closest_diff < 0.2:
+                after_clip = closest_idx
+
+        dur_frames = t.get("duration_frames")
+        if dur_frames is None:
+            dur_frames = int(t.get("duration", 0.5) * fps)
+
         trans_obj = {
             "type": comp_type,
-            "after_clip": t.get("from_block", ti),
-            "duration_frames": t.get("duration_frames", 15),
+            "after_clip": after_clip,
+            "duration_frames": dur_frames,
         }
         if "macro_preset" in t:
             trans_obj["macro_preset"] = t["macro_preset"]
