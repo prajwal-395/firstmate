@@ -214,10 +214,7 @@
     },
     {
       "from": "temporal_index",
-      "to": "prosody_analysis",
-      "data_mapping": {
-        "temporal_event_indices": "temporal_index"
-      }
+      "to": "prosody_analysis"
     },
     {
       "from": "scan",
@@ -237,7 +234,7 @@
       "from": "temporal_index",
       "to": "creative_direction",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "full_indices": "temporal_index"
       }
     },
     {
@@ -265,7 +262,7 @@
       "from": "temporal_index",
       "to": "speech_sequence",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "full_indices": "temporal_index"
       }
     },
     {
@@ -629,7 +626,7 @@
       "from": "temporal_index",
       "to": "mesh_spine",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "full_indices": "temporal_index"
       }
     },
     {
@@ -671,14 +668,14 @@
       "from": "temporal_index",
       "to": "review_rough_cut",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "full_indices": "temporal_index"
       }
     },
     {
       "from": "temporal_index",
       "to": "plan_subtitles",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "full_indices": "temporal_index"
       }
     },
     {

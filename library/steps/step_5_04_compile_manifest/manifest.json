@@ -86,13 +86,13 @@
       },
       {
         "name": "clip_catalog",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: clip_catalog"
       },
       {
         "name": "semantic_analysis",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: semantic_analysis"
       }

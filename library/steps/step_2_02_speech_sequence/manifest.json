@@ -8,7 +8,7 @@
     "inputs": [
       {
         "name": "temporal_index",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: temporal_index"
       },
@@ -20,7 +20,7 @@
       },
       {
         "name": "semantic_analysis_documents",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: semantic_analysis_documents"
       },
@@ -44,7 +44,7 @@
       },
       {
         "name": "speech_sequence",
-        "type": "array",
+        "type": "object",
         "description": "State output: speech_sequence"
       }
     ],
@@ -106,8 +106,7 @@
     "semantic_analysis_documents.*.scene_segments.*.tags",
     "temporal_index.*.speech_regions",
     "temporal_index.*.scene_boundaries",
-    "temporal_index.index_dir",
-    "clip_catalog.entries.*.filename",
-    "clip_catalog.entries.*.duration"
+    "clip_catalog.*.filename",
+    "clip_catalog.*.duration_seconds"
   ]
 }

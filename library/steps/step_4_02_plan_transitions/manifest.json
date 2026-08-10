@@ -38,7 +38,7 @@
       },
       {
         "name": "temporal_event_indices",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: temporal_event_indices"
       },
@@ -50,7 +50,7 @@
       },
       {
         "name": "semantic_analysis",
-        "type": "object",
+        "type": "array",
         "required": false,
         "description": "Semantic analysis output"
       },

@@ -8,13 +8,13 @@
     "inputs": [
       {
         "name": "semantic_analysis_documents",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: semantic_analysis_documents"
       },
       {
         "name": "temporal_index",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: temporal_index"
       },
@@ -26,7 +26,7 @@
       },
       {
         "name": "clip_catalog",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: clip_catalog"
       },
@@ -99,11 +99,11 @@
     "semantic_analysis_documents.*.summary",
     "semantic_analysis_documents.*.scene_segments.*.shot_size",
     "semantic_analysis_documents.*.scene_segments.*.setting",
-    "temporal_index.*.transcripts",
+    "temporal_index.*.speech_regions",
     "temporal_index.*.scene_boundaries",
     "prosody_analysis.speaking_rate",
-    "clip_catalog.entries.*.filename",
-    "clip_catalog.entries.*.duration",
-    "clip_catalog.entries.*.topic_tags"
+    "clip_catalog.*.filename",
+    "clip_catalog.*.duration_seconds",
+    "clip_catalog.*.topic_tags"
   ]
 }

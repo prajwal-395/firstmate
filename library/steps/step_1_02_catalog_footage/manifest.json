@@ -16,7 +16,7 @@
     "outputs": [
       {
         "name": "clip_catalog",
-        "type": "object",
+        "type": "array",
         "description": "State output: clip_catalog"
       },
       {
