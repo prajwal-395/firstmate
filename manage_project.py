@@ -194,6 +194,8 @@ def cmd_run(args):
         cmd.append("--auto")
     if args.review:
         cmd.append("--review")
+    if args.resume:
+        cmd.append("--resume")
     if getattr(args, "full_auto", None):
         cmd.extend(["--full-auto", args.full_auto])
     if getattr(args, "llm_timeout", None):
@@ -359,6 +361,8 @@ def main():
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
     p_run.add_argument("--review", action="store_true",
                        help="Enable review gates for dashboard inspection")
+    p_run.add_argument("--resume", action="store_true",
+                       help="Resume pipeline from pending gates")
     p_run.add_argument("--full-auto", choices=["agy", "api"],
                        help="Run full pipeline autonomously using specified LLM backend")
     p_run.add_argument("--llm-timeout", type=int, default=300,
