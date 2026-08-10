@@ -33,6 +33,8 @@ def run(inputs: dict) -> dict:
         # Build timeline (this connects to Resolve)
         result = build_timeline(
             manifest=manifest,
+            subtitle_overlay_path=inputs.get("subtitle_overlay_path"),
+            motion_graphics_path=inputs.get("motion_graphics_path"),
             project_name=manifest.get("project", {}).get("name", "Pipeline_Edit"),
             delete_existing=True
         )
