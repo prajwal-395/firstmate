@@ -148,7 +148,7 @@ def main():
     for props in props_list:
         block_pos = props["_block_position"]
         props_path = os.path.join(
-            args.output_dir, f"sub_block_{block_pos:02d}_props.json"
+            args.output_dir, f"sub_block_{block_pos}_props.json"
         )
 
         # Remove metadata keys before writing

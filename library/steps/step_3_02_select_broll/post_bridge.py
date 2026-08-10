@@ -354,8 +354,8 @@ def main():
                 for line in lines[1:]:
                     parts = line.split("\t")
                     if len(parts) >= 2:
-                        slot_id = parts[0]
-                        clip_id = parts[1]
+                        slot_id = parts[0].strip()
+                        clip_id = parts[1].strip()
                         if slot_id not in slots:
                             slots.add(slot_id)
                             try:
