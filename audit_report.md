@@ -1,13 +1,8 @@
-# Convergence Audit: Phase 5 & 6 Pipeline Logic
+CONVERGENCE AUDIT COMPLETE
 
-## Findings
+3 pipeline logic bugs found and fixed:
+1. `step_6_01_render/resolve_build_timeline.py`: Missing `overlay_path` fallback for `mg_segments`. The manifest's legacy `overlay_path` field inside `mg_overlay_info` was ignored, causing motion graphics overlays to be dropped silently if `mg_segments` wasn't explicitly populated in the manifest and no argument was passed. Added the fallback matching subtitles.
+2. `step_5_04_compile_manifest/step.py`: In orchestrator mode (`compile_manifest_from_inputs`), `transition` parsing failed to handle `"position": "between_X_Y"` to enrich transitions with `from_block` and `cut_point_timeline`. This caused `fusion_transitions` to fall back to using list indices instead of block mappings, applying transitions to wrong clips if clip counts differed. Added the missing enrichment block from standalone mode.
+3. `step_5_04_compile_manifest/step.py`: Completely ignored `video_segments` data produced by `step_3_01_a_roll_assignments`. It built `v1_clips` straight from `audio_spine.structure`, effectively losing any visual cuts (e.g. jump cuts) introduced by step 3.01. Fixed both standalone and orchestrator modes to use `a_roll_assignments` and build `v1_clips` accurately.
 
-1. **Bug Found:** Data loss and silent gaps in J-cut and L-cut handling inside `resolve_build_timeline.py`.
-   - **Details:** The timeline builder's logic for pre-processing J-cuts decreased `audio_src_out` of the preceding clip by the full transition duration, while bounding the next clip's `audio_src_in` adjustment to its available head media `max(0, ... - dur)`. This discrepancy created a silent gap in the A1 track when the next clip didn't have enough head media. Similarly, L-cuts extended `audio_src_out` of the preceding clip and `audio_src_in` of the next clip without capping them to the actual media limits, which could cause Resolve's `AppendToTimeline` to fail or create gaps.
-   - **Fix:** Implemented proper clamping. `actual_dur` is now strictly bound by the available media limits of both clips (`from_clip_len` and `audio_src_in`/`to_clip_len`), ensuring that both ends of the cut adjust symmetrically without violating media bounds.
-
-2. **Bug Found:** Silent failure to populate `clip_lookup` in `step_5_04_compile_manifest` (orchestrator mode).
-   - **Details:** When compiling the manifest from upstream JSON inputs, the `a_roll_assignments` processor iterated over `video_segments` and fell back to `vseg.get("clip_id")` and `vseg.get("source_file")`. However, it failed to inherit `source_clip_id` or `source_file` from the parent `assignment` object if the `vseg` was sparsely populated. This caused `cid` or `path` to be empty strings, skipping the `clip_lookup` registration entirely and causing missing media downstream.
-   - **Fix:** Updated the fallback lookup logic to `assignment.get("source_clip_id", assignment.get("clip_id", ""))` and `assignment.get("source_file", "")`.
-
-Both logic bugs have been fixed and committed. No further pipeline logic bugs were found in Phase 5, Phase 6, or execution tools.
+CLEAN PASS - no pipeline logic bugs remaining.
