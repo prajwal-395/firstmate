@@ -44,16 +44,16 @@ def main():
         clip_name = os.path.splitext(os.path.basename(clip_path))[0]
         clip_id = clip_ids.get(clip_path) or clip_name
         
-        out_subdir = os.path.join(ocr_dir, clip_name)
+        out_subdir = os.path.join(ocr_dir, clip_id)
         out_file = os.path.join(out_subdir, "ocr_result.json")
         
         if os.path.exists(out_file):
-            print(f"Skipping {clip_name}, OCR already extracted.", file=sys.stderr)
+            print(f"Skipping {clip_id}, OCR already extracted.", file=sys.stderr)
             with open(out_file) as fp:
-                ocr_results[clip_name] = json.load(fp)
+                ocr_results[clip_id] = json.load(fp)
             continue
             
-        print(f"Extracting OCR for {clip_name}...", file=sys.stderr)
+        print(f"Extracting OCR for {clip_id}...", file=sys.stderr)
         
         scene_boundaries = None
         temporal_idx = os.path.join(temporal_dir, f"{clip_id}.json")
@@ -67,17 +67,17 @@ def main():
                             for sb in t_data['scene_boundaries']
                         ]
             except Exception as e:
-                print(f"Failed to read temporal index for {clip_name}: {e}", file=sys.stderr)
+                print(f"Failed to read temporal index for {clip_id}: {e}", file=sys.stderr)
                 
         try:
             result = extractor.extract_text_from_clip(clip_path, sample_fps=1.0, scene_boundaries=scene_boundaries)
             result.save(out_subdir)
             
             with open(out_file) as fp:
-                ocr_results[clip_name] = json.load(fp)
+                ocr_results[clip_id] = json.load(fp)
                 
         except Exception as e:
-            print(f"⚠ Error extracting OCR for {clip_name}: {e}", file=sys.stderr)
+            print(f"⚠ Error extracting OCR for {clip_id}: {e}", file=sys.stderr)
             
     json.dump({
         'ocr_extraction': ocr_results

@@ -87,7 +87,7 @@ def main():
     for i, item in enumerate(raw_footage_files):
         path = item["path"] if isinstance(item, dict) else item
         if os.path.exists(path):
-            clip_id = f"clip_{i + 1:03d}"
+            clip_id = item.get("clip_id", f"clip_{i + 1:03d}") if isinstance(item, dict) else f"clip_{i + 1:03d}"
             audio_files.append({"path": path, "clip_id": clip_id})
 
     if not audio_files:

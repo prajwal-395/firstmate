@@ -47,20 +47,17 @@ def main():
     # Find clips that need analysis
     all_clips = []
     missing_clips = []
-    # C8 fix: Use state raw_footage_files instead of hardcoded glob to support all video formats
-    # and to preserve clip_id assigned in step_1_01 for pipeline synchronization.
     for file_info in raw_footage_files:
         if isinstance(file_info, dict):
             fpath = file_info["path"]
             clip_id = file_info.get("clip_id", "")
         else:
             fpath = file_info
-            clip_id = ""
+            clip_id = os.path.splitext(os.path.basename(fpath))[0]
             
-        clip_name = os.path.splitext(os.path.basename(fpath))[0]
         all_clips.append(fpath)
-        if clip_name not in existing_profiles:
-            missing_clips.append(fpath)
+        if clip_id not in existing_profiles:
+            missing_clips.append({"path": fpath, "clip_id": clip_id})
     
     print(f"Semantic Analysis: {len(all_clips)} total clips, {len(existing_profiles)} already analyzed, {len(missing_clips)} remaining", file=sys.stderr)
     
@@ -69,7 +66,10 @@ def main():
         print(f"Running vision pipeline on {len(missing_clips)} new clips...", file=sys.stderr)
         
         # Run on each missing clip individually
-        for clip_path in missing_clips:
+        for clip in missing_clips:
+            clip_path = clip["path"]
+            clip_id = clip["clip_id"]
+            clip_basename = os.path.splitext(os.path.basename(clip_path))[0]
             print(f"  Analyzing: {os.path.basename(clip_path)}", file=sys.stderr)
             try:
                 subprocess.run(
@@ -77,6 +77,17 @@ def main():
                     check=True,
                     timeout=600,  # 10 min max per clip
                 )
+                # Rename the output to use clip_id instead of clip_basename to prevent collisions
+                out_path = os.path.join(analysis_dir, f"clip_profile_{clip_basename}.json")
+                new_path = os.path.join(analysis_dir, f"clip_profile_{clip_id}.json")
+                if os.path.exists(out_path) and out_path != new_path:
+                    os.rename(out_path, new_path)
+                    
+                out_path_vid = os.path.join(analysis_dir, f"clip_profile_{clip_basename}_video_only.json")
+                new_path_vid = os.path.join(analysis_dir, f"clip_profile_{clip_id}_video_only.json")
+                if os.path.exists(out_path_vid) and out_path_vid != new_path_vid:
+                    os.rename(out_path_vid, new_path_vid)
+                    
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
             except subprocess.CalledProcessError as e:
@@ -87,13 +98,6 @@ def main():
     # Collect ALL clip profiles (existing + new)
     profiles = []
     
-    # Create lookup map for clip_id from raw_footage_files
-    clip_id_map = {}
-    for file_info in raw_footage_files:
-        if isinstance(file_info, dict) and "path" in file_info and "clip_id" in file_info:
-            clip_name = os.path.splitext(os.path.basename(file_info["path"]))[0]
-            clip_id_map[clip_name] = file_info["clip_id"]
-
     for f in sorted(glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json'))):
         if '_video_only' in f:
             continue  # Skip partial profiles
@@ -101,13 +105,8 @@ def main():
             try:
                 profile_data = json.load(fp)
                 # Inject clip_id for downstream synchronization
-                clip_name = os.path.basename(f)
-                if clip_name.startswith('clip_profile_'):
-                    clip_name = clip_name[len('clip_profile_'):]
-                if clip_name.endswith('.json'):
-                    clip_name = clip_name[:-5]
-                if clip_name in clip_id_map:
-                    profile_data["clip_id"] = clip_id_map[clip_name]
+                clip_id = os.path.basename(f).replace('clip_profile_', '').replace('.json', '')
+                profile_data["clip_id"] = clip_id
                 profiles.append(profile_data)
             except json.JSONDecodeError:
                 print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
