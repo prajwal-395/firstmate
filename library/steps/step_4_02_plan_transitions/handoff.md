@@ -45,7 +45,8 @@ BPM for beat-aligned cuts.
 | `light_leak` | asset_id, opacity | Stylistic warmth, dreamy quality |
 
 ### Rules:
-- Hard cuts dominate — creative transitions are the minority
+- You MUST output a transition entry for EVERY single cut point in the shot list.
+- Hard cuts dominate — use `hard_cut` as the default for most cuts.
 - Never repeat the same creative transition type consecutively
 - Beat-align major transitions when BPM data is available
 - J/L-cut audio overlaps max 1 second

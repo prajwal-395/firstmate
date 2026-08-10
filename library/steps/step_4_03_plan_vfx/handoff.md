@@ -39,6 +39,7 @@ apply. Focus on talking head clips that need subtle movement.
 | `cut_out` | scale_factor (0.85-0.95) | Wider framing — creates visual variety |
 
 ### Rules:
+- You MUST plan at least 3-7 VFX items across the video. An empty list is a failure.
 - Every A-roll talking head clip >3 seconds MUST have at least slow_zoom
 - Screen shake: sparingly — max 2-3 per video
 - Zoom emphasis: only for genuinely important moments

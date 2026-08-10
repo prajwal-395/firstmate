@@ -466,6 +466,10 @@ def main():
     prosody = data.get("prosody_analysis", {})
     eng = data.get("engagement_scores", {})
     brand_audio = data.get("brand_audio", {})
+    
+    if len(creative) < 3:
+        print(json.dumps({"error": f"Planned {len(creative)} SFX, but you MUST plan between 5 and 10 SFX.", "step": "4.04_bridge"}))
+        sys.exit(1)
 
     result = resolve_sfx(creative, spine, temporal, music, fps, cd, prosody, eng, brand_audio)
     

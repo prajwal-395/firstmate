@@ -46,7 +46,7 @@ Select and place sound effects at appropriate moments in the timeline.
 | `reverse_cymbal` / `swell` | Between major sections |
 
 ### Rules:
-- **Less is more** — max 5-10 SFX for a 30-60 second video
+- **Less is more** — but you MUST plan EXACTLY 5-10 SFX for a 30-60 second video. An empty list is a failure.
 - Volume: "subtle" or "low" for most; "medium" only for emphasis
 - Never louder than speech or music
 - Don't fight the music (avoid loud SFX during prominent music)

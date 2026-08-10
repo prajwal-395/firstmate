@@ -361,6 +361,10 @@ def main():
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
     
+    if len(creative) < total_cuts:
+        print(json.dumps({"error": f"Planned {len(creative)} transitions, but there are {total_cuts} cuts. You MUST plan a transition for EVERY cut.", "step": "4.02_bridge"}))
+        sys.exit(1)
+    
     # Extract new inputs
     creative_direction = data.get("creative_direction", {})
     brand_effect = data.get("brand_effect", {})

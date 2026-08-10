@@ -369,6 +369,22 @@ def main():
 
     enriched = enrich_speech_sequence(speech_sequence, ti_dir, semantic_data, prosody_data)
 
+    body = enriched.get("body_sequence", [])
+    if len(body) < 5 or len(body) > 25:
+        print(json.dumps({"error": f"Selected {len(body)} speech passages. Please select exactly 10-15 of the strongest passages.", "step": "2.02_bridge"}))
+        sys.exit(1)
+        
+    total_duration = 0.0
+    for passage in body:
+        start = passage.get("start_time")
+        end = passage.get("end_time")
+        if start is not None and end is not None:
+            total_duration += (end - start)
+            
+    if total_duration > 90.0:
+        print(json.dumps({"error": f"Total speech duration ({total_duration:.1f}s) is too long. Total duration MUST be between 30 and 60 seconds.", "step": "2.02_bridge"}))
+        sys.exit(1)
+
     json.dump({
         "step": "2.02_bridge",
         "speech_sequence": enriched,

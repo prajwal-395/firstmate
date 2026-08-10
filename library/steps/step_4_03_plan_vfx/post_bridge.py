@@ -178,6 +178,10 @@ def main():
     fps = data.get("frame_rate", 30.0)
 
     # Inject default Ken Burns on uncovered A-roll clips before resolving
+    if not creative and not data.get("vfx_plan"):
+        print(json.dumps({"error": "No VFX planned. You MUST plan at least 3-7 VFX items.", "step": "4.03_bridge"}))
+        sys.exit(1)
+
     creative = inject_default_ken_burns(creative, spine)
 
     result = resolve_vfx(creative, spine, fps)
