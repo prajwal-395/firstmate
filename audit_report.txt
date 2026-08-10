@@ -1,17 +1,7 @@
-CONVERGENCE AUDIT - Pipeline Logic Bugs
+CONVERGENCE AUDIT - Phase 1 and 2 (Pipeline Logic Bugs Only)
 
-Scope: Phase 1 (1.01-1.07) and Phase 2 (2.01-2.05)
+Bugs Found & Fixed:
+1. `step_2_02_speech_sequence/post_bridge.py`: Fixed a silent pipeline crash/failure by downgrading hard limits on speech sequence length (8-20 passages) and total duration to warnings. These hard limits caused the pipeline to unconditionally fail on short videos (fewer than 8 speech segments) and caused complete breakage of the pipeline in `--auto` mode where `bridge.py` naturally returns all transcript rows.
+2. `step_2_05_mesh_spine/post_bridge.py`: Fixed a frame drift calculation bug (wrong calculation). `timeline_end_frame` was previously calculated incrementally by repeatedly adding `dur_frames` (which rounds float seconds to integer frames). Over a sequence of many clips, this sequential float-to-int conversion would accumulate substantial drift. Changed the calculation to base all frame positions directly on the global floating point timeline offsets (`seconds_to_frame(b["timeline_start"], fps)`), ensuring perfect synchronization across the timeline.
 
-Found and Fixed 3 Pipeline Logic Bugs:
-
-1. step_1_02_catalog_footage/step.py: Mixed timezone-naive and timezone-aware datetimes
-- Bug: `parse_creation_time` returned a timezone-aware datetime if the format contained an offset (`%z`), but `os.path.getmtime` fallback returned a timezone-naive datetime string which was parsed as naive. When sorting the catalog, comparing an offset-naive and offset-aware datetime caused a `TypeError` crash.
-- Fix: Modified `parse_creation_time` to always call `.replace(tzinfo=None)`, ensuring all returned datetimes are naive and safe to sort.
-
-2. step_1_06_object_segmentation/step.py: Silent Data Loss via Stem Collisions
-- Bug: The step saved segmentation files using `f"{Path(clip_path).stem}_segmentation.json"`. If multiple source clips in different directories shared the same filename (e.g., `raw/A/video.mp4` and `raw/B/video.mp4`), they would silently overwrite each other in the output directory, causing data loss for downstream steps.
-- Fix: Updated the save logic to rename the output file to use `f"{clip_id}_segmentation.json"`, mirroring the safe logic used in step 1.03.
-
-3. step_2_02_speech_sequence/post_bridge.py: Missing Timestamps Causing Downstream Crashes
-- Bug: When `collect_words_in_range` failed to find word timestamps (e.g., WhisperX missed a word or transcription misalignment), `enrichment["start_time"]` returned `None`. The script then skipped setting `passage["start_time"]` and `passage["end_time"]`. Because the original passage only had `"start"` and `"end"`, downstream steps (like step 2.05) attempting to read `"start_time"` would receive `None`, leading to a `TypeError` when calculating source duration.
-- Fix: Modified the enrichment loop to strictly enforce fallback to the original `"start"` and `"end"` hints if the enriched `start_time` is `None`, ensuring downstream steps always receive valid float boundaries.
+No other pipeline logic bugs were found in Phases 1 and 2.

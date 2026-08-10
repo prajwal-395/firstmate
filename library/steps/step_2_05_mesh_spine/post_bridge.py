@@ -138,18 +138,18 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
         cursor += dur
 
     # ── Frame conversion ──
-    # Add integer frame positions using a cumulative frame cursor.
-    # This is the authoritative boundary where float seconds become
-    # integer frames. All steps from Phase 3 onward should read
-    # the _frame fields for timeline positions.
+    # Add integer frame positions using global timeline seconds.
+    # This prevents frame rounding drift from accumulating over many blocks.
+    # All steps from Phase 3 onward should read the _frame fields.
     fps = spine.get("frame_rate", 30.0)
-    frame_cursor = 0
     for b in enriched_blocks:
-        dur_frames = seconds_to_frame(b.get("duration_seconds", 0), fps)
-        b["timeline_start_frame"] = frame_cursor
-        b["timeline_end_frame"] = frame_cursor + dur_frames
-        b["duration_frames"] = dur_frames
-        frame_cursor += dur_frames
+        start_f = seconds_to_frame(b["timeline_start"], fps)
+        end_f = seconds_to_frame(b["timeline_end"], fps)
+        b["timeline_start_frame"] = start_f
+        b["timeline_end_frame"] = end_f
+        b["duration_frames"] = end_f - start_f
+        
+    frame_cursor = enriched_blocks[-1]["timeline_end_frame"] if enriched_blocks else 0
 
     # Recalculate total duration from enriched blocks
     total_dur = sum(b.get("duration_seconds", 0) for b in enriched_blocks)
