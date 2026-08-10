@@ -45,7 +45,7 @@
       }
     ],
     "preconditions": [
-      "'timed_spine' exists in state",
+      "'audio_spine' exists in state",
       "'temporal_index' exists in state",
       "'rough_cut_review.passed' is true in state"
     ],

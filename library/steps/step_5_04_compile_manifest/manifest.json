@@ -19,6 +19,12 @@
         "description": "State input: b_roll_assignments"
       },
       {
+        "name": "b_roll_interjections",
+        "type": "array",
+        "required": false,
+        "description": "State input: b_roll_interjections"
+      },
+      {
         "name": "subtitle_plan",
         "type": "object",
         "required": true,
@@ -132,6 +138,7 @@
       "audio_mix_spec",
       "audio_spine",
       "b_roll_assignments",
+      "b_roll_interjections",
       "color_grade_spec",
       "enhancement_spec",
       "music_selection",
