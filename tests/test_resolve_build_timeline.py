@@ -128,6 +128,8 @@ def test_clip_placement_calculations(mock_resolve, sample_manifest):
     pool_item.GetClipProperty.side_effect = get_clip_prop
     
     placed_item = MagicMock()
+    placed_item.GetDuration.return_value = 60
+    placed_item.GetStart.return_value = 0
     media_pool.AppendToTimeline.return_value = [placed_item]
     
     with patch('os.path.exists', return_value=True):
@@ -165,7 +167,10 @@ def test_two_pass_architecture(mock_resolve, sample_manifest):
     def side_effect_append(items):
         track_idx = items[0].get("trackIndex")
         call_order.append(f"Append_{track_idx}")
-        return [MagicMock()]
+        m = MagicMock()
+        m.GetDuration.return_value = 150
+        m.GetStart.return_value = 0
+        return [m]
         
     timeline.AddTrack.side_effect = side_effect_add_track
     media_pool.AppendToTimeline.side_effect = side_effect_append
