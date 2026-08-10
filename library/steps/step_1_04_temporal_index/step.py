@@ -1839,8 +1839,13 @@ def main():
     elif raw_files:
         first_path = raw_files[0] if isinstance(raw_files[0], str) else raw_files[0].get("path", "")
         if first_path:
+            path_parts = Path(first_path).parts
+            if 'raw' in path_parts:
+                raw_dir = str(Path(*path_parts[:path_parts.index('raw')+1]))
+            else:
+                raw_dir = os.path.dirname(first_path)
             cache_dir = os.path.abspath(
-                os.path.join(os.path.dirname(first_path), "analysis", "temporal_index")
+                os.path.join(raw_dir, "analysis", "temporal_index")
             )
 
     if cache_dir and os.path.isdir(cache_dir):

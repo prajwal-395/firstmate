@@ -13,11 +13,7 @@ def main():
     data = json.loads(sys.stdin.read())
     
     raw_footage_files = data.get('raw_footage_files', [])
-    if raw_footage_files:
-        first = raw_footage_files[0]
-        first_path = first['path'] if isinstance(first, dict) else first
-        raw_dir = os.path.dirname(first_path)
-    elif 'raw_dir' in data:
+    if 'raw_dir' in data:
         raw_dir = data['raw_dir']
     else:
         raw_dir = os.path.join(data.get('project_folder', '.'), 'raw')

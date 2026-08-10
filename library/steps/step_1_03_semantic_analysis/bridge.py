@@ -17,12 +17,7 @@ def main():
     
     # Derive raw_dir from DAG-provided data
     raw_footage_files = data.get('raw_footage_files', [])
-    if raw_footage_files:
-        # raw_footage_files can be dicts (from scan step) or strings
-        first = raw_footage_files[0]
-        first_path = first['path'] if isinstance(first, dict) else first
-        raw_dir = os.path.dirname(first_path)
-    elif 'raw_dir' in data:
+    if 'raw_dir' in data:
         raw_dir = data['raw_dir']
     else:
         raw_dir = os.path.join(data.get('project_folder', '.'), 'raw')
@@ -106,7 +101,11 @@ def main():
             try:
                 profile_data = json.load(fp)
                 # Inject clip_id for downstream synchronization
-                clip_name = os.path.basename(f).replace('clip_profile_', '').replace('.json', '')
+                clip_name = os.path.basename(f)
+                if clip_name.startswith('clip_profile_'):
+                    clip_name = clip_name[len('clip_profile_'):]
+                if clip_name.endswith('.json'):
+                    clip_name = clip_name[:-5]
                 if clip_name in clip_id_map:
                     profile_data["clip_id"] = clip_id_map[clip_name]
                 profiles.append(profile_data)
