@@ -116,11 +116,7 @@ def inject_default_ken_burns(
     for vfx in creative_plan:
         pos = vfx.get("target_block_position", vfx.get("segment_id"))
         if pos is not None:
-            try:
-                pos = int(pos)
-            except ValueError:
-                pass
-            covered_positions.add(pos)
+            covered_positions.add(str(pos))
 
     # Inject defaults for uncovered A-roll blocks > KEN_BURNS_MIN_DURATION_S
     injected_count = 0
@@ -129,7 +125,7 @@ def inject_default_ken_burns(
             continue
 
         pos = block.get("position")
-        if pos in covered_positions:
+        if str(pos) in covered_positions:
             continue
 
         duration = block.get("timeline_end", 0) - block.get("timeline_start", 0)
