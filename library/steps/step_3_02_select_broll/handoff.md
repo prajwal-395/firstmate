@@ -132,15 +132,9 @@ profile to calibrate B-roll density.
       "over_spine_block_position": 3,
       "timeline_start": 8.0,
       "timeline_end": 10.0,
-      "assigned_clip": {
-        "clip_id": "string",
-        "source_file": "string",
-        "video_in": 2.0,
-        "video_out": 4.0,
-        "duration_seconds": 2.0,
-        "needs_conform": false,
-        "selection_rationale": "string"
-      },
+      "clip_id": "string",
+      "preferred_moment": "string (description of the moment in the clip)",
+      "selection_rationale": "string",
       "purpose": "string (e.g., 'illustrate what is being said')"
     }
   ]

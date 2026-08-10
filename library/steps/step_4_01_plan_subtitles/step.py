@@ -561,6 +561,10 @@ def generate_subtitles(
                         last["timeline_start"] = round(
                             last["timeline_end"] - 0.1, 3
                         )
+                        if len(group) > 1:
+                            prev = group[-2]
+                            if last["timeline_start"] < prev["timeline_end"]:
+                                last["timeline_start"] = round(prev["timeline_end"], 3)
 
     # --- Verification ---
 

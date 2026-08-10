@@ -36,7 +36,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
     <AbsoluteFill className="items-center justify-center pointer-events-none">
       <div className="flex flex-col items-center justify-end w-full h-[85%] pb-32">
         {subtitles.map((sub, index) => {
-          const isActive = frame >= sub.startFrame && frame <= sub.endFrame;
+          const isActive = frame >= sub.startFrame && frame < sub.endFrame;
           if (!isActive) return null;
 
           const hasWords = sub.words && sub.words.length > 0;
