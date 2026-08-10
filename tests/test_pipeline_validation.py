@@ -30,7 +30,7 @@ def test_bridge_empty_inputs():
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'library', 'steps'))
     scripts = [
         "step_2_02_speech_sequence/bridge.py",
-        "step_2_05_mesh_spine/bridge.py",
+        "step_2_05_mesh_spine/post_bridge.py",
         "step_3_02_select_broll/bridge.py",
         "step_4_02_plan_transitions/post_bridge.py",
         "step_4_03_plan_vfx/post_bridge.py",
