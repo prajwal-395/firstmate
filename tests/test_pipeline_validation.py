@@ -78,11 +78,15 @@ def test_validate_step_output():
         }
     }
     
-    # Valid output
-    validate_step_output("test_node", {"req_key": {}, "opt_key": []}, manifest)
+    # Valid output (non-empty required values)
+    validate_step_output("test_node", {"req_key": {"data": 1}, "opt_key": []}, manifest)
     
     # Missing optional key is OK
-    validate_step_output("test_node", {"req_key": {}}, manifest)
+    validate_step_output("test_node", {"req_key": {"data": 1}}, manifest)
+
+    # Semantically empty required output
+    with pytest.raises(RuntimeError, match="semantically empty"):
+        validate_step_output("test_node", {"req_key": {}, "opt_key": []}, manifest)
     
     # Missing required key
     with pytest.raises(RuntimeError, match="missing required key: 'req_key'"):
