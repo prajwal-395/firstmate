@@ -79,11 +79,11 @@ def main():
             "position": f"body_{i+1}",
             "text": row["text"],
             "clip_id": row["clip_id"],
-            "start_time": start,
-            "end_time": end,
+            "start": start,
+            "end": end,
             "duration_seconds": end - start,
-            "alignment_method": "whisper",
-            "word_timestamps": []
+            "role": "development",
+            "flow_note": ""
         })
 
     compressed = {
