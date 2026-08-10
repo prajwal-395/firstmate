@@ -211,7 +211,7 @@ def apply_fusion_comps(manifest):
             else:
                 print(f"  ✗ [{orig_ci}] {label}: ImportFusionComp failed", file=sys.stderr)
 
-    elif vfx_entries:
+    if vfx_entries:
         for vfx in vfx_entries:
             vfx_type = vfx.get('type', '')
             if vfx_type == 'zoom_pulse':
