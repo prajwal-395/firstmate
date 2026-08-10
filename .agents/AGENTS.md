@@ -3,7 +3,7 @@
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
 - Add durable project-specific notes here as they are discovered through real work.
-
+- **Pipeline Data Contracts**: When modifying pipeline steps, ensure outputs specified in `manifest.json` writes match the DAG edge data mappings (`dag.json`) and the downstream step inputs exactly. Discrepancies (e.g. `timed_spine` vs `audio_spine`, missing `b_roll_interjections`) cause data drops or runtime failures. See root `AGENTS.md` section 6.
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

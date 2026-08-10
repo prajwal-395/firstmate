@@ -157,7 +157,7 @@ The `catalog` output contains video metadata, durations, and file paths.
 The `semantic_analysis` output contains mood, energy, visual descriptions, and detected objects.
 The `speech_sequence` output orders speech segments into a coherent narrative.
 The `aroll_assignments` output maps narrative blocks to specific source clips and timeline ranges.
-The `broll_selections` output assigns secondary footage to cover A-roll segments.
+The `broll_selections` output assigns secondary footage (`b_roll_assignments`) and standalone cutaways (`b_roll_interjections`) to cover A-roll segments or insert visual breaks.
 The `compile_manifest` output consolidates all decisions into an `assembly_manifest.json` that drives the final Resolve render.
 
 ## 7. Project management
