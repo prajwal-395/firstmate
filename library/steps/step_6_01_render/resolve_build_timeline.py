@@ -608,6 +608,9 @@ def build_timeline(
                 print(f"  ✗ [{si}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
+            # Ensure ProRes 4444 alpha channel is recognized
+            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+
             seg_frames = seg.get('total_frames', round(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
@@ -645,6 +648,9 @@ def build_timeline(
                 print(f"  ✗ [{mi}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
+            # Ensure ProRes 4444 alpha channel is recognized
+            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+
             seg_frames = seg.get('total_frames', round(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
@@ -678,7 +684,9 @@ def build_timeline(
                 results["warnings"].append(f"A2[{ci}] {basename} not in pool")
                 continue
 
-            dur_f = round(clip.get('duration', total_duration) * fps)
+            tl_in_sec = clip.get('timeline_in', 0)
+            tl_out_sec = clip.get('timeline_out', total_duration)
+            dur_f = round((tl_out_sec - tl_in_sec) * fps)
             src_in_f = round(clip.get('source_in', 0) * fps)
 
             result = media_pool.AppendToTimeline([{
@@ -686,7 +694,7 @@ def build_timeline(
                 "startFrame": src_in_f,
                 "endFrame": src_in_f + dur_f,
                 "trackIndex": 2,  # A2
-                "recordFrame": 0,
+                "recordFrame": round(tl_in_sec * fps),
                 "mediaType": 2,  # audio-only placement
             }])
 
