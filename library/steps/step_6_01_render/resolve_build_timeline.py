@@ -477,13 +477,14 @@ def build_timeline(
         
         if from_idx is not None:
             for i, clip in enumerate(v1_clips):
-                if clip.get('label', '').endswith(f"_{from_idx}"):
+                label = clip.get('label', '')
+                if label.endswith(f"_{from_idx}") or f"_{from_idx}_seg" in label:
                     from_clip_idx = i
-                    break
                     
         if to_idx is not None:
             for i, clip in enumerate(v1_clips):
-                if clip.get('label', '').endswith(f"_{to_idx}"):
+                label = clip.get('label', '')
+                if label.endswith(f"_{to_idx}") or f"_{to_idx}_seg" in label:
                     to_clip_idx = i
                     break
         

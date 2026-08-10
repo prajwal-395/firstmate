@@ -523,12 +523,10 @@ def compile_manifest(out_dir: str) -> dict:
             try:
                 block_num = int(target.replace("block_", ""))
                 # Find the matching V1 clip
-                for clip in v1_clips:
-                    label = clip.get("label", "")
-                    if label.endswith(f"_{block_num}"):
-                        enriched["timeline_start"] = clip["timeline_in"]
-                        enriched["timeline_end"] = clip["timeline_out"]
-                        break
+                matched_clips = [c for c in v1_clips if c.get("label", "").endswith(f"_{block_num}") or f"_{block_num}_seg" in c.get("label", "")]
+                if matched_clips:
+                    enriched["timeline_start"] = matched_clips[0]["timeline_in"]
+                    enriched["timeline_end"] = matched_clips[-1]["timeline_out"]
             except ValueError:
                 pass
         if enriched.get("timeline_end", 0) > total_duration:
@@ -549,9 +547,8 @@ def compile_manifest(out_dir: str) -> dict:
                     block_num = int(target.replace("block_", ""))
                     for clip in v1_clips:
                         label = clip.get("label", "")
-                        if label.endswith(f"_{block_num}"):
+                        if label.endswith(f"_{block_num}") or f"_{block_num}_seg" in label:
                             per_clip_effects[label] = {"_preset": preset_name}
-                            break
                 except ValueError:
                     pass
 
@@ -589,10 +586,12 @@ def compile_manifest(out_dir: str) -> dict:
         else:
             if "from_block" in t:
                 from_block = t["from_block"]
+                last_match_idx = None
                 for i, clip in enumerate(v1_clips):
-                    if clip.get("label", "").endswith(f"_{from_block}"):
-                        after_clip = i
-                        break
+                    if clip.get("label", "").endswith(f"_{from_block}") or f"_{from_block}_seg" in clip.get("label", ""):
+                        last_match_idx = i
+                if last_match_idx is not None:
+                    after_clip = last_match_idx
 
         dur_frames = t.get("duration_frames")
         if dur_frames is None:
@@ -971,12 +970,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         if target.startswith("block_"):
             try:
                 block_num = int(target.replace("block_", ""))
-                for clip in v1_clips:
-                    label = clip.get("label", "")
-                    if label.endswith(f"_{block_num}"):
-                        v["timeline_start"] = clip["timeline_in"]
-                        v["timeline_end"] = clip["timeline_out"]
-                        break
+                matched_clips = [c for c in v1_clips if c.get("label", "").endswith(f"_{block_num}") or f"_{block_num}_seg" in c.get("label", "")]
+                if matched_clips:
+                    v["timeline_start"] = matched_clips[0]["timeline_in"]
+                    v["timeline_end"] = matched_clips[-1]["timeline_out"]
             except ValueError:
                 pass
         if v.get("timeline_end", 0) > total_duration:
@@ -993,9 +990,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
                     block_num = int(target.replace("block_", ""))
                     for clip in v1_clips:
                         label = clip.get("label", "")
-                        if label.endswith(f"_{block_num}"):
+                        if label.endswith(f"_{block_num}") or f"_{block_num}_seg" in label:
                             per_clip_effects[label] = {"_preset": preset_name}
-                            break
                 except ValueError:
                     pass
 
@@ -1080,10 +1076,12 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         else:
             if "from_block" in t:
                 from_block = t["from_block"]
+                last_match_idx = None
                 for i, clip in enumerate(v1_clips):
-                    if clip.get("label", "").endswith(f"_{from_block}"):
-                        after_clip = i
-                        break
+                    if clip.get("label", "").endswith(f"_{from_block}") or f"_{from_block}_seg" in clip.get("label", ""):
+                        last_match_idx = i
+                if last_match_idx is not None:
+                    after_clip = last_match_idx
 
         dur_frames = t.get("duration_frames")
         if dur_frames is None:
