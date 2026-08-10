@@ -185,11 +185,11 @@ def apply_fusion_comps(manifest):
             for cn in (tl_clip.GetFusionCompNameList() or []):
                 tl_clip.DeleteFusionCompByName(cn)
 
-            result = tl_clip.ImportFusionComp(comp_path)
+            tl_clip.ImportFusionComp(comp_path)
+            comp_names = tl_clip.GetFusionCompNameList()
 
-            if result:
-                comp_names = tl_clip.GetFusionCompNameList()
-                comp = (tl_clip.GetFusionCompByName(comp_names[0]) if comp_names else None)
+            if comp_names and len(comp_names) > 0:
+                comp = tl_clip.GetFusionCompByName(comp_names[0])
                 tools = comp.GetToolList() if comp else {}
                 real_tools = [t for t in tools.values() if t.GetAttrs().get('TOOLS_RegID') not in ('MediaIn', 'MediaOut')]
                 if len(real_tools) == 0:
