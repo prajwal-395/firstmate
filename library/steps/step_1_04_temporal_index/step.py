@@ -1873,6 +1873,9 @@ def main():
                         len(r.get("words", []))
                         for r in idx.get("speech_regions", [])
                     ),
+                    "energy_peaks": len(idx.get("energy_curve", {}).get("peak_times", [])),
+                    "audio_events": len(idx.get("audio_events", [])),
+                    "high_motion_count": len(idx.get("motion_energy", {}).get("high_motion_times", [])),
                 })
 
         if len(cached_indices) == len(raw_files):

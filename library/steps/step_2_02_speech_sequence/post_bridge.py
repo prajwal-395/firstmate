@@ -337,8 +337,9 @@ def enrich_speech_sequence(
         pos = passage.get("position", "?")
         enrichment = enrich_passage(passage, f"Body[{pos}]")
         passage["word_timestamps"] = enrichment["word_timestamps"]
-        passage["start_time"] = enrichment["start_time"]
-        passage["end_time"] = enrichment["end_time"]
+        if enrichment["start_time"] is not None:
+            passage["start_time"] = enrichment["start_time"]
+            passage["end_time"] = enrichment["end_time"]
         if compute_engagement:
             passage["engagement"] = compute_engagement(passage, prosody_data, semantic_data, result)
 

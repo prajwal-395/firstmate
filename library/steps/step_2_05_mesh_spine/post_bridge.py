@@ -90,19 +90,19 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
                     # the LLM's creative target should never override.
                     # If block is longer, unselected audio bleeds through.
                     # If block is shorter, speech gets clipped.
-                    src_dur = (
-                        passage.get("end_time", 0)
-                        - passage.get("start_time", 0)
-                    )
-                    block_dur = enriched.get("duration_seconds", 0)
-                    if abs(src_dur - block_dur) > 0.05:
-                        enriched["duration_seconds"] = round(src_dur, 3)
-                        print(
-                            f"  Block [{enriched.get('position')}]: "
-                            f"synced duration {block_dur:.2f}s → "
-                            f"{src_dur:.2f}s (word boundaries)",
-                            file=sys.stderr,
-                        )
+                    passage_end = passage.get("end_time")
+                    passage_start = passage.get("start_time")
+                    if passage_end is not None and passage_start is not None:
+                        src_dur = passage_end - passage_start
+                        block_dur = enriched.get("duration_seconds", 0)
+                        if abs(src_dur - block_dur) > 0.05:
+                            enriched["duration_seconds"] = round(src_dur, 3)
+                            print(
+                                f"  Block [{enriched.get('position')}]: "
+                                f"synced duration {block_dur:.2f}s → "
+                                f"{src_dur:.2f}s (word boundaries)",
+                                file=sys.stderr,
+                            )
                 else:
                     print(
                         f"WARNING: passage_ref {passage_ref} not found "
