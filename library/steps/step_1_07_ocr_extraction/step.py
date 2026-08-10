@@ -22,7 +22,18 @@ def main():
     ocr_dir = os.path.join(analysis_dir, 'ocr')
     os.makedirs(ocr_dir, exist_ok=True)
     
-    temporal_dir = os.path.join(analysis_dir, 'temporal_index')
+    temporal_index = data.get("temporal_index", {})
+    temporal_dir = ""
+    if isinstance(temporal_index, dict):
+        temporal_dir = temporal_index.get("index_dir", "")
+    elif isinstance(temporal_index, list) and len(temporal_index) > 0:
+        first = temporal_index[0]
+        if isinstance(first, dict) and "index_path" in first:
+            temporal_dir = os.path.dirname(first["index_path"])
+            
+    if not temporal_dir:
+        # Fallback to hardcoded dir if not provided
+        temporal_dir = os.path.join(analysis_dir, 'temporal_index')
     
     extractor = OCRExtractor()
     

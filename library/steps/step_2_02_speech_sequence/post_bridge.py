@@ -422,7 +422,7 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    semantic_data = data.get("semantic_analysis", {})
+    semantic_data = data.get("semantic_analysis_documents", {})
     prosody_data = data.get("prosody_analysis", {})
 
     enriched = enrich_speech_sequence(speech_sequence, ti_dir, semantic_data, prosody_data)
