@@ -727,6 +727,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
 
     # Process semantic analysis for neural engine directives
     semantic_data = inputs.get("semantic_analysis") or {}
+    if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:
+        semantic_data = semantic_data["semantic_analysis"]
     if isinstance(semantic_data, list):
         semantic_clips = semantic_data
     else:
