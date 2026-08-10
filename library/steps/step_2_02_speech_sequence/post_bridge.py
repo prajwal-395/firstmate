@@ -260,8 +260,8 @@ def enrich_speech_sequence(
             print(f"  ERROR: {label} — missing clip_id", file=sys.stderr)
             return {"word_timestamps": [], "start_time": None, "end_time": None}
 
-        start = passage.get("start")
-        end = passage.get("end")
+        start = passage.get("start") if passage.get("start") is not None else passage.get("start_time")
+        end = passage.get("end") if passage.get("end") is not None else passage.get("end_time")
         if start is None or end is None:
             print(
                 f"  ERROR: {label} — missing start/end timestamps. "
