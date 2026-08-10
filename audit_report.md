@@ -1,13 +1,16 @@
-# Convergence Audit: Phase 5 & 6 Pipeline Logic
+# Convergence Audit Phase 1 & 2
 
-## Findings
+I have completed the convergence audit for pipeline logic bugs in Phase 1 (steps 1.01-1.07) and Phase 2 (steps 2.01-2.05).
 
-1. **Bug Found:** Data loss and silent gaps in J-cut and L-cut handling inside `resolve_build_timeline.py`.
-   - **Details:** The timeline builder's logic for pre-processing J-cuts decreased `audio_src_out` of the preceding clip by the full transition duration, while bounding the next clip's `audio_src_in` adjustment to its available head media `max(0, ... - dur)`. This discrepancy created a silent gap in the A1 track when the next clip didn't have enough head media. Similarly, L-cuts extended `audio_src_out` of the preceding clip and `audio_src_in` of the next clip without capping them to the actual media limits, which could cause Resolve's `AppendToTimeline` to fail or create gaps.
-   - **Fix:** Implemented proper clamping. `actual_dur` is now strictly bound by the available media limits of both clips (`from_clip_len` and `audio_src_in`/`to_clip_len`), ensuring that both ends of the cut adjust symmetrically without violating media bounds.
+## Bugs Found & Fixed
 
-2. **Bug Found:** Silent failure to populate `clip_lookup` in `step_5_04_compile_manifest` (orchestrator mode).
-   - **Details:** When compiling the manifest from upstream JSON inputs, the `a_roll_assignments` processor iterated over `video_segments` and fell back to `vseg.get("clip_id")` and `vseg.get("source_file")`. However, it failed to inherit `source_clip_id` or `source_file` from the parent `assignment` object if the `vseg` was sparsely populated. This caused `cid` or `path` to be empty strings, skipping the `clip_lookup` registration entirely and causing missing media downstream.
-   - **Fix:** Updated the fallback lookup logic to `assignment.get("source_clip_id", assignment.get("clip_id", ""))` and `assignment.get("source_file", "")`.
+### 1. `step_1_07_ocr_extraction/step.py` (Temporal Index Resolution)
+**Bug:** The script hardcoded `temporal_dir` to `os.path.join(analysis_dir, 'temporal_index')` (i.e., `raw/analysis/temporal_index`) instead of dynamically resolving the `index_dir` from the `temporal_index` pipeline state input. Because `step_1_04_temporal_index` writes to `pipeline_output/temporal_index` by default (unless running a cache hit from `raw/`), this caused the OCR step to fail to find the scene boundaries when running fresh.
+**Fix:** Modified `step_1_07_ocr_extraction/step.py` to extract `index_dir` from the `temporal_index` state input (handling both list and dict formats) and gracefully fall back to the hardcoded path.
 
-Both logic bugs have been fixed and committed. No further pipeline logic bugs were found in Phase 5, Phase 6, or execution tools.
+### 2. `step_2_02_speech_sequence/post_bridge.py` (Semantic Data Key Mismatch)
+**Bug:** The script attempted to fetch semantic data using `data.get("semantic_analysis", {})` instead of `data.get("semantic_analysis_documents", {})`. As defined by the manifest and pipeline data structures, the key is `semantic_analysis_documents`. This bug resulted in an empty dictionary being passed to the `compute_engagement` scorer, degrading its logic.
+**Fix:** Updated `post_bridge.py` to properly use the `semantic_analysis_documents` key.
+
+## Conclusion
+The bugs were fixed and committed to the `fm/audit11-phase-1-2` branch. No other logic bugs were found.
