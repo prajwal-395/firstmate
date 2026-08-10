@@ -1,9 +1,13 @@
-# Phase 5 and 6 Convergence Audit Report
+# Convergence Audit: Phase 5 & 6 Pipeline Logic
 
-PIPELINE LOGIC BUGS FOUND AND FIXED:
+## Findings
 
-1. `step_5_04_compile_manifest/step.py`:
-   - Crash (KeyError) when processing `b_roll_interjections`. In filesystem mode (`compile_manifest`), it used `clip = interj["assigned_clip"]` and `clip["video_in"]`. This causes a fatal crash if `assigned_clip` is missing or if the video bounds are defined on `interj` itself (which is often the case). It was updated to correctly resolve the clip via `interj.get("assigned_clip", interj)` and properly retrieve `video_in` and `video_out`.
+1. **Bug Found:** Data loss and silent gaps in J-cut and L-cut handling inside `resolve_build_timeline.py`.
+   - **Details:** The timeline builder's logic for pre-processing J-cuts decreased `audio_src_out` of the preceding clip by the full transition duration, while bounding the next clip's `audio_src_in` adjustment to its available head media `max(0, ... - dur)`. This discrepancy created a silent gap in the A1 track when the next clip didn't have enough head media. Similarly, L-cuts extended `audio_src_out` of the preceding clip and `audio_src_in` of the next clip without capping them to the actual media limits, which could cause Resolve's `AppendToTimeline` to fail or create gaps.
+   - **Fix:** Implemented proper clamping. `actual_dur` is now strictly bound by the available media limits of both clips (`from_clip_len` and `audio_src_in`/`to_clip_len`), ensuring that both ends of the cut adjust symmetrically without violating media bounds.
 
-2. `library/steps/step_6_01_render/resolve_build_timeline.py`:
-   - Logic error in native transition parsing. When parsing a transition position (e.g., `between_1_2`), the code did `from_idx = int(parts[0]) - 1`. However, the timeline clips are labeled directly with the position number (e.g., `speech_1`). The erroneous subtraction caused `from_idx` to become `0` instead of `1`, resulting in the `endswith(f"_{from_idx}")` search silently failing to match any clip. The `from_clip_idx` and `to_clip_idx` would be `None`, and all native J-cut and L-cut transition logic would be entirely skipped. The `- 1` subtractions were removed to correctly align with the block labels.
+2. **Bug Found:** Silent failure to populate `clip_lookup` in `step_5_04_compile_manifest` (orchestrator mode).
+   - **Details:** When compiling the manifest from upstream JSON inputs, the `a_roll_assignments` processor iterated over `video_segments` and fell back to `vseg.get("clip_id")` and `vseg.get("source_file")`. However, it failed to inherit `source_clip_id` or `source_file` from the parent `assignment` object if the `vseg` was sparsely populated. This caused `cid` or `path` to be empty strings, skipping the `clip_lookup` registration entirely and causing missing media downstream.
+   - **Fix:** Updated the fallback lookup logic to `assignment.get("source_clip_id", assignment.get("clip_id", ""))` and `assignment.get("source_file", "")`.
+
+Both logic bugs have been fixed and committed. No further pipeline logic bugs were found in Phase 5, Phase 6, or execution tools.

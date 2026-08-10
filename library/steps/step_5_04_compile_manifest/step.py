@@ -705,8 +705,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         vsegs = assignment.get("video_segments", [])
         if vsegs:
             for vseg in vsegs:
-                cid = vseg.get("clip_id", "")
-                path = vseg.get("source_file", "")
+                cid = vseg.get("clip_id", assignment.get("source_clip_id", assignment.get("clip_id", "")))
+                path = vseg.get("source_file", assignment.get("source_file", ""))
                 if cid and path:
                     clip_lookup[cid] = path
                     clip_metadata[cid] = vseg
