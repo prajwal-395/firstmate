@@ -207,7 +207,9 @@ def cmd_run(args):
     print(f"")
 
     import subprocess
-    result = subprocess.run(cmd)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PILOT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(cmd, env=env)
     sys.exit(result.returncode)
 
 
