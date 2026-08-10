@@ -28,6 +28,16 @@
         "name": "skipped_files",
         "type": "array",
         "description": "State output: skipped_files"
+      },
+      {
+        "name": "project_fps",
+        "type": "float",
+        "description": "State output: project_fps"
+      },
+      {
+        "name": "project_resolution",
+        "type": "array",
+        "description": "State output: project_resolution"
       }
     ],
     "preconditions": [
@@ -50,7 +60,9 @@
     "writes": [
       "clip_catalog",
       "total_clips",
-      "skipped_files"
+      "skipped_files",
+      "project_fps",
+      "project_resolution"
     ]
   },
   "dependencies": [

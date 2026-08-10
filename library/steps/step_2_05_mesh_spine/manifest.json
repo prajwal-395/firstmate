@@ -85,8 +85,8 @@
   "domain": "video-editing",
   "implementation": {
     "default": {
-      "runtime": "python",
-      "entry_point": "bridge.py"
+      "runtime": "llm",
+      "entry_point": "handoff.md"
     },
     "variants": {},
     "test_entry_point": ""

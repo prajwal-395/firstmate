@@ -167,7 +167,7 @@ def main():
     # C3 fix: Accept LLM output format. The LLM outputs {structure: [...],
     # total_estimated_duration_seconds: ...} directly, not nested under a
     # "spine" key. Support both formats for robustness.
-    require_keys(data, ["speech_sequence", "music_selection"], "step_2_05_mesh_spine/bridge.py")
+    require_keys(data, ["speech_sequence", "music_selection"], "step_2_05_mesh_spine/post_bridge.py")
     if "spine" in data:
         spine_data = data["spine"]
     elif "structure" in data:
