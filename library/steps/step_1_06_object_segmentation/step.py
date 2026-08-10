@@ -68,7 +68,8 @@ def main():
         sys.exit(1)
         
     # Standard output directory for pipeline steps
-    output_dir = "pipeline_output/segmentation_data"
+    project_folder = input_data.get("project_folder", ".")
+    output_dir = os.path.join(project_folder, "pipeline_output", "segmentation_data")
     
     result = run_step(raw_footage_files, clip_catalog, output_dir)
     json.dump(result, sys.stdout, indent=2)

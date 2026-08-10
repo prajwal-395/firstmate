@@ -1623,9 +1623,14 @@ def build_temporal_index(
     total = len(raw_footage_files)
 
     for i, file_info in enumerate(raw_footage_files):
-        filepath = file_info["path"]
-        filename = file_info.get("filename", Path(filepath).name)
-        clip_id = f"clip_{i + 1:03d}"
+        if isinstance(file_info, dict):
+            filepath = file_info["path"]
+            filename = file_info.get("filename", Path(filepath).name)
+            clip_id = file_info.get("clip_id", f"clip_{i + 1:03d}")
+        else:
+            filepath = file_info
+            filename = Path(filepath).name
+            clip_id = f"clip_{i + 1:03d}"
 
         print(
             f"\n[{i+1}/{total}] {filename}",
@@ -1843,7 +1848,7 @@ def main():
         cached_indices = []
         cached_summaries = []
         for i, file_info in enumerate(raw_files):
-            clip_id = f"clip_{i + 1:03d}"
+            clip_id = file_info.get("clip_id", f"clip_{i + 1:03d}") if isinstance(file_info, dict) else f"clip_{i + 1:03d}"
             index_path = os.path.join(cache_dir, f"{clip_id}.json")
             if os.path.isfile(index_path):
                 with open(index_path, "r", encoding="utf-8") as f:
@@ -1895,6 +1900,7 @@ def main():
     result = build_temporal_index(
         raw_files, args.output_dir, args.whisper_model
     )
+    result["source"] = "fresh"
 
     # Summary
     print(
