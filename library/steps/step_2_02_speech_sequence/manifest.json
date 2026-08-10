@@ -28,7 +28,7 @@
     "outputs": [
       {
         "name": "speech_sequence",
-        "type": "object",
+        "type": "array",
         "description": "State output: speech_sequence"
       }
     ],

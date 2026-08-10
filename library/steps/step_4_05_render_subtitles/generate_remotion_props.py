@@ -25,6 +25,7 @@ def generate_subtitle_props_per_block(
     fps: int = 30,
     width: int = 1080,
     height: int = 1920,
+    audio_spine: dict = None,
 ) -> list[dict]:
     """Generate SubtitleOverlay props grouped by spine block.
 
@@ -42,10 +43,24 @@ def generate_subtitle_props_per_block(
     for entry in entries:
         pos = entry.get('spine_block_position', 0)
         block_groups.setdefault(pos, []).append(entry)
+        
+    structure = []
+    if audio_spine:
+        structure = audio_spine.get("structure", audio_spine.get("blocks", []))
+    block_lookup = {b.get("position", i): b for i, b in enumerate(structure)}
 
     props_list = []
     for block_pos in sorted(block_groups.keys()):
         block_entries = block_groups[block_pos]
+        
+        block_info = block_lookup.get(block_pos)
+        if block_info:
+            block_timeline_start = block_info.get("timeline_start", 0.0)
+            block_source_start = block_info.get("source_start", 0.0)
+            offset = block_timeline_start - block_source_start
+            for e in block_entries:
+                e['timeline_start'] += offset
+                e['timeline_end'] += offset
 
         # Determine block timeline range from the entries
         block_tl_start = min(e['timeline_start'] for e in block_entries)

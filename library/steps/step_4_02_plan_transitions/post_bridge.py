@@ -302,6 +302,60 @@ def main():
     creative = [v for v in creative if isinstance(v, dict)]
 
     spine = data.get("timed_spine", {})
+    spine_blocks = spine.get("structure", spine.get("audio_spine", {}).get("structure", []))
+    total_cuts = max(0, len(spine_blocks) - 1)
+    
+    if total_cuts > 0 and len(creative) / total_cuts < 0.05:
+        # We need semantic_analysis to detect scene boundaries
+        semantic_data = data.get("semantic_analysis", {})
+        if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:
+            sem_inner = semantic_data["semantic_analysis"]
+            if isinstance(sem_inner, list):
+                semantic_clips = sem_inner
+            else:
+                semantic_clips = sem_inner.get("clips", [])
+        elif isinstance(semantic_data, list):
+            semantic_clips = semantic_data
+        else:
+            semantic_clips = semantic_data.get("clips", [])
+            
+        semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
+        
+        existing_cuts = {t.get("cut_point_position") for t in creative if "cut_point_position" in t}
+        
+        for i in range(1, len(spine_blocks)):
+            prev_block = spine_blocks[i-1]
+            curr_block = spine_blocks[i]
+            
+            if curr_block.get("position", i) in existing_cuts:
+                continue
+                
+            prev_cid = prev_block.get("clip_id") or prev_block.get("content", {}).get("clip_id")
+            curr_cid = curr_block.get("clip_id") or curr_block.get("content", {}).get("clip_id")
+            
+            if not prev_cid or not curr_cid or prev_cid == curr_cid:
+                continue
+                
+            prev_sem = semantic_lookup.get(prev_cid, {})
+            curr_sem = semantic_lookup.get(curr_cid, {})
+            
+            prev_mood = prev_sem.get("mood", "")
+            curr_mood = curr_sem.get("mood", "")
+            prev_tags = set(prev_sem.get("tags", []) + prev_sem.get("keywords", []))
+            curr_tags = set(curr_sem.get("tags", []) + curr_sem.get("keywords", []))
+            
+            mood_changed = prev_mood and curr_mood and prev_mood.lower() != curr_mood.lower()
+            topic_shift = len(prev_tags & curr_tags) == 0 if prev_tags and curr_tags else False
+            
+            if mood_changed or topic_shift:
+                creative.append({
+                    "cut_point_position": curr_block.get("position", i),
+                    "type": "cross_dissolve",
+                    "duration_feel": "medium",
+                    "rationale": "Default cross_dissolve added at scene boundary due to mood/topic shift"
+                })
+
+    spine = data.get("timed_spine", {})
     music = data.get("music_selection", {})
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw

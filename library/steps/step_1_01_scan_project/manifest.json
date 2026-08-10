@@ -16,7 +16,7 @@
     "outputs": [
       {
         "name": "raw_footage_files",
-        "type": "list",
+        "type": "array",
         "description": "State output: raw_footage_files"
       },
       {
@@ -28,6 +28,11 @@
         "name": "skipped_files",
         "type": "list",
         "description": "State output: skipped_files"
+      },
+      {
+        "name": "project_config",
+        "type": "object",
+        "description": "State output: project_config"
       }
     ],
     "preconditions": [
@@ -36,7 +41,8 @@
     "postconditions": [
       "'raw_footage_files' is written to state",
       "'total_files' is written to state",
-      "'skipped_files' is written to state"
+      "'skipped_files' is written to state",
+      "'project_config' is written to state"
     ]
   },
   "classification": {
@@ -51,7 +57,8 @@
     "writes": [
       "raw_footage_files",
       "total_files",
-      "skipped_files"
+      "skipped_files",
+      "project_config"
     ]
   },
   "dependencies": [],

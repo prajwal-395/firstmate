@@ -8,7 +8,7 @@
     "inputs": [
       {
         "name": "b_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: b_roll_assignments"
       },

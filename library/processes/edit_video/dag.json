@@ -600,6 +600,13 @@
       "data_mapping": {
         "clip_catalog": "clip_catalog"
       }
+    },
+    {
+      "from": "semantic_analysis",
+      "to": "plan_transitions",
+      "data_mapping": {
+        "semantic_analysis": "semantic_analysis"
+      }
     }
   ],
   "entry_nodes": [

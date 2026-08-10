@@ -8,13 +8,13 @@
     "inputs": [
       {
         "name": "a_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: a_roll_assignments"
       },
       {
         "name": "b_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: b_roll_assignments"
       },

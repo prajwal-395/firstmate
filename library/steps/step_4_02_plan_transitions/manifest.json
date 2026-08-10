@@ -8,13 +8,13 @@
     "inputs": [
       {
         "name": "a_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: a_roll_assignments"
       },
       {
         "name": "b_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: b_roll_assignments"
       },
@@ -53,6 +53,12 @@
         "type": "object",
         "required": false,
         "description": "Brand effect slots"
+      },
+      {
+        "name": "semantic_analysis",
+        "type": "object",
+        "required": false,
+        "description": "Semantic analysis output"
       }
     ],
     "outputs": [
@@ -87,7 +93,8 @@
       "rough_cut_review",
       "temporal_event_indices",
       "timed_spine",
-      "brand_effect"
+      "brand_effect",
+      "semantic_analysis"
     ],
     "writes": [
       "transition_spec"

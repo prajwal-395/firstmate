@@ -104,10 +104,27 @@ def scan_project_folder(project_folder: str) -> dict:
         assert os.path.isfile(entry["path"]), \
             f"Invalid file path: {entry['path']}"
 
+    project_json_path = os.path.join(project_folder, "project.json")
+    project_config = {
+        "target_duration_seconds": 60,
+        "style_preset": "shortform_vertical",
+        "subtitle_style": "word_by_word"
+    }
+    if os.path.exists(project_json_path):
+        try:
+            with open(project_json_path, "r") as f:
+                data = json.load(f)
+            project_config["target_duration_seconds"] = data.get("target_duration_seconds", 60)
+            project_config["style_preset"] = data.get("style_preset", "shortform_vertical")
+            project_config["subtitle_style"] = data.get("subtitle_style", "word_by_word")
+        except Exception as e:
+            print(f"WARNING: Failed to read project.json: {e}", file=sys.stderr)
+
     return {
         "raw_footage_files": raw_footage_files,
         "total_files": len(raw_footage_files),
         "skipped_files": skipped_files,
+        "project_config": project_config,
     }
 
 

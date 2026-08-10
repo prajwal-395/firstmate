@@ -544,6 +544,14 @@ def compile_manifest(out_dir: str) -> dict:
         "fairlight_preset": audio_preset,
     }
 
+    if v1_clips and music_clips:
+        last_v1_end = max((c.get("timeline_out", 0) for c in v1_clips), default=0)
+        for mc in music_clips:
+            if mc.get("timeline_out", 0) > last_v1_end:
+                mc["timeline_out"] = last_v1_end
+                mc["source_out"] = mc.get("source_in", 0) + (mc["timeline_out"] - mc.get("timeline_in", 0))
+                print(f"  WARNING: Trimmed music to match last V1 clip end ({last_v1_end}s)", file=sys.stderr)
+
     # ── Compile ──
     manifest = {
         "project": {
@@ -955,6 +963,14 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         print(f"  WARNING: {len(sfx_passthrough)} SFX entries "
               f"could not be resolved to audio files",
               file=sys.stderr)
+
+    if v1_clips and music_clips:
+        last_v1_end = max((c.get("timeline_out", 0) for c in v1_clips), default=0)
+        for mc in music_clips:
+            if mc.get("timeline_out", 0) > last_v1_end:
+                mc["timeline_out"] = last_v1_end
+                mc["source_out"] = mc.get("source_in", 0) + (mc["timeline_out"] - mc.get("timeline_in", 0))
+                print(f"  WARNING: Trimmed music to match last V1 clip end ({last_v1_end}s)", file=sys.stderr)
 
     # Build manifest with the SAME shape as compile_manifest()
     manifest = {

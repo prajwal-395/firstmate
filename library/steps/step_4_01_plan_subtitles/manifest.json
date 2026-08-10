@@ -26,7 +26,7 @@
       },
       {
         "name": "b_roll_assignments",
-        "type": "object",
+        "type": "array",
         "required": false,
         "description": "State input: b_roll_assignments"
       },
