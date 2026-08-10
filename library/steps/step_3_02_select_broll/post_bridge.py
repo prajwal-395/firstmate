@@ -34,6 +34,25 @@ def _require_keys(obj, keys, context):
         raise ValueError(f"{context}: missing required keys: {missing}")
 
 
+def check_needs_conform(clip: dict, target_width: int, target_height: int) -> bool:
+    """
+    Check if a clip needs conforming to target output specs.
+    True if resolution or rotation differs from target.
+    """
+    w = clip.get("width", clip.get("resolution_width", 0))
+    h = clip.get("height", clip.get("resolution_height", 0))
+    rotation = clip.get("rotation", 0)
+
+    # Account for rotation: a 1920x1080 clip with -90 rotation IS portrait
+    if abs(rotation) in (90, 270, -90, -270):
+        # Swap width/height for rotated clips
+        w, h = h, w
+
+    if w and h and (w != target_width or h != target_height):
+        return True
+    return False
+
+
 def find_best_segment(
     preferred_moment: str,
     clip_analysis: dict,
@@ -308,11 +327,7 @@ def resolve_broll(
         )
 
         # Check if clip needs resolution conform
-        clip_res = (
-            clip.get("resolution_width", target_resolution[0]),
-            clip.get("resolution_height", target_resolution[1]),
-        )
-        needs_conform = clip_res != target_resolution
+        needs_conform = check_needs_conform(clip, target_resolution[0], target_resolution[1])
 
         assignments.append({
             "spine_block_position": spine_pos,
@@ -344,7 +359,10 @@ def resolve_broll(
             print(f"WARNING: interjection clip_id '{clip_id}' not in catalog, skipping", file=sys.stderr)
             continue
 
-        timeline_start = interj.get("timeline_start", 0.0)
+        spine_block = block_lookup.get(str(spine_pos), {})
+        default_tl_start = spine_block.get("timeline_start", 0.0)
+        
+        timeline_start = interj.get("timeline_start", default_tl_start)
         timeline_end = interj.get("timeline_end", timeline_start + 2.0)
         block_duration = timeline_end - timeline_start
 
@@ -356,11 +374,7 @@ def resolve_broll(
             preferred_moment, clip_analysis, clip_index, clip_duration, block_duration
         )
 
-        clip_res = (
-            clip.get("resolution_width", target_resolution[0]),
-            clip.get("resolution_height", target_resolution[1]),
-        )
-        needs_conform = clip_res != target_resolution
+        needs_conform = check_needs_conform(clip, target_resolution[0], target_resolution[1])
 
         resolved_interjections.append({
             "over_spine_block_position": spine_pos,

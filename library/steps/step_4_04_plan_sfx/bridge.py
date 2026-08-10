@@ -18,7 +18,8 @@ def main():
     sfx_rows = []
     
     # Just an example of how we might extract cuts and actions for SFX planning.
-    aroll = data.get("a_roll_assignments", {}).get("timeline_segments", [])
+    aroll_dict = data.get("a_roll_assignments", {})
+    aroll = aroll_dict if isinstance(aroll_dict, list) else aroll_dict.get("a_roll_assignments", aroll_dict.get("timeline_segments", []))
     for slot in aroll:
         sfx_rows.append({
             "segment_id": slot.get("segment_id", "unknown"),

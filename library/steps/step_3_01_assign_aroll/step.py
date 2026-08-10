@@ -71,7 +71,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
             hook_assignment = {
                 "spine_block_position": block["position"],
                 "clip_id": clip_id,
-                "source_file": clip["source_file"],
+                "source_file": clip.get("source_file", clip.get("path", clip.get("file_path", ""))),
                 "video_in": content.get("start_time", 0.0),
                 "video_out": content.get("end_time", 0.0),
                 "duration_seconds": block.get("duration_seconds", 0.0),
@@ -124,7 +124,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
 
                 video_segments.append({
                     "clip_id": clip_id,
-                    "source_file": clip["source_file"],
+                    "source_file": clip.get("source_file", clip.get("path", clip.get("file_path", ""))),
                     "video_in": video_in,
                     "video_out": video_out,
                     "duration_seconds": round(video_out - video_in, 3),

@@ -417,7 +417,7 @@ def generate_subtitles(
                 # Try to find word timestamps:
                 # 1. Directly in content (enriched spine)
                 # 2. In passage_lookup (legacy)
-                word_ts = content.get("word_timestamps", [])
+                word_ts = seg.get("word_timestamps") or content.get("word_timestamps", [])
                 if not word_ts:
                     passage = passage_lookup.get((str(position), clip_id), {})
                     word_ts = passage.get("word_timestamps", [])
