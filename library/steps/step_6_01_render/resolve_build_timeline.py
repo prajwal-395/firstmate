@@ -194,7 +194,9 @@ def build_timeline(
     v2_clips = tracks.get('V2', {}).get('clips', [])
     a2_clips = tracks.get('A2', {}).get('clips', [])
     # SFX: manifest compiler puts these at top-level 'sfx', not tracks.A3
-    a3_clips = tracks.get('A3', {}).get('clips', []) or manifest.get('sfx', [])
+    a3_clips = tracks.get('A3', {}).get('clips', [])
+    if not a3_clips:
+        a3_clips = [s for s in manifest.get('sfx', []) if s.get('source_file')]
     # Note: transitions are applied via fusion_effects.transitions, not
     # the top-level 'transitions' key (which is informational only).
     vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
@@ -437,10 +439,15 @@ def build_timeline(
     # Pre-process J/L cuts from native transitions
     native_transitions = manifest.get('transitions', [])
     for ci, clip in enumerate(v1_clips):
-        clip['video_src_in'] = round(clip.get('source_in', 0) * fps)
-        clip['video_src_out'] = round(clip.get('source_out', 0) * fps)
-        clip['audio_src_in'] = round(clip.get('source_in', 0) * fps)
-        clip['audio_src_out'] = round(clip.get('source_out', 0) * fps)
+        src_in = clip.get('source_in', 0)
+        src_out = clip.get('source_out')
+        if not src_out:
+            dur = clip.get('timeline_out', 0) - clip.get('timeline_in', 0)
+            src_out = src_in + dur if dur > 0 else src_in + 3.5
+        clip['video_src_in'] = round(src_in * fps)
+        clip['video_src_out'] = round(src_out * fps)
+        clip['audio_src_in'] = round(src_in * fps)
+        clip['audio_src_out'] = round(src_out * fps)
 
     for trans in native_transitions:
         ttype = trans.get('transition_type', trans.get('type', ''))
@@ -569,8 +576,13 @@ def build_timeline(
                 results["warnings"].append(f"V2[{ci}] {basename} not in pool")
                 continue
 
-            src_in_f = round(clip.get('source_in', 0) * fps)
-            src_out_f = round(clip.get('source_out', clip.get('source_in', 0) + 3.5) * fps)
+            src_in = clip.get('source_in', 0)
+            src_out = clip.get('source_out')
+            if not src_out:
+                dur = clip.get('timeline_out', 0) - clip.get('timeline_in', 0)
+                src_out = src_in + dur if dur > 0 else src_in + 3.5
+            src_in_f = round(src_in * fps)
+            src_out_f = round(src_out * fps)
             tl_in_f = clip['timeline_in_frame']
 
             result = media_pool.AppendToTimeline([{

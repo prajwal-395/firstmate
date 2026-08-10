@@ -687,9 +687,14 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     fps = inputs.get("project_fps", spine.get("frame_rate", 30.0))
     proj_res = inputs.get("project_resolution", [1080, 1920])
 
-    # Build clip lookup from a_roll_assignments
+    # Build clip lookup from clip_catalog and fallback to assignments
     clip_lookup = {}
     clip_metadata = {}
+    for clip in inputs.get("clip_catalog", []):
+        if "clip_id" in clip and "path" in clip:
+            clip_lookup[clip["clip_id"]] = clip["path"]
+            clip_metadata[clip["clip_id"]] = clip
+
     for assignment in inputs.get("a_roll_assignments", []):
         vsegs = assignment.get("video_segments", [])
         if vsegs:
