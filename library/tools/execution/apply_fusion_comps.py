@@ -29,8 +29,8 @@ def apply_fusion_comps(manifest):
     fps = float(timeline.GetSetting("timelineFrameRate") or 30)
     
     # Re-build v1_clips from manifest
-    timeline_config = manifest.get('timeline', {})
-    v1_clips = timeline_config.get('v1', [])
+    tracks = manifest.get('tracks', {})
+    v1_clips = tracks.get('V1', {}).get('clips', [])
     
     fusion_effects = manifest.get('fusion_effects', {})
     per_clip_effects = fusion_effects.get('per_clip', {})
