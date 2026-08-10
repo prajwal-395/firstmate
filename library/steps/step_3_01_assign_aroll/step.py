@@ -164,6 +164,9 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                                 f"to avoid hook repetition",
                                 file=sys.stderr,
                             )
+                
+                # Filter out segments consumed by the hook to prevent duration bugs
+                video_segments = [vs for vs in video_segments if vs["duration_seconds"] > 0]
 
             a_roll_assignments.append({
                 "spine_block_position": block["position"],

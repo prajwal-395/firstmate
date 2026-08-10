@@ -404,6 +404,8 @@ def generate_subtitles(
                                  content.get("end_time", 0.0)),
                 }]
 
+            current_tl_pos = block_start
+
             for seg in segments:
                 seg_text = seg.get("text", "")
                 if not seg_text:
@@ -423,21 +425,25 @@ def generate_subtitles(
                 seg_source_start = seg.get("start_time", 0.0)
                 seg_source_end = seg.get("end_time", 0.0)
                 source_dur = seg_source_end - seg_source_start
-                block_dur = block_end - block_start
+                
+                # Each segment plays at 1x speed, so its timeline duration is its source duration.
+                # Clamp to the block's overall timeline_end just in case.
+                seg_tl_start = current_tl_pos
+                seg_tl_end = min(current_tl_pos + source_dur, block_end)
+                seg_tl_dur = seg_tl_end - seg_tl_start
 
                 # If source duration significantly exceeds edit duration,
                 # we can't use raw word timestamps (the block will be
                 # jump-cut and actual word timing is unknown). Use
                 # proportional splitting instead.
                 use_proportional = (
-                    source_dur > 0 and block_dur > 0
-                    and source_dur > block_dur * 1.5
+                    source_dur > 0 and seg_tl_dur > 0
+                    and source_dur > seg_tl_dur * 1.5
                 )
 
                 if word_ts and not use_proportional:
                     # Use the V1 clip's actual source range for the offset
-                    # calculation. The passage's source_start may cover a
-                    # wider range than what's actually on the timeline.
+                    # calculation.
                     v1_src_in = content.get("v1_source_in", seg_source_start)
                     v1_src_out = content.get("v1_source_out", seg_source_end)
 
@@ -449,8 +455,8 @@ def generate_subtitles(
                     ]
 
                     if in_range_words:
-                        # Offset: V1 source_in → block timeline_start
-                        offset = block_start - v1_src_in
+                        # Offset: V1 source_in → segment's timeline_start
+                        offset = seg_tl_start - v1_src_in
 
                         timeline_words = [
                             {
@@ -460,21 +466,21 @@ def generate_subtitles(
                             }
                             for w in in_range_words
                         ]
-                        # Clip to block's timeline window
+                        # Clip to segment's timeline window
                         timeline_words = [
                             w for w in timeline_words
-                            if w["end"] > block_start - 0.05
-                            and w["start"] < block_end + 0.05
+                            if w["end"] > seg_tl_start - 0.05
+                            and w["start"] < seg_tl_end + 0.05
                         ]
                         groups = split_into_groups(timeline_words, fits_fn=fits_fn)
                     else:
                         groups = split_text_proportional(
-                            seg_text, block_start, block_end
+                            seg_text, seg_tl_start, seg_tl_end
                         )
                 else:
-                    # Proportional: spread text evenly across block
+                    # Proportional: spread text evenly across segment
                     groups = split_text_proportional(
-                        seg_text, block_start, block_end
+                        seg_text, seg_tl_start, seg_tl_end
                     )
 
                 for g in groups:
@@ -482,8 +488,8 @@ def generate_subtitles(
                     entry_text = g["text"].lower().strip()
                     subtitle_entries.append({
                         "entry_id": f"sub_{sub_counter:03d}",
-                        "timeline_start": max(g["start"], block_start),
-                        "timeline_end": min(g["end"], block_end),
+                        "timeline_start": max(g["start"], seg_tl_start),
+                        "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,
                         "emphasis_words": identify_emphasis_words(entry_text),
                         "spine_block_position": block["position"],
@@ -497,6 +503,9 @@ def generate_subtitles(
                             for w in g.get("_words", [])
                         ],
                     })
+                
+                # Advance timeline position for the next segment
+                current_tl_pos += source_dur
 
     # ── Enforce minimum display duration PER BLOCK ──
     # Each block's subtitles are enforced independently so that
