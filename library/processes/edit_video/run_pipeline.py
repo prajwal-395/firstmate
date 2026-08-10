@@ -915,6 +915,17 @@ def run_pipeline(
                 
             # Success logic
             elapsed = time.time() - start_time
+
+            # Wrap LLM output in expected manifest key if missing (for LLM steps without post_bridge)
+            if impl["type"] in ("llm_only", "hybrid"):
+                has_post_bridge = impl["type"] == "hybrid" and (impl["step_dir"] / "post_bridge.py").exists()
+                if not has_post_bridge and impl.get("manifest") and "interface" in impl["manifest"]:
+                    outputs_spec = impl["manifest"]["interface"].get("outputs", [])
+                    if len(outputs_spec) == 1 and isinstance(output, dict):
+                        key = outputs_spec[0].get("name")
+                        if key and key not in output:
+                            output = {key: output}
+
             print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
             print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
             

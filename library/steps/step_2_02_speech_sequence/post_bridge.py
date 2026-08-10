@@ -328,6 +328,7 @@ def enrich_speech_sequence(
         if enrichment["start_time"] is not None:
             hook["start_time"] = enrichment["start_time"]
             hook["end_time"] = enrichment["end_time"]
+            hook["duration_seconds"] = round(enrichment["end_time"] - enrichment["start_time"], 3)
         if compute_engagement:
             hook["engagement"] = compute_engagement(hook, prosody_data, semantic_data, result)
 
@@ -340,6 +341,7 @@ def enrich_speech_sequence(
         if enrichment["start_time"] is not None:
             passage["start_time"] = enrichment["start_time"]
             passage["end_time"] = enrichment["end_time"]
+            passage["duration_seconds"] = round(enrichment["end_time"] - enrichment["start_time"], 3)
         if compute_engagement:
             passage["engagement"] = compute_engagement(passage, prosody_data, semantic_data, result)
 

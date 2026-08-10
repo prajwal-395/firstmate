@@ -40,7 +40,7 @@
     ]
   },
   "classification": {
-    "determinism": "hybrid",
+    "determinism": "deterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false
   },
@@ -65,8 +65,8 @@
   "domain": "video-editing",
   "implementation": {
     "default": {
-      "runtime": "llm",
-      "entry_point": "handoff.md"
+      "runtime": "python",
+      "entry_point": "step.py"
     },
     "variants": {},
     "test_entry_point": ""

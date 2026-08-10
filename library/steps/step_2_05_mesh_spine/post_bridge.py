@@ -118,7 +118,13 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
 
         # Inject music reference
         if music and not enriched.get("music_track"):
-            enriched["music_track"] = music.get("track_id", "music_01")
+            track_id = "music_01"
+            tracks = music.get("tracks", [])
+            if tracks and isinstance(tracks, list) and len(tracks) > 0:
+                track_id = tracks[0].get("track_id", "music_01")
+            elif music.get("track_id"):
+                track_id = music.get("track_id")
+            enriched["music_track"] = track_id
 
         enriched_blocks.append(enriched)
 
