@@ -462,15 +462,31 @@ def build_timeline(
                 if len(parts) == 2:
                     from_idx = int(parts[0]) - 1
                     to_idx = int(parts[1]) - 1
+                    
+        # Resolve from_block/to_block IDs to actual indices in v1_clips
+        from_clip_idx = None
+        to_clip_idx = None
+        
+        if from_idx is not None:
+            for i, clip in enumerate(v1_clips):
+                if clip.get('label', '').endswith(f"_{from_idx}"):
+                    from_clip_idx = i
+                    break
+                    
+        if to_idx is not None:
+            for i, clip in enumerate(v1_clips):
+                if clip.get('label', '').endswith(f"_{to_idx}"):
+                    to_clip_idx = i
+                    break
         
         dur = trans.get('duration_frames', 15)
-        if from_idx is not None and to_idx is not None and 0 <= from_idx < len(v1_clips) and 0 <= to_idx < len(v1_clips):
+        if from_clip_idx is not None and to_clip_idx is not None:
             if ttype == 'j_cut':
-                v1_clips[from_idx]['audio_src_out'] -= dur
-                v1_clips[to_idx]['audio_src_in'] = max(0, v1_clips[to_idx]['audio_src_in'] - dur)
+                v1_clips[from_clip_idx]['audio_src_out'] -= dur
+                v1_clips[to_clip_idx]['audio_src_in'] = max(0, v1_clips[to_clip_idx]['audio_src_in'] - dur)
             elif ttype == 'l_cut':
-                v1_clips[from_idx]['audio_src_out'] += dur
-                v1_clips[to_idx]['audio_src_in'] += dur
+                v1_clips[from_clip_idx]['audio_src_out'] += dur
+                v1_clips[to_clip_idx]['audio_src_in'] += dur
 
     current_video_frame = 0
     for ci, clip in enumerate(v1_clips):

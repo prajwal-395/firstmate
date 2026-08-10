@@ -542,6 +542,13 @@ def compile_manifest(out_dir: str) -> dict:
                     closest_idx = i
             if closest_diff < 0.2:
                 after_clip = closest_idx
+        else:
+            if "from_block" in t:
+                from_block = t["from_block"]
+                for i, clip in enumerate(v1_clips):
+                    if clip.get("label", "").endswith(f"_{from_block}"):
+                        after_clip = i
+                        break
 
         dur_frames = t.get("duration_frames")
         if dur_frames is None:
@@ -935,6 +942,13 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
                     closest_idx = i
             if closest_diff < 0.2:
                 after_clip = closest_idx
+        else:
+            if "from_block" in t:
+                from_block = t["from_block"]
+                for i, clip in enumerate(v1_clips):
+                    if clip.get("label", "").endswith(f"_{from_block}"):
+                        after_clip = i
+                        break
 
         dur_frames = t.get("duration_frames")
         if dur_frames is None:
