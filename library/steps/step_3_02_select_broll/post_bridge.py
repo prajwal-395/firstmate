@@ -403,7 +403,7 @@ def main():
         result["b_roll_interjections"] = interjections
         
     total_broll = len(result.get("b_roll_assignments", [])) + len(interjections)
-    if total_broll < 3:
+    if total_broll < 5 or total_broll > 20:
         print(json.dumps({"error": f"Only {total_broll} B-roll clips selected. You MUST select 5-15 B-roll clips for a 60-second video.", "step": "3.02_bridge"}))
         sys.exit(1)
 

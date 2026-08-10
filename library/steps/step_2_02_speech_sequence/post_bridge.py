@@ -370,7 +370,7 @@ def main():
     enriched = enrich_speech_sequence(speech_sequence, ti_dir, semantic_data, prosody_data)
 
     body = enriched.get("body_sequence", [])
-    if len(body) < 5 or len(body) > 25:
+    if len(body) < 8 or len(body) > 20:
         print(json.dumps({"error": f"Selected {len(body)} speech passages. Please select exactly 10-15 of the strongest passages.", "step": "2.02_bridge"}))
         sys.exit(1)
         
@@ -381,8 +381,17 @@ def main():
         if start is not None and end is not None:
             total_duration += (end - start)
             
-    if total_duration > 90.0:
-        print(json.dumps({"error": f"Total speech duration ({total_duration:.1f}s) is too long. Total duration MUST be between 30 and 60 seconds.", "step": "2.02_bridge"}))
+    project_config = data.get("project_config", {})
+    target_duration = project_config.get("target_duration_seconds") if isinstance(project_config, dict) else None
+    if target_duration:
+        min_dur = target_duration * 0.9
+        max_dur = target_duration * 1.1
+    else:
+        min_dur = 30.0
+        max_dur = 60.0
+
+    if total_duration > max_dur or total_duration < min_dur:
+        print(json.dumps({"error": f"Total speech duration ({total_duration:.1f}s) is out of bounds. Total duration MUST be between {min_dur:.1f} and {max_dur:.1f} seconds.", "step": "2.02_bridge"}))
         sys.exit(1)
 
     json.dump({

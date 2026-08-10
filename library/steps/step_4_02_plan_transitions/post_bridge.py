@@ -360,8 +360,9 @@ def main():
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
     
-    if len(creative) < total_cuts:
-        print(json.dumps({"error": f"Planned {len(creative)} transitions, but there are {total_cuts} cuts. You MUST plan a transition for EVERY cut.", "step": "4.02_bridge"}))
+    min_trans = max(1, total_cuts // 3) if total_cuts > 0 else 0
+    if len(creative) < min_trans:
+        print(json.dumps({"error": f"Planned {len(creative)} transitions for {total_cuts} cuts. You MUST plan at least {min_trans} transitions.", "step": "4.02_bridge"}))
         sys.exit(1)
     
     # Extract new inputs

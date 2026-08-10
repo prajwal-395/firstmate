@@ -587,6 +587,10 @@ def compile_manifest(out_dir: str) -> dict:
                 "label": "B-Roll",
                 "clips": sorted(v2_clips, key=lambda c: c["timeline_in"]),
             },
+            "A1": {
+                "label": "Speech",
+                "clips": [],
+            },
             "A2": {
                 "label": "Music",
                 "clips": music_clips,
@@ -795,6 +799,22 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
         compute_neural_directives(get_clip_id(assigned), v2_clip)
+
+    # B-roll interjections
+    for interj in inputs.get("b_roll_interjections", []):
+        clip = interj.get("assigned_clip", interj)
+        v2_clip = {
+            "source_file": resolve_source(clip),
+            "source_in": clip.get("video_in", interj.get("video_in", 0)),
+            "source_out": clip.get("video_out", interj.get("video_out", 0)),
+            "timeline_in": interj.get("timeline_start", 0.0),
+            "timeline_out": interj.get("timeline_end", 0.0),
+            "video_only": True,
+            "label": f"interjection_{interj.get('over_spine_block_position', 0)}",
+        }
+        convert_clip_to_frames(v2_clip, fps)
+        v2_clips.append(v2_clip)
+        compute_neural_directives(get_clip_id(clip), v2_clip)
 
     # A2: Music
     ms = inputs.get("music_selection", {})
@@ -1024,6 +1044,10 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             "V2": {
                 "label": "B-Roll",
                 "clips": sorted(v2_clips, key=lambda c: c["timeline_in"]),
+            },
+            "A1": {
+                "label": "Speech",
+                "clips": [],
             },
             "A2": {
                 "label": "Music",

@@ -466,7 +466,7 @@ def main():
     eng = data.get("engagement_scores", {})
     brand_audio = data.get("brand_audio", {})
     
-    if len(creative) < 3:
+    if len(creative) < 3 or len(creative) > 15:
         print(json.dumps({"error": f"Planned {len(creative)} SFX, but you MUST plan between 5 and 10 SFX.", "step": "4.04_bridge"}))
         sys.exit(1)
 
