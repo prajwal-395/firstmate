@@ -24,6 +24,11 @@
         "name": "semantic_analysis_documents",
         "type": "object",
         "description": "State output: semantic_analysis_documents"
+      },
+      {
+        "name": "total_clips_analyzed",
+        "type": "int",
+        "description": "State output: total_clips_analyzed"
       }
     ],
     "preconditions": [
@@ -45,7 +50,8 @@
       "raw_footage_files"
     ],
     "writes": [
-      "semantic_analysis_documents"
+      "semantic_analysis_documents",
+      "total_clips_analyzed"
     ]
   },
   "dependencies": [

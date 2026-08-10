@@ -15,9 +15,34 @@
     ],
     "outputs": [
       {
-        "name": "temporal_index",
-        "type": "object",
-        "description": "State output: temporal_index"
+        "name": "temporal_event_indices",
+        "type": "array",
+        "description": "State output: temporal_event_indices"
+      },
+      {
+        "name": "full_indices",
+        "type": "array",
+        "description": "State output: full_indices"
+      },
+      {
+        "name": "total_indexed",
+        "type": "int",
+        "description": "State output: total_indexed"
+      },
+      {
+        "name": "total_failed",
+        "type": "int",
+        "description": "State output: total_failed"
+      },
+      {
+        "name": "index_dir",
+        "type": "string",
+        "description": "State output: index_dir"
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "description": "State output: source"
       }
     ],
     "preconditions": [
@@ -38,7 +63,12 @@
       "raw_footage_files"
     ],
     "writes": [
-      "temporal_index"
+      "temporal_event_indices",
+      "full_indices",
+      "total_indexed",
+      "total_failed",
+      "index_dir",
+      "source"
     ]
   },
   "dependencies": [

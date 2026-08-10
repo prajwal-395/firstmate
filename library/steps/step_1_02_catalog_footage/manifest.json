@@ -18,6 +18,16 @@
         "name": "clip_catalog",
         "type": "object",
         "description": "State output: clip_catalog"
+      },
+      {
+        "name": "total_clips",
+        "type": "int",
+        "description": "State output: total_clips"
+      },
+      {
+        "name": "skipped_files",
+        "type": "array",
+        "description": "State output: skipped_files"
       }
     ],
     "preconditions": [
@@ -38,7 +48,9 @@
       "raw_footage_files"
     ],
     "writes": [
-      "clip_catalog"
+      "clip_catalog",
+      "total_clips",
+      "skipped_files"
     ]
   },
   "dependencies": [

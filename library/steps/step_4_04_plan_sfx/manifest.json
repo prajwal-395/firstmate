@@ -63,6 +63,11 @@
     ],
     "outputs": [
       {
+        "name": "sfx_candidates_toon",
+        "type": "string",
+        "description": "State output: sfx_candidates_toon"
+      },
+      {
         "name": "sfx_spec",
         "type": "object",
         "description": "State output: sfx_spec"
@@ -98,6 +103,7 @@
       "timed_spine"
     ],
     "writes": [
+      "sfx_candidates_toon",
       "sfx_spec"
     ]
   },

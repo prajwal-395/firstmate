@@ -605,7 +605,7 @@
       "from": "semantic_analysis",
       "to": "plan_transitions",
       "data_mapping": {
-        "semantic_analysis": "semantic_analysis"
+        "semantic_analysis_documents": "semantic_analysis"
       }
     }
   ],
