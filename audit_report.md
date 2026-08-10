@@ -1,24 +1,19 @@
-# Convergence Audit Report (Phases 1 & 2)
+# Convergence Audit Report - Phase 3 & 4
 
-## Focus
-Pipeline logic bugs in Phase 1 (1.01-1.07) and Phase 2 (2.01-2.05) steps.
+The following pipeline logic bugs were found and fixed:
 
-## Bugs Found and Fixed
+1. **Duration Invariant Violation (Step 3.01)**
+   The hook overlap guard in `step_3_01_assign_aroll/step.py` was adjusting `video_in` and trimming `duration_seconds` for body segments to avoid repeating the hook video. However, it failed to adjust `timeline_start` of the overall block, creating a discrepancy between the source duration and the timeline allocation. This triggered a fatal invariant failure in `step_3_03_review_rough_cut`. Since the video trim also resulted in black frames against the unchanged audio spine, the guard was removed.
 
-1. **Step 1.04 Temporal Index (Cache Data Drop)**
-   - **File:** `library/steps/step_1_04_temporal_index/step.py`
-   - **Bug:** When loading temporal indices from cache, the `cached_summaries` list omitted three critical fields: `energy_peaks`, `audio_events`, and `high_motion_count`. This resulted in a silent data drop where downstream steps reading from `temporal_event_indices` would not receive this data if the step was resumed from cache.
-   - **Fix:** Added the missing fields to the `cached_summaries` dictionary construction to perfectly mirror the fresh-run output structure.
+2. **Subtitle Segment Sourcing & Progression (Step 4.01)**
+   In `step_4_01_plan_subtitles/step.py`, two bugs were fixed:
+   - **Incorrect `v1_source_in` scope**: The offset calculation checked `content.get("v1_source_in")`, which pulled the value from the block-level content, causing all segments within a multi-segment block to use the first segment's `v1_source_in`. This was corrected to check the segment first.
+   - **Timeline gap tracking**: The loop advanced `current_tl_pos` by `source_dur` even when the segment was clamped to the block's boundaries (e.g. `seg_tl_dur`). This was corrected to advance by `seg_tl_dur` to prevent gaps or pushing segments beyond the block end.
 
-2. **Step 2.02 Speech Sequence Enrichment (Timestamp Overwrite)**
-   - **File:** `library/steps/step_2_02_speech_sequence/post_bridge.py`
-   - **Bug:** When enriching body passages, the bridge blindly assigned `enrichment["start_time"]` and `enrichment["end_time"]` to the passage even if the word extraction failed (returning `None`). This would overwrite the LLM-provided float fallback values with `None`.
-   - **Fix:** Added a `None` check (`if enrichment["start_time"] is not None:`) before overwriting timestamps, mirroring the safer logic already used for the hook segment.
+3. **Transition Duplication (Step 4.02)**
+   In `step_4_02_plan_transitions/post_bridge.py`, the `inject_default_transitions` logic verified existing transitions by checking for `t.get("cut_point_position")`. If the LLM omitted this field and used `cut_point_original` instead, the existing cut was missed, causing the default injection logic to append a duplicate cross-dissolve to the same slot.
 
-3. **Step 2.05 Mesh Spine Duration Sync (TypeError)**
-   - **File:** `library/steps/step_2_05_mesh_spine/post_bridge.py`
-   - **Bug:** The block duration synchronizer subtracted `passage.get("start_time", 0)` from `passage.get("end_time", 0)`. If a passage reached this step with `None` as its start/end time, this caused a `TypeError: unsupported operand type(s) for -: 'NoneType' and 'NoneType'`.
-   - **Fix:** Added checks to ensure both `passage_end` and `passage_start` are not `None` before attempting the subtraction to sync block durations.
+4. **VFX Target Position Fallback (Step 4.03)**
+   In `step_4_03_plan_vfx`, the `bridge.py` prompts the LLM using `segment_id` in the TOON table, but `post_bridge.py` exclusively checked for `target_block_position`. This caused all LLM-planned VFX to fail the lookup and fall back to `0.0` on the timeline. It was fixed to check `target_block_position` with a fallback to `segment_id`.
 
-## Conclusion
-All logic bugs found within scope have been fixed.
+No other logic bugs were found in Remotion subtitles or other steps in Phase 3 and 4.

@@ -444,8 +444,8 @@ def generate_subtitles(
                 if word_ts and not use_proportional:
                     # Use the V1 clip's actual source range for the offset
                     # calculation.
-                    v1_src_in = content.get("v1_source_in", seg_source_start)
-                    v1_src_out = content.get("v1_source_out", seg_source_end)
+                    v1_src_in = seg.get("v1_source_in", content.get("v1_source_in", seg_source_start))
+                    v1_src_out = seg.get("v1_source_out", content.get("v1_source_out", seg_source_end))
 
                     # Filter words to the V1 clip's source window
                     in_range_words = [
@@ -505,7 +505,7 @@ def generate_subtitles(
                     })
                 
                 # Advance timeline position for the next segment
-                current_tl_pos += source_dur
+                current_tl_pos += seg_tl_dur
 
     # ── Enforce minimum display duration PER BLOCK ──
     # Each block's subtitles are enforced independently so that
