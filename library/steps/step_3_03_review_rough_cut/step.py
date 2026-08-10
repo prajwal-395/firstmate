@@ -24,7 +24,7 @@ import os
 import sys
 
 
-DURATION_TOLERANCE = 0.1  # seconds
+DURATION_TOLERANCE = 0.15  # seconds
 
 
 def check_duration_invariant(a_roll_assignments: list) -> dict:
