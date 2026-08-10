@@ -24,7 +24,7 @@
       "'assembly_manifest' exists in state"
     ],
     "postconditions": [
-      "'rendered_output' is written to state"
+      "'render_output' is written to state"
     ]
   },
   "classification": {

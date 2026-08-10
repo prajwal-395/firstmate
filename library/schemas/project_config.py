@@ -136,6 +136,22 @@ class ProjectConfig:
             errors.append(f"Invalid status: {self.status}")
         return errors
 
+@dataclass
+class ProjectJsonConfig:
+    """Schema for project.json configuration."""
+    target_duration_seconds: int = 60
+    style_preset: str = "shortform_vertical"
+    subtitle_style: str = "word_by_word"
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ProjectJsonConfig":
+        return cls(
+            target_duration_seconds=data.get("target_duration_seconds", 60),
+            style_preset=data.get("style_preset", "shortform_vertical"),
+            subtitle_style=data.get("subtitle_style", "word_by_word"),
+        )
+
+
 
 def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectConfig:
     """Convert a raw dict (from YAML) to a ProjectConfig dataclass."""

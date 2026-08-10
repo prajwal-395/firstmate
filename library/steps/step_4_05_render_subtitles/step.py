@@ -97,7 +97,7 @@ def main():
     fps = data.get("project_fps", 30)
     width = data.get("project_resolution", [1080, 1920])[0]
     height = data.get("project_resolution", [1080, 1920])[1]
-    props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps, width=width, height=height)
+    props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps, width=width, height=height, audio_spine=audio_spine)
 
     if not props_list:
         print("WARNING: No subtitle blocks to render", file=sys.stderr)
@@ -175,6 +175,18 @@ def main():
 
     print(f"\nRendered {len(segments)}/{len(props_list)} subtitle segments",
           file=sys.stderr)
+
+    failure_rate = (len(props_list) - len(segments)) / len(props_list) if len(props_list) > 0 else 0
+    if failure_rate > 0.1:
+        error_msg = f"More than 10% of subtitle renders failed ({len(props_list) - len(segments)} out of {len(props_list)})."
+        print(f"ERROR: {error_msg}", file=sys.stderr)
+        json.dump({
+            "subtitle_overlay": {
+                "available": False,
+                "error": error_msg
+            }
+        }, sys.stdout, indent=2)
+        sys.exit(1)
 
     json.dump({
         "subtitle_overlay": {
