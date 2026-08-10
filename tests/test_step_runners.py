@@ -23,7 +23,7 @@ def test_catalog_footage(mock_isfile, mock_extract):
         "pixel_format": "yuv420p",
         "has_audio": True,
     }
-    inputs = [{"path": "/mock/path.mov", "filename": "path.mov", "extension": ".mov", "size_bytes": 1000}]
+    inputs = [{"path": "/mock/path.mov", "filename": "path.mov", "extension": ".mov", "size_bytes": 1000, "clip_id": "clip_001"}]
     output = catalog_footage(inputs)
     assert "clip_catalog" in output
     assert len(output["clip_catalog"]) == 1
