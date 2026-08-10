@@ -301,6 +301,16 @@ def main():
             "source_file": assigned.get("source_file", broll.get("source_file", "")),
         })
 
+    # B-roll interjections
+    for interj in input_data.get("b_roll_interjections", []):
+        clip = interj.get("assigned_clip", interj)
+        entries.append({
+            "track": "V2",
+            "clip_id": clip.get("clip_id", clip.get("source_clip_id", "")),
+            "entry_id": interj.get("assignment_id", ""),
+            "source_file": clip.get("source_file", interj.get("source_file", "")),
+        })
+
     shot_list = {"entries": entries}
     result = define_color_grade(shot_list, project_folder, reference_image, style.get("creative_look_dctl", ""))
     json.dump(result, sys.stdout, indent=2)
