@@ -398,6 +398,13 @@ def main():
         sys.exit(1)
         
     total_duration = 0.0
+    hook = enriched.get("hook_segment")
+    if hook:
+        start = hook.get("start_time")
+        end = hook.get("end_time")
+        if start is not None and end is not None:
+            total_duration += (end - start)
+            
     for passage in body:
         start = passage.get("start_time")
         end = passage.get("end_time")

@@ -55,10 +55,10 @@ from model_lifecycle import load_model, unload_model
 
 # ── Audio extraction ─────────────────────────────────────────────────
 
-def extract_audio_16k(video_path: str, output_dir: str) -> str:
+def extract_audio_16k(video_path: str, output_dir: str, clip_id: str = None) -> str:
     """Extract audio as 16kHz mono WAV. Cached — skips if already exists."""
     os.makedirs(output_dir, exist_ok=True)
-    basename = Path(video_path).stem
+    basename = clip_id if clip_id else Path(video_path).stem
     audio_path = os.path.join(output_dir, f"{basename}.wav")
 
     if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
@@ -1446,7 +1446,7 @@ def index_clip(
 
     # Extract audio (shared by speech + energy + audio event analyzers)
     audio_dir = os.path.join(output_dir, "audio_cache")
-    audio_path = extract_audio_16k(video_path, audio_dir)
+    audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
     # 1. Scene detection
     print("    [1/12] Scene detection...", file=sys.stderr)
