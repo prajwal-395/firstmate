@@ -29,6 +29,12 @@
         "type": "string",
         "required": false,
         "description": "Path to the project folder, needed for ffprobe media analysis"
+      },
+      {
+        "name": "brand_template",
+        "type": "object",
+        "required": false,
+        "description": "State input: brand_template (for color grading style)"
       }
     ],
     "outputs": [
@@ -42,7 +48,8 @@
       "'creative_direction' exists in state",
       "'a_roll_assignments' exists in state",
       "'b_roll_assignments' exists in state",
-      "'project_folder' exists in state (optional)"
+      "'project_folder' exists in state (optional)",
+      "'brand_template' exists in state (optional)"
     ],
     "postconditions": [
       "'color_grade_spec' is written to state"
@@ -57,6 +64,7 @@
     "reads": [
       "a_roll_assignments",
       "b_roll_assignments",
+      "brand_template",
       "creative_direction",
       "project_folder"
     ],
