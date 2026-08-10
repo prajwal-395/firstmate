@@ -196,10 +196,10 @@ def resolve_transitions(
             best_pos = None
             best_dist = float("inf")
             for b in spine_blocks:
-                dist = abs(b["timeline_start"] - original_tl)
+                dist = abs(b.get("timeline_start", 0.0) - original_tl)
                 if dist < best_dist:
                     best_dist = dist
-                    best_pos = b["position"]
+                    best_pos = b.get("position")
             pos = best_pos
 
         # Find block index for robust incoming/outgoing resolution
@@ -346,13 +346,13 @@ def main():
                 pos = best_pos
                 t["cut_point_position"] = pos
             if pos is not None:
-                existing_cuts.add(pos)
+                existing_cuts.add(str(pos))
         
         for i in range(1, len(spine_blocks)):
             prev_block = spine_blocks[i-1]
             curr_block = spine_blocks[i]
             
-            if curr_block.get("position", i) in existing_cuts:
+            if str(curr_block.get("position", i)) in existing_cuts:
                 continue
                 
             def _get_cid(b):

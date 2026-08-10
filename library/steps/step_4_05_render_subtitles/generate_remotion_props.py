@@ -50,7 +50,7 @@ def generate_subtitle_props_per_block(
     block_lookup = {b.get("position", i): b for i, b in enumerate(structure)}
 
     props_list = []
-    for block_pos in sorted(block_groups.keys()):
+    for block_pos in sorted(block_groups.keys(), key=str):
         block_entries = block_groups[block_pos]
         
         block_info = block_lookup.get(block_pos)

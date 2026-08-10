@@ -143,7 +143,8 @@ def _avoid_speech_collision(
 
     for i in range(len(sorted_times) - 1):
         gap_start = sorted_times[i]
-        gap_end = sorted_times[i + 1]
+        # Estimate next word starts ~0.2s before its end time
+        gap_end = sorted_times[i + 1] - 0.2
         gap_size = gap_end - gap_start
 
         # Gap must be large enough for the SFX
