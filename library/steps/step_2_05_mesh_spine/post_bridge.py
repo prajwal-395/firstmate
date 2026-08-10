@@ -44,7 +44,9 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
     if speech_sequence.get("hook_segment"):
         passage_lookup["hook"] = speech_sequence["hook_segment"]
     for p in speech_sequence.get("body_sequence", []):
-        passage_lookup[p["position"]] = p
+        pos = p.get("position")
+        if pos:
+            passage_lookup[pos] = p
 
     enriched_blocks = []
 
