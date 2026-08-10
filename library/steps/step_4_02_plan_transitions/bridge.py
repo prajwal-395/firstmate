@@ -28,7 +28,7 @@ def main():
     # We will just pass the inputs through as a summary.
     
     aroll_data = data.get("a_roll_assignments", [])
-    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("timeline_segments", [])
+    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("a_roll_assignments", aroll_data.get("timeline_segments", []))
     
     for i in range(len(aroll) - 1):
         curr = aroll[i]

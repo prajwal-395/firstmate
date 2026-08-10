@@ -31,7 +31,7 @@ def main():
 
     semantic = data.get("semantic_analysis_documents", {})
     
-    slots = aroll if isinstance(aroll, list) else aroll.get("timeline_segments", [])
+    slots = aroll if isinstance(aroll, list) else aroll.get("a_roll_assignments", aroll.get("timeline_segments", []))
     
     candidates_rows = []
     

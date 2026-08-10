@@ -21,7 +21,7 @@ def main():
     # In a real implementation we would look at semantic_analysis and timed_spine.
     # Here we just pass an empty list or basic summary to the LLM.
     aroll_data = data.get("a_roll_assignments", [])
-    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("timeline_segments", [])
+    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("a_roll_assignments", aroll_data.get("timeline_segments", []))
     for slot in aroll:
         vfx_rows.append({
             "segment_id": slot.get("segment_id", slot.get("spine_block_position", "unknown")),

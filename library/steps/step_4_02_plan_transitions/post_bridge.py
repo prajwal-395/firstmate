@@ -355,8 +355,14 @@ def main():
             if curr_block.get("position", i) in existing_cuts:
                 continue
                 
-            prev_cid = prev_block.get("clip_id") or prev_block.get("content", {}).get("clip_id")
-            curr_cid = curr_block.get("clip_id") or curr_block.get("content", {}).get("clip_id")
+            def _get_cid(b):
+                cid = b.get("clip_id") or b.get("content", {}).get("clip_id")
+                if not cid and b.get("content", {}).get("segments"):
+                    cid = b.get("content", {}).get("segments")[0].get("clip_id")
+                return cid
+                
+            prev_cid = _get_cid(prev_block)
+            curr_cid = _get_cid(curr_block)
             
             if not prev_cid or not curr_cid or prev_cid == curr_cid:
                 continue
