@@ -22,7 +22,7 @@
     "outputs": [
       {
         "name": "semantic_analysis_documents",
-        "type": "object",
+        "type": "array",
         "description": "State output: semantic_analysis_documents"
       },
       {

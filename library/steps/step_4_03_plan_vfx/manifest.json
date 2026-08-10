@@ -26,7 +26,7 @@
       },
       {
         "name": "semantic_analysis_documents",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: semantic_analysis_documents"
       },

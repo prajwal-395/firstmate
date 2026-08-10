@@ -32,7 +32,7 @@
       },
       {
         "name": "temporal_index",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: temporal_index"
       },

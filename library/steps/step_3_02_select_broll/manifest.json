@@ -14,7 +14,7 @@
       },
       {
         "name": "semantic_analysis_documents",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: semantic_analysis_documents"
       },
@@ -32,13 +32,13 @@
       },
       {
         "name": "temporal_event_indices",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: temporal_event_indices"
       },
       {
         "name": "clip_catalog",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: clip_catalog"
       },
@@ -124,12 +124,12 @@
     "a_roll_assignments",
     "creative_direction",
     "timed_spine",
-    "clip_catalog.entries.*.filename",
-    "clip_catalog.entries.*.duration",
-    "clip_catalog.entries.*.width",
-    "clip_catalog.entries.*.height",
-    "clip_catalog.entries.*.rotation",
-    "clip_catalog.entries.*.fps",
+    "clip_catalog.*.filename",
+    "clip_catalog.*.duration",
+    "clip_catalog.*.width",
+    "clip_catalog.*.height",
+    "clip_catalog.*.rotation",
+    "clip_catalog.*.fps",
     "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
     "semantic_analysis_documents.*.scene_segments.*.broll_topic_suitability",
     "semantic_analysis_documents.*.scene_segments.*.broll_topic_avoid",

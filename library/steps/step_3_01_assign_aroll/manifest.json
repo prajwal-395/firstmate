@@ -14,7 +14,7 @@
       },
       {
         "name": "clip_catalog",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: clip_catalog"
       }
