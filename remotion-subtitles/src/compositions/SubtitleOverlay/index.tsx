@@ -57,7 +57,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
               {hasWords
                 ? sub.words!.map((w, i) => {
                     const isEmphasis = sub.emphasisWords?.includes(
-                      w.word.replace(/[^\w]/g, "")
+                      w.word.replace(/[^\w]/g, "").toLowerCase()
                     );
                     return (
                       <AnimatedWord

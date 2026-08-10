@@ -317,7 +317,7 @@ def resolve_broll(
             "spine_block_position": spine_pos,
             "block_type": spine_block.get("block_type", "transition_slot"),
             "clip_id": clip_id,
-            "source_file": clip.get("path", clip.get("file_path")),
+            "source_file": clip.get("source_file", clip.get("path", clip.get("file_path"))),
             "video_in": video_in,
             "video_out": video_out,
             "duration_seconds": round(video_out - video_in, 3),

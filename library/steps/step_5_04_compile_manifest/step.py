@@ -311,7 +311,7 @@ def compile_manifest(out_dir: str) -> dict:
         })
 
     # ── Subtitles (from Step 4.01 — single source of truth) ──
-    subtitles = subtitle_data.get("subtitle_entries", [])
+    subtitles = subtitle_data.get("subtitle_plan", subtitle_data).get("subtitle_entries", [])
 
     # Normalize field names for manifest schema compatibility.
     # Step 4.01 uses "entry_id"; the FCPXML generator expects "id".
@@ -469,7 +469,7 @@ def compile_manifest(out_dir: str) -> dict:
 
     # ── VFX ──
     # Step 4.03 uses target: "block_N"; attach timeline range from V1 clip.
-    vfx_raw = vfx_data.get("vfx_plan", vfx_data.get("vfx_spec", []))
+    vfx_raw = vfx_data.get("enhancement_spec", vfx_data.get("vfx_plan", vfx_data.get("vfx_spec", [])))
     vfx = []
     for v in vfx_raw:
         enriched = dict(v)
