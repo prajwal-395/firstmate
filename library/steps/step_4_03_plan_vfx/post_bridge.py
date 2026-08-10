@@ -141,8 +141,13 @@ def inject_default_ken_burns(
         if duration < KEN_BURNS_MIN_DURATION_S:
             continue
 
+        try:
+            pos_int = int(pos)
+        except (ValueError, TypeError):
+            pos_int = hash(pos)
+
         # Alternate between zoom_in and zoom_out for visual variety
-        effect = "slow_zoom_in" if (pos % 2 == 0) else "slow_zoom_out"
+        effect = "slow_zoom_in" if (pos_int % 2 == 0) else "slow_zoom_out"
 
         creative_plan.append({
             "target_block_position": pos,

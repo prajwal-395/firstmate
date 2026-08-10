@@ -81,7 +81,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                 # Explicit A/V link: the XMEML generator uses this to
                 # emit reciprocal <link> blocks between the video
                 # clipitem on V1 and its audio partner on A1.
-                "link_group_id": str(uuid.uuid4()),
+                "link_group_id": block.get("link_group_id", str(uuid.uuid4())),
                 "width": clip.get("width"),
                 "height": clip.get("height"),
                 "frame_rate": clip.get("frame_rate"),
@@ -129,7 +129,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                     "video_out": video_out,
                     "duration_seconds": round(video_out - video_in, 3),
                     # Explicit A/V link for this segment
-                    "link_group_id": str(uuid.uuid4()),
+                    "link_group_id": seg.get("link_group_id", block.get("link_group_id", str(uuid.uuid4()))),
                     "width": clip.get("width"),
                     "height": clip.get("height"),
                     "frame_rate": clip.get("frame_rate"),
