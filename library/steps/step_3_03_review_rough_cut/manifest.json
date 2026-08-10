@@ -41,6 +41,12 @@
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
+      },
+      {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "State input: project_config"
       }
     ],
     "outputs": [
@@ -74,6 +80,7 @@
       "audio_spine",
       "b_roll_assignments",
       "creative_direction",
+      "project_config",
       "project_folder",
       "speech_sequence",
       "temporal_index"

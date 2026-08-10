@@ -164,8 +164,12 @@ def main():
         raise ValueError("timed_spine must be a dictionary")
         
     creative = data.get("vfx_creative")
-    if "llm_raw_response" in data:
-        creative = data["llm_raw_response"]
+    if not creative and "llm_raw_response" in data:
+        try:
+            parsed = json.loads(data["llm_raw_response"])
+            creative = parsed if isinstance(parsed, list) else parsed.get("vfx_creative", [])
+        except Exception:
+            creative = data["llm_raw_response"]
         
     if not isinstance(creative, list):
         print(f"  Warning: LLM returned invalid response for plan_vfx. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
