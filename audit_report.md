@@ -1,16 +1,16 @@
-# Convergence Audit Report - Phase 1 & 2
+# Phase 3 & 4 Convergence Audit Report
 
-**Scope:** Phase 1 (1.01-1.07) and Phase 2 (2.01-2.05)
-**Status:** 3 pipeline logic bugs found and fixed.
+## Pipeline Logic Bugs Found and Fixed
 
-## Bug 1: Silent data drop via basename collision in Semantic Analysis (1.03)
-**Issue:** `step_1_03_semantic_analysis/bridge.py` used `clip_name` extracted from the file's basename (e.g., `IMG_1806`) rather than the centrally assigned `clip_id`. When two files had the same basename but different extensions (e.g., `IMG_1806.mp4` and `IMG_1806.MOV`), the vision pipeline output (`clip_profile_{basename}.json`) for the latter would silently overwrite the former. The `clip_id_map` also suffered from the same key collision.
-**Fix:** Modified the bridge to rename the output of the vision pipeline immediately to use `clip_id` (e.g., `clip_profile_{clip_id}.json`) and refactored the mapping and collection logic to use `clip_id` robustly.
+1. **Step 3.01 A-Roll Duration Invariant Violation**
+   - **File:** `library/steps/step_3_01_assign_aroll/step.py`
+   - **Bug:** When adjusting A-roll video segments to prevent hook overlap, if the overlap entirely consumed the segment (duration <= 0), the script printed a warning but left the invalid segment in the `video_segments` list. This resulted in negative/zero duration source segments being passed downstream, causing a fatal duration mismatch in Step 3.3 (Rough Cut Review) and breaking XMEML generation.
+   - **Fix:** Added a list comprehension to filter out segments where `duration_seconds <= 0` before appending to `a_roll_assignments`.
 
-## Bug 2: Local clip_id generation causing desync in Prosody Analysis (1.05)
-**Issue:** `step_1_05_prosody_analysis/step.py` was generating `clip_id` locally using `f"clip_{i + 1:03d}"` where `i` is the enumerate index of `raw_footage_files`. If files were skipped or the list length changed upstream, this would misalign `clip_id` values with the authoritative ones generated in step 1.01, breaking data joins downstream.
-**Fix:** Updated to retrieve `clip_id` from the incoming `raw_footage_files` item (i.e., `item.get("clip_id")`) with the fallback only if missing.
+2. **Step 4.01 Multi-Segment Subtitle Overlap**
+   - **File:** `library/steps/step_4_01_plan_subtitles/step.py`
+   - **Bug:** For speech blocks containing multiple jump-cut segments, the subtitle generation loop calculated the timeline offset using the entire block's `timeline_start` (`offset = block_start - v1_src_in`) for every segment. This caused subtitles from all subsequent segments in the block to be placed concurrently at the beginning of the block, overlapping each other on screen.
+   - **Fix:** Tracked the `current_tl_pos` incrementally across segments (advancing by `source_dur`) and used it to calculate the offset relative to each segment's actual position in the timeline.
 
-## Bug 3: Output collision via basename in OCR Extraction (1.07)
-**Issue:** `step_1_07_ocr_extraction/step.py` also relied on `clip_name` (the basename) to generate output subdirectories and to key the final `ocr_results` dictionary. Like Bug 1, this caused silent overwrites for identically named files.
-**Fix:** Changed all directory generation and result dictionary keys to use `clip_id` instead.
+## Conclusion
+The bugs were fixed and the changes were committed.
