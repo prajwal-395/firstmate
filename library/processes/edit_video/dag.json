@@ -496,7 +496,8 @@
       "from": "select_broll",
       "to": "compile_manifest",
       "data_mapping": {
-        "b_roll_assignments": "b_roll_assignments"
+        "b_roll_assignments": "b_roll_assignments",
+        "b_roll_interjections": "b_roll_interjections"
       }
     },
     {
