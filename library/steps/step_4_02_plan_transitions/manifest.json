@@ -70,7 +70,8 @@
       {
         "name": "transition_spec",
         "type": "array",
-        "description": "State output: transition_spec"
+        "description": "State output: transition_spec",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

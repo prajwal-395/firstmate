@@ -130,8 +130,8 @@ profile to calibrate B-roll density.
   "b_roll_interjections": [
     {
       "over_spine_block_position": 3,
-      "timeline_start": 8.0,
-      "timeline_end": 10.0,
+      "timeline_in": 8.0,
+      "timeline_out": 10.0,
       "clip_id": "string",
       "preferred_moment": "string (description of the moment in the clip)",
       "selection_rationale": "string",
@@ -140,6 +140,8 @@ profile to calibrate B-roll density.
   ]
 }
 ```
+
+**CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 
 ---
 

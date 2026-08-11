@@ -70,7 +70,8 @@
       {
         "name": "sfx_spec",
         "type": "object",
-        "description": "State output: sfx_spec"
+        "description": "State output: sfx_spec",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

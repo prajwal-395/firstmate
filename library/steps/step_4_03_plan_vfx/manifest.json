@@ -58,7 +58,8 @@
       {
         "name": "enhancement_spec",
         "type": "object",
-        "description": "State output: enhancement_spec"
+        "description": "State output: enhancement_spec",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

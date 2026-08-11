@@ -79,8 +79,8 @@ def main():
             "segment_id": candidates_rows[0]["slot_id"],
             "broll_clips": [{
                 "clip_id": candidates_rows[0]["clip_id"],
-                "start_time": 0.0,
-                "duration": 2.0
+                "timeline_in": 0.0,
+                "timeline_out": 2.0
             }]
         })
 

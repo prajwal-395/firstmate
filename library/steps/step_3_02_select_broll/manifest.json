@@ -58,12 +58,14 @@
       {
         "name": "b_roll_assignments",
         "type": "array",
-        "description": "State output: b_roll_assignments"
+        "description": "State output: b_roll_assignments",
+        "expected_schema": "resolve_manifest.py"
       },
       {
         "name": "b_roll_interjections",
         "type": "array",
-        "description": "State output: b_roll_interjections"
+        "description": "State output: b_roll_interjections",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

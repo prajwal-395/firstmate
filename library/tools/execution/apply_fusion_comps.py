@@ -35,16 +35,16 @@ def apply_fusion_comps(manifest):
     
     fusion_effects = manifest.get('fusion_effects', {})
     per_clip_effects = fusion_effects.get('per_clip', {})
-    transition_specs = fusion_effects.get('transitions', [])
+    transition_specs = manifest.get('transitions', [])
 
     transition_by_clip = {}
     macro_transitions_by_clip = {}
     for tspec in transition_specs:
-        ttype = tspec.get('type', 'cut')
+        ttype = tspec.get('transition_type', tspec.get('type', 'cut'))
         if ttype in ('cut', 'hard_cut', '', None):
             continue
             
-        after_idx = tspec.get('after_clip', 0)
+        after_idx = tspec.get('from_block', tspec.get('after_clip', 0))
         
         if ttype == 'macro':
             macro_transitions_by_clip[after_idx] = tspec

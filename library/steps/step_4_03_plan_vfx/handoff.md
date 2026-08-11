@@ -80,18 +80,17 @@ to the creative direction's energy profile.
 ```json
 [
   {
-    "vfx_id": "vfx_001",
-    "target_entry_id": "shot_005",
     "timeline_start": 5.0,
-    "timeline_end": 13.5,
     "effect_type": "slow_zoom",
-    "parameters": {
+    "params": {
       "direction": "in",
       "zoom_percent": 7.0
     }
   }
 ]
 ```
+
+**CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 
 ---
 

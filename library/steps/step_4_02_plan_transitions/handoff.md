@@ -90,8 +90,8 @@ energy profile.
   {
     "transition_id": "trans_001",
     "cut_point_timeline": 5.0,
-    "from_entry_id": "shot_003",
-    "to_entry_id": "shot_004",
+    "from_block": 3,
+    "to_block": 4,
     "transition_type": "hard_cut",
     "duration_frames": 0,
     "parameters": {},
@@ -100,6 +100,8 @@ energy profile.
   }
 ]
 ```
+
+**CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 
 ---
 

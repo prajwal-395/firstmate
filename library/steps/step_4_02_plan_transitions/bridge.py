@@ -48,14 +48,16 @@ def main():
     transitions = []
     if cut_rows:
         transitions.append({
-            "cut_time": float(cut_rows[0]["cut_time"]),
-            "type": "cross_dissolve",
-            "duration": 0.5
+            "cut_point_timeline": float(cut_rows[0]["cut_time"]),
+            "from_block": 0,
+            "to_block": 1,
+            "transition_type": "cross_dissolve",
+            "duration_frames": 15
         })
 
     compressed = {
         "cuts_toon": cuts_toon,
-        "transition_spec": {"transitions": transitions, "default_cut": "hard"}
+        "transition_spec": transitions
     }
     
     print(json.dumps(compressed))
