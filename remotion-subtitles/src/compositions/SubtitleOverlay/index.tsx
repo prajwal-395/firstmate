@@ -17,24 +17,71 @@ export type SubtitleBlock = {
   words?: WordTiming[];
 };
 
+export type SubtitleStyle = {
+  fontFamily?: string;
+  fontColor?: string;
+  accentColor?: string;
+  position?: "bottom" | "top" | "center";
+  outlineColor?: string;
+  outlineWidth?: number;
+  fontSize?: number;
+};
+
 export type SubtitleOverlayProps = {
   subtitles: SubtitleBlock[];
   fps: number;
   width: number;
   height: number;
   durationInFrames: number;
+  style?: SubtitleStyle;
 };
 
 export const subtitleOverlaySchema = {} as any;
 
 export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   subtitles,
+  style,
 }) => {
   const frame = useCurrentFrame();
 
+  const fontFam = style?.fontFamily || "Montserrat";
+  const fSize = style?.fontSize ? `${style.fontSize}px` : "58px";
+  const outlineCol = style?.outlineColor || "#000000";
+  const outlineW = style?.outlineWidth || 4;
+  const pos = style?.position || "bottom";
+
+  const shadow = `
+    -${outlineW}px -${outlineW}px 0 ${outlineCol},
+     0   -${outlineW}px 0 ${outlineCol},
+     ${outlineW}px -${outlineW}px 0 ${outlineCol},
+     ${outlineW}px  0   0 ${outlineCol},
+     ${outlineW}px  ${outlineW}px 0 ${outlineCol},
+     0    ${outlineW}px 0 ${outlineCol},
+    -${outlineW}px  ${outlineW}px 0 ${outlineCol},
+    -${outlineW}px  0   0 ${outlineCol}
+  `;
+  
+  let bottomStyle = "128px";
+  if (pos === "top") bottomStyle = "auto";
+  let topStyle = pos === "top" ? "128px" : "auto";
+  let centerStyle = pos === "center" ? "50%" : undefined;
+  let transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
+
   return (
-    <AbsoluteFill className="items-center justify-center pointer-events-none">
-      <div className="flex flex-col items-center justify-end w-full h-[85%] pb-32">
+    <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+      <div 
+        style={{ 
+          position: "absolute", 
+          bottom: centerStyle ? undefined : bottomStyle, 
+          top: centerStyle || topStyle,
+          transform: transformStyle,
+          width: "100%", 
+          display: "flex", 
+          justifyContent: "center", 
+          flexDirection: "column", 
+          alignItems: "center" 
+        }}
+      >
         {subtitles.map((sub, index) => {
           const isActive = frame >= sub.startFrame && frame < sub.endFrame;
           if (!isActive) return null;
@@ -44,28 +91,30 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
           return (
             <div
               key={index}
-              className="px-12 py-6 rounded-2xl flex flex-wrap justify-center items-center gap-x-4 gap-y-2 max-w-[90%]"
               style={{
-                fontFamily: "Outfit, sans-serif",
-                fontSize: "72px",
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "center",
+                alignItems: "center",
+                fontFamily: fontFam,
+                fontSize: fSize,
                 fontWeight: 800,
                 lineHeight: "1.2",
                 textAlign: "center",
-                textShadow: "0px 8px 16px rgba(0,0,0,0.4)",
+                textShadow: shadow,
+                maxWidth: "90%",
+                padding: "24px 48px",
               }}
             >
               {hasWords
                 ? sub.words!.map((w, i) => {
-                    const isEmphasis = sub.emphasisWords?.includes(
-                      w.word.replace(/[^\w]/g, "").toLowerCase()
-                    );
                     return (
                       <AnimatedWord
                         key={i}
                         word={w.word}
                         startFrame={w.startFrame}
                         endFrame={w.endFrame}
-                        isEmphasis={isEmphasis}
+                        style={style}
                       />
                     );
                   })

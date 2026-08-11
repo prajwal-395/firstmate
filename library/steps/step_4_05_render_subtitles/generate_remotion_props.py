@@ -131,6 +131,15 @@ def generate_subtitle_props_per_block(
             "width": width,
             "height": height,
             "durationInFrames": total_frames,
+            "style": subtitle_data.get("style", {
+                "fontFamily": "Montserrat",
+                "fontColor": "#FFFFFF",
+                "accentColor": "#FBF0B8",
+                "position": "bottom",
+                "outlineColor": "#000000",
+                "outlineWidth": 4,
+                "fontSize": 58
+            }),
             # Metadata for placement (not consumed by Remotion)
             "_block_position": block_pos,
             "_timeline_start": render_start,

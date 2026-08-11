@@ -641,7 +641,7 @@ def compile_manifest(out_dir: str) -> dict:
             },
             "A1": {
                 "label": "Speech",
-                "clips": [],
+                "clips": sorted(v1_clips, key=lambda c: c["timeline_in"]),
             },
             "A2": {
                 "label": "Music",
@@ -1218,7 +1218,7 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             },
             "A1": {
                 "label": "Speech",
-                "clips": [],
+                "clips": sorted(v1_clips, key=lambda c: c["timeline_in"]),
             },
             "A2": {
                 "label": "Music",
