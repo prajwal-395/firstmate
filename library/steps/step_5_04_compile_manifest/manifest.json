@@ -32,7 +32,7 @@
       },
       {
         "name": "transition_spec",
-        "type": "object",
+        "type": "array",
         "required": true,
         "description": "State input: transition_spec"
       },

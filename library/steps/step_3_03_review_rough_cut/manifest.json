@@ -19,6 +19,12 @@
         "description": "State input: b_roll_assignments"
       },
       {
+        "name": "b_roll_interjections",
+        "type": "array",
+        "required": false,
+        "description": "State input: b_roll_interjections"
+      },
+      {
         "name": "audio_spine",
         "type": "object",
         "required": true,
@@ -59,6 +65,7 @@
     "preconditions": [
       "'a_roll_assignments' exists in state",
       "'b_roll_assignments' exists in state",
+      "'b_roll_interjections' exists in state",
       "'audio_spine' exists in state",
       "'speech_sequence' exists in state",
       "'temporal_index' exists in state",
@@ -79,6 +86,7 @@
       "a_roll_assignments",
       "audio_spine",
       "b_roll_assignments",
+      "b_roll_interjections",
       "creative_direction",
       "project_config",
       "project_folder",

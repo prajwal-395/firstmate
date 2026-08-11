@@ -332,7 +332,8 @@
       "from": "select_broll",
       "to": "review_rough_cut",
       "data_mapping": {
-        "b_roll_assignments": "b_roll_assignments"
+        "b_roll_assignments": "b_roll_assignments",
+        "b_roll_interjections": "b_roll_interjections"
       }
     },
     {
@@ -430,7 +431,8 @@
       "from": "select_broll",
       "to": "color_grade",
       "data_mapping": {
-        "b_roll_assignments": "b_roll_assignments"
+        "b_roll_assignments": "b_roll_assignments",
+        "b_roll_interjections": "b_roll_interjections"
       }
     },
     {
@@ -648,7 +650,7 @@
       "from": "mesh_spine",
       "to": "select_broll",
       "data_mapping": {
-        "audio_spine": "timed_spine"
+        "timed_spine": "timed_spine"
       }
     },
     {
@@ -725,7 +727,7 @@
       "from": "mesh_spine",
       "to": "plan_transitions",
       "data_mapping": {
-        "audio_spine": "timed_spine"
+        "timed_spine": "timed_spine"
       }
     },
     {
@@ -760,7 +762,7 @@
       "from": "mesh_spine",
       "to": "plan_vfx",
       "data_mapping": {
-        "audio_spine": "timed_spine"
+        "timed_spine": "timed_spine"
       }
     },
     {
@@ -809,7 +811,7 @@
       "from": "mesh_spine",
       "to": "plan_sfx",
       "data_mapping": {
-        "audio_spine": "timed_spine"
+        "timed_spine": "timed_spine"
       }
     },
     {
