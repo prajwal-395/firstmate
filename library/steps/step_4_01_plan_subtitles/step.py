@@ -368,7 +368,7 @@ def generate_subtitles(
                 sub_counter += 1
                 entry_text = g["text"].lower().strip()
                 subtitle_entries.append({
-                    "entry_id": f"sub_{sub_counter:03d}",
+                    "id": f"sub_{sub_counter:03d}",
                     "timeline_start": max(g["start"], block_start),
                     "timeline_end": min(g["end"], block_end),
                     "text": entry_text,
@@ -487,7 +487,7 @@ def generate_subtitles(
                     sub_counter += 1
                     entry_text = g["text"].lower().strip()
                     subtitle_entries.append({
-                        "entry_id": f"sub_{sub_counter:03d}",
+                        "id": f"sub_{sub_counter:03d}",
                         "timeline_start": max(g["start"], seg_tl_start),
                         "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,

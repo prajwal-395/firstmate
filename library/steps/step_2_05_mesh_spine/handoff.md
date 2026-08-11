@@ -71,7 +71,7 @@ construct the complete audio spine.
 For every speech block, this rule MUST hold:
 
 ```
-duration_seconds == content.end_time - content.start_time
+duration_seconds == content.source_out - content.source_in
 ```
 
 The timeline duration of a speech block must EQUAL the source duration of
@@ -85,7 +85,7 @@ valid options:
 1. **Accept the full duration.** Adjust the total video length or shorten
    other blocks (transition slots, intro, outro) to compensate.
 2. **Produce sub-segments.** Break the speech block into multiple shorter
-   blocks, each with its own `start_time`/`end_time` that contains a
+   blocks, each with its own `source_in`/`source_out` that contains a
    complete thought. Remove filler words, stutters, or tangents by
    excluding their time ranges. Each sub-block must independently satisfy
    the duration invariant.
@@ -115,8 +115,8 @@ The result is speech cut off mid-sentence.
       "duration_seconds": 2.0,
       "content": {
         "clip_id": "string",
-        "start_time": 0.0,
-        "end_time": 2.0,
+        "source_in": 0.0,
+        "source_out": 2.0,
         "text": "string"
       },
       "music_behavior": "prominent",

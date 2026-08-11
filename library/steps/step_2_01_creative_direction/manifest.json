@@ -41,7 +41,8 @@
       {
         "name": "creative_direction",
         "type": "object",
-        "description": "State output: creative_direction"
+        "description": "State output: creative_direction",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

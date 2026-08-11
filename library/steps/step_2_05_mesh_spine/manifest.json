@@ -35,7 +35,8 @@
       {
         "name": "audio_spine",
         "type": "object",
-        "description": "State output: audio_spine"
+        "description": "State output: audio_spine",
+        "expected_schema": "resolve_manifest.py"
       },
       {
         "name": "timed_spine",

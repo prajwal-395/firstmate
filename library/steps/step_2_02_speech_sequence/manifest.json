@@ -45,7 +45,8 @@
       {
         "name": "speech_sequence",
         "type": "object",
-        "description": "State output: speech_sequence"
+        "description": "State output: speech_sequence",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

@@ -133,8 +133,8 @@ use it as a secondary search hint alongside the brief's guidance.
       "splices": [
         {
           "splice_id": "track_01_splice_A",
-          "start_time": 0.0,
-          "end_time": 15.0,
+          "source_in": 0.0,
+          "source_out": 15.0,
           "duration_seconds": 15.0,
           "section_type": "intro | verse | chorus | bridge | drop | buildup | outro | ambient",
           "energy_level": "low | medium | high | peak",

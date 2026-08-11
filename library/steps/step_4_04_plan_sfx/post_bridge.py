@@ -339,7 +339,7 @@ def resolve_sfx(
     resolved = []
     for sfx in creative_plan:
         # Find the spine block for this SFX
-        tl_start = sfx.get("timeline_start", 0.0)
+        tl_start = sfx.get("timeline_in", sfx.get("timeline_start", 0.0))
         block = _find_block_for_time(tl_start, spine_blocks)
         clip_id = block.get("clip_id", "")
 
@@ -367,15 +367,26 @@ def resolve_sfx(
         )
 
         shift = abs(refined_start - tl_start)
+        tl_in_sec = round(refined_start, 3)
+        tl_out_sec = round(refined_start + duration, 3)
+        
+        # We need to resolve source_file. We'll leave source_file empty here and let
+        # compile_manifest fill it if necessary, OR output source_file if we can.
+        # But wait, post_bridge doesn't have sfx_library.
+        # It's better if we just output timeline_in_frame here for canonical format.
+        tl_in_frame = int(round(tl_in_sec * frame_rate))
+        tl_out_frame = int(round(tl_out_sec * frame_rate))
+        
         resolved.append({
-            "sfx_id": f"sfx_{len(resolved)+1:03d}",
+            "label": f"sfx_{len(resolved)+1:03d}",
             "sfx_type": sfx_type,
-            "timeline_start": round(refined_start, 3),
-            "timeline_end": round(refined_start + duration, 3),
+            "timeline_in": tl_in_sec,
+            "timeline_out": tl_out_sec,
+            "timeline_in_frame": tl_in_frame,
+            "timeline_out_frame": tl_out_frame,
             "duration_seconds": duration,
             "volume_db": volume_db,
             "volume_level": volume,
-            "target_track": "A3",
             "rationale": sfx.get("rationale", ""),
             "placement_method": _describe_placement(sfx_type),
             "shift_from_original": round(shift, 3),
@@ -396,9 +407,7 @@ def resolve_sfx(
 
     if speech_segments:
         # compute_sfx_ducking expects {"start_time": x, "end_time": y}
-        # bridge currently outputs {"timeline_start": x, "timeline_end": y}
-        # Let's map it temporarily
-        mapped_resolved = [{"start_time": s["timeline_start"], "end_time": s["timeline_end"], **s} for s in resolved]
+        mapped_resolved = [{"start_time": s["timeline_in"], "end_time": s["timeline_out"], **s} for s in resolved]
         ducked_sfx = compute_sfx_ducking(mapped_resolved, speech_segments)
         # map back
         for i, s in enumerate(ducked_sfx):

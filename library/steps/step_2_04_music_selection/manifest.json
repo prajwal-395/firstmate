@@ -23,7 +23,8 @@
       {
         "name": "music_selection",
         "type": "object",
-        "description": "State output: music_selection"
+        "description": "State output: music_selection",
+        "expected_schema": "resolve_manifest.py"
       }
     ],
     "preconditions": [

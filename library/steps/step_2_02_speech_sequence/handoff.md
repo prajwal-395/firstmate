@@ -113,9 +113,9 @@ If `project_config` is not available, default to a 60 second target.
   "hook_segment": {
     "clip_id": "string",
     "text": "string (the hook text)",
-    "start": 0.0,
-    "end": 0.0,
-    "word_timestamps": [{"word": "string", "start": 0.0, "end": 0.0}],
+    "source_in": 0.0,
+    "source_out": 0.0,
+    "word_timestamps": [{"word": "string", "source_in": 0.0, "source_out": 0.0}],
     "rationale": "string (why this is the hook)"
   },
   "body_sequence": [
@@ -123,8 +123,8 @@ If `project_config` is not available, default to a 60 second target.
       "position": 1,
       "clip_id": "string",
       "text": "string (exact spoken words)",
-      "start": 0.0,
-      "end": 0.0,
+      "source_in": 0.0,
+      "source_out": 0.0,
       "duration_seconds": 0.0,
       "role": "opening | development | climax | resolution",
       "flow_note": "string"
