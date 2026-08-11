@@ -171,6 +171,17 @@ def main():
     print(f"\nRendered {len(segments)}/{len(props_list)} motion graphics segments",
           file=sys.stderr)
 
+    if segments:
+        try:
+            sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
+            from tools.qa.asset_qa import verify_alpha_channel
+            if not verify_alpha_channel(segments[0]["overlay_path"]):
+                print("WARNING: QA Check 2.1 Failed: First motion graphics segment missing alpha or purely black", file=sys.stderr)
+            else:
+                print("QA Check 2.1 Passed: Motion graphics alpha verified", file=sys.stderr)
+        except Exception as e:
+            print(f"WARNING: QA Check 2.1 execution failed: {e}", file=sys.stderr)
+
     json.dump({
         "motion_graphics_overlay": {
             "available": len(segments) > 0,

@@ -60,6 +60,30 @@ def check_duration_invariant(a_roll_assignments: list) -> dict:
     return {"passed": len(violations) == 0, "violations": violations}
 
 
+def check_b_roll_duration_invariant(b_roll_assignments: list) -> dict:
+    """
+    For every B-roll assignment, source_duration >= timeline_duration.
+    """
+    violations = []
+    for br in (b_roll_assignments or []):
+        src_in = br.get("source_in", 0)
+        src_out = br.get("source_out", 0)
+        tl_in = br.get("timeline_in", br.get("timeline_start", 0))
+        tl_out = br.get("timeline_out", br.get("timeline_end", 0))
+        
+        src_dur = round(src_out - src_in, 4)
+        tl_dur = round(tl_out - tl_in, 4)
+        
+        if src_dur < tl_dur - DURATION_TOLERANCE:
+            violations.append({
+                "clip_id": br.get("clip_id", "?"),
+                "source_duration": src_dur,
+                "timeline_duration": tl_dur,
+                "deficit": round(tl_dur - src_dur, 4)
+            })
+    return {"passed": len(violations) == 0, "violations": violations}
+
+
 def check_timeline_continuity(a_roll_assignments: list) -> dict:
     """
     A-roll clips should form a continuous sequence on V1 with no
@@ -237,6 +261,7 @@ def run_mechanical_checks(data: dict) -> dict:
     audio_spine = data.get("audio_spine", {})
 
     duration = check_duration_invariant(a_rolls)
+    b_roll_duration = check_b_roll_duration_invariant(b_rolls)
     continuity = check_timeline_continuity(a_rolls)
     source_files = check_source_files(a_rolls, b_rolls, b_interjections, project_folder)
     duplicates = check_no_duplicate_ranges(a_rolls)
@@ -244,6 +269,7 @@ def run_mechanical_checks(data: dict) -> dict:
 
     all_passed = all([
         duration["passed"],
+        b_roll_duration["passed"],
         continuity["passed"],
         source_files["passed"],
         duplicates["passed"],
@@ -254,6 +280,7 @@ def run_mechanical_checks(data: dict) -> dict:
         "passed": all_passed,
         "mechanical_checks": {
             "duration_invariant": duration,
+            "b_roll_duration_invariant": b_roll_duration,
             "timeline_continuity": continuity,
             "source_files_exist": source_files,
             "no_duplicate_ranges": duplicates,
@@ -269,6 +296,13 @@ def run_mechanical_checks(data: dict) -> dict:
                 f"Duration mismatch on {v.get('block_position', '?')} ({v.get('block_type', '?')}): "
                 f"source is {v['source_duration']}s but timeline allocates "
                 f"{v['timeline_duration']}s. Delta: {v['delta_seconds']}s."
+            )
+    if not b_roll_duration["passed"]:
+        for v in b_roll_duration["violations"]:
+            rejection_reasons.append(
+                f"B-roll overruns source on clip {v.get('clip_id', '?')}: "
+                f"source is {v['source_duration']}s but timeline needs "
+                f"{v['timeline_duration']}s. Deficit: {v['deficit']}s."
             )
     if not continuity["passed"]:
         for g in continuity["gaps"]:

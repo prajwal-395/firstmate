@@ -15,6 +15,9 @@ No version suffixes.
 import json
 import os
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -412,6 +415,8 @@ def compile_manifest(out_dir: str) -> dict:
             "fade_out": "fade_out",
         }
         enriched["transition_type"] = type_map.get(ttype, ttype)
+        if not ttype or ttype not in type_map:
+            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s has unresolved type: {t.get('type', t.get('transition_type', ''))!r}")
 
         # Convert duration_frames to duration_seconds for the builder
         dur_frames = t.get("duration_frames", 15)
@@ -516,6 +521,9 @@ def compile_manifest(out_dir: str) -> dict:
     vfx_raw = vfx_data.get("enhancement_spec", vfx_data.get("vfx_plan", vfx_data.get("vfx_spec", [])))
     if isinstance(vfx_raw, dict):
         vfx_raw = vfx_raw.get("visual_effects", vfx_raw.get("vfx_list", []))
+    if not isinstance(vfx_raw, list):
+        logger.warning(f"VFX data has unexpected type {type(vfx_raw).__name__}, expected list")
+        vfx_raw = []
     vfx = []
     for v in vfx_raw:
         enriched = dict(v)
@@ -701,6 +709,20 @@ def compile_manifest(out_dir: str) -> dict:
     print(f"  SFX:         {sfx_resolved} resolved, "
           f"{sfx_unresolved} unresolved", file=sys.stderr)
     print(f"  Duration:    {total_duration:.1f}s", file=sys.stderr)
+
+    A1_clips = manifest["tracks"]["A1"]["clips"]
+    V1_clips = manifest["tracks"]["V1"]["clips"]
+    assert len(A1_clips) == len(V1_clips), f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)}"
+
+    sub_overlay = manifest.get("subtitle_overlay", {})
+    for seg in sub_overlay.get("segments", []):
+        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
+            logger.warning(f"Subtitle overlay missing on disk: {seg['overlay_path']}")
+            
+    mg_overlay = manifest.get("motion_graphics_overlay", {})
+    for seg in mg_overlay.get("segments", []):
+        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
+            logger.warning(f"MG overlay missing on disk: {seg['overlay_path']}")
 
     errors = validate_manifest(manifest)
     if errors:
@@ -962,9 +984,11 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     # discarding all VFX and transition data from upstream pipeline steps.
     vfx_raw = inputs.get("enhancement_spec", [])
     if isinstance(vfx_raw, dict):
-        vfx = vfx_raw.get("vfx_plan", vfx_raw.get("vfx_spec", []))
-    else:
-        vfx = vfx_raw if isinstance(vfx_raw, list) else []
+        vfx_raw = vfx_raw.get("visual_effects", vfx_raw.get("vfx_list", vfx_raw.get("vfx_plan", vfx_raw.get("vfx_spec", []))))
+    if not isinstance(vfx_raw, list):
+        logger.warning(f"VFX data has unexpected type {type(vfx_raw).__name__}, expected list")
+        vfx_raw = []
+    vfx = vfx_raw
 
     # Enrich VFX entries with timeline ranges from V1 clips (same as file mode)
     for v in vfx:
@@ -1037,6 +1061,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
             "fade_out": "fade_out",
         }
         enriched["transition_type"] = type_map.get(ttype, ttype)
+        if not ttype or ttype not in type_map:
+            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s has unresolved type: {t.get('type', t.get('transition_type', ''))!r}")
 
         dur_frames = t.get("duration_frames", 15)
         enriched["duration_seconds"] = dur_frames / fps
@@ -1259,6 +1285,20 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "subtitle_overlay": inputs.get("subtitle_overlay", {}),
         "motion_graphics_overlay": inputs.get("motion_graphics_overlay", {}),
     }
+
+    A1_clips = manifest["tracks"]["A1"]["clips"]
+    V1_clips = manifest["tracks"]["V1"]["clips"]
+    assert len(A1_clips) == len(V1_clips), f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)}"
+
+    sub_overlay = manifest.get("subtitle_overlay", {})
+    for seg in sub_overlay.get("segments", []):
+        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
+            logger.warning(f"Subtitle overlay missing on disk: {seg['overlay_path']}")
+            
+    mg_overlay = manifest.get("motion_graphics_overlay", {})
+    for seg in mg_overlay.get("segments", []):
+        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
+            logger.warning(f"MG overlay missing on disk: {seg['overlay_path']}")
 
     errors = validate_manifest(manifest)
     if errors:

@@ -929,6 +929,32 @@ def run_pipeline(
             print(f"     ✓ Completed in {elapsed:.1f}s", file=sys.stderr)
             print(f"     Outputs: {list(output.keys())}", file=sys.stderr)
             
+            # Check 1.3: LLM Response Clip ID Validation
+            if impl["type"] in ("llm_only", "hybrid") and not is_awaiting:
+                catalog = state.get("step_outputs", {}).get("catalog", {}).get("clips", [])
+                catalog_ids = {c.get("clip_id") for c in catalog if c.get("clip_id")}
+                catalog_paths = {c.get("source_path") for c in catalog if c.get("source_path")}
+                
+                def extract_refs(obj, ids, paths):
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if k == "clip_id" and isinstance(v, str): ids.add(v)
+                            elif k in ("source", "source_path", "clip") and isinstance(v, str): paths.add(v)
+                            else: extract_refs(v, ids, paths)
+                    elif isinstance(obj, list):
+                        for item in obj: extract_refs(item, ids, paths)
+                
+                out_ids = set()
+                out_paths = set()
+                extract_refs(output, out_ids, out_paths)
+                
+                unknown_ids = out_ids - catalog_ids
+                unknown_paths = out_paths - catalog_paths
+                if unknown_ids or unknown_paths:
+                    print(f"     ⚠ WARNING: LLM returned unrecognized clip references.", file=sys.stderr)
+                    if unknown_ids: print(f"       Unknown clip_ids: {unknown_ids}", file=sys.stderr)
+                    if unknown_paths: print(f"       Unknown paths: {unknown_paths}", file=sys.stderr)
+            
             # Validate output against manifest
             try:
                 validate_step_output(node_id, output, impl.get("manifest"))
