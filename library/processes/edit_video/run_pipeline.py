@@ -26,8 +26,11 @@ import argparse
 from pathlib import Path
 from collections import deque
 import re
+import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
+
+logger = logging.getLogger(__name__)
 
 class PreBridgeError(Exception): pass
 class LLMError(Exception): pass
@@ -977,6 +980,14 @@ def run_pipeline(
             if auto_mode and impl["type"] == "hybrid":
                 state["steps_completed"][node_id]["note"] = "auto-completed via bridge (context only)"
             save_pipeline_state(project_dir, state)
+            
+            if node_id == "mesh_spine":
+                step_outputs = state.get("step_outputs", {})
+                mesh_output = step_outputs.get('mesh_spine', {})
+                total_duration = mesh_output.get('total_duration', mesh_output.get('duration_seconds', 0))
+                MIN_DURATION = 30  # seconds, for shortform
+                if total_duration > 0 and total_duration < MIN_DURATION:
+                    logger.warning(f"Mesh spine duration ({total_duration:.1f}s) below minimum ({MIN_DURATION}s). Consider using more footage.")
             
             _export_step_for_review(project_dir, node_id, node["name"], output, state)
             

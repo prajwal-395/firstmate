@@ -37,6 +37,60 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
                 print(f"  Applied Cohesion Adjustment: Transition {idx} {adj['field']} {old_val} -> {adj['suggested_value']}", file=sys.stderr)
 
 
+def _apply_manifest_qa_checks(manifest: dict):
+    # Check 1: Subtitle Overlap Detection
+    subtitles = manifest.get('subtitles', [])
+    for i in range(len(subtitles) - 1):
+        curr_end = subtitles[i].get('timeline_end', subtitles[i].get('timeline_end_seconds', 0))
+        next_start = subtitles[i+1].get('timeline_start', subtitles[i+1].get('timeline_start_seconds', 0))
+        if curr_end > next_start + 0.01:  # 10ms tolerance
+            logger.error(f"Subtitle overlap: sub {i} ends at {curr_end:.3f}s but sub {i+1} starts at {next_start:.3f}s (overlap: {curr_end - next_start:.3f}s)")
+            # Clamp: set curr subtitle's end to next subtitle's start
+            subtitles[i]['timeline_end'] = next_start
+
+    # Check 2: Track Clip Overlap/Duplicate Detection
+    for track_name, track_data in manifest.get('tracks', {}).items():
+        clips = track_data.get('clips', [])
+        for i in range(len(clips) - 1):
+            curr_out = clips[i].get('timeline_out', clips[i].get('timeline_out_seconds', 0))
+            next_in = clips[i+1].get('timeline_in', clips[i+1].get('timeline_in_seconds', 0))
+            if curr_out > next_in + 0.01:
+                logger.error(f"Track {track_name}: clip {i} ends at {curr_out:.3f}s overlaps clip {i+1} at {next_in:.3f}s")
+        # Also check for exact duplicate positions
+        positions = [(c.get('timeline_in',0), c.get('timeline_out',0)) for c in clips]
+        seen = set()
+        deduped = []
+        for j, pos in enumerate(positions):
+            if pos not in seen:
+                seen.add(pos)
+                deduped.append(clips[j])
+            else:
+                logger.warning(f"Track {track_name}: removing duplicate clip at position {pos}")
+        track_data['clips'] = deduped
+
+    # Check 3: Transition Type+Duration Enforcement
+    resolved_transitions = manifest.get('transitions', [])
+    empty_count = sum(1 for t in resolved_transitions if not t.get('transition_type') and not t.get('type'))
+    if empty_count == len(resolved_transitions) and len(resolved_transitions) > 0:
+        raise ValueError(f"All {len(resolved_transitions)} transitions have empty type - transition key mapping failed. Check plan_transitions output uses 'transition_type' key.")
+    
+    for t in resolved_transitions:
+        if t.get('duration', t.get('duration_seconds', 0)) <= 0:
+            t['duration'] = 0.5  # default 0.5s crossfade
+            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s had zero duration, defaulted to 0.5s")
+
+    # Check 4: VFX Position Field Validation
+    valid_vfx = []
+    for v in manifest.get('vfx', []):
+        has_position = any(v.get(k) is not None for k in ['timeline_in', 'start', 'timeline_start', 'start_seconds'])
+        has_duration = any(v.get(k) is not None for k in ['duration', 'duration_seconds', 'end', 'timeline_end'])
+        if has_position and has_duration:
+            valid_vfx.append(v)
+        else:
+            logger.warning(f"VFX '{v.get('effect_type', v.get('type', '?'))}' dropped - missing position or duration")
+    manifest['vfx'] = valid_vfx
+
+
 
 def _resolve_source(block_or_clip: dict, clip_lookup: dict) -> str:
     """Resolve source_file from source_file field or clip_id lookup.
@@ -693,6 +747,8 @@ def compile_manifest(out_dir: str) -> dict:
             "motion_graphics_overlay", {}),
     }
 
+    _apply_manifest_qa_checks(manifest)
+
     # Print summary
     v1_count = len(manifest["tracks"]["V1"]["clips"])
     v2_count = len(manifest["tracks"]["V2"]["clips"])
@@ -1285,6 +1341,8 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         "subtitle_overlay": inputs.get("subtitle_overlay", {}),
         "motion_graphics_overlay": inputs.get("motion_graphics_overlay", {}),
     }
+
+    _apply_manifest_qa_checks(manifest)
 
     A1_clips = manifest["tracks"]["A1"]["clips"]
     V1_clips = manifest["tracks"]["V1"]["clips"]
