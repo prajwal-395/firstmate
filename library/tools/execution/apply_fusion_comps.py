@@ -3,6 +3,7 @@ import sys
 import os
 import json
 import argparse
+import shutil
 
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
 os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
@@ -118,11 +119,7 @@ def apply_fusion_comps(manifest):
             print(f"Failed to import fusion_comp_generator: {e}", file=sys.stderr)
             return False
 
-        comp_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
-            'library', 'steps', 'step_6_01_render', 'fusion_comps'
-        )
-        os.makedirs(comp_dir, exist_ok=True)
+        comp_dir = tempfile.mkdtemp(prefix='fusion_comps_')
 
         for orig_ci, clip_spec in enumerate(v1_clips):
             if orig_ci not in orig_to_item:
@@ -156,7 +153,8 @@ def apply_fusion_comps(manifest):
             mpi = tl_clip.GetMediaPoolItem()
             if not mpi:
                 continue
-            clip_dur = int(mpi.GetClipProperty('Frames'))
+            frames_prop = mpi.GetClipProperty('Frames')
+            clip_dur = int(frames_prop) if frames_prop else tl_clip.GetDuration()
                         
             macro_applied = False
             if macro_trans and apply_macro_to_transition:
@@ -190,6 +188,11 @@ def apply_fusion_comps(manifest):
 
             if comp_names and len(comp_names) > 0:
                 comp = tl_clip.GetFusionCompByName(comp_names[0])
+                if comp:
+                    resolve.OpenPage("fusion")
+                    dummy = comp.AddTool("Merge")
+                    if dummy:
+                        dummy.Delete()
                 tools = comp.GetToolList() if comp else {}
                 real_tools = [t for t in tools.values() if t.GetAttrs().get('TOOLS_RegID') not in ('MediaIn', 'MediaOut')]
                 if len(real_tools) == 0:
@@ -222,6 +225,7 @@ def apply_fusion_comps(manifest):
                         item.SetProperty("ZoomY", 1.05)
                         print(f"  ✓ zoom_pulse on {item.GetName()} at {vfx_start_f}f", file=sys.stderr)
                         break
+        shutil.rmtree(comp_dir, ignore_errors=True)
     return True
 
 if __name__ == "__main__":

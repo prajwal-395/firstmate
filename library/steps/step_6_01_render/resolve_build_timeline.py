@@ -496,14 +496,14 @@ def build_timeline(
                 actual_dur = min(dur, v1_clips[to_clip_idx]['audio_src_in'])
                 # from_clip can only give up what it has
                 from_clip_len = v1_clips[from_clip_idx]['audio_src_out'] - v1_clips[from_clip_idx]['audio_src_in']
-                actual_dur = min(actual_dur, from_clip_len)
+                actual_dur = max(0, min(actual_dur, from_clip_len))
                 
                 v1_clips[from_clip_idx]['audio_src_out'] -= actual_dur
                 v1_clips[to_clip_idx]['audio_src_in'] -= actual_dur
             elif ttype == 'l_cut':
                 # to_clip can only give up what it has
                 to_clip_len = v1_clips[to_clip_idx]['audio_src_out'] - v1_clips[to_clip_idx]['audio_src_in']
-                actual_dur = min(dur, to_clip_len)
+                actual_dur = max(0, min(dur, to_clip_len))
                 
                 v1_clips[from_clip_idx]['audio_src_out'] += actual_dur
                 v1_clips[to_clip_idx]['audio_src_in'] += actual_dur

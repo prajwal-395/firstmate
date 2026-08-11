@@ -92,8 +92,6 @@ def generate_subtitle_props_per_block(
                     w_start_s = w['start'] - render_start
                     w_end_s = w['end'] - render_start
                     word_text = w['word']
-                    if wi < len(entry_words) - 1:
-                        word_text += " "
                     word_timings.append({
                         "word": word_text,
                         "startFrame": max(start_frame, round(w_start_s * fps)),
@@ -107,8 +105,6 @@ def generate_subtitle_props_per_block(
                 per_word = max(1, duration_frames // max(len(text_words), 1))
                 for wi, tw in enumerate(text_words):
                     word_text = tw
-                    if wi < len(text_words) - 1:
-                        word_text += " "
                     word_timings.append({
                         "word": word_text,
                         "startFrame": start_frame + wi * per_word,
