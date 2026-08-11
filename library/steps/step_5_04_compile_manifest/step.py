@@ -404,7 +404,7 @@ def compile_manifest(out_dir: str) -> dict:
                 pass
 
         # Normalize type names to what the XMEML fade builder expects
-        ttype = t.get("type", "")
+        ttype = t.get("type", t.get("transition_type", ""))
         type_map = {
             "cross_dissolve": "cross_dissolve",
             "dip_to_black": "dip_to_black",
@@ -514,6 +514,8 @@ def compile_manifest(out_dir: str) -> dict:
     # ── VFX ──
     # Step 4.03 uses target: "block_N"; attach timeline range from V1 clip.
     vfx_raw = vfx_data.get("enhancement_spec", vfx_data.get("vfx_plan", vfx_data.get("vfx_spec", [])))
+    if isinstance(vfx_raw, dict):
+        vfx_raw = vfx_raw.get("visual_effects", vfx_raw.get("vfx_list", []))
     vfx = []
     for v in vfx_raw:
         enriched = dict(v)

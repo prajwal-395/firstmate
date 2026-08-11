@@ -88,11 +88,14 @@ def generate_subtitle_props_per_block(
             if entry_words:
                 # Use actual per-word timing from plan_subtitles (step 4.01),
                 # converting timeline seconds to render-relative frames.
-                for w in entry_words:
+                for wi, w in enumerate(entry_words):
                     w_start_s = w['start'] - render_start
                     w_end_s = w['end'] - render_start
+                    word_text = w['word']
+                    if wi < len(entry_words) - 1:
+                        word_text += " "
                     word_timings.append({
-                        "word": w['word'],
+                        "word": word_text,
                         "startFrame": max(start_frame, round(w_start_s * fps)),
                         "endFrame": min(end_frame, round(w_end_s * fps)),
                     })
@@ -103,8 +106,11 @@ def generate_subtitle_props_per_block(
                 duration_frames = end_frame - start_frame
                 per_word = max(1, duration_frames // max(len(text_words), 1))
                 for wi, tw in enumerate(text_words):
+                    word_text = tw
+                    if wi < len(text_words) - 1:
+                        word_text += " "
                     word_timings.append({
-                        "word": tw,
+                        "word": word_text,
                         "startFrame": start_frame + wi * per_word,
                         "endFrame": min(
                             start_frame + (wi + 1) * per_word,

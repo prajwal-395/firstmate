@@ -395,6 +395,7 @@ def build_timeline(
         return results
 
     project.SetCurrentTimeline(timeline)
+    timeline.SetSetting("useCustomSettings", "1")
     timeline.SetSetting("timelineResolutionWidth", str(width))
     timeline.SetSetting("timelineResolutionHeight", str(height))
     timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
@@ -507,8 +508,8 @@ def build_timeline(
                 v1_clips[from_clip_idx]['audio_src_out'] += actual_dur
                 v1_clips[to_clip_idx]['audio_src_in'] += actual_dur
 
-    current_video_frame = 0
     for ci, clip in enumerate(v1_clips):
+        current_video_frame = clip.get('timeline_in_frame', 0)
         # BUG FIX C7: Handle clips with missing source_file gracefully
         src = clip.get('source_file', '')
         if not src:
@@ -984,86 +985,50 @@ def build_timeline(
                 if not cdl_vals and not powergrade_path:
                     continue
 
-                if clip_name not in graded_sources:
-                    if cdl_vals:
-                        slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
-                        offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
-                        power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
-                        sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
-                        
-                        try:
-                            # Try SetCDL first
-                            res = item.SetCDL({
-                                "NodeIndex": "1",
-                                "Slope": slope,
-                                "Offset": offset,
-                                "Power": power,
-                                "Saturation": sat
-                            })
-                            if not res:
-                                # Fallback to SetClipProperty
-                                item.SetClipProperty("Slope", slope)
-                                item.SetClipProperty("Offset", offset)
-                                item.SetClipProperty("Power", power)
-                                item.SetClipProperty("Saturation", sat)
-                        except Exception as e:
-                            results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
-
-                    if powergrade_path and os.path.exists(powergrade_path):
-                        res = item.ApplyGradeFromDRX(powergrade_path, 1)
-                        if res:
-                            print(f"  ✓ Applied PowerGrade to {clip_name}", file=sys.stderr)
-                        else:
-                            print(f"  ✗ Failed to apply PowerGrade to {clip_name}", file=sys.stderr)
-                            results["warnings"].append(f"Failed to apply PowerGrade to {clip_name}")
-
-                    creative_look_dctl = color_grade.get("creative_look_dctl", "")
-                    if creative_look_dctl:
-                        try:
-                            res = item.SetLUT(4, creative_look_dctl)
-                            if res:
-                                print(f"  ✓ Applied DCTL to {clip_name} (node 4)", file=sys.stderr)
-                            else:
-                                print(f"  ✗ Failed to apply DCTL to {clip_name}", file=sys.stderr)
-                        except Exception as e:
-                            results["warnings"].append(f"DCTL error on {clip_name}: {e}")
-
-                    graded_sources[clip_name] = item
-                    print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
-                else:
-                    # Subsequent clips from the same source: re-apply the same CDL values
-                    if cdl_vals:
-                        slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
-                        offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
-                        power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
-                        sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
-                        try:
-                            res = item.SetCDL({
-                                "NodeIndex": "1",
-                                "Slope": slope,
-                                "Offset": offset,
-                                "Power": power,
-                                "Saturation": sat
-                            })
-                            if not res:
-                                item.SetClipProperty("Slope", slope)
-                                item.SetClipProperty("Offset", offset)
-                                item.SetClipProperty("Power", power)
-                                item.SetClipProperty("Saturation", sat)
-                        except Exception:
-                            pass
+                if cdl_vals:
+                    slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
+                    offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
+                    power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
+                    sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
                     
-                    if powergrade_path and os.path.exists(powergrade_path):
-                        item.ApplyGradeFromDRX(powergrade_path, 1)
+                    try:
+                        # Try SetCDL first
+                        res = item.SetCDL({
+                            "NodeIndex": "1",
+                            "Slope": slope,
+                            "Offset": offset,
+                            "Power": power,
+                            "Saturation": sat
+                        })
+                        if not res:
+                            # Fallback to SetClipProperty
+                            item.SetClipProperty("Slope", slope)
+                            item.SetClipProperty("Offset", offset)
+                            item.SetClipProperty("Power", power)
+                            item.SetClipProperty("Saturation", sat)
+                    except Exception as e:
+                        results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
 
-                    creative_look_dctl = color_grade.get("creative_look_dctl", "")
-                    if creative_look_dctl:
-                        try:
-                            item.SetLUT(4, creative_look_dctl)
-                        except Exception:
-                            pass
-                        
-                    print(f"  ✓ Copied grade to subsequent clip of {clip_name}", file=sys.stderr)
+                if powergrade_path and os.path.exists(powergrade_path):
+                    res = item.ApplyGradeFromDRX(powergrade_path, 1)
+                    if res:
+                        print(f"  ✓ Applied PowerGrade to {clip_name}", file=sys.stderr)
+                    else:
+                        print(f"  ✗ Failed to apply PowerGrade to {clip_name}", file=sys.stderr)
+                        results["warnings"].append(f"Failed to apply PowerGrade to {clip_name}")
+
+                creative_look_dctl = color_grade.get("creative_look_dctl", "")
+                if creative_look_dctl:
+                    try:
+                        res = item.SetLUT(4, creative_look_dctl)
+                        if res:
+                            print(f"  ✓ Applied DCTL to {clip_name} (node 4)", file=sys.stderr)
+                        else:
+                            print(f"  ✗ Failed to apply DCTL to {clip_name}", file=sys.stderr)
+                    except Exception as e:
+                        results["warnings"].append(f"DCTL error on {clip_name}: {e}")
+
+                print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
                     
     if verify_color_grades:
         _run_qa(verify_color_grades(timeline, None, manifest.get("color_grade", {})))

@@ -146,6 +146,7 @@ def main():
                  "--codec", "prores",
                  "--prores-profile", "4444",
                  "--image-format", "png",
+                 "--transparent",
                  ],
                 cwd=REMOTION_DIR,
                 capture_output=True,
