@@ -70,12 +70,12 @@ def _apply_manifest_qa_checks(manifest: dict):
 
     # Check 3: Transition Type+Duration Enforcement
     resolved_transitions = manifest.get('transitions', [])
-    empty_count = sum(1 for t in resolved_transitions if not t.get('transition_type') and not t.get('type'))
+    empty_count = sum(1 for t in resolved_transitions if not t.get('transition_type'))
     if empty_count == len(resolved_transitions) and len(resolved_transitions) > 0:
         raise ValueError(f"All {len(resolved_transitions)} transitions have empty type - transition key mapping failed. Check plan_transitions output uses 'transition_type' key.")
     
     for t in resolved_transitions:
-        if t.get('duration', t.get('duration_seconds', 0)) <= 0:
+        if t.get('duration', 0) <= 0:
             t['duration'] = 0.5  # default 0.5s crossfade
             logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s had zero duration, defaulted to 0.5s")
 
@@ -366,34 +366,32 @@ def compile_manifest(out_dir: str) -> dict:
     # ── V2: B-Roll clips ──
     v2_clips = []
     for broll in broll_data.get("b_roll_assignments", []):
-        clip = broll.get("assigned_clip", broll)
         v2_clip = {
-            "source_file": resolve_source(clip),
-            "source_in": clip.get("video_in", broll.get("video_in", 0)),
-            "source_out": clip.get("video_out", broll.get("video_out", 0)),
-            "timeline_in": broll["timeline_start"],
-            "timeline_out": broll["timeline_end"],
+            "source_file": resolve_source(broll),
+            "source_in": broll.get("source_in", 0),
+            "source_out": broll.get("source_out", 0),
+            "timeline_in": broll.get("timeline_in", 0),
+            "timeline_out": broll.get("timeline_out", 0),
             "video_only": True,
             "label": f"broll_{broll.get('spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
-        compute_neural_directives(get_clip_id(clip), v2_clip)
+        compute_neural_directives(get_clip_id(broll), v2_clip)
     # B-roll interjections
     for interj in broll_data.get("b_roll_interjections", []):
-        clip = interj.get("assigned_clip", interj)
         v2_clip = {
-            "source_file": resolve_source(clip),
-            "source_in": clip.get("video_in", interj.get("video_in", 0)),
-            "source_out": clip.get("video_out", interj.get("video_out", 0)),
-            "timeline_in": interj.get("timeline_start", 0.0),
-            "timeline_out": interj.get("timeline_end", 0.0),
+            "source_file": resolve_source(interj),
+            "source_in": interj.get("source_in", 0),
+            "source_out": interj.get("source_out", 0),
+            "timeline_in": interj.get("timeline_in", 0),
+            "timeline_out": interj.get("timeline_out", 0),
             "video_only": True,
             "label": f"interjection_{interj.get('over_spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
-        compute_neural_directives(get_clip_id(clip), v2_clip)
+        compute_neural_directives(get_clip_id(interj), v2_clip)
 
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
@@ -413,92 +411,28 @@ def compile_manifest(out_dir: str) -> dict:
         })
 
     # ── Subtitles (from Step 4.01 — single source of truth) ──
-    subtitles = subtitle_data.get("subtitle_plan", subtitle_data).get("subtitle_entries", [])
-
-    # Normalize field names for manifest schema compatibility.
-    # Step 4.01 uses "entry_id"; the FCPXML generator expects "id".
+    subtitles = subtitle_data if isinstance(subtitle_data, list) else subtitle_data.get("subtitles", [])
+    subtitles.sort(key=lambda s: s.get("timeline_start", 0))
     for sub in subtitles:
-        if "entry_id" in sub and "id" not in sub:
-            sub["id"] = sub.pop("entry_id")
-
-    # Sort and re-number
-    subtitles.sort(key=lambda s: s["timeline_start"])
-    for i, sub in enumerate(subtitles, 1):
-        sub["id"] = i
-        # Ensure frame fields exist
         if "timeline_start_frame" not in sub:
             convert_subtitle_to_frames(sub, fps)
 
     # ── Transitions ──
-    # Step 4.02 uses position: "between_X_Y"; the XMEML generator needs
-    # cut_point_timeline (seconds) and a normalized transition_type.
-    transitions_raw = transition_data.get(
-        "transitions", transition_data.get("transition_spec", []))
-        
-    apply_cohesion_adjustments(transitions_raw, cohesion_data.get("cohesion_review", {}))
-
-    # Build spine-block-end lookup: position → timeline_end seconds
-    block_end_by_pos = {}
-    for b in structure:
-        block_end_by_pos[b["position"]] = b.get(
-            "timeline_end", b.get("timeline_end_frame", 0) / fps)
-
-    transitions = []
-    for t in transitions_raw:
-        enriched = dict(t)
-        pos = t.get("position", "")
-        # Parse "between_X_Y" → cut point is block X's end time
-        if pos.startswith("between_"):
-            parts = pos.replace("between_", "").split("_")
-            try:
-                from_block = int(parts[0])
-                to_block = int(parts[1])
-                enriched["from_block"] = from_block
-                enriched["to_block"] = to_block
-                enriched["cut_point_timeline"] = block_end_by_pos.get(
-                    from_block, 0.0)
-            except (ValueError, IndexError):
-                pass
-
-        # Normalize type names to what the XMEML fade builder expects
-        ttype = t.get("type", t.get("transition_type", ""))
-        type_map = {
-            "cross_dissolve": "cross_dissolve",
-            "dip_to_black": "dip_to_black",
-            "fade_in": "fade_in",
-            "fade_out": "fade_out",
-        }
-        enriched["transition_type"] = type_map.get(ttype, ttype)
-        if not ttype or ttype not in type_map:
-            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s has unresolved type: {t.get('type', t.get('transition_type', ''))!r}")
-
-        # Convert duration_frames to duration_seconds for the builder
-        dur_frames = t.get("duration_frames", 15)
-        enriched["duration_seconds"] = dur_frames / fps
-        enriched["duration_frames"] = dur_frames
-
-        transitions.append(enriched)
+    transitions = transition_data if isinstance(transition_data, list) else transition_data.get("transitions", [])
+    apply_cohesion_adjustments(transitions, cohesion_data.get("cohesion_review", {}))
+    for t in transitions:
+        # Provide frames/seconds if not set, but do not override canonical keys
+        if "duration_seconds" not in t and "duration" in t:
+            t["duration_seconds"] = t["duration"]
+        if "duration_frames" not in t and "duration" in t:
+            t["duration_frames"] = int(t["duration"] * fps)
 
     # ── SFX ──
-    # The SFX bridge (step 4.04) outputs creative placement data with
-    # sfx_type, timeline_start (seconds), volume_db. We need to:
-    #   1. Resolve sfx_type → actual audio file from the SFX library
-    #   2. Convert timeline_start/end (seconds) → timeline_in_frame/out_frame
-    #   3. Format as tracks.A3.clips for the builder
-    sfx_raw = sfx_data.get("sfx_plan",
-                sfx_data.get("sfx_events",
-                  sfx_data.get("sfx_spec", [])))
-
-    if isinstance(sfx_raw, dict):
-        sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_spec", []))
-        sfx_preset = sfx_raw.get("fairlight_preset")
-        sfx_ducking = sfx_raw.get("music_ducking")
-        if isinstance(sfx_ducking, list):
-            sfx_ducking = {"ducking_curves": sfx_ducking}
-    else:
-        sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
-        sfx_preset = None
-        sfx_ducking = None
+    sfx_list = sfx_data if isinstance(sfx_data, list) else sfx_data.get("sfx", [])
+    sfx_preset = sfx_data.get("fairlight_preset") if isinstance(sfx_data, dict) else None
+    sfx_ducking = sfx_data.get("music_ducking") if isinstance(sfx_data, dict) else None
+    if isinstance(sfx_ducking, list):
+        sfx_ducking = {"ducking_curves": sfx_ducking}
 
     sfx_library_path = os.environ.get("PIPELINE_SFX_LIBRARY", "")
     if not sfx_library_path:
@@ -571,31 +505,10 @@ def compile_manifest(out_dir: str) -> dict:
               file=sys.stderr)
 
     # ── VFX ──
-    # Step 4.03 uses target: "block_N"; attach timeline range from V1 clip.
-    vfx_raw = vfx_data.get("enhancement_spec", vfx_data.get("vfx_plan", vfx_data.get("vfx_spec", [])))
-    if isinstance(vfx_raw, dict):
-        vfx_raw = vfx_raw.get("visual_effects", vfx_raw.get("vfx_list", []))
-    if not isinstance(vfx_raw, list):
-        logger.warning(f"VFX data has unexpected type {type(vfx_raw).__name__}, expected list")
-        vfx_raw = []
-    vfx = []
-    for v in vfx_raw:
-        enriched = dict(v)
-        target = v.get("target", "")
-        # Parse "block_N" → find the V1 clip at that spine position
-        if target.startswith("block_"):
-            try:
-                block_num = int(target.replace("block_", ""))
-                # Find the matching V1 clip
-                matched_clips = [c for c in v1_clips if c.get("label", "").endswith(f"_{block_num}") or f"_{block_num}_seg" in c.get("label", "")]
-                if matched_clips:
-                    enriched["timeline_start"] = matched_clips[0]["timeline_in"]
-                    enriched["timeline_end"] = matched_clips[-1]["timeline_out"]
-            except ValueError:
-                pass
-        if enriched.get("timeline_end", 0) > total_duration:
-            enriched["timeline_end"] = total_duration
-        vfx.append(enriched)
+    vfx = vfx_data if isinstance(vfx_data, list) else vfx_data.get("vfx", [])
+    for v in vfx:
+        if v.get("timeline_end", 0) > total_duration:
+            v["timeline_end"] = total_duration
 
     # ── Build fusion_effects section ──
     # Per-clip VFX: map V1 clip labels to segment presets
@@ -619,19 +532,7 @@ def compile_manifest(out_dir: str) -> dict:
     # Fusion transitions: convert step_4_02 transitions to .comp format
     fusion_transitions = []
     for ti, t in enumerate(transitions):
-        ttype = t.get("transition_type", t.get("type", "cut"))
-        # Map legacy names to our .comp transition types
-        type_map = {
-            "cross_dissolve": "fade_to_black",  # fade out + fade in
-            "dip_to_black": "fade_to_black",
-            "fade_in": "fade_to_black",
-            "fade_out": "fade_to_black",
-            "zoom_blur": "zoom_blur",
-            "defocus": "defocus",
-            "slide_left": "slide_left",
-            "flash": "flash",
-        }
-        comp_type = type_map.get(ttype, ttype)
+        comp_type = t.get("transition_type", "cut")
         if comp_type in ("cut", "hard_cut", ""):
             continue
             
@@ -842,12 +743,11 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
                 clip_metadata[cid] = assignment
 
     for broll in inputs.get("b_roll_assignments", []):
-        assigned = broll.get("assigned_clip", broll)
-        cid = assigned.get("source_clip_id", assigned.get("clip_id"))
-        path = assigned.get("source_file", "")
+        cid = broll.get("clip_id")
+        path = broll.get("source_file", "")
         if cid:
             if cid not in clip_metadata:
-                clip_metadata[cid] = assigned
+                clip_metadata[cid] = broll
             if path and cid not in clip_lookup:
                 clip_lookup[cid] = path
 
@@ -975,35 +875,33 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
     # V2: B-Roll clips
     v2_clips = []
     for broll in inputs.get("b_roll_assignments", []):
-        assigned = broll.get("assigned_clip", broll)
         v2_clip = {
-            "source_file": resolve_source(assigned),
-            "source_in": assigned.get("video_in", broll.get("video_in", 0)),
-            "source_out": assigned.get("video_out", broll.get("video_out", 0)),
-            "timeline_in": broll.get("timeline_start", 0.0),
-            "timeline_out": broll.get("timeline_end", 0.0),
+            "source_file": resolve_source(broll),
+            "source_in": broll.get("source_in", 0),
+            "source_out": broll.get("source_out", 0),
+            "timeline_in": broll.get("timeline_in", 0),
+            "timeline_out": broll.get("timeline_out", 0),
             "video_only": True,
             "label": f"broll_{broll.get('spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
-        compute_neural_directives(get_clip_id(assigned), v2_clip)
+        compute_neural_directives(get_clip_id(broll), v2_clip)
 
     # B-roll interjections
     for interj in inputs.get("b_roll_interjections", []):
-        clip = interj.get("assigned_clip", interj)
         v2_clip = {
-            "source_file": resolve_source(clip),
-            "source_in": clip.get("video_in", interj.get("video_in", 0)),
-            "source_out": clip.get("video_out", interj.get("video_out", 0)),
-            "timeline_in": interj.get("timeline_start", 0.0),
-            "timeline_out": interj.get("timeline_end", 0.0),
+            "source_file": resolve_source(interj),
+            "source_in": interj.get("source_in", 0),
+            "source_out": interj.get("source_out", 0),
+            "timeline_in": interj.get("timeline_in", 0),
+            "timeline_out": interj.get("timeline_out", 0),
             "video_only": True,
             "label": f"interjection_{interj.get('over_spine_block_position', 0)}",
         }
         convert_clip_to_frames(v2_clip, fps)
         v2_clips.append(v2_clip)
-        compute_neural_directives(get_clip_id(clip), v2_clip)
+        compute_neural_directives(get_clip_id(interj), v2_clip)
 
     # A2: Music
     ms = inputs.get("music_selection", {})
@@ -1022,42 +920,18 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         })
 
     # Subtitles
-    subtitle_data = inputs.get("subtitle_plan", {})
-    subtitles = subtitle_data.get("subtitle_entries", subtitle_data.get("subtitles", []))
-
-    for sub in subtitles:
-        if "entry_id" in sub and "id" not in sub:
-            sub["id"] = sub.pop("entry_id")
-
+    subtitle_data = inputs.get("subtitles", [])
+    subtitles = subtitle_data if isinstance(subtitle_data, list) else subtitle_data.get("subtitles", [])
     subtitles.sort(key=lambda s: s.get("timeline_start", 0))
-    for i, sub in enumerate(subtitles, 1):
-        sub["id"] = i
+    for sub in subtitles:
         if "timeline_start_frame" not in sub:
             convert_subtitle_to_frames(sub, fps)
 
     # VFX: Extract and integrate enhancement specs into per-clip effects.
-    # BUG FIX C6: Previously hardcoded per_clip to {} and transitions to [],
-    # discarding all VFX and transition data from upstream pipeline steps.
-    vfx_raw = inputs.get("enhancement_spec", [])
-    if isinstance(vfx_raw, dict):
-        vfx_raw = vfx_raw.get("visual_effects", vfx_raw.get("vfx_list", vfx_raw.get("vfx_plan", vfx_raw.get("vfx_spec", []))))
-    if not isinstance(vfx_raw, list):
-        logger.warning(f"VFX data has unexpected type {type(vfx_raw).__name__}, expected list")
-        vfx_raw = []
-    vfx = vfx_raw
+    vfx_data = inputs.get("vfx", inputs.get("enhancement_spec", []))
+    vfx = vfx_data if isinstance(vfx_data, list) else vfx_data.get("vfx", [])
 
-    # Enrich VFX entries with timeline ranges from V1 clips (same as file mode)
     for v in vfx:
-        target = v.get("target", "")
-        if target.startswith("block_"):
-            try:
-                block_num = int(target.replace("block_", ""))
-                matched_clips = [c for c in v1_clips if c.get("label", "").endswith(f"_{block_num}") or f"_{block_num}_seg" in c.get("label", "")]
-                if matched_clips:
-                    v["timeline_start"] = matched_clips[0]["timeline_in"]
-                    v["timeline_end"] = matched_clips[-1]["timeline_out"]
-            except ValueError:
-                pass
         if v.get("timeline_end", 0) > total_duration:
             v["timeline_end"] = total_duration
 
@@ -1078,70 +952,18 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
                     pass
 
     # Transitions: extract and convert to fusion .comp format
-    transition_raw = inputs.get("transition_spec", [])
-    if isinstance(transition_raw, dict):
-        transitions = transition_raw.get("transitions", transition_raw.get("transition_spec", []))
-    else:
-        transitions = transition_raw if isinstance(transition_raw, list) else []
-        
+    transition_data = inputs.get("transitions", inputs.get("transition_spec", []))
+    transitions = transition_data if isinstance(transition_data, list) else transition_data.get("transitions", [])
     apply_cohesion_adjustments(transitions, inputs.get("cohesion_review", {}))
-
-    # Build spine-block-end lookup: position → timeline_end seconds
-    block_end_by_pos = {}
-    for b in structure:
-        if "position" in b:
-            block_end_by_pos[b["position"]] = b.get(
-                "timeline_end", b.get("timeline_end_frame", 0) / fps)
-
-    enriched_transitions = []
     for t in transitions:
-        enriched = dict(t)
-        pos = t.get("position", "")
-        if pos.startswith("between_"):
-            parts = pos.replace("between_", "").split("_")
-            try:
-                from_block = int(parts[0])
-                to_block = int(parts[1])
-                enriched["from_block"] = from_block
-                enriched["to_block"] = to_block
-                enriched["cut_point_timeline"] = block_end_by_pos.get(
-                    from_block, 0.0)
-            except (ValueError, IndexError):
-                pass
-
-        ttype = t.get("type", "")
-        type_map = {
-            "cross_dissolve": "cross_dissolve",
-            "dip_to_black": "dip_to_black",
-            "fade_in": "fade_in",
-            "fade_out": "fade_out",
-        }
-        enriched["transition_type"] = type_map.get(ttype, ttype)
-        if not ttype or ttype not in type_map:
-            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s has unresolved type: {t.get('type', t.get('transition_type', ''))!r}")
-
-        dur_frames = t.get("duration_frames", 15)
-        enriched["duration_seconds"] = dur_frames / fps
-        enriched["duration_frames"] = dur_frames
-
-        enriched_transitions.append(enriched)
-
-    transitions = enriched_transitions
+        if "duration_seconds" not in t and "duration" in t:
+            t["duration_seconds"] = t["duration"]
+        if "duration_frames" not in t and "duration" in t:
+            t["duration_frames"] = int(t["duration"] * fps)
     # Convert transitions to fusion comp format (same mapping as file mode)
     fusion_transitions = []
     for ti, t in enumerate(transitions):
-        ttype = t.get("transition_type", t.get("type", "cut"))
-        type_map = {
-            "cross_dissolve": "fade_to_black",
-            "dip_to_black": "fade_to_black",
-            "fade_in": "fade_to_black",
-            "fade_out": "fade_to_black",
-            "zoom_blur": "zoom_blur",
-            "defocus": "defocus",
-            "slide_left": "slide_left",
-            "flash": "flash",
-        }
-        comp_type = type_map.get(ttype, ttype)
+        comp_type = t.get("transition_type", "cut")
         if comp_type in ("cut", "hard_cut", ""):
             continue
 
@@ -1181,24 +1003,12 @@ def compile_manifest_from_inputs(inputs: dict) -> dict:
         fusion_transitions.append(trans_obj)
 
     # SFX: Resolve SFX file paths using the SFX library.
-    # BUG FIX C6: Previously skipped SFX resolution entirely, passing raw
-    # unresolved specs that lack source_file paths needed by the render step.
-    sfx_data = inputs.get("sfx_spec", {})
-    if isinstance(sfx_data, dict):
-        sfx_raw = sfx_data.get("sfx_plan", sfx_data.get("sfx_events", sfx_data.get("sfx_spec", sfx_data)))
-    else:
-        sfx_raw = sfx_data
-
-    if isinstance(sfx_raw, dict):
-        sfx_list = sfx_raw.get("sfx_list", sfx_raw.get("sfx_placements", sfx_raw.get("sfx_spec", [])))
-        sfx_preset = sfx_raw.get("fairlight_preset")
-        sfx_ducking = sfx_raw.get("music_ducking")
-        if isinstance(sfx_ducking, list):
-            sfx_ducking = {"ducking_curves": sfx_ducking}
-    else:
-        sfx_list = sfx_raw if isinstance(sfx_raw, list) else []
-        sfx_preset = None
-        sfx_ducking = None
+    sfx_data = inputs.get("sfx", inputs.get("sfx_spec", {}))
+    sfx_list = sfx_data if isinstance(sfx_data, list) else sfx_data.get("sfx", [])
+    sfx_preset = sfx_data.get("fairlight_preset") if isinstance(sfx_data, dict) else None
+    sfx_ducking = sfx_data.get("music_ducking") if isinstance(sfx_data, dict) else None
+    if isinstance(sfx_ducking, list):
+        sfx_ducking = {"ducking_curves": sfx_ducking}
 
     # Audio config
     audio_mix_data = inputs.get("audio_mix_spec", {})
