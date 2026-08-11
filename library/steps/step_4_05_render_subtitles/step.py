@@ -177,6 +177,22 @@ def main():
     print(f"\nRendered {len(segments)}/{len(props_list)} subtitle segments",
           file=sys.stderr)
 
+    if segments:
+        try:
+            sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
+            from tools.qa.subtitle_qa import run_subtitle_qa
+            run_subtitle_qa(segments[0]["overlay_path"], project_folder)
+        except Exception as e:
+            error_msg = f"Subtitle QA Validation Failed: {str(e)}"
+            print(f"ERROR: {error_msg}", file=sys.stderr)
+            json.dump({
+                "subtitle_overlay": {
+                    "available": False,
+                    "error": error_msg
+                }
+            }, sys.stdout, indent=2)
+            sys.exit(1)
+
     failure_rate = (len(props_list) - len(segments)) / len(props_list) if len(props_list) > 0 else 0
     if failure_rate > 0.1:
         error_msg = f"More than 10% of subtitle renders failed ({len(props_list) - len(segments)} out of {len(props_list)})."

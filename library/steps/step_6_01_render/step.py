@@ -44,6 +44,16 @@ def run(inputs: dict) -> dict:
                 raise ConnectionError("DaVinci Resolve is not running or not accessible.")
             raise RuntimeError(f"Timeline build failed: {result.get('errors')}")
             
+        # Run Timeline Sync QA
+        try:
+            PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            if os.path.join(PILOT_ROOT, "library") not in sys.path:
+                sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
+            from tools.qa.timeline_sync_qa import run_timeline_sync_qa
+            run_timeline_sync_qa(manifest, manifest.get("project", {}).get("name", "Pipeline_Edit"), result.get("timeline_name"))
+        except Exception as e:
+            raise RuntimeError(f"Timeline Sync QA Validation Failed: {str(e)}")
+            
         return {
             "render_output": {
                 "timeline_name": result.get("timeline_name"),
