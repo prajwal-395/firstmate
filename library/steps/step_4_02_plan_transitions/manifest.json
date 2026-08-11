@@ -69,7 +69,7 @@
       },
       {
         "name": "transition_spec",
-        "type": "object",
+        "type": "array",
         "description": "State output: transition_spec"
       }
     ],

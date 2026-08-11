@@ -25,6 +25,12 @@
         "description": "State input: b_roll_assignments"
       },
       {
+        "name": "b_roll_interjections",
+        "type": "array",
+        "required": false,
+        "description": "State input: b_roll_interjections"
+      },
+      {
         "name": "project_folder",
         "type": "string",
         "required": false,
@@ -48,6 +54,7 @@
       "'creative_direction' exists in state",
       "'a_roll_assignments' exists in state",
       "'b_roll_assignments' exists in state",
+      "'b_roll_interjections' exists in state",
       "'project_folder' exists in state (optional)",
       "'brand_template' exists in state (optional)"
     ],
@@ -64,6 +71,7 @@
     "reads": [
       "a_roll_assignments",
       "b_roll_assignments",
+      "b_roll_interjections",
       "brand_template",
       "creative_direction",
       "project_folder"
