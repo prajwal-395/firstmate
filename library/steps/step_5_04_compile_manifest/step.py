@@ -411,14 +411,23 @@ def compile_manifest(out_dir: str) -> dict:
         })
 
     # ── Subtitles (from Step 4.01 — single source of truth) ──
-    subtitles = subtitle_data if isinstance(subtitle_data, list) else subtitle_data.get("subtitles", [])
+    subtitles = subtitle_data if isinstance(subtitle_data, list) else (
+        subtitle_data.get("subtitles", []) or
+        subtitle_data.get("subtitle_plan", {}).get("subtitle_entries", []) or
+        subtitle_data.get("subtitle_plan", {}).get("subtitles", []) or
+        (subtitle_data.get("subtitle_plan", []) if isinstance(subtitle_data.get("subtitle_plan"), list) else [])
+    )
     subtitles.sort(key=lambda s: s.get("timeline_start", 0))
     for sub in subtitles:
         if "timeline_start_frame" not in sub:
             convert_subtitle_to_frames(sub, fps)
 
     # ── Transitions ──
-    transitions = transition_data if isinstance(transition_data, list) else transition_data.get("transitions", [])
+    transitions = transition_data if isinstance(transition_data, list) else (
+        transition_data.get("transitions", []) or
+        transition_data.get("transition_spec", []) or
+        (transition_data.get("transition_spec", {}).get("transitions", []) if isinstance(transition_data.get("transition_spec"), dict) else [])
+    )
     apply_cohesion_adjustments(transitions, cohesion_data.get("cohesion_review", {}))
     for t in transitions:
         # Provide frames/seconds if not set, but do not override canonical keys
@@ -428,9 +437,12 @@ def compile_manifest(out_dir: str) -> dict:
             t["duration_frames"] = int(t["duration"] * fps)
 
     # ── SFX ──
-    sfx_list = sfx_data if isinstance(sfx_data, list) else sfx_data.get("sfx", [])
-    sfx_preset = sfx_data.get("fairlight_preset") if isinstance(sfx_data, dict) else None
-    sfx_ducking = sfx_data.get("music_ducking") if isinstance(sfx_data, dict) else None
+    sfx_container = sfx_data.get("sfx_spec", sfx_data) if isinstance(sfx_data, dict) else sfx_data
+    sfx_list = sfx_container if isinstance(sfx_container, list) else (
+        sfx_container.get("sfx", []) or sfx_container.get("sfx_list", [])
+    )
+    sfx_preset = (sfx_container if isinstance(sfx_container, dict) else sfx_data if isinstance(sfx_data, dict) else {}).get("fairlight_preset")
+    sfx_ducking = (sfx_container if isinstance(sfx_container, dict) else sfx_data if isinstance(sfx_data, dict) else {}).get("music_ducking")
     if isinstance(sfx_ducking, list):
         sfx_ducking = {"ducking_curves": sfx_ducking}
 
@@ -505,7 +517,10 @@ def compile_manifest(out_dir: str) -> dict:
               file=sys.stderr)
 
     # ── VFX ──
-    vfx = vfx_data if isinstance(vfx_data, list) else vfx_data.get("vfx", [])
+    vfx_container = vfx_data.get("enhancement_spec", vfx_data) if isinstance(vfx_data, dict) else vfx_data
+    vfx = vfx_container if isinstance(vfx_container, list) else (
+        vfx_container.get("vfx", []) or vfx_container.get("visual_effects", [])
+    )
     for v in vfx:
         if v.get("timeline_end", 0) > total_duration:
             v["timeline_end"] = total_duration
