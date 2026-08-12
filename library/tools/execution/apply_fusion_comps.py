@@ -11,7 +11,7 @@ os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Desi
 os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
 import DaVinciResolveScript as dvr
 
-def apply_fusion_comps(manifest):
+def apply_fusion_comps(manifest, project_folder):
     resolve = dvr.scriptapp("Resolve")
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
@@ -118,7 +118,10 @@ def apply_fusion_comps(manifest):
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'steps', 'step_6_01_render'))
-            from fusion_comp_generator import generate_comp, write_comp, SEGMENT_PRESETS
+            from fusion_comp_generator import write_comp, SEGMENT_PRESETS
+            from fusion.engine import CompEngine
+            from fusion.effects import fx
+            from custom_asset_bank import import_custom_asset, save_custom_asset, get_custom_asset
         except ImportError as e:
             print(f"Failed to import fusion_comp_generator: {e}", file=sys.stderr)
             return False
@@ -168,6 +171,19 @@ def apply_fusion_comps(manifest):
                 continue
 
             preset_name = effects.pop('_preset', None)
+            asset_to_check = (preset_name if preset_name else label).lower()
+            
+            # 1. Check custom asset bank
+            custom_asset = get_custom_asset(project_folder, asset_to_check)
+            if custom_asset:
+                for cn in (tl_clip.GetFusionCompNameList() or []):
+                    tl_clip.DeleteFusionCompByName(cn)
+                
+                tl_clip.ImportFusionComp(custom_asset)
+                print(f"  ✓ [{orig_ci}] {label}: Imported custom asset {asset_to_check}", file=sys.stderr)
+                continue
+                
+            # 2. Check built-in effects
             if preset_name and preset_name in SEGMENT_PRESETS:
                 base = dict(SEGMENT_PRESETS[preset_name])
                 base.update({k: v for k, v in effects.items() if k != '_preset'})
@@ -203,21 +219,88 @@ def apply_fusion_comps(manifest):
             if not effects:
                 continue
 
-            if 'zoom_start' not in effects:
+            # 3. Generate custom .comp via composable engine
+            engine = CompEngine(clip_dur=clip_dur)
+            
+            if 'zoom_start' in effects or 'zoom_mid' in effects or 'zoom_end' in effects or 'pan_start' in effects or 'pan_end' in effects:
+                engine.add(fx.zoom(
+                    clip_dur,
+                    start=effects.get('zoom_start', 1.0),
+                    mid=effects.get('zoom_mid', 1.0),
+                    end=effects.get('zoom_end', 1.0),
+                    pan_start=effects.get('pan_start'),
+                    pan_end=effects.get('pan_end')
+                ))
+            elif 'zoom_start' not in effects and 'vignette' not in effects:
                 effects.setdefault('zoom_start', 1.0)
                 effects.setdefault('zoom_mid', 1.0)
                 effects.setdefault('zoom_end', 1.0)
                 effects.setdefault('vignette', False)
 
-            # Filter effects to only include params generate_comp() accepts
-            import inspect
-            valid_params = set(inspect.signature(generate_comp).parameters.keys()) - {'clip_dur'}
-            filtered_effects = {k: v for k, v in effects.items() if k in valid_params}
-            if len(filtered_effects) < len(effects):
-                dropped = set(effects.keys()) - set(filtered_effects.keys())
-                print(f"  ⚠ [{orig_ci}] {label}: Dropped unsupported VFX params: {dropped}", file=sys.stderr)
+            if 'grade_gain' in effects or 'grade_contrast' in effects or 'grade_saturation' in effects:
+                engine.add(fx.grade(
+                    gain=effects.get('grade_gain', 1.0),
+                    contrast=effects.get('grade_contrast', 0.0),
+                    saturation=effects.get('grade_saturation', 1.0)
+                ))
 
-            comp_content = generate_comp(clip_dur, **filtered_effects)
+            if effects.get('glow_gain', 0.0) > 0:
+                engine.add(fx.glow(
+                    gain=effects.get('glow_gain', 0.0),
+                    threshold=effects.get('glow_threshold', 0.75),
+                    size=effects.get('glow_size', 3.5)
+                ))
+
+            if effects.get('film_grain'):
+                engine.add(fx.grain(
+                    power=effects.get('film_grain_power', 0.25),
+                    size=effects.get('film_grain_size', 1.5)
+                ))
+
+            if effects.get('defocus'):
+                engine.add(fx.defocus(size=effects.get('defocus_size', 2.0)))
+                
+            if 'shake_x' in effects or 'shake_y' in effects:
+                engine.add(fx.shake(
+                    clip_dur,
+                    x_amount=effects.get('shake_x', 0.01),
+                    y_amount=effects.get('shake_y', 0.01)
+                ))
+                
+            if 'chromatic_aberration' in effects or 'chromatic_aberration_amount' in effects:
+                engine.add(fx.chromatic_aberration(amount=effects.get('chromatic_aberration_amount', 0.01)))
+
+            if 'lens_distortion' in effects or 'lens_distortion_amount' in effects:
+                engine.add(fx.lens_distortion(distortion=effects.get('lens_distortion_amount', 0.1)))
+
+            if effects.get('vignette', True):
+                engine.add(fx.vignette(
+                    clip_dur=clip_dur,
+                    width=effects.get('vignette_width', 1.0),
+                    height=effects.get('vignette_height', 1.0),
+                    soft=effects.get('vignette_soft', 0.35),
+                    blend=effects.get('vignette_blend', 0.25),
+                    color=effects.get('vignette_color', (0.0, 0.0, 0.0))
+                ))
+
+            fade_in = effects.get('fade_in_frames', 0)
+            fade_out = effects.get('fade_out_frames', 0)
+            if fade_in > 0 or fade_out > 0:
+                engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out))
+
+            tail_trans = effects.get('tail_transition')
+            if tail_trans:
+                engine.add(fx.transition_tail(clip_dur, tail_trans, effects.get('tail_transition_frames', 7)))
+
+            head_trans = effects.get('head_transition')
+            if head_trans:
+                engine.add(fx.transition_head(clip_dur, head_trans, effects.get('head_transition_frames', 7)))
+
+            comp_content = engine.serialize()
+            
+            # Save it to custom asset bank
+            save_custom_asset(project_folder, asset_to_check, comp_content)
+            
             comp_path = write_comp(os.path.join(comp_dir, f"{label.lower()}.comp"), comp_content)
 
             for cn in (tl_clip.GetFusionCompNameList() or []):
@@ -276,5 +359,6 @@ if __name__ == "__main__":
     with open(args.manifest) as f:
         manifest = json.load(f)
         
-    success = apply_fusion_comps(manifest)
+    project_folder = os.path.abspath(os.path.dirname(args.manifest))
+    success = apply_fusion_comps(manifest, project_folder)
     sys.exit(0 if success else 1)

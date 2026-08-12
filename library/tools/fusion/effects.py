@@ -602,3 +602,70 @@ class fx:
             output_name=bc_name,
         )
 
+    @staticmethod
+    def shake(
+        clip_dur: int,
+        *,
+        x_amount: float = 0.01,
+        y_amount: float = 0.01,
+    ) -> EffectBlock:
+        """Transform node with animated random X/Y position."""
+        if x_amount <= 0 and y_amount <= 0:
+            return EffectBlock(nodes=[], input_name="", output_name="")
+
+        import random
+        r = random.Random(42) # Deterministic for reproducible comps
+        
+        tf_name = _next_name("ShakeTransform")
+        tf = FusionNode(tf_name, "Transform")
+        tf.set_attr("CtrlWZoom", False)
+        
+        path_name = _next_name("ShakePath")
+        path = FusionNode(path_name, "XYPath")
+        
+        x_spline = BezierSpline(f"{tf_name}X")
+        y_spline = BezierSpline(f"{tf_name}Y")
+        
+        for f in range(0, clip_dur):
+            xo = r.uniform(-x_amount, x_amount)
+            yo = r.uniform(-y_amount, y_amount)
+            x_spline.add_key(f, 0.5 + xo, flags={"Linear": True})
+            y_spline.add_key(f, 0.5 + yo, flags={"Linear": True})
+            
+        x_spline.linearize()
+        y_spline.linearize()
+        
+        path.set_input("X", x_spline)
+        path.set_input("Y", y_spline)
+        
+        tf.set_input("Center", path_name, source="Value")
+        
+        return EffectBlock(
+            nodes=[tf, path, x_spline, y_spline],
+            input_name=tf_name,
+            output_name=tf_name,
+        )
+
+    @staticmethod
+    def chromatic_aberration(
+        *,
+        amount: float = 0.01,
+    ) -> EffectBlock:
+        """Channel offset effect."""
+        name = _next_name("ChromaticAberration")
+        node = FusionNode(name, "ChromaticAberration")
+        node.set_input("RedOffset", amount)
+        node.set_input("BlueOffset", -amount)
+        return EffectBlock(nodes=[node], input_name=name, output_name=name)
+
+    @staticmethod
+    def lens_distortion(
+        *,
+        distortion: float = 0.1,
+    ) -> EffectBlock:
+        """Barrel/pincushion distortion."""
+        name = _next_name("LensDistort")
+        node = FusionNode(name, "LensDistort")
+        node.set_input("Distortion", distortion)
+        return EffectBlock(nodes=[node], input_name=name, output_name=name)
+
