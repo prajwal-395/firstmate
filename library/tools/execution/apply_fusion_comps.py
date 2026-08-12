@@ -4,6 +4,7 @@ import os
 import json
 import argparse
 import shutil
+import tempfile
 
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
 os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
@@ -177,7 +178,15 @@ def apply_fusion_comps(manifest):
                 effects.setdefault('zoom_end', 1.0)
                 effects.setdefault('vignette', False)
 
-            comp_content = generate_comp(clip_dur, **effects)
+            # Filter effects to only include params generate_comp() accepts
+            import inspect
+            valid_params = set(inspect.signature(generate_comp).parameters.keys()) - {'clip_dur'}
+            filtered_effects = {k: v for k, v in effects.items() if k in valid_params}
+            if len(filtered_effects) < len(effects):
+                dropped = set(effects.keys()) - set(filtered_effects.keys())
+                print(f"  ⚠ [{orig_ci}] {label}: Dropped unsupported VFX params: {dropped}", file=sys.stderr)
+
+            comp_content = generate_comp(clip_dur, **filtered_effects)
             comp_path = write_comp(os.path.join(comp_dir, f"{label.lower()}.comp"), comp_content)
 
             for cn in (tl_clip.GetFusionCompNameList() or []):
