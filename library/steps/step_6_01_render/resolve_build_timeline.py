@@ -37,10 +37,20 @@ try:
         verify_clip_placement, verify_transitions, verify_color_grades,
         verify_audio, verify_fusion_comps, run_full_timeline_qa
     )
+    from execution.apply_native_transitions import apply_native_transitions
 except ImportError:
     apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
     get_preset = apply_fairlight_preset = None
     verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
+    apply_native_transitions = None
+
+
+# ─── Mappings ────────────────────────────────────────────────
+
+NATIVE_TRANSITIONS = {
+    "cross_dissolve": "Cross Dissolve",
+    "dissolve": "Cross Dissolve",
+}
 
 
 # ─── Resolve Connection ──────────────────────────────────────
@@ -1060,6 +1070,67 @@ def build_timeline(
             label = f"SFX-{i - 2}"
         timeline.SetTrackName("audio", i, label)
         print(f"  A{i}: {label}", file=sys.stderr)
+
+    # ══════════════════════════════════════════════════════════
+    # DRP TRANSITION SURGERY (Pass 2)
+    # ══════════════════════════════════════════════════════════
+    if apply_native_transitions:
+        native_transitions = manifest.get('transitions', [])
+        trans_ops = []
+        for trans in native_transitions:
+            ttype = trans.get('transition_type', trans.get('type', ''))
+            mapped_type = NATIVE_TRANSITIONS.get(ttype)
+            if mapped_type:
+                from_idx = trans.get('from_block')
+                to_idx = trans.get('to_block')
+                if from_idx is None:
+                    pos = trans.get('position', '')
+                    if pos.startswith('between_'):
+                        parts = pos.replace('between_', '').split('_')
+                        if len(parts) == 2:
+                            from_idx = int(parts[0])
+                            to_idx = int(parts[1])
+                
+                from_clip_idx = None
+                if from_idx is not None:
+                    for ci, clip in enumerate(v1_clips):
+                        label = clip.get('label', '')
+                        if label.endswith(f"_{from_idx}") or f"_{from_idx}_seg" in label:
+                            from_clip_idx = ci
+                            break
+                            
+                if from_clip_idx is not None:
+                    at_frame = v1_clips[from_clip_idx].get('timeline_out_frame')
+                    if at_frame:
+                        trans_ops.append({
+                            "track": 1,
+                            "at_frame": at_frame,
+                            "duration_frames": trans.get('duration_frames', 24),
+                            "type": mapped_type
+                        })
+                        
+        if trans_ops:
+            print(f"\n── DRP Transition Surgery: {len(trans_ops)} transitions ──", file=sys.stderr)
+            import tempfile
+            drp_fd, drp_path = tempfile.mkstemp(suffix=".drp")
+            os.close(drp_fd)
+            os.remove(drp_path)
+            
+            project_name_str = project.GetName()
+            if pm.ExportProject(project_name_str, drp_path):
+                print(f"  ✓ Exported project to {drp_path}", file=sys.stderr)
+                try:
+                    apply_native_transitions(drp_path, trans_ops)
+                    print(f"  ✓ Applied {len(trans_ops)} native transitions to DRP", file=sys.stderr)
+                    print(f"  ⚠ RELOAD REQUIRED: DRP surgery completed. The modified project is saved at:", file=sys.stderr)
+                    print(f"    {drp_path}", file=sys.stderr)
+                    print(f"  ⚠ Please import this DRP manually to see the native transitions.", file=sys.stderr)
+                except Exception as e:
+                    print(f"  ✗ DRP Surgery failed: {e}", file=sys.stderr)
+                    if os.path.exists(drp_path):
+                        os.remove(drp_path)
+            else:
+                print(f"  ✗ Failed to export project {project_name_str} to DRP", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # VERIFICATION
