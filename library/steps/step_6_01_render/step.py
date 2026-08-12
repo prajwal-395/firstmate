@@ -20,6 +20,7 @@ import os
 from resolve_build_timeline import build_timeline
 
 def run(inputs: dict) -> dict:
+    import sys
     manifest = inputs.get("assembly_manifest", {})
     if not manifest:
         # Sometimes orchestrator passes it as the root or under another key
@@ -78,6 +79,7 @@ def run(inputs: dict) -> dict:
 
 
 def main():
+    import sys
     try:
         input_data = json.loads(sys.stdin.read())
     except Exception:

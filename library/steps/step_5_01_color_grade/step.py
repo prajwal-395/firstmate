@@ -12,8 +12,10 @@ Output: { "color_grade_spec": { grade_pipeline, per_clip_adjustments } }
 """
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 
 
 # Style spec color grading pipeline (fixed)
@@ -237,7 +239,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             }
 
         per_clip_adjustments.append({
-            "entry_id": entry["entry_id"],
+            "entry_id": entry.get("entry_id", ""),
             "clip_id": entry["clip_id"],
             "source_file": source_file,
             "exposure_offset": exposure_offset,
@@ -263,7 +265,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
 
 
 def main():
-    import time
+    import sys
     input_data = json.loads(sys.stdin.read())
     project_folder = input_data.get("project_folder", "")
     brand_template = input_data.get("brand_template", {})
@@ -296,7 +298,6 @@ def main():
                     }}
                 }}
                 """
-                import re
                 res_text = client.generate(prompt)
                 json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', res_text, re.DOTALL)
                 if json_match:

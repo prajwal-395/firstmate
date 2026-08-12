@@ -44,6 +44,7 @@ from generate_motion_props import generate_motion_props
 
 
 def main():
+    import sys
     data = json.loads(sys.stdin.read())
     enhancement_spec = data.get("enhancement_spec", {})
     audio_spine = data.get("audio_spine", {})

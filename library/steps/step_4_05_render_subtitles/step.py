@@ -50,6 +50,7 @@ from generate_remotion_props import generate_subtitle_props_per_block
 
 
 def main():
+    import sys
     data = json.loads(sys.stdin.read())
     subtitle_plan = data.get("subtitle_plan", {})
     audio_spine = data.get("audio_spine", {})

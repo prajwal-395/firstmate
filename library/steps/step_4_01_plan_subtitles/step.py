@@ -373,7 +373,7 @@ def generate_subtitles(
                     "timeline_end": min(g["end"], block_end),
                     "text": entry_text,
                     "emphasis_words": identify_emphasis_words(entry_text),
-                    "spine_block_position": block["position"],
+                    "spine_block_position": block.get("position", ""),
                     "word_count": g["word_count"],
                     "words": [
                         {
@@ -492,7 +492,7 @@ def generate_subtitles(
                         "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,
                         "emphasis_words": identify_emphasis_words(entry_text),
-                        "spine_block_position": block["position"],
+                        "spine_block_position": block.get("position", ""),
                         "word_count": g["word_count"],
                         "words": [
                             {

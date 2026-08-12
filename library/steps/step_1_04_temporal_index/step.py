@@ -41,6 +41,7 @@ Requires:
     - librosa + soundfile
     - whisperx (pip install whisperx)
 """
+import argparse
 import json
 import os
 import re
@@ -1777,8 +1778,6 @@ def main():
         cat step_1_01.json | python step.py --output-dir ./pipeline_output
         python step.py --manifest step_1_01.json --output-dir ./pipeline_output
     """
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Step 1.04: Build Temporal Event Index"
     )
