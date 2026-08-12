@@ -60,11 +60,40 @@ def project_fields(data: dict, dot_paths: list[str]) -> dict:
         data = {"temporal_index": {"transcripts": [...], "energy_curve": {"values": [0.1, 0.2, ...]}}}
         project_fields(data, ["temporal_index.transcripts"]) 
         -> {"temporal_index": {"transcripts": [...]}}
+    
+    Raises RuntimeError if a projection produces all-empty dicts from a
+    non-empty list, which indicates a schema mismatch in context_fields.
     """
+    import sys
+
     result = {}
+    missed_paths = []
     for path in dot_paths:
         parts = path.split('.')
         projected = _project_single_path(data, parts)
         if projected is not None:
             result = _merge(result, projected)
+        else:
+            root = parts[0]
+            if root in data and data[root] is not None:
+                missed_paths.append(path)
+
+    if missed_paths:
+        print(f"  [context_projector] WARNING: {len(missed_paths)} context_fields "
+              f"resolved to nothing: {missed_paths}", file=sys.stderr)
+
+    # Guard: detect when a list was projected to all-empty dicts
+    for key, val in result.items():
+        if isinstance(val, list) and len(val) > 0:
+            source = data.get(key, [])
+            if isinstance(source, list) and len(source) > 0:
+                non_empty = sum(1 for item in val if item and item != {} and item != [])
+                if non_empty == 0:
+                    raise RuntimeError(
+                        f"context_fields schema mismatch: '{key}' has {len(val)} items "
+                        f"but all projected to empty dicts. The context_fields paths for "
+                        f"'{key}' don't match the actual data schema. "
+                        f"Actual item keys: {sorted(source[0].keys()) if isinstance(source[0], dict) else 'not a dict'}"
+                    )
+
     return result
