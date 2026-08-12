@@ -181,10 +181,17 @@ def main():
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.qa.subtitle_qa import run_subtitle_qa
-            run_subtitle_qa(segments[0]["overlay_path"], project_folder)
+            if not os.environ.get("GEMINI_API_KEY"):
+                print("Warning: GEMINI_API_KEY missing. Skipping subtitle QA validation.", file=sys.stderr)
+            else:
+                run_subtitle_qa(segments[0]["overlay_path"], project_folder)
         except Exception as e:
             error_msg = f"Subtitle QA Validation Failed: {str(e)}"
             print(f"ERROR: {error_msg}", file=sys.stderr)
+            # Don't fail the step if it's just QA that failed, unless it's a critical error
+            # But the prompt says "Change the logic so that a skipped QA (due to missing API key) does NOT cause exit(1)."
+            # We achieved this by not calling run_subtitle_qa if key is missing.
+            # But wait, if run_subtitle_qa raises an exception, should it exit(1)? Yes, the prompt says "When the API key is missing and the QA call is skipped, treat it as a warning/pass rather than a hard failure."
             json.dump({
                 "subtitle_overlay": {
                     "available": False,

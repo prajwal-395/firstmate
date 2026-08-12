@@ -966,17 +966,21 @@ def build_timeline(
     fairlight_preset = audio_config.get('fairlight_preset', '')
     if fairlight_preset:
         print(f"\n── Fairlight Preset: {fairlight_preset} ──", file=sys.stderr)
-        result = project.ApplyFairlightPresetToCurrentTimeline(fairlight_preset)
-        if result:
-            print(f"  ✓ Applied Fairlight preset: {fairlight_preset}", file=sys.stderr)
-        else:
-            print(f"  ⚠ Fairlight preset '{fairlight_preset}' failed, applying fallback", file=sys.stderr)
-            fallback_res = project.ApplyFairlightPresetToCurrentTimeline("Dialogue")
-            if fallback_res:
-                print(f"  ✓ Applied fallback preset: Dialogue", file=sys.stderr)
+        try:
+            result = project.ApplyFairlightPresetToCurrentTimeline(fairlight_preset)
+            if result:
+                print(f"  ✓ Applied Fairlight preset: {fairlight_preset}", file=sys.stderr)
             else:
-                results["warnings"].append(f"Fairlight preset '{fairlight_preset}' and fallback failed")
-                
+                print(f"  ⚠ Fairlight preset '{fairlight_preset}' failed, applying fallback", file=sys.stderr)
+                fallback_res = project.ApplyFairlightPresetToCurrentTimeline("Dialogue")
+                if fallback_res:
+                    print(f"  ✓ Applied fallback preset: Dialogue", file=sys.stderr)
+                else:
+                    results["warnings"].append(f"Fairlight preset '{fairlight_preset}' and fallback failed")
+        except Exception as e:
+            results["warnings"].append(f"Fairlight preset '{fairlight_preset}' exception: {e}")
+            print(f"  ⚠ Fairlight preset '{fairlight_preset}' raised an exception: {e}", file=sys.stderr)
+
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
 

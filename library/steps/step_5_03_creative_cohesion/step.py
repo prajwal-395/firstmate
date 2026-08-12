@@ -131,8 +131,12 @@ def review_creative_cohesion(inputs: dict) -> dict:
         hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence", [])
         
-        hook_eng = hook.get("engagement", 0)
-        max_body_eng = max([b.get("engagement", 0) for b in body]) if body else 0
+        hook_eng = hook.get("engagement", 0) if isinstance(hook.get("engagement"), (int, float)) else 0
+        if body:
+            eng_values = [b.get("engagement", 0) for b in body if isinstance(b.get("engagement"), (int, float))]
+            max_body_eng = max(eng_values) if eng_values else 0
+        else:
+            max_body_eng = 0
         
         if max_body_eng > hook_eng + 10:
             warnings.append(f"Hook engagement ({hook_eng}) is lower than peak body engagement ({max_body_eng})")
