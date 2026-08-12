@@ -51,6 +51,11 @@
     ],
     "outputs": [
       {
+        "name": "broll_creative",
+        "type": "object",
+        "description": "LLM creative B-roll decisions"
+      },
+      {
         "name": "broll_candidates_toon",
         "type": "string",
         "description": "State output: broll_candidates_toon",

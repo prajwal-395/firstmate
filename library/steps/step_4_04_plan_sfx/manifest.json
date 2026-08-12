@@ -102,7 +102,6 @@
       "rough_cut_review",
       "semantic_analysis_documents",
       "sfx_library_status",
-      "temporal_event_indices",
       "timed_spine"
     ],
     "writes": [
