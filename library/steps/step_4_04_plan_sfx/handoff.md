@@ -85,7 +85,8 @@ to the creative direction's energy.
 ## Output Format
 
 ```json
-[
+{
+  "sfx_creative": [
   {
     "sfx_id": "sfx_001",
     "sfx_type": "whoosh",
@@ -99,6 +100,7 @@ to the creative direction's energy.
     "target_track": "A3"
   }
 ]
+}
 ```
 
 ---

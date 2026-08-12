@@ -86,7 +86,8 @@ energy profile.
 ## Output Format
 
 ```json
-[
+{
+  "transition_creative": [
   {
     "transition_id": "trans_001",
     "cut_point_timeline": 5.0,
@@ -99,6 +100,7 @@ energy profile.
     "rationale": "string"
   }
 ]
+}
 ```
 
 **CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.

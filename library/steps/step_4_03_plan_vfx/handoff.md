@@ -78,7 +78,8 @@ to the creative direction's energy profile.
 ## Output Format
 
 ```json
-[
+{
+  "vfx_creative": [
   {
     "timeline_start": 5.0,
     "effect_type": "slow_zoom",
@@ -88,6 +89,7 @@ to the creative direction's energy profile.
     }
   }
 ]
+}
 ```
 
 **CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.

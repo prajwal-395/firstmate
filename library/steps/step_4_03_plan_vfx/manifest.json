@@ -59,7 +59,9 @@
         "name": "enhancement_spec",
         "type": "object",
         "description": "State output: enhancement_spec",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": {
+          "vfx_creative": "list"
+        }
       }
     ],
     "preconditions": [

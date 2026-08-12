@@ -75,9 +75,9 @@ def _apply_manifest_qa_checks(manifest: dict):
         raise ValueError(f"All {len(resolved_transitions)} transitions have empty type - transition key mapping failed. Check plan_transitions output uses 'transition_type' key.")
     
     for t in resolved_transitions:
-        if t.get('duration', 0) <= 0:
-            t['duration'] = 0.5  # default 0.5s crossfade
-            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s had zero duration, defaulted to 0.5s")
+        if t.get('duration_frames', 0) <= 0:
+            t['duration_frames'] = 15  # default 15 frames (~0.5s at 30fps)
+            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s had zero duration, defaulted to 15 frames")
 
     # Check 4: VFX Position Field Validation
     valid_vfx = []

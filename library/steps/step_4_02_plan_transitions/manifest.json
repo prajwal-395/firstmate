@@ -71,7 +71,9 @@
         "name": "transition_spec",
         "type": "array",
         "description": "State output: transition_spec",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": {
+          "transition_creative": "list"
+        }
       }
     ],
     "preconditions": [

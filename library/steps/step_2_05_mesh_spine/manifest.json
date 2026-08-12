@@ -41,7 +41,11 @@
       {
         "name": "timed_spine",
         "type": "object",
-        "description": "State output: timed_spine"
+        "description": "State output: timed_spine",
+        "expected_schema": {
+          "total_estimated_duration_seconds": "float",
+          "structure": "list"
+        }
       }
     ],
     "preconditions": [

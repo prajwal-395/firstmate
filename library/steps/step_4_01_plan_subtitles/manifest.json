@@ -41,7 +41,11 @@
       {
         "name": "subtitle_plan",
         "type": "object",
-        "description": "State output: subtitle_plan"
+        "description": "State output: subtitle_plan",
+        "expected_schema": {
+          "subtitle_entries": "list",
+          "total_subtitles": "int"
+        }
       }
     ],
     "preconditions": [

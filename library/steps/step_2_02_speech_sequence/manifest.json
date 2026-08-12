@@ -46,7 +46,11 @@
         "name": "speech_sequence",
         "type": "object",
         "description": "State output: speech_sequence",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": {
+          "hook_segment": "object",
+          "body_sequence": "list",
+          "excluded_passages": "list"
+        }
       }
     ],
     "preconditions": [

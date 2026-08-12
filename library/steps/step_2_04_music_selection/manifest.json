@@ -24,7 +24,13 @@
         "name": "music_selection",
         "type": "object",
         "description": "State output: music_selection",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": {
+          "overall_mood": "string",
+          "overall_energy": "string",
+          "search_queries_used": "list",
+          "candidates_evaluated": "list",
+          "tracks": "list"
+        }
       }
     ],
     "preconditions": [

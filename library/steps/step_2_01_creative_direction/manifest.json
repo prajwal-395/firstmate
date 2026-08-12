@@ -42,7 +42,16 @@
         "name": "creative_direction",
         "type": "object",
         "description": "State output: creative_direction",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": {
+          "narrative_theme": "string",
+          "target_mood": "string",
+          "target_energy": "string",
+          "energy_arc": "string",
+          "emotional_landscape": "string",
+          "audience_emotion": "string",
+          "key_moments": "list",
+          "rationale": "string"
+        }
       }
     ],
     "preconditions": [

@@ -53,7 +53,11 @@
       {
         "name": "broll_candidates_toon",
         "type": "string",
-        "description": "State output: broll_candidates_toon"
+        "description": "State output: broll_candidates_toon",
+        "expected_schema": {
+          "broll_creative": "list",
+          "b_roll_interjections": "list"
+        }
       },
       {
         "name": "b_roll_assignments",
