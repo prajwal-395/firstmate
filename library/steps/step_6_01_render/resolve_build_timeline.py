@@ -667,10 +667,49 @@ def build_timeline(
     # ══════════════════════════════════════════════════════════
     if has_subtitles:
         print(f"\n── V3 Subtitle Overlay: {len(sub_segments)} segments ──", file=sys.stderr)
+        
+        # Build mapping from spine block position -> actual V1 timeline position offset
+        block_offsets = {}
+        placed_by_label = dict(zip(v1_placed_labels, v1_timeline_items))
+        
+        for clip in v1_clips:
+            label = clip.get('label', '')
+            parts = label.split('_')
+            # e.g., "speech_3", "speech_3_seg0", "hook_1"
+            if len(parts) >= 2 and parts[0] in ('speech', 'hook'):
+                try:
+                    block_idx = int(parts[1])
+                    if block_idx not in block_offsets:
+                        if label in placed_by_label:
+                            placed = placed_by_label[label]
+                            try:
+                                actual_start = placed.GetStart()
+                            except AttributeError:
+                                actual_start = clip.get('timeline_in_frame', 0)
+                                
+                            estimated_start = clip.get('timeline_in_frame', 0)
+                            block_offsets[block_idx] = actual_start - estimated_start
+                except ValueError:
+                    pass
+
+        import re
         v3_count = 0
         for si, seg in enumerate(sub_segments):
             seg_path = seg.get('overlay_path', '')
             seg_basename = os.path.basename(seg_path)
+            
+            # Look up which spine block it belongs to
+            block_idx = seg.get('_block_position')
+            if block_idx is None:
+                m = re.search(r'sub_block_(\d+)', seg_basename)
+                if m:
+                    block_idx = int(m.group(1))
+
+            if block_idx is not None and block_idx not in block_offsets:
+                # Block was cut from the final timeline (no V1 clip placed)
+                print(f"  ⚠ [{si}] {seg_basename}: spine block {block_idx} missing from V1, skipping", file=sys.stderr)
+                continue
+                
             pool_item = _find_pool_clip(seg_path)
             if not pool_item:
                 results["warnings"].append(f"V3[{si}] {seg_basename} not in pool")
@@ -680,9 +719,14 @@ def build_timeline(
             # Ensure ProRes 4444 alpha channel is recognized
             pool_item.SetClipProperty("Alpha mode", "Premultiplied")
 
+            offset_f = block_offsets.get(block_idx, 0) if block_idx is not None else 0
+
             seg_frames = seg.get('total_frames', round(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
+            
+            # Shift the subtitle's timeline_start by the offset
+            tl_in_frame += offset_f
 
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
