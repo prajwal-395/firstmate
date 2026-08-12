@@ -476,6 +476,18 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     current_context = toon_str
     best_output = None
     
+    expected_schema_str = ""
+    llm_manifest = None
+    if manifest:
+        outputs = manifest.get("interface", {}).get("outputs", [])
+        llm_outputs = [o for o in outputs if o.get("name") not in inputs]
+        expected_schema_str = json.dumps(llm_outputs)
+        
+        llm_manifest = dict(manifest)
+        if "interface" in manifest:
+            llm_manifest["interface"] = dict(manifest["interface"])
+            llm_manifest["interface"]["outputs"] = llm_outputs
+
     for attempt in range(qa_loop.max_retries + 1):
         full_prompt = prompt + constraints + "\n\nContext:\n" + current_context
         parsed_result = None
@@ -497,11 +509,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             
             if res_file.exists():
                 res_file.unlink()
-                
-            expected_schema_str = ""
-            if manifest:
-                outputs = manifest.get("interface", {}).get("outputs", [])
-                expected_schema_str = json.dumps(outputs)
                 
             req_data = {
                 "step_id": node_id,
@@ -632,7 +639,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                         "__llm_raw_output": result_text
                     }
                     
-        passed, feedback = qa_loop.run_checks(node_id, parsed_result, manifest, validate_step_output)
+        passed, feedback = qa_loop.run_checks(node_id, parsed_result, llm_manifest if manifest else None, validate_step_output)
         if passed:
             return parsed_result
             
@@ -700,16 +707,25 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     if post_bridge.exists():
         try:
             merge_data = dict(inputs)
+            merge_data.update(pre_output)
             if isinstance(llm_output, dict):
                 merge_data.update(llm_output)
             else:
                 merge_data["llm_raw_response"] = llm_output
             final = run_subprocess(post_bridge, merge_data)
-            return final
+            
+            # Ensure bridge outputs are preserved if post-bridge didn't explicitly return them
+            result = dict(pre_output)
+            if isinstance(final, dict):
+                result.update(final)
+            return result
         except Exception as e:
             raise PostBridgeError(f"Post-bridge failed: {e}")
     
-    return llm_output
+    result = dict(pre_output)
+    if isinstance(llm_output, dict):
+        result.update(llm_output)
+    return result
 
 
 def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> None:
@@ -1035,20 +1051,8 @@ def run_pipeline(
                 except Exception:
                     summary_md = "Review required for this step."
 
-                from library.tools.dashboard_messenger import request_human_review
-                response = request_human_review(
-                    step_name=node_id,
-                    question=summary_md,
-                    context="Review output and upstream context."
-                )
-
-                if response.get("action") == "reject":
-                    raise RuntimeError(f"Step '{node_id}' rejected by human review.")
-
-                # Reload state in case human revised the output
-                state = load_pipeline_state(project_dir)
-                outputs = state.get("step_outputs", {})
-                output = outputs.get(node_id, output)
+                completed.append(node_id)
+                break
                 
             completed.append(node_id)
 

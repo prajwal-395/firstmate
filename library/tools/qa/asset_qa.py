@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import sys
 
 def verify_alpha_channel(mov_path: str) -> bool:
     """
@@ -28,11 +29,11 @@ def verify_alpha_channel(mov_path: str) -> bool:
         
         has_alpha = "yuva" in str(pix_fmt).lower() or (str(codec_name).lower() == "prores" and "4444" in str(profile))
         if not has_alpha:
-            print(f"QA: Alpha check failed for {mov_path}: no alpha detected (pix_fmt={pix_fmt}, codec={codec_name}, profile={profile})")
+            print(f"QA: Alpha check failed for {mov_path}: no alpha detected (pix_fmt={pix_fmt}, codec={codec_name}, profile={profile})", file=sys.stderr)
             return False
             
     except Exception as e:
-        print(f"QA: Alpha check failed to run ffprobe: {e}")
+        print(f"QA: Alpha check failed to run ffprobe: {e}", file=sys.stderr)
         return False
         
     # Check for non-black pixels by sampling a frame
@@ -54,7 +55,7 @@ def verify_alpha_channel(mov_path: str) -> bool:
             res = subprocess.run(cmd_img, capture_output=True, timeout=10)
             
         if not res.stdout:
-            print(f"QA: Alpha check failed to extract frame from {mov_path}")
+            print(f"QA: Alpha check failed to extract frame from {mov_path}", file=sys.stderr)
             return False
             
         # Check if there's any non-zero value in RGB channels (ignoring Alpha which is every 4th byte)
@@ -67,11 +68,11 @@ def verify_alpha_channel(mov_path: str) -> bool:
                     break
                     
         if is_all_black:
-            print(f"QA: Alpha check failed for {mov_path}: frame is purely black")
+            print(f"QA: Alpha check failed for {mov_path}: frame is purely black", file=sys.stderr)
             return False
             
     except Exception as e:
-        print(f"QA: Alpha check pixel verification failed: {e}")
+        print(f"QA: Alpha check pixel verification failed: {e}", file=sys.stderr)
         return False
 
     return True

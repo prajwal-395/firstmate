@@ -7,7 +7,6 @@ from pathlib import Path
 
 # Add tools to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from llm_client import LLMClient
 
 def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
     """Runs vision QA on a rendered subtitle segment."""
@@ -52,16 +51,10 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to extract frames for QA: {e.stderr.decode()}")
         
-    # Prepare LLM call
-    client = LLMClient(provider="gemini", model="gemini-1.5-pro")
+    # Prepare local vision model call
+    from tools.vision_model import get_model
+    model = get_model()
     
-    try:
-        import PIL.Image
-        img1 = PIL.Image.open(frame1_path)
-        img2 = PIL.Image.open(frame2_path)
-    except ImportError:
-        raise RuntimeError("Pillow is required for Gemini Vision API.")
-        
     prompt_text = """This is a rendered subtitle overlay for vertical shortform video (1080x1920). Check:
 (1) Are words properly spaced and readable?
 (2) Is text positioned at the bottom of the frame?
@@ -70,14 +63,12 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
 Report pass/fail with specific issues. 
 Format your response starting with exactly "PASS" or "FAIL", followed by a newline and your explanation.
 If there is no text at all on the frames, and they are completely blank, report FAIL."""
-
-    prompt = [prompt_text, img1, img2]
     
-    print("Calling Gemini Vision API...", file=sys.stderr)
+    print("Calling local Vision Model...", file=sys.stderr)
     try:
-        response = client.generate(prompt)
+        response = model.analyze_images([frame1_path, frame2_path], prompt_text)
     except Exception as e:
-        raise RuntimeError(f"Gemini API call failed: {e}")
+        raise RuntimeError(f"Vision model call failed: {e}")
         
     # Clean up frames
     try:
@@ -87,7 +78,7 @@ If there is no text at all on the frames, and they are completely blank, report 
         pass
         
     if not response:
-        raise RuntimeError("Empty response from Gemini Vision API")
+        raise RuntimeError("Empty response from local Vision Model")
         
     is_pass = response.strip().upper().startswith("PASS")
     

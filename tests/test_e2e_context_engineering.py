@@ -129,13 +129,13 @@ def test_run_hybrid_step_mocked(mock_present_llm, mock_run_subprocess, tmp_path)
     assert "compressed_context" in llm_args[1]
     assert "raw_input" in llm_args[1]
     
-    # Verify post-bridge was called with merged LLM output + original inputs
+    # Verify post-bridge was called with merged LLM output + pre-bridge output + original inputs
     args, kwargs = mock_run_subprocess.call_args_list[1]
     assert args[0] == step_dir / "post_bridge.py"
-    assert args[1] == {"raw_input": "data", "llm_decision": "approved"}
+    assert args[1] == {"raw_input": "data", "compressed_context": "yes", "llm_decision": "approved"}
     
-    # Final result should be post-bridge output
-    assert result == {"final_output": "success"}
+    # Final result should be post-bridge output merged with pre-bridge output
+    assert result == {"compressed_context": "yes", "final_output": "success"}
 
 def test_deterministic_steps_get_full_unfiltered_data():
     # Deterministic steps don't have context_fields in their manifest,
