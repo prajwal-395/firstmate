@@ -123,8 +123,6 @@
     "semantic_analysis_documents.*.assessment.interest_score",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.clip_type",
-    "temporal_event_indices.*.scene_boundaries",
-    "temporal_event_indices.*.motion_energy.high_motion_times",
-    "temporal_event_indices.*.motion_energy.peak_motion_times"
+    "temporal_event_indices.*.scenes"
   ]
 }

@@ -113,7 +113,6 @@
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.audio_prediction",
     "semantic_analysis_documents.*.assessment.keywords",
-    "temporal_event_indices.*.scene_boundaries",
-    "temporal_event_indices.*.motion_energy.high_motion_times"
+    "temporal_event_indices.*.scenes"
   ]
 }

@@ -44,7 +44,7 @@ def _apply_manifest_qa_checks(manifest: dict):
         curr_end = subtitles[i].get('timeline_end', subtitles[i].get('timeline_end_seconds', 0))
         next_start = subtitles[i+1].get('timeline_start', subtitles[i+1].get('timeline_start_seconds', 0))
         if curr_end > next_start + 0.01:  # 10ms tolerance
-            logger.error(f"Subtitle overlap: sub {i} ends at {curr_end:.3f}s but sub {i+1} starts at {next_start:.3f}s (overlap: {curr_end - next_start:.3f}s)")
+            logger.warning(f"Subtitle overlap: sub {i} ends at {curr_end:.3f}s but sub {i+1} starts at {next_start:.3f}s (overlap: {curr_end - next_start:.3f}s)")
             # Clamp: set curr subtitle's end to next subtitle's start
             subtitles[i]['timeline_end'] = next_start
 
@@ -62,7 +62,7 @@ def _apply_manifest_qa_checks(manifest: dict):
             curr_out = clips[i].get('timeline_out', clips[i].get('timeline_out_seconds', 0))
             next_in = clips[i+1].get('timeline_in', clips[i+1].get('timeline_in_seconds', 0))
             if curr_out > next_in + 0.01:
-                logger.error(f"Track {track_name}: clip {i} ends at {curr_out:.3f}s overlaps clip {i+1} at {next_in:.3f}s")
+                logger.warning(f"Track {track_name}: clip {i} ends at {curr_out:.3f}s overlaps clip {i+1} at {next_in:.3f}s")
         # Also check for exact duplicate positions
         positions = [(c.get('timeline_in',0), c.get('timeline_out',0)) for c in clips]
         seen = set()

@@ -751,6 +751,8 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     
     if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
         return llm_output
+    if 'pre_output' not in locals():
+        pre_output = {}
         
     if post_bridge.exists():
         try:

@@ -131,9 +131,17 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
                     )
 
                 # Verify timestamps are within source file duration
-                video_in = seg.get("start_time", seg.get("source_start", 0.0)) or 0.0
-                video_out = seg.get("end_time", seg.get("source_end", 0.0)) or 0.0
-                clip_duration = clip.get("duration_seconds", 0) or 0
+                video_in = seg.get("start_time") or seg.get("source_start") or seg.get("source_in") or 0.0
+                if video_in is None:
+                    video_in = 0.0
+                video_in = float(video_in)
+
+                video_out = seg.get("end_time") or seg.get("source_end") or seg.get("source_out") or 0.0
+                if video_out is None:
+                    video_out = 0.0
+                video_out = float(video_out)
+
+                clip_duration = float(clip.get("duration_seconds") or 0.0)
 
                 if video_out > clip_duration + 0.5:  # 0.5s tolerance
                     print(
