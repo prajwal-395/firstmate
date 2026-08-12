@@ -584,9 +584,9 @@ def generate_subtitles(
     for i in range(len(sorted_subs) - 1):
         if sorted_subs[i]["timeline_end"] > sorted_subs[i + 1]["timeline_start"] + 0.01:
             print(
-                f"WARNING: Subtitle overlap: {sorted_subs[i]['entry_id']} "
+                f"WARNING: Subtitle overlap: {sorted_subs[i].get('entry_id', sorted_subs[i].get('id', '?'))} "
                 f"ends at {sorted_subs[i]['timeline_end']} but "
-                f"{sorted_subs[i + 1]['entry_id']} starts at "
+                f"{sorted_subs[i + 1].get('entry_id', sorted_subs[i + 1].get('id', '?'))} starts at "
                 f"{sorted_subs[i + 1]['timeline_start']}",
                 file=sys.stderr,
             )
@@ -594,13 +594,13 @@ def generate_subtitles(
     # All text is lowercase
     for sub in subtitle_entries:
         assert sub["text"] == sub["text"].lower(), \
-            f"Subtitle {sub['entry_id']} is not lowercase: {sub['text']}"
+            f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} is not lowercase: {sub['text']}"
 
     # Word count warnings
     for sub in subtitle_entries:
         if sub["word_count"] > 8:
             print(
-                f"WARNING: Subtitle {sub['entry_id']} has "
+                f"WARNING: Subtitle {sub.get('entry_id', sub.get('id', '?'))} has "
                 f"{sub['word_count']} words",
                 file=sys.stderr,
             )

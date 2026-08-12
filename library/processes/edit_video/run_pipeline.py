@@ -686,6 +686,7 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     prompt_path = str(step_dir / "handoff.md")
     
     compressed = dict(inputs)
+    pre_output = {}
     if pre_bridge.exists():
         try:
             pre_output = run_subprocess(pre_bridge, inputs)

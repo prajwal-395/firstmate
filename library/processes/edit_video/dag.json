@@ -636,7 +636,7 @@
       "from": "temporal_index",
       "to": "select_broll",
       "data_mapping": {
-        "temporal_event_indices": "temporal_event_indices"
+        "full_indices": "temporal_event_indices"
       }
     },
     {
@@ -713,7 +713,7 @@
       "from": "temporal_index",
       "to": "plan_transitions",
       "data_mapping": {
-        "temporal_event_indices": "temporal_event_indices"
+        "full_indices": "temporal_event_indices"
       }
     },
     {
@@ -790,7 +790,7 @@
       "from": "temporal_index",
       "to": "plan_sfx",
       "data_mapping": {
-        "temporal_event_indices": "temporal_event_indices"
+        "full_indices": "temporal_event_indices"
       }
     },
     {

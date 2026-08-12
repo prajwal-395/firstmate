@@ -317,7 +317,6 @@ def main():
                             
                     creative_look_dctl = install_dctl(name, dctl_source)
             except Exception as e:
-                import sys
                 print(f"Warning: Failed to generate custom DCTL: {e}", file=sys.stderr)
 
     entries = []
