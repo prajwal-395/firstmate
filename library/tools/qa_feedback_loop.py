@@ -341,3 +341,27 @@ class QAFeedbackLoop:
             return False, True
 
         return True, False
+
+class LLMStepQA:
+    """Coordinates QA checks and retries for generic LLM pipeline steps."""
+    
+    def __init__(self, max_retries: int = 2):
+        self.max_retries = max_retries
+        
+    def run_checks(self, node_id: str, output: dict, manifest: dict, validate_fn: Callable) -> Tuple[bool, str]:
+        """
+        Run QA checks for an LLM step's output.
+        Returns (passed, feedback_string).
+        """
+        try:
+            # 1. Run schema validation (which raises RuntimeError on failure)
+            if validate_fn:
+                validate_fn(node_id, output, manifest)
+                
+            # Future: Dynamically load and run any other checks from library.tools.qa
+            # if they apply to this node_id.
+            
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+

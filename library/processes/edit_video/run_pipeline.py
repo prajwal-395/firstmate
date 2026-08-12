@@ -471,158 +471,180 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     loader_instance = TemplateLoader(project_folder)
     constraints = loader_instance.get_brand_constraints(brand_template, node_id)
         
-    full_prompt = prompt + constraints + "\n\nContext:\n" + toon_str
+    from library.tools.qa_feedback_loop import LLMStepQA
+    qa_loop = LLMStepQA(max_retries=2)
+    current_context = toon_str
+    best_output = None
     
-    if full_auto == "agy":
-        import datetime
-        from pathlib import Path
-        project_folder = inputs.get("project_folder", "")
-        if not project_folder:
-            raise LLMError("project_folder required in inputs for agy backend")
+    for attempt in range(qa_loop.max_retries + 1):
+        full_prompt = prompt + constraints + "\n\nContext:\n" + current_context
+        parsed_result = None
+        
+        if full_auto == "agy":
+            import datetime
+            from pathlib import Path
+            project_folder = inputs.get("project_folder", "")
+            if not project_folder:
+                raise LLMError("project_folder required in inputs for agy backend")
+                
+            requests_dir = Path(project_folder) / "pipeline_output" / "llm_requests"
+            responses_dir = Path(project_folder) / "pipeline_output" / "llm_responses"
+            requests_dir.mkdir(parents=True, exist_ok=True)
+            responses_dir.mkdir(parents=True, exist_ok=True)
             
-        requests_dir = Path(project_folder) / "pipeline_output" / "llm_requests"
-        responses_dir = Path(project_folder) / "pipeline_output" / "llm_responses"
-        requests_dir.mkdir(parents=True, exist_ok=True)
-        responses_dir.mkdir(parents=True, exist_ok=True)
-        
-        req_file = requests_dir / f"{node_id}.json"
-        res_file = responses_dir / f"{node_id}.json"
-        
-        if res_file.exists():
-            res_file.unlink()
+            req_file = requests_dir / f"{node_id}.json"
+            res_file = responses_dir / f"{node_id}.json"
             
-        expected_schema_str = ""
-        if manifest:
-            outputs = manifest.get("interface", {}).get("outputs", [])
-            expected_schema_str = json.dumps(outputs)
-            
-        req_data = {
-            "step_id": node_id,
-            "prompt": prompt,
-            "context": toon_str,
-            "expected_schema": expected_schema_str,
-            "project_folder": project_folder,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-        
-        with open(req_file, "w") as f:
-            json.dump(req_data, f, indent=2)
-            
-        print(f"LLM_REQUEST_READY: {req_file}", file=sys.stdout)
-        sys.stdout.flush()
-        
-        print(f"  Waiting for AGY response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
-        start_wait = time.time()
-        start_time_llm = time.time()
-        
-        while time.time() - start_wait < llm_timeout:
             if res_file.exists():
-                time.sleep(0.5) # allow write flush
-                try:
-                    with open(res_file, "r") as f:
-                        res_content = f.read()
-                    res_json = json.loads(res_content)
-                except Exception as e:
-                    raise LLMError(f"Failed to read or parse AGY LLM response as JSON: {e}")
+                res_file.unlink()
+                
+            expected_schema_str = ""
+            if manifest:
+                outputs = manifest.get("interface", {}).get("outputs", [])
+                expected_schema_str = json.dumps(outputs)
+                
+            req_data = {
+                "step_id": node_id,
+                "prompt": prompt,
+                "context": current_context,
+                "expected_schema": expected_schema_str,
+                "project_folder": project_folder,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+            
+            with open(req_file, "w") as f:
+                json.dump(req_data, f, indent=2)
+                
+            print(f"LLM_REQUEST_READY: {req_file}", file=sys.stdout)
+            sys.stdout.flush()
+            
+            print(f"  Waiting for AGY response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
+            start_wait = time.time()
+            start_time_llm = time.time()
+            
+            while time.time() - start_wait < llm_timeout:
+                if res_file.exists():
+                    time.sleep(0.5)
+                    try:
+                        with open(res_file, "r") as f:
+                            res_content = f.read()
+                        parsed_result = json.loads(res_content)
+                    except Exception as e:
+                        raise LLMError(f"Failed to read or parse AGY LLM response as JSON: {e}")
+                        
+                    if logger:
+                        response_tokens = len(res_content.split()) * 1.3
+                        logger.log(
+                            step_id=node_id,
+                            event_type="llm_generation",
+                            backend="agy",
+                            latency=round(time.time() - start_time_llm, 2),
+                            token_count={
+                                "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
+                                "response": int(response_tokens)
+                            }
+                        )
+                    break
+                time.sleep(2)
+                
+            if parsed_result is None:
+                raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
+
+        else:
+            llm_config = {}
+            if manifest and "llm_config" in manifest:
+                llm_config = manifest["llm_config"]
+                
+            provider = os.environ.get("PIPELINE_LLM_PROVIDER", llm_config.get("provider", "gemini"))
+            model = os.environ.get("PIPELINE_LLM_MODEL", llm_config.get("model", "gemini-2.5-flash"))
+            temperature = llm_config.get("temperature", 0.7)
+            max_output_tokens = llm_config.get("max_output_tokens", 4096)
+            
+            from library.tools.llm_client import LLMClient
+            client = LLMClient(provider, model, temperature=temperature, max_output_tokens=max_output_tokens)
+            
+            print(f"  Calling LLM ({provider}/{model}) for {node_id}...", file=sys.stderr)
+            start_time_llm = time.time()
+            result_text = client.generate(full_prompt, system="You are a video editor and pipeline orchestrator.")
+            latency = time.time() - start_time_llm
+            
+            if full_auto == "api":
+                if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
+                    raise LLMError("API call failed or returned empty response.")
                     
                 if logger:
-                    response_tokens = len(res_content.split()) * 1.3
+                    response_tokens = len(result_text.split()) * 1.3
                     logger.log(
                         step_id=node_id,
                         event_type="llm_generation",
-                        backend="agy",
-                        latency=round(time.time() - start_time_llm, 2),
+                        backend="api",
+                        latency=round(latency, 2),
                         token_count={
                             "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
                             "response": int(response_tokens)
                         }
                     )
-                return res_json
-                
-            time.sleep(2)
-            
-        raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
-
-    llm_config = {}
-    if manifest and "llm_config" in manifest:
-        llm_config = manifest["llm_config"]
-        
-    provider = os.environ.get("PIPELINE_LLM_PROVIDER", llm_config.get("provider", "gemini"))
-    model = os.environ.get("PIPELINE_LLM_MODEL", llm_config.get("model", "gemini-2.5-flash"))
-    temperature = llm_config.get("temperature", 0.7)
-    max_output_tokens = llm_config.get("max_output_tokens", 4096)
-    
-    from library.tools.llm_client import LLMClient
-    client = LLMClient(provider, model, temperature=temperature, max_output_tokens=max_output_tokens)
-    
-    print(f"  Calling LLM ({provider}/{model}) for {node_id}...", file=sys.stderr)
-    start_time_llm = time.time()
-    result_text = client.generate(full_prompt, system="You are a video editor and pipeline orchestrator.")
-    latency = time.time() - start_time_llm
-    
-    if full_auto == "api":
-        if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
-            raise LLMError("API call failed or returned empty response.")
-            
-        if logger:
-            response_tokens = len(result_text.split()) * 1.3
-            logger.log(
-                step_id=node_id,
-                event_type="llm_generation",
-                backend="api",
-                latency=round(latency, 2),
-                token_count={
-                    "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
-                    "response": int(response_tokens)
-                }
-            )
-            
-        try:
-            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
-            if json_match:
-                result_json = json_match.group(1)
+                    
+                try:
+                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
+                    if json_match:
+                        result_json = json_match.group(1)
+                    else:
+                        result_json = result_text
+                    parsed_result = json.loads(result_json)
+                except Exception as e:
+                    raise LLMError(f"Failed to parse LLM JSON output from API: {e}\nRaw output: {result_text[:200]}")
             else:
-                result_json = result_text
-            return json.loads(result_json)
-        except Exception as e:
-            raise LLMError(f"Failed to parse LLM JSON output from API: {e}\nRaw output: {result_text[:200]}")
+                if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
+                    print(f"\n{'─'*60}", file=sys.stderr)
+                    print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
+                    print(f"  Prompt: {prompt_path}", file=sys.stderr)
+                    print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
+                    print(f"{'─'*60}", file=sys.stderr)
+                    print(f"\n  This step requires LLM judgment.", file=sys.stderr)
+                    print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
+                    print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
+                    print(f"\n  When complete, save the output to:", file=sys.stderr)
+                    print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
+                    print(f"{'─'*60}\n", file=sys.stderr)
+                    
+                    return {
+                        "__status": "awaiting_llm",
+                        "__prompt": prompt_path,
+                        "__inputs_available": list(inputs.keys()),
+                        "__context": current_context,
+                    }
+                    
+                try:
+                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
+                    if json_match:
+                        result_json = json_match.group(1)
+                    else:
+                        result_json = result_text
+                    parsed_result = json.loads(result_json)
+                except Exception as e:
+                    print(f"  Warning: failed to parse LLM output as JSON: {e}", file=sys.stderr)
+                    return {
+                        "__status": "awaiting_llm",
+                        "__prompt": prompt_path,
+                        "__inputs_available": list(inputs.keys()),
+                        "__context": current_context,
+                        "__llm_raw_output": result_text
+                    }
+                    
+        passed, feedback = qa_loop.run_checks(node_id, parsed_result, manifest, validate_step_output)
+        if passed:
+            return parsed_result
+            
+        best_output = parsed_result
+        if attempt < qa_loop.max_retries:
+            print(f"  QA failed on attempt {attempt+1}, retrying: {feedback}", file=sys.stderr)
+            current_context += f"\n\nQA Feedback from previous attempt:\nThe previous output failed validation: {feedback}\nPlease correct this."
+            
+    print(f"  Warning: QA failed after {qa_loop.max_retries} retries for {node_id}, proceeding with best attempt.", file=sys.stderr)
+    return best_output or {}
 
-    if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
-        print(f"\n{'─'*60}", file=sys.stderr)
-        print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
-        print(f"  Prompt: {prompt_path}", file=sys.stderr)
-        print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
-        print(f"{'─'*60}", file=sys.stderr)
-        print(f"\n  This step requires LLM judgment.", file=sys.stderr)
-        print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
-        print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
-        print(f"\n  When complete, save the output to:", file=sys.stderr)
-        print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
-        print(f"{'─'*60}\n", file=sys.stderr)
-        
-        return {
-            "__status": "awaiting_llm",
-            "__prompt": prompt_path,
-            "__inputs_available": list(inputs.keys()),
-            "__context": toon_str,
-        }
-        
-    try:
-        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
-        if json_match:
-            result_json = json_match.group(1)
-        else:
-            result_json = result_text
-        return json.loads(result_json)
-    except Exception as e:
-        print(f"  Warning: failed to parse LLM output as JSON: {e}", file=sys.stderr)
-        return {
-            "__status": "awaiting_llm",
-            "__prompt": prompt_path,
-            "__inputs_available": list(inputs.keys()),
-            "__context": toon_str,
-            "__llm_raw_output": result_text
-        }
+
 
 
 def run_subprocess(script_path: Path, inputs: dict) -> dict:
