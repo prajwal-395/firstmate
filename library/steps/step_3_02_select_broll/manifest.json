@@ -64,11 +64,6 @@
           "broll_creative": "list",
           "b_roll_interjections": "list"
         }
-      },
-      {
-        "name": "broll_creative",
-        "type": "object",
-        "description": "LLM creative B-roll decisions"
       }
     ],
     "preconditions": [

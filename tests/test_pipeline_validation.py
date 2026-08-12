@@ -79,19 +79,21 @@ def test_validate_step_output():
     }
     
     # Valid output (non-empty required values)
-    validate_step_output("test_node", {"req_key": {"data": 1}, "opt_key": []}, manifest)
+    issues = validate_step_output("test_node", {"req_key": {"data": 1}, "opt_key": []}, manifest)
+    assert not issues
     
     # Missing optional key is OK
-    validate_step_output("test_node", {"req_key": {"data": 1}}, manifest)
+    issues = validate_step_output("test_node", {"req_key": {"data": 1}}, manifest)
+    assert not issues
 
     # Semantically empty required output
-    with pytest.raises(RuntimeError, match="semantically empty"):
-        validate_step_output("test_node", {"req_key": {}, "opt_key": []}, manifest)
+    issues = validate_step_output("test_node", {"req_key": {}, "opt_key": []}, manifest)
+    assert any("semantically empty" in issue for issue in issues)
     
     # Missing required key
-    with pytest.raises(RuntimeError, match="missing required key: 'req_key'"):
-        validate_step_output("test_node", {"opt_key": []}, manifest)
+    issues = validate_step_output("test_node", {"opt_key": []}, manifest)
+    assert any("missing required key: 'req_key'" in issue for issue in issues)
         
     # Wrong type
-    with pytest.raises(RuntimeError, match="expected type dict, got list"):
-        validate_step_output("test_node", {"req_key": []}, manifest)
+    issues = validate_step_output("test_node", {"req_key": []}, manifest)
+    assert any("expected type dict, got list" in issue for issue in issues)

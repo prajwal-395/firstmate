@@ -53,31 +53,6 @@ Your output has five sections:
 Computed once per clip. Use keyframes and the full viewing to assess overall
 character.
 
-```json
-{
-  "clip_id": "<clip_id from catalog, or filename>",
-  "clip_summary": {
-    "duration_seconds": 0.0,
-
-    "primary_color_palette": {
-      "temperature_feel": "very_warm | warm | neutral | cool | very_cool",
-      "saturation_feel": "desaturated | muted | natural | vivid | hyper_vivid",
-      "palette_words": ["string", "..."]
-    },
-
-    "primary_subject_type": "creator_talking_head | creator_activity | other_person | environment_no_people | object_focused | mixed",
-    "people_count": "zero | one | two | small_group | crowd",
-    "estimated_focal_length": "wide | standard | telephoto",
-    "depth_of_field": "shallow | deep | mixed",
-    "audio_environment_type": "indoor_quiet | indoor_ambient | outdoor_natural | outdoor_urban | vehicle_interior | crowd | silent",
-
-    "continuity_markers": {
-      "creator_clothing": "string — e.g., 'black hoodie, white over-ear headphones'",
-      "primary_location_type": "string — e.g., 'bedroom', 'café', 'urban street', 'gym'"
-    }
-  }
-}
-```
 
 ---
 
@@ -87,119 +62,6 @@ One entry per shot. Identify scene boundaries by watching for hard cuts, dissolv
 or significant changes in framing, location, or lighting that constitute a new shot.
 For each segment, fill ALL structured fields, then write a holistic prose description.
 
-```json
-{
-  "scene_segments": [
-    {
-      "segment_id": "seg_001",
-      "start_time": 0.0,
-      "end_time": 4.5,
-
-      "framing": {
-        "shot_size": "ECU | CU | MCU | MS | MWS | WS | EWS",
-        "shot_size_notes": "string — e.g., 'tight on face, forehead cropped'",
-        "subject_position": "center | left_third | right_third | frame_edge | no_subject",
-        "headroom": "tight | normal | loose",
-        "lead_room": "left | right | none",
-        "depth_of_field": "shallow_bokeh | moderate | deep_all_sharp"
-      },
-
-      "camera_movement": {
-        "primary_type": "static | handheld_stable | handheld_shaky | pan_left | pan_right | tilt_up | tilt_down | zoom_in | zoom_out | dolly_in | dolly_out | tracking | crane_up | crane_down | drone_aerial | whip_pan | roll | mixed",
-        "movement_speed": "none | very_slow | slow | medium | fast | very_fast",
-        "movement_smoothness": "very_smooth | smooth | slight_shake | shaky | erratic",
-        "motivation": "following_subject | revealing_environment | stylistic | handheld_naturalistic | drone_establishing",
-        "camera_movement_notes": "string — e.g., 'slow push-in over 4 seconds, barely perceptible'"
-      },
-
-      "setting": {
-        "interior_exterior": "interior | exterior | ambiguous",
-        "location_type": "string — e.g., 'bedroom', 'café counter', 'city sidewalk', 'car interior', 'gym floor'",
-        "time_of_day": "dawn | morning | midday | afternoon | golden_hour | dusk | night | unknown",
-        "lighting_source": "natural_sunlight | overcast_diffused | golden_hour | artificial_warm | artificial_cool | mixed | backlit | candlelight | practical_lamp | screen_glow",
-        "lighting_quality": "hard | soft | dramatic | flat | high_contrast | moody",
-        "lighting_direction": "front | side | back | overhead | mixed | unknown",
-        "weather": "sunny | partly_cloudy | overcast | rain | fog | snow | not_applicable",
-        "background_description": "string — e.g., 'out-of-focus bookshelves, warm lamp light from left'"
-      },
-
-      "color": {
-        "temperature_feel": "very_warm | warm | neutral | cool | very_cool",
-        "saturation_feel": "desaturated | muted | natural | vivid | hyper_vivid",
-        "contrast_feel": "flat | low | medium | high | very_high",
-        "color_notes": "string — e.g., 'golden warmth in highlights, slight teal in shadows'"
-      },
-
-      "subjects": [
-        {
-          "subject_id": "creator",
-          "person_type": "creator | known_person | stranger | crowd",
-
-          "position_in_frame": {
-            "x_region": "left | center | right",
-            "y_region": "top | middle | bottom",
-            "distance_from_camera": "very_close | close | medium | far | very_far",
-            "facing_direction": "toward_camera | away_camera | profile_left | profile_right | angled"
-          },
-
-          "gaze": {
-            "direction": "direct_camera | off_left | off_right | off_up | off_down | at_object_in_frame | looking_down",
-            "gaze_implies": "string — e.g., 'talking directly to viewer', 'reading notes off-screen', 'responding to someone off-camera'"
-          },
-
-          "action": {
-            "primary_action": "talking | walking | running | sitting | standing_still | gesturing | eating | drinking | driving | working_at_desk | on_phone | exercising | looking_around | entering_frame | exiting_frame",
-            "action_description": "string — e.g., 'seated, leaning slightly forward, speaking with animated hand gestures'"
-          },
-
-          "emotion": {
-            "expression": "smiling | laughing | neutral | serious | concerned | excited | frustrated | surprised | confident | self_conscious | warm | vulnerable",
-            "intensity": "subtle | moderate | strong",
-            "emotion_notes": "string — e.g., 'genuine smile breaking through at the end of the sentence'"
-          },
-
-          "speech_delivery_character": {
-            "tone": "string — e.g., 'warm and confessional', 'matter-of-fact', 'self-deprecating'",
-            "cadence": "rapid_fire | halting | measured | natural | rushed | deliberate",
-            "volume": "whispered | quiet | normal | raised | trailing_off",
-            "delivery_quality": "clean | rough | unusable",
-            "delivery_notes": "string — e.g., 'false start at the beginning, commits midway through'"
-          },
-
-          "appearance_notes": "string — clothing, accessories, continuity markers. e.g., 'black hoodie, sitting cross-legged on bed'"
-        }
-      ],
-
-      "composition": {
-        "rule_of_thirds_alignment": "strong | moderate | loose | intentionally_broken",
-        "visual_balance": "balanced | intentionally_unbalanced | chaotic",
-        "depth_layering": "foreground_midground_background | two_layer | flat",
-        "negative_space": "significant | moderate | tight",
-        "visual_interest": "compelling | adequate | flat"
-      },
-
-      "on_screen_text": [
-        {
-          "text_content": "string — exact text visible in frame (OCR if possible)",
-          "position": "lower_third | center | upper | corner | overlay",
-          "type": "existing_subtitle | title_card | environmental_sign | ui_element | brand_logo | whiteboard",
-          "start_time": 0.0,
-          "end_time": 4.5
-        }
-      ],
-
-      "semantic_description": "string — REQUIRED. Full holistic prose description of what is happening in this segment. This is the 'what a skilled editor would notice' description. Cover: what the shot shows, the mood and atmosphere it creates, why it works or doesn't editorially, and any notable visual or performative moments. Example: 'Tight medium shot of the creator seated at their desk, speaking directly to camera with quiet conviction. The background is softly blurred — warm bookshelves, a lamp visible on the left. Lighting is warm and slightly dramatic, casting a gentle shadow on the right side of their face. The creator is leaning forward slightly — an intimate, confessional framing. Delivery is clean and measured. This is a strong A-roll moment with genuine emotional presence.'",
-
-      "editorial_role": {
-        "best_use": "talking_head_aroll | establishing_broll | action_broll | detail_broll | transition_candidate | atmosphere_broll",
-        "broll_topic_suitability": ["string", "..."],
-        "broll_topic_avoid": ["string", "..."],
-        "visual_match_tags": ["string", "..."]
-      }
-    }
-  ]
-}
-```
 
 ### `broll_topic_suitability` — guidance
 
@@ -227,105 +89,6 @@ across scene segments. Each event has a precise timestamp (or start/end range).
 These are things that happen at a specific *moment* — not descriptions of an
 ongoing scene state.
 
-```json
-{
-  "event_log": [
-    {
-      "event_type": "zoom_in",
-      "start_time": 3.14,
-      "end_time": 3.72,
-      "magnitude": "subtle | moderate | strong",
-      "speed": "very_slow | slow | medium | fast | snap",
-      "notes": "string — e.g., 'slow push-in that emphasizes the emotional statement'"
-    },
-    {
-      "event_type": "zoom_out",
-      "start_time": 0.0,
-      "end_time": 0.0,
-      "magnitude": "subtle | moderate | strong",
-      "speed": "very_slow | slow | medium | fast | snap",
-      "notes": "string"
-    },
-    {
-      "event_type": "whip_pan",
-      "time": 7.22,
-      "direction": "left_to_right | right_to_left | up | down",
-      "speed": "medium | fast | very_fast",
-      "notes": "string"
-    },
-    {
-      "event_type": "rack_focus",
-      "time": 5.44,
-      "from": "background | foreground",
-      "to": "background | foreground",
-      "notes": "string"
-    },
-    {
-      "event_type": "person_enters_frame",
-      "time": 4.10,
-      "subject_id": "creator",
-      "entry_direction": "from_left | from_right | from_top | from_bottom | emerges_from_background | cut_into_frame",
-      "notes": "string"
-    },
-    {
-      "event_type": "person_exits_frame",
-      "time": 18.50,
-      "subject_id": "creator",
-      "exit_direction": "to_left | to_right | walks_away | cut_out",
-      "notes": "string"
-    },
-    {
-      "event_type": "gaze_shift",
-      "time": 8.22,
-      "subject_id": "creator",
-      "from": "direct_camera",
-      "to": "off_right",
-      "duration_seconds": 1.4,
-      "notes": "string — e.g., 'glances down at notes, returns to camera'"
-    },
-    {
-      "event_type": "gesture",
-      "start_time": 6.10,
-      "end_time": 6.80,
-      "subject_id": "creator",
-      "gesture_type": "pointing | open_palm_emphasis | counting | waving | nodding | head_shake | eyebrow_raise | shrug | hand_to_face | arms_crossed | finger_gun | thumbs_up",
-      "gesture_description": "string — e.g., 'raises index finger, holds it as if making a point'",
-      "speech_sync_approx_time": 6.40
-    },
-    {
-      "event_type": "emotion_shift",
-      "time": 14.00,
-      "subject_id": "creator",
-      "from": "neutral",
-      "to": "laughing",
-      "trigger": "string — e.g., 'reacting to what they just said — breaks into a smile'"
-    },
-    {
-      "event_type": "object_interaction",
-      "time": 9.30,
-      "subject_id": "creator",
-      "object_id": "phone_01",
-      "interaction": "picks_up | puts_down | looks_at | holds_toward_camera | hands_to_other | taps | types_on",
-      "notes": "string — e.g., 'turns phone toward camera to show screen contents'"
-    },
-    {
-      "event_type": "notable_audio",
-      "time": 11.20,
-      "duration_seconds": 0.4,
-      "audio_class": "laughter | sigh | gasp | cough | clapping | door_slam | ambient_shift | phone_notification | music_audible",
-      "source": "subject | environment | off_screen",
-      "notes": "string — e.g., 'audible sigh before committing to the statement — genuine emotional weight'"
-    },
-    {
-      "event_type": "lighting_change",
-      "time": 22.00,
-      "from": "natural_daylight",
-      "to": "golden_hour",
-      "cause": "time_passing | entering_new_space | practical_lamp_toggled"
-    }
-  ]
-}
-```
 
 **Event types to watch for:** zoom_in, zoom_out, whip_pan, rack_focus, camera_cut,
 person_enters_frame, person_exits_frame, gaze_shift, gesture, emotion_shift,
@@ -346,41 +109,6 @@ editorially relevant. DO track: phones, laptops, cameras, food/beverages being
 consumed, vehicles (if creator is in/on them), animals, and any object the
 subject picks up, shows, or interacts with meaningfully.
 
-```json
-{
-  "object_tracks": [
-    {
-      "object_id": "phone_01",
-      "object_class": "smartphone",
-      "object_description": "string — e.g., 'matte black iPhone, no case, held in right hand'",
-
-      "presence_intervals": [
-        {"start_time": 4.1, "end_time": 18.5},
-        {"start_time": 31.2, "end_time": 35.0}
-      ],
-
-      "first_appearance": {
-        "time": 4.1,
-        "position": "string — e.g., 'held in creator's right hand, lower frame, screen not visible'",
-        "entry_method": "string — e.g., 'brought into frame from below'"
-      },
-
-      "interactions": [
-        {
-          "time": 9.3,
-          "description": "string — e.g., 'creator turns phone toward camera — screen visible, showing a text conversation'"
-        },
-        {
-          "time": 12.0,
-          "description": "string — e.g., 'placed face-down on desk'"
-        }
-      ],
-
-      "narrative_significance": "string — e.g., 'creator uses phone as a prop to show evidence — has direct narrative role in the story being told'"
-    }
-  ]
-}
-```
 
 ---
 
@@ -389,19 +117,6 @@ subject picks up, shows, or interacts with meaningfully.
 Overall editorial judgment. This is the clip-level quality assessment used for
 prioritization in Phase 2 (narrative selection) and Phase 3 (B-roll selection).
 
-```json
-{
-  "assessment": {
-    "clip_type": "a_roll | b_roll",
-    "interest_score": 8,
-    "moment_type": "hook | highlight | body | establishing | filler",
-    "evaluation_notes": "string — quality observations: visual quality, audio quality, content value, standout moments, any technical issues",
-    "usable_portions": "string — content description of which parts are worth keeping and WHY. Use TEXT descriptions not timestamps. e.g., 'the main speech from the commitment through the end is solid — clean delivery, genuine energy, good composition'",
-    "discard_portions": "string — content description of which parts to cut and why. e.g., 'false start at the beginning, camera adjusting in first 2 seconds, trailing mumble at the very end'",
-    "broll_context": "string — if b_roll or mixed: describe what speech topics this clip would visually complement AND what it should NOT be used for. e.g., 'walking through busy café suits themes of lifestyle, routine, social energy. NOT suitable for vulnerable/personal confession moments — too public and busy.'"
-  }
-}
-```
 
 **Clip type definitions:**
 - `"a_roll"`: clip carries narrative speech (subject speaking to camera with substantive content that could drive a story)
