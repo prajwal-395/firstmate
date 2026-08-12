@@ -79,7 +79,7 @@ def test_e2e_pipeline_run(mock_present_llm, mock_subprocess, mock_deterministic,
             # Instead, let's use auto_mode=True which auto-completes hybrid steps, 
             # and for llm_only it still calls present_llm_step.
             # Let's adjust the test to just test execution.
-            summary = run_pipeline(str(temp_project), from_step="creative_direction", dry_run=False, auto_mode=True)
+            summary = run_pipeline(str(temp_project), from_step="creative_direction", auto_mode=True)
             
             state = load_pipeline_state(str(temp_project))
             
