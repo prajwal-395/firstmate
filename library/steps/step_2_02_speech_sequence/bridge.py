@@ -52,21 +52,28 @@ def main():
     if isinstance(semantic, list):
         for doc in semantic:
             clip_id = doc.get("clip_id", "unknown")
-            doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
-            topics = doc_data.get("topics", [])
-            if topics:
+            # Try assessment.keywords (current schema), then fall back to topics
+            assessment = doc.get("assessment", {})
+            keywords = assessment.get("keywords", []) if isinstance(assessment, dict) else []
+            if not keywords:
+                doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
+                keywords = doc_data.get("topics", [])
+            if keywords:
                 topic_rows.append({
                     "clip_id": clip_id,
-                    "topics": ", ".join(topics)
+                    "topics": ", ".join(str(k) for k in keywords)
                 })
     elif isinstance(semantic, dict):
         for clip_id, doc in semantic.items():
-            doc_data = doc.get("document", {}) if isinstance(doc, dict) else {}
-            topics = doc_data.get("topics", [])
-            if topics:
+            assessment = doc.get("assessment", {})
+            keywords = assessment.get("keywords", []) if isinstance(assessment, dict) else []
+            if not keywords:
+                doc_data = doc.get("document", {}) if isinstance(doc, dict) else {}
+                keywords = doc_data.get("topics", [])
+            if keywords:
                 topic_rows.append({
                     "clip_id": clip_id,
-                    "topics": ", ".join(topics)
+                    "topics": ", ".join(str(k) for k in keywords)
                 })
             
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)

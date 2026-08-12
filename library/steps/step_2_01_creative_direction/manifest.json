@@ -120,7 +120,6 @@
     "prosody_analysis.profiles",
     "prosody_analysis.total_clips",
     "clip_catalog.*.filename",
-    "clip_catalog.*.duration_seconds",
-    "clip_catalog.*.topic_tags"
+    "clip_catalog.*.duration_seconds"
   ]
 }

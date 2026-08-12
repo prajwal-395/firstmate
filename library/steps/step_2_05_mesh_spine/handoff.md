@@ -126,6 +126,7 @@ The result is speech cut off mid-sentence.
       "block_type": "hook",
       "duration_seconds": 2.0,
       "content": {
+        "passage_ref": "hook",
         "clip_id": "string",
         "source_in": 0.0,
         "source_out": 2.0,
@@ -139,6 +140,17 @@ The result is speech cut off mid-sentence.
 }
 ```
 
+### passage_ref (CRITICAL)
+
+Every `hook` or `speech` block MUST include `content.passage_ref` which
+links back to the speech_sequence passage it came from:
+- For the hook block: `"passage_ref": "hook"`
+- For body speech blocks: `"passage_ref": <position>` matching the
+  passage's `position` field from the speech_sequence body_sequence
+
+This linkage is required for the post-bridge to inject word_timestamps
+and execution-layer timing data. Without it, audio sync breaks.
+
 ---
 
 ## Evaluation Criteria
@@ -151,7 +163,7 @@ The result is speech cut off mid-sentence.
 4. **Music-speech fit**: Music behavior is appropriate for each block type
 5. **No content loss**: Every speech passage from body_sequence appears in
    exactly one speech block
-6. **Duration plausibility**: Estimated total is in the 30-60 second range
+6. **Duration plausibility**: Estimated total aligns with the music track duration
 
 ---
 

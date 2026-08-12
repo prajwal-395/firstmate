@@ -35,13 +35,13 @@ def generate_creative_direction(inputs: dict) -> dict:
     if isinstance(semantic_docs, dict):
         for clip_id, doc in list(semantic_docs.items())[:3]:
             # Use some placeholder description if we can't extract a good one easily
-            desc = doc.get("visual_content", {}).get("description", f"Key moment from {clip_id}")
+            desc = doc.get("analysis", {}).get("scene", f"Key moment from {clip_id}")
             key_moments.append(desc)
     elif isinstance(semantic_docs, list):
         for doc in semantic_docs[:3]:
             clip_id = doc.get("clip_id", "unknown")
             doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
-            desc = doc_data.get("visual_content", {}).get("description", f"Key moment from {clip_id}")
+            desc = doc.get("analysis", {}).get("scene", f"Key moment from {clip_id}")
             key_moments.append(desc)
     
     # Sensible defaults

@@ -48,6 +48,13 @@ def _apply_manifest_qa_checks(manifest: dict):
             # Clamp: set curr subtitle's end to next subtitle's start
             subtitles[i]['timeline_end'] = next_start
 
+    # Check 1b: Clamp subtitle end times to project duration
+    proj_dur = manifest.get("project", {}).get("duration_seconds", 0)
+    if proj_dur > 0:
+        for sub in subtitles:
+            if sub.get("timeline_end", 0) > proj_dur:
+                sub["timeline_end"] = proj_dur
+
     # Check 2: Track Clip Overlap/Duplicate Detection
     for track_name, track_data in manifest.get('tracks', {}).items():
         clips = track_data.get('clips', [])
