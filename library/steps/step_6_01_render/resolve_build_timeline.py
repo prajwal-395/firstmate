@@ -12,6 +12,9 @@ API — no FCPXML intermediate. This gives us:
 
 Reads an assembly_manifest.json and optional Remotion overlay paths.
 
+Note: Live Resolve interaction tools (project_manager, timeline, media_pool, etc.)
+are available to agents via the `davinci-resolve` MCP server.
+
 Tested and verified capabilities (60/60 tests passing):
   - AppendToTimeline({startFrame, endFrame, trackIndex, recordFrame})
   - AddTrack("video"/"audio"), SetTrackName()

@@ -109,11 +109,12 @@ def apply_fusion_comps(manifest, project_folder):
             # We are inside library/tools/execution, so we need to go up to library/tools
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
             from fusion_macro_loader import apply_macro_to_transition
-            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip
+            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip, import_customized_effect
         except ImportError:
             apply_macro_to_transition = None
             list_builtin_effects = None
             import_effect_to_clip = None
+            import_customized_effect = None
 
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
@@ -162,7 +163,11 @@ def apply_fusion_comps(manifest, project_folder):
                 for cn in (tl_clip.GetFusionCompNameList() or []):
                     tl_clip.DeleteFusionCompByName(cn)
                 
-                import_effect_to_clip(tl_clip, builtin_effect)
+                if effects and import_customized_effect:
+                    import_customized_effect(tl_clip, builtin_effect, effects)
+                else:
+                    import_effect_to_clip(tl_clip, builtin_effect)
+                    
                 comp_names = tl_clip.GetFusionCompNameList()
                 if comp_names and len(comp_names) > 0:
                     print(f"  ✓ [{orig_ci}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)

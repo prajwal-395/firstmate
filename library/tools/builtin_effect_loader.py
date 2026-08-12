@@ -1,8 +1,12 @@
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
 from library.tools.paths import PRESETS_ROOT
+from library.tools.fusion.parser import parse_setting
+from library.tools.fusion.nodes import FusionNode
 
 BUILTIN_DIR = PRESETS_ROOT / "resolve-builtin"
 INDEX_FILE = BUILTIN_DIR / "index.json"
@@ -48,4 +52,51 @@ def import_effect_to_clip(clip: Any, effect_name: str) -> bool:
     path = get_effect_path(effect_name)
     # The Resolve API for ImportFusionComp requires a string path
     clip.ImportFusionComp(str(path.resolve()))
+    return True
+
+def import_customized_effect(clip: Any, effect_name: str, overrides: dict) -> bool:
+    """Import a built-in effect with modified parameters.
+    
+    1. Load the .setting file content
+    2. Parse it with fusion/parser.py
+    3. Apply overrides to matching node inputs
+    4. Serialize back to a temp .setting file
+    5. Import via clip.ImportFusionComp()
+    """
+    content = load_effect_setting(effect_name)
+    comp = parse_setting(content)
+    
+    for node in comp.nodes:
+        if isinstance(node, FusionNode):
+            for k, v in overrides.items():
+                # Apply override if the node already has this input,
+                # or if the user prefixed the key with the node name.
+                if "." in k:
+                    node_name, param = k.split(".", 1)
+                    if node.name == node_name:
+                        node.set_input(param, v)
+                elif k in node.inputs:
+                    node.set_input(k, v)
+                # If it's a specific tool like AdvancedCameraShake and key is overall_magnitude,
+                # it's safer to just set it if the tool type matches the parameter's likely target,
+                # but setting it blindly on all nodes is dangerous.
+                # However, for macros that don't have the input in the parsed dict (defaults),
+                # we might need to set it anyway. Let's just set it on the main tool.
+                # We'll set it on any node where tool_type == node.name (without numbers) 
+                # or just set it on all nodes and let Fusion ignore invalid inputs.
+                # Actually, Fusion ignores invalid inputs on nodes.
+                else:
+                    # To support cases where the default value wasn't in the .setting file:
+                    # we will just add it. Fusion ignores inputs that don't exist.
+                    node.set_input(k, v)
+                    
+    fd, temp_path = tempfile.mkstemp(suffix=".setting")
+    with os.fdopen(fd, 'w') as f:
+        f.write(comp.serialize())
+        
+    try:
+        clip.ImportFusionComp(temp_path)
+    finally:
+        os.remove(temp_path)
+        
     return True

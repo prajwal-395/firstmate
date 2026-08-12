@@ -169,7 +169,7 @@ def get_step_implementation(step_dir: Path) -> dict:
         # review runs mechanical checks, then handoff.md guides narrative
         # review). step.py runs first; handoff.md is informational.
         return {
-            "type": "deterministic",
+            "type": "deterministic_with_llm",
             "entry": str(step_dir / "step.py"),
             "prompt": str(step_dir / "handoff.md"),
             "determinism": determinism,
@@ -861,6 +861,16 @@ def run_pipeline(
             def execute_step_once():
                 if impl["type"] == "deterministic":
                     return run_deterministic_step(impl["entry"], inputs), False
+                elif impl["type"] == "deterministic_with_llm":
+                    step_output = run_deterministic_step(impl["entry"], inputs)
+                    merged_inputs = dict(inputs)
+                    merged_inputs.update(step_output)
+                    llm_output = present_llm_step(impl["prompt"], merged_inputs, node_id, manifest=impl.get("manifest"), full_auto=full_auto, llm_timeout=llm_timeout)
+                    if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
+                        return llm_output, True
+                    if isinstance(llm_output, dict):
+                        step_output.update(llm_output)
+                    return step_output, False
                 elif impl["type"] == "hybrid":
                     if auto_mode:
                         # In auto mode, use the pre-bridge context output as the final step output.
