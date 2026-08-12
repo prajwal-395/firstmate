@@ -89,21 +89,7 @@ def get_all_feedback() -> List[ChangeRequest]:
     """Get all markers and comments from the current timeline."""
     resolve = _connect_resolve()
     if not resolve:
-        return [
-            ChangeRequest(
-                frame_position=100,
-                duration_frames=1,
-                track_type="timeline",
-                track_index=0,
-                clip_name="",
-                instruction="Make this part punchier (MOCK DATA)",
-                source="timeline_marker",
-                marker_color="Blue",
-                custom_data={},
-                timestamp=datetime.now().isoformat(),
-                clips_at_frame=[]
-            )
-        ]
+        return []
         
     project_manager = resolve.GetProjectManager()
     project = project_manager.GetCurrentProject()

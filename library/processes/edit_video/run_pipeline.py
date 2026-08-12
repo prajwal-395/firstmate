@@ -15,7 +15,7 @@ Usage:
     python3 run_pipeline.py --project /path/to/project
     python3 run_pipeline.py --project /path/to/project --from temporal_index
     python3 run_pipeline.py --project /path/to/project --step creative_direction
-    python3 run_pipeline.py --project /path/to/project --dry-run
+
 """
 import json
 import os
@@ -780,7 +780,7 @@ def run_pipeline(
     project_dir: str,
     from_step: str = None,
     single_step: str = None,
-    dry_run: bool = False,
+
     auto_mode: bool = False,
     review_mode: bool = False,
     resume_mode: bool = False,
@@ -882,12 +882,7 @@ def run_pipeline(
         print(f"\n  ▶  Step: {node_id} ({node['name']})", file=sys.stderr)
         print(f"     Type: {impl['type']} | Dir: {step_dir}", file=sys.stderr)
         
-        if dry_run:
-            inputs = gather_step_inputs(node_id, dag, state)
-            print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
-            print(f"     [DRY RUN — skipping execution]", file=sys.stderr)
-            completed.append(node_id)
-            continue
+
         
         # Gather inputs from upstream (pass manifest for optional-input checking)
         inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"))
@@ -1134,7 +1129,7 @@ def main():
     group.add_argument("--slug", help="Project slug (looked up from project registry)")
     parser.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     parser.add_argument("--step", help="Run only this step")
-    parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
+
     parser.add_argument("--auto", action="store_true", 
                        help="Auto-complete hybrid steps (use bridge output as final)")
     parser.add_argument("--review", action="store_true",
@@ -1160,7 +1155,7 @@ def main():
         project_dir=project_dir,
         from_step=args.from_step,
         single_step=args.step,
-        dry_run=args.dry_run,
+
         auto_mode=args.auto,
         review_mode=args.review,
         resume_mode=args.resume,
