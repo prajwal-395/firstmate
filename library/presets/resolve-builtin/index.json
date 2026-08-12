@@ -1,0 +1,717 @@
+{
+  "advanced_camera_shake": {
+    "path": "tools/Advanced Camera Shake.setting",
+    "category": "tools",
+    "display_name": "Advanced Camera Shake"
+  },
+  "chromatic_aberration": {
+    "path": "tools/Chromatic Aberration.setting",
+    "category": "tools",
+    "display_name": "Chromatic Aberration"
+  },
+  "edge_control": {
+    "path": "tools/Edge Control.setting",
+    "category": "tools",
+    "display_name": "Edge Control"
+  },
+  "bokeh_edges": {
+    "path": "particles/Bokeh Edges.setting",
+    "category": "particles",
+    "display_name": "Bokeh Edges"
+  },
+  "from_text": {
+    "path": "particles/From Text.setting",
+    "category": "particles",
+    "display_name": "From Text"
+  },
+  "smokestack": {
+    "path": "particles/Smokestack.setting",
+    "category": "particles",
+    "display_name": "Smokestack"
+  },
+  "matrix": {
+    "path": "particles/Matrix.setting",
+    "category": "particles",
+    "display_name": "Matrix"
+  },
+  "burning_engine": {
+    "path": "particles/Burning Engine.setting",
+    "category": "particles",
+    "display_name": "Burning Engine"
+  },
+  "lens_leaks": {
+    "path": "particles/Lens Leaks.setting",
+    "category": "particles",
+    "display_name": "Lens Leaks"
+  },
+  "steam": {
+    "path": "particles/Steam.setting",
+    "category": "particles",
+    "display_name": "Steam"
+  },
+  "blowing_leaves": {
+    "path": "particles/Blowing Leaves.setting",
+    "category": "particles",
+    "display_name": "Blowing Leaves"
+  },
+  "galaxy_swarm": {
+    "path": "particles/Galaxy Swarm.setting",
+    "category": "particles",
+    "display_name": "Galaxy Swarm"
+  },
+  "bubbles": {
+    "path": "particles/Bubbles.setting",
+    "category": "particles",
+    "display_name": "Bubbles"
+  },
+  "portal_spawn_point": {
+    "path": "particles/Portal Spawn Point.setting",
+    "category": "particles",
+    "display_name": "Portal Spawn Point"
+  },
+  "glitter": {
+    "path": "particles/Glitter.setting",
+    "category": "particles",
+    "display_name": "Glitter"
+  },
+  "shape_drift": {
+    "path": "particles/Shape Drift.setting",
+    "category": "particles",
+    "display_name": "Shape Drift"
+  },
+  "flash_bulbs": {
+    "path": "particles/Flash Bulbs.setting",
+    "category": "particles",
+    "display_name": "Flash Bulbs"
+  },
+  "lava": {
+    "path": "particles/Lava.setting",
+    "category": "particles",
+    "display_name": "Lava"
+  },
+  "snow": {
+    "path": "particles/Snow.setting",
+    "category": "particles",
+    "display_name": "Snow"
+  },
+  "fireworks": {
+    "path": "particles/Fireworks.setting",
+    "category": "particles",
+    "display_name": "Fireworks"
+  },
+  "bokeh_full_frame": {
+    "path": "particles/Bokeh Full Frame.setting",
+    "category": "particles",
+    "display_name": "Bokeh Full Frame"
+  },
+  "embers": {
+    "path": "particles/Embers.setting",
+    "category": "particles",
+    "display_name": "Embers"
+  },
+  "fireflies": {
+    "path": "particles/Fireflies.setting",
+    "category": "particles",
+    "display_name": "Fireflies"
+  },
+  "bubble_bar": {
+    "path": "particles/Bubble Bar.setting",
+    "category": "particles",
+    "display_name": "Bubble Bar"
+  },
+  "bubbles_3d": {
+    "path": "particles/Bubbles 3D.setting",
+    "category": "particles",
+    "display_name": "Bubbles 3D"
+  },
+  "lens_flare_v34": {
+    "path": "lens_flares/Lens Flare V34.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V34"
+  },
+  "lens_flare_v24": {
+    "path": "lens_flares/Lens Flare V24.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V24"
+  },
+  "lens_flare_v12": {
+    "path": "lens_flares/Lens Flare V12.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V12"
+  },
+  "lens_flare_v02": {
+    "path": "lens_flares/Lens Flare V02.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V02"
+  },
+  "lens_flare_v03": {
+    "path": "lens_flares/Lens Flare V03.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V03"
+  },
+  "lens_flare_v13": {
+    "path": "lens_flares/Lens Flare V13.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V13"
+  },
+  "lens_flare_v25": {
+    "path": "lens_flares/Lens Flare V25.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V25"
+  },
+  "lens_flare_v35": {
+    "path": "lens_flares/Lens Flare V35.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V35"
+  },
+  "lens_flare_v11": {
+    "path": "lens_flares/Lens Flare V11.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V11"
+  },
+  "lens_flare_v01": {
+    "path": "lens_flares/Lens Flare V01.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V01"
+  },
+  "lens_flare_v37": {
+    "path": "lens_flares/Lens Flare V37.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V37"
+  },
+  "lens_flare_v27": {
+    "path": "lens_flares/Lens Flare V27.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V27"
+  },
+  "lens_flare_v08": {
+    "path": "lens_flares/Lens Flare V08.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V08"
+  },
+  "lens_flare_v18": {
+    "path": "lens_flares/Lens Flare V18.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V18"
+  },
+  "lens_flare_v26": {
+    "path": "lens_flares/Lens Flare V26.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V26"
+  },
+  "lens_flare_v36": {
+    "path": "lens_flares/Lens Flare V36.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V36"
+  },
+  "lens_flare_v19": {
+    "path": "lens_flares/Lens Flare V19.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V19"
+  },
+  "lens_flare_v09": {
+    "path": "lens_flares/Lens Flare V09.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V09"
+  },
+  "lens_flare_v10": {
+    "path": "lens_flares/Lens Flare V10.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V10"
+  },
+  "lens_flare_v15": {
+    "path": "lens_flares/Lens Flare V15.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V15"
+  },
+  "lens_flare_v05": {
+    "path": "lens_flares/Lens Flare V05.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V05"
+  },
+  "lens_flare_v33": {
+    "path": "lens_flares/Lens Flare V33.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V33"
+  },
+  "lens_flare_v23": {
+    "path": "lens_flares/Lens Flare V23.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V23"
+  },
+  "lens_flare_v40": {
+    "path": "lens_flares/Lens Flare V40.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V40"
+  },
+  "lens_flare_v22": {
+    "path": "lens_flares/Lens Flare V22.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V22"
+  },
+  "lens_flare_v32": {
+    "path": "lens_flares/Lens Flare V32.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V32"
+  },
+  "lens_flare_v04": {
+    "path": "lens_flares/Lens Flare V04.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V04"
+  },
+  "lens_flare_v14": {
+    "path": "lens_flares/Lens Flare V14.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V14"
+  },
+  "lens_flare_v30": {
+    "path": "lens_flares/Lens Flare V30.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V30"
+  },
+  "lens_flare_v20": {
+    "path": "lens_flares/Lens Flare V20.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V20"
+  },
+  "lens_flare_v16": {
+    "path": "lens_flares/Lens Flare V16.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V16"
+  },
+  "lens_flare_v06": {
+    "path": "lens_flares/Lens Flare V06.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V06"
+  },
+  "lens_flare_v29": {
+    "path": "lens_flares/Lens Flare V29.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V29"
+  },
+  "lens_flare_v39": {
+    "path": "lens_flares/Lens Flare V39.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V39"
+  },
+  "lens_flare_v07": {
+    "path": "lens_flares/Lens Flare V07.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V07"
+  },
+  "lens_flare_v17": {
+    "path": "lens_flares/Lens Flare V17.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V17"
+  },
+  "lens_flare_v38": {
+    "path": "lens_flares/Lens Flare V38.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V38"
+  },
+  "lens_flare_v28": {
+    "path": "lens_flares/Lens Flare V28.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V28"
+  },
+  "lens_flare_v21": {
+    "path": "lens_flares/Lens Flare V21.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V21"
+  },
+  "lens_flare_v31": {
+    "path": "lens_flares/Lens Flare V31.setting",
+    "category": "lens_flares",
+    "display_name": "Lens Flare V31"
+  },
+  "radar": {
+    "path": "motion_graphics/Radar.setting",
+    "category": "motion_graphics",
+    "display_name": "Radar"
+  },
+  "scrollbar": {
+    "path": "motion_graphics/Scrollbar.setting",
+    "category": "motion_graphics",
+    "display_name": "Scrollbar"
+  },
+  "radar_2": {
+    "path": "motion_graphics/Radar 2.setting",
+    "category": "motion_graphics",
+    "display_name": "Radar 2"
+  },
+  "crazy_circle": {
+    "path": "motion_graphics/Crazy Circle.setting",
+    "category": "motion_graphics",
+    "display_name": "Crazy Circle"
+  },
+  "circle_values": {
+    "path": "motion_graphics/Circle Values.setting",
+    "category": "motion_graphics",
+    "display_name": "Circle Values"
+  },
+  "circular_cube": {
+    "path": "backgrounds/Circular Cube.setting",
+    "category": "backgrounds",
+    "display_name": "Circular Cube"
+  },
+  "rotate_rays": {
+    "path": "backgrounds/Rotate Rays.setting",
+    "category": "backgrounds",
+    "display_name": "Rotate Rays"
+  },
+  "bender": {
+    "path": "backgrounds/Bender.setting",
+    "category": "backgrounds",
+    "display_name": "Bender"
+  },
+  "rectangle_flythrough": {
+    "path": "backgrounds/Rectangle Fly-Through.setting",
+    "category": "backgrounds",
+    "display_name": "Rectangle Fly-Through"
+  },
+  "platform_flythrough": {
+    "path": "backgrounds/Platform Fly-Through.setting",
+    "category": "backgrounds",
+    "display_name": "Platform Fly-Through"
+  },
+  "bullseye": {
+    "path": "backgrounds/Bullseye.setting",
+    "category": "backgrounds",
+    "display_name": "Bullseye"
+  },
+  "plasmic": {
+    "path": "backgrounds/Plasmic.setting",
+    "category": "backgrounds",
+    "display_name": "Plasmic"
+  },
+  "helix": {
+    "path": "backgrounds/Helix.setting",
+    "category": "backgrounds",
+    "display_name": "Helix"
+  },
+  "waver": {
+    "path": "backgrounds/Waver.setting",
+    "category": "backgrounds",
+    "display_name": "Waver"
+  },
+  "visualizer": {
+    "path": "backgrounds/Visualizer.setting",
+    "category": "backgrounds",
+    "display_name": "Visualizer"
+  },
+  "blue_rays": {
+    "path": "backgrounds/Blue Rays.setting",
+    "category": "backgrounds",
+    "display_name": "Blue Rays"
+  },
+  "spot_ground": {
+    "path": "backgrounds/Spot Ground.setting",
+    "category": "backgrounds",
+    "display_name": "Spot Ground"
+  },
+  "optics": {
+    "path": "backgrounds/Optics.setting",
+    "category": "backgrounds",
+    "display_name": "Optics"
+  },
+  "posterize": {
+    "path": "looks/Posterize.setting",
+    "category": "looks",
+    "display_name": "Posterize"
+  },
+  "carbon_fiber": {
+    "path": "shaders/Carbon Fiber.setting",
+    "category": "shaders",
+    "display_name": "Carbon Fiber"
+  },
+  "moon": {
+    "path": "shaders/Moon.setting",
+    "category": "shaders",
+    "display_name": "Moon"
+  },
+  "rusty_metal": {
+    "path": "shaders/Rusty Metal.setting",
+    "category": "shaders",
+    "display_name": "Rusty Metal"
+  },
+  "brick": {
+    "path": "shaders/Brick.setting",
+    "category": "shaders",
+    "display_name": "Brick"
+  },
+  "cool_metal": {
+    "path": "shaders/Cool Metal.setting",
+    "category": "shaders",
+    "display_name": "Cool Metal"
+  },
+  "gold_bump": {
+    "path": "shaders/Gold Bump.setting",
+    "category": "shaders",
+    "display_name": "Gold Bump"
+  },
+  "chrome": {
+    "path": "shaders/Chrome.setting",
+    "category": "shaders",
+    "display_name": "Chrome"
+  },
+  "rock": {
+    "path": "shaders/Rock.setting",
+    "category": "shaders",
+    "display_name": "Rock"
+  },
+  "cobblestone": {
+    "path": "shaders/Cobblestone.setting",
+    "category": "shaders",
+    "display_name": "Cobblestone"
+  },
+  "tiles": {
+    "path": "shaders/Tiles.setting",
+    "category": "shaders",
+    "display_name": "Tiles"
+  },
+  "chrome_checkerplate": {
+    "path": "shaders/Chrome Checkerplate.setting",
+    "category": "shaders",
+    "display_name": "Chrome Checkerplate"
+  },
+  "checkerplate": {
+    "path": "shaders/Checkerplate.setting",
+    "category": "shaders",
+    "display_name": "Checkerplate"
+  },
+  "cloth": {
+    "path": "shaders/Cloth.setting",
+    "category": "shaders",
+    "display_name": "Cloth"
+  },
+  "sand": {
+    "path": "shaders/Sand.setting",
+    "category": "shaders",
+    "display_name": "Sand"
+  },
+  "anisotropic": {
+    "path": "shaders/Anisotropic.setting",
+    "category": "shaders",
+    "display_name": "Anisotropic"
+  },
+  "marble": {
+    "path": "shaders/Marble.setting",
+    "category": "shaders",
+    "display_name": "Marble"
+  },
+  "plywood": {
+    "path": "shaders/Plywood.setting",
+    "category": "shaders",
+    "display_name": "Plywood"
+  },
+  "brushed_metal": {
+    "path": "shaders/Brushed Metal.setting",
+    "category": "shaders",
+    "display_name": "Brushed Metal"
+  },
+  "metal_grill": {
+    "path": "shaders/Metal Grill.setting",
+    "category": "shaders",
+    "display_name": "Metal Grill"
+  },
+  "car_paint": {
+    "path": "shaders/Car Paint.setting",
+    "category": "shaders",
+    "display_name": "Car Paint"
+  },
+  "steel": {
+    "path": "shaders/Steel.setting",
+    "category": "shaders",
+    "display_name": "Steel"
+  },
+  "concrete": {
+    "path": "shaders/Concrete.setting",
+    "category": "shaders",
+    "display_name": "Concrete"
+  },
+  "honeycomb": {
+    "path": "shaders/Honeycomb.setting",
+    "category": "shaders",
+    "display_name": "Honeycomb"
+  },
+  "planet": {
+    "path": "shaders/Planet.setting",
+    "category": "shaders",
+    "display_name": "Planet"
+  },
+  "wood": {
+    "path": "shaders/Wood.setting",
+    "category": "shaders",
+    "display_name": "Wood"
+  },
+  "lizard": {
+    "path": "shaders/Lizard.setting",
+    "category": "shaders",
+    "display_name": "Lizard"
+  },
+  "glass_dot": {
+    "path": "shaders/Glass Dot.setting",
+    "category": "shaders",
+    "display_name": "Glass Dot"
+  },
+  "odometer": {
+    "path": "styled_text/Odometer.setting",
+    "category": "styled_text",
+    "display_name": "Odometer"
+  },
+  "circle_layout": {
+    "path": "styled_text/Circle Layout.setting",
+    "category": "styled_text",
+    "display_name": "Circle Layout"
+  },
+  "fade_rotate": {
+    "path": "styled_text/Fade Rotate.setting",
+    "category": "styled_text",
+    "display_name": "Fade Rotate"
+  },
+  "war_games": {
+    "path": "styled_text/War Games.setting",
+    "category": "styled_text",
+    "display_name": "War Games"
+  },
+  "shading_2d": {
+    "path": "styled_text/Shading 2D.setting",
+    "category": "styled_text",
+    "display_name": "Shading 2D"
+  },
+  "flip_follower": {
+    "path": "styled_text/Flip Follower.setting",
+    "category": "styled_text",
+    "display_name": "Flip Follower"
+  },
+  "scramble_modifier": {
+    "path": "styled_text/Scramble Modifier.setting",
+    "category": "styled_text",
+    "display_name": "Scramble Modifier"
+  },
+  "3d_follower": {
+    "path": "styled_text/3D Follower.setting",
+    "category": "styled_text",
+    "display_name": "3D Follower"
+  },
+  "word_level_transforms": {
+    "path": "styled_text/Word Level Transforms.setting",
+    "category": "styled_text",
+    "display_name": "Word Level Transforms"
+  },
+  "swap_color": {
+    "path": "styled_text/Swap Color.setting",
+    "category": "styled_text",
+    "display_name": "Swap Color"
+  },
+  "jiggle_follower": {
+    "path": "styled_text/Jiggle Follower.setting",
+    "category": "styled_text",
+    "display_name": "Jiggle Follower"
+  },
+  "path_layout": {
+    "path": "styled_text/Path Layout.setting",
+    "category": "styled_text",
+    "display_name": "Path Layout"
+  },
+  "alien": {
+    "path": "styled_text/Alien.setting",
+    "category": "styled_text",
+    "display_name": "Alien"
+  },
+  "rotate_follower": {
+    "path": "styled_text/Rotate Follower.setting",
+    "category": "styled_text",
+    "display_name": "Rotate Follower"
+  },
+  "stretch_follower": {
+    "path": "styled_text/Stretch Follower.setting",
+    "category": "styled_text",
+    "display_name": "Stretch Follower"
+  },
+  "character_level_transforms": {
+    "path": "styled_text/Character Level Transforms.setting",
+    "category": "styled_text",
+    "display_name": "Character Level Transforms"
+  },
+  "color_wheel": {
+    "path": "generators/Color Wheel.setting",
+    "category": "generators",
+    "display_name": "Color Wheel"
+  },
+  "3d_tube_maker": {
+    "path": "generators/3D Tube Maker.setting",
+    "category": "generators",
+    "display_name": "3D Tube Maker"
+  },
+  "checker": {
+    "path": "generators/Checker.setting",
+    "category": "generators",
+    "display_name": "Checker"
+  },
+  "color_bars": {
+    "path": "generators/Color Bars.setting",
+    "category": "generators",
+    "display_name": "Color Bars"
+  },
+  "reflections": {
+    "path": "how_to/Reflections.setting",
+    "category": "how_to",
+    "display_name": "Reflections"
+  },
+  "variblur": {
+    "path": "how_to/Vari-Blur.setting",
+    "category": "how_to",
+    "display_name": "Vari-Blur"
+  },
+  "lightwrap": {
+    "path": "how_to/Light-Wrap.setting",
+    "category": "how_to",
+    "display_name": "Light-Wrap"
+  },
+  "corner_position_tracking": {
+    "path": "how_to/Corner Position Tracking.setting",
+    "category": "how_to",
+    "display_name": "Corner Position Tracking"
+  },
+  "ambient_occlusion": {
+    "path": "how_to/Ambient Occlusion.setting",
+    "category": "how_to",
+    "display_name": "Ambient Occlusion"
+  },
+  "shine": {
+    "path": "how_to/Shine.setting",
+    "category": "how_to",
+    "display_name": "Shine"
+  },
+  "glow_mask": {
+    "path": "how_to/Glow Mask.setting",
+    "category": "how_to",
+    "display_name": "Glow Mask"
+  },
+  "vectorblur": {
+    "path": "how_to/Vector-Blur.setting",
+    "category": "how_to",
+    "display_name": "Vector-Blur"
+  },
+  "coordinate_rays": {
+    "path": "how_to/Coordinate Rays.setting",
+    "category": "how_to",
+    "display_name": "Coordinate Rays"
+  },
+  "perspective_tracking": {
+    "path": "how_to/Perspective Tracking.setting",
+    "category": "how_to",
+    "display_name": "Perspective Tracking"
+  },
+  "displace_2d": {
+    "path": "how_to/Displace 2D.setting",
+    "category": "how_to",
+    "display_name": "Displace 2D"
+  },
+  "displace_3d": {
+    "path": "how_to/Displace 3D.setting",
+    "category": "how_to",
+    "display_name": "Displace 3D"
+  }
+}

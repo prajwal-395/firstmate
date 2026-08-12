@@ -109,8 +109,11 @@ def apply_fusion_comps(manifest):
             # We are inside library/tools/execution, so we need to go up to library/tools
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
             from fusion_macro_loader import apply_macro_to_transition
+            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip
         except ImportError:
             apply_macro_to_transition = None
+            list_builtin_effects = None
+            import_effect_to_clip = None
 
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
@@ -135,6 +138,34 @@ def apply_fusion_comps(manifest):
                 effects = dict(effects)
             else:
                 effects = {}
+
+            preset_name = effects.get('_preset', None)
+            
+            builtin_effect = None
+            if preset_name and list_builtin_effects:
+                builtin_effects = list_builtin_effects()
+                if preset_name in builtin_effects:
+                    builtin_effect = preset_name
+                else:
+                    for b_name in builtin_effects:
+                        if preset_name in b_name or b_name in preset_name:
+                            builtin_effect = b_name
+                            break
+            
+            if builtin_effect:
+                # Remove _preset since we handled it
+                effects.pop('_preset', None)
+                tl_clip = v1_items[item_idx]
+                for cn in (tl_clip.GetFusionCompNameList() or []):
+                    tl_clip.DeleteFusionCompByName(cn)
+                
+                import_effect_to_clip(tl_clip, builtin_effect)
+                comp_names = tl_clip.GetFusionCompNameList()
+                if comp_names and len(comp_names) > 0:
+                    print(f"  ✓ [{orig_ci}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)
+                else:
+                    print(f"  ✗ [{orig_ci}] {label}: Import built-in effect {builtin_effect} failed", file=sys.stderr)
+                continue
 
             preset_name = effects.pop('_preset', None)
             if preset_name and preset_name in SEGMENT_PRESETS:

@@ -38,6 +38,11 @@ apply. Focus on talking head clips that need subtle movement.
 | `cut_in` | scale_factor (1.2-1.4) | Tighter framing on same shot — simulates multi-cam |
 | `cut_out` | scale_factor (0.85-0.95) | Wider framing — creates visual variety |
 
+**DaVinci Resolve Built-in Fusion Effects:**
+You can also use any of the 143 built-in Fusion effects by providing their exact snake_case name as the `effect_type`.
+Available built-in effects include:
+`3d_follower`, `3d_tube_maker`, `advanced_camera_shake`, `alien`, `ambient_occlusion`, `anisotropic`, `bender`, `blowing_leaves`, `blue_rays`, `bokeh_edges`, `bokeh_full_frame`, `brick`, `brushed_metal`, `bubble_bar`, `bubbles`, `bubbles_3d`, `bullseye`, `burning_engine`, `car_paint`, `carbon_fiber`, `character_level_transforms`, `checker`, `checkerplate`, `chromatic_aberration`, `chrome`, `chrome_checkerplate`, `circle_layout`, `circle_values`, `circular_cube`, `cloth`, `cobblestone`, `color_bars`, `color_wheel`, `concrete`, `cool_metal`, `coordinate_rays`, `corner_position_tracking`, `crazy_circle`, `displace_2d`, `displace_3d`, `edge_control`, `embers`, `fade_rotate`, `fireflies`, `fireworks`, `flash_bulbs`, `flip_follower`, `from_text`, `galaxy_swarm`, `glass_dot`, `glitter`, `glow_mask`, `gold_bump`, `helix`, `honeycomb`, `jiggle_follower`, `lava`, `lens_flare_v01` to `lens_flare_v40`, `lens_leaks`, `lightwrap`, `lizard`, `marble`, `matrix`, `metal_grill`, `moon`, `odometer`, `optics`, `path_layout`, `perspective_tracking`, `planet`, `plasmic`, `platform_flythrough`, `plywood`, `portal_spawn_point`, `posterize`, `radar`, `radar_2`, `rectangle_flythrough`, `reflections`, `rock`, `rotate_follower`, `rotate_rays`, `rusty_metal`, `sand`, `scramble_modifier`, `scrollbar`, `shading_2d`, `shape_drift`, `shine`, `smokestack`, `snow`, `spot_ground`, `steam`, `steel`, `stretch_follower`, `swap_color`, `tiles`, `variblur`, `vectorblur`, `visualizer`, `war_games`, `waver`, `wood`, `word_level_transforms`
+
 ### Rules:
 - You MUST plan at least 3-7 VFX items across the video. An empty list is a failure.
 - Every A-roll talking head clip >3 seconds MUST have at least slow_zoom
