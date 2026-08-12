@@ -26,9 +26,7 @@ class TestCompileManifest(unittest.TestCase):
             "subtitle_plan": {"subtitles": []},
             "transition_spec": [],
             "enhancement_spec": [],
-            "sfx_spec": {
-                "music_ducking": [{"timeline_start": 0.0, "timeline_end": 1.0, "volume_db": -10}]
-            },
+            "music_ducking": [{"timeline_start": 0.0, "timeline_end": 1.0, "volume_db": -10}],
             "color_grade_spec": {},
             "audio_mix_spec": {},
             "music_selection": {},
@@ -65,23 +63,13 @@ class TestCompileManifest(unittest.TestCase):
             }
         }
         
-        step_script = os.path.join(
-            os.path.dirname(__file__), 
-            '..', 
-            'library', 'steps', 'step_5_04_compile_manifest', 'step.py'
-        )
+        from library.steps.step_5_04_compile_manifest.step import compile_manifest
+        from unittest.mock import patch
         
-        # Run step.py with piped stdin
-        process = subprocess.run(
-            ['python3', step_script],
-            input=json.dumps(mock_inputs),
-            text=True,
-            capture_output=True
-        )
-        
-        self.assertEqual(process.returncode, 0, f"Script failed with output: {process.stderr}")
-        
-        output_data = json.loads(process.stdout)
+        with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: mock_inputs):
+            manifest = compile_manifest("dummy")
+            
+        output_data = {"assembly_manifest": manifest}
         self.assertIn("assembly_manifest", output_data)
         
         manifest = output_data["assembly_manifest"]

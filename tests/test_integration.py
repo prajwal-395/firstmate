@@ -7,7 +7,7 @@ from library.schemas.brand_template import BrandTemplate
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 from library.tools.brand_registry import load_brand_template
 from library.steps.step_5_01_color_grade.step import define_color_grade
-from library.steps.step_5_04_compile_manifest.step import compile_manifest_from_inputs
+from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.tools.engagement_scorer import compute_engagement
 
 class TestIntegration(unittest.TestCase):
@@ -72,7 +72,8 @@ class TestIntegration(unittest.TestCase):
             "sfx_spec": [],
             "audio_mix_spec": {}
         }
-        manifest = compile_manifest_from_inputs(inputs)["assembly_manifest"]
+        with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: inputs):
+            manifest = compile_manifest("dummy")
         
         self.assertIn("color_grade", manifest)
         self.assertIn("per_clip_adjustments", manifest["color_grade"])
@@ -111,6 +112,12 @@ class TestIntegration(unittest.TestCase):
                     {"clip_id": "c_standard"}
                 ]
             },
+            "clip_catalog": [
+                {"clip_id": "c_handheld", "path": files["h.mov"], "width": 1080, "height": 1920},
+                {"clip_id": "c_interview", "path": files["i.mov"], "width": 1080, "height": 1920},
+                {"clip_id": "c_lowres", "path": files["l.mov"], "width": 720, "height": 1280},
+                {"clip_id": "c_standard", "path": files["s.mov"], "width": 1920, "height": 1080}
+            ],
             "b_roll_assignments": [],
             "transition_spec": [],
             "enhancement_spec": [],
@@ -119,7 +126,8 @@ class TestIntegration(unittest.TestCase):
             "audio_mix_spec": {}
         }
         
-        manifest = compile_manifest_from_inputs(inputs)["assembly_manifest"]
+        with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: inputs):
+            manifest = compile_manifest("dummy")
         
         v1_clips = manifest.get("tracks", {}).get("V1", {}).get("clips", [])
         self.assertEqual(len(v1_clips), 4)

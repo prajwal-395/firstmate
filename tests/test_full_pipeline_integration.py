@@ -15,7 +15,7 @@ from library.tools.engagement_scorer import compute_engagement
 from library.schemas.brand_template import BrandTemplate
 from library.schemas.preset_metadata import PresetEntry
 from library.steps.step_5_03_creative_cohesion.step import review_creative_cohesion
-from library.steps.step_5_04_compile_manifest.step import compile_manifest_from_inputs
+from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 
 def test_full_brand_template_flow():
@@ -59,7 +59,9 @@ def test_color_grade_look_match_chain():
         "sfx_spec": [],
         "audio_mix_spec": {}
     }
-    manifest = compile_manifest_from_inputs(inputs)
+    from unittest.mock import patch
+    with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: inputs):
+        manifest = {"assembly_manifest": compile_manifest("dummy")}
     assert "assembly_manifest" in manifest
     assert manifest["assembly_manifest"].get("color_grade", {}).get("cdl") == cdl
 
