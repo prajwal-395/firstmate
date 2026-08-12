@@ -41,11 +41,16 @@ try:
         verify_audio, verify_fusion_comps, run_full_timeline_qa
     )
     from execution.apply_native_transitions import apply_native_transitions
+    from visual_qa_router import (
+        plan_qa_checks, execute_frame_grab, execute_video_segment_check,
+        analyze_frame_locally, format_frame_grab_for_llm, format_segment_result_for_llm
+    )
 except ImportError:
     apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
     get_preset = apply_fairlight_preset = None
     verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
     apply_native_transitions = None
+    plan_qa_checks = None
 
 
 # ─── Mappings ────────────────────────────────────────────────
@@ -1153,6 +1158,28 @@ def build_timeline(
                 results["warnings"].append(f"Final QA Failed {check.name}: {check.actual}")
     else:
         print("  ⚠ Timeline QA script not loaded.", file=sys.stderr)
+
+    if plan_qa_checks:
+        print(f"\n── Visual QA Router ──", file=sys.stderr)
+        try:
+            qa_plan = plan_qa_checks(manifest, phase="post_build", fps=fps)
+            visual_qa_results = []
+            
+            for fg_req in qa_plan.frame_grabs:
+                res = execute_frame_grab(resolve, project, timeline, fg_req)
+                if res.image_path:
+                    res.check = analyze_frame_locally(res.image_path, fg_req.check_type, fg_req.context)
+                visual_qa_results.append(format_frame_grab_for_llm(res))
+                
+            for seg_req in qa_plan.segment_checks:
+                res = execute_video_segment_check(resolve, project, timeline, seg_req)
+                visual_qa_results.append(format_segment_result_for_llm(res))
+                
+            results["visual_qa"] = visual_qa_results
+            print(f"  ✓ Completed {len(qa_plan.frame_grabs)} frame grabs and {len(qa_plan.segment_checks)} segment checks", file=sys.stderr)
+        except Exception as e:
+            print(f"  ✗ Visual QA router failed: {e}", file=sys.stderr)
+            results["warnings"].append(f"Visual QA router failed: {e}")
 
     print(f"\n── QA Summary ──", file=sys.stderr)
     for rep in qa_reports:

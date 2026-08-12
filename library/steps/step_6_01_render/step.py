@@ -54,7 +54,7 @@ def run(inputs: dict) -> dict:
         except Exception as e:
             raise RuntimeError(f"Timeline Sync QA Validation Failed: {str(e)}")
             
-        return {
+        output_payload = {
             "render_output": {
                 "timeline_name": result.get("timeline_name"),
                 "status": "success",
@@ -64,6 +64,11 @@ def run(inputs: dict) -> dict:
                 "warnings": result.get("warnings", [])
             }
         }
+        
+        if "visual_qa" in result:
+            output_payload["visual_qa"] = result["visual_qa"]
+            
+        return output_payload
         
     except ConnectionError as e:
         # Fail fast if Resolve isn't running

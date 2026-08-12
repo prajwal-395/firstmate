@@ -25,9 +25,15 @@ import render_qa
 
 def run_analysis(
     video_path: str,
-    question: str,
-    checks: List[str]
+    prompt: str = "",
+    checks: List[str] = None,
+    sample_count: int = 5,
+    question: str = None
 ) -> Dict[str, Any]:
+    if question and not prompt:
+        prompt = question
+    if checks is None:
+        checks = ["general"]
     """Run video segment analysis using vision model and deterministic checks."""
     results: Dict[str, Any] = {
         "video": video_path,
@@ -40,7 +46,7 @@ def run_analysis(
     # Run relevant checks based on the check types requested
     if "color" in checks or "general" in checks:
         results["deterministic_checks"]["color_histogram"] = _qa_result_to_dict(
-            render_qa.analyze_color_histogram(video_path, sample_count=5)
+            render_qa.analyze_color_histogram(video_path, sample_count=sample_count)
         )
     
     if "audio" in checks or "general" in checks:
@@ -63,16 +69,16 @@ def run_analysis(
             continue
             
         prompt_template = PROMPTS.get(check, PROMPTS["general"])
-        prompt = prompt_template.format(question=question) if "{question}" in prompt_template else prompt_template
+        formatted_prompt = prompt_template.format(question=prompt) if "{question}" in prompt_template else prompt_template
         
         # If it's a general check, ensure the question is included if not in template
         if check == "general" and "{question}" not in prompt_template:
-            prompt = f"{prompt}\nQuestion: {question}"
+            formatted_prompt = f"{formatted_prompt}\nQuestion: {prompt}"
 
         try:
             model_response = model.analyze_video(
                 video_path, 
-                prompt
+                formatted_prompt
             )
             results["model_analysis"][check] = model_response
         except Exception as e:
@@ -118,7 +124,7 @@ def main():
                 
             results = run_analysis(
                 video_path=video_path,
-                question=args.question,
+                prompt=args.question,
                 checks=checks
             )
             print(json.dumps(results, indent=2))
