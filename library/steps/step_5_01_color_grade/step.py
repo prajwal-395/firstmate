@@ -278,7 +278,9 @@ def main():
         if target_mood:
             try:
                 from library.tools.llm_client import LLMClient
-                client = LLMClient("gemini", "gemini-2.5-flash")
+                provider = os.environ.get("PIPELINE_LLM_PROVIDER", "gemini")
+                model = os.environ.get("PIPELINE_LLM_MODEL", "gemini-2.5-flash")
+                client = LLMClient(provider, model)
                 prompt = f"""
                 We are color grading a video. The target mood is: "{target_mood}".
                 Do we need a custom film emulation DCTL for this mood?
