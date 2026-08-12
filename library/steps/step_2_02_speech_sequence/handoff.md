@@ -17,8 +17,8 @@
 ## System Context
 
 You are a narrative editor constructing the spoken backbone of a shortform
-video (30-60 seconds). You have access to the creative direction (your
-compass) and the per-clip semantic analyses (your raw material).
+video. You have access to the creative direction (your compass) and the
+per-clip semantic analyses (your raw material).
 
 Your job is SELECTION AND PLACEMENT — choose which speech passages to use,
 in what order, and resolve each to precise source timestamps using the
@@ -90,10 +90,10 @@ brief is provided, rely on the creative direction output from Step 2.1.
 
 ## Duration Limit
 
-Read `project_config.target_duration_seconds` from the input (an integer,
-e.g. `60`). This value comes from the project's `project.json`.
+Read `project_config.target_duration_seconds` from the input if available.
+This value comes from the project's `project.json`.
 
-- The total speech sequence MUST fit within this target duration. Select
+- If a target is set, the total speech sequence MUST fit within it. Select
   only the strongest passages. If all candidate passages sum to more than
   the target, aggressively cut - keep only passages that directly serve the
   creative direction's narrative theme and key moments.
@@ -102,7 +102,9 @@ e.g. `60`). This value comes from the project's `project.json`.
 - Document in `excluded_passages` any passages cut to meet the duration
   target, with `reason_excluded: "cut to meet duration target of Xs"`.
 
-If `project_config` is not available, default to a 60 second target.
+If `project_config` is not available, include all speech passages that
+serve the creative direction. Do not artificially cap the duration - the
+downstream mesh_spine step will coordinate speech and music timing.
 
 ---
 
@@ -162,7 +164,7 @@ If `project_config` is not available, default to a 60 second target.
 | Parameter | Value |
 |-----------|-------|
 | Target body passages | 10-15 (strictly select exactly 10-15 of the strongest passages) |
-| Target total duration| MUST be between 30 and 60 seconds (sum of passage durations) |
+| Target total duration| Should serve the creative direction; if project_config sets a target, respect it |
 | Hook duration target | 1-3 seconds (per style spec) |
 | Default sequence order | Chronological source_order |
 
