@@ -15,14 +15,14 @@
     ],
     "outputs": [
       {
+        "name": "project_config",
+        "type": "object",
+        "description": "State output: project_config"
+      },
+      {
         "name": "raw_footage_files",
         "type": "array",
         "description": "State output: raw_footage_files"
-      },
-      {
-        "name": "total_files",
-        "type": "int",
-        "description": "State output: total_files"
       },
       {
         "name": "skipped_files",
@@ -30,9 +30,9 @@
         "description": "State output: skipped_files"
       },
       {
-        "name": "project_config",
-        "type": "object",
-        "description": "State output: project_config"
+        "name": "total_files",
+        "type": "int",
+        "description": "State output: total_files"
       }
     ],
     "preconditions": [
@@ -49,17 +49,6 @@
     "determinism": "deterministic",
     "archetype": "information_retrieval",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "project_folder"
-    ],
-    "writes": [
-      "raw_footage_files",
-      "total_files",
-      "skipped_files",
-      "project_config"
-    ]
   },
   "dependencies": [],
   "tags": [

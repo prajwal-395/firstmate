@@ -20,7 +20,7 @@
         "description": "State output: render_output"
       },
       {
-        "name": "visual_qa",
+        "name": "render_review",
         "type": "array",
         "required": false,
         "description": "Visual QA verdicts"
@@ -37,16 +37,6 @@
     "determinism": "nondeterministic",
     "archetype": "direct_action",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "assembly_manifest",
-      "project_folder"
-    ],
-    "writes": [
-      "render_output",
-      "visual_qa"
-    ]
   },
   "dependencies": [
     "step_5_04_compile_manifest"

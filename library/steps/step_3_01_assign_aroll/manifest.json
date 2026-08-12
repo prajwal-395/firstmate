@@ -49,18 +49,6 @@
     "archetype": "data_transformation",
     "idempotent": true
   },
-  "state": {
-    "reads": [
-      "audio_spine",
-      "clip_catalog",
-      "project_folder"
-    ],
-    "writes": [
-      "a_roll_assignments",
-      "hook_assignment",
-      "total_a_roll_segments"
-    ]
-  },
   "dependencies": [
     "step_2_05_mesh_spine",
     "step_1_02_catalog_footage"

@@ -15,24 +15,9 @@
     ],
     "outputs": [
       {
-        "name": "temporal_event_indices",
-        "type": "array",
-        "description": "State output: temporal_event_indices"
-      },
-      {
         "name": "full_indices",
         "type": "array",
         "description": "State output: full_indices"
-      },
-      {
-        "name": "total_indexed",
-        "type": "int",
-        "description": "State output: total_indexed"
-      },
-      {
-        "name": "total_failed",
-        "type": "int",
-        "description": "State output: total_failed"
       },
       {
         "name": "index_dir",
@@ -43,6 +28,21 @@
         "name": "source",
         "type": "string",
         "description": "State output: source"
+      },
+      {
+        "name": "temporal_event_indices",
+        "type": "array",
+        "description": "State output: temporal_event_indices"
+      },
+      {
+        "name": "total_failed",
+        "type": "int",
+        "description": "State output: total_failed"
+      },
+      {
+        "name": "total_indexed",
+        "type": "int",
+        "description": "State output: total_indexed"
       }
     ],
     "preconditions": [
@@ -57,20 +57,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "project_folder",
-      "raw_footage_files"
-    ],
-    "writes": [
-      "temporal_event_indices",
-      "full_indices",
-      "total_indexed",
-      "total_failed",
-      "index_dir",
-      "source"
-    ]
   },
   "dependencies": [
     "step_1_01_scan_project"

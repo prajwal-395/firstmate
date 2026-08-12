@@ -214,7 +214,10 @@
     },
     {
       "from": "temporal_index",
-      "to": "prosody_analysis"
+      "to": "prosody_analysis",
+      "data_mapping": {
+        "full_indices": "temporal_index"
+      }
     },
     {
       "from": "scan",
@@ -475,6 +478,13 @@
       "to": "creative_cohesion",
       "data_mapping": {
         "sfx_spec": "sfx_spec"
+      }
+    },
+    {
+      "from": "plan_vfx",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "enhancement_spec": "enhancement_spec"
       }
     },
     {

@@ -7,18 +7,6 @@
   "interface": {
     "inputs": [
       {
-        "name": "raw_footage_files",
-        "type": "array",
-        "required": true,
-        "description": "State input: raw_footage_files"
-      },
-      {
-        "name": "clip_catalog",
-        "type": "object",
-        "required": true,
-        "description": "State input: clip_catalog"
-      },
-      {
         "name": "project_folder",
         "type": "string",
         "required": false,
@@ -44,16 +32,6 @@
     "determinism": "deterministic",
     "archetype": "data_processing",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "project_folder",
-      "raw_footage_files",
-      "clip_catalog"
-    ],
-    "writes": [
-      "object_segmentation"
-    ]
   },
   "dependencies": [
     "step_1_02_catalog_footage"

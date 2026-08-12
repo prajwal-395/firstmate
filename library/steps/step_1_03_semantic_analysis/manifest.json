@@ -11,12 +11,6 @@
         "type": "array",
         "required": true,
         "description": "State input: raw_footage_files"
-      },
-      {
-        "name": "clip_catalog",
-        "type": "array",
-        "required": true,
-        "description": "State input: clip_catalog"
       }
     ],
     "outputs": [
@@ -43,16 +37,6 @@
     "determinism": "deterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "project_folder",
-      "raw_footage_files"
-    ],
-    "writes": [
-      "semantic_analysis_documents",
-      "total_clips_analyzed"
-    ]
   },
   "dependencies": [
     "step_1_02_catalog_footage"

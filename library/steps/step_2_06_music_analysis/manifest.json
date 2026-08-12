@@ -32,15 +32,6 @@
     "archetype": "data_transformation",
     "idempotent": true
   },
-  "state": {
-    "reads": [
-      "music_selection",
-      "project_folder"
-    ],
-    "writes": [
-      "music_analysis"
-    ]
-  },
   "dependencies": [
     "step_2_04_music_selection"
   ],

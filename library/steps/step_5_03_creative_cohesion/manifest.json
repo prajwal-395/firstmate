@@ -7,22 +7,16 @@
   "interface": {
     "inputs": [
       {
+        "name": "color_grade_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: color_grade_spec"
+      },
+      {
         "name": "creative_direction",
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
-      },
-      {
-        "name": "speech_sequence",
-        "type": "object",
-        "required": false,
-        "description": "State input: speech_sequence"
-      },
-      {
-        "name": "transition_spec",
-        "type": "array",
-        "required": true,
-        "description": "State input: transition_spec"
       },
       {
         "name": "enhancement_spec",
@@ -37,22 +31,28 @@
         "description": "State input: sfx_spec"
       },
       {
-        "name": "color_grade_spec",
+        "name": "speech_sequence",
         "type": "object",
+        "required": false,
+        "description": "State input: speech_sequence"
+      },
+      {
+        "name": "transition_spec",
+        "type": "array",
         "required": true,
-        "description": "State input: color_grade_spec"
+        "description": "State input: transition_spec"
       }
     ],
     "outputs": [
       {
-        "name": "step",
-        "type": "string",
-        "description": "State output: step"
-      },
-      {
         "name": "cohesion_review",
         "type": "object",
         "description": "State output: cohesion_review"
+      },
+      {
+        "name": "step",
+        "type": "string",
+        "description": "State output: step"
       }
     ],
     "preconditions": [
@@ -69,20 +69,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "creative_direction",
-      "speech_sequence",
-      "transition_spec",
-      "enhancement_spec",
-      "sfx_spec",
-      "color_grade_spec"
-    ],
-    "writes": [
-      "step",
-      "cohesion_review"
-    ]
   },
   "dependencies": [
     "step_2_01_creative_direction",

@@ -13,6 +13,18 @@
         "description": "State input: a_roll_assignments"
       },
       {
+        "name": "audio_mix_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_mix_spec"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine"
+      },
+      {
         "name": "b_roll_assignments",
         "type": "array",
         "required": true,
@@ -25,6 +37,60 @@
         "description": "State input: b_roll_interjections"
       },
       {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog"
+      },
+      {
+        "name": "cohesion_review",
+        "type": "object",
+        "required": false,
+        "description": "State input: cohesion_review"
+      },
+      {
+        "name": "color_grade_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: color_grade_spec"
+      },
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: enhancement_spec"
+      },
+      {
+        "name": "motion_graphics_overlay",
+        "type": "object",
+        "required": false,
+        "description": "State input: motion_graphics_overlay from step 4.06"
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection"
+      },
+      {
+        "name": "semantic_analysis",
+        "type": "array",
+        "required": true,
+        "description": "State input: semantic_analysis"
+      },
+      {
+        "name": "sfx_spec",
+        "type": "object",
+        "required": true,
+        "description": "State input: sfx_spec"
+      },
+      {
+        "name": "subtitle_overlay",
+        "type": "object",
+        "required": true,
+        "description": "State input: subtitle_overlay"
+      },
+      {
         "name": "subtitle_plan",
         "type": "object",
         "required": true,
@@ -35,72 +101,6 @@
         "type": "array",
         "required": true,
         "description": "State input: transition_spec"
-      },
-      {
-        "name": "enhancement_spec",
-        "type": "object",
-        "required": true,
-        "description": "State input: enhancement_spec"
-      },
-      {
-        "name": "sfx_spec",
-        "type": "object",
-        "required": true,
-        "description": "State input: sfx_spec"
-      },
-      {
-        "name": "color_grade_spec",
-        "type": "object",
-        "required": true,
-        "description": "State input: color_grade_spec"
-      },
-      {
-        "name": "audio_mix_spec",
-        "type": "object",
-        "required": true,
-        "description": "State input: audio_mix_spec"
-      },
-      {
-        "name": "music_selection",
-        "type": "object",
-        "required": true,
-        "description": "State input: music_selection"
-      },
-      {
-        "name": "audio_spine",
-        "type": "object",
-        "required": true,
-        "description": "State input: audio_spine"
-      },
-      {
-        "name": "subtitle_overlay",
-        "type": "object",
-        "required": true,
-        "description": "State input: subtitle_overlay"
-      },
-      {
-        "name": "cohesion_review",
-        "type": "object",
-        "required": false,
-        "description": "State input: cohesion_review"
-      },
-      {
-        "name": "motion_graphics_overlay",
-        "type": "object",
-        "required": false,
-        "description": "State input: motion_graphics_overlay from step 4.06"
-      },
-      {
-        "name": "clip_catalog",
-        "type": "array",
-        "required": true,
-        "description": "State input: clip_catalog"
-      },
-      {
-        "name": "semantic_analysis",
-        "type": "array",
-        "required": true,
-        "description": "State input: semantic_analysis"
       }
     ],
     "outputs": [
@@ -131,30 +131,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "audio_mix_spec",
-      "audio_spine",
-      "b_roll_assignments",
-      "b_roll_interjections",
-      "color_grade_spec",
-      "enhancement_spec",
-      "music_selection",
-      "project_folder",
-      "sfx_spec",
-      "subtitle_overlay",
-      "subtitle_plan",
-      "transition_spec",
-      "cohesion_review",
-      "motion_graphics_overlay",
-      "clip_catalog",
-      "semantic_analysis"
-    ],
-    "writes": [
-      "assembly_manifest"
-    ]
   },
   "dependencies": [
     "step_3_01_assign_aroll",

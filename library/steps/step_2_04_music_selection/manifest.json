@@ -11,12 +11,6 @@
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -44,16 +38,6 @@
     "determinism": "nondeterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "creative_brief",
-      "creative_direction",
-      "project_folder"
-    ],
-    "writes": [
-      "music_selection"
-    ]
   },
   "dependencies": [
     "step_2_01_creative_direction"

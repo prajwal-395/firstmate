@@ -7,16 +7,16 @@
   "interface": {
     "inputs": [
       {
-        "name": "subtitle_plan",
-        "type": "object",
-        "required": true,
-        "description": "Subtitle groups with timestamps, text, and styling from step 4.01"
-      },
-      {
         "name": "audio_spine",
         "type": "object",
         "required": true,
         "description": "Timed audio spine for total duration calculation"
+      },
+      {
+        "name": "subtitle_plan",
+        "type": "object",
+        "required": true,
+        "description": "Subtitle groups with timestamps, text, and styling from step 4.01"
       }
     ],
     "outputs": [
@@ -40,16 +40,6 @@
     "determinism": "deterministic",
     "archetype": "direct_action",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "subtitle_plan",
-      "audio_spine",
-      "project_folder"
-    ],
-    "writes": [
-      "subtitle_overlay"
-    ]
   },
   "dependencies": [
     "step_4_01_plan_subtitles"

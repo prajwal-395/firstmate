@@ -25,36 +25,25 @@
         "description": "State input: creative_direction"
       },
       {
-        "name": "semantic_analysis_documents",
-        "type": "array",
-        "required": true,
-        "description": "State input: semantic_analysis_documents"
-      },
-      {
         "name": "rough_cut_review",
         "type": "object",
         "required": true,
         "description": "State input: rough_cut_review"
       },
       {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      },
+      {
         "name": "timed_spine",
         "type": "object",
         "required": true,
         "description": "State input: timed_spine"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
-      {
-        "name": "vfx_candidates_toon",
-        "type": "string",
-        "description": "State output: vfx_candidates_toon"
-      },
       {
         "name": "enhancement_spec",
         "type": "object",
@@ -62,6 +51,11 @@
         "expected_schema": {
           "vfx_creative": "list"
         }
+      },
+      {
+        "name": "vfx_candidates_toon",
+        "type": "string",
+        "description": "State output: vfx_candidates_toon"
       }
     ],
     "preconditions": [
@@ -79,22 +73,6 @@
     "determinism": "hybrid",
     "archetype": "content_generation",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "b_roll_assignments",
-      "creative_brief",
-      "creative_direction",
-      "project_folder",
-      "rough_cut_review",
-      "semantic_analysis_documents",
-      "timed_spine"
-    ],
-    "writes": [
-      "vfx_candidates_toon",
-      "enhancement_spec"
-    ]
   },
   "dependencies": [
     "step_3_01_assign_aroll",

@@ -7,12 +7,6 @@
   "interface": {
     "inputs": [
       {
-        "name": "enhancement_spec",
-        "type": "object",
-        "required": true,
-        "description": "VFX plan from step 4.03 with effect entries"
-      },
-      {
         "name": "audio_spine",
         "type": "object",
         "required": true,
@@ -23,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "Creative direction for accent colors, title text, style choices"
+      },
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": true,
+        "description": "VFX plan from step 4.03 with effect entries"
       }
     ],
     "outputs": [
@@ -47,17 +47,6 @@
     "determinism": "deterministic",
     "archetype": "direct_action",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "enhancement_spec",
-      "audio_spine",
-      "creative_direction",
-      "project_folder"
-    ],
-    "writes": [
-      "motion_graphics_overlay"
-    ]
   },
   "dependencies": [
     "step_4_03_plan_vfx"

@@ -7,12 +7,6 @@
   "interface": {
     "inputs": [
       {
-        "name": "creative_direction",
-        "type": "object",
-        "required": true,
-        "description": "State input: creative_direction"
-      },
-      {
         "name": "a_roll_assignments",
         "type": "array",
         "required": true,
@@ -31,16 +25,22 @@
         "description": "State input: b_roll_interjections"
       },
       {
-        "name": "project_folder",
-        "type": "string",
-        "required": false,
-        "description": "Path to the project folder, needed for ffprobe media analysis"
-      },
-      {
         "name": "brand_template",
         "type": "object",
         "required": false,
         "description": "State input: brand_template (for color grading style)"
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "Path to the project folder, needed for ffprobe media analysis"
       }
     ],
     "outputs": [
@@ -66,19 +66,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "b_roll_assignments",
-      "b_roll_interjections",
-      "brand_template",
-      "creative_direction",
-      "project_folder"
-    ],
-    "writes": [
-      "color_grade_spec"
-    ]
   },
   "dependencies": [
     "step_2_01_creative_direction",

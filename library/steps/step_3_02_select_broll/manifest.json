@@ -13,10 +13,10 @@
         "description": "State input: a_roll_assignments"
       },
       {
-        "name": "semantic_analysis_documents",
+        "name": "clip_catalog",
         "type": "array",
         "required": true,
-        "description": "State input: semantic_analysis_documents"
+        "description": "State input: clip_catalog"
       },
       {
         "name": "creative_direction",
@@ -25,10 +25,10 @@
         "description": "State input: creative_direction"
       },
       {
-        "name": "timed_spine",
-        "type": "object",
+        "name": "semantic_analysis_documents",
+        "type": "array",
         "required": true,
-        "description": "State input: timed_spine"
+        "description": "State input: semantic_analysis_documents"
       },
       {
         "name": "temporal_event_indices",
@@ -37,33 +37,13 @@
         "description": "State input: temporal_event_indices"
       },
       {
-        "name": "clip_catalog",
-        "type": "array",
+        "name": "timed_spine",
+        "type": "object",
         "required": true,
-        "description": "State input: clip_catalog"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
+        "description": "State input: timed_spine"
       }
     ],
     "outputs": [
-      {
-        "name": "broll_creative",
-        "type": "object",
-        "description": "LLM creative B-roll decisions"
-      },
-      {
-        "name": "broll_candidates_toon",
-        "type": "string",
-        "description": "State output: broll_candidates_toon",
-        "expected_schema": {
-          "broll_creative": "list",
-          "b_roll_interjections": "list"
-        }
-      },
       {
         "name": "b_roll_assignments",
         "type": "array",
@@ -75,6 +55,20 @@
         "type": "array",
         "description": "State output: b_roll_interjections",
         "expected_schema": "resolve_manifest.py"
+      },
+      {
+        "name": "broll_candidates_toon",
+        "type": "string",
+        "description": "State output: broll_candidates_toon",
+        "expected_schema": {
+          "broll_creative": "list",
+          "b_roll_interjections": "list"
+        }
+      },
+      {
+        "name": "broll_creative",
+        "type": "object",
+        "description": "LLM creative B-roll decisions"
       }
     ],
     "preconditions": [
@@ -93,20 +87,6 @@
     "determinism": "hybrid",
     "archetype": "evaluation_judgment",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "creative_brief",
-      "creative_direction",
-      "project_folder",
-      "semantic_analysis_documents"
-    ],
-    "writes": [
-      "broll_candidates_toon",
-      "b_roll_assignments",
-      "b_roll_interjections"
-    ]
   },
   "dependencies": [
     "step_3_01_assign_aroll"

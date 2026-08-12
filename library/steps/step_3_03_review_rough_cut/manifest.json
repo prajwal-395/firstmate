@@ -13,6 +13,12 @@
         "description": "State input: a_roll_assignments"
       },
       {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine"
+      },
+      {
         "name": "b_roll_assignments",
         "type": "array",
         "required": true,
@@ -25,10 +31,16 @@
         "description": "State input: b_roll_interjections"
       },
       {
-        "name": "audio_spine",
+        "name": "creative_direction",
         "type": "object",
         "required": true,
-        "description": "State input: audio_spine"
+        "description": "State input: creative_direction"
+      },
+      {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "State input: project_config"
       },
       {
         "name": "speech_sequence",
@@ -41,21 +53,13 @@
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
-      },
-      {
-        "name": "creative_direction",
-        "type": "object",
-        "required": true,
-        "description": "State input: creative_direction"
-      },
-      {
-        "name": "project_config",
-        "type": "object",
-        "required": false,
-        "description": "State input: project_config"
       }
     ],
     "outputs": [
+      {
+        "name": "cut_decisions",
+        "type": "list"
+      },
       {
         "name": "rough_cut_review",
         "type": "object",
@@ -80,22 +84,6 @@
     "determinism": "hybrid",
     "archetype": "evaluation_judgment",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "audio_spine",
-      "b_roll_assignments",
-      "b_roll_interjections",
-      "creative_direction",
-      "project_config",
-      "project_folder",
-      "speech_sequence",
-      "temporal_index"
-    ],
-    "writes": [
-      "rough_cut_review"
-    ]
   },
   "dependencies": [
     "step_3_01_assign_aroll",

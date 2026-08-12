@@ -7,10 +7,10 @@
   "interface": {
     "inputs": [
       {
-        "name": "speech_sequence",
+        "name": "music_analysis",
         "type": "object",
         "required": true,
-        "description": "State input: speech_sequence"
+        "description": "State input: music_analysis"
       },
       {
         "name": "music_selection",
@@ -19,16 +19,16 @@
         "description": "State input: music_selection"
       },
       {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": true,
+        "description": "State input: speech_sequence"
+      },
+      {
         "name": "temporal_index",
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
-      },
-      {
-        "name": "music_analysis",
-        "type": "object",
-        "required": true,
-        "description": "State input: music_analysis"
       }
     ],
     "outputs": [
@@ -63,19 +63,6 @@
     "determinism": "hybrid",
     "archetype": "data_transformation",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "music_analysis",
-      "music_selection",
-      "project_folder",
-      "speech_sequence",
-      "temporal_index"
-    ],
-    "writes": [
-      "audio_spine",
-      "timed_spine"
-    ]
   },
   "dependencies": [
     "step_2_02_speech_sequence",

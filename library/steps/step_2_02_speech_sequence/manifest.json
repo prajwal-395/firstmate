@@ -7,12 +7,6 @@
   "interface": {
     "inputs": [
       {
-        "name": "temporal_index",
-        "type": "array",
-        "required": true,
-        "description": "State input: temporal_index"
-      },
-      {
         "name": "creative_direction",
         "type": "object",
         "required": true,
@@ -25,23 +19,13 @@
         "description": "State input: semantic_analysis_documents"
       },
       {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
+        "name": "temporal_index",
+        "type": "array",
+        "required": true,
+        "description": "State input: temporal_index"
       }
     ],
     "outputs": [
-      {
-        "name": "transcripts_toon",
-        "type": "string",
-        "description": "State output: transcripts_toon"
-      },
-      {
-        "name": "topics_toon",
-        "type": "string",
-        "description": "State output: topics_toon"
-      },
       {
         "name": "speech_sequence",
         "type": "object",
@@ -51,6 +35,20 @@
           "body_sequence": "list",
           "excluded_passages": "list"
         }
+      },
+      {
+        "name": "step",
+        "type": "string"
+      },
+      {
+        "name": "topics_toon",
+        "type": "string",
+        "description": "State output: topics_toon"
+      },
+      {
+        "name": "transcripts_toon",
+        "type": "string",
+        "description": "State output: transcripts_toon"
       }
     ],
     "preconditions": [
@@ -66,19 +64,6 @@
     "determinism": "hybrid",
     "archetype": "content_generation",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "creative_brief",
-      "creative_direction",
-      "project_folder",
-      "temporal_index"
-    ],
-    "writes": [
-      "transcripts_toon",
-      "topics_toon",
-      "speech_sequence"
-    ]
   },
   "dependencies": [
     "step_1_04_temporal_index",

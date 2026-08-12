@@ -2,7 +2,7 @@
   "id": "step_1_05_prosody_analysis",
   "name": "Prosody Analysis",
   "version": "1.0.0",
-  "description": "Supplements WhisperX transcription with prosodic features: pitch (F0) contour, speaking rate, voice quality (jitter/shimmer/HNR), and intensity. Uses parselmouth (Praat wrapper) — deterministic signal processing. Enriches the LLM's understanding of speaker emphasis, questions, energy shifts.",
+  "description": "Supplements WhisperX transcription with prosodic features: pitch (F0) contour, speaking rate, voice quality (jitter/shimmer/HNR), and intensity. Uses parselmouth (Praat wrapper) \u2014 deterministic signal processing. Enriches the LLM's understanding of speaker emphasis, questions, energy shifts.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -38,16 +38,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "raw_footage_files",
-      "temporal_index",
-      "project_folder"
-    ],
-    "writes": [
-      "prosody_analysis"
-    ]
   },
   "dependencies": [
     "step_1_04_temporal_index"

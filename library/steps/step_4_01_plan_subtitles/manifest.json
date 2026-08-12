@@ -13,22 +13,16 @@
         "description": "State input: audio_spine"
       },
       {
-        "name": "speech_sequence",
-        "type": "object",
-        "required": true,
-        "description": "State input: speech_sequence"
-      },
-      {
-        "name": "b_roll_assignments",
-        "type": "array",
-        "required": false,
-        "description": "State input: b_roll_assignments"
-      },
-      {
         "name": "rough_cut_review",
         "type": "object",
         "required": true,
         "description": "State input: rough_cut_review"
+      },
+      {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": true,
+        "description": "State input: speech_sequence"
       }
     ],
     "outputs": [
@@ -55,18 +49,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "audio_spine",
-      "b_roll_assignments",
-      "project_folder",
-      "rough_cut_review",
-      "speech_sequence"
-    ],
-    "writes": [
-      "subtitle_plan"
-    ]
   },
   "dependencies": [
     "step_2_05_mesh_spine",

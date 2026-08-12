@@ -307,27 +307,23 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 # No explicit mapping - merge all outputs
                 inputs.update(source_outputs)
 
-    # Always include project folder, fps, and resolution
-    inputs["project_folder"] = state.get("project_folder", "")
-    
-    catalog = state.get("step_outputs", {}).get("catalog", {})
-    if "project_fps" in catalog:
-        inputs["project_fps"] = catalog["project_fps"]
-    if "project_resolution" in catalog:
-        inputs["project_resolution"] = catalog["project_resolution"]
-        
-    brand_template = state.get("brand_template")
-    if brand_template:
-        inputs["brand_template"] = brand_template
+    # Add a small explicit whitelist for globals that aren't DAG-routable
+    for w_key in ["project_folder", "brand_template", "project_config"]:
+        if w_key in state:
+            inputs[w_key] = state[w_key]
 
-    # Add brand template data if present
+    if manifest and manifest.get("state", {}).get("reads"):
+        import sys
+        print(f"Warning: Step '{node_id}' manifest contains deprecated 'state.reads'. Use DAG data_mapping instead.", file=sys.stderr)
+
+    # Note: any other keys previously fetched from global state (like project_fps, project_resolution, sfx_library)
+    # must now be explicitly mapped via DAG edges.
+
+    # Process brand template and creative brief if they are in inputs (either via DAG or whitelist)
     if manifest:
         step_inputs = [inp.get("name") for inp in manifest.get("interface", {}).get("inputs", [])]
-        brand_template_path = state.get("brand_template")
+        brand_template_path = inputs.get("brand_template")
         
-        if "sfx_library" in step_inputs and "sfx_library" in state:
-            inputs["sfx_library"] = state["sfx_library"]
-            
         if brand_template_path or any(x in step_inputs for x in ["brand_style", "brand_effect", "brand_content"]):
             try:
                 import sys
@@ -347,10 +343,10 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
 
         # Inject creative brief markdown content when the step declares it
         if "creative_brief" in step_inputs:
-            brief_path = state.get("creative_brief", "")
+            brief_path = inputs.get("creative_brief", "")
             if brief_path:
                 try:
-                    project_folder = state.get("project_folder", "")
+                    project_folder = inputs.get("project_folder", "")
                     if not os.path.isabs(brief_path) and project_folder:
                         brief_path = os.path.join(project_folder, brief_path)
                     if os.path.exists(brief_path):

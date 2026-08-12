@@ -7,19 +7,23 @@
   "interface": {
     "inputs": [
       {
-        "name": "rendered_output",
-        "type": "object",
-        "required": true,
-        "description": "State input: rendered_output"
-      },
-      {
         "name": "assembly_manifest",
         "type": "object",
         "required": true,
         "description": "State input: assembly_manifest"
+      },
+      {
+        "name": "rendered_output",
+        "type": "object",
+        "required": true,
+        "description": "State input: rendered_output"
       }
     ],
     "outputs": [
+      {
+        "name": "final_qa_decision",
+        "type": "string"
+      },
       {
         "name": "validation_result",
         "type": "object",
@@ -38,16 +42,6 @@
     "determinism": "nondeterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "project_folder",
-      "rendered_output",
-      "assembly_manifest"
-    ],
-    "writes": [
-      "validation_result"
-    ]
   },
   "dependencies": [
     "step_6_01_render"

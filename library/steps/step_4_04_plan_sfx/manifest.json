@@ -13,40 +13,10 @@
         "description": "State input: b_roll_assignments"
       },
       {
-        "name": "timed_spine",
-        "type": "object",
-        "required": true,
-        "description": "State input: timed_spine"
-      },
-      {
         "name": "creative_direction",
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
-      },
-      {
-        "name": "semantic_analysis_documents",
-        "type": "array",
-        "required": true,
-        "description": "State input: semantic_analysis_documents"
-      },
-      {
-        "name": "rough_cut_review",
-        "type": "object",
-        "required": true,
-        "description": "State input: rough_cut_review"
-      },
-      {
-        "name": "sfx_library_status",
-        "type": "object",
-        "required": false,
-        "description": "State input: sfx_library_status"
-      },
-      {
-        "name": "temporal_event_indices",
-        "type": "array",
-        "required": true,
-        "description": "State input: temporal_event_indices"
       },
       {
         "name": "music_analysis",
@@ -55,10 +25,28 @@
         "description": "State input: music_analysis"
       },
       {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
+        "name": "rough_cut_review",
+        "type": "object",
+        "required": true,
+        "description": "State input: rough_cut_review"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": true,
+        "description": "State input: semantic_analysis_documents"
+      },
+      {
+        "name": "temporal_event_indices",
+        "type": "array",
+        "required": true,
+        "description": "State input: temporal_event_indices"
+      },
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
       }
     ],
     "outputs": [
@@ -90,24 +78,6 @@
     "determinism": "hybrid",
     "archetype": "content_generation",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "audio_spine",
-      "b_roll_assignments",
-      "creative_brief",
-      "creative_direction",
-      "music_analysis",
-      "project_folder",
-      "rough_cut_review",
-      "semantic_analysis_documents",
-      "sfx_library_status",
-      "timed_spine"
-    ],
-    "writes": [
-      "sfx_candidates_toon",
-      "sfx_spec"
-    ]
   },
   "dependencies": [
     "step_2_05_mesh_spine",

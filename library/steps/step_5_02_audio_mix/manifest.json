@@ -13,6 +13,12 @@
         "description": "State input: audio_spine (the timed audio spine with structure and music_behavior)"
       },
       {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction"
+      },
+      {
         "name": "enhancement_spec",
         "type": "object",
         "required": false,
@@ -23,12 +29,6 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection"
-      },
-      {
-        "name": "creative_direction",
-        "type": "object",
-        "required": true,
-        "description": "State input: creative_direction"
       }
     ],
     "outputs": [
@@ -51,17 +51,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "audio_spine",
-      "creative_direction",
-      "enhancement_spec",
-      "music_selection"
-    ],
-    "writes": [
-      "audio_mix_spec"
-    ]
   },
   "dependencies": [
     "step_2_05_mesh_spine"

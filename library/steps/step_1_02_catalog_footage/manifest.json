@@ -20,24 +20,14 @@
         "description": "State output: clip_catalog"
       },
       {
-        "name": "total_clips",
-        "type": "int",
-        "description": "State output: total_clips"
-      },
-      {
         "name": "skipped_files",
         "type": "array",
         "description": "State output: skipped_files"
       },
       {
-        "name": "project_fps",
-        "type": "float",
-        "description": "State output: project_fps"
-      },
-      {
-        "name": "project_resolution",
-        "type": "array",
-        "description": "State output: project_resolution"
+        "name": "total_clips",
+        "type": "int",
+        "description": "State output: total_clips"
       }
     ],
     "preconditions": [
@@ -51,19 +41,6 @@
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true
-  },
-  "state": {
-    "reads": [
-      "project_folder",
-      "raw_footage_files"
-    ],
-    "writes": [
-      "clip_catalog",
-      "total_clips",
-      "skipped_files",
-      "project_fps",
-      "project_resolution"
-    ]
   },
   "dependencies": [
     "step_1_01_scan_project"

@@ -37,6 +37,12 @@
         "description": "State input: rough_cut_review"
       },
       {
+        "name": "semantic_analysis",
+        "type": "array",
+        "required": false,
+        "description": "Semantic analysis output"
+      },
+      {
         "name": "temporal_event_indices",
         "type": "array",
         "required": true,
@@ -47,18 +53,6 @@
         "type": "object",
         "required": true,
         "description": "State input: timed_spine"
-      },
-      {
-        "name": "semantic_analysis",
-        "type": "array",
-        "required": false,
-        "description": "Semantic analysis output"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -90,23 +84,6 @@
     "determinism": "hybrid",
     "archetype": "content_generation",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "a_roll_assignments",
-      "b_roll_assignments",
-      "creative_brief",
-      "creative_direction",
-      "music_selection",
-      "project_folder",
-      "rough_cut_review",
-      "timed_spine",
-      "semantic_analysis"
-    ],
-    "writes": [
-      "cuts_toon",
-      "transition_spec"
-    ]
   },
   "dependencies": [
     "step_3_01_assign_aroll",

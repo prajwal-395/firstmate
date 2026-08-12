@@ -7,6 +7,18 @@
   "interface": {
     "inputs": [
       {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog"
+      },
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: prosody_analysis"
+      },
+      {
         "name": "semantic_analysis_documents",
         "type": "array",
         "required": true,
@@ -17,24 +29,6 @@
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
-      },
-      {
-        "name": "prosody_analysis",
-        "type": "object",
-        "required": true,
-        "description": "State input: prosody_analysis"
-      },
-      {
-        "name": "clip_catalog",
-        "type": "array",
-        "required": true,
-        "description": "State input: clip_catalog"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "Markdown creative brief document from the project (injected from creative_brief_path in project config)"
       }
     ],
     "outputs": [
@@ -68,18 +62,6 @@
     "determinism": "nondeterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false
-  },
-  "state": {
-    "reads": [
-      "creative_brief",
-      "project_folder",
-      "prosody_analysis",
-      "semantic_analysis_documents",
-      "temporal_index"
-    ],
-    "writes": [
-      "creative_direction"
-    ]
   },
   "dependencies": [
     "step_1_03_semantic_analysis",
