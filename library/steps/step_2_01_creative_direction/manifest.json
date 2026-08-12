@@ -106,12 +106,19 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
-    "semantic_analysis_documents.*.summary",
-    "semantic_analysis_documents.*.scene_segments.*.shot_size",
-    "semantic_analysis_documents.*.scene_segments.*.setting",
+    "semantic_analysis_documents.*.clip_id",
+    "semantic_analysis_documents.*.duration_s",
+    "semantic_analysis_documents.*.analysis.scene",
+    "semantic_analysis_documents.*.analysis.mood",
+    "semantic_analysis_documents.*.analysis.energy",
+    "semantic_analysis_documents.*.analysis.emotion",
+    "semantic_analysis_documents.*.assessment.interest_score",
+    "semantic_analysis_documents.*.assessment.moment_type",
+    "semantic_analysis_documents.*.assessment.keywords",
     "temporal_index.*.speech_regions",
     "temporal_index.*.scene_boundaries",
-    "prosody_analysis.speaking_rate",
+    "prosody_analysis.profiles",
+    "prosody_analysis.total_clips",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds",
     "clip_catalog.*.topic_tags"

@@ -127,7 +127,8 @@
     "creative_direction",
     "rough_cut_review",
     "timed_spine",
-    "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
-    "semantic_analysis_documents.*.scene_segments.*.visual_note"
+    "semantic_analysis_documents.*.clip_id",
+    "semantic_analysis_documents.*.analysis.scene",
+    "semantic_analysis_documents.*.assessment.keywords"
   ]
 }

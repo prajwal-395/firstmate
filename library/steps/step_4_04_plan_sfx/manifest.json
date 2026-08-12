@@ -140,9 +140,10 @@
     "rough_cut_review",
     "timed_spine",
     "music_analysis",
-    "sfx_library_status",
-    "semantic_analysis_documents.*.scene_segments.*.event_logs",
-    "semantic_analysis_documents.*.scene_segments.*.visual_match_tags",
+    "semantic_analysis_documents.*.clip_id",
+    "semantic_analysis_documents.*.analysis.scene",
+    "semantic_analysis_documents.*.analysis.audio_prediction",
+    "semantic_analysis_documents.*.assessment.keywords",
     "temporal_event_indices.*.scene_boundaries",
     "temporal_event_indices.*.motion_energy.high_motion_times"
   ]
