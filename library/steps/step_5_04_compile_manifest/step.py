@@ -202,36 +202,37 @@ def _match_sfx_file(sfx_type, sfx_index_entries):
 
 def compile_manifest(out_dir: str) -> dict:
     # Load pipeline step outputs
-    spine_data = load(out_dir, "step_2_05.json")
-    aroll_data = load(out_dir, "step_3_01.json")
-    broll_data = load(out_dir, "step_3_02.json")
-    speech_data = load(out_dir, "step_2_02.json")
-    transition_data = load(out_dir, "step_4_02.json")
-    sfx_data = load(out_dir, "step_4_04.json")
-    music_data = load(out_dir, "step_2_04.json")
-    subtitle_data = load(out_dir, "step_4_01.json")
+    # Pipeline writes files as <step_name>.json; fall back to legacy step_X_YY.json
+    spine_data = load(out_dir, "mesh_spine.json") or load(out_dir, "step_2_05.json")
+    aroll_data = load(out_dir, "assign_aroll.json") or load(out_dir, "step_3_01.json")
+    broll_data = load(out_dir, "select_broll.json") or load(out_dir, "step_3_02.json")
+    speech_data = load(out_dir, "speech_sequence.json") or load(out_dir, "step_2_02.json")
+    transition_data = load(out_dir, "plan_transitions.json") or load(out_dir, "step_4_02.json")
+    sfx_data = load(out_dir, "plan_sfx.json") or load(out_dir, "step_4_04.json")
+    music_data = load(out_dir, "music_selection.json") or load(out_dir, "step_2_04.json")
+    subtitle_data = load(out_dir, "plan_subtitles.json") or load(out_dir, "step_4_01.json")
 
     # Optional enhancement specs
-    vfx_data = load(out_dir, "step_4_03.json")
-    color_data = load(out_dir, "step_5_01.json")
-    audio_mix_data = load(out_dir, "step_5_02.json")
-    semantic_data = load(out_dir, "step_1_03.json")
+    vfx_data = load(out_dir, "plan_vfx.json") or load(out_dir, "step_4_03.json")
+    color_data = load(out_dir, "color_grade.json") or load(out_dir, "step_5_01.json")
+    audio_mix_data = load(out_dir, "audio_mix.json") or load(out_dir, "step_5_02.json")
+    semantic_data = load(out_dir, "semantic_analysis.json") or load(out_dir, "step_1_03.json")
 
     # Subtitle overlay from step 4.05 (Remotion render)
-    subtitle_overlay_data = load(out_dir, "step_4_05.json")
+    subtitle_overlay_data = load(out_dir, "render_subtitles.json") or load(out_dir, "step_4_05.json")
 
     # Motion graphics overlay from step 4.06 (Remotion render)
-    motion_graphics_overlay_data = load(out_dir, "step_4_06.json")
+    motion_graphics_overlay_data = load(out_dir, "render_motion_graphics.json") or load(out_dir, "step_4_06.json")
     
     # Cohesion review
-    cohesion_data = load(out_dir, "step_5_03.json")
+    cohesion_data = load(out_dir, "creative_cohesion.json") or load(out_dir, "step_5_03.json")
 
     spine = spine_data.get("audio_spine", {})
     structure = spine.get("structure", [])
     total_duration = structure[-1]["timeline_end"] if structure else 60.0
 
     # Build clip_id → source_file lookup from catalog
-    catalog_data = load(out_dir, "step_1_02.json")
+    catalog_data = load(out_dir, "catalog.json") or load(out_dir, "step_1_02.json")
     fps = catalog_data.get("project_fps", spine.get("frame_rate", 30.0))
     proj_res = catalog_data.get("project_resolution", [1080, 1920])
     
