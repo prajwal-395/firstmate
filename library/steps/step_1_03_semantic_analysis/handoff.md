@@ -418,18 +418,7 @@ Do NOT default to 5. A clip that's clearly filler should be 2-3. A hook moment s
 
 ---
 
-## Full Output Structure
-
-```json
-{
-  "clip_id": "clip_001",
-  "clip_summary": { ... },
-  "scene_segments": [ ... ],
-  "event_log": [ ... ],
-  "object_tracks": [ ... ],
-  "assessment": { ... }
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

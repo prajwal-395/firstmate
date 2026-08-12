@@ -83,25 +83,7 @@ energy profile.
 
 ---
 
-## Output Format
-
-```json
-{
-  "transition_creative": [
-  {
-    "transition_id": "trans_001",
-    "cut_point_timeline": 5.0,
-    "from_block": 3,
-    "to_block": 4,
-    "transition_type": "hard_cut",
-    "duration_frames": 0,
-    "parameters": {},
-    "beat_aligned": true,
-    "rationale": "string"
-  }
-]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 **CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 

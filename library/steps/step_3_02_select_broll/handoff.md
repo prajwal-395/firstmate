@@ -115,31 +115,7 @@ profile to calibrate B-roll density.
 
 ---
 
-## Output Format
-
-```json
-{
-  "broll_creative": [
-    {
-      "spine_block_position": 2,
-      "clip_id": "string",
-      "preferred_moment": "string (description of the moment in the clip)",
-      "selection_rationale": "string"
-    }
-  ],
-  "b_roll_interjections": [
-    {
-      "over_spine_block_position": 3,
-      "timeline_in": 8.0,
-      "timeline_out": 10.0,
-      "clip_id": "string",
-      "preferred_moment": "string (description of the moment in the clip)",
-      "selection_rationale": "string",
-      "purpose": "string (e.g., 'illustrate what is being said')"
-    }
-  ]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 **CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 

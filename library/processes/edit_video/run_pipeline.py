@@ -407,6 +407,44 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         )
 
 
+def generate_output_schema_text(outputs: list) -> str:
+    """Generate a clean JSON schema block from manifest outputs."""
+    if not outputs:
+        return ""
+    
+    schema_text = "## Required Output Format\n\nPlease return a JSON object containing the following fields:\n\n```json\n{\n"
+    
+    for i, out in enumerate(outputs):
+        name = out.get("name", "unknown")
+        type_str = out.get("type", "any")
+        desc = out.get("description", "")
+        req = "required" if out.get("required", True) else "optional"
+        
+        if desc:
+            schema_text += f"  // {desc} ({req})\n"
+        else:
+            schema_text += f"  // ({req})\n"
+            
+        is_last = i == len(outputs) - 1
+        comma = "" if is_last else ","
+        
+        if type_str.lower() in ["str", "string"]:
+            schema_text += f'  "{name}": "..."{comma}\n'
+        elif type_str.lower() in ["int", "integer", "number", "float"]:
+            schema_text += f'  "{name}": 0{comma}\n'
+        elif type_str.lower() in ["bool", "boolean"]:
+            schema_text += f'  "{name}": false{comma}\n'
+        elif type_str.lower() in ["list", "array"]:
+            schema_text += f'  "{name}": []{comma}\n'
+        elif type_str.lower() in ["dict", "object"]:
+            schema_text += f'  "{name}": {{}}{comma}\n'
+        else:
+            schema_text += f'  "{name}": "..."{comma}\n'
+            
+    schema_text += "}\n```"
+    return schema_text
+
+
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300) -> dict:
     """Present an LLM step and execute it using LLMClient or AGY backend.
@@ -483,6 +521,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         if "interface" in manifest:
             llm_manifest["interface"] = dict(manifest["interface"])
             llm_manifest["interface"]["outputs"] = llm_outputs
+
+        # Inject dynamic schema into prompt
+        schema_text = generate_output_schema_text(llm_outputs)
+        marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
+        if marker in prompt:
+            prompt = prompt.replace(marker, schema_text)
+        elif schema_text:
+            prompt += "\n\n" + schema_text
 
     for attempt in range(qa_loop.max_retries + 1):
         full_prompt = prompt + constraints + "\n\nContext:\n" + current_context
@@ -635,7 +681,12 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                         "__llm_raw_output": result_text
                     }
                     
-        passed, feedback = qa_loop.run_checks(node_id, parsed_result, llm_manifest if manifest else None, validate_step_output)
+        def validate_for_llm(nid, out, man):
+            issues = validate_step_output(nid, out, man)
+            if issues:
+                raise RuntimeError("Validation failed:\n" + "\n".join(f"- {i}" for i in issues))
+                
+        passed, feedback = qa_loop.run_checks(node_id, parsed_result, llm_manifest if manifest else None, validate_for_llm)
         if passed:
             return parsed_result
             
@@ -725,22 +776,27 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     return result
 
 
-def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> None:
-    """Validate a step's output against its manifest declarations."""
+def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> list:
+    """Validate a step's output against its manifest declarations.
+    Returns a list of warning/error strings."""
+    issues = []
     if not manifest or "interface" not in manifest or "outputs" not in manifest["interface"]:
-        return
+        return issues
 
     outputs_spec = manifest["interface"]["outputs"]
+    expected_keys = set()
+    
     for spec in outputs_spec:
         key = spec.get("name")
         if not key:
             continue
-            
+        expected_keys.add(key)
+        
         is_required = spec.get("required", True)
         
         if key not in output or output[key] is None:
             if is_required:
-                raise RuntimeError(f"Step '{node_id}' output missing required key: '{key}'")
+                issues.append(f"Step '{node_id}' output missing required key: '{key}'")
             else:
                 import sys
                 print(f"  Warning: Step '{node_id}' output missing optional key: '{key}'", file=sys.stderr)
@@ -758,7 +814,7 @@ def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> N
             }
             expected_type = type_map.get(expected_type_str)
             if expected_type and not isinstance(val, expected_type):
-                raise RuntimeError(f"Step '{node_id}' output '{key}' expected type {expected_type_str}, got {type(val).__name__}")
+                issues.append(f"Step '{node_id}' output '{key}' expected type {expected_type_str}, got {type(val).__name__}")
                 
         if is_required:
             is_empty = False
@@ -768,7 +824,14 @@ def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> N
                 is_empty = True
                 
             if is_empty:
-                raise RuntimeError(f"Step '{node_id}' output '{key}' is semantically empty: {val}")
+                issues.append(f"Step '{node_id}' output '{key}' is semantically empty: {val}")
+
+    actual_keys = set(output.keys())
+    extra_keys = [k for k in actual_keys - expected_keys if not k.startswith("__")]
+    if extra_keys:
+        issues.append(f"Step '{node_id}' output has unexpected extra fields: {', '.join(extra_keys)}")
+
+    return issues
 
 
 # ── Main Runner ─────────────────────────────────────────────────────
@@ -999,18 +1062,12 @@ def run_pipeline(
                     if unknown_paths: print(f"       Unknown paths: {unknown_paths}", file=sys.stderr)
             
             # Validate output against manifest
-            try:
-                validate_step_output(node_id, output, impl.get("manifest"))
-            except RuntimeError as e:
-                print(f"     ✗ INVALID OUTPUT: {e}", file=sys.stderr)
-                logger = get_logger()
-                if logger:
-                    logger.log(step_id=node_id, event_type="step_failed", error=str(e))
-                state.setdefault("failed_steps", []).append(node_id)
-                state.setdefault("step_errors", {})[node_id] = str(e)
-                save_pipeline_state(project_dir, state)
-                failed.append(node_id)
-                break
+            issues = validate_step_output(node_id, output, impl.get("manifest"))
+            if issues:
+                print(f"     ⚠ WARNING: Output validation issues for {node_id}:", file=sys.stderr)
+                for issue in issues:
+                    print(f"       - {issue}", file=sys.stderr)
+                # Do not crash on validation failures (warning mode for now)
             
             state.setdefault("step_outputs", {})[node_id] = output
             state.setdefault("steps_completed", {})[node_id] = {

@@ -108,39 +108,7 @@ downstream mesh_spine step will coordinate speech and music timing.
 
 ---
 
-## Output Format
-
-```json
-{
-  "hook_segment": {
-    "clip_id": "string",
-    "text": "string (the hook text)",
-    "source_in": 0.0,
-    "source_out": 0.0,
-    "word_timestamps": [{"word": "string", "source_in": 0.0, "source_out": 0.0}],
-    "rationale": "string (why this is the hook)"
-  },
-  "body_sequence": [
-    {
-      "position": 1,
-      "clip_id": "string",
-      "text": "string (exact spoken words)",
-      "source_in": 0.0,
-      "source_out": 0.0,
-      "duration_seconds": 0.0,
-      "role": "opening | development | climax | resolution",
-      "flow_note": "string"
-    }
-  ],
-  "excluded_passages": [
-    {
-      "clip_id": "string",
-      "text": "string (first 50 chars)",
-      "reason_excluded": "string"
-    }
-  ]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

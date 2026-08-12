@@ -8,7 +8,7 @@
 | Name | Select and Prepare Music |
 | Determinism | **Nondeterministic** |
 | Archetype | Creative Selection |
-| Encoding Format | LLM Prompt |
+| Encoding Format | LLM Prompt + Tool Scripts |
 | Idempotent | No |
 | Dependencies | Step 2.1 (runs in parallel with 2.2→2.3) |
 
@@ -18,29 +18,49 @@
 
 You are a music supervisor for shortform video content. You have the
 creative direction (your compass) and style specification (your rules).
-Your job is to evaluate the provided track, verify it fits the video's mood and energy,
-and identify specific sections (splices) to use.
+Your job is to find music on YouTube that fits the video's mood and energy,
+download it, and identify specific sections (splices) to use.
 
 Music and speech are the two halves of the audio spine. Speech carries
 content; music carries feeling. The right music elevates the narrative;
 the wrong music undermines it.
 
-A track has already been downloaded and is available in the input context.
-You do not need to search for or download a track yourself.
+### Available Tools
+
+You have access to two companion scripts in this step's directory:
+
+1. **`search_youtube.py`** — Searches YouTube for music matching a query.
+   Returns a list of results with titles, URLs, and durations.
+   ```
+   Input:  { "query": "lo-fi motivational beat", "max_results": 5 }
+   Output: { "results": [{ title, url, duration, channel }, ...] }
+   ```
+
+2. **`download_track.py`** — Downloads a YouTube video as audio (WAV) and
+   analyzes BPM.
+   ```
+   Input:  { "url": "https://youtube.com/watch?v=...", "output_dir": "./music" }
+   Output: { "audio_path": "...", "duration_seconds": ..., "bpm": ..., "key": ... }
+   ```
 
 ---
 
 ## Task Prompt
 
-Given the creative direction, evaluate the provided track and prepare it for the video.
+Given the creative direction, find and prepare music for the video.
 
 ### Workflow:
-1. **Evaluate the provided track** — review the track candidate provided in the context
-   and verify it matches the mood, energy, and compatibility with the creative direction.
-2. **Identify specific splices** — mark the sections of the track that
-   will be used in the video.
-3. **Copy the provided `audio_path`** — ensure the `audio_path` of the provided track
-   is exactly copied to your output.
+1. **Formulate search queries** based on the creative direction's target
+   mood, energy, and emotional landscape. Craft 2-3 search queries that
+   describe the sonic qualities needed (e.g., "motivational cinematic beat
+   no copyright", "uplifting lo-fi hip hop instrumental").
+2. **Search YouTube** using each query via `search_youtube.py`
+3. **Evaluate results** — listen/review the candidates and select the best
+   match based on mood, energy, and compatibility with the creative direction
+4. **Download the selected track** via `download_track.py` — this also
+   extracts BPM and key
+5. **Identify specific splices** — mark the sections of the track that
+   will be used in the video
 
 ### Selection principles:
 1. **Mood must match or enhance** the creative direction's emotional
@@ -51,6 +71,14 @@ Given the creative direction, evaluate the provided track and prepare it for the
 5. **Never hard-start or hard-stop** — fades required
 6. **Identify specific splices** — a 3-minute track is never used in full;
    pick the 5-15 second sections that fit particular moments
+7. **Prefer royalty-free / no-copyright** tracks to avoid content claims
+
+### Search query guidance:
+- Include the mood/vibe (e.g., "motivational", "chill", "cinematic")
+- Include "instrumental" or "beat" (we need music without vocals)
+- Include "no copyright" or "royalty free" for safe usage
+- Try genre-specific queries if the creative direction suggests one
+- Try mood-descriptive queries (e.g., "warm uplifting piano beat")
 
 ### Splice guidance:
 - Identify at least one "intro/hook" splice (for the video opening)
@@ -70,42 +98,15 @@ sonic and musical preferences as natural language. Read it for:
 - Music energy and mood descriptions
 - Any tracks or styles to avoid
 
-Use the brief to shape your evaluation criteria.
+Use the brief to shape your YouTube search queries and selection criteria.
+The brief takes priority over all other genre guidance.
+
+If `brand_content.music_genre` is also present (a list of genre strings),
+use it as a secondary search hint alongside the brief's guidance.
 
 ---
 
-## Output Format
-
-```json
-{
-  "overall_mood": "string",
-  "overall_energy": "low | medium | high | building",
-  "tracks": [
-    {
-      "track_id": "track_01",
-      "track_source": "string (YouTube URL)",
-      "track_name": "string",
-      "audio_path": "string (local path to provided WAV)",
-      "genre": "string",
-      "bpm": 120,
-      "key": "string (if known)",
-      "duration_seconds": 180.0,
-      "splices": [
-        {
-          "splice_id": "track_01_splice_A",
-          "source_in": 0.0,
-          "source_out": 15.0,
-          "duration_seconds": 15.0,
-          "section_type": "intro | verse | chorus | bridge | drop | buildup | outro | ambient",
-          "energy_level": "low | medium | high | peak",
-          "intended_use": "string (e.g., 'hook intro music', 'background under speech')"
-        }
-      ],
-      "selection_rationale": "string"
-    }
-  ]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

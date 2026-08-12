@@ -82,26 +82,7 @@ to the creative direction's energy.
 
 ---
 
-## Output Format
-
-```json
-{
-  "sfx_creative": [
-  {
-    "sfx_id": "sfx_001",
-    "sfx_type": "whoosh",
-    "timeline_in": 5.0,
-    "timeline_out": 5.3,
-    "duration_seconds": 0.3,
-    "volume_level": "subtle | low | medium",
-    "paired_with": "trans_001 (or null if standalone)",
-    "source_file": "string (path to SFX file or asset ID)",
-    "rationale": "string",
-    "target_track": "A3"
-  }
-]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

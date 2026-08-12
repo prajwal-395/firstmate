@@ -35,27 +35,7 @@ added as additional scripts sharing the same interface contract.
 
 ---
 
-## Output Format
-
-```json
-{
-  "output_file": "/absolute/path/to/output.mp4",
-  "format": "MP4",
-  "codec": "H.264",
-  "resolution": { "width": 1080, "height": 1920 },
-  "frame_rate": 30.0,
-  "duration_seconds": 42.0,
-  "file_size_bytes": 12345678,
-  "render_time_seconds": 120.0,
-  "render_settings": {
-    "bitrate_kbps": 15000,
-    "encoding_profile": "High",
-    "multi_pass": true,
-    "data_levels": "Full",
-    "color_space": "Rec.709 Gamma 2.4"
-  }
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

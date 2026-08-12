@@ -42,20 +42,7 @@ below. Produce a structured validation result.
 
 ---
 
-## Output Format
-
-```json
-{
-  "status": "pass | fail",
-  "visual_quality": { "pass": true, "issues": [] },
-  "audio_quality": { "pass": true, "issues": [] },
-  "subtitle_accuracy": { "pass": true, "issues": [] },
-  "timing_accuracy": { "pass": true, "issues": [] },
-  "overall_impression": "string — would you post this?",
-  "distribution_ready": true,
-  "recommended_action": "string or null"
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---
 

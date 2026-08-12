@@ -80,22 +80,7 @@ to the creative direction's energy profile.
 
 ---
 
-## Output Format
-
-```json
-{
-  "vfx_creative": [
-  {
-    "timeline_start": 5.0,
-    "effect_type": "slow_zoom",
-    "params": {
-      "direction": "in",
-      "zoom_percent": 7.0
-    }
-  }
-]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 **CRITICAL RULE:** Use exactly these key names - do not rename or restructure. DaVinci Resolve reads these exact fields.
 

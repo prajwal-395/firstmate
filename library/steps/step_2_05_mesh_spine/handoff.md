@@ -115,30 +115,7 @@ The result is speech cut off mid-sentence.
 
 ---
 
-## Output Format
-
-```json
-{
-  "total_estimated_duration_seconds": 45.0,
-  "structure": [
-    {
-      "position": 1,
-      "block_type": "hook",
-      "duration_seconds": 2.0,
-      "content": {
-        "passage_ref": "hook",
-        "clip_id": "string",
-        "source_in": 0.0,
-        "source_out": 2.0,
-        "text": "string"
-      },
-      "music_behavior": "prominent",
-      "music_splice_id": "track_01_splice_A",
-      "visual_note": "string (guidance for Phase 3)"
-    }
-  ]
-}
-```
+<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ### passage_ref (CRITICAL)
 
