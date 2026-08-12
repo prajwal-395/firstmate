@@ -40,7 +40,6 @@ def generate_creative_direction(inputs: dict) -> dict:
     elif isinstance(semantic_docs, list):
         for doc in semantic_docs[:3]:
             clip_id = doc.get("clip_id", "unknown")
-            doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
             desc = doc.get("analysis", {}).get("scene", f"Key moment from {clip_id}")
             key_moments.append(desc)
     

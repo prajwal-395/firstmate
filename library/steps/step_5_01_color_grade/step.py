@@ -325,11 +325,11 @@ def main():
     for assignment in input_data.get("a_roll_assignments", []):
         vsegs = assignment.get("video_segments", [])
         if vsegs:
-            for seg in vsegs:
+            for seg_idx, seg in enumerate(vsegs):
                 entries.append({
                     "track": "V1",
                     "clip_id": seg.get("clip_id", assignment.get("source_clip_id", "")),
-                    "entry_id": seg.get("segment_id", ""),
+                    "entry_id": seg.get("segment_id", seg.get("clip_id", f"{assignment.get('spine_block_position')}_seg{seg_idx}")),
                     "source_file": seg.get("source_file", assignment.get("source_file", "")),
                 })
         else:

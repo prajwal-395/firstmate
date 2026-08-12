@@ -35,7 +35,7 @@ from typing import Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
 try:
     from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
-    from tools.fairlight_presets import get_preset, apply_fairlight_preset
+    from fairlight_presets import get_preset, apply_fairlight_preset
     from timeline_qa import (
         verify_clip_placement, verify_transitions, verify_color_grades,
         verify_audio, verify_fusion_comps, run_full_timeline_qa
