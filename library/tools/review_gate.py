@@ -90,35 +90,7 @@ def save_gate_snapshot(
         with open(status_path, "w") as f:
             json.dump(status, f, indent=2)
 
-    # Automatically create an agent message for this gate
-    try:
-        from library.tools.step_exporter import load_step_summary, generate_summary
-        summary_md = load_step_summary(project_dir, step_id)
-        if not summary_md:
-            summary_md = generate_summary(step_id, step_name, step_output)
-    except Exception:
-        summary_md = "Review required for this step."
 
-    msg_id = f"msg_{step_id}_{int(time.time())}"
-    msg = {
-        "id": msg_id,
-        "type": "decision",
-        "step_id": step_id,
-        "title": f"Review Gate: {step_name}",
-        "body": summary_md,
-        "options": [
-            {"id": "approve", "label": "Approve", "description": "Proceed with the current output"},
-            {"id": "reject", "label": "Reject", "description": "Reject the output"},
-            {"id": "revise", "label": "Revise", "description": "Approve with modifications"}
-        ],
-        "requires_response": True,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S")
-    }
-    
-    msg_dir = Path(project_dir) / "pipeline_output" / "messages"
-    msg_dir.mkdir(parents=True, exist_ok=True)
-    with open(msg_dir / f"{msg_id}.json", "w") as f:
-        json.dump(msg, f, indent=2)
 
     return snapshot_path
 

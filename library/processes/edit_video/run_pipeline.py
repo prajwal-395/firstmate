@@ -994,10 +994,32 @@ def run_pipeline(
             if review_mode:
                 _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
                 print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
-                completed.append(node_id)
-                break
+                
+                try:
+                    from library.tools.step_exporter import load_step_summary, generate_summary
+                    summary_md = load_step_summary(project_dir, node_id)
+                    if not summary_md:
+                        summary_md = generate_summary(node_id, node["name"], output)
+                except Exception:
+                    summary_md = "Review required for this step."
+
+                from library.tools.dashboard_messenger import request_human_review
+                response = request_human_review(
+                    step_name=node_id,
+                    question=summary_md,
+                    context="Review output and upstream context."
+                )
+
+                if response.get("action") == "reject":
+                    raise RuntimeError(f"Step '{node_id}' rejected by human review.")
+
+                # Reload state in case human revised the output
+                state = load_pipeline_state(project_dir)
+                outputs = state.get("step_outputs", {})
+                output = outputs.get(node_id, output)
                 
             completed.append(node_id)
+
                 
         except Exception as e:
             # Unhandled errors outside step execution
