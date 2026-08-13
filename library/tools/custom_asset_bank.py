@@ -1,8 +1,48 @@
+import hashlib
+import json
 import os
 import glob
+import re
+
+# Generated comps are banked as "<clip label>_<12 hex digest>". The digest
+# covers everything the comp was built from, so a re-cut that changes a
+# clip's duration or effect parameters never reuses the previous run's
+# baked keyframes.
+_VARIANT_SUFFIX = re.compile(r"^_[0-9a-f]{12}$")
+
 
 def get_asset_bank_dir(project_folder: str) -> str:
     return os.path.join(project_folder, "assets", "fusion_presets")
+
+
+def clip_asset_key(label: str, effects: dict, clip_dur) -> str:
+    """Bank key identifying exactly the comp these inputs generate."""
+    fingerprint = json.dumps(
+        {"effects": effects, "clip_dur": clip_dur},
+        sort_keys=True, default=str,
+    )
+    digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:12]
+    return f"{label.lower()}_{digest}"
+
+
+def find_clip_assets(project_folder: str, label: str) -> list[str]:
+    """Paths of every banked comp generated for *label*, any variant.
+
+    Lets a caller find what was banked for a clip without recomputing the
+    digest, while lookups that must not reuse a stale comp still go
+    through the exact key.
+    """
+    prefix = label.lower()
+    paths = []
+    for name in list_custom_assets(project_folder):
+        if not name.startswith(prefix):
+            continue
+        if not _VARIANT_SUFFIX.match(name[len(prefix):]):
+            continue
+        path = get_custom_asset(project_folder, name)
+        if path:
+            paths.append(path)
+    return sorted(paths)
 
 def list_custom_assets(project_folder: str) -> list[str]:
     """Lists available custom assets (without extensions)."""

@@ -188,7 +188,7 @@ def test_pipeline_run():
     banner("PHASE 4", "Enhancement (re-run subtitles with min_duration)")
     
     sub_mod = load_step_module("step_4_01_plan_subtitles")
-    sub_result = sub_mod.generate_subtitles(enriched["audio_spine"], speech_seq)
+    sub_result = sub_mod.generate_subtitles(enriched["audio_spine"])
     
     print(f"  ✓ Total subtitles: {sub_result['total_subtitles']}")
     

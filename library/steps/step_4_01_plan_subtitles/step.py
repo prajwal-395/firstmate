@@ -30,6 +30,10 @@ import sys
 # are shifted forward to prevent overlap.
 MIN_DISPLAY_DURATION = 0.7
 
+# Below this a subtitle flashes rather than reads; clamping a block's
+# entries to its bounds can leave a sliver, and a sliver is worth dropping.
+MIN_VISIBLE_DURATION = 0.08
+
 
 # ── Font-agnostic visual-fit measurement ──
 # Used to check whether subtitle text fits on screen at a given
@@ -184,68 +188,6 @@ def split_into_groups(
     return groups
 
 
-def split_text_proportional(
-    text: str,
-    block_start: float,
-    block_end: float,
-    min_words: int = 1,
-    max_words: int = 6,
-    max_chars: int = 18,
-) -> list:
-    """
-    Fallback: split text into groups and distribute time proportionally.
-    Used only when word_timestamps are not available.
-    """
-    words = text.split()
-    if not words:
-        return []
-
-    groups = []
-    current = []
-    for word in words:
-        # Character limit: flush before adding if it would exceed max_chars
-        if current:
-            would_be = " ".join(current) + " " + word
-            if len(would_be) > max_chars:
-                groups.append({"text": " ".join(current), "word_count": len(current)})
-                current = []
-
-        current.append(word)
-        is_sentence_end = bool(re.search(r'[.!?]$', word))
-        is_clause_break = bool(re.search(r'[,;:—–]$', word))
-        at_max = len(current) >= max_words
-        at_reasonable = len(current) >= min_words
-
-        if at_max or (at_reasonable and (is_sentence_end or is_clause_break)):
-            groups.append({"text": " ".join(current), "word_count": len(current)})
-            current = []
-    if current:
-        groups.append({"text": " ".join(current), "word_count": len(current)})
-
-    # Distribute time proportionally by word count
-    total_words = sum(g["word_count"] for g in groups)
-    duration = block_end - block_start
-    pos = block_start
-    for g in groups:
-        g_dur = duration * (g["word_count"] / total_words)
-        g["start"] = round(pos, 3)
-        g["end"] = round(pos + g_dur, 3)
-        # Synthesize proportional per-word timing
-        g_words = g["text"].split()
-        n_gw = len(g_words)
-        per_word_dur = g_dur / max(n_gw, 1)
-        g["_words"] = []
-        for wi, tw in enumerate(g_words):
-            g["_words"].append({
-                "word": tw,
-                "start": round(pos + wi * per_word_dur, 3),
-                "end": round(pos + (wi + 1) * per_word_dur, 3),
-            })
-        pos += g_dur
-
-    return groups
-
-
 def identify_emphasis_words(text: str) -> list:
     """
     Identify keywords that should receive visual emphasis (scale bump).
@@ -269,24 +211,51 @@ def identify_emphasis_words(text: str) -> list:
     return emphasis[:2]
 
 
-def generate_subtitles(
-    audio_spine: dict,
-    speech_sequence: dict,
-) -> dict:
+def _require_word_timestamps(block: dict) -> list:
+    """The block's word timings, or a loud failure.
+
+    Every speech and hook block carries populated `word_timestamps` under
+    the spine contract (library/tools/spine_contract.py). Estimating the
+    timings proportionally when they are absent is what let unaligned
+    blocks reach the timeline looking correct.
     """
-    Generate subtitle entries using word-level timestamps from wav2vec2 FA.
-    Falls back to proportional estimation if word_timestamps are absent.
+    words = block["word_timestamps"]
+    if not words:
+        raise ValueError(
+            f"Spine block {block['position']!r} ({block['block_type']}) has "
+            f"empty word_timestamps - the spine contract requires word "
+            f"timings on every speech block, so subtitles cannot be timed"
+        )
+    return words
+
+
+def _words_in_source_window(
+    block: dict, words: list, src_in: float, src_out: float,
+) -> list:
+    """Words falling inside a block's source window, or a loud failure."""
+    in_range = [
+        w for w in words
+        if w["source_end"] > src_in - 0.05
+        and w["source_start"] < src_out + 0.05
+    ]
+    if not in_range:
+        raise ValueError(
+            f"Spine block {block['position']!r} carries "
+            f"{len(words)} word timings but none fall inside its own "
+            f"source window {src_in:.3f}-{src_out:.3f}s - the block's "
+            f"timings belong to a different passage"
+        )
+    return in_range
+
+
+def generate_subtitles(audio_spine: dict) -> dict:
+    """
+    Generate subtitle entries from the spine's own word-level timestamps.
+
+    Speech and hook blocks must carry populated word_timestamps; a block
+    that does not fails the step rather than being timed by guesswork.
     """
     structure = audio_spine.get("structure", [])
-
-    # Build a lookup: clip_id + text -> passage with word_timestamps
-    passage_lookup = {}
-    if speech_sequence.get("hook_segment"):
-        hook = speech_sequence["hook_segment"]
-        passage_lookup[("hook", hook.get("clip_id"))] = hook
-    for passage in speech_sequence.get("body_sequence", []):
-        key = (str(passage.get("position")), passage.get("clip_id"))
-        passage_lookup[key] = passage
 
     subtitle_entries = []
     sub_counter = 0
@@ -305,64 +274,45 @@ def generate_subtitles(
             text, font_path, font_size, canvas_width)
 
     for block in structure:
-        block_type = block.get("block_type")
+        block_type = block["block_type"]
         if block_type not in ("hook", "speech"):
             continue
 
-        content = block.get("content", {})
-        block_start = block.get("timeline_start", 0.0)
-        block_end = block.get("timeline_end", 0.0)
+        content = block["content"]
+        block_start = block["timeline_start"]
+        block_end = block["timeline_end"]
 
         if block_type == "hook":
-            text = content.get("text", "")
+            text = content["text"]
             if not text:
                 continue
 
-            clip_id = content.get("clip_id")
-            passage = passage_lookup.get(("hook", clip_id), {})
-            word_ts = passage.get("word_timestamps", [])
+            word_ts = _require_word_timestamps(block)
 
-            if word_ts:
-                # Use the V1 clip's actual source range for the offset
-                # calculation, same logic as the speech block path.
-                v1_src_in = content.get(
-                    "v1_source_in",
-                    passage.get("start_time",
-                                block.get("source_start", 0.0))
-                )
-                v1_src_out = content.get(
-                    "v1_source_out",
-                    passage.get("end_time",
-                                block.get("source_end", 0.0))
-                )
-                offset = block_start - v1_src_in
+            # The spine's own source range is the V1 clip's range.
+            v1_src_in = block["source_start"]
+            v1_src_out = block["source_end"]
+            offset = block_start - v1_src_in
 
-                # Filter words to the V1 clip's source window
-                in_range = [
-                    w for w in word_ts
-                    if w["end"] > v1_src_in - 0.05
-                    and w["start"] < v1_src_out + 0.05
-                ]
+            # Filter words to the V1 clip's source window
+            in_range = _words_in_source_window(block, word_ts,
+                                               v1_src_in, v1_src_out)
 
-                timeline_words = [
-                    {
-                        "word": w["word"],
-                        "start": round(w["start"] + offset, 3),
-                        "end": round(w["end"] + offset, 3),
-                    }
-                    for w in in_range
-                ]
-                # Clip to the block's timeline window
-                timeline_words = [
-                    w for w in timeline_words
-                    if w["end"] > block_start - 0.05
-                    and w["start"] < block_end + 0.05
-                ]
-                groups = split_into_groups(timeline_words, fits_fn=fits_fn)
-            else:
-                groups = split_text_proportional(
-                    text, block_start, block_end
-                )
+            timeline_words = [
+                {
+                    "word": w["word"],
+                    "start": round(w["source_start"] + offset, 3),
+                    "end": round(w["source_end"] + offset, 3),
+                }
+                for w in in_range
+            ]
+            # Clip to the block's timeline window
+            timeline_words = [
+                w for w in timeline_words
+                if w["end"] > block_start - 0.05
+                and w["start"] < block_end + 0.05
+            ]
+            groups = split_into_groups(timeline_words, fits_fn=fits_fn)
 
             for g in groups:
                 sub_counter += 1
@@ -373,7 +323,7 @@ def generate_subtitles(
                     "timeline_end": min(g["end"], block_end),
                     "text": entry_text,
                     "emphasis_words": identify_emphasis_words(entry_text),
-                    "spine_block_position": block.get("position", ""),
+                    "spine_block_position": block["position"],
                     "word_count": g["word_count"],
                     "words": [
                         {
@@ -386,102 +336,72 @@ def generate_subtitles(
                 })
 
         elif block_type == "speech":
-            # The enriched spine may have word_timestamps directly in
-            # content (from the 2.5 bridge), or in content.segments[]
-            # (legacy). Handle both.
-            segments = content.get("segments", [])
-
-            if not segments and content.get("text"):
-                # Direct content format (from enriched spine)
-                # Try both key naming conventions
-                segments = [{
-                    "text": content.get("text", ""),
-                    "clip_id": content.get("clip_id"),
-                    "position": content.get("passage_ref"),
-                    "start_time": content.get("source_start",
-                                   content.get("start_time", 0.0)),
-                    "end_time": content.get("source_end",
-                                 content.get("end_time", 0.0)),
-                }]
+            # Under the spine contract a speech block is exactly one
+            # passage, carrying its own source range and word timings.
+            segments = [{
+                "text": content["text"],
+                "start_time": block["source_start"],
+                "end_time": block["source_end"],
+                "word_timestamps": _require_word_timestamps(block),
+            }]
 
             current_tl_pos = block_start
 
             for seg in segments:
-                seg_text = seg.get("text", "")
+                seg_text = seg["text"]
                 if not seg_text:
                     continue
 
-                clip_id = seg.get("clip_id")
-                position = seg.get("position", content.get("passage_ref", block.get("position")))
-
-                # Try to find word timestamps:
-                # 1. Directly in content (enriched spine)
-                # 2. In passage_lookup (legacy)
-                word_ts = seg.get("word_timestamps") or content.get("word_timestamps", [])
-                if not word_ts:
-                    passage = passage_lookup.get((str(position), clip_id), {})
-                    word_ts = passage.get("word_timestamps", [])
-
-                seg_source_start = seg.get("start_time", seg.get("source_start", 0.0))
-                seg_source_end = seg.get("end_time", seg.get("source_end", 0.0))
+                word_ts = seg["word_timestamps"]
+                seg_source_start = seg["start_time"]
+                seg_source_end = seg["end_time"]
                 source_dur = seg_source_end - seg_source_start
-                
+
                 # Each segment plays at 1x speed, so its timeline duration is its source duration.
                 # Clamp to the block's overall timeline_end just in case.
                 seg_tl_start = current_tl_pos
                 seg_tl_end = min(current_tl_pos + source_dur, block_end)
                 seg_tl_dur = seg_tl_end - seg_tl_start
 
-                # If source duration significantly exceeds edit duration,
-                # we can't use raw word timestamps (the block will be
-                # jump-cut and actual word timing is unknown). Use
-                # proportional splitting instead.
-                use_proportional = (
-                    source_dur > 0 and seg_tl_dur > 0
-                    and source_dur > seg_tl_dur * 1.5
-                )
-
-                if word_ts and not use_proportional:
-                    # Use the V1 clip's actual source range for the offset
-                    # calculation.
-                    v1_src_in = seg.get("v1_source_in", content.get("v1_source_in", seg_source_start))
-                    v1_src_out = seg.get("v1_source_out", content.get("v1_source_out", seg_source_end))
-
-                    # Filter words to the V1 clip's source window
-                    in_range_words = [
-                        w for w in word_ts
-                        if w["end"] > v1_src_in - 0.05
-                        and w["start"] < v1_src_out + 0.05
-                    ]
-
-                    if in_range_words:
-                        # Offset: V1 source_in → segment's timeline_start
-                        offset = seg_tl_start - v1_src_in
-
-                        timeline_words = [
-                            {
-                                "word": w["word"],
-                                "start": round(w["start"] + offset, 3),
-                                "end": round(w["end"] + offset, 3),
-                            }
-                            for w in in_range_words
-                        ]
-                        # Clip to segment's timeline window
-                        timeline_words = [
-                            w for w in timeline_words
-                            if w["end"] > seg_tl_start - 0.05
-                            and w["start"] < seg_tl_end + 0.05
-                        ]
-                        groups = split_into_groups(timeline_words, fits_fn=fits_fn)
-                    else:
-                        groups = split_text_proportional(
-                            seg_text, seg_tl_start, seg_tl_end
-                        )
-                else:
-                    # Proportional: spread text evenly across segment
-                    groups = split_text_proportional(
-                        seg_text, seg_tl_start, seg_tl_end
+                # mesh_spine syncs a block's duration to its speech, so a
+                # source span far longer than the timeline span means the
+                # spine is inconsistent and word timings cannot be mapped.
+                # Say so instead of quietly spreading the text evenly.
+                if source_dur > 0 and seg_tl_dur > 0 and source_dur > seg_tl_dur * 1.5:
+                    raise ValueError(
+                        f"Spine block {block['position']!r} spans "
+                        f"{source_dur:.3f}s of source but only "
+                        f"{seg_tl_dur:.3f}s of timeline - word timings "
+                        f"cannot be mapped onto a block that was jump-cut "
+                        f"after the spine was built"
                     )
+
+                # The block's own source range is the V1 clip's range.
+                v1_src_in = seg_source_start
+                v1_src_out = seg_source_end
+
+                # Filter words to the V1 clip's source window
+                in_range_words = _words_in_source_window(
+                    block, word_ts, v1_src_in, v1_src_out)
+
+                # Offset: V1 source_in → segment's timeline_start
+                offset = seg_tl_start - v1_src_in
+
+                timeline_words = [
+                    {
+                        "word": w["word"],
+                        "start": round(w["source_start"] + offset, 3),
+                        "end": round(w["source_end"] + offset, 3),
+                    }
+                    for w in in_range_words
+                ]
+                # Clip to segment's timeline window
+                timeline_words = [
+                    w for w in timeline_words
+                    if w["end"] > seg_tl_start - 0.05
+                    and w["start"] < seg_tl_end + 0.05
+                ]
+                groups = split_into_groups(timeline_words, fits_fn=fits_fn)
 
                 for g in groups:
                     sub_counter += 1
@@ -492,7 +412,7 @@ def generate_subtitles(
                         "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,
                         "emphasis_words": identify_emphasis_words(entry_text),
-                        "spine_block_position": block.get("position", ""),
+                        "spine_block_position": block["position"],
                         "word_count": g["word_count"],
                         "words": [
                             {
@@ -520,15 +440,16 @@ def generate_subtitles(
             pos = entry.get("spine_block_position")
             block_groups.setdefault(pos, []).append(entry)
 
-        # Build block-end lookup from spine
-        block_end_lookup = {}
-        for blk in structure:
-            block_end_lookup[blk["position"]] = blk.get(
-                "timeline_end", blk.get("timeline_end_frame", 0) / 30.0
-            )
+        # Build block-range lookup from spine
+        block_range_lookup = {
+            blk["position"]: (blk["timeline_start"], blk["timeline_end"])
+            for blk in structure
+        }
 
         for pos, group in block_groups.items():
-            block_end = block_end_lookup.get(pos, float("inf"))
+            block_start, block_end = block_range_lookup.get(
+                pos, (float("-inf"), float("inf"))
+            )
 
             max_passes = 10
             for _pass in range(max_passes):
@@ -560,22 +481,31 @@ def generate_subtitles(
                 if not changed:
                     break
 
-            # Clamp the last subtitle to the block boundary
-            if group:
-                last = group[-1]
-                if last["timeline_end"] > block_end + 0.001:
-                    last["timeline_end"] = round(block_end, 3)
-                    # If clamping makes it zero-length, push start back
-                    if last["timeline_end"] <= last["timeline_start"]:
-                        last["timeline_start"] = round(
-                            last["timeline_end"] - 0.1, 3
-                        )
-                        if len(group) > 1:
-                            prev = group[-2]
-                            if last["timeline_start"] < prev["timeline_end"]:
-                                last["timeline_start"] = round(prev["timeline_end"], 3)
-                                if last["timeline_end"] <= last["timeline_start"]:
-                                    last["timeline_end"] = round(last["timeline_start"] + 0.1, 3)
+            # Clamp EVERY subtitle in the block to the block's range.
+            # The min-duration cascade above can push more than one
+            # trailing entry past the boundary, and clamping only the last
+            # left the rest bleeding into the next block - which then made
+            # that block's rendered overlay overlap its neighbour.
+            for entry in group:
+                entry["timeline_start"] = round(
+                    max(entry["timeline_start"], block_start), 3)
+                entry["timeline_end"] = round(
+                    min(entry["timeline_end"], block_end), 3)
+
+            kept = [
+                e for e in group
+                if e["timeline_end"] - e["timeline_start"] >= MIN_VISIBLE_DURATION
+            ]
+            dropped = [e for e in group if e not in kept]
+            for e in dropped:
+                print(
+                    f"WARNING: dropped subtitle {e.get('id', '?')} "
+                    f"({e.get('text', '')!r}) - clamping it to block {pos} "
+                    f"left no visible duration",
+                    file=sys.stderr,
+                )
+                subtitle_entries.remove(e)
+            block_groups[pos] = kept
 
     # --- Verification ---
 
@@ -626,7 +556,6 @@ def generate_subtitles(
 def main():
     input_data = json.loads(sys.stdin.read())
     audio_spine = input_data.get("audio_spine")
-    speech_sequence = input_data.get("speech_sequence", {})
 
     if not audio_spine:
         print(json.dumps({
@@ -636,7 +565,7 @@ def main():
         sys.exit(1)
 
     try:
-        result = generate_subtitles(audio_spine, speech_sequence)
+        result = generate_subtitles(audio_spine)
     except (ValueError, AssertionError) as e:
         print(json.dumps({
             "error": str(e),

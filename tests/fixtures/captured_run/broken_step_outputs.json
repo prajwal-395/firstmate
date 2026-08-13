@@ -1,0 +1,2390 @@
+{
+ "mesh_spine": {
+  "audio_spine": {
+   "total_estimated_duration_seconds": 42.9,
+   "total_duration_frames": 1287,
+   "frame_rate": 30.0,
+   "structure": [
+    {
+     "position": "hook",
+     "block_type": "hook",
+     "content": {
+      "passage_ref": "hook",
+      "text": "i have an announcement to make.",
+      "clip_id": "clip_011",
+      "source_start": 17.666,
+      "source_end": 20.348,
+      "v1_source_in": 17.666,
+      "v1_source_out": 20.348,
+      "source_duration": null,
+      "alignment_method": null,
+      "word_timestamps": [
+       {
+        "word": "and",
+        "source_start": 17.666,
+        "source_end": 18.026
+       },
+       {
+        "word": "i",
+        "source_start": 19.147,
+        "source_end": 19.187
+       },
+       {
+        "word": "have",
+        "source_start": 19.227,
+        "source_end": 19.467
+       },
+       {
+        "word": "an",
+        "source_start": 19.607,
+        "source_end": 19.687
+       },
+       {
+        "word": "announcement",
+        "source_start": 19.707,
+        "source_end": 20.008
+       },
+       {
+        "word": "to",
+        "source_start": 20.048,
+        "source_end": 20.108
+       },
+       {
+        "word": "make.",
+        "source_start": 20.128,
+        "source_end": 20.348
+       }
+      ]
+     },
+     "link_group_id": "d536465f-d62c-4a86-8165-880b11b0bc1b",
+     "source_start": 17.666,
+     "source_end": 20.348,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 2.682,
+     "music_track": "track_01",
+     "timeline_start": 0.0,
+     "timeline_end": 2.682,
+     "timeline_start_frame": 0,
+     "timeline_end_frame": 80,
+     "duration_frames": 80
+    },
+    {
+     "position": 1,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 1,
+      "text": "okay, we're here, we're here.",
+      "clip_id": "clip_006",
+      "source_start": 14.68,
+      "source_end": 16.065,
+      "v1_source_in": 14.68,
+      "v1_source_out": 16.065,
+      "source_duration": 1.385,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "faabb27e-4c29-4462-8e84-f4e39eb0cc74",
+     "source_start": 14.68,
+     "source_end": 16.065,
+     "source_clip_id": "clip_006",
+     "duration_seconds": 1.385,
+     "music_track": "track_01",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "timeline_start_frame": 80,
+     "timeline_end_frame": 122,
+     "duration_frames": 42
+    },
+    {
+     "position": 2,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 2,
+      "text": "just gotta find a place to park now.",
+      "clip_id": "clip_006",
+      "source_start": 16.085,
+      "source_end": 18.914,
+      "v1_source_in": 16.085,
+      "v1_source_out": 18.914,
+      "source_duration": 2.829,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "b11aa293-cb9d-456c-9520-cbad02f7f673",
+     "source_start": 16.085,
+     "source_end": 18.914,
+     "source_clip_id": "clip_006",
+     "duration_seconds": 2.829,
+     "music_track": "track_01",
+     "timeline_start": 4.067,
+     "timeline_end": 6.896,
+     "timeline_start_frame": 122,
+     "timeline_end_frame": 207,
+     "duration_frames": 85
+    },
+    {
+     "position": 3,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 3,
+      "text": "now where's a good spot to film?",
+      "clip_id": "clip_007",
+      "source_start": 11.224,
+      "source_end": 12.744,
+      "v1_source_in": 11.224,
+      "v1_source_out": 12.744,
+      "source_duration": 1.52,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "baaa49f5-648c-40cc-81b6-f2475c4df858",
+     "source_start": 11.224,
+     "source_end": 12.744,
+     "source_clip_id": "clip_007",
+     "duration_seconds": 1.52,
+     "music_track": "track_01",
+     "timeline_start": 6.896,
+     "timeline_end": 8.416,
+     "timeline_start_frame": 207,
+     "timeline_end_frame": 252,
+     "duration_frames": 45
+    },
+    {
+     "position": 4,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 4,
+      "text": "today is march 25th, 2026.",
+      "clip_id": "clip_011",
+      "source_start": 9.699,
+      "source_end": 11.28,
+      "v1_source_in": 9.699,
+      "v1_source_out": 11.28,
+      "source_duration": 1.581,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "dea65efc-fc28-45a1-a203-83c782a03e8c",
+     "source_start": 9.699,
+     "source_end": 11.28,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 1.581,
+     "music_track": "track_01",
+     "timeline_start": 8.416,
+     "timeline_end": 9.997,
+     "timeline_start_frame": 252,
+     "timeline_end_frame": 300,
+     "duration_frames": 48
+    },
+    {
+     "position": 5,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 5,
+      "text": "and i have an announcement to make.",
+      "clip_id": "clip_011",
+      "source_start": 17.666,
+      "source_end": 20.348,
+      "v1_source_in": 17.666,
+      "v1_source_out": 20.348,
+      "source_duration": 2.682,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "22b2d08f-9737-43d5-ac66-312c442547e4",
+     "source_start": 17.666,
+     "source_end": 20.348,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 2.682,
+     "music_track": "track_01",
+     "timeline_start": 9.997,
+     "timeline_end": 12.679,
+     "timeline_start_frame": 300,
+     "timeline_end_frame": 380,
+     "duration_frames": 80
+    },
+    {
+     "position": 6,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 6,
+      "text": "so my very, very small announcement is that i just want to post every single day.",
+      "clip_id": "clip_011",
+      "source_start": 63.135,
+      "source_end": 66.635,
+      "v1_source_in": 63.135,
+      "v1_source_out": 66.635,
+      "source_duration": 3.5,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "85bbffa0-9175-476e-ab8e-e4c635ffef71",
+     "source_start": 63.135,
+     "source_end": 66.635,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 3.5,
+     "music_track": "track_01",
+     "timeline_start": 12.679,
+     "timeline_end": 16.179,
+     "timeline_start_frame": 380,
+     "timeline_end_frame": 485,
+     "duration_frames": 105
+    },
+    {
+     "position": 7,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 7,
+      "text": "i'm going to post a video, at least one, every single day.",
+      "clip_id": "clip_011",
+      "source_start": 66.655,
+      "source_end": 70.977,
+      "v1_source_in": 66.655,
+      "v1_source_out": 70.977,
+      "source_duration": 4.322,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "7a864e2f-50af-44af-b374-06e0b40237d3",
+     "source_start": 66.655,
+     "source_end": 70.977,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 4.322,
+     "music_track": "track_01",
+     "timeline_start": 16.179,
+     "timeline_end": 20.501,
+     "timeline_start_frame": 485,
+     "timeline_end_frame": 615,
+     "duration_frames": 130
+    },
+    {
+     "position": 8,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 8,
+      "text": "and the question as to what i'm posting is, i guess, whatever i want.",
+      "clip_id": "clip_011",
+      "source_start": 74.439,
+      "source_end": 77.84,
+      "v1_source_in": 74.439,
+      "v1_source_out": 77.84,
+      "source_duration": 3.401,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "14a7b359-be0b-4253-bad5-39b0c07af4e1",
+     "source_start": 74.439,
+     "source_end": 77.84,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 3.401,
+     "music_track": "track_01",
+     "timeline_start": 20.501,
+     "timeline_end": 23.902,
+     "timeline_start_frame": 615,
+     "timeline_end_frame": 717,
+     "duration_frames": 102
+    },
+    {
+     "position": 9,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 9,
+      "text": "so you might be asking, you know, why the sudden change of heart? why the sudden motivation?",
+      "clip_id": "clip_013",
+      "source_start": 0.0,
+      "source_end": 5.0,
+      "v1_source_in": 0.0,
+      "v1_source_out": 5.0,
+      "source_duration": 5.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "b844d323-b79f-4dce-8378-4f093c9232b7",
+     "source_start": 0.0,
+     "source_end": 5.0,
+     "source_clip_id": "clip_013",
+     "duration_seconds": 5.0,
+     "music_track": "track_01",
+     "timeline_start": 23.902,
+     "timeline_end": 28.902,
+     "timeline_start_frame": 717,
+     "timeline_end_frame": 867,
+     "duration_frames": 150
+    },
+    {
+     "position": 10,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 10,
+      "text": "the goal for me is to get 100 100 of these videos out this is the first one",
+      "clip_id": "clip_013",
+      "source_start": 60.0,
+      "source_end": 65.0,
+      "v1_source_in": 60.0,
+      "v1_source_out": 65.0,
+      "source_duration": 5.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "2120453c-e3b6-4847-8aad-69836d43454e",
+     "source_start": 60.0,
+     "source_end": 65.0,
+     "source_clip_id": "clip_013",
+     "duration_seconds": 5.0,
+     "music_track": "track_01",
+     "timeline_start": 28.902,
+     "timeline_end": 33.902,
+     "timeline_start_frame": 867,
+     "timeline_end_frame": 1017,
+     "duration_frames": 150
+    },
+    {
+     "position": 11,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 11,
+      "text": "the goal is just to, you know, grow.",
+      "clip_id": "clip_015",
+      "source_start": 0.0,
+      "source_end": 3.0,
+      "v1_source_in": 0.0,
+      "v1_source_out": 3.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "2eb41ded-058e-4ea2-a2af-3b3f23c969f0",
+     "source_start": 0.0,
+     "source_end": 3.0,
+     "source_clip_id": "clip_015",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 33.902,
+     "timeline_end": 36.902,
+     "timeline_start_frame": 1017,
+     "timeline_end_frame": 1107,
+     "duration_frames": 90
+    },
+    {
+     "position": 12,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 12,
+      "text": "i'm happy that i at least recorded this",
+      "clip_id": "clip_017",
+      "source_start": 30.0,
+      "source_end": 33.0,
+      "v1_source_in": 30.0,
+      "v1_source_out": 33.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "459b7b08-4e9a-4054-8c36-0cb5d5df8c63",
+     "source_start": 30.0,
+     "source_end": 33.0,
+     "source_clip_id": "clip_017",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 36.902,
+     "timeline_end": 39.902,
+     "timeline_start_frame": 1107,
+     "timeline_end_frame": 1197,
+     "duration_frames": 90
+    },
+    {
+     "position": 13,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 13,
+      "text": "okay now i'm done talking i think",
+      "clip_id": "clip_017",
+      "source_start": 80.0,
+      "source_end": 83.0,
+      "v1_source_in": 80.0,
+      "v1_source_out": 83.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "88031972-ae45-4d30-9251-37e63885aa87",
+     "source_start": 80.0,
+     "source_end": 83.0,
+     "source_clip_id": "clip_017",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 39.902,
+     "timeline_end": 42.902,
+     "timeline_start_frame": 1197,
+     "timeline_end_frame": 1287,
+     "duration_frames": 90
+    }
+   ],
+   "music_selection": {
+    "overall_mood": "reflective and motivated",
+    "overall_energy": "building",
+    "search_queries_used": [
+     "reflective motivational instrumental no copyright",
+     "reflective cinematic piano beat short no copyright",
+     "uplifting cinematic motivational beat no copyright"
+    ],
+    "candidates_evaluated": [
+     {
+      "title": "Motivational Music For Creativity and Studying - Reflections Full Album",
+      "url": "https://www.youtube.com/watch?v=WDxMas784iY",
+      "reason_selected_or_rejected": "Rejected. Too long (full album instead of single track)."
+     },
+     {
+      "title": "Tears of Silence | Emotional Cinematic Piano & Strings | Deep Reflection | No Copyright Music",
+      "url": "https://www.youtube.com/watch?v=E0QNUfhLkiU",
+      "reason_selected_or_rejected": "Rejected. Too sad and somber for a motivational commitment."
+     },
+     {
+      "title": "Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright",
+      "url": "https://www.youtube.com/watch?v=Lbs-nEoUdQA",
+      "reason_selected_or_rejected": "Selected. Fits the building, motivational arc while maintaining a grounded, reflective tone."
+     }
+    ],
+    "tracks": [
+     {
+      "track_id": "track_01",
+      "track_source": "https://www.youtube.com/watch?v=Lbs-nEoUdQA",
+      "track_name": "Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright",
+      "audio_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/music/Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright.wav",
+      "genre": "Cinematic Hip Hop",
+      "bpm": 90,
+      "key": "estimated",
+      "duration_seconds": 114.539,
+      "splices": [
+       {
+        "splice_id": "track_01_splice_A",
+        "source_start": 0.0,
+        "source_end": 10.0,
+        "duration_seconds": 10.0,
+        "section_type": "intro",
+        "energy_level": "low",
+        "intended_use": "hook intro music"
+       },
+       {
+        "splice_id": "track_01_splice_B",
+        "source_start": 10.0,
+        "source_end": 40.0,
+        "duration_seconds": 30.0,
+        "section_type": "verse",
+        "energy_level": "medium",
+        "intended_use": "background under speech"
+       },
+       {
+        "splice_id": "track_01_splice_C",
+        "source_start": 50.0,
+        "source_end": 70.0,
+        "duration_seconds": 20.0,
+        "section_type": "drop",
+        "energy_level": "high",
+        "intended_use": "climax / final resolve"
+       }
+      ],
+      "selection_rationale": "This track starts subtle and builds, mirroring the creator's transition from pensive observation to a resolute daily commitment."
+     }
+    ]
+   }
+  },
+  "timed_spine": {
+   "total_estimated_duration_seconds": 42.9,
+   "total_duration_frames": 1287,
+   "frame_rate": 30.0,
+   "structure": [
+    {
+     "position": "hook",
+     "block_type": "hook",
+     "content": {
+      "passage_ref": "hook",
+      "text": "i have an announcement to make.",
+      "clip_id": "clip_011",
+      "source_start": 17.666,
+      "source_end": 20.348,
+      "v1_source_in": 17.666,
+      "v1_source_out": 20.348,
+      "source_duration": null,
+      "alignment_method": null,
+      "word_timestamps": [
+       {
+        "word": "and",
+        "source_start": 17.666,
+        "source_end": 18.026
+       },
+       {
+        "word": "i",
+        "source_start": 19.147,
+        "source_end": 19.187
+       },
+       {
+        "word": "have",
+        "source_start": 19.227,
+        "source_end": 19.467
+       },
+       {
+        "word": "an",
+        "source_start": 19.607,
+        "source_end": 19.687
+       },
+       {
+        "word": "announcement",
+        "source_start": 19.707,
+        "source_end": 20.008
+       },
+       {
+        "word": "to",
+        "source_start": 20.048,
+        "source_end": 20.108
+       },
+       {
+        "word": "make.",
+        "source_start": 20.128,
+        "source_end": 20.348
+       }
+      ]
+     },
+     "link_group_id": "d536465f-d62c-4a86-8165-880b11b0bc1b",
+     "source_start": 17.666,
+     "source_end": 20.348,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 2.682,
+     "music_track": "track_01",
+     "timeline_start": 0.0,
+     "timeline_end": 2.682,
+     "timeline_start_frame": 0,
+     "timeline_end_frame": 80,
+     "duration_frames": 80
+    },
+    {
+     "position": 1,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 1,
+      "text": "okay, we're here, we're here.",
+      "clip_id": "clip_006",
+      "source_start": 14.68,
+      "source_end": 16.065,
+      "v1_source_in": 14.68,
+      "v1_source_out": 16.065,
+      "source_duration": 1.385,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "faabb27e-4c29-4462-8e84-f4e39eb0cc74",
+     "source_start": 14.68,
+     "source_end": 16.065,
+     "source_clip_id": "clip_006",
+     "duration_seconds": 1.385,
+     "music_track": "track_01",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "timeline_start_frame": 80,
+     "timeline_end_frame": 122,
+     "duration_frames": 42
+    },
+    {
+     "position": 2,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 2,
+      "text": "just gotta find a place to park now.",
+      "clip_id": "clip_006",
+      "source_start": 16.085,
+      "source_end": 18.914,
+      "v1_source_in": 16.085,
+      "v1_source_out": 18.914,
+      "source_duration": 2.829,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "b11aa293-cb9d-456c-9520-cbad02f7f673",
+     "source_start": 16.085,
+     "source_end": 18.914,
+     "source_clip_id": "clip_006",
+     "duration_seconds": 2.829,
+     "music_track": "track_01",
+     "timeline_start": 4.067,
+     "timeline_end": 6.896,
+     "timeline_start_frame": 122,
+     "timeline_end_frame": 207,
+     "duration_frames": 85
+    },
+    {
+     "position": 3,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 3,
+      "text": "now where's a good spot to film?",
+      "clip_id": "clip_007",
+      "source_start": 11.224,
+      "source_end": 12.744,
+      "v1_source_in": 11.224,
+      "v1_source_out": 12.744,
+      "source_duration": 1.52,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "baaa49f5-648c-40cc-81b6-f2475c4df858",
+     "source_start": 11.224,
+     "source_end": 12.744,
+     "source_clip_id": "clip_007",
+     "duration_seconds": 1.52,
+     "music_track": "track_01",
+     "timeline_start": 6.896,
+     "timeline_end": 8.416,
+     "timeline_start_frame": 207,
+     "timeline_end_frame": 252,
+     "duration_frames": 45
+    },
+    {
+     "position": 4,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 4,
+      "text": "today is march 25th, 2026.",
+      "clip_id": "clip_011",
+      "source_start": 9.699,
+      "source_end": 11.28,
+      "v1_source_in": 9.699,
+      "v1_source_out": 11.28,
+      "source_duration": 1.581,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "dea65efc-fc28-45a1-a203-83c782a03e8c",
+     "source_start": 9.699,
+     "source_end": 11.28,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 1.581,
+     "music_track": "track_01",
+     "timeline_start": 8.416,
+     "timeline_end": 9.997,
+     "timeline_start_frame": 252,
+     "timeline_end_frame": 300,
+     "duration_frames": 48
+    },
+    {
+     "position": 5,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 5,
+      "text": "and i have an announcement to make.",
+      "clip_id": "clip_011",
+      "source_start": 17.666,
+      "source_end": 20.348,
+      "v1_source_in": 17.666,
+      "v1_source_out": 20.348,
+      "source_duration": 2.682,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "22b2d08f-9737-43d5-ac66-312c442547e4",
+     "source_start": 17.666,
+     "source_end": 20.348,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 2.682,
+     "music_track": "track_01",
+     "timeline_start": 9.997,
+     "timeline_end": 12.679,
+     "timeline_start_frame": 300,
+     "timeline_end_frame": 380,
+     "duration_frames": 80
+    },
+    {
+     "position": 6,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 6,
+      "text": "so my very, very small announcement is that i just want to post every single day.",
+      "clip_id": "clip_011",
+      "source_start": 63.135,
+      "source_end": 66.635,
+      "v1_source_in": 63.135,
+      "v1_source_out": 66.635,
+      "source_duration": 3.5,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "85bbffa0-9175-476e-ab8e-e4c635ffef71",
+     "source_start": 63.135,
+     "source_end": 66.635,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 3.5,
+     "music_track": "track_01",
+     "timeline_start": 12.679,
+     "timeline_end": 16.179,
+     "timeline_start_frame": 380,
+     "timeline_end_frame": 485,
+     "duration_frames": 105
+    },
+    {
+     "position": 7,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 7,
+      "text": "i'm going to post a video, at least one, every single day.",
+      "clip_id": "clip_011",
+      "source_start": 66.655,
+      "source_end": 70.977,
+      "v1_source_in": 66.655,
+      "v1_source_out": 70.977,
+      "source_duration": 4.322,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "7a864e2f-50af-44af-b374-06e0b40237d3",
+     "source_start": 66.655,
+     "source_end": 70.977,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 4.322,
+     "music_track": "track_01",
+     "timeline_start": 16.179,
+     "timeline_end": 20.501,
+     "timeline_start_frame": 485,
+     "timeline_end_frame": 615,
+     "duration_frames": 130
+    },
+    {
+     "position": 8,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 8,
+      "text": "and the question as to what i'm posting is, i guess, whatever i want.",
+      "clip_id": "clip_011",
+      "source_start": 74.439,
+      "source_end": 77.84,
+      "v1_source_in": 74.439,
+      "v1_source_out": 77.84,
+      "source_duration": 3.401,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "14a7b359-be0b-4253-bad5-39b0c07af4e1",
+     "source_start": 74.439,
+     "source_end": 77.84,
+     "source_clip_id": "clip_011",
+     "duration_seconds": 3.401,
+     "music_track": "track_01",
+     "timeline_start": 20.501,
+     "timeline_end": 23.902,
+     "timeline_start_frame": 615,
+     "timeline_end_frame": 717,
+     "duration_frames": 102
+    },
+    {
+     "position": 9,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 9,
+      "text": "so you might be asking, you know, why the sudden change of heart? why the sudden motivation?",
+      "clip_id": "clip_013",
+      "source_start": 0.0,
+      "source_end": 5.0,
+      "v1_source_in": 0.0,
+      "v1_source_out": 5.0,
+      "source_duration": 5.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "b844d323-b79f-4dce-8378-4f093c9232b7",
+     "source_start": 0.0,
+     "source_end": 5.0,
+     "source_clip_id": "clip_013",
+     "duration_seconds": 5.0,
+     "music_track": "track_01",
+     "timeline_start": 23.902,
+     "timeline_end": 28.902,
+     "timeline_start_frame": 717,
+     "timeline_end_frame": 867,
+     "duration_frames": 150
+    },
+    {
+     "position": 10,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 10,
+      "text": "the goal for me is to get 100 100 of these videos out this is the first one",
+      "clip_id": "clip_013",
+      "source_start": 60.0,
+      "source_end": 65.0,
+      "v1_source_in": 60.0,
+      "v1_source_out": 65.0,
+      "source_duration": 5.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "2120453c-e3b6-4847-8aad-69836d43454e",
+     "source_start": 60.0,
+     "source_end": 65.0,
+     "source_clip_id": "clip_013",
+     "duration_seconds": 5.0,
+     "music_track": "track_01",
+     "timeline_start": 28.902,
+     "timeline_end": 33.902,
+     "timeline_start_frame": 867,
+     "timeline_end_frame": 1017,
+     "duration_frames": 150
+    },
+    {
+     "position": 11,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 11,
+      "text": "the goal is just to, you know, grow.",
+      "clip_id": "clip_015",
+      "source_start": 0.0,
+      "source_end": 3.0,
+      "v1_source_in": 0.0,
+      "v1_source_out": 3.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "2eb41ded-058e-4ea2-a2af-3b3f23c969f0",
+     "source_start": 0.0,
+     "source_end": 3.0,
+     "source_clip_id": "clip_015",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 33.902,
+     "timeline_end": 36.902,
+     "timeline_start_frame": 1017,
+     "timeline_end_frame": 1107,
+     "duration_frames": 90
+    },
+    {
+     "position": 12,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 12,
+      "text": "i'm happy that i at least recorded this",
+      "clip_id": "clip_017",
+      "source_start": 30.0,
+      "source_end": 33.0,
+      "v1_source_in": 30.0,
+      "v1_source_out": 33.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "459b7b08-4e9a-4054-8c36-0cb5d5df8c63",
+     "source_start": 30.0,
+     "source_end": 33.0,
+     "source_clip_id": "clip_017",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 36.902,
+     "timeline_end": 39.902,
+     "timeline_start_frame": 1107,
+     "timeline_end_frame": 1197,
+     "duration_frames": 90
+    },
+    {
+     "position": 13,
+     "block_type": "speech",
+     "content": {
+      "passage_ref": 13,
+      "text": "okay now i'm done talking i think",
+      "clip_id": "clip_017",
+      "source_start": 80.0,
+      "source_end": 83.0,
+      "v1_source_in": 80.0,
+      "v1_source_out": 83.0,
+      "source_duration": 3.0,
+      "alignment_method": null,
+      "word_timestamps": []
+     },
+     "link_group_id": "88031972-ae45-4d30-9251-37e63885aa87",
+     "source_start": 80.0,
+     "source_end": 83.0,
+     "source_clip_id": "clip_017",
+     "duration_seconds": 3.0,
+     "music_track": "track_01",
+     "timeline_start": 39.902,
+     "timeline_end": 42.902,
+     "timeline_start_frame": 1197,
+     "timeline_end_frame": 1287,
+     "duration_frames": 90
+    }
+   ],
+   "music_selection": {
+    "overall_mood": "reflective and motivated",
+    "overall_energy": "building",
+    "search_queries_used": [
+     "reflective motivational instrumental no copyright",
+     "reflective cinematic piano beat short no copyright",
+     "uplifting cinematic motivational beat no copyright"
+    ],
+    "candidates_evaluated": [
+     {
+      "title": "Motivational Music For Creativity and Studying - Reflections Full Album",
+      "url": "https://www.youtube.com/watch?v=WDxMas784iY",
+      "reason_selected_or_rejected": "Rejected. Too long (full album instead of single track)."
+     },
+     {
+      "title": "Tears of Silence | Emotional Cinematic Piano & Strings | Deep Reflection | No Copyright Music",
+      "url": "https://www.youtube.com/watch?v=E0QNUfhLkiU",
+      "reason_selected_or_rejected": "Rejected. Too sad and somber for a motivational commitment."
+     },
+     {
+      "title": "Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright",
+      "url": "https://www.youtube.com/watch?v=Lbs-nEoUdQA",
+      "reason_selected_or_rejected": "Selected. Fits the building, motivational arc while maintaining a grounded, reflective tone."
+     }
+    ],
+    "tracks": [
+     {
+      "track_id": "track_01",
+      "track_source": "https://www.youtube.com/watch?v=Lbs-nEoUdQA",
+      "track_name": "Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright",
+      "audio_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/music/Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright.wav",
+      "genre": "Cinematic Hip Hop",
+      "bpm": 90,
+      "key": "estimated",
+      "duration_seconds": 114.539,
+      "splices": [
+       {
+        "splice_id": "track_01_splice_A",
+        "source_start": 0.0,
+        "source_end": 10.0,
+        "duration_seconds": 10.0,
+        "section_type": "intro",
+        "energy_level": "low",
+        "intended_use": "hook intro music"
+       },
+       {
+        "splice_id": "track_01_splice_B",
+        "source_start": 10.0,
+        "source_end": 40.0,
+        "duration_seconds": 30.0,
+        "section_type": "verse",
+        "energy_level": "medium",
+        "intended_use": "background under speech"
+       },
+       {
+        "splice_id": "track_01_splice_C",
+        "source_start": 50.0,
+        "source_end": 70.0,
+        "duration_seconds": 20.0,
+        "section_type": "drop",
+        "energy_level": "high",
+        "intended_use": "climax / final resolve"
+       }
+      ],
+      "selection_rationale": "This track starts subtle and builds, mirroring the creator's transition from pensive observation to a resolute daily commitment."
+     }
+    ]
+   }
+  }
+ },
+ "speech_sequence": {
+  "transcripts_toon": "[104]{clip_id,start,end,text}\nclip_008\t3.25\t6.76\ti might come back to this i might come back to this i might come back to that\nclip_012\t0.88\t7.39\tokay, i think i found a spot right behind this bar market or whatever this is.\nclip_012\t8.45\t9.57\tactually, that might be a little bit too loud.\nclip_012\t10.85\t11.65\tbut, you know, we roll.\nclip_012\t14.68\t16.31\tshout out to that sunset, by the way.\nclip_012\t16.83\t17.41\tjust look at that.\nclip_012\t17.71\t21.78\tlook how pretty that looks.\nclip_012\t21.80\t24.16\tthe goal of all this is just to get momentum going.\nclip_012\t24.20\t29.48\ti think i've tried to start recording and posting for so long now that at this point, i'm like,\nclip_012\t30.14\t31.88\tit doesn't matter what i'm using to record.\nclip_012\t31.90\t33.52\tit doesn't matter if it's even edited.\nclip_012\t33.55\t35.40\tit just matters that it gets posted.\nclip_012\t35.41\t38.79\tso completely new channel, completely new page or whatever.\nclip_012\t38.81\t40.11\ti'm just going to record and post.\nclip_012\t40.51\t41.01\twe'll see how it goes.\nclip_013\t0.67\t3.78\tso you might be asking, you know, why the sudden change of heart?\nclip_013\t4.69\t6.56\twhy the sudden motivation?\nclip_013\t7.79\t11.57\tyou know, i finished up school about three, three and a half months ago.\nclip_013\t12.14\t17.67\tspent three to three and a half years at university in the first place.\nclip_013\t18.39\t24.25\tand a lot of the stuff i ended up doing was not really the stuff in the back of my head that got me excited.\nclip_013\t25.17\t27.05\ti mean, you know, i was happy to do it.\nclip_013\t27.17\t29.41\tsome of it was interesting, but at the end of the day,\nclip_013\t30.66\t60.46\tthere were just things that i wanted to do that i didn't so here we are um i figure now that i have the time might as well try to commit to it all the way um i have no expectations for this i'm just gonna post every single day somewhere at the very least somewhere between like 30 seconds or a minute long kind of video and you know if something comes of it then cool but\nclip_013\t61.83\t85.27\ti'm not gonna put any external metrics on this the goal for me is to get 100 100 of these videos out this is the first one i mean this might count as like there i recorded enough where this might even be like three or three or four videos in itself this place is so cool i'm gonna come back and explore this make it its own video because right now i'm just monologuing to a camera i mean look at this\nclip_009\t30.72\t42.66\tokay, i might have to just voiceover this entire part, but today is, what even is today?\nclip_009\t42.72\t44.02\thold on, i'm just going to stop right there.\nclip_009\t44.04\t45.60\ti'm going to stop right there.\nclip_014\t0.89\t1.19\tlook at me.\nclip_015\t0.47\t3.69\tthe goal is just to, you know, grow.\nclip_015\t7.17\t10.31\tmy thinking is i just need to get over some starting trouble.\nclip_015\t10.38\t19.16\tand as long as i start posting every single day, then... i don't know.\nclip_015\t20.39\t21.52\ti really have no expectations.\nclip_015\t21.59\t26.72\ti think that i'm just trying to... there's nothing bigger than me just wanting to post.\nclip_015\t27.34\t27.72\tso, yeah.\nclip_015\t29.82\t50.38\tcall this video one one of 100 i'm gonna start with the goal of 100 videos uh if a video is 30 seconds to a minute that's anywhere between like 50 to 100 minutes of recorded content so i don't know okay bye\nclip_016\t0.74\t28.26\talso i gotta go find where i parked my car but i forgot to mention um i really don't care if people follow me people like these videos the entirety of the goal is just to post a hundred times that is all so follow me if you want don't follow if you you know don't follow me if you don't want to um yeah we'll see\nclip_016\t32.77\t35.87\ti'm thinking i have more to say, but then i stare at the camera and then i have nothing to say.\nclip_016\t35.88\t39.43\tthis video is gonna be long enough.\nclip_016\t39.47\t40.09\ti'm done recording.\nclip_016\t40.41\t41.15\ti'll use whatever i got.\nclip_017\t0.26\t15.50\toh, and i'll probably explain, you know, and i'll probably explain in future videos a little bit more of my thought process, what's been going on, what i'm planning to do, what's been happening in the present.\nclip_017\t17.44\t25.18\tbut i'm a little camera shy, so any thought i had before i started recording this, it just kind of exited my head.\nclip_017\t25.26\t27.70\tso right now i'm empty headed, but...\nclip_017\t28.40\t55.59\ti'm happy that i at least recorded this i almost didn't do this again i've been literally this week i've quit every single day and the only reason i'm recording today is because i told myself this is the last shot i got because like what other like you know how other way would it line up it lines up so nicely that this day 11 years ago was the day that um was the day that casey neistat posted his first vlog\nclip_017\t56.54\t83.89\tand you know i'm not gonna copy him but he's the reason he's a huge reason why i'm into all of this so you know why not why not post on why not post today i think he's got like something like 500 vlogs out there who knows maybe i'll post 500 times here can't be that hard can it no idea okay now i'm done talking i think\nclip_006\t14.68\t16.07\tokay, we're here, we're here.\nclip_006\t16.09\t18.91\tjust gotta find a place to park now.\nclip_010\t3.75\t4.04\tgood boy.\nclip_011\t0.84\t3.21\ti can feel the silent judgment of the people behind me.\nclip_011\t6.20\t6.52\tthere.\nclip_011\t9.38\t9.68\tokay.\nclip_011\t9.70\t11.28\ttoday is march 25th, 2026.\nclip_011\t12.54\t16.45\tum, and it's not my 34th birthday.\nclip_011\t17.67\t20.35\tand i have an announcement to make.\nclip_011\t21.91\t23.63\twell, i just have news.\nclip_011\t24.17\t25.15\tum, not really an announcement.\nclip_011\t25.22\t26.87\tthis doesn't really concern anyone except me.\nclip_011\t28.23\t28.29\tum...\nclip_011\t32.03\t33.90\ti... let me say this.\nclip_011\t34.06\t47.99\tso the reason i bring up the dave is because 11 years ago today, casey neistat, shout out casey, casey neistat posted his very first vlog.\nclip_011\t48.39\t57.05\tand i think a lot of what that vlog series did was inspire me to get into videography, photography, and camera stuff.\nclip_011\t58.99\t59.11\tum...\nclip_011\t63.13\t66.64\tand so my very, very small announcement is that i just want to post every single day.\nclip_011\t66.66\t70.98\ti'm going to post a video, at least one, every single day.\nclip_011\t74.44\t77.84\tand the question as to what i'm posting is, i guess, whatever i want.\nclip_011\t77.88\t83.08\tthere's not really going to be a rhyme or reason or... i don't scratch that.\nclip_011\t83.10\t87.44\tit's like, as far as what i'll be posting, i'll be posting whatever i feel like.\nclip_011\t87.47\t88.31\tthis is my channel.\nclip_011\t88.37\t89.39\ti can post whatever i want.\nclip_011\t89.40\t89.71\tthis is my...\nclip_011\t92.07\t118.23\tthere's a porsche coming in so it distracts me this is uh it's all about me my likes my desires the things i want to do the goals i have and really the goal of this is to take the pressure off posting i think i get caught up in all the numbers and metrics and you know the idea of succeeding that i just kind of enter a state of paralysis where i don't do the thing in the first place but just post the video so\nclip_011\t119.23\t121.94\teven if it's bad, even if i hate it, i will post it.\nclip_011\t122.70\t123.72\toh, this is so hard.\nclip_011\t124.14\t128.48\tthere's people in the background judging me.\nclip_011\t130.44\t133.73\tbut yeah, sun's going down.\nclip_011\t133.83\t137.75\ti think my parking pass might end, expire, so i'll walk and talk.\nclip_011\t137.76\t140.09\ta little bit more.\nclip_011\t141.36\t142.71\tokay, let's go this way.\nclip_011\t143.34\t151.96\talso, the reason my face was orange is because i was filming using that colorful ass wall, but, um, it doesn't really do my face justice.\nclip_011\t152.93\t153.54\tokay, so.\nclip_011\t155.88\t156.98\tshowing too much skin.\nclip_011\t158.96\t161.62\tso yeah, the goal is to post something every single day.\nclip_011\t161.65\t171.45\tum, goal is to stack some wins, gain some momentum, and eventually i'll get better at recording myself talking in public.\nclip_011\t171.90\t173.03\ti literally spent like\nclip_011\t173.64\t180.46\ti spent like 30 minutes trying to find a spot that i could just kind of talk and no one would kind of look at me.\nclip_011\t181.00\t182.92\tand now there's people, so now i'm gonna whisper.\nclip_011\t184.64\t186.04\toh, i'm so self-conscious.\nclip_011\t186.32\t187.86\tokay, i'm gonna walk away and then find somewhere else.\nclip_007\t4.57\t6.38\tand there's probably a better way to get through there.\nclip_007\t11.22\t12.74\tnow where's a good spot to film?\nclip_007\t17.52\t23.13\twell, there's a topgolf right there.\nclip_007\t23.19\t25.67\tthere's a staircase here.\nclip_007\t27.71\t28.15\tno.\nclip_007\t29.51\t30.35\tooh.\nclip_007\t31.89\t32.19\tthat way.\nclip_007\t33.16\t34.22\tthat way, that way, that way, that way.\nclip_007\t38.34\t43.24\toh no, the pollen's gonna... the pollen's definitely gonna eat away at me.\nclip_007\t44.44\t52.40\tso, uh... i don't... i don't know.\nclip_007\t54.06\t55.06\ttime's a-wasting, though.\nclip_007\t62.46\t81.89\ti'm a little bit camera no not camera shy a little bit shy of being on camera in front of other people so um let's just hope i don't run into oh i see people i see people i see people you know what let's just go\nclip_007\t91.63\t106.22\ti don't know what part.\nclip_007\t106.88\t109.64\ti don't know.\nclip_007\t109.70\t111.78\ti don't know.\nclip_007\t122.69\t139.15\tum no sure no you want to come\n",
+  "topics_toon": "[0]{clip_id,topics}\n",
+  "speech_sequence": {
+   "hook_segment": {
+    "clip_id": "clip_011",
+    "text": "i have an announcement to make.",
+    "source_start": 17.666,
+    "source_end": 20.348,
+    "word_timestamps": [
+     {
+      "word": "and",
+      "source_start": 17.666,
+      "source_end": 18.026
+     },
+     {
+      "word": "i",
+      "source_start": 19.147,
+      "source_end": 19.187
+     },
+     {
+      "word": "have",
+      "source_start": 19.227,
+      "source_end": 19.467
+     },
+     {
+      "word": "an",
+      "source_start": 19.607,
+      "source_end": 19.687
+     },
+     {
+      "word": "announcement",
+      "source_start": 19.707,
+      "source_end": 20.008
+     },
+     {
+      "word": "to",
+      "source_start": 20.048,
+      "source_end": 20.108
+     },
+     {
+      "word": "make.",
+      "source_start": 20.128,
+      "source_end": 20.348
+     }
+    ],
+    "rationale": "A strong hook that immediately creates intrigue.",
+    "start_time": 0.0,
+    "end_time": 0.0
+   },
+   "body_sequence": [
+    {
+     "position": 1,
+     "clip_id": "clip_006",
+     "text": "okay, we're here, we're here.",
+     "source_start": 14.68,
+     "source_end": 16.065,
+     "duration_seconds": 1.385,
+     "role": "opening",
+     "flow_note": "Establishes arrival.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 2,
+     "clip_id": "clip_006",
+     "text": "just gotta find a place to park now.",
+     "source_start": 16.085,
+     "source_end": 18.914,
+     "duration_seconds": 2.829,
+     "role": "development",
+     "flow_note": "Shows the process of getting ready.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 3,
+     "clip_id": "clip_007",
+     "text": "now where's a good spot to film?",
+     "source_start": 11.224,
+     "source_end": 12.744,
+     "duration_seconds": 1.52,
+     "role": "development",
+     "flow_note": "Highlights the struggle of vlogging.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 50,
+      "flow": 60,
+      "value": 60,
+      "composite": 56,
+      "rationale": "Hook:50, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 4,
+     "clip_id": "clip_011",
+     "text": "today is march 25th, 2026.",
+     "source_start": 9.699,
+     "source_end": 11.28,
+     "duration_seconds": 1.581,
+     "role": "development",
+     "flow_note": "Sets the exact date of the commitment.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 5,
+     "clip_id": "clip_011",
+     "text": "and i have an announcement to make.",
+     "source_start": 17.666,
+     "source_end": 20.348,
+     "duration_seconds": 2.682,
+     "role": "development",
+     "flow_note": "Repeats the hook in full context.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 6,
+     "clip_id": "clip_011",
+     "text": "so my very, very small announcement is that i just want to post every single day.",
+     "source_start": 63.135,
+     "source_end": 66.635,
+     "duration_seconds": 3.5,
+     "role": "climax",
+     "flow_note": "The core commitment.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 15,
+      "flow": 60,
+      "value": 60,
+      "composite": 44,
+      "rationale": "Hook:15, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 7,
+     "clip_id": "clip_011",
+     "text": "i'm going to post a video, at least one, every single day.",
+     "source_start": 66.655,
+     "source_end": 70.977,
+     "duration_seconds": 4.322,
+     "role": "development",
+     "flow_note": "Reiterates the commitment.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 8,
+     "clip_id": "clip_011",
+     "text": "and the question as to what i'm posting is, i guess, whatever i want.",
+     "source_start": 74.439,
+     "source_end": 77.84,
+     "duration_seconds": 3.401,
+     "role": "development",
+     "flow_note": "Explains the content strategy.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 9,
+     "clip_id": "clip_013",
+     "text": "so you might be asking, you know, why the sudden change of heart? why the sudden motivation?",
+     "source_start": 0.0,
+     "source_end": 5.0,
+     "duration_seconds": 5.0,
+     "role": "development",
+     "flow_note": "Addresses the viewer directly.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 25,
+      "flow": 60,
+      "value": 60,
+      "composite": 47,
+      "rationale": "Hook:25, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 10,
+     "clip_id": "clip_013",
+     "text": "the goal for me is to get 100 100 of these videos out this is the first one",
+     "source_start": 60.0,
+     "source_end": 65.0,
+     "duration_seconds": 5.0,
+     "role": "development",
+     "flow_note": "Sets the specific numerical goal.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 80,
+      "value": 60,
+      "composite": 55,
+      "rationale": "Hook:30, Flow:80, Value:60"
+     }
+    },
+    {
+     "position": 11,
+     "clip_id": "clip_015",
+     "text": "the goal is just to, you know, grow.",
+     "source_start": 0.0,
+     "source_end": 3.0,
+     "duration_seconds": 3.0,
+     "role": "resolution",
+     "flow_note": "The final takeaway.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 40,
+      "flow": 60,
+      "value": 60,
+      "composite": 53,
+      "rationale": "Hook:40, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 12,
+     "clip_id": "clip_017",
+     "text": "i'm happy that i at least recorded this",
+     "source_start": 30.0,
+     "source_end": 33.0,
+     "duration_seconds": 3.0,
+     "role": "resolution",
+     "flow_note": "A positive note to end on.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    },
+    {
+     "position": 13,
+     "clip_id": "clip_017",
+     "text": "okay now i'm done talking i think",
+     "source_start": 80.0,
+     "source_end": 83.0,
+     "duration_seconds": 3.0,
+     "role": "resolution",
+     "flow_note": "The sign-off.",
+     "word_timestamps": [],
+     "start_time": null,
+     "end_time": null,
+     "engagement": {
+      "hook": 30,
+      "flow": 60,
+      "value": 60,
+      "composite": 49,
+      "rationale": "Hook:30, Flow:60, Value:60"
+     }
+    }
+   ],
+   "excluded_passages": [
+    {
+     "clip_id": "clip_007",
+     "text": "oh no, the pollen's gonna...",
+     "reason_excluded": "Off topic and distracting from the main narrative."
+    }
+   ]
+  },
+  "step": "2.02_bridge"
+ },
+ "select_broll": {
+  "broll_candidates_toon": "[0]{slot_id,clip_id,description,avg_energy,peak_energy}\n",
+  "b_roll_assignments": [
+   {
+    "spine_block_position": 1,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 2.207,
+    "video_out": 3.592,
+    "duration_seconds": 1.385,
+    "timeline_start": 2.682,
+    "timeline_end": 4.067,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 2,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 1.486,
+    "video_out": 4.314,
+    "duration_seconds": 2.828,
+    "timeline_start": 4.067,
+    "timeline_end": 6.896,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 3,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 2.14,
+    "video_out": 3.66,
+    "duration_seconds": 1.52,
+    "timeline_start": 6.896,
+    "timeline_end": 8.416,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 4,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 2.11,
+    "video_out": 3.69,
+    "duration_seconds": 1.58,
+    "timeline_start": 8.416,
+    "timeline_end": 9.997,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 5,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 1.559,
+    "video_out": 4.241,
+    "duration_seconds": 2.682,
+    "timeline_start": 9.997,
+    "timeline_end": 12.679,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 6,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 1.15,
+    "video_out": 4.65,
+    "duration_seconds": 3.5,
+    "timeline_start": 12.679,
+    "timeline_end": 16.179,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 7,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 0.739,
+    "video_out": 5.061,
+    "duration_seconds": 4.322,
+    "timeline_start": 16.179,
+    "timeline_end": 20.501,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 8,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 1.2,
+    "video_out": 4.601,
+    "duration_seconds": 3.401,
+    "timeline_start": 20.501,
+    "timeline_end": 23.902,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   },
+   {
+    "spine_block_position": 9,
+    "block_type": "speech",
+    "clip_id": "clip_006",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "video_in": 0.4,
+    "video_out": 5.4,
+    "duration_seconds": 5.0,
+    "timeline_start": 23.902,
+    "timeline_end": 28.902,
+    "needs_conform": false,
+    "selection_rationale": "",
+    "video_only": true
+   }
+  ],
+  "b_roll_interjections": [
+   {
+    "over_spine_block_position": 1,
+    "timeline_start": 2.682,
+    "timeline_end": 4.682,
+    "purpose": "",
+    "assigned_clip": {
+     "clip_id": "clip_006",
+     "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+     "video_in": 1.9,
+     "video_out": 3.9,
+     "duration_seconds": 2.0,
+     "needs_conform": false,
+     "selection_rationale": "",
+     "video_only": true
+    }
+   }
+  ]
+ },
+ "plan_transitions": {
+  "cuts_toon": "[13]{cut_time,type,beat_near_cut}\n2.68\tspeech-to-speech\tYes (0.1s away)\n4.07\tspeech-to-speech\tYes (0.1s away)\n6.90\tspeech-to-speech\tYes (0.1s away)\n8.42\tspeech-to-speech\tYes (0.1s away)\n10.00\tspeech-to-speech\tYes (0.1s away)\n12.68\tspeech-to-speech\tYes (0.1s away)\n16.18\tspeech-to-speech\tYes (0.1s away)\n20.50\tspeech-to-speech\tYes (0.1s away)\n23.90\tspeech-to-speech\tYes (0.1s away)\n28.90\tspeech-to-speech\tYes (0.1s away)\n33.90\tspeech-to-speech\tYes (0.1s away)\n36.90\tspeech-to-speech\tYes (0.1s away)\n39.90\tspeech-to-speech\tYes (0.1s away)\n",
+  "transition_spec": [
+   {
+    "transition_id": "trans_001",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_002",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_003",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_004",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_005",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_006",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_007",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_008",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_009",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   },
+   {
+    "transition_id": "trans_010",
+    "cut_point_timeline": 2.682,
+    "cut_point_original": 2.682,
+    "transition_type": "cut",
+    "duration_frames": 0,
+    "beat_aligned": false,
+    "snap_delta_seconds": 0.0,
+    "placement_method": "block-boundary",
+    "word_beat_coincidence": false,
+    "rationale": ""
+   }
+  ]
+ },
+ "plan_sfx": {
+  "sfx_candidates_toon": "[0]{segment_id,text,action_sfx_suggested}\n",
+  "sfx_spec": {
+   "sfx_list": [
+    {
+     "label": "sfx_001",
+     "sfx_type": "whoosh",
+     "timeline_in": 0.0,
+     "timeline_out": 0.3,
+     "timeline_in_frame": 0,
+     "timeline_out_frame": 9,
+     "duration_seconds": 0.3,
+     "volume_db": -24.0,
+     "volume_level": "subtle",
+     "rationale": "",
+     "placement_method": "scene-boundary/block-edge \u2192 onset-snap (\u00b1100ms)",
+     "shift_from_original": 0.0
+    },
+    {
+     "label": "sfx_002",
+     "sfx_type": "whoosh",
+     "timeline_in": 0.0,
+     "timeline_out": 0.3,
+     "timeline_in_frame": 0,
+     "timeline_out_frame": 9,
+     "duration_seconds": 0.3,
+     "volume_db": -24.0,
+     "volume_level": "subtle",
+     "rationale": "",
+     "placement_method": "scene-boundary/block-edge \u2192 onset-snap (\u00b1100ms)",
+     "shift_from_original": 0.0
+    },
+    {
+     "label": "sfx_003",
+     "sfx_type": "whoosh",
+     "timeline_in": 0.0,
+     "timeline_out": 0.3,
+     "timeline_in_frame": 0,
+     "timeline_out_frame": 9,
+     "duration_seconds": 0.3,
+     "volume_db": -24.0,
+     "volume_level": "subtle",
+     "rationale": "",
+     "placement_method": "scene-boundary/block-edge \u2192 onset-snap (\u00b1100ms)",
+     "shift_from_original": 0.0
+    },
+    {
+     "label": "sfx_004",
+     "sfx_type": "whoosh",
+     "timeline_in": 0.0,
+     "timeline_out": 0.3,
+     "timeline_in_frame": 0,
+     "timeline_out_frame": 9,
+     "duration_seconds": 0.3,
+     "volume_db": -24.0,
+     "volume_level": "subtle",
+     "rationale": "",
+     "placement_method": "scene-boundary/block-edge \u2192 onset-snap (\u00b1100ms)",
+     "shift_from_original": 0.0
+    },
+    {
+     "label": "sfx_005",
+     "sfx_type": "whoosh",
+     "timeline_in": 0.0,
+     "timeline_out": 0.3,
+     "timeline_in_frame": 0,
+     "timeline_out_frame": 9,
+     "duration_seconds": 0.3,
+     "volume_db": -24.0,
+     "volume_level": "subtle",
+     "rationale": "",
+     "placement_method": "scene-boundary/block-edge \u2192 onset-snap (\u00b1100ms)",
+     "shift_from_original": 0.0
+    }
+   ],
+   "fairlight_preset": "dialogue_enhancement",
+   "music_ducking": [
+    {
+     "time_ms": 0,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 0,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 2682,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 3182,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 2682,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 4067,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 4567,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 4067,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 6896,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 7396,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 6896,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 8416,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 8916,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 8416,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 9997,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 10497,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 9997,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 12679,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 13179,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 12679,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 16178,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 16678,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 16178,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 20501,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 21001,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 20501,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 23902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 24402,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 23902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 28902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 29402,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 28902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 33902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 34402,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 33902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 36902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 37402,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 36902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 39902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 40402,
+     "volume_db": -12.0
+    },
+    {
+     "time_ms": 39902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 42902,
+     "volume_db": -18.0
+    },
+    {
+     "time_ms": 43402,
+     "volume_db": -12.0
+    }
+   ]
+  }
+ },
+ "plan_vfx": {
+  "vfx_candidates_toon": "[14]{segment_id,text,vfx_suggested}\nhook\t\tNo\n1\t\tNo\n2\t\tNo\n3\t\tNo\n4\t\tNo\n5\t\tNo\n6\t\tNo\n7\t\tNo\n8\t\tNo\n9\t\tNo\n10\t\tNo\n11\t\tNo\n12\t\tNo\n13\t\tNo\n",
+  "enhancement_spec": {
+   "visual_effects": [
+    {
+     "vfx_id": "vfx_001",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.04
+     },
+     "rationale": ""
+    },
+    {
+     "vfx_id": "vfx_002",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.04
+     },
+     "rationale": ""
+    },
+    {
+     "vfx_id": "vfx_003",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.04
+     },
+     "rationale": ""
+    },
+    {
+     "vfx_id": "vfx_004",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.04
+     },
+     "rationale": ""
+    },
+    {
+     "vfx_id": "vfx_005",
+     "timeline_start": 2.682,
+     "timeline_end": 4.067,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.04
+     },
+     "rationale": ""
+    },
+    {
+     "vfx_id": "vfx_006",
+     "timeline_start": 12.679,
+     "timeline_end": 16.179,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.03
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_007",
+     "timeline_start": 16.179,
+     "timeline_end": 20.501,
+     "effect_type": "slow_zoom_out",
+     "params": {
+      "zoom_start": 1.03,
+      "zoom_end": 1.0
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_008",
+     "timeline_start": 20.501,
+     "timeline_end": 23.902,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.03
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_009",
+     "timeline_start": 23.902,
+     "timeline_end": 28.902,
+     "effect_type": "slow_zoom_out",
+     "params": {
+      "zoom_start": 1.03,
+      "zoom_end": 1.0
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_010",
+     "timeline_start": 28.902,
+     "timeline_end": 33.902,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.03
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_011",
+     "timeline_start": 33.902,
+     "timeline_end": 36.902,
+     "effect_type": "slow_zoom_out",
+     "params": {
+      "zoom_start": 1.03,
+      "zoom_end": 1.0
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_012",
+     "timeline_start": 36.902,
+     "timeline_end": 39.902,
+     "effect_type": "slow_zoom_in",
+     "params": {
+      "zoom_start": 1.0,
+      "zoom_end": 1.03
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    },
+    {
+     "vfx_id": "vfx_013",
+     "timeline_start": 39.902,
+     "timeline_end": 42.902,
+     "effect_type": "slow_zoom_out",
+     "params": {
+      "zoom_start": 1.03,
+      "zoom_end": 1.0
+     },
+     "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+    }
+   ]
+  }
+ },
+ "prosody_analysis": {
+  "prosody_analysis": {
+   "available": true,
+   "profiles": {},
+   "total_clips": 0
+  }
+ },
+ "music_analysis": {
+  "music_analysis": {
+   "available": false,
+   "error": "Traceback (most recent call last):\n  File \"/Users/prajwal/.treehouse/video_editing_pilot-9487f5/1/video_editing_pilot/library/tools/analysis/music_pipeline.py\", line 685, in <module>\n    main()\n    ~~"
+  }
+ },
+ "creative_cohesion": {
+  "step": "5.03_creative_cohesion",
+  "cohesion_review": {
+   "cohesion_score": 95,
+   "warnings": [
+    "High energy but sparse SFX (5.0 per min)"
+   ],
+   "adjustments": [
+    {
+     "target_step": "sfx_spec",
+     "field": "density",
+     "current_value": "sparse",
+     "suggested_value": "dense",
+     "reason": "High energy requires dense SFX"
+    }
+   ],
+   "applied_adjustments": []
+  }
+ },
+ "catalog": {
+  "clip_catalog": [
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1806.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1806.MOV",
+    "filename": "IMG_1806.MOV",
+    "file_size_bytes": 7354921,
+    "duration_seconds": 3.567,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 29.97,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:39:42.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_001",
+    "source_order": 1
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1807.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1807.MOV",
+    "filename": "IMG_1807.MOV",
+    "file_size_bytes": 34335027,
+    "duration_seconds": 17.103,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 29.97,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:39:55.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_002",
+    "source_order": 2
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+    "filename": "IMG_1808.MOV",
+    "file_size_bytes": 55898936,
+    "duration_seconds": 27.772,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:40:35.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_003",
+    "source_order": 3
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1809.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1809.MOV",
+    "filename": "IMG_1809.MOV",
+    "file_size_bytes": 53533485,
+    "duration_seconds": 26.777,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:41:24.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_004",
+    "source_order": 4
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1810.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1810.MOV",
+    "filename": "IMG_1810.MOV",
+    "file_size_bytes": 16034230,
+    "duration_seconds": 7.903,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 29.97,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:42:13.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_005",
+    "source_order": 5
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "filename": "IMG_1811.MOV",
+    "file_size_bytes": 45671150,
+    "duration_seconds": 22.87,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:43:11.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_006",
+    "source_order": 6
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+    "filename": "IMG_1812.MOV",
+    "file_size_bytes": 278358717,
+    "duration_seconds": 139.132,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:47:34.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_007",
+    "source_order": 7
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1813.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1813.MOV",
+    "filename": "IMG_1813.MOV",
+    "file_size_bytes": 18307687,
+    "duration_seconds": 9.068,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:51:03.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_008",
+    "source_order": 8
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+    "filename": "IMG_1814.MOV",
+    "file_size_bytes": 91864561,
+    "duration_seconds": 45.943,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:55:37.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_009",
+    "source_order": 9
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1815.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1815.MOV",
+    "filename": "IMG_1815.MOV",
+    "file_size_bytes": 12863382,
+    "duration_seconds": 6.3,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:57:21.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_010",
+    "source_order": 10
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+    "filename": "IMG_1816.MOV",
+    "file_size_bytes": 376996868,
+    "duration_seconds": 188.578,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-25T23:58:39.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_011",
+    "source_order": 11
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+    "filename": "IMG_1817.MOV",
+    "file_size_bytes": 83151788,
+    "duration_seconds": 41.51,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:02:13.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_012",
+    "source_order": 12
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+    "filename": "IMG_1818.MOV",
+    "file_size_bytes": 171386022,
+    "duration_seconds": 85.518,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:03:28.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_013",
+    "source_order": 13
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1819.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1819.MOV",
+    "filename": "IMG_1819.MOV",
+    "file_size_bytes": 9619425,
+    "duration_seconds": 4.7,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:04:57.000000Z",
+    "rotation": -90,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_014",
+    "source_order": 14
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+    "filename": "IMG_1820.MOV",
+    "file_size_bytes": 104957569,
+    "duration_seconds": 52.545,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:05:11.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_015",
+    "source_order": 15
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1821.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1821.MOV",
+    "filename": "IMG_1821.MOV",
+    "file_size_bytes": 84079385,
+    "duration_seconds": 41.942,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:07:01.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_016",
+    "source_order": 16
+   },
+   {
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+    "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+    "filename": "IMG_1822.MOV",
+    "file_size_bytes": 171765203,
+    "duration_seconds": 85.82,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30.0,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "creation_time": "2026-03-26T00:08:27.000000Z",
+    "rotation": 0,
+    "pixel_format": "yuv420p",
+    "has_audio": true,
+    "clip_id": "clip_017",
+    "source_order": 17
+   }
+  ],
+  "total_clips": 17,
+  "skipped_files": []
+ },
+ "validate": {
+  "validation_result": {
+   "status": "pass",
+   "mode": "build_validation",
+   "checks": {
+    "build_success": {
+     "pass": true,
+     "issues": []
+    },
+    "track_counts": {
+     "pass": true,
+     "issues": []
+    },
+    "build_warnings": {
+     "pass": true,
+     "issues": [
+      "Build warning: Fairlight preset 'dialogue_enhancement' and fallback failed"
+     ]
+    }
+   },
+   "all_issues": [
+    "[build_warnings] Build warning: Fairlight preset 'dialogue_enhancement' and fallback failed"
+   ],
+   "distribution_ready": false,
+   "critical_checks_passed": true,
+   "summary": "Timeline build validated - ready for render",
+   "recommended_action": "Render the timeline in DaVinci Resolve, then re-run validation with output_path set"
+  },
+  "final_qa_decision": {
+   "status": "approved"
+  }
+ }
+}

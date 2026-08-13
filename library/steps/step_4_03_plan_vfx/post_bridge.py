@@ -62,11 +62,34 @@ def resolve_vfx(
     block_lookup = {str(b["position"]): b for b in spine_blocks if "position" in b}
 
     resolved = []
+    covered_positions = set()
     for vfx in creative_plan:
         pos = vfx.get("target_block_position", vfx.get("segment_id"))
-        block = block_lookup.get(str(pos), {})
-        tl_start = block.get("timeline_start", 0.0)
-        tl_end = block.get("timeline_end", tl_start + 5.0)
+        block = block_lookup.get(str(pos))
+        if block is None:
+            # An entry that names no real spine block used to resolve to
+            # {} and land at 0.0-5.0, so several of them stacked into one
+            # identical effect. Drop it loudly instead.
+            print(
+                f"  Dropped VFX {vfx.get('effect_type', '?')}: "
+                f"target_block_position {pos!r} is not a spine block",
+                file=sys.stderr,
+            )
+            continue
+
+        # One effect per block. A second entry on the same block is a
+        # duplicate, not a stacked effect.
+        if str(pos) in covered_positions:
+            print(
+                f"  Dropped duplicate VFX on block {pos!r} "
+                f"({vfx.get('effect_type', '?')})",
+                file=sys.stderr,
+            )
+            continue
+        covered_positions.add(str(pos))
+
+        tl_start = block["timeline_start"]
+        tl_end = block["timeline_end"]
 
         effect_type = vfx.get("effect_type", "slow_zoom_in")
         intensity = vfx.get("intensity", "moderate")
@@ -81,6 +104,7 @@ def resolve_vfx(
 
         resolved.append({
             "vfx_id": f"vfx_{len(resolved)+1:03d}",
+            "target_block_position": block["position"],
             "timeline_start": round(tl_start, 3),
             "timeline_end": round(tl_end, 3),
             "effect_type": effect_type,
@@ -88,7 +112,29 @@ def resolve_vfx(
             "rationale": vfx.get("rationale", ""),
         })
 
+    resolved.sort(key=lambda v: v["timeline_start"])
+    for i, v in enumerate(resolved, start=1):
+        v["vfx_id"] = f"vfx_{i:03d}"
+
+    _assert_vfx_distinct(resolved)
     return resolved
+
+
+def _assert_vfx_distinct(resolved: list) -> None:
+    """Fail when several VFX cover the identical timeline range.
+
+    Five `slow_zoom_in` entries all spanning 2.682-4.067s is a collapse:
+    only one is visible and the other four are dead weight in the manifest.
+    """
+    if len(resolved) < 2:
+        return
+    ranges = {(v["timeline_start"], v["timeline_end"]) for v in resolved}
+    if len(ranges) < len(resolved):
+        raise ValueError(
+            f"{len(resolved)} VFX resolved to only {len(ranges)} distinct "
+            f"timeline range(s): {sorted(ranges)}. Each VFX must target "
+            f"its own spine block."
+        )
 
 
 def inject_default_ken_burns(

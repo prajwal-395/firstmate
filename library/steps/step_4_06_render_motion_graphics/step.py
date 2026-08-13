@@ -145,7 +145,7 @@ def main():
                  ],
                 cwd=REMOTION_DIR,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=120,
             )
 

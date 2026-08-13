@@ -53,20 +53,34 @@ speech sequence for the video.
 **Hook segment**: The opening attention-grabber — a 1-3 second speech snippet
 pulled from the most compelling moment. This CAN be a snippet of a passage
 that also appears in the body (common shortform technique: tease a moment,
-then play it in full context later).
+then play it in full context later). It may not BE that passage: a body
+passage covering essentially the same source range as the hook is dropped
+by the bridge, because the video would open with a line and replay it
+verbatim moments later.
 
 **Body sequence**: Ordered list of speech passages forming the narrative arc.
 Each passage needs:
 - clip_id (which clip it's from)
 - text (exact verbatim words from the temporal index transcript)
-- start / end (source timestamps resolved from temporal index)
+- source_start / source_end (source timestamps from the temporal index)
 - role ("opening" | "development" | "climax" | "resolution")
 - flow_note (how this passage connects to the next)
 
+The hook segment needs the same `clip_id`, `text`, `source_start` and
+`source_end` fields.
+
 ### Timestamp resolution:
 For each passage you select, look up the `transcripts_toon` data for that
-clip_id and find the region containing the verbatim text. Use the
-region's `start` and `end` values directly.
+clip_id and find the region containing the verbatim text. Copy the
+region's `start` and `end` values into `source_start` and `source_end`.
+
+**Never invent a timestamp.** `source_start`/`source_end` are a lookup
+hint, not a guess: the bridge re-derives the real timings by aligning your
+`text` against WhisperX word timings, and it FAILS THE STEP when your text
+cannot be found in the transcript. A round-number range you made up
+(`0.0`-`5.0`, `60.0`-`65.0`) will not survive - it will stop the pipeline.
+If you cannot find a passage's verbatim text in the transcript, do not
+select that passage.
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, and `clip_id`, `topics` for topics.
 
@@ -144,7 +158,12 @@ downstream mesh_spine step will coordinate speech and music timing.
   source start/end timestamps looked up from the temporal event index.
   No separate timestamp resolution step is needed.
 - The hook CAN be a snippet of a body passage — this is intentional and
-  common in shortform. Use word-level timestamps to trim precisely.
+  common in shortform. Use word-level timestamps to trim precisely. A body
+  passage that is the whole hook rather than a longer version of it gets
+  dropped.
+- Two body passages from the same clip must not claim overlapping source
+  ranges: the overlapping audio would play twice across the cut. The
+  bridge re-anchors such a passage past the previous one, or fails it.
 - The flow_note for the LAST passage should describe how the video ends.
 - Most passages will have role "development" — that's fine.
 - All `text` values must match the temporal index transcript verbatim.

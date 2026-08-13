@@ -72,6 +72,14 @@
     ],
     "postconditions": [
       "'sfx_spec' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "sfx_creative",
+        "type": "list",
+        "required": true,
+        "description": "5-10 SFX at DISTINCT positions. Each: spine_block_position, sfx_type (whoosh|swish|bass_impact|riser|click|tick|reverse_cymbal|swell), volume_level, rationale"
+      }
     ]
   },
   "classification": {
@@ -104,6 +112,7 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
+    "available_sfx_types",
     "b_roll_assignments",
     "creative_direction",
     "rough_cut_review",
@@ -113,6 +122,7 @@
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.audio_prediction",
     "semantic_analysis_documents.*.assessment.keywords",
-    "temporal_event_indices.*.scenes"
+    "temporal_event_indices.*.clip_id",
+    "temporal_event_indices.*.scene_boundaries"
   ]
 }

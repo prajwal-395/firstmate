@@ -20,6 +20,10 @@ import os
 import sys
 import math
 from library.tools.pipeline_validation import require_keys
+from library.tools.spine_contract import (
+    block_word_end_times_timeline,
+    is_speech_block,
+)
 
 
 def snap_to_beat(
@@ -45,18 +49,19 @@ def snap_to_beat(
 def resolve_cut_point(
     incoming: dict,
     outgoing: dict,
-    ti_lookup: dict,
     beat_grid: list,
 ) -> dict:
     """Find the precise cut point for a transition.
 
-    Examines the OUTGOING block (the one before the cut) to find
-    the natural end point based on signal data.
+    Examines the OUTGOING block (the one before the cut) to find the
+    natural end point from its own word timings.  The spine carries those
+    timings directly (see library/tools/spine_contract.py), so this reads
+    `outgoing["word_timestamps"]` rather than re-deriving them from a
+    temporal index keyed by a clip_id the block used not to expose.
 
     Args:
         incoming: The incoming spine block
         outgoing: The outgoing spine block
-        ti_lookup: {clip_id: temporal_index_dict}
         beat_grid: List of beat positions in timeline domain
 
     Returns:
@@ -66,59 +71,43 @@ def resolve_cut_point(
             "word_beat_coincidence": bool
         }
     """
-    incoming_start = incoming.get("timeline_start", 0.0)
-
-    outgoing_type = outgoing.get("block_type", "")
-    outgoing_clip_id = outgoing.get("clip_id", "")
+    incoming_start = incoming["timeline_start"]
 
     # ── Speech blocks: cut at the last word's end ──
-    if outgoing_type in ("speech", "hook") and outgoing_clip_id:
-        ti = ti_lookup.get(outgoing_clip_id, {})
-        word_end_times = ti.get("word_end_times", [])
+    if is_speech_block(outgoing):
+        tl_end = outgoing["timeline_end"]
+        block_word_ends_tl = block_word_end_times_timeline(outgoing)
 
-        if word_end_times:
-            src_start = outgoing.get("source_start", 0)
-            src_end = outgoing.get("source_end", 0)
-            tl_start = outgoing.get("timeline_start", 0)
-            tl_end = outgoing.get("timeline_end", 0)
+        if block_word_ends_tl:
+            last_word_end = max(block_word_ends_tl)
 
-            # Filter word ends to this block's source range
-            block_word_ends_tl = []
-            for we in word_end_times:
-                if src_start - 0.05 <= we <= src_end + 0.05:
-                    tl_we = we - src_start + tl_start
-                    block_word_ends_tl.append(tl_we)
+            # Don't exceed the block's timeline_end
+            cut_time = min(last_word_end, tl_end)
 
-            if block_word_ends_tl:
-                last_word_end = max(block_word_ends_tl)
-
-                # Don't exceed the block's timeline_end
-                cut_time = min(last_word_end, tl_end)
-
-                # Check for word-end + beat coincidence (the ideal cut)
-                word_beat_coincidence = False
-                if beat_grid:
-                    for we in block_word_ends_tl:
-                        for beat in beat_grid:
-                            if abs(we - beat) < 0.05:
-                                # A word end lands on a beat — use it
-                                cut_time = min(we, tl_end)
-                                word_beat_coincidence = True
-                                break
-                        if word_beat_coincidence:
+            # Check for word-end + beat coincidence (the ideal cut)
+            word_beat_coincidence = False
+            if beat_grid:
+                for we in block_word_ends_tl:
+                    for beat in beat_grid:
+                        if abs(we - beat) < 0.05:
+                            # A word end lands on a beat — use it
+                            cut_time = min(we, tl_end)
+                            word_beat_coincidence = True
                             break
+                    if word_beat_coincidence:
+                        break
 
-                # If no coincidence, still beat-snap the word-end cut
-                if not word_beat_coincidence and beat_grid:
-                    snapped, was_snapped, _ = snap_to_beat(cut_time, beat_grid, tolerance=0.08)
-                    if was_snapped:
-                        cut_time = min(snapped, tl_end)
+            # If no coincidence, still beat-snap the word-end cut
+            if not word_beat_coincidence and beat_grid:
+                snapped, was_snapped, _ = snap_to_beat(cut_time, beat_grid, tolerance=0.08)
+                if was_snapped:
+                    cut_time = min(snapped, tl_end)
 
-                return {
-                    "cut_time": cut_time,
-                    "method": "word-end" + (" + beat" if word_beat_coincidence else ""),
-                    "word_beat_coincidence": word_beat_coincidence,
-                }
+            return {
+                "cut_time": cut_time,
+                "method": "word-end" + (" + beat" if word_beat_coincidence else ""),
+                "word_beat_coincidence": word_beat_coincidence,
+            }
 
     # ── Non-speech blocks: use incoming block's timeline_start ──
     return {
@@ -126,6 +115,36 @@ def resolve_cut_point(
         "method": "block-boundary",
         "word_beat_coincidence": False,
     }
+
+
+def _resolve_cut_block_index(trans: dict, spine_blocks: list):
+    """Resolve a creative transition entry to the INCOMING block's index.
+
+    A cut sits at the boundary before a block, so index 0 (the first
+    block) is never a valid cut point.  Returns None when the entry names
+    no boundary at all - previously a missing position silently defaulted
+    to timeline 0.0, which collapsed every transition onto one boundary.
+    """
+    pos = trans.get("cut_point_position")
+    if pos is not None:
+        for i, b in enumerate(spine_blocks):
+            if str(b["position"]) == str(pos):
+                return i if i > 0 else None
+        return None
+
+    for key in ("cut_point_original", "cut_point_timeline", "cut_time"):
+        if trans.get(key) is not None:
+            target = trans[key]
+            candidates = [
+                (abs(b["timeline_start"] - target), i)
+                for i, b in enumerate(spine_blocks)
+                if i > 0
+            ]
+            if not candidates:
+                return None
+            return min(candidates)[1]
+
+    return None
 
 
 def resolve_transitions(
@@ -151,14 +170,6 @@ def resolve_transitions(
         brand_effect = {}
 
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
-    block_lookup = {b["position"]: b for b in spine_blocks}
-
-    # Build temporal index lookup
-    ti_lookup = {}
-    for ti in (temporal_indices or []):
-        cid = ti.get("clip_id", "")
-        if cid:
-            ti_lookup[cid] = ti
 
     # Build beat grid if BPM available
     bpm = music_selection.get("bpm", 0)
@@ -185,34 +196,32 @@ def resolve_transitions(
     from library.tools.transition_selector import select_transition
 
     resolved = []
+    seen_block_indices = set()
     for trans in creative_plan:
-        pos = trans.get("cut_point_position")
+        block_idx = _resolve_cut_block_index(trans, spine_blocks)
+        if block_idx is None:
+            print(
+                f"  Dropped transition {trans!r}: it names no spine "
+                f"boundary (needs cut_point_position or cut_point_timeline)",
+                file=sys.stderr,
+            )
+            continue
 
-        # If position is missing, find the block by matching timeline_start
-        if pos is None:
-            original_tl = trans.get("cut_point_original",
-                                    trans.get("cut_point_timeline", 0.0))
-            # Find the incoming block whose timeline_start is closest
-            best_pos = None
-            best_dist = float("inf")
-            for b in spine_blocks:
-                dist = abs(b.get("timeline_start", 0.0) - original_tl)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_pos = b.get("position")
-            pos = best_pos
+        # A cut is a boundary between two blocks. Two plan entries landing
+        # on the same boundary are the same cut - stacking them is what
+        # produced ten transitions all sitting at one timeline position.
+        if block_idx in seen_block_indices:
+            print(
+                f"  Dropped duplicate transition at spine boundary "
+                f"{spine_blocks[block_idx].get('position')!r}",
+                file=sys.stderr,
+            )
+            continue
+        seen_block_indices.add(block_idx)
 
-        # Find block index for robust incoming/outgoing resolution
-        block_idx = -1
-        for i, b in enumerate(spine_blocks):
-            if str(b.get("position")) == str(pos):
-                block_idx = i
-                break
-                
-        block = spine_blocks[block_idx] if block_idx >= 0 else {}
-        original_tl = block.get("timeline_start", 0.0)
-        
-        outgoing = spine_blocks[block_idx - 1] if block_idx > 0 else {}
+        block = spine_blocks[block_idx]
+        original_tl = block["timeline_start"]
+        outgoing = spine_blocks[block_idx - 1]
 
         # Use the content-aware transition selector
         selected_trans = select_transition(
@@ -220,9 +229,10 @@ def resolve_transitions(
             to_clip=block,
             brand_effect=brand_effect,
             preset_index=preset_index,
-            creative_direction=creative_direction
+            creative_direction=creative_direction,
+            requested_type=trans.get("type", trans.get("transition_type", "")),
         )
-        
+
         ttype = selected_trans["type"]
         macro_preset = selected_trans.get("macro_preset")
         
@@ -248,7 +258,6 @@ def resolve_transitions(
         cut_info = resolve_cut_point(
             incoming=block,
             outgoing=outgoing,
-            ti_lookup=ti_lookup,
             beat_grid=beat_positions,
         )
         cut_time = cut_info["cut_time"]
@@ -285,7 +294,30 @@ def resolve_transitions(
             }
         resolved.append(trans_dict)
 
+    resolved.sort(key=lambda t: t["cut_point_timeline"])
+    for i, t in enumerate(resolved, start=1):
+        t["transition_id"] = f"trans_{i:03d}"
+
+    _assert_transitions_distinct(resolved)
     return resolved
+
+
+def _assert_transitions_distinct(resolved: list) -> None:
+    """Fail when every cut lands on the same timeline position.
+
+    Ten transitions at 2.682s is not a plan; it is a collapse.  It used to
+    pass because nothing downstream compared cut points to each other.
+    """
+    if len(resolved) < 2:
+        return
+    cut_points = {round(t["cut_point_timeline"], 3) for t in resolved}
+    if len(cut_points) < len(resolved):
+        raise ValueError(
+            f"{len(resolved)} transitions resolved to only "
+            f"{len(cut_points)} distinct cut point(s): "
+            f"{sorted(cut_points)}. Each transition must sit at its own "
+            f"spine boundary."
+        )
 
 
 def main():
@@ -315,7 +347,17 @@ def main():
     spine_blocks = spine.get("structure", spine.get("audio_spine", {}).get("structure", []))
     total_cuts = max(0, len(spine_blocks) - 1)
     
-    if total_cuts > 0 and len(creative) / total_cuts < 0.05:
+    min_trans = max(1, total_cuts // 3) if total_cuts > 0 else 0
+
+    # Count the DISTINCT boundaries the plan actually covers. Counting raw
+    # entries let a plan of ten stacked duplicates look fully covered.
+    covered = {
+        idx for idx in (
+            _resolve_cut_block_index(t, spine_blocks) for t in creative
+        ) if idx is not None
+    }
+
+    if total_cuts > 0 and len(covered) < min_trans:
         # We need semantic_analysis to detect scene boundaries
         semantic_data = data.get("semantic_analysis", {})
         if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:
@@ -331,39 +373,23 @@ def main():
             
         semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
         
-        existing_cuts = set()
-        for t in creative:
-            pos = t.get("cut_point_position")
-            if pos is None:
-                original_tl = t.get("cut_point_original", t.get("cut_point_timeline", 0.0))
-                best_pos = None
-                best_dist = float("inf")
-                for b in spine_blocks:
-                    dist = abs(b.get("timeline_start", 0.0) - original_tl)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_pos = b.get("position")
-                pos = best_pos
-                t["cut_point_position"] = pos
-            if pos is not None:
-                existing_cuts.add(str(pos))
-        
+        existing_cuts = {
+            str(spine_blocks[idx]["position"]) for idx in covered
+        }
+
         for i in range(1, len(spine_blocks)):
             prev_block = spine_blocks[i-1]
             curr_block = spine_blocks[i]
             
-            if str(curr_block.get("position", i)) in existing_cuts:
+            if str(curr_block["position"]) in existing_cuts:
                 continue
-                
-            def _get_cid(b):
-                cid = b.get("clip_id") or b.get("content", {}).get("clip_id")
-                if not cid and b.get("content", {}).get("segments"):
-                    cid = b.get("content", {}).get("segments")[0].get("clip_id")
-                return cid
-                
-            prev_cid = _get_cid(prev_block)
-            curr_cid = _get_cid(curr_block)
-            
+
+            # The spine contract guarantees a top-level clip_id on every
+            # block (None for non-speech), so there is one place to read it.
+            prev_cid = prev_block["clip_id"]
+            curr_cid = curr_block["clip_id"]
+
+
             if not prev_cid or not curr_cid or prev_cid == curr_cid:
                 continue
                 
@@ -392,11 +418,15 @@ def main():
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
     
-    min_trans = max(1, total_cuts // 3) if total_cuts > 0 else 0
-    if len(creative) < min_trans:
-        print(json.dumps({"error": f"Planned {len(creative)} transitions for {total_cuts} cuts. You MUST plan at least {min_trans} transitions.", "step": "4.02_bridge"}))
+    covered = {
+        idx for idx in (
+            _resolve_cut_block_index(t, spine_blocks) for t in creative
+        ) if idx is not None
+    }
+    if len(covered) < min_trans:
+        print(json.dumps({"error": f"Planned {len(creative)} transitions covering only {len(covered)} of {total_cuts} spine boundaries. You MUST plan at least {min_trans} transitions at DISTINCT cut points, each naming its cut_point_position.", "step": "4.02_bridge"}))
         sys.exit(1)
-    
+
     # Extract new inputs
     creative_direction = data.get("creative_direction", {})
     brand_effect = data.get("brand_effect", {})

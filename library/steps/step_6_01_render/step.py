@@ -15,9 +15,48 @@ Output: {
 }
 """
 import json
+import subprocess
 import sys
 import os
 from resolve_build_timeline import build_timeline
+
+# step.py lives at <repo>/library/steps/step_6_01_render/step.py
+PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+RENDER_SCRIPT = os.path.join(
+    PILOT_ROOT, "library", "tools", "execution", "resolve_render.py")
+
+
+def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
+    """Render the built timeline to a file and return the render report.
+
+    Runs in a separate process: clip references go stale after timeline
+    creation (AGENTS.md section 5), and the same isolation rule that
+    applies to ImportFusionComp applies to driving the Deliver page.
+    """
+    project_folder = inputs.get("project_folder", "")
+    if not project_folder:
+        raise ValueError("project_folder is required to place the export")
+
+    output_dir = os.path.join(project_folder, "exports")
+    output_name = manifest.get("project", {}).get("name", "Pipeline_Edit")
+
+    cmd = [
+        sys.executable, RENDER_SCRIPT,
+        "--timeline", timeline_name or "",
+        "--output-dir", output_dir,
+        "--name", output_name,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2400)
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Export failed (exit {proc.returncode}): "
+            f"{proc.stderr.strip()[-800:]}"
+        )
+    return json.loads(proc.stdout)
+
 
 def run(inputs: dict) -> dict:
     import sys
@@ -37,7 +76,8 @@ def run(inputs: dict) -> dict:
             subtitle_overlay_path=inputs.get("subtitle_overlay_path"),
             motion_graphics_path=inputs.get("motion_graphics_path"),
             project_name=manifest.get("project", {}).get("name", "Pipeline_Edit"),
-            delete_existing=True
+            delete_existing=True,
+            project_folder=inputs.get("project_folder", ""),
         )
         
         if not result.get("success") and result.get("errors"):
@@ -55,6 +95,12 @@ def run(inputs: dict) -> dict:
         except Exception as e:
             raise RuntimeError(f"Timeline Sync QA Validation Failed: {str(e)}")
             
+        # ── Export ──
+        # Building the timeline is not shipping the video. Render it to a
+        # real file so step 6.02 has something to validate; without this
+        # every run ended at distribution_ready: false.
+        export = _export_timeline(result.get("timeline_name"), inputs, manifest)
+
         output_payload = {
             "render_output": {
                 "timeline_name": result.get("timeline_name"),
@@ -62,13 +108,21 @@ def run(inputs: dict) -> dict:
                 "success": result.get("success", True),
                 "errors": result.get("errors", []),
                 "tracks": result.get("tracks", {}),
-                "warnings": result.get("warnings", [])
+                "warnings": result.get("warnings", []),
+                "output_path": export["output_path"],
+                "output_size_bytes": export["size_bytes"],
+                "render_job": {
+                    "job_id": export["job_id"],
+                    "job_status": export["job_status"],
+                    "format": export["format"],
+                    "codec": export["codec"],
+                },
             }
         }
-        
+
         if "visual_qa" in result:
             output_payload["visual_qa"] = result["visual_qa"]
-            
+
         return output_payload
         
     except ConnectionError as e:

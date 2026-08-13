@@ -60,23 +60,37 @@ def check_duration_invariant(a_roll_assignments: list) -> dict:
     return {"passed": len(violations) == 0, "violations": violations}
 
 
-def check_b_roll_duration_invariant(b_roll_assignments: list) -> dict:
+def check_b_roll_duration_invariant(
+    b_roll_assignments: list, b_roll_interjections: list = None,
+) -> dict:
     """
-    For every B-roll assignment, source_duration >= timeline_duration.
+    For every B-roll clip on V2, source_duration >= timeline_duration.
+
+    Interjections are checked alongside assignments: they land on the same
+    track and a cutaway that outruns its source freezes there just the
+    same, whichever list it came from.
     """
     violations = []
-    for br in (b_roll_assignments or []):
-        src_in = br.get("source_in", 0)
-        src_out = br.get("source_out", 0)
-        tl_in = br.get("timeline_in", br.get("timeline_start", 0))
-        tl_out = br.get("timeline_out", br.get("timeline_end", 0))
-        
-        src_dur = round(src_out - src_in, 4)
-        tl_dur = round(tl_out - tl_in, 4)
-        
+
+    # step_3_02 emits video_in/video_out (source domain) and
+    # timeline_start/timeline_end. Reading source_in/timeline_in here -
+    # keys the assignment never carries - made src_dur 0 for every
+    # clip, so this invariant never examined a real assignment.
+    clips = [
+        (br, br, "assignment") for br in (b_roll_assignments or [])
+    ] + [
+        (interj, interj["assigned_clip"], "interjection")
+        for interj in (b_roll_interjections or [])
+    ]
+
+    for timing, source, kind in clips:
+        src_dur = round(source["video_out"] - source["video_in"], 4)
+        tl_dur = round(timing["timeline_end"] - timing["timeline_start"], 4)
+
         if src_dur < tl_dur - DURATION_TOLERANCE:
             violations.append({
-                "clip_id": br.get("clip_id", "?"),
+                "clip_id": source.get("clip_id", "?"),
+                "kind": kind,
                 "source_duration": src_dur,
                 "timeline_duration": tl_dur,
                 "deficit": round(tl_dur - src_dur, 4)
@@ -261,7 +275,7 @@ def run_mechanical_checks(data: dict) -> dict:
     audio_spine = data.get("audio_spine", {})
 
     duration = check_duration_invariant(a_rolls)
-    b_roll_duration = check_b_roll_duration_invariant(b_rolls)
+    b_roll_duration = check_b_roll_duration_invariant(b_rolls, b_interjections)
     continuity = check_timeline_continuity(a_rolls)
     source_files = check_source_files(a_rolls, b_rolls, b_interjections, project_folder)
     duplicates = check_no_duplicate_ranges(a_rolls)

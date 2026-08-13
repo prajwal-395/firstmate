@@ -91,6 +91,59 @@ class TestRunMechanicalChecksWithDuration:
         assert "total_duration" in result["mechanical_checks"]
         assert result["mechanical_checks"]["total_duration"]["passed"] is True
 
+    def test_b_roll_checks_run_on_real_assignments(self):
+        """The B-roll checks need B-roll to check.
+
+        Every rough-cut test used to pass `b_roll_assignments: []`, so the
+        duration invariant and source-file checks never saw a single
+        assignment and could not fail on a broken one.
+        """
+        data = {
+            "a_roll_assignments": [
+                {"timeline_start": 0, "timeline_end": 50,
+                 "spine_block_position": 1, "block_type": "speech",
+                 "source_file": __file__,
+                 "video_segments": [{"video_in": 1.204, "video_out": 3.086}]}
+            ],
+            "b_roll_assignments": [
+                {"spine_block_position": 1, "clip_id": "clip_2",
+                 "source_file": __file__,
+                 "video_in": 1.204, "video_out": 3.086,
+                 "duration_seconds": 1.882,
+                 "timeline_start": 0.0, "timeline_end": 1.882},
+            ],
+            "b_roll_interjections": [],
+            "audio_spine": {},
+            "project_folder": ".",
+        }
+        result = run_mechanical_checks(data)
+        checks = result["mechanical_checks"]
+        assert checks["b_roll_duration_invariant"]["passed"] is True
+        assert checks["source_files_exist"]["passed"] is True
+
+    def test_b_roll_duration_mismatch_is_rejected(self):
+        """A B-roll clip whose source range does not fill its slot."""
+        data = {
+            "a_roll_assignments": [
+                {"timeline_start": 0, "timeline_end": 50,
+                 "spine_block_position": 1, "block_type": "speech",
+                 "source_file": __file__,
+                 "video_segments": [{"video_in": 0.0, "video_out": 50.0}]}
+            ],
+            "b_roll_assignments": [
+                {"spine_block_position": 1, "clip_id": "clip_2",
+                 "source_file": __file__,
+                 "video_in": 0.0, "video_out": 0.0,
+                 "duration_seconds": 0.0,
+                 "timeline_start": 0.0, "timeline_end": 1.882},
+            ],
+            "b_roll_interjections": [],
+            "audio_spine": {},
+            "project_folder": ".",
+        }
+        result = run_mechanical_checks(data)
+        assert result["mechanical_checks"]["b_roll_duration_invariant"]["passed"] is False
+
     def test_duration_overshoot_rejects(self):
         data = {
             "a_roll_assignments": [

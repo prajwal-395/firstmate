@@ -2,6 +2,8 @@
 import sys
 import json
 
+from library.tools.sfx_library import available_sfx_types
+
 def format_toon(headers, rows):
     out = f"[{len(rows)}]{{{','.join(headers)}}}\n"
     for row in rows:
@@ -29,7 +31,19 @@ def main():
         
     sfx_toon = format_toon(["segment_id", "text", "action_sfx_suggested"], sfx_rows)
     
+    available = available_sfx_types()
+    if not available:
+        print(json.dumps({
+            "error": (
+                "The SFX library resolves no usable sound types - check "
+                "PIPELINE_SFX_LIBRARY and its index"
+            ),
+            "step": "4.04_bridge",
+        }))
+        sys.exit(1)
+
     compressed = {
+        "available_sfx_types": available,
         "sfx_candidates_toon": sfx_toon,
         "sfx_spec": {
             "sfx_list": [],

@@ -45,6 +45,8 @@ An end-to-end automated video editing pipeline for shortform (30–60s, vertical
 
 > **Note:** Step 2.03 is intentionally skipped in the numbering.
 > 2.03 was merged into 2.02 during decomposition.
+> Steps 1.06 and 1.07 have definitions but are not wired into the DAG,
+> so a run executes 26 of the 28 steps.
 
 ## Project Management CLI
 
@@ -78,6 +80,18 @@ python3 manage_project.py dashboard [<slug>] [--port PORT]
 python3 manage_project.py relink [<slug>] [--scan]
 python3 manage_project.py archive <slug>
 ```
+
+`run`, `status`, `info` and `dashboard` also accept a path to the project
+directory (or its `project.yaml`) in place of the slug, so a project
+living outside `PIPELINE_PROJECTS_ROOT` is driven where it sits - nothing is
+copied or moved:
+
+```bash
+python3 manage_project.py run "/Volumes/media/client shoot/001"
+```
+
+`list` still only scans `PIPELINE_PROJECTS_ROOT`, and `archive` refuses a
+project outside that root rather than move it there.
 
 ## Architecture Notes
 

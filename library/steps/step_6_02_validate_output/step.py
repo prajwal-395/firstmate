@@ -39,7 +39,7 @@ def _run_ffprobe(filepath, *args):
             filepath,
         ]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15,
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
         )
         if result.returncode != 0:
             return None
@@ -57,7 +57,7 @@ def _extract_frame(filepath, frame_num, output_path, fps=30):
             ['ffmpeg', '-y', '-ss', f'{timestamp:.3f}',
              '-i', filepath, '-frames:v', '1',
              '-f', 'image2', output_path],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -192,92 +192,19 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
         "qa_report": qa_report
     }
 
-def _validate_build_result(build_result: dict, assembly_manifest: dict) -> dict:
-    """Validate the timeline build result when no rendered file exists yet.
-
-    This runs when step 6.01 has built the Resolve timeline but hasn't
-    triggered a render pass. It validates the build report instead.
-    """
-    checks = {}
-    project = assembly_manifest.get('project', {})
-
-    # Check build success
-    build_check = {"pass": False, "issues": []}
-    if build_result.get("success"):
-        build_check["pass"] = True
-    else:
-        build_check["issues"].append("Timeline build reported failure")
-
-    if build_result.get("errors"):
-        for err in build_result["errors"]:
-            build_check["issues"].append(f"Build error: {err}")
-        build_check["pass"] = False
-
-    checks["build_success"] = build_check
-
-    # Check track counts match manifest expectations
-    track_check = {"pass": True, "issues": []}
-    built_tracks = build_result.get("tracks", {})
-    manifest_tracks = assembly_manifest.get("tracks", {})
-
-    for track_name in ("V1", "V2", "A2"):
-        expected_clips = len(manifest_tracks.get(track_name, {}).get("clips", []))
-        actual_clips = built_tracks.get(track_name, 0)
-        if expected_clips > 0 and actual_clips == 0:
-            track_check["issues"].append(
-                f"{track_name}: expected {expected_clips} clips, got 0")
-            track_check["pass"] = False
-
-    checks["track_counts"] = track_check
-
-    # Check warnings
-    warning_check = {"pass": True, "issues": []}
-    warnings = build_result.get("warnings", [])
-    if warnings:
-        warning_check["issues"] = [f"Build warning: {w}" for w in warnings]
-        # Warnings don't fail the check, just report
-
-    checks["build_warnings"] = warning_check
-
-    all_passed = all(c.get("pass", False) for c in checks.values())
-    all_issues = []
-    for name, check in checks.items():
-        for issue in check.get("issues", []):
-            all_issues.append(f"[{name}] {issue}")
-
-    return {
-        "status": "pass" if all_passed else "fail",
-        "mode": "build_validation",
-        "checks": checks,
-        "all_issues": all_issues,
-        "distribution_ready": False,  # Not rendered yet
-        "critical_checks_passed": checks["build_success"]["pass"],
-        "summary": (
-            "Timeline build validated - ready for render"
-            if all_passed
-            else f"{len(all_issues)} issue(s) found in build"
-        ),
-        "recommended_action": (
-            "Render the timeline in DaVinci Resolve, then re-run validation "
-            "with output_path set" if all_passed
-            else "Fix build errors and re-run step 6.01"
-        ),
-    }
-
-
 def main():
     input_data = json.loads(sys.stdin.read())
 
     rendered_output = input_data.get("rendered_output", {})
     assembly_manifest = input_data.get("assembly_manifest", {})
 
-    # Two modes: file validation (post-render) or build validation (post-build)
+    # Step 6.01 always exports now, so an absent output_path means the
+    # export did not happen. Validating the build report instead used to
+    # let a run finish "pass" with distribution_ready: false and nobody
+    # noticing there was no video.
     if rendered_output.get("output_path"):
         result = validate_output(rendered_output, assembly_manifest)
-    elif rendered_output.get("render_expected", False):
-        # BUG FIX H8: When a render was expected but output_path is missing,
-        # report failure explicitly instead of falling back to build validation
-        # which could mask the missing render output with a false 'pass'.
+    else:
         result = {
             "status": "fail",
             "mode": "render_validation",
@@ -301,11 +228,18 @@ def main():
                 "is running and the render completed successfully."
             ),
         }
-    else:
-        # No rendered file yet - validate the build result from step 6.01
-        result = _validate_build_result(rendered_output, assembly_manifest)
 
     json.dump({"validation_result": result}, sys.stdout, indent=2)
+
+    if not result.get("distribution_ready"):
+        # The pipeline's last word must match reality: no distributable
+        # file means the run did not succeed.
+        print(
+            f"Validation failed: {result.get('summary', 'unknown')}\n  - "
+            + "\n  - ".join(result.get("all_issues", [])),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -205,7 +205,7 @@ class TestParseSetting(unittest.TestCase):
         # Extract the setting
         result = subprocess.run(
             ["unzip", "-p", drfx, "Fusion/Tools/Chromatic Aberration.setting"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             self.skipTest("Could not extract setting from drfx")
@@ -228,7 +228,7 @@ class TestParseSetting(unittest.TestCase):
 
         result = subprocess.run(
             ["unzip", "-p", drfx, "Edit/Transitions/Cross Dissolve.setting"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             self.skipTest("Could not extract setting from drfx")

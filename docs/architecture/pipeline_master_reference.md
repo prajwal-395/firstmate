@@ -294,13 +294,15 @@ video_editing_pilot/
 │   ├── local_video_analysis_guide.md
 │   └── sfx_analysis_guide.md
 ├── library/
-│   ├── steps/                    ← 24 step definitions with manifests
+│   ├── steps/                    ← 28 step definitions with manifests (26 wired into the DAG)
 │   │   ├── step_0_01_validate_sfx_library/   ← Pre-flight SFX index check
 │   │   ├── step_1_01_scan_project/
 │   │   ├── step_1_02_catalog_footage/
 │   │   ├── step_1_03_semantic_analysis/      ← Gemma4 vision (MLX)
 │   │   ├── step_1_04_temporal_index/         ← WhisperX + signal processing
 │   │   ├── step_1_05_prosody_analysis/       ← Parselmouth prosody
+│   │   ├── step_1_06_object_segmentation/    ← Not wired into the DAG
+│   │   ├── step_1_07_ocr_extraction/         ← Not wired into the DAG
 │   │   ├── step_2_01_creative_direction/
 │   │   ├── step_2_02_speech_sequence/
 │   │   ├── step_2_04_music_selection/
@@ -314,8 +316,10 @@ video_editing_pilot/
 │   │   ├── step_4_03_plan_vfx/
 │   │   ├── step_4_04_plan_sfx/
 │   │   ├── step_4_05_render_subtitles/       ← Remotion ProRes 4444
+│   │   ├── step_4_06_render_motion_graphics/
 │   │   ├── step_5_01_color_grade/
 │   │   ├── step_5_02_audio_mix/
+│   │   ├── step_5_03_creative_cohesion/
 │   │   ├── step_5_04_compile_manifest/
 │   │   ├── step_6_01_render/                 ← FCPXML + Fusion + Resolve
 │   │   │   ├── fcpxml_generator.py            ← FCPXML 1.10 (primary)
@@ -338,7 +342,7 @@ video_editing_pilot/
 │   │       ├── sfx_placer.py                 ← SFX scoring + placement
 │   │       └── import_endcard.py             ← Endcard import utility
 │   ├── processes/edit_video/
-│   │   ├── dag.json                          ← 24-node DAG, 58 edges
+│   │   ├── dag.json                          ← 26-node DAG, 92 edges
 │   │   ├── manifest.json                     ← Process-level manifest
 │   │   └── run_pipeline.py                   ← DAG execution engine
 │   └── schema/                               ← JSON schemas
@@ -380,7 +384,7 @@ video_editing_pilot/
 | essentia key detection | 📐 Designed | In music_pipeline.py (needs deps) |
 | allin1 song structure | 📐 Designed | In music_pipeline.py (needs deps) |
 | Demucs stem separation | 📐 Designed | In music_pipeline.py (needs deps) |
-| Orchestrator end-to-end run | ⚠️ Partially wired | DAG + runner exist, needs testing |
+| Orchestrator end-to-end run | ✅ Built + wired | `manage_project.py run` drives all 26 DAG steps through to an exported file (step 6.01 renders, 6.02 validates it) |
 | Volume ducking on SFX clips | ❌ Not implemented | Notes generated but never applied |
 | B-roll SFX events | ❌ Not implemented | Only V1 cuts detected |
 
@@ -388,7 +392,10 @@ video_editing_pilot/
 
 ## How a Full Run Works Today
 
-The pipeline currently runs as a **series of conversations with Antigravity**, not as an automated orchestrator:
+The supported path is the orchestrator: `python3 manage_project.py run <slug>`
+runs the DAG end to end and ends in an exported file (see the README for the
+CLI). The manual sequence below predates it and is kept only for running a
+single layer by hand:
 
 ### Phase 1 — Analysis (automated, local)
 ```bash

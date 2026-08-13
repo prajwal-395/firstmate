@@ -78,6 +78,14 @@
     ],
     "postconditions": [
       "'transition_spec' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "transition_creative",
+        "type": "list",
+        "required": true,
+        "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale"
+      }
     ]
   },
   "classification": {
@@ -117,6 +125,7 @@
     "music_selection",
     "rough_cut_review",
     "timed_spine",
-    "temporal_event_indices.*.scenes"
+    "temporal_event_indices.*.clip_id",
+    "temporal_event_indices.*.scene_boundaries"
   ]
 }

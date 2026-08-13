@@ -419,7 +419,7 @@ def probe_clip(clip_path):
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_format", "-show_streams", str(clip_path)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if result.returncode != 0:
             return None

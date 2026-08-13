@@ -86,7 +86,7 @@ def _estimate_exposure(filepath: str) -> float:
              '-of', 'csv=p=0',
              '-read_intervals', '%+10',  # first 10 seconds only
              ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
 
         if result.returncode != 0 or not result.stdout.strip():

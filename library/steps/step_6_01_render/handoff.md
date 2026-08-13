@@ -20,9 +20,12 @@ This is the encoding step — where all tool-agnostic specifications become
 tool-specific commands. The executor reads the four spec documents and
 builds the timeline programmatically.
 
-This step has a companion implementation script: `resolve_assemble.py`
-(DaVinci Resolve variant). Alternative variants (FFmpeg, Remotion) can be
-added as additional scripts sharing the same interface contract.
+This step has two companion implementation scripts (DaVinci Resolve
+variant): `resolve_build_timeline.py` assembles the timeline, then
+`library/tools/execution/resolve_render.py` drives the Deliver page in a
+separate process and exports the file the step reports as `output_path`.
+Alternative variants (FFmpeg, Remotion) can be added as additional scripts
+sharing the same interface contract.
 
 ---
 

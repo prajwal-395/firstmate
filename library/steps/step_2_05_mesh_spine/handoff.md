@@ -80,31 +80,21 @@ construct the complete audio spine.
 
 ### Duration invariant (CRITICAL):
 
-For every speech block, this rule MUST hold:
-
-```
-duration_seconds == content.source_out - content.source_in
-```
-
 The timeline duration of a speech block must EQUAL the source duration of
-the audio it references. Downstream steps (FCPXML generation, subtitle
-timing) depend on this invariant. Violating it causes silent truncation
-of speech — the viewer hears an incomplete sentence.
+the audio it references, or speech is silently truncated - the viewer
+hears an incomplete sentence.
 
-**If a speech block is too long for the target pacing**, you have two
-valid options:
+You do not set that source range: the post-bridge takes it from the
+speech_sequence passage named by `content.passage_ref`, whose timings come
+from word-level alignment, and it overwrites your `duration_seconds` with
+the passage's real duration. So your `duration_seconds` is a pacing
+estimate, and the invariant holds by construction.
 
-1. **Accept the full duration.** Adjust the total video length or shorten
-   other blocks (transition slots, intro, outro) to compensate.
-2. **Produce sub-segments.** Break the speech block into multiple shorter
-   blocks, each with its own `source_in`/`source_out` that contains a
-   complete thought. Remove filler words, stutters, or tangents by
-   excluding their time ranges. Each sub-block must independently satisfy
-   the duration invariant.
-
-**What is NOT valid:** Setting `duration_seconds` shorter than the source
-range and adding a `trimming_note`. Nobody downstream performs the trim.
-The result is speech cut off mid-sentence.
+**If a speech block is too long for the target pacing**, adjust the total
+video length or shorten other blocks (transition slots, intro, outro) to
+compensate. You cannot trim a passage here by shortening
+`duration_seconds` or by splitting it across blocks with hand-written
+in/out points - trimming belongs to step 2.2, which chooses the passages.
 
 ### Transition slot guidance:
 - Duration varies by intent — determined by the purpose of the transition
@@ -125,8 +115,11 @@ links back to the speech_sequence passage it came from:
 - For body speech blocks: `"passage_ref": <position>` matching the
   passage's `position` field from the speech_sequence body_sequence
 
-This linkage is required for the post-bridge to inject word_timestamps
-and execution-layer timing data. Without it, audio sync breaks.
+This linkage is how the post-bridge injects the block's clip_id, source
+range, word_timestamps and execution-layer timing data. A `hook`/`speech`
+block whose `passage_ref` is missing or names no passage FAILS the step -
+it is not silently kept, because a block without word timings disables
+beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 
 ---
 

@@ -19,6 +19,10 @@ import os
 import argparse
 from typing import Optional
 
+# Render handles either side of a block so entrance/exit animations have
+# room. Trimmed off at placement time - see _source_in_frame below.
+SUBTITLE_RENDER_BUFFER_S = 0.5
+
 
 def generate_subtitle_props_per_block(
     subtitle_data: dict,
@@ -65,13 +69,20 @@ def generate_subtitle_props_per_block(
         if block_dur <= 0:
             continue
 
-        # Add a small buffer (0.5s) before first and after last subtitle
-        # so animations have room to entrance/exit
-        buffer = 0.5
-        render_start = max(0, block_tl_start - buffer)
-        render_end = block_tl_end + buffer
+        # Render with a small buffer (0.5s) either side so entrance and
+        # exit animations have handles. The buffer is RENDER padding only:
+        # `_timeline_start`/`_timeline_end` below stay on the block's true
+        # content bounds, and `_source_in_frame`/`_source_out_frame` tell
+        # the timeline builder to trim the handles off when placing the
+        # clip. Placing the padded clip at its padded start is what made
+        # every one of the 13 block overlays overlap its neighbour by ~1s.
+        buffer = min(SUBTITLE_RENDER_BUFFER_S, block_tl_start)
+        render_start = block_tl_start - buffer
+        render_end = block_tl_end + SUBTITLE_RENDER_BUFFER_S
         render_dur = render_end - render_start
         total_frames = max(1, round(render_dur * fps))
+        head_frames = round(buffer * fps)
+        content_frames = max(1, round(block_dur * fps))
 
         # Re-base subtitle timings relative to render_start
         subtitles = []
@@ -140,10 +151,14 @@ def generate_subtitle_props_per_block(
                 "outlineWidth": 4,
                 "fontSize": 58
             }),
-            # Metadata for placement (not consumed by Remotion)
+            # Metadata for placement (not consumed by Remotion).
+            # timeline bounds are the block's TRUE content bounds; the
+            # source_in/out frames trim the render padding.
             "_block_position": block_pos,
-            "_timeline_start": render_start,
-            "_timeline_end": render_end,
+            "_timeline_start": block_tl_start,
+            "_timeline_end": block_tl_end,
+            "_source_in_frame": head_frames,
+            "_source_out_frame": head_frames + content_frames,
         }
         props_list.append(props)
 

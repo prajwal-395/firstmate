@@ -34,7 +34,8 @@ The repository is structured to separate the pipeline engine from project data.
 
 The pipeline is defined as a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`.
 Execution order is resolved via topological sort.
-The DAG groups 28 atomic steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
+The DAG groups 26 atomic steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
+`library/steps/` holds 28 step definitions; `object_segmentation` (1.06) and `ocr_extraction` (1.07) exist but are not wired into the DAG.
 
 Run the pipeline using the project manager CLI: `python3 manage_project.py run <slug>`.
 Use `--from <step_id>` to resume execution starting from a specific step.
@@ -52,6 +53,14 @@ LLM-only steps have only a `handoff.md` prompt and require an LLM to generate th
 Pipeline state is stored in `pipeline_data.json` at the root of each project directory.
 The state file tracks completed steps and stores all JSON outputs under `step_outputs`.
 Inspect `pipeline_data.json` to debug data flow or verify upstream step results.
+
+The run summary reports `SUCCESS` only when the whole DAG is complete and
+`failed_steps` is empty in the project ledger - not just the steps this
+invocation touched. Other statuses: `FAILED` (a step failed, or emitted an
+`available: false`/hollow result, in this run or an earlier one - exit code
+1), `AWAITING_LLM`, `PARTIAL` (`--step`/`--from`/a review-gate pause left
+DAG steps unrun) and `DRY_RUN`. `failed_steps` is current state, not a
+log: a step that later succeeds is removed from it.
 
 ## 4. Dashboard
 
@@ -148,7 +157,37 @@ A frame file size between 30-150KB indicates real video content.
 Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()` for managing timeline markers and items.
 Follow the established patterns in `timeline_item_markers` and related tools for robust interaction.
 
-## 6. Data flow
+## 6. The spine contract
+
+`mesh_spine` (step 2.05) emits the timeline spine every creative step reads.
+Its shape is defined and enforced in `library/tools/spine_contract.py`, which
+mesh_spine calls before emitting. Every block carries `clip_id`,
+`source_start`, `source_end`, `word_timestamps` and `alignment_method` -
+`None`/empty only for non-speech blocks.
+
+Read those keys directly (`block["clip_id"]`). Do NOT reintroduce
+`.get("clip_id", "")` fallback chains: a missing key is a contract
+violation and must raise. A guard reading `block.get("clip_id", "")` on
+blocks that only had `content.clip_id` silently disabled beat-aligned
+cutting for four audits.
+
+Word timings use `source_start`/`source_end`, not `start`/`end`.
+
+`speech_sequence` (2.02) treats the LLM's `source_start`/`source_end` as a
+LOOKUP HINT only. Real timings come from aligning the passage text against
+WhisperX words; a passage that cannot be aligned fails the step. This is
+what stops invented round-number ranges reaching the timeline.
+
+Two body passages cut from one clip may not claim overlapping source
+ranges - the overlap plays twice across the cut. 2.02 re-anchors such a
+passage past the previous one, or fails it; `manifest_validator` asserts
+the same on consecutive V1 clips. The drift threshold is a secondary aid
+only: the shipped case drifted 0.76s and sailed under it. NOTE: this is
+fixed in code and covered by tests, but the export at the reference
+project was NOT regenerated, so the mp4 on disk still repeats "to post"
+at ~10.4s. It is not verified in a render.
+
+## 7. Data flow
 
 Data flows through the pipeline via `pipeline_data.json`.
 Each step reads required upstream outputs from this file based on the DAG's `data_mapping` edges.
@@ -160,16 +199,19 @@ The `aroll_assignments` output maps narrative blocks to specific source clips an
 The `broll_selections` output assigns secondary footage (`b_roll_assignments`) and standalone cutaways (`b_roll_interjections`) to cover A-roll segments or insert visual breaks.
 The `compile_manifest` output consolidates all decisions into an `assembly_manifest.json` that drives the final Resolve render.
 
-## 7. Project management
+## 8. Project management
 
 Manage projects using the `manage_project.py` CLI tool.
 Create new projects with `python3 manage_project.py new <slug> --name "Project Name"`.
 Project configurations are stored in `project.yaml` within each project directory.
 The `ProjectConfig` schema defines source settings, pipeline options, and Resolve bindings.
 The project registry scans the root directory to list and manage all available projects.
+A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its
+absolute path in place of the slug to `run`, `status`, `info` and
+`dashboard` - it is referenced in place, never copied.
 Multi-project environments group projects by client folders if specified during creation.
 
-## 8. Environment and dependencies
+## 9. Environment and dependencies
 
 The pipeline requires specific environment variables and dependencies to function.
 Set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to point to your DaVinci Resolve installation.
@@ -178,9 +220,59 @@ Set `PIPELINE_SFX_LIBRARY` to the absolute path of the sound effects library.
 Set `PIPELINE_MUSIC_LIBRARY` to the absolute path of the background music library.
 Set `PIPELINE_PROJECTS_ROOT` to the directory where video projects are stored.
 Python dependencies are listed in `requirements.txt` and must be installed in the environment.
+`librosa` is required by `music_analysis`; without it the step reports
+`available: false` and the run now fails rather than continuing silently.
 External tools include `ffmpeg` and `ffprobe` for media processing.
 Node.js is required to run Remotion for subtitle rendering.
 GPU acceleration is required for models including Gemma 4, SAM 2, WhisperX, and EasyOCR.
+
+## 10. Hard-won pipeline lessons
+
+These cost a full audit cycle each. Do not undo them.
+
+**Key-name mismatches are the dominant bug class.** Steps disagree about
+what a field is called, the reader `.get()`s a default, and the pipeline
+reports success over empty data. B-roll assignments carry
+`video_in`/`video_out` + `timeline_start`/`timeline_end`; SFX carry
+`timeline_in`/`timeline_out`; semantic documents are keyed by FILE STEM
+while the catalog uses `clip_XXX` (join them with
+`library/tools/semantic_index.py`). When adding a consumer, index required
+keys directly so a rename fails loudly.
+
+**`compile_manifest` reads pipeline_data.json, not just files.** The
+per-step `*.json` files in `pipeline_output/` are a best-effort dashboard
+export; a step that ran before that export existed leaves none. It spent
+entire runs compiling against an empty catalog because a missing file read
+as `{}`.
+
+**Resolve audio pool items report 24fps regardless of the timeline.**
+`AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so
+compute audio in/out with the pool item's own FPS or the music stretches to
+125% and pads the export with trailing black.
+
+**Renders are silent unless you say otherwise.** `SetRenderSettings` must
+set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes
+the output for an audio stream before reporting success.
+
+**`text=True` decodes with the locale codec.** The pipeline writes UTF-8
+status glyphs, so every `subprocess.run` capturing text passes
+`encoding="utf-8"` - otherwise a check-mark in a child's stderr fails a
+render under an ASCII locale.
+
+**Manifest validation has a semantic half.** `library/tools/manifest_validator.py`
+asserts distinct cut points, distributed SFX, distinct VFX ranges, B-roll
+differing from the A-roll it covers, no overlay overlaps, monotonic ducking
+curves, no zero-duration clips and no fabricated round-number source
+ranges. Regression fixtures live in `tests/fixtures/captured_run/` and come
+from a real broken run - never replace them with empty-list fixtures.
+
+**A3 is a logical SFX bucket, not one lane.** Overlapping SFX are fine; the
+timeline builder allocates A3, A4, ... Identical SFX positions are not.
+
+**Hybrid steps declare `interface.llm_outputs`** when the LLM's contribution
+differs from the step's outputs (e.g. mesh_spine's LLM writes `structure`;
+the post-bridge computes `audio_spine`/`timed_spine`). Without it the QA
+loop demands post-bridge outputs from the LLM and every attempt "fails".
 
 ## Maintaining this file
 

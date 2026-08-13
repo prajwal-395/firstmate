@@ -73,7 +73,7 @@ def extract_audio_16k(video_path: str, output_dir: str, clip_id: str = None) -> 
                 "-ar", "16000", "-ac", "1",
                 "-y", audio_path,
             ],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
     except FileNotFoundError:
         raise RuntimeError("ffmpeg not found. Install: brew install ffmpeg")
@@ -109,7 +109,7 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
                 f"select='gt(scene,{threshold})',metadata=print",
                 "-f", "null", "-",
             ],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
     except subprocess.TimeoutExpired:
         print(
@@ -1418,7 +1418,7 @@ def get_duration(video_path: str) -> float:
                 "-show_format",
                 video_path,
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)

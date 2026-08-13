@@ -65,6 +65,10 @@ class TestIntegration(unittest.TestCase):
         inputs = {
             "color_grade_spec": spec,
             "audio_spine": {"structure": []},
+        "clip_catalog": [
+            {"clip_id": "c1", "path": __file__, "width": 1080,
+             "height": 1920, "duration_seconds": 10.0},
+        ],
             "a_roll_assignments": [],
             "b_roll_assignments": [],
             "transition_spec": [],
@@ -92,10 +96,18 @@ class TestIntegration(unittest.TestCase):
         inputs = {
             "audio_spine": {
                 "structure": [
-                    {"block_type": "speech", "source_clip_id": "c_handheld", "timeline_start": 0, "timeline_end": 1, "position": 1},
-                    {"block_type": "speech", "source_clip_id": "c_interview", "timeline_start": 1, "timeline_end": 2, "position": 2},
-                    {"block_type": "speech", "source_clip_id": "c_lowres", "timeline_start": 2, "timeline_end": 3, "position": 3},
-                    {"block_type": "speech", "source_clip_id": "c_standard", "timeline_start": 3, "timeline_end": 4, "position": 4},
+                    {"block_type": "speech", "clip_id": "c_handheld", "source_clip_id": "c_handheld",
+                     "source_start": 0.123, "source_end": 1.456,
+                     "timeline_start": 0, "timeline_end": 1.333, "position": 1},
+                    {"block_type": "speech", "clip_id": "c_interview", "source_clip_id": "c_interview",
+                     "source_start": 2.201, "source_end": 3.118,
+                     "timeline_start": 1.333, "timeline_end": 2.25, "position": 2},
+                    {"block_type": "speech", "clip_id": "c_lowres", "source_clip_id": "c_lowres",
+                     "source_start": 4.02, "source_end": 5.44,
+                     "timeline_start": 2.25, "timeline_end": 3.67, "position": 3},
+                    {"block_type": "speech", "clip_id": "c_standard", "source_clip_id": "c_standard",
+                     "source_start": 6.305, "source_end": 7.129,
+                     "timeline_start": 3.67, "timeline_end": 4.494, "position": 4},
                 ]
             },
             "a_roll_assignments": [

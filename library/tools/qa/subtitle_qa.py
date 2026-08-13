@@ -29,7 +29,7 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
     try:
         result = subprocess.run(
             ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', mov_path],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=True
         )
         duration = float(result.stdout.strip())
     except Exception as e:

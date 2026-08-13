@@ -15,6 +15,7 @@ Usage:
     python3 manage_project.py new my-vlog --name "Beltline Vlog"
     python3 manage_project.py new geo-podcast --name "GEO Podcast" --client lucie
     python3 manage_project.py status geo-podcast
+    python3 manage_project.py status "/abs/path/to/a/project"
     python3 manage_project.py run geo-podcast
     python3 manage_project.py run geo-podcast --from creative_direction
     python3 manage_project.py archive geo-podcast
@@ -293,7 +294,7 @@ def cmd_dashboard(args):
         try:
             config = get_project(args.slug)
             project_dir = str(config.project_root)
-            slug = args.slug
+            slug = config.slug
         except FileNotFoundError as e:
             print(f"  Error: {e}", file=sys.stderr)
             sys.exit(1)
@@ -346,17 +347,17 @@ def main():
 
     # status
     p_status = sub.add_parser("status", help="Show project status")
-    p_status.add_argument("slug", help="Project slug")
+    p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_status.set_defaults(func=cmd_status)
 
     # info
     p_info = sub.add_parser("info", help="Show project configuration as JSON")
-    p_info.add_argument("slug", help="Project slug")
+    p_info.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_info.set_defaults(func=cmd_info)
 
     # run
     p_run = sub.add_parser("run", help="Run the pipeline for a project")
-    p_run.add_argument("slug", help="Project slug")
+    p_run.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_run.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     p_run.add_argument("--step", help="Run only this step")
     p_run.add_argument("--dry-run", action="store_true", help="Show plan without executing")
@@ -373,18 +374,18 @@ def main():
 
     # dashboard
     p_dash = sub.add_parser("dashboard", help="Start the review dashboard for a project")
-    p_dash.add_argument("slug", nargs="?", default="", help="Project slug (optional)")
+    p_dash.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT (optional)")
     p_dash.add_argument("--port", type=int, default=8420, help="Server port (default: 8420)")
     p_dash.set_defaults(func=cmd_dashboard)
 
     # archive
     p_archive = sub.add_parser("archive", help="Archive a completed project")
-    p_archive.add_argument("slug", help="Project slug")
+    p_archive.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_archive.set_defaults(func=cmd_archive)
 
     # relink
     p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
-    p_relink.add_argument("slug", nargs="?", default="", help="Project slug (optional)")
+    p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info/dashboard, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
 

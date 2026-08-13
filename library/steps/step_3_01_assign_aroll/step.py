@@ -54,128 +54,73 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 108
     hook_assignment = None
 
     for block in structure:
-        block_type = block.get("block_type")
+        block_type = block["block_type"]
+        if block_type not in ("hook", "speech"):
+            continue
+
+        # The spine contract puts the clip reference and the source range
+        # on the BLOCK. Reading content.start_time / content.end_time -
+        # keys mesh_spine does not write - gave the hook video_in ==
+        # video_out == 0.0, i.e. a zero-length opening shot.
+        clip_id = block["clip_id"]
+        if not clip_id:
+            raise ValueError(
+                f"{block_type} block {block['position']} has no clip_id"
+            )
+
+        clip = clip_lookup.get(clip_id)
+        if not clip:
+            raise ValueError(
+                f"Block {block['position']} references clip_id "
+                f"'{clip_id}' not found in catalog"
+            )
+
+        video_in = float(block["source_start"])
+        video_out = float(block["source_end"])
+
+        clip_duration = float(clip.get("duration_seconds") or 0.0)
+        if video_out > clip_duration + 0.5:  # 0.5s tolerance
+            raise ValueError(
+                f"Block {block['position']}: source range "
+                f"{video_in:.3f}-{video_out:.3f}s runs past the end of "
+                f"{clip_id} ({clip_duration:.3f}s)"
+            )
+
+        segment = {
+            "clip_id": clip_id,
+            "source_file": clip.get("source_file", clip.get("path", clip.get("file_path", ""))),
+            "video_in": video_in,
+            "video_out": video_out,
+            "duration_seconds": round(video_out - video_in, 3),
+            # Explicit A/V link for this segment
+            "link_group_id": block.get("link_group_id", str(uuid.uuid4())),
+            "width": clip.get("width"),
+            "height": clip.get("height"),
+            "frame_rate": clip.get("frame_rate"),
+            "rotation": clip.get("rotation", 0),
+            "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
+        }
 
         if block_type == "hook":
-            # Hook is a speech snippet — assign its video
-            content = block.get("content", {})
-            clip_id = content.get("clip_id")
-
-            if not clip_id:
-                raise ValueError("Hook block has no clip_id")
-
-            clip = clip_lookup.get(clip_id)
-            if not clip:
-                raise ValueError(f"Hook references clip_id '{clip_id}' not found in catalog")
-
             hook_assignment = {
                 "spine_block_position": block["position"],
-                "clip_id": clip_id,
-                "source_file": clip.get("source_file", clip.get("path", clip.get("file_path", ""))),
-                "video_in": content.get("start_time", 0.0),
-                "video_out": content.get("end_time", 0.0),
-                "duration_seconds": block.get("duration_seconds", 0.0),
                 "timeline_start_frame": block.get("timeline_start_frame"),
                 "timeline_end_frame": block.get("timeline_end_frame"),
                 "duration_frames": block.get("duration_frames"),
-                "link_group_id": block.get("link_group_id", str(uuid.uuid4())),
-                "width": clip.get("width"),
-                "height": clip.get("height"),
-                "frame_rate": clip.get("frame_rate"),
-                "rotation": clip.get("rotation", 0),
-                "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
+                **segment,
             }
 
-            a_roll_assignments.append({
-                "spine_block_position": block["position"],
-                "block_type": "hook",
-                "timeline_start": block.get("timeline_start", 0.0),
-                "timeline_end": block.get("timeline_end", 0.0),
-                "timeline_start_frame": block.get("timeline_start_frame"),
-                "timeline_end_frame": block.get("timeline_end_frame"),
-                "duration_frames": block.get("duration_frames"),
-                "video_segments": [{
-                    "clip_id": clip_id,
-                    "source_file": hook_assignment["source_file"],
-                    "video_in": hook_assignment["video_in"],
-                    "video_out": hook_assignment["video_out"],
-                    "duration_seconds": hook_assignment["duration_seconds"],
-                    "link_group_id": hook_assignment["link_group_id"],
-                    "width": hook_assignment["width"],
-                    "height": hook_assignment["height"],
-                    "frame_rate": hook_assignment["frame_rate"],
-                    "rotation": hook_assignment["rotation"],
-                    "needs_conform": hook_assignment["needs_conform"],
-                }],
-            })
+        a_roll_assignments.append({
+            "spine_block_position": block["position"],
+            "block_type": block_type,
+            "timeline_start": block["timeline_start"],
+            "timeline_end": block["timeline_end"],
+            "timeline_start_frame": block.get("timeline_start_frame"),
+            "timeline_end_frame": block.get("timeline_end_frame"),
+            "duration_frames": block.get("duration_frames"),
+            "video_segments": [segment],
+        })
 
-        elif block_type == "speech":
-            # Speech block — assign video for each segment
-            content = block.get("content", {})
-            segments = content.get("segments", [])
-            if not segments and "clip_id" in content:
-                segments = [content]
-
-            video_segments = []
-            for seg in segments:
-                clip_id = seg.get("clip_id")
-                if not clip_id:
-                    raise ValueError(
-                        f"Speech segment in block {block['position']} has no clip_id"
-                    )
-
-                clip = clip_lookup.get(clip_id)
-                if not clip:
-                    raise ValueError(
-                        f"Speech segment references clip_id '{clip_id}' not found in catalog"
-                    )
-
-                # Verify timestamps are within source file duration
-                video_in = seg.get("start_time") or seg.get("source_start") or seg.get("source_in") or 0.0
-                if video_in is None:
-                    video_in = 0.0
-                video_in = float(video_in)
-
-                video_out = seg.get("end_time") or seg.get("source_end") or seg.get("source_out") or 0.0
-                if video_out is None:
-                    video_out = 0.0
-                video_out = float(video_out)
-
-                clip_duration = float(clip.get("duration_seconds") or 0.0)
-
-                if video_out > clip_duration + 0.5:  # 0.5s tolerance
-                    print(
-                        f"WARNING: Segment end ({video_out}s) exceeds clip "
-                        f"duration ({clip_duration}s) for {clip_id}",
-                        file=sys.stderr,
-                    )
-
-                video_segments.append({
-                    "clip_id": clip_id,
-                    "source_file": clip.get("source_file", clip.get("path", clip.get("file_path", ""))),
-                    "video_in": video_in,
-                    "video_out": video_out,
-                    "duration_seconds": round(video_out - video_in, 3),
-                    # Explicit A/V link for this segment
-                    "link_group_id": seg.get("link_group_id", block.get("link_group_id", str(uuid.uuid4()))),
-                    "width": clip.get("width"),
-                    "height": clip.get("height"),
-                    "frame_rate": clip.get("frame_rate"),
-                    "rotation": clip.get("rotation", 0),
-                    "needs_conform": needs_conform(clip, target_width, target_height, target_fps),
-                })
-
-
-            a_roll_assignments.append({
-                "spine_block_position": block["position"],
-                "block_type": "speech",
-                "timeline_start": block.get("timeline_start", 0.0),
-                "timeline_end": block.get("timeline_end", 0.0),
-                "timeline_start_frame": block.get("timeline_start_frame"),
-                "timeline_end_frame": block.get("timeline_end_frame"),
-                "duration_frames": block.get("duration_frames"),
-                "video_segments": video_segments,
-            })
 
     # --- Verification ---
     # Every speech and hook block has a video assignment

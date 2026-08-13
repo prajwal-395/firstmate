@@ -99,17 +99,24 @@ def main():
             ["python3", MUSIC_PIPELINE, track_path,
              "--output-dir", output_dir],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=300,  # 5 min max
         )
 
         if result.returncode != 0:
-            print(f"Music pipeline error: {result.stderr[:500]}",
-                  file=sys.stderr)
+            # Report the exception, not the first 200 characters of a
+            # traceback. Truncating from the top yielded
+            # "Traceback (most recent call last):\n  File ..." and hid the
+            # actual cause (a missing dependency) for an entire run.
+            stderr = result.stderr.strip()
+            cause = stderr.splitlines()[-1] if stderr else "no stderr"
+            print(f"Music pipeline failed: {cause}", file=sys.stderr)
+            print(stderr[-2000:], file=sys.stderr)
             json.dump({
                 "music_analysis": {
                     "available": False,
-                    "error": result.stderr[:200]
+                    "error": cause,
+                    "traceback_tail": stderr[-2000:],
                 }
             }, sys.stdout, indent=2)
             return

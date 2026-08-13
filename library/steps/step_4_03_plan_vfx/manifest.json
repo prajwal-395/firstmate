@@ -67,6 +67,14 @@
     ],
     "postconditions": [
       "'enhancement_spec' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "vfx_creative",
+        "type": "list",
+        "required": true,
+        "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, intensity (subtle|moderate|strong), rationale"
+      }
     ]
   },
   "classification": {

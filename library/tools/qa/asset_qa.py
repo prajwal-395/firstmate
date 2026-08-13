@@ -20,7 +20,7 @@ def verify_alpha_channel(mov_path: str) -> bool:
         mov_path
     ]
     try:
-        result = subprocess.run(cmd_probe, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd_probe, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
         data = json.loads(result.stdout)
         stream = data.get("streams", [{}])[0]
         pix_fmt = stream.get("pix_fmt", "")

@@ -27,6 +27,7 @@ import sys
 import uuid
 import os
 from library.tools.pipeline_validation import require_keys
+from library.tools.spine_contract import validate_spine_blocks
 
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -50,71 +51,82 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
 
     enriched_blocks = []
 
+    unresolved = []
+
     for block in structure:
         enriched = dict(block)  # shallow copy
         block_type = block.get("block_type")
         content = block.get("content") or {}
 
-        if block_type in ("hook", "speech") and content:
+        # Every block carries the full contract key set (see
+        # library/tools/spine_contract.py). Non-speech blocks carry None -
+        # the keys are never absent, so consumers can read them directly
+        # instead of guessing where the clip reference lives.
+        enriched["clip_id"] = None
+        enriched["source_clip_id"] = None
+        enriched["source_start"] = None
+        enriched["source_end"] = None
+        enriched["word_timestamps"] = []
+        enriched["alignment_method"] = None
+
+        if block_type in ("hook", "speech"):
             # Generate link_group_id for A/V synchronization.
             # This allows the XMEML generator to pair video and audio
             # clipitems using reciprocal <link> blocks.
             enriched["link_group_id"] = str(uuid.uuid4())
 
             passage_ref = content.get("passage_ref")
-            if passage_ref is not None:
-                passage = passage_lookup.get(passage_ref)
-                if passage:
-                    enriched["content"] = {
-                        "passage_ref": passage_ref,
-                        "text": passage.get("text", ""),
-                        "clip_id": passage.get("clip_id"),
-                        "source_start": passage.get("start_time"),
-                        "source_end": passage.get("end_time"),
-                        "v1_source_in": passage.get("start_time"),
-                        "v1_source_out": passage.get("end_time"),
-                        "source_duration": passage.get("duration_seconds"),
-                        "alignment_method": passage.get("alignment_method"),
-                        "word_timestamps": passage.get("word_timestamps", []),
-                    }
-                    # CRITICAL: Update block-level source boundaries to
-                    # match the re-enriched passage data. Without this,
-                    # the manifest compiler picks up stale pre-WhisperX
-                    # values from the original LLM spine output, causing
-                    # V1 clips to cut at wrong source positions.
-                    enriched["source_start"] = passage.get("start_time")
-                    enriched["source_end"] = passage.get("end_time")
-                    # Also update source_file from the passage's clip
-                    if passage.get("clip_id"):
-                        enriched["source_clip_id"] = passage["clip_id"]
-                    # ALWAYS sync block duration to actual speech.
-                    # The word timestamps define the exact duration —
-                    # the LLM's creative target should never override.
-                    # If block is longer, unselected audio bleeds through.
-                    # If block is shorter, speech gets clipped.
-                    passage_end = passage.get("end_time")
-                    passage_start = passage.get("start_time")
-                    if passage_end is not None and passage_start is not None:
-                        src_dur = passage_end - passage_start
-                        block_dur = enriched.get("duration_seconds", 0)
-                        if abs(src_dur - block_dur) > 0.05:
-                            enriched["duration_seconds"] = round(src_dur, 3)
-                            print(
-                                f"  Block [{enriched.get('position')}]: "
-                                f"synced duration {block_dur:.2f}s → "
-                                f"{src_dur:.2f}s (word boundaries)",
-                                file=sys.stderr,
-                            )
-                else:
-                    print(
-                        f"WARNING: passage_ref {passage_ref} not found "
-                        f"in speech_sequence (block position "
-                        f"{block.get('position')})",
-                        file=sys.stderr,
-                    )
-            else:
-                # Content has text but no passage ref — keep as-is
-                enriched["content"] = dict(content)
+            passage = passage_lookup.get(passage_ref) if passage_ref is not None else None
+            if passage is None:
+                unresolved.append(
+                    f"block position {block.get('position')!r} references "
+                    f"passage_ref {passage_ref!r}, which is not in the "
+                    f"speech_sequence (available: "
+                    f"{sorted(passage_lookup, key=str)})"
+                )
+                continue
+
+            clip_id = passage["clip_id"]
+            src_start = passage["source_start"]
+            src_end = passage["source_end"]
+            words = passage["word_timestamps"]
+
+            enriched["content"] = {
+                "passage_ref": passage_ref,
+                "text": passage.get("text", ""),
+                "clip_id": clip_id,
+                "source_start": src_start,
+                "source_end": src_end,
+                "v1_source_in": src_start,
+                "v1_source_out": src_end,
+                "source_duration": passage.get("duration_seconds"),
+                "alignment_method": passage["alignment_method"],
+                "word_timestamps": words,
+            }
+            # Block-level contract fields. These are what every downstream
+            # step reads; `content` is kept for prompt/context rendering.
+            enriched["clip_id"] = clip_id
+            enriched["source_clip_id"] = clip_id
+            enriched["source_start"] = src_start
+            enriched["source_end"] = src_end
+            enriched["word_timestamps"] = words
+            enriched["alignment_method"] = passage["alignment_method"]
+
+            # ALWAYS sync block duration to actual speech.
+            # The word timestamps define the exact duration —
+            # the LLM's creative target should never override.
+            # If block is longer, unselected audio bleeds through.
+            # If block is shorter, speech gets clipped.
+            src_dur = src_end - src_start
+            block_dur = enriched.get("duration_seconds", 0)
+            if abs(src_dur - block_dur) > 0.05:
+                enriched["duration_seconds"] = round(src_dur, 3)
+                print(
+                    f"  Block [{enriched.get('position')}]: "
+                    f"synced duration {block_dur:.2f}s → "
+                    f"{src_dur:.2f}s (word boundaries)",
+                    file=sys.stderr,
+                )
         else:
             enriched["content"] = dict(content) if content else None
 
@@ -129,6 +141,13 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
             enriched["music_track"] = track_id
 
         enriched_blocks.append(enriched)
+
+    if unresolved:
+        raise ValueError(
+            "mesh_spine could not resolve "
+            f"{len(unresolved)} spine block(s) to speech passages:\n  - "
+            + "\n  - ".join(unresolved)
+        )
 
     # Recalculate timeline positions from (potentially extended) durations.
     # Block extensions shift all subsequent blocks forward.
@@ -155,6 +174,11 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
 
     # Recalculate total duration from enriched blocks
     total_dur = sum(b.get("duration_seconds", 0) for b in enriched_blocks)
+
+    # The single gate on the spine contract. Every creative step downstream
+    # reads these blocks directly, so a malformed spine stops here rather
+    # than degrading silently in five different consumers.
+    validate_spine_blocks(enriched_blocks)
 
     return {
         "audio_spine": {

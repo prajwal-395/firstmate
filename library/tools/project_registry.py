@@ -106,12 +106,51 @@ def scan_projects(root: Path = None) -> list[ProjectConfig]:
     return configs
 
 
-def get_project(slug: str, root: Path = None) -> ProjectConfig:
-    """Load a project by slug.
+def resolve_project_path(ref: str) -> Optional[Path]:
+    """Resolve a filesystem project reference to its project.yaml path.
 
-    Searches PROJECTS_ROOT for a project.yaml with a matching slug.
-    Raises FileNotFoundError if not found.
+    A project reference may address a project living anywhere on disk,
+    not just under PROJECTS_ROOT.  Accepted forms:
+
+        /abs/path/to/project/            -> /abs/path/to/project/project.yaml
+        /abs/path/to/project/project.yaml
+        ./relative/path/to/project/      (resolved against the cwd)
+        ~/path/to/project/
+
+    Returns the project.yaml Path, or None when *ref* does not name an
+    existing project on disk (in which case it is treated as a slug).
     """
+    if not ref:
+        return None
+    # A bare slug never contains a separator and never starts with ~ or .
+    if not (os.sep in ref or ref.startswith("~") or ref.startswith(".")):
+        return None
+
+    candidate = Path(ref).expanduser()
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        return None
+
+    if candidate.is_file() and candidate.name == "project.yaml":
+        return candidate
+    if candidate.is_dir() and (candidate / "project.yaml").is_file():
+        return candidate / "project.yaml"
+    return None
+
+
+def get_project(slug: str, root: Path = None) -> ProjectConfig:
+    """Load a project by slug or by filesystem path.
+
+    Searches PROJECTS_ROOT for a project.yaml with a matching slug.  If
+    *slug* instead names a directory (or project.yaml) on disk, that
+    project is loaded in place - it does not need to live under
+    PROJECTS_ROOT.  Raises FileNotFoundError if not found.
+    """
+    direct_path = resolve_project_path(slug)
+    if direct_path:
+        return load_project_config(direct_path)
+
     root = root or PROJECTS_ROOT
     configs = scan_projects(root)
 
@@ -134,7 +173,8 @@ def get_project(slug: str, root: Path = None) -> ProjectConfig:
     available = [c.slug for c in configs]
     raise FileNotFoundError(
         f"Project '{slug}' not found in {root}. "
-        f"Available projects: {available}"
+        f"Available projects: {available}. "
+        f"A project outside {root} can be addressed by its absolute path."
     )
 
 
@@ -319,6 +359,12 @@ def archive_project(slug: str, root: Path = None) -> Path:
     """
     config = get_project(slug, root)
     root = root or PROJECTS_ROOT
+    if root not in config.project_root.parents:
+        raise ValueError(
+            f"Refusing to archive '{slug}': it lives at "
+            f"{config.project_root}, outside the projects root {root}. "
+            f"Archiving would move it. Move it yourself if that is intended."
+        )
     archive_dir = root / "_archived"
     archive_dir.mkdir(exist_ok=True)
 

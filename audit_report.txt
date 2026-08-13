@@ -1,7 +1,0 @@
-CONVERGENCE AUDIT - Phase 1 and 2 (Pipeline Logic Bugs Only)
-
-Bugs Found & Fixed:
-1. `step_2_02_speech_sequence/post_bridge.py`: Fixed a silent pipeline crash/failure by downgrading hard limits on speech sequence length (8-20 passages) and total duration to warnings. These hard limits caused the pipeline to unconditionally fail on short videos (fewer than 8 speech segments) and caused complete breakage of the pipeline in `--auto` mode where `bridge.py` naturally returns all transcript rows.
-2. `step_2_05_mesh_spine/post_bridge.py`: Fixed a frame drift calculation bug (wrong calculation). `timeline_end_frame` was previously calculated incrementally by repeatedly adding `dur_frames` (which rounds float seconds to integer frames). Over a sequence of many clips, this sequential float-to-int conversion would accumulate substantial drift. Changed the calculation to base all frame positions directly on the global floating point timeline offsets (`seconds_to_frame(b["timeline_start"], fps)`), ensuring perfect synchronization across the timeline.
-
-No other pipeline logic bugs were found in Phases 1 and 2.

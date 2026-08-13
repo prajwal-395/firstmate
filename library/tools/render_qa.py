@@ -22,7 +22,7 @@ def measure_lufs(video_path: str, target_lufs: float = -14.0, tolerance: float =
             'ffmpeg', '-i', video_path, '-af', 'loudnorm=print_format=json',
             '-f', 'null', '-'
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         
         # parse json from stderr (loudnorm filter outputs json to stderr)
         output = result.stderr
@@ -69,7 +69,7 @@ def detect_black_frames(video_path: str, min_duration: float = 0.5) -> RenderQAR
             '-vf', f'blackdetect=d={min_duration}:pix_th=0.10',
             '-f', 'null', '-'
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         
         black_segments = []
         for line in result.stderr.splitlines():
@@ -107,7 +107,7 @@ def detect_freeze_frames(video_path: str, min_duration: float = 1.0) -> RenderQA
             '-vf', f'freezedetect=n=0.003:d={min_duration}',
             '-f', 'null', '-'
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         
         freeze_segments = []
         current_freeze = {}
@@ -147,7 +147,7 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
     # First get duration
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
-        dur_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        dur_res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         duration = float(dur_res.stdout.strip())
     except Exception as e:
         return RenderQAResult("color_histogram", False, str(e), None, "error", "Could not get duration")
@@ -166,7 +166,7 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
 
             try:
                 cmd = ['ffprobe', '-f', 'lavfi', '-i', f'movie={img_path},signalstats', '-show_entries', 'frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.YMIN,lavfi.signalstats.YMAX,lavfi.signalstats.SATAVG', '-of', 'default=noprint_wrappers=1:nokey=1']
-                sig_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                sig_res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
                 lines = sig_res.stdout.strip().splitlines()
                 if len(lines) >= 4:
                     yavg = float(lines[0])
@@ -177,7 +177,7 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
             # Using a more robust signalstats query
             try:
                 cmd = ['ffprobe', '-f', 'lavfi', '-i', f'movie={img_path},signalstats', '-show_entries', 'frame_tags', '-print_format', 'json']
-                sig_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                sig_res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
                 data = json.loads(sig_res.stdout)
                 tags = data.get("frames", [{}])[0].get("tags", {})
                 yavg = float(tags.get("lavfi.signalstats.YAVG", 0))
@@ -210,7 +210,7 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
 def verify_resolution(video_path: str, expected_width: int = 1080, expected_height: int = 1920) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=width,height', '-of', 'json', video_path]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         data = json.loads(res.stdout)
         
         video_streams = [s for s in data.get("streams", []) if "width" in s]
@@ -235,7 +235,7 @@ def verify_resolution(video_path: str, expected_width: int = 1080, expected_heig
 def verify_framerate(video_path: str, expected_fps: float = 30.0, tolerance: float = 1.0) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=r_frame_rate', '-of', 'json', video_path]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         data = json.loads(res.stdout)
         
         video_streams = [s for s in data.get("streams", []) if "r_frame_rate" in s]
@@ -261,7 +261,7 @@ def verify_framerate(video_path: str, expected_fps: float = 30.0, tolerance: flo
 def verify_duration(video_path: str, expected_seconds: float, tolerance_pct: float = 10.0) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'json', video_path]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         data = json.loads(res.stdout)
         
         duration = float(data.get("format", {}).get("duration", 0))
@@ -284,7 +284,7 @@ def verify_duration(video_path: str, expected_seconds: float, tolerance_pct: flo
 def verify_audio_streams(video_path: str, min_streams: int = 1) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=codec_type', '-of', 'json', video_path]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         data = json.loads(res.stdout)
         
         audio_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
@@ -307,7 +307,7 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
     if timestamps is None:
         try:
             cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
-            dur_res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            dur_res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
             duration = float(dur_res.stdout.strip())
             timestamps = [0.5, duration / 2, max(0.0, duration - 2.0)]
         except Exception:

@@ -40,7 +40,7 @@ def extract_thumbnail(
             output_path,
         ]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30,
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         return result.returncode == 0 and os.path.exists(output_path)
     except (subprocess.TimeoutExpired, FileNotFoundError):

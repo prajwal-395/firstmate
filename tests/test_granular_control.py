@@ -5,7 +5,14 @@ import pytest
 
 from library.tools.fusion.engine import CompEngine
 from library.tools.fusion.effects import fx
-from library.tools.custom_asset_bank import get_custom_asset, save_custom_asset, list_custom_assets, get_asset_bank_dir
+from library.tools.custom_asset_bank import (
+    clip_asset_key,
+    find_clip_assets,
+    get_custom_asset,
+    save_custom_asset,
+    list_custom_assets,
+    get_asset_bank_dir,
+)
 
 def test_engine_produces_valid_comp():
     engine = CompEngine(clip_dur=100)
@@ -134,8 +141,9 @@ def test_apply_fusion_comps_uses_engine_path(monkeypatch, tmp_path):
     assert result is True
     
     # We expect custom asset to be saved by the new engine path
-    custom_asset_path = get_custom_asset(str(tmp_path), "clip_0")
-    assert custom_asset_path != ""
+    banked = find_clip_assets(str(tmp_path), "clip_0")
+    assert len(banked) == 1
+    custom_asset_path = banked[0]
     assert os.path.exists(custom_asset_path)
     
     with open(custom_asset_path, "r") as f:

@@ -88,7 +88,7 @@ def _read_file_duration(filepath):
         result = subprocess.run(
             ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
              '-of', 'csv=p=0', filepath],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
         )
         if result.returncode != 0:
             return None
@@ -141,6 +141,45 @@ def _allocate_sfx_tracks(sfx_clips, base_track_index=3, fps=30.0):
 
 # ─── Pre-flight Validation ───────────────────────────────────
 
+def _source_fps(pool_item, timeline_fps: float) -> float:
+    """Frame rate of a pool item's own timebase.
+
+    AppendToTimeline's startFrame/endFrame are in the SOURCE's frame rate,
+    not the timeline's. Resolve gives audio-only clips a nominal 24fps, so
+    computing their in/out points at the timeline's 30fps stretched the
+    music to 125% of its intended length and left ~11s of trailing music
+    past the last picture.
+    """
+    try:
+        fps = float(pool_item.GetClipProperty("FPS"))
+        if fps > 0:
+            return fps
+    except (TypeError, ValueError):
+        pass
+    return timeline_fps
+
+
+def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
+    """Scale a clip to FILL the output frame instead of letterboxing.
+
+    Resolve fits source inside the timeline frame by default, so 16:9
+    footage in a 9:16 timeline rendered as a strip with two thirds of the
+    frame black. compile_manifest works out the fill scale; this applies
+    it.
+    """
+    if not clip.get("needs_conform"):
+        return
+    zoom = clip.get("fill_zoom")
+    if not zoom or zoom <= 1.0:
+        return
+    try:
+        timeline_item.SetProperty("ZoomX", zoom)
+        timeline_item.SetProperty("ZoomY", zoom)
+    except Exception as e:  # Resolve raises bare Exceptions here
+        results["warnings"].append(
+            f"Conform zoom failed for {clip.get('label', '?')}: {e}")
+
+
 def _preflight_check(manifest):
     """Validate manifest before building. Returns list of errors."""
     errors = []
@@ -182,6 +221,7 @@ def build_timeline(
     motion_graphics_path: Optional[str] = None,
     project_name: Optional[str] = None,
     delete_existing: bool = True,
+    project_folder: str = "",
 ) -> dict:
     """Build a complete Resolve timeline from an assembly manifest.
 
@@ -211,10 +251,8 @@ def build_timeline(
     v1_clips = tracks.get('V1', {}).get('clips', [])
     v2_clips = tracks.get('V2', {}).get('clips', [])
     a2_clips = tracks.get('A2', {}).get('clips', [])
-    # SFX: manifest compiler puts these at top-level 'sfx', not tracks.A3
+    # SFX live in exactly one place: tracks.A3.clips (see compile_manifest).
     a3_clips = tracks.get('A3', {}).get('clips', [])
-    if not a3_clips:
-        a3_clips = [s for s in manifest.get('sfx', []) if s.get('source_file')]
     # Note: transitions are applied via fusion_effects.transitions, not
     # the top-level 'transitions' key (which is informational only).
     vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
@@ -397,7 +435,9 @@ def build_timeline(
         _recompute_frames(c)
     for s in sub_segments + mg_segments:
         _recompute_frames(s)
-        s['total_frames'] = round((s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
+        if 'source_in_frame' not in s:
+            s['total_frames'] = round(
+                (s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
 
     # ── Delete existing timeline if requested ──
     if delete_existing:
@@ -577,6 +617,7 @@ def build_timeline(
             if a_placed:
                 timeline.SetClipsLinked([placed, a_placed], True)
                 
+            _apply_conform(placed, clip, results)
             v1_timeline_items.append(placed)
             v1_placed_labels.append(clip.get('label', basename))
             
@@ -651,6 +692,8 @@ def build_timeline(
             }])
 
             if result:
+                placed_v2 = result[0] if isinstance(result, list) else result
+                _apply_conform(placed_v2, clip, results)
                 v2_count += 1
                 v2_placed_labels.append(clip.get('label', basename))
                 print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}", file=sys.stderr)
@@ -721,17 +764,23 @@ def build_timeline(
 
             offset_f = block_offsets.get(block_idx, 0) if block_idx is not None else 0
 
-            seg_frames = seg.get('total_frames', round(
-                (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
+            # Trim the rendered animation handles: place the clip on its
+            # TRUE content bounds so adjacent blocks do not overlap.
+            src_in_f = seg.get('source_in_frame', 0)
+            src_out_f = seg.get('source_out_frame')
+            if src_out_f is None:
+                src_out_f = src_in_f + seg.get('total_frames', round(
+                    (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
+            seg_frames = src_out_f - src_in_f
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
-            
+
             # Shift the subtitle's timeline_start by the offset
             tl_in_frame += offset_f
 
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
-                "startFrame": 0,
-                "endFrame": seg_frames,
+                "startFrame": src_in_f,
+                "endFrame": src_out_f,
                 "trackIndex": 3,
                 "recordFrame": tl_in_frame,
                 "mediaType": 1,  # video-only placement on V3
@@ -799,13 +848,16 @@ def build_timeline(
 
             tl_in_sec = clip.get('timeline_in', 0)
             tl_out_sec = clip.get('timeline_out', total_duration)
-            dur_f = round((tl_out_sec - tl_in_sec) * fps)
-            src_in_f = round(clip.get('source_in', 0) * fps)
+            src_fps = _source_fps(pool_item, fps)
+            # Source in/out are in the SOURCE's timebase; the record frame
+            # is in the timeline's.
+            src_dur_f = round((tl_out_sec - tl_in_sec) * src_fps)
+            src_in_f = round(clip.get('source_in', 0) * src_fps)
 
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
-                "endFrame": src_in_f + dur_f,
+                "endFrame": src_in_f + src_dur_f,
                 "trackIndex": 2,  # A2
                 "recordFrame": round(tl_in_sec * fps),
                 "mediaType": 2,  # audio-only placement
@@ -882,13 +934,14 @@ def build_timeline(
 
             tl_in_f = clip['timeline_in_frame']
             tl_out_f = clip['timeline_out_frame']
-            dur_f = tl_out_f - tl_in_f
-            src_in_f = round(clip.get('source_in', 0) * fps)
+            src_fps = _source_fps(pool_item, fps)
+            src_dur_f = round(((tl_out_f - tl_in_f) / fps) * src_fps)
+            src_in_f = round(clip.get('source_in', 0) * src_fps)
 
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
-                "endFrame": src_in_f + dur_f,
+                "endFrame": src_in_f + src_dur_f,
                 "trackIndex": track_idx,
                 "recordFrame": tl_in_f,
                 "mediaType": 2,  # audio-only placement
@@ -933,8 +986,10 @@ def build_timeline(
             temp_manifest = tf.name
             
         cmd = [sys.executable, script_path, temp_manifest]
+        if project_folder:
+            cmd += ["--project-folder", project_folder]
         print(f"\n── Launching subprocess for Fusion Comps ──", file=sys.stderr)
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         
         if proc.returncode != 0:
             results["warnings"].append(f"Fusion subprocess failed: {proc.stderr}")
@@ -947,7 +1002,10 @@ def build_timeline(
         results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
     if verify_fusion_comps:
-        _run_qa(verify_fusion_comps(timeline, None, manifest.get("vfx", {})))
+        # verify_fusion_comps reads per_clip/transitions - that is
+        # fusion_effects, not the flat vfx LIST, which has no .get().
+        _run_qa(verify_fusion_comps(
+            timeline, None, manifest.get("fusion_effects", {})))
 
     # ══════════════════════════════════════════════════════════
     # NEURAL ENGINE DIRECTIVES (Per-Clip)

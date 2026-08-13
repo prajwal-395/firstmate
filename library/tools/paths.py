@@ -164,8 +164,18 @@ def project_root(slug: str) -> Path:
     """Resolve a project slug to its root directory.
 
     Searches PROJECTS_ROOT for a matching project directory.
-    Supports both flat and client-grouped layouts.
+    Supports both flat and client-grouped layouts.  A slug that instead
+    names a project directory (or project.yaml) anywhere on disk resolves
+    to that directory in place.
     """
+    # Filesystem path reference (project outside PROJECTS_ROOT)
+    if os.sep in slug or slug.startswith(("~", ".")):
+        candidate = Path(slug).expanduser().resolve()
+        if candidate.is_file() and candidate.name == "project.yaml":
+            return candidate.parent
+        if candidate.is_dir() and (candidate / "project.yaml").is_file():
+            return candidate
+
     # Direct match
     direct = PROJECTS_ROOT / slug
     if direct.is_dir() and (direct / "project.yaml").exists():

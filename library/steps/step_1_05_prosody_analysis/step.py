@@ -147,7 +147,7 @@ def main():
                 ["python3", PROSODY_PIPELINE],
                 input=json.dumps(input_data),
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=600,  # 10 min max
             )
             if result.returncode != 0:
@@ -170,11 +170,20 @@ def main():
 
     print(f"Collected {len(profiles)} prosody profiles", file=sys.stderr)
 
+    # `available` describes whether there is prosody data to use, not
+    # whether the step reached its last line. Reporting available=true
+    # alongside an empty profiles dict is how a failed prosody run looked
+    # identical to a successful one.
     json.dump({
         "prosody_analysis": {
-            "available": True,
+            "available": bool(profiles),
             "profiles": profiles,
-            "total_clips": len(profiles)
+            "total_clips": len(profiles),
+            "error": (
+                None if profiles else
+                f"Prosody pipeline produced no *_prosody.json profiles in "
+                f"{output_dir}"
+            ),
         }
     }, sys.stdout, indent=2)
 

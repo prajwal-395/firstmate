@@ -20,26 +20,50 @@ def compute_ducking_curves(speech_segments: list, music_track_duration: float) -
         # No speech, just keep normal volume
         return keyframes
 
-    for segment in speech_segments:
-        start_ms = int(segment.get("start_time", 0) * 1000)
-        end_ms = int(segment.get("end_time", 0) * 1000)
-        
-        # Ramp down starts before speech
-        ramp_down_start = max(0, start_ms - attack_ms)
-        
-        # Only add normal volume keyframe if it doesn't conflict with previous release
-        if not keyframes or keyframes[-1]["time_ms"] < ramp_down_start:
-            keyframes.append({"time_ms": ramp_down_start, "volume_db": normal_vol})
-            
-        keyframes.append({"time_ms": start_ms, "volume_db": duck_vol})
-        
-        # Keep ducked during speech
-        keyframes.append({"time_ms": end_ms, "volume_db": duck_vol})
-        
-        # Ramp up after speech
-        ramp_up_end = min(int(music_track_duration * 1000), end_ms + release_ms)
-        keyframes.append({"time_ms": ramp_up_end, "volume_db": normal_vol})
-        
+    # Merge segments that touch or overlap once the ramps are accounted
+    # for. Back-to-back speech blocks used to each emit their own
+    # release-then-attack pair, and because a release lands 500ms after a
+    # block ends while the next attack starts 200ms before the next block
+    # begins, the keyframe times ran BACKWARDS at every block boundary.
+    # Resolve reads a non-monotonic automation curve as garbage.
+    ordered = sorted(
+        (
+            (
+                int(s.get("start_time", 0) * 1000),
+                int(s.get("end_time", 0) * 1000),
+            )
+            for s in speech_segments
+        ),
+    )
+    merged = []
+    for start_ms, end_ms in ordered:
+        if end_ms <= start_ms:
+            continue
+        if merged and start_ms - attack_ms <= merged[-1][1] + release_ms:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end_ms))
+        else:
+            merged.append((start_ms, end_ms))
+
+    track_end_ms = int(music_track_duration * 1000)
+
+    def push(time_ms: int, volume_db: float) -> None:
+        """Append a keyframe, keeping the curve monotonic in time."""
+        time_ms = max(0, min(time_ms, track_end_ms) if track_end_ms else max(0, time_ms))
+        if keyframes and time_ms < keyframes[-1]["time_ms"]:
+            return
+        if keyframes and time_ms == keyframes[-1]["time_ms"]:
+            # Same instant: the later value wins rather than stacking two
+            # keyframes on one frame.
+            keyframes[-1]["volume_db"] = volume_db
+            return
+        keyframes.append({"time_ms": time_ms, "volume_db": volume_db})
+
+    for start_ms, end_ms in merged:
+        push(max(0, start_ms - attack_ms), normal_vol)
+        push(start_ms, duck_vol)
+        push(end_ms, duck_vol)
+        push(end_ms + release_ms, normal_vol)
+
     return keyframes
 
 def compute_sfx_ducking(sfx_events: list, speech_segments: list) -> list:

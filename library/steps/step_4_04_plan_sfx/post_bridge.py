@@ -32,6 +32,12 @@ from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.audio_ducker import compute_ducking_curves, compute_sfx_ducking
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.pipeline_validation import require_keys, require_type
+from library.tools.sfx_library import available_sfx_types
+from library.tools.spine_contract import (
+    block_word_end_times_timeline,
+    is_speech_block,
+    source_to_timeline,
+)
 
 
 # Volume level → dB mapping
@@ -69,6 +75,30 @@ def _find_nearest(target: float, candidates: list, max_dist: float = None) -> fl
     return nearest
 
 
+def _locate_sfx(sfx: dict, spine_blocks: list, block_by_position: dict):
+    """Resolve an SFX creative entry to (spine_block, timeline_start).
+
+    Returns (None, None) when the entry names no position at all, so the
+    caller can drop it loudly instead of silently placing it at 0.0.
+    """
+    pos = sfx.get("spine_block_position", sfx.get("target_block_position"))
+    if pos is not None and str(pos) in block_by_position:
+        block = block_by_position[str(pos)]
+        # An explicit timeline position inside the block wins; otherwise
+        # anchor to the block's own start.
+        for key in ("timeline_start", "timeline_in"):
+            if sfx.get(key) is not None:
+                return block, float(sfx[key])
+        return block, block["timeline_start"]
+
+    for key in ("timeline_start", "timeline_in"):
+        if sfx.get(key) is not None:
+            tl = float(sfx[key])
+            return _find_block_for_time(tl, spine_blocks), tl
+
+    return None, None
+
+
 def _find_block_for_time(timeline_time: float, spine_blocks: list) -> dict:
     """Find the spine block that contains a given timeline position."""
     for block in spine_blocks:
@@ -85,27 +115,16 @@ def _find_block_for_time(timeline_time: float, spine_blocks: list) -> dict:
 
 def _source_to_timeline(source_time: float, block: dict) -> float:
     """Convert a source-domain time to timeline-domain for a given block."""
-    src_start = block.get("source_start", 0)
-    tl_start = block.get("timeline_start", 0)
-    return source_time - src_start + tl_start
+    return source_to_timeline(source_time, block)
 
 
-def _get_word_times_in_block(block: dict, temporal_index: dict) -> list:
-    """Get all word start/end times in timeline domain for a block."""
-    clip_id = block.get("clip_id", "")
-    if not clip_id:
-        return []
+def _get_word_times_in_block(block: dict) -> list:
+    """Word end times for a block, in the timeline domain.
 
-    src_start = block.get("source_start", 0)
-    src_end = block.get("source_end", 0)
-    word_ends = temporal_index.get("word_end_times", [])
-
-    # Filter to words in this block's source range, convert to timeline
-    result = []
-    for we in word_ends:
-        if src_start - 0.05 <= we <= src_end + 0.05:
-            result.append(_source_to_timeline(we, block))
-    return result
+    Read straight off the spine, which carries the block's own word
+    timings (see library/tools/spine_contract.py).
+    """
+    return block_word_end_times_timeline(block)
 
 
 def _avoid_speech_collision(
@@ -195,11 +214,11 @@ def find_sfx_placement(
     Returns:
         Refined timeline position for the SFX
     """
-    clip_id = block.get("clip_id", "")
-    src_start = block.get("source_start", 0)
-    src_end = block.get("source_end", 0)
-    tl_start = block.get("timeline_start", 0)
-    tl_end = block.get("timeline_end", 0)
+    clip_id = block["clip_id"]
+    src_start = block["source_start"]
+    src_end = block["source_end"]
+    tl_start = block["timeline_start"]
+    tl_end = block["timeline_end"]
 
     # If no clip_id (transition_slot, outro), keep original position
     if not clip_id:
@@ -336,15 +355,26 @@ def resolve_sfx(
     if prosody_analysis:
         creative_plan = align_sfx_to_prosody(creative_plan, prosody_analysis, engagement_scores)
 
+    block_by_position = {str(b["position"]): b for b in spine_blocks}
+
     resolved = []
     for sfx in creative_plan:
-        # Find the spine block for this SFX
-        tl_start = sfx.get("timeline_in", sfx.get("timeline_start", 0.0))
-        block = _find_block_for_time(tl_start, spine_blocks)
-        clip_id = block.get("clip_id", "")
+        # Locate the SFX. An entry must say WHERE it goes: either a spine
+        # block position or an explicit timeline position. Defaulting a
+        # missing position to 0.0 is what stacked every planned SFX on top
+        # of the first frame.
+        block, tl_start = _locate_sfx(sfx, spine_blocks, block_by_position)
+        if block is None:
+            print(
+                f"  Dropped SFX {sfx.get('sfx_type', '?')}: it names no "
+                f"position (needs spine_block_position or timeline_start)",
+                file=sys.stderr,
+            )
+            continue
+        clip_id = block["clip_id"]
 
         # Get temporal index for this clip
-        ti = ti_lookup.get(clip_id, {})
+        ti = ti_lookup.get(clip_id, {}) if clip_id else {}
 
         sfx_type = sfx.get("sfx_type", "whoosh")
         volume = sfx.get("volume_level", "subtle")
@@ -357,9 +387,9 @@ def resolve_sfx(
         )
 
         # Speech collision avoidance
-        word_times_tl = _get_word_times_in_block(block, ti)
-        tl_end = block.get("timeline_end", refined_start + duration)
-        tl_block_start = block.get("timeline_start", refined_start)
+        word_times_tl = _get_word_times_in_block(block)
+        tl_end = block["timeline_end"]
+        tl_block_start = block["timeline_start"]
 
         refined_start = _avoid_speech_collision(
             refined_start, duration, word_times_tl,
@@ -390,7 +420,10 @@ def resolve_sfx(
             "rationale": sfx.get("rationale", ""),
             "placement_method": _describe_placement(sfx_type),
             "shift_from_original": round(shift, 3),
+            "spine_block_position": block["position"],
         })
+
+    _assert_sfx_distributed(resolved)
 
     # Apply SFX ducking
     speech_segments = []
@@ -399,10 +432,10 @@ def resolve_sfx(
     elif spine_blocks:
         # Fallback to spine blocks to ensure ducking is applied
         for block in spine_blocks:
-            if block.get("block_type") in ("speech", "hook"):
+            if is_speech_block(block):
                 speech_segments.append({
-                    "start_time": block.get("timeline_start", 0.0),
-                    "end_time": block.get("timeline_end", 0.0)
+                    "start_time": block["timeline_start"],
+                    "end_time": block["timeline_end"],
                 })
 
     if speech_segments:
@@ -433,6 +466,23 @@ def resolve_sfx(
         "music_ducking": music_ducking,
     }
 
+
+
+def _assert_sfx_distributed(resolved: list) -> None:
+    """Fail when every planned SFX lands on the same timeline position.
+
+    Five whooshes all at 0.000s is a collapse, not a sound design pass, and
+    it used to survive all the way into the manifest.
+    """
+    if len(resolved) < 2:
+        return
+    positions = {round(s["timeline_in"], 3) for s in resolved}
+    if len(positions) < len(resolved):
+        raise ValueError(
+            f"{len(resolved)} SFX resolved to only {len(positions)} "
+            f"distinct timeline position(s): {sorted(positions)}. "
+            f"Each SFX must name its own spine_block_position."
+        )
 
 
 def _describe_placement(sfx_type: str) -> str:
@@ -484,6 +534,15 @@ def main():
     eng = data.get("engagement_scores", {})
     brand_audio = data.get("brand_audio", {})
     
+    available = set(data.get("available_sfx_types") or available_sfx_types())
+    unplayable = sorted({
+        s.get("sfx_type", "whoosh") for s in creative
+        if s.get("sfx_type", "whoosh") not in available
+    })
+    if unplayable:
+        print(json.dumps({"error": f"The SFX library has no sound for {unplayable}. Choose from: {sorted(available)}", "step": "4.04_bridge"}))
+        sys.exit(1)
+
     if len(creative) < 3 or len(creative) > 15:
         print(json.dumps({"error": f"Planned {len(creative)} SFX, but you MUST plan between 5 and 10 SFX.", "step": "4.04_bridge"}))
         sys.exit(1)

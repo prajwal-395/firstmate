@@ -37,10 +37,6 @@
         }
       },
       {
-        "name": "step",
-        "type": "string"
-      },
-      {
         "name": "topics_toon",
         "type": "string",
         "description": "State output: topics_toon"

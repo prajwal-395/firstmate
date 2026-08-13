@@ -76,6 +76,20 @@
     ],
     "postconditions": [
       "'b_roll_assignments' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "broll_creative",
+        "type": "list",
+        "required": true,
+        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale. NEVER select the clip the block's A-roll already shows"
+      },
+      {
+        "name": "b_roll_interjections",
+        "type": "list",
+        "required": false,
+        "description": "Standalone cutaways. Each: clip_id, over_spine_block_position, timeline_start, timeline_end, purpose"
+      }
     ]
   },
   "classification": {
@@ -107,6 +121,7 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
+    "broll_candidates_toon",
     "a_roll_assignments",
     "creative_direction",
     "timed_spine",
@@ -123,6 +138,7 @@
     "semantic_analysis_documents.*.assessment.interest_score",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.clip_type",
-    "temporal_event_indices.*.scenes"
+    "temporal_event_indices.*.clip_id",
+    "temporal_event_indices.*.scene_boundaries"
   ]
 }

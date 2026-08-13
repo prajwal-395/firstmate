@@ -20,6 +20,44 @@ def _connect_resolve():
     except ImportError:
         return None
 
+def _verify_track_placement(track, expected_clips, timeline_items,
+                            tolerance, expected_frame_of, name_of) -> list:
+    """Compare planned positions to actual ones, claiming items in order.
+
+    Each timeline item can satisfy at most one manifest clip, so repeated
+    use of one source file no longer collapses onto its first occurrence.
+    """
+    errors = []
+    unclaimed = list(timeline_items)
+
+    for clip in expected_clips:
+        expected_frame = expected_frame_of(clip)
+        if expected_frame is None:
+            continue
+        basename = name_of(clip)
+
+        candidates = [
+            item for item in unclaimed if basename in item.GetName()
+        ]
+        if not candidates:
+            errors.append(
+                f"{track} missing: could not find {basename} in track {track}"
+            )
+            continue
+
+        best = min(candidates, key=lambda i: abs(i.GetStart() - expected_frame))
+        unclaimed.remove(best)
+        actual_frame = best.GetStart()
+        if abs(actual_frame - expected_frame) > tolerance:
+            errors.append(
+                f"{track} desync: {basename} expected at {expected_frame}, "
+                f"actual {actual_frame} "
+                f"(off by {abs(actual_frame - expected_frame)})"
+            )
+
+    return errors
+
+
 def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str) -> dict:
     if os.environ.get("SKIP_QA_CHECKS") == "1":
         print("Skipping timeline sync QA check (SKIP_QA_CHECKS=1)", file=sys.stderr)
@@ -63,48 +101,29 @@ def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str) 
     # We allow +/- 2 frames tolerance
     TOLERANCE = 2
     
-    # Verify V1 clips
-    for clip in v1_clips:
-        expected_frame = clip.get('timeline_in_frame')
-        if expected_frame is None:
-            continue
-            
-        basename = os.path.basename(clip.get('source_file', ''))
-        
-        # Find matching item in timeline
-        found = False
-        for item in v1_items:
-            if basename in item.GetName():
-                actual_frame = item.GetStart()
-                if abs(actual_frame - expected_frame) > TOLERANCE:
-                    errors.append(f"V1 desync: {basename} expected at {expected_frame}, actual {actual_frame} (off by {abs(actual_frame - expected_frame)})")
-                found = True
-                break
-                
-        if not found:
-            errors.append(f"V1 missing: could not find {basename} in track V1")
-            
+    # Verify V1 clips.
+    # A shortform edit returns to the same source file many times, so
+    # matching by basename found the FIRST occurrence every time and
+    # reported six correctly-placed clips as desynced. Match by position
+    # instead: the nearest unclaimed item from the same source file.
+    errors.extend(_verify_track_placement(
+        "V1", v1_clips, v1_items, TOLERANCE,
+        expected_frame_of=lambda c: c.get('timeline_in_frame'),
+        name_of=lambda c: os.path.basename(c.get('source_file', '')),
+    ))
+
+    
     # Check V3 Subtitles
     sub_overlay_info = manifest.get('subtitle_overlay', {})
     sub_segments = sub_overlay_info.get('segments', [])
     v3_items = timeline.GetItemListInTrack("video", 3) or []
     
-    for seg in sub_segments:
-        expected_frame = round(seg.get('timeline_start', 0) * fps)
-        basename = os.path.basename(seg.get('overlay_path', ''))
-        
-        found = False
-        for item in v3_items:
-            if basename in item.GetName():
-                actual_frame = item.GetStart()
-                if abs(actual_frame - expected_frame) > TOLERANCE:
-                    errors.append(f"V3 desync: {basename} expected at {expected_frame}, actual {actual_frame} (off by {abs(actual_frame - expected_frame)})")
-                found = True
-                break
-                
-        if not found:
-            errors.append(f"V3 missing: could not find {basename} in track V3")
-            
+    errors.extend(_verify_track_placement(
+        "V3", sub_segments, v3_items, TOLERANCE,
+        expected_frame_of=lambda seg: round(seg.get('timeline_start', 0) * fps),
+        name_of=lambda seg: os.path.basename(seg.get('overlay_path', '')),
+    ))
+
     if errors:
         raise RuntimeError("Timeline Sync QA Failed:\n" + "\n".join(errors))
         

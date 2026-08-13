@@ -151,7 +151,7 @@ def main():
                  ],
                 cwd=REMOTION_DIR,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=180,  # 3 min per segment
             )
 
@@ -172,7 +172,13 @@ def main():
             "timeline_start": tl_start,
             "timeline_end": tl_end,
             "block_position": block_pos,
-            "total_frames": total_frames,
+            # The rendered clip carries animation handles either side of
+            # the content; these trim them off at placement time so blocks
+            # sit on their true bounds and never overlap.
+            "source_in_frame": props["_source_in_frame"],
+            "source_out_frame": props["_source_out_frame"],
+            "total_frames": props["_source_out_frame"] - props["_source_in_frame"],
+            "rendered_frames": total_frames,
         })
 
     print(f"\nRendered {len(segments)}/{len(props_list)} subtitle segments",

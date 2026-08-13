@@ -57,6 +57,14 @@
     "postconditions": [
       "'audio_spine' is written to state",
       "'timed_spine' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "structure",
+        "type": "list",
+        "required": true,
+        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"), content.passage_ref matching a speech_sequence position, and duration_seconds"
+      }
     ]
   },
   "classification": {

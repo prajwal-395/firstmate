@@ -1,92 +1,55 @@
-# Video Editing Pipeline — Project 001
+# Pipeline Quickstart
 
-## What This Is
+Get a machine ready and run the pipeline end to end. For what the pipeline is
+and the full CLI, see the [README](../../README.md); for pipeline operating
+rules and the DaVinci Resolve constraints, see [AGENTS.md](../../AGENTS.md).
 
-An automated video editing pipeline that takes raw `.MOV` footage and produces a fully assembled DaVinci Resolve timeline with subtitles, SFX, transitions, color grading, and music.
+## Prerequisites
 
-## Quick Start
+- macOS on Apple Silicon (M1/M2/M3) - the vision and audio models are MLX/Metal backed
+- DaVinci Resolve Studio, running with a project open, before any Resolve-dependent step
+- Python 3.11+, with `pip install -r requirements.txt`
+- Node.js 18+ (Remotion renders the subtitle overlays)
+- `ffmpeg` and `ffprobe` on `PATH` (`brew install ffmpeg`)
+- The environment variables listed in AGENTS.md section 9 (`PIPELINE_PROJECTS_ROOT`,
+  `PIPELINE_SFX_LIBRARY`, `PIPELINE_MUSIC_LIBRARY`, `RESOLVE_SCRIPT_API`,
+  `RESOLVE_SCRIPT_LIB`, `HF_TOKEN`)
 
-### Prerequisites
-- macOS with Apple Silicon (M1/M2/M3)
-- DaVinci Resolve Studio (running, with a project open)
-- Python 3.11+
-- Node.js 18+ (for Remotion subtitle rendering)
-- Homebrew: `brew install ffmpeg`
-- Pip: `pip install whisperx librosa soundfile scipy torch torchaudio`
+## Run it
 
-### Phase 1: Analysis (runs offline, ~30 min for 17 clips)
+The orchestrator is the supported path. It resolves the DAG at
+`library/processes/edit_video/dag.json` (26 nodes across phases 0-6) and runs
+every step through to an exported video file.
+
 ```bash
-# 1. Run temporal index (speech, energy, motion, onsets)
-cd video_analysis_docs
-python3 ../process_design/library/steps/step_1_04_temporal_index/step.py < <(echo '{"raw_footage_files": [...]}')
+# One-time: create the projects root
+python3 manage_project.py init-root
 
-# 2. Run vision analysis (dimension-indexed, ~30-45 min for 17 clips)
-python3 vision_pipeline_v3.py --raw-dir ../raw --output-dir ../pipeline_output
+# Create a project, then drop the source footage into its raw/ directory
+python3 manage_project.py new my-video --name "My Video"
 
-# 3. Index SFX library (one-time, ~110 min for full AF-Next mode)
-python3 sfx_pipeline.py --sfx-dir "/path/to/sfx library"
+# Run the whole pipeline (add --auto to auto-complete hybrid LLM steps)
+python3 manage_project.py run my-video --auto
 ```
 
-### Phase 2: Planning (conversational, with Antigravity)
-Open Antigravity and work through the planning steps. Paste analysis results, get creative decisions back. Outputs accumulate in `pipeline_data.json`.
+A project that lives outside `PIPELINE_PROJECTS_ROOT` is addressed by its path
+instead of its slug and is driven where it sits:
 
-### Phase 3: Execution (needs Resolve open)
 ```bash
-# 4. Render subtitle overlays (Remotion → ProRes 4444)
-cd video_testing && python3 run_pipeline.py
-
-# 5. Place SFX on timeline
-python3 sfx_placer.py
-
-# 6. Import into Resolve
-python3 resolve_bridge.py
+python3 manage_project.py run "/Volumes/media/client shoot/001"
 ```
 
-## Project Structure
+Resume a partial run with `--from <step_id>`, run a single step with
+`--step <step_id>`, and preview the execution plan with `--dry-run`.
 
-```
-001/
-├── raw/                          ← 17 source .MOV files
-├── pipeline_data.json            ← Complete pipeline state
-├── pipeline_output/
-│   ├── assembly_manifest.json    ← Final assembly instruction set
-│   ├── fusion_comps/             ← Fusion compositions
-│   ├── music/
-│   │   ├── music_analysis.json   ← Beat grid, BPM, energy
-│   │   └── music_premixed.wav    ← Background music track
-│   ├── rendered_transcript.json  ← WhisperX output
-│   └── subtitles.json            ← Subtitle groups
-├── video_testing/                ← Execution tools
-│   ├── resolve_bridge.py         ← Resolve API connection
-│   ├── run_pipeline.py           ← Subtitle + mograph rendering
-│   ├── sfx_placer.py             ← SFX scoring + Resolve placement
-│   └── sfx_semantic_profiler.py  ← (Deprecated)
-├── video_analysis_docs/          ← Analysis tools + guides
-│   ├── vision_pipeline_v3.py     ← Dimension-indexed video analysis
-│   ├── vision_architecture.md    ← Architecture documentation
-│   ├── sfx_pipeline.py           ← AF-Next + librosa SFX profiling
-│   ├── sfx_query.py              ← FAISS semantic search interface
-│   ├── local_video_analysis_guide.md
-│   └── sfx_analysis_guide.md
-└── remotion-subtitles/           ← Subtitle rendering project
-```
+## Inspect a run
 
-## Pipeline Framework
+- `pipeline_data.json` at the project root holds all step outputs under `step_outputs`.
+- `pipeline_output/assembly_manifest.json` is the compiled instruction set the render consumes.
+- `python3 manage_project.py dashboard my-video` opens the review dashboard.
+- `python3 manage_project.py status my-video` prints step completion state.
 
-The orchestrated pipeline definition lives at:
-```
-process design/library/
-├── processes/edit_video/
-│   ├── dag.json              ← 19-node execution DAG
-│   └── manifest.json         ← Process-level manifest
-├── steps/                    ← 19 step definitions
-│   ├── step_1_01_scan_project/
-│   ├── step_1_02_catalog_footage/
-│   ├── ...
-│   └── step_6_02_validate_output/
-└── tools/                    ← Shared utilities
-```
+## Full documentation
 
-## Full Documentation
-
-See [pipeline_master_reference.md](file:///Users/prajwal/Documents/content_stuff/video_editing_pilot/docs/architecture/pipeline_master_reference.md) for the comprehensive guide covering all three layers (analysis, planning, execution).
+See [pipeline_master_reference.md](pipeline_master_reference.md) for the
+comprehensive guide covering the analysis, planning, and execution layers.

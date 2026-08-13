@@ -78,29 +78,25 @@ def main():
             
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)
     
-    dummy_sequence = []
-    for i, row in enumerate(transcript_rows):
-        start = float(row["start"])
-        end = float(row["end"])
-        dummy_sequence.append({
-            "position": f"body_{i+1}",
-            "text": row["text"],
-            "clip_id": row["clip_id"],
-            "start": start,
-            "end": end,
-            "duration_seconds": end - start,
-            "role": "development",
-            "flow_note": ""
-        })
+    if not transcript_rows:
+        print(json.dumps({
+            "error": (
+                f"No transcript regions found in {ti_dir!r} - there is "
+                f"nothing to build a speech sequence from"
+            ),
+            "step": "2.02_bridge",
+        }))
+        sys.exit(1)
 
+    # Context only. This used to also emit a `speech_sequence` stub built
+    # from EVERY transcript region, which is not an edit - it is the raw
+    # transcript wearing the output's name, and in --auto mode it became
+    # the step's answer.
     compressed = {
         "transcripts_toon": transcript_toon,
         "topics_toon": topics_toon,
-        "speech_sequence": {
-            "hook_segment": None,
-            "body_sequence": dummy_sequence
-        }
     }
+
     
     print(json.dumps(compressed))
 

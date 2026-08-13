@@ -36,7 +36,7 @@ def download_audio(url: str, output_dir: str) -> dict:
                 url,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=30,
         )
         if meta_result.returncode == 0:
@@ -71,7 +71,7 @@ def download_audio(url: str, output_dir: str) -> dict:
                 url,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=120,
         )
     except FileNotFoundError:
@@ -131,7 +131,7 @@ def get_audio_duration(filepath: str) -> float:
                 filepath,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=10,
         )
         if result.returncode == 0:

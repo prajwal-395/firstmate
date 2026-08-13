@@ -52,6 +52,10 @@ def test_color_grade_look_match_chain():
             "cdl": cdl
         },
         "audio_spine": {"structure": []},
+    "clip_catalog": [
+        {"clip_id": "c1", "path": __file__, "width": 1080,
+         "height": 1920, "duration_seconds": 10.0},
+        ],
         "a_roll_assignments": [],
         "b_roll_assignments": [],
         "transition_spec": [],

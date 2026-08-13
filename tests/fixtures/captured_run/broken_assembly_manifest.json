@@ -1,0 +1,2901 @@
+{
+  "assembly_manifest": {
+    "project": {
+      "name": "Pipeline_Edit",
+      "resolution": [
+        1080,
+        1920
+      ],
+      "frame_rate": 30.0,
+      "duration_seconds": 42.9
+    },
+    "tracks": {
+      "V1": {
+        "label": "A-Roll",
+        "clips": [
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 17.666,
+            "source_out": 20.348,
+            "timeline_in": 0.0,
+            "timeline_out": 2.682,
+            "timeline_in_frame": 0,
+            "timeline_out_frame": 80,
+            "link_group_id": "d536465f-d62c-4a86-8165-880b11b0bc1b",
+            "label": "hook_hook"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+            "source_in": 14.68,
+            "source_out": 16.065,
+            "timeline_in": 2.682,
+            "timeline_out": 4.067,
+            "timeline_in_frame": 80,
+            "timeline_out_frame": 122,
+            "link_group_id": "faabb27e-4c29-4462-8e84-f4e39eb0cc74",
+            "label": "speech_1_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+            "source_in": 16.085,
+            "source_out": 18.914,
+            "timeline_in": 4.067,
+            "timeline_out": 6.896000000000001,
+            "timeline_in_frame": 122,
+            "timeline_out_frame": 207,
+            "link_group_id": "b11aa293-cb9d-456c-9520-cbad02f7f673",
+            "label": "speech_2_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+            "source_in": 11.224,
+            "source_out": 12.744,
+            "timeline_in": 6.896,
+            "timeline_out": 8.416,
+            "timeline_in_frame": 207,
+            "timeline_out_frame": 252,
+            "link_group_id": "baaa49f5-648c-40cc-81b6-f2475c4df858",
+            "label": "speech_3_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 9.699,
+            "source_out": 11.28,
+            "timeline_in": 8.416,
+            "timeline_out": 9.997,
+            "timeline_in_frame": 252,
+            "timeline_out_frame": 300,
+            "link_group_id": "dea65efc-fc28-45a1-a203-83c782a03e8c",
+            "label": "speech_4_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 17.666,
+            "source_out": 20.348,
+            "timeline_in": 9.997,
+            "timeline_out": 12.679,
+            "timeline_in_frame": 300,
+            "timeline_out_frame": 380,
+            "link_group_id": "22b2d08f-9737-43d5-ac66-312c442547e4",
+            "label": "speech_5_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 63.135,
+            "source_out": 66.635,
+            "timeline_in": 12.679,
+            "timeline_out": 16.179000000000002,
+            "timeline_in_frame": 380,
+            "timeline_out_frame": 485,
+            "link_group_id": "85bbffa0-9175-476e-ab8e-e4c635ffef71",
+            "label": "speech_6_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 66.655,
+            "source_out": 70.977,
+            "timeline_in": 16.179,
+            "timeline_out": 20.500999999999998,
+            "timeline_in_frame": 485,
+            "timeline_out_frame": 615,
+            "link_group_id": "7a864e2f-50af-44af-b374-06e0b40237d3",
+            "label": "speech_7_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 74.439,
+            "source_out": 77.84,
+            "timeline_in": 20.501,
+            "timeline_out": 23.902,
+            "timeline_in_frame": 615,
+            "timeline_out_frame": 717,
+            "link_group_id": "14a7b359-be0b-4253-bad5-39b0c07af4e1",
+            "label": "speech_8_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+            "source_in": 0.0,
+            "source_out": 5.0,
+            "timeline_in": 23.902,
+            "timeline_out": 28.902,
+            "timeline_in_frame": 717,
+            "timeline_out_frame": 867,
+            "link_group_id": "b844d323-b79f-4dce-8378-4f093c9232b7",
+            "label": "speech_9_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+            "source_in": 60.0,
+            "source_out": 65.0,
+            "timeline_in": 28.902,
+            "timeline_out": 33.902,
+            "timeline_in_frame": 867,
+            "timeline_out_frame": 1017,
+            "link_group_id": "2120453c-e3b6-4847-8aad-69836d43454e",
+            "label": "speech_10_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+            "source_in": 0.0,
+            "source_out": 3.0,
+            "timeline_in": 33.902,
+            "timeline_out": 36.902,
+            "timeline_in_frame": 1017,
+            "timeline_out_frame": 1107,
+            "link_group_id": "2eb41ded-058e-4ea2-a2af-3b3f23c969f0",
+            "label": "speech_11_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+            "source_in": 30.0,
+            "source_out": 33.0,
+            "timeline_in": 36.902,
+            "timeline_out": 39.902,
+            "timeline_in_frame": 1107,
+            "timeline_out_frame": 1197,
+            "link_group_id": "459b7b08-4e9a-4054-8c36-0cb5d5df8c63",
+            "label": "speech_12_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+            "source_in": 80.0,
+            "source_out": 83.0,
+            "timeline_in": 39.902,
+            "timeline_out": 42.902,
+            "timeline_in_frame": 1197,
+            "timeline_out_frame": 1287,
+            "link_group_id": "88031972-ae45-4d30-9251-37e63885aa87",
+            "label": "speech_13_seg0"
+          }
+        ]
+      },
+      "V2": {
+        "label": "B-Roll",
+        "clips": [
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+            "source_in": 0,
+            "source_out": 0,
+            "timeline_in": 0,
+            "timeline_out": 0,
+            "video_only": true,
+            "label": "broll_1",
+            "timeline_in_frame": 0,
+            "timeline_out_frame": 0
+          }
+        ]
+      },
+      "A1": {
+        "label": "Speech",
+        "clips": [
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 17.666,
+            "source_out": 20.348,
+            "timeline_in": 0.0,
+            "timeline_out": 2.682,
+            "timeline_in_frame": 0,
+            "timeline_out_frame": 80,
+            "link_group_id": "d536465f-d62c-4a86-8165-880b11b0bc1b",
+            "label": "hook_hook"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+            "source_in": 14.68,
+            "source_out": 16.065,
+            "timeline_in": 2.682,
+            "timeline_out": 4.067,
+            "timeline_in_frame": 80,
+            "timeline_out_frame": 122,
+            "link_group_id": "faabb27e-4c29-4462-8e84-f4e39eb0cc74",
+            "label": "speech_1_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+            "source_in": 16.085,
+            "source_out": 18.914,
+            "timeline_in": 4.067,
+            "timeline_out": 6.896000000000001,
+            "timeline_in_frame": 122,
+            "timeline_out_frame": 207,
+            "link_group_id": "b11aa293-cb9d-456c-9520-cbad02f7f673",
+            "label": "speech_2_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+            "source_in": 11.224,
+            "source_out": 12.744,
+            "timeline_in": 6.896,
+            "timeline_out": 8.416,
+            "timeline_in_frame": 207,
+            "timeline_out_frame": 252,
+            "link_group_id": "baaa49f5-648c-40cc-81b6-f2475c4df858",
+            "label": "speech_3_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 9.699,
+            "source_out": 11.28,
+            "timeline_in": 8.416,
+            "timeline_out": 9.997,
+            "timeline_in_frame": 252,
+            "timeline_out_frame": 300,
+            "link_group_id": "dea65efc-fc28-45a1-a203-83c782a03e8c",
+            "label": "speech_4_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 17.666,
+            "source_out": 20.348,
+            "timeline_in": 9.997,
+            "timeline_out": 12.679,
+            "timeline_in_frame": 300,
+            "timeline_out_frame": 380,
+            "link_group_id": "22b2d08f-9737-43d5-ac66-312c442547e4",
+            "label": "speech_5_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 63.135,
+            "source_out": 66.635,
+            "timeline_in": 12.679,
+            "timeline_out": 16.179000000000002,
+            "timeline_in_frame": 380,
+            "timeline_out_frame": 485,
+            "link_group_id": "85bbffa0-9175-476e-ab8e-e4c635ffef71",
+            "label": "speech_6_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 66.655,
+            "source_out": 70.977,
+            "timeline_in": 16.179,
+            "timeline_out": 20.500999999999998,
+            "timeline_in_frame": 485,
+            "timeline_out_frame": 615,
+            "link_group_id": "7a864e2f-50af-44af-b374-06e0b40237d3",
+            "label": "speech_7_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+            "source_in": 74.439,
+            "source_out": 77.84,
+            "timeline_in": 20.501,
+            "timeline_out": 23.902,
+            "timeline_in_frame": 615,
+            "timeline_out_frame": 717,
+            "link_group_id": "14a7b359-be0b-4253-bad5-39b0c07af4e1",
+            "label": "speech_8_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+            "source_in": 0.0,
+            "source_out": 5.0,
+            "timeline_in": 23.902,
+            "timeline_out": 28.902,
+            "timeline_in_frame": 717,
+            "timeline_out_frame": 867,
+            "link_group_id": "b844d323-b79f-4dce-8378-4f093c9232b7",
+            "label": "speech_9_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+            "source_in": 60.0,
+            "source_out": 65.0,
+            "timeline_in": 28.902,
+            "timeline_out": 33.902,
+            "timeline_in_frame": 867,
+            "timeline_out_frame": 1017,
+            "link_group_id": "2120453c-e3b6-4847-8aad-69836d43454e",
+            "label": "speech_10_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+            "source_in": 0.0,
+            "source_out": 3.0,
+            "timeline_in": 33.902,
+            "timeline_out": 36.902,
+            "timeline_in_frame": 1017,
+            "timeline_out_frame": 1107,
+            "link_group_id": "2eb41ded-058e-4ea2-a2af-3b3f23c969f0",
+            "label": "speech_11_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+            "source_in": 30.0,
+            "source_out": 33.0,
+            "timeline_in": 36.902,
+            "timeline_out": 39.902,
+            "timeline_in_frame": 1107,
+            "timeline_out_frame": 1197,
+            "link_group_id": "459b7b08-4e9a-4054-8c36-0cb5d5df8c63",
+            "label": "speech_12_seg0"
+          },
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+            "source_in": 80.0,
+            "source_out": 83.0,
+            "timeline_in": 39.902,
+            "timeline_out": 42.902,
+            "timeline_in_frame": 1197,
+            "timeline_out_frame": 1287,
+            "link_group_id": "88031972-ae45-4d30-9251-37e63885aa87",
+            "label": "speech_13_seg0"
+          }
+        ]
+      },
+      "A2": {
+        "label": "Music",
+        "clips": [
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/music/Inspiring and Uplifting Cinematic Hip Hop Background Music No Copyright.wav",
+            "source_in": 0.0,
+            "source_out": 42.902,
+            "timeline_in": 0.0,
+            "timeline_out": 42.902,
+            "label": "background_music"
+          }
+        ]
+      },
+      "A3": {
+        "label": "SFX",
+        "clips": [
+          {
+            "source_file": "/Users/prajwal/Documents/content_stuff/assets i used (just copied here for convenience)/sfx library/Accents/Whoosh/whoosh_3.mp3",
+            "source_in": 0.0,
+            "timeline_in_frame": 0,
+            "timeline_out_frame": 37,
+            "volume_db": -24.0,
+            "label": "sfx_001",
+            "sfx_type": "whoosh"
+          }
+        ]
+      }
+    },
+    "subtitles": [
+      {
+        "id": "sub_001",
+        "timeline_start": 0.0,
+        "timeline_end": 0.7,
+        "text": "and",
+        "emphasis_words": [],
+        "spine_block_position": "hook",
+        "word_count": 1,
+        "words": [
+          {
+            "word": "and",
+            "start": 0.0,
+            "end": 0.36
+          }
+        ],
+        "timeline_start_frame": 0,
+        "timeline_end_frame": 21
+      },
+      {
+        "id": "sub_002",
+        "timeline_start": 1.481,
+        "timeline_end": 2.181,
+        "text": "i have an",
+        "emphasis_words": [],
+        "spine_block_position": "hook",
+        "word_count": 3,
+        "words": [
+          {
+            "word": "i",
+            "start": 1.481,
+            "end": 1.521
+          },
+          {
+            "word": "have",
+            "start": 1.561,
+            "end": 1.801
+          },
+          {
+            "word": "an",
+            "start": 1.941,
+            "end": 2.021
+          }
+        ],
+        "timeline_start_frame": 44,
+        "timeline_end_frame": 65
+      },
+      {
+        "id": "sub_003",
+        "timeline_start": 2.181,
+        "timeline_end": 2.682,
+        "text": "announcement to",
+        "emphasis_words": [
+          "announcement"
+        ],
+        "spine_block_position": "hook",
+        "word_count": 2,
+        "words": [
+          {
+            "word": "announcement",
+            "start": 2.041,
+            "end": 2.342
+          },
+          {
+            "word": "to",
+            "start": 2.382,
+            "end": 2.442
+          }
+        ],
+        "timeline_start_frame": 65,
+        "timeline_end_frame": 86
+      },
+      {
+        "id": "sub_005",
+        "timeline_start": 2.682,
+        "timeline_end": 2.881,
+        "text": "okay,",
+        "emphasis_words": [
+          "okay"
+        ],
+        "spine_block_position": 1,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "okay,",
+            "start": 2.682,
+            "end": 2.959
+          }
+        ],
+        "timeline_start_frame": 80,
+        "timeline_end_frame": 101
+      },
+      {
+        "id": "sub_004",
+        "timeline_start": 2.881,
+        "timeline_end": 2.981,
+        "text": "make.",
+        "emphasis_words": [
+          "make"
+        ],
+        "spine_block_position": "hook",
+        "word_count": 1,
+        "words": [
+          {
+            "word": "make.",
+            "start": 2.462,
+            "end": 2.682
+          }
+        ],
+        "timeline_start_frame": 86,
+        "timeline_end_frame": 89
+      },
+      {
+        "id": "sub_006",
+        "timeline_start": 3.382,
+        "timeline_end": 4.067,
+        "text": "we're here,",
+        "emphasis_words": [
+          "here"
+        ],
+        "spine_block_position": 1,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "we're",
+            "start": 2.959,
+            "end": 3.236
+          },
+          {
+            "word": "here,",
+            "start": 3.236,
+            "end": 3.513
+          }
+        ],
+        "timeline_start_frame": 101,
+        "timeline_end_frame": 122
+      },
+      {
+        "id": "sub_008",
+        "timeline_start": 4.067,
+        "timeline_end": 4.082,
+        "text": "just gotta find a",
+        "emphasis_words": [
+          "gotta",
+          "find"
+        ],
+        "spine_block_position": 2,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "just",
+            "start": 4.067,
+            "end": 4.421
+          },
+          {
+            "word": "gotta",
+            "start": 4.421,
+            "end": 4.774
+          },
+          {
+            "word": "find",
+            "start": 4.774,
+            "end": 5.128
+          },
+          {
+            "word": "a",
+            "start": 5.128,
+            "end": 5.482
+          }
+        ],
+        "timeline_start_frame": 122,
+        "timeline_end_frame": 164
+      },
+      {
+        "id": "sub_007",
+        "timeline_start": 4.082,
+        "timeline_end": 4.182,
+        "text": "we're here.",
+        "emphasis_words": [
+          "here"
+        ],
+        "spine_block_position": 1,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "we're",
+            "start": 3.513,
+            "end": 3.79
+          },
+          {
+            "word": "here.",
+            "start": 3.79,
+            "end": 4.067
+          }
+        ],
+        "timeline_start_frame": 122,
+        "timeline_end_frame": 125
+      },
+      {
+        "id": "sub_009",
+        "timeline_start": 5.482,
+        "timeline_end": 6.896,
+        "text": "place to park now.",
+        "emphasis_words": [
+          "place",
+          "park"
+        ],
+        "spine_block_position": 2,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "place",
+            "start": 5.482,
+            "end": 5.835
+          },
+          {
+            "word": "to",
+            "start": 5.835,
+            "end": 6.189
+          },
+          {
+            "word": "park",
+            "start": 6.189,
+            "end": 6.542
+          },
+          {
+            "word": "now.",
+            "start": 6.542,
+            "end": 6.896
+          }
+        ],
+        "timeline_start_frame": 164,
+        "timeline_end_frame": 207
+      },
+      {
+        "id": "sub_010",
+        "timeline_start": 6.896,
+        "timeline_end": 7.765,
+        "text": "now where's a good",
+        "emphasis_words": [
+          "good"
+        ],
+        "spine_block_position": 3,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "now",
+            "start": 6.896,
+            "end": 7.113
+          },
+          {
+            "word": "where's",
+            "start": 7.113,
+            "end": 7.33
+          },
+          {
+            "word": "a",
+            "start": 7.33,
+            "end": 7.547
+          },
+          {
+            "word": "good",
+            "start": 7.547,
+            "end": 7.765
+          }
+        ],
+        "timeline_start_frame": 207,
+        "timeline_end_frame": 233
+      },
+      {
+        "id": "sub_011",
+        "timeline_start": 7.765,
+        "timeline_end": 8.416,
+        "text": "spot to film?",
+        "emphasis_words": [
+          "spot",
+          "film"
+        ],
+        "spine_block_position": 3,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "spot",
+            "start": 7.765,
+            "end": 7.982
+          },
+          {
+            "word": "to",
+            "start": 7.982,
+            "end": 8.199
+          },
+          {
+            "word": "film?",
+            "start": 8.199,
+            "end": 8.416
+          }
+        ],
+        "timeline_start_frame": 233,
+        "timeline_end_frame": 252
+      },
+      {
+        "id": "sub_012",
+        "timeline_start": 8.416,
+        "timeline_end": 9.365,
+        "text": "today is march",
+        "emphasis_words": [
+          "today",
+          "march"
+        ],
+        "spine_block_position": 4,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "today",
+            "start": 8.416,
+            "end": 8.732
+          },
+          {
+            "word": "is",
+            "start": 8.732,
+            "end": 9.048
+          },
+          {
+            "word": "march",
+            "start": 9.048,
+            "end": 9.365
+          }
+        ],
+        "timeline_start_frame": 252,
+        "timeline_end_frame": 281
+      },
+      {
+        "id": "sub_013",
+        "timeline_start": 9.365,
+        "timeline_end": 9.997,
+        "text": "25th,",
+        "emphasis_words": [],
+        "spine_block_position": 4,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "25th,",
+            "start": 9.365,
+            "end": 9.681
+          }
+        ],
+        "timeline_start_frame": 281,
+        "timeline_end_frame": 302
+      },
+      {
+        "id": "sub_015",
+        "timeline_start": 9.997,
+        "timeline_end": 10.065,
+        "text": "and i have an",
+        "emphasis_words": [],
+        "spine_block_position": 5,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "and",
+            "start": 9.997,
+            "end": 10.38
+          },
+          {
+            "word": "i",
+            "start": 10.38,
+            "end": 10.763
+          },
+          {
+            "word": "have",
+            "start": 10.763,
+            "end": 11.146
+          },
+          {
+            "word": "an",
+            "start": 11.146,
+            "end": 11.53
+          }
+        ],
+        "timeline_start_frame": 300,
+        "timeline_end_frame": 346
+      },
+      {
+        "id": "sub_014",
+        "timeline_start": 10.065,
+        "timeline_end": 10.165,
+        "text": "2026.",
+        "emphasis_words": [],
+        "spine_block_position": 4,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "2026.",
+            "start": 9.681,
+            "end": 9.997
+          }
+        ],
+        "timeline_start_frame": 302,
+        "timeline_end_frame": 305
+      },
+      {
+        "id": "sub_016",
+        "timeline_start": 11.53,
+        "timeline_end": 12.296,
+        "text": "announcement to",
+        "emphasis_words": [
+          "announcement"
+        ],
+        "spine_block_position": 5,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "announcement",
+            "start": 11.53,
+            "end": 11.913
+          },
+          {
+            "word": "to",
+            "start": 11.913,
+            "end": 12.296
+          }
+        ],
+        "timeline_start_frame": 346,
+        "timeline_end_frame": 369
+      },
+      {
+        "id": "sub_017",
+        "timeline_start": 12.296,
+        "timeline_end": 12.679,
+        "text": "make.",
+        "emphasis_words": [
+          "make"
+        ],
+        "spine_block_position": 5,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "make.",
+            "start": 12.296,
+            "end": 12.679
+          }
+        ],
+        "timeline_start_frame": 369,
+        "timeline_end_frame": 380
+      },
+      {
+        "id": "sub_018",
+        "timeline_start": 12.679,
+        "timeline_end": 13.379,
+        "text": "so my very,",
+        "emphasis_words": [],
+        "spine_block_position": 6,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "so",
+            "start": 12.679,
+            "end": 12.898
+          },
+          {
+            "word": "my",
+            "start": 12.898,
+            "end": 13.117
+          },
+          {
+            "word": "very,",
+            "start": 13.117,
+            "end": 13.335
+          }
+        ],
+        "timeline_start_frame": 380,
+        "timeline_end_frame": 401
+      },
+      {
+        "id": "sub_019",
+        "timeline_start": 13.379,
+        "timeline_end": 14.079,
+        "text": "very small",
+        "emphasis_words": [
+          "small"
+        ],
+        "spine_block_position": 6,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "very",
+            "start": 13.335,
+            "end": 13.554
+          },
+          {
+            "word": "small",
+            "start": 13.554,
+            "end": 13.773
+          }
+        ],
+        "timeline_start_frame": 401,
+        "timeline_end_frame": 422
+      },
+      {
+        "id": "sub_020",
+        "timeline_start": 14.079,
+        "timeline_end": 14.779,
+        "text": "announcement is",
+        "emphasis_words": [
+          "announcement"
+        ],
+        "spine_block_position": 6,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "announcement",
+            "start": 13.773,
+            "end": 13.992
+          },
+          {
+            "word": "is",
+            "start": 13.992,
+            "end": 14.21
+          }
+        ],
+        "timeline_start_frame": 422,
+        "timeline_end_frame": 443
+      },
+      {
+        "id": "sub_021",
+        "timeline_start": 14.779,
+        "timeline_end": 15.479,
+        "text": "that i just want",
+        "emphasis_words": [
+          "want"
+        ],
+        "spine_block_position": 6,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "that",
+            "start": 14.21,
+            "end": 14.429
+          },
+          {
+            "word": "i",
+            "start": 14.429,
+            "end": 14.648
+          },
+          {
+            "word": "just",
+            "start": 14.648,
+            "end": 14.867
+          },
+          {
+            "word": "want",
+            "start": 14.867,
+            "end": 15.085
+          }
+        ],
+        "timeline_start_frame": 443,
+        "timeline_end_frame": 464
+      },
+      {
+        "id": "sub_022",
+        "timeline_start": 15.479,
+        "timeline_end": 16.179,
+        "text": "to post every",
+        "emphasis_words": [
+          "post",
+          "every"
+        ],
+        "spine_block_position": 6,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "to",
+            "start": 15.085,
+            "end": 15.304
+          },
+          {
+            "word": "post",
+            "start": 15.304,
+            "end": 15.523
+          },
+          {
+            "word": "every",
+            "start": 15.523,
+            "end": 15.742
+          }
+        ],
+        "timeline_start_frame": 464,
+        "timeline_end_frame": 485
+      },
+      {
+        "id": "sub_023",
+        "timeline_start": 16.179,
+        "timeline_end": 16.179,
+        "text": "single day.",
+        "emphasis_words": [
+          "single"
+        ],
+        "spine_block_position": 6,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "single",
+            "start": 15.742,
+            "end": 15.96
+          },
+          {
+            "word": "day.",
+            "start": 15.96,
+            "end": 16.179
+          }
+        ],
+        "timeline_start_frame": 485,
+        "timeline_end_frame": 488
+      },
+      {
+        "id": "sub_024",
+        "timeline_start": 16.179,
+        "timeline_end": 17.62,
+        "text": "i'm going to post",
+        "emphasis_words": [
+          "going",
+          "post"
+        ],
+        "spine_block_position": 7,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "i'm",
+            "start": 16.179,
+            "end": 16.539
+          },
+          {
+            "word": "going",
+            "start": 16.539,
+            "end": 16.899
+          },
+          {
+            "word": "to",
+            "start": 16.899,
+            "end": 17.259
+          },
+          {
+            "word": "post",
+            "start": 17.259,
+            "end": 17.62
+          }
+        ],
+        "timeline_start_frame": 485,
+        "timeline_end_frame": 529
+      },
+      {
+        "id": "sub_025",
+        "timeline_start": 17.62,
+        "timeline_end": 18.34,
+        "text": "a video,",
+        "emphasis_words": [
+          "video"
+        ],
+        "spine_block_position": 7,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "a",
+            "start": 17.62,
+            "end": 17.98
+          },
+          {
+            "word": "video,",
+            "start": 17.98,
+            "end": 18.34
+          }
+        ],
+        "timeline_start_frame": 529,
+        "timeline_end_frame": 550
+      },
+      {
+        "id": "sub_026",
+        "timeline_start": 18.34,
+        "timeline_end": 19.421,
+        "text": "at least one,",
+        "emphasis_words": [
+          "least"
+        ],
+        "spine_block_position": 7,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "at",
+            "start": 18.34,
+            "end": 18.7
+          },
+          {
+            "word": "least",
+            "start": 18.7,
+            "end": 19.06
+          },
+          {
+            "word": "one,",
+            "start": 19.06,
+            "end": 19.421
+          }
+        ],
+        "timeline_start_frame": 550,
+        "timeline_end_frame": 583
+      },
+      {
+        "id": "sub_027",
+        "timeline_start": 19.421,
+        "timeline_end": 20.501,
+        "text": "every single day.",
+        "emphasis_words": [
+          "every",
+          "single"
+        ],
+        "spine_block_position": 7,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "every",
+            "start": 19.421,
+            "end": 19.781
+          },
+          {
+            "word": "single",
+            "start": 19.781,
+            "end": 20.141
+          },
+          {
+            "word": "day.",
+            "start": 20.141,
+            "end": 20.501
+          }
+        ],
+        "timeline_start_frame": 583,
+        "timeline_end_frame": 615
+      },
+      {
+        "id": "sub_028",
+        "timeline_start": 20.501,
+        "timeline_end": 21.23,
+        "text": "and the question",
+        "emphasis_words": [
+          "question"
+        ],
+        "spine_block_position": 8,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "and",
+            "start": 20.501,
+            "end": 20.744
+          },
+          {
+            "word": "the",
+            "start": 20.744,
+            "end": 20.987
+          },
+          {
+            "word": "question",
+            "start": 20.987,
+            "end": 21.23
+          }
+        ],
+        "timeline_start_frame": 615,
+        "timeline_end_frame": 637
+      },
+      {
+        "id": "sub_029",
+        "timeline_start": 21.23,
+        "timeline_end": 22.201,
+        "text": "as to what i'm",
+        "emphasis_words": [
+          "what"
+        ],
+        "spine_block_position": 8,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "as",
+            "start": 21.23,
+            "end": 21.473
+          },
+          {
+            "word": "to",
+            "start": 21.473,
+            "end": 21.716
+          },
+          {
+            "word": "what",
+            "start": 21.716,
+            "end": 21.959
+          },
+          {
+            "word": "i'm",
+            "start": 21.959,
+            "end": 22.201
+          }
+        ],
+        "timeline_start_frame": 637,
+        "timeline_end_frame": 666
+      },
+      {
+        "id": "sub_030",
+        "timeline_start": 22.201,
+        "timeline_end": 22.901,
+        "text": "posting is,",
+        "emphasis_words": [
+          "posting"
+        ],
+        "spine_block_position": 8,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "posting",
+            "start": 22.201,
+            "end": 22.444
+          },
+          {
+            "word": "is,",
+            "start": 22.444,
+            "end": 22.687
+          }
+        ],
+        "timeline_start_frame": 666,
+        "timeline_end_frame": 687
+      },
+      {
+        "id": "sub_031",
+        "timeline_start": 22.901,
+        "timeline_end": 23.601,
+        "text": "i guess,",
+        "emphasis_words": [
+          "guess"
+        ],
+        "spine_block_position": 8,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "i",
+            "start": 22.687,
+            "end": 22.93
+          },
+          {
+            "word": "guess,",
+            "start": 22.93,
+            "end": 23.173
+          }
+        ],
+        "timeline_start_frame": 687,
+        "timeline_end_frame": 708
+      },
+      {
+        "id": "sub_032",
+        "timeline_start": 23.601,
+        "timeline_end": 23.902,
+        "text": "whatever i want.",
+        "emphasis_words": [
+          "whatever",
+          "want"
+        ],
+        "spine_block_position": 8,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "whatever",
+            "start": 23.173,
+            "end": 23.416
+          },
+          {
+            "word": "i",
+            "start": 23.416,
+            "end": 23.659
+          },
+          {
+            "word": "want.",
+            "start": 23.659,
+            "end": 23.902
+          }
+        ],
+        "timeline_start_frame": 708,
+        "timeline_end_frame": 717
+      },
+      {
+        "id": "sub_033",
+        "timeline_start": 23.902,
+        "timeline_end": 25.078,
+        "text": "so you might be",
+        "emphasis_words": [],
+        "spine_block_position": 9,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "so",
+            "start": 23.902,
+            "end": 24.196
+          },
+          {
+            "word": "you",
+            "start": 24.196,
+            "end": 24.49
+          },
+          {
+            "word": "might",
+            "start": 24.49,
+            "end": 24.784
+          },
+          {
+            "word": "be",
+            "start": 24.784,
+            "end": 25.078
+          }
+        ],
+        "timeline_start_frame": 717,
+        "timeline_end_frame": 752
+      },
+      {
+        "id": "sub_034",
+        "timeline_start": 25.078,
+        "timeline_end": 25.778,
+        "text": "asking,",
+        "emphasis_words": [
+          "asking"
+        ],
+        "spine_block_position": 9,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "asking,",
+            "start": 25.078,
+            "end": 25.373
+          }
+        ],
+        "timeline_start_frame": 752,
+        "timeline_end_frame": 773
+      },
+      {
+        "id": "sub_035",
+        "timeline_start": 25.778,
+        "timeline_end": 26.478,
+        "text": "you know,",
+        "emphasis_words": [
+          "know"
+        ],
+        "spine_block_position": 9,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "you",
+            "start": 25.373,
+            "end": 25.667
+          },
+          {
+            "word": "know,",
+            "start": 25.667,
+            "end": 25.961
+          }
+        ],
+        "timeline_start_frame": 773,
+        "timeline_end_frame": 794
+      },
+      {
+        "id": "sub_036",
+        "timeline_start": 26.478,
+        "timeline_end": 27.178,
+        "text": "why the sudden",
+        "emphasis_words": [
+          "sudden"
+        ],
+        "spine_block_position": 9,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "why",
+            "start": 25.961,
+            "end": 26.255
+          },
+          {
+            "word": "the",
+            "start": 26.255,
+            "end": 26.549
+          },
+          {
+            "word": "sudden",
+            "start": 26.549,
+            "end": 26.843
+          }
+        ],
+        "timeline_start_frame": 794,
+        "timeline_end_frame": 815
+      },
+      {
+        "id": "sub_037",
+        "timeline_start": 27.178,
+        "timeline_end": 27.878,
+        "text": "change of heart?",
+        "emphasis_words": [
+          "change",
+          "heart"
+        ],
+        "spine_block_position": 9,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "change",
+            "start": 26.843,
+            "end": 27.137
+          },
+          {
+            "word": "of",
+            "start": 27.137,
+            "end": 27.431
+          },
+          {
+            "word": "heart?",
+            "start": 27.431,
+            "end": 27.726
+          }
+        ],
+        "timeline_start_frame": 815,
+        "timeline_end_frame": 836
+      },
+      {
+        "id": "sub_038",
+        "timeline_start": 27.878,
+        "timeline_end": 28.608,
+        "text": "why the sudden",
+        "emphasis_words": [
+          "sudden"
+        ],
+        "spine_block_position": 9,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "why",
+            "start": 27.726,
+            "end": 28.02
+          },
+          {
+            "word": "the",
+            "start": 28.02,
+            "end": 28.314
+          },
+          {
+            "word": "sudden",
+            "start": 28.314,
+            "end": 28.608
+          }
+        ],
+        "timeline_start_frame": 836,
+        "timeline_end_frame": 858
+      },
+      {
+        "id": "sub_039",
+        "timeline_start": 28.608,
+        "timeline_end": 28.902,
+        "text": "motivation?",
+        "emphasis_words": [
+          "motivation"
+        ],
+        "spine_block_position": 9,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "motivation?",
+            "start": 28.608,
+            "end": 28.902
+          }
+        ],
+        "timeline_start_frame": 858,
+        "timeline_end_frame": 867
+      },
+      {
+        "id": "sub_040",
+        "timeline_start": 28.902,
+        "timeline_end": 30.291,
+        "text": "the goal for me is",
+        "emphasis_words": [
+          "goal"
+        ],
+        "spine_block_position": 10,
+        "word_count": 5,
+        "words": [
+          {
+            "word": "the",
+            "start": 28.902,
+            "end": 29.18
+          },
+          {
+            "word": "goal",
+            "start": 29.18,
+            "end": 29.458
+          },
+          {
+            "word": "for",
+            "start": 29.458,
+            "end": 29.735
+          },
+          {
+            "word": "me",
+            "start": 29.735,
+            "end": 30.013
+          },
+          {
+            "word": "is",
+            "start": 30.013,
+            "end": 30.291
+          }
+        ],
+        "timeline_start_frame": 867,
+        "timeline_end_frame": 909
+      },
+      {
+        "id": "sub_041",
+        "timeline_start": 30.291,
+        "timeline_end": 31.68,
+        "text": "to get 100 100 of",
+        "emphasis_words": [],
+        "spine_block_position": 10,
+        "word_count": 5,
+        "words": [
+          {
+            "word": "to",
+            "start": 30.291,
+            "end": 30.569
+          },
+          {
+            "word": "get",
+            "start": 30.569,
+            "end": 30.846
+          },
+          {
+            "word": "100",
+            "start": 30.846,
+            "end": 31.124
+          },
+          {
+            "word": "100",
+            "start": 31.124,
+            "end": 31.402
+          },
+          {
+            "word": "of",
+            "start": 31.402,
+            "end": 31.68
+          }
+        ],
+        "timeline_start_frame": 909,
+        "timeline_end_frame": 950
+      },
+      {
+        "id": "sub_042",
+        "timeline_start": 31.68,
+        "timeline_end": 32.513,
+        "text": "these videos out",
+        "emphasis_words": [
+          "these",
+          "videos"
+        ],
+        "spine_block_position": 10,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "these",
+            "start": 31.68,
+            "end": 31.958
+          },
+          {
+            "word": "videos",
+            "start": 31.958,
+            "end": 32.235
+          },
+          {
+            "word": "out",
+            "start": 32.235,
+            "end": 32.513
+          }
+        ],
+        "timeline_start_frame": 950,
+        "timeline_end_frame": 975
+      },
+      {
+        "id": "sub_043",
+        "timeline_start": 32.513,
+        "timeline_end": 33.624,
+        "text": "this is the first",
+        "emphasis_words": [
+          "first"
+        ],
+        "spine_block_position": 10,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "this",
+            "start": 32.513,
+            "end": 32.791
+          },
+          {
+            "word": "is",
+            "start": 32.791,
+            "end": 33.069
+          },
+          {
+            "word": "the",
+            "start": 33.069,
+            "end": 33.346
+          },
+          {
+            "word": "first",
+            "start": 33.346,
+            "end": 33.624
+          }
+        ],
+        "timeline_start_frame": 975,
+        "timeline_end_frame": 1009
+      },
+      {
+        "id": "sub_044",
+        "timeline_start": 33.624,
+        "timeline_end": 33.902,
+        "text": "one",
+        "emphasis_words": [],
+        "spine_block_position": 10,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "one",
+            "start": 33.624,
+            "end": 33.902
+          }
+        ],
+        "timeline_start_frame": 1009,
+        "timeline_end_frame": 1017
+      },
+      {
+        "id": "sub_045",
+        "timeline_start": 33.902,
+        "timeline_end": 35.402,
+        "text": "the goal is just",
+        "emphasis_words": [
+          "goal"
+        ],
+        "spine_block_position": 11,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "the",
+            "start": 33.902,
+            "end": 34.277
+          },
+          {
+            "word": "goal",
+            "start": 34.277,
+            "end": 34.652
+          },
+          {
+            "word": "is",
+            "start": 34.652,
+            "end": 35.027
+          },
+          {
+            "word": "just",
+            "start": 35.027,
+            "end": 35.402
+          }
+        ],
+        "timeline_start_frame": 1017,
+        "timeline_end_frame": 1062
+      },
+      {
+        "id": "sub_046",
+        "timeline_start": 35.402,
+        "timeline_end": 36.102,
+        "text": "to,",
+        "emphasis_words": [],
+        "spine_block_position": 11,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "to,",
+            "start": 35.402,
+            "end": 35.777
+          }
+        ],
+        "timeline_start_frame": 1062,
+        "timeline_end_frame": 1083
+      },
+      {
+        "id": "sub_047",
+        "timeline_start": 36.102,
+        "timeline_end": 36.802,
+        "text": "you know,",
+        "emphasis_words": [
+          "know"
+        ],
+        "spine_block_position": 11,
+        "word_count": 2,
+        "words": [
+          {
+            "word": "you",
+            "start": 35.777,
+            "end": 36.152
+          },
+          {
+            "word": "know,",
+            "start": 36.152,
+            "end": 36.527
+          }
+        ],
+        "timeline_start_frame": 1083,
+        "timeline_end_frame": 1104
+      },
+      {
+        "id": "sub_048",
+        "timeline_start": 36.802,
+        "timeline_end": 36.902,
+        "text": "grow.",
+        "emphasis_words": [
+          "grow"
+        ],
+        "spine_block_position": 11,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "grow.",
+            "start": 36.527,
+            "end": 36.902
+          }
+        ],
+        "timeline_start_frame": 1104,
+        "timeline_end_frame": 1107
+      },
+      {
+        "id": "sub_049",
+        "timeline_start": 36.902,
+        "timeline_end": 38.402,
+        "text": "i'm happy that i",
+        "emphasis_words": [
+          "happy"
+        ],
+        "spine_block_position": 12,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "i'm",
+            "start": 36.902,
+            "end": 37.277
+          },
+          {
+            "word": "happy",
+            "start": 37.277,
+            "end": 37.652
+          },
+          {
+            "word": "that",
+            "start": 37.652,
+            "end": 38.027
+          },
+          {
+            "word": "i",
+            "start": 38.027,
+            "end": 38.402
+          }
+        ],
+        "timeline_start_frame": 1107,
+        "timeline_end_frame": 1152
+      },
+      {
+        "id": "sub_050",
+        "timeline_start": 38.402,
+        "timeline_end": 39.527,
+        "text": "at least recorded",
+        "emphasis_words": [
+          "least",
+          "recorded"
+        ],
+        "spine_block_position": 12,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "at",
+            "start": 38.402,
+            "end": 38.777
+          },
+          {
+            "word": "least",
+            "start": 38.777,
+            "end": 39.152
+          },
+          {
+            "word": "recorded",
+            "start": 39.152,
+            "end": 39.527
+          }
+        ],
+        "timeline_start_frame": 1152,
+        "timeline_end_frame": 1186
+      },
+      {
+        "id": "sub_051",
+        "timeline_start": 39.527,
+        "timeline_end": 39.902,
+        "text": "this",
+        "emphasis_words": [],
+        "spine_block_position": 12,
+        "word_count": 1,
+        "words": [
+          {
+            "word": "this",
+            "start": 39.527,
+            "end": 39.902
+          }
+        ],
+        "timeline_start_frame": 1186,
+        "timeline_end_frame": 1197
+      },
+      {
+        "id": "sub_052",
+        "timeline_start": 39.902,
+        "timeline_end": 41.616,
+        "text": "okay now i'm done",
+        "emphasis_words": [
+          "okay",
+          "done"
+        ],
+        "spine_block_position": 13,
+        "word_count": 4,
+        "words": [
+          {
+            "word": "okay",
+            "start": 39.902,
+            "end": 40.331
+          },
+          {
+            "word": "now",
+            "start": 40.331,
+            "end": 40.759
+          },
+          {
+            "word": "i'm",
+            "start": 40.759,
+            "end": 41.188
+          },
+          {
+            "word": "done",
+            "start": 41.188,
+            "end": 41.616
+          }
+        ],
+        "timeline_start_frame": 1197,
+        "timeline_end_frame": 1248
+      },
+      {
+        "id": "sub_053",
+        "timeline_start": 41.616,
+        "timeline_end": 42.902,
+        "text": "talking i think",
+        "emphasis_words": [
+          "talking",
+          "think"
+        ],
+        "spine_block_position": 13,
+        "word_count": 3,
+        "words": [
+          {
+            "word": "talking",
+            "start": 41.616,
+            "end": 42.045
+          },
+          {
+            "word": "i",
+            "start": 42.045,
+            "end": 42.473
+          },
+          {
+            "word": "think",
+            "start": 42.473,
+            "end": 42.902
+          }
+        ],
+        "timeline_start_frame": 1248,
+        "timeline_end_frame": 1287
+      }
+    ],
+    "transitions": [
+      {
+        "transition_id": "trans_001",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_002",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_003",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_004",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_005",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_006",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_007",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_008",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_009",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      },
+      {
+        "transition_id": "trans_010",
+        "cut_point_timeline": 2.682,
+        "cut_point_original": 2.682,
+        "transition_type": "cut",
+        "duration_frames": 15,
+        "beat_aligned": false,
+        "snap_delta_seconds": 0.0,
+        "placement_method": "block-boundary",
+        "word_beat_coincidence": false,
+        "rationale": ""
+      }
+    ],
+    "vfx": [
+      {
+        "vfx_id": "vfx_001",
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.04
+        },
+        "rationale": ""
+      },
+      {
+        "vfx_id": "vfx_002",
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.04
+        },
+        "rationale": ""
+      },
+      {
+        "vfx_id": "vfx_003",
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.04
+        },
+        "rationale": ""
+      },
+      {
+        "vfx_id": "vfx_004",
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.04
+        },
+        "rationale": ""
+      },
+      {
+        "vfx_id": "vfx_005",
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.04
+        },
+        "rationale": ""
+      },
+      {
+        "vfx_id": "vfx_006",
+        "timeline_start": 12.679,
+        "timeline_end": 16.179,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.03
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_007",
+        "timeline_start": 16.179,
+        "timeline_end": 20.501,
+        "effect_type": "slow_zoom_out",
+        "params": {
+          "zoom_start": 1.03,
+          "zoom_end": 1.0
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_008",
+        "timeline_start": 20.501,
+        "timeline_end": 23.902,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.03
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_009",
+        "timeline_start": 23.902,
+        "timeline_end": 28.902,
+        "effect_type": "slow_zoom_out",
+        "params": {
+          "zoom_start": 1.03,
+          "zoom_end": 1.0
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_010",
+        "timeline_start": 28.902,
+        "timeline_end": 33.902,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.03
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_011",
+        "timeline_start": 33.902,
+        "timeline_end": 36.902,
+        "effect_type": "slow_zoom_out",
+        "params": {
+          "zoom_start": 1.03,
+          "zoom_end": 1.0
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_012",
+        "timeline_start": 36.902,
+        "timeline_end": 39.902,
+        "effect_type": "slow_zoom_in",
+        "params": {
+          "zoom_start": 1.0,
+          "zoom_end": 1.03
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      },
+      {
+        "vfx_id": "vfx_013",
+        "timeline_start": 39.902,
+        "timeline_end": 42.902,
+        "effect_type": "slow_zoom_out",
+        "params": {
+          "zoom_start": 1.03,
+          "zoom_end": 1.0
+        },
+        "rationale": "Default Ken Burns - style spec requires subtle motion on all A-roll clips >3s."
+      }
+    ],
+    "sfx": [],
+    "fusion_effects": {
+      "per_clip": {},
+      "transitions": []
+    },
+    "neural_engine_directives": {},
+    "audio": {
+      "fairlight_preset": "dialogue_enhancement"
+    },
+    "color_grade": {
+      "grade_pipeline": {
+        "node_1": {
+          "type": "color_space_transform",
+          "from": "camera",
+          "to": "davinci_wide_gamut_intermediate"
+        },
+        "node_2": {
+          "type": "primary_correction",
+          "white_balance_offset": 200,
+          "contrast_curve": "gentle_s",
+          "lift_shadows": 0.02,
+          "roll_highlights": -0.03,
+          "saturation": "+10-15%"
+        },
+        "node_3": {
+          "type": "warm_tone_shaping",
+          "offset_red": 0.01,
+          "offset_green": 0.005,
+          "highlights": "warm_golden",
+          "shadows": "cool_teal_hint",
+          "skin_tone_protection": true
+        },
+        "node_4": {
+          "type": "creative_film_look",
+          "glow_opacity": "10-15%",
+          "grain_amount": "0.2-0.3",
+          "vignette_amount": "0.15-0.20",
+          "halation": "optional_subtle"
+        },
+        "node_5": {
+          "type": "color_space_transform",
+          "to": "rec709_gamma24"
+        }
+      },
+      "per_clip_adjustments": [
+        {
+          "entry_id": "",
+          "clip_id": "clip_011",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        },
+        {
+          "entry_id": "",
+          "clip_id": "clip_006",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        },
+        {
+          "entry_id": "",
+          "clip_id": "clip_007",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        },
+        {
+          "entry_id": "",
+          "clip_id": "clip_013",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        },
+        {
+          "entry_id": "",
+          "clip_id": "clip_015",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        },
+        {
+          "entry_id": "",
+          "clip_id": "clip_017",
+          "source_file": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1822.MOV",
+          "exposure_offset": 0.0,
+          "white_balance_override": null,
+          "notes": "Exposure within normal range, no adjustment needed",
+          "cdl_values": {
+            "slope_r": 1.0,
+            "slope_g": 1.0,
+            "slope_b": 1.0,
+            "offset_r": 0.02,
+            "offset_g": 0.0,
+            "offset_b": -0.02,
+            "power_r": 0.95,
+            "power_g": 0.95,
+            "power_b": 0.95,
+            "saturation": 1.12
+          }
+        }
+      ],
+      "output_color_space": "Rec.709, Gamma 2.4",
+      "consistency_notes": "Grade pipeline is uniform across all clips. Per-clip exposure offsets are estimated from average brightness analysis via ffprobe signalstats.",
+      "powergrade_path": null,
+      "creative_look_dctl": ""
+    },
+    "audio_mix": {
+      "track_levels": {
+        "A1_speech": {
+          "base_level_db": 0,
+          "compressor": true,
+          "notes": "Speech is the reference \u2014 everything else is relative"
+        },
+        "A2_music": {
+          "prominent_level_db": -6,
+          "background_level_db": -18,
+          "fade_duration_seconds": 1.0,
+          "ducking_trigger": "A1 activity"
+        },
+        "A3_sfx": {
+          "base_level_db": -12,
+          "notes": "Subtle \u2014 felt more than heard"
+        },
+        "A4_transition_audio": {
+          "base_level_db": -10,
+          "notes": "Brief, paired with transition visuals"
+        }
+      },
+      "music_automation": [
+        {
+          "spine_block_position": "hook",
+          "timeline_start": 0.0,
+          "timeline_end": 2.682,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 1,
+          "timeline_start": 2.682,
+          "timeline_end": 4.067,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 2,
+          "timeline_start": 4.067,
+          "timeline_end": 6.896,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 3,
+          "timeline_start": 6.896,
+          "timeline_end": 8.416,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 4,
+          "timeline_start": 8.416,
+          "timeline_end": 9.997,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 5,
+          "timeline_start": 9.997,
+          "timeline_end": 12.679,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 6,
+          "timeline_start": 12.679,
+          "timeline_end": 16.179,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 7,
+          "timeline_start": 16.179,
+          "timeline_end": 20.501,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 8,
+          "timeline_start": 20.501,
+          "timeline_end": 23.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 9,
+          "timeline_start": 23.902,
+          "timeline_end": 28.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 10,
+          "timeline_start": 28.902,
+          "timeline_end": 33.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 11,
+          "timeline_start": 33.902,
+          "timeline_end": 36.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 12,
+          "timeline_start": 36.902,
+          "timeline_end": 39.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        },
+        {
+          "spine_block_position": 13,
+          "timeline_start": 39.902,
+          "timeline_end": 42.902,
+          "music_behavior": "background",
+          "target_level_db": -18
+        }
+      ],
+      "master_limiter": {
+        "threshold_db": -1.0,
+        "enabled": true
+      },
+      "notes": "Speech (A1) is the reference at 0dB. Music ducks to -18dB under speech, rises to -6dB during non-speech moments. Fade duration: 1.0s."
+    },
+    "music_ducking": {
+      "ducking_curves": [
+        {
+          "time_ms": 0,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 0,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 2682,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 3182,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 2682,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 4067,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 4567,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 4067,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 6896,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 7396,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 6896,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 8416,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 8916,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 8416,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 9997,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 10497,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 9997,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 12679,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 13179,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 12679,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 16178,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 16678,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 16178,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 20501,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 21001,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 20501,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 23902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 24402,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 23902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 28902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 29402,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 28902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 33902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 34402,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 33902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 36902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 37402,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 36902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 39902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 40402,
+          "volume_db": -12.0
+        },
+        {
+          "time_ms": 39902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 42902,
+          "volume_db": -18.0
+        },
+        {
+          "time_ms": 43402,
+          "volume_db": -12.0
+        }
+      ]
+    },
+    "_spine_blocks": [
+      {
+        "timeline_start": 0.0,
+        "timeline_end": 2.682,
+        "block_type": "hook",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 2.682,
+        "timeline_end": 4.067,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 4.067,
+        "timeline_end": 6.896,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 6.896,
+        "timeline_end": 8.416,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 8.416,
+        "timeline_end": 9.997,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 9.997,
+        "timeline_end": 12.679,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 12.679,
+        "timeline_end": 16.179,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 16.179,
+        "timeline_end": 20.501,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 20.501,
+        "timeline_end": 23.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 23.902,
+        "timeline_end": 28.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 28.902,
+        "timeline_end": 33.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 33.902,
+        "timeline_end": 36.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 36.902,
+        "timeline_end": 39.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      },
+      {
+        "timeline_start": 39.902,
+        "timeline_end": 42.902,
+        "block_type": "speech",
+        "music_behavior": "ducked"
+      }
+    ],
+    "subtitle_overlay": {
+      "available": true,
+      "segments": [
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_1.mov",
+          "timeline_start": 2.182,
+          "timeline_end": 4.682,
+          "block_position": 1,
+          "total_frames": 75
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_10.mov",
+          "timeline_start": 28.402,
+          "timeline_end": 34.402,
+          "block_position": 10,
+          "total_frames": 180
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_11.mov",
+          "timeline_start": 33.402,
+          "timeline_end": 37.402,
+          "block_position": 11,
+          "total_frames": 120
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_12.mov",
+          "timeline_start": 36.402,
+          "timeline_end": 40.402,
+          "block_position": 12,
+          "total_frames": 120
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_13.mov",
+          "timeline_start": 39.402,
+          "timeline_end": 43.402,
+          "block_position": 13,
+          "total_frames": 120
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_2.mov",
+          "timeline_start": 3.567,
+          "timeline_end": 7.396,
+          "block_position": 2,
+          "total_frames": 115
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_3.mov",
+          "timeline_start": 6.396,
+          "timeline_end": 8.916,
+          "block_position": 3,
+          "total_frames": 76
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_4.mov",
+          "timeline_start": 7.916,
+          "timeline_end": 10.665,
+          "block_position": 4,
+          "total_frames": 82
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_5.mov",
+          "timeline_start": 9.497,
+          "timeline_end": 13.179,
+          "block_position": 5,
+          "total_frames": 110
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_6.mov",
+          "timeline_start": 12.179,
+          "timeline_end": 16.779,
+          "block_position": 6,
+          "total_frames": 138
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_7.mov",
+          "timeline_start": 15.678999999999998,
+          "timeline_end": 21.001,
+          "block_position": 7,
+          "total_frames": 160
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_8.mov",
+          "timeline_start": 20.001,
+          "timeline_end": 24.402,
+          "block_position": 8,
+          "total_frames": 132
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_9.mov",
+          "timeline_start": 23.402,
+          "timeline_end": 29.402,
+          "block_position": 9,
+          "total_frames": 180
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/subtitle_segments/sub_block_hook.mov",
+          "timeline_start": 0,
+          "timeline_end": 3.481,
+          "block_position": "hook",
+          "total_frames": 104
+        }
+      ],
+      "format": "ProRes 4444",
+      "has_alpha": true,
+      "fps": 30,
+      "total_segments": 14
+    },
+    "motion_graphics_overlay": {
+      "available": true,
+      "segments": [
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_hook.mov",
+          "timeline_start": 0.0,
+          "timeline_end": 2.682,
+          "block_position": "hook",
+          "total_frames": 80
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_1.mov",
+          "timeline_start": 2.682,
+          "timeline_end": 4.067,
+          "block_position": 1,
+          "total_frames": 42
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_2.mov",
+          "timeline_start": 4.067,
+          "timeline_end": 6.896,
+          "block_position": 2,
+          "total_frames": 85
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_3.mov",
+          "timeline_start": 6.896,
+          "timeline_end": 8.416,
+          "block_position": 3,
+          "total_frames": 46
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_4.mov",
+          "timeline_start": 8.416,
+          "timeline_end": 9.997,
+          "block_position": 4,
+          "total_frames": 47
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_5.mov",
+          "timeline_start": 9.997,
+          "timeline_end": 12.679,
+          "block_position": 5,
+          "total_frames": 80
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_6.mov",
+          "timeline_start": 12.679,
+          "timeline_end": 16.179,
+          "block_position": 6,
+          "total_frames": 105
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_7.mov",
+          "timeline_start": 16.179,
+          "timeline_end": 20.501,
+          "block_position": 7,
+          "total_frames": 130
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_8.mov",
+          "timeline_start": 20.501,
+          "timeline_end": 23.902,
+          "block_position": 8,
+          "total_frames": 102
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_9.mov",
+          "timeline_start": 23.902,
+          "timeline_end": 28.902,
+          "block_position": 9,
+          "total_frames": 150
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_10.mov",
+          "timeline_start": 28.902,
+          "timeline_end": 33.902,
+          "block_position": 10,
+          "total_frames": 150
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_11.mov",
+          "timeline_start": 33.902,
+          "timeline_end": 36.902,
+          "block_position": 11,
+          "total_frames": 90
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_12.mov",
+          "timeline_start": 36.902,
+          "timeline_end": 39.902,
+          "block_position": 12,
+          "total_frames": 90
+        },
+        {
+          "overlay_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/motion_graphics_segments/mg_block_13.mov",
+          "timeline_start": 39.902,
+          "timeline_end": 42.902,
+          "block_position": 13,
+          "total_frames": 90
+        }
+      ],
+      "format": "ProRes 4444",
+      "has_alpha": true,
+      "fps": 30,
+      "total_segments": 14
+    }
+  }
+}

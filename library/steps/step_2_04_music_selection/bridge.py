@@ -65,7 +65,7 @@ def _get_audio_duration(audio_path: str) -> float:
                 "-show_format",
                 audio_path,
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)

@@ -256,6 +256,28 @@ def load_pipeline_state(project_dir: str) -> dict:
     return state
 
 
+def _record_step_failure(state: dict, node_id: str, message: str) -> None:
+    """Record a step failure once, so the ledger reflects state not history.
+
+    `failed_steps` used to be an append-only log: 69 entries accumulated
+    across runs, a step that later succeeded stayed on the list, and the
+    run summary ignored the whole thing anyway.
+    """
+    failed = state.setdefault("failed_steps", [])
+    if node_id not in failed:
+        failed.append(node_id)
+    state.setdefault("step_errors", {})[node_id] = message
+    state.get("steps_completed", {}).pop(node_id, None)
+
+
+def _clear_step_failure(state: dict, node_id: str) -> None:
+    """Drop a step's recorded failure once it has actually succeeded."""
+    failed = state.get("failed_steps")
+    if failed and node_id in failed:
+        state["failed_steps"] = [s for s in failed if s != node_id]
+    state.get("step_errors", {}).pop(node_id, None)
+
+
 def save_pipeline_state(project_dir: str, state: dict):
     """Save pipeline state to project."""
     state_path = os.path.join(project_dir, "pipeline_data.json")
@@ -387,7 +409,7 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         ["python3", entry],
         input=json.dumps(inputs),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=600,
     )
     
@@ -446,7 +468,7 @@ def generate_output_schema_text(outputs: list) -> str:
 
 
 @step_timer(step_id_kwarg="node_id")
-def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300) -> dict:
+def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None) -> dict:
     """Present an LLM step and execute it using LLMClient or AGY backend.
     
     In automated mode, this calls the LLM and returns the parsed output.
@@ -513,8 +535,23 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     expected_schema_str = ""
     llm_manifest = None
     if manifest:
-        outputs = manifest.get("interface", {}).get("outputs", [])
-        llm_outputs = [o for o in outputs if o.get("name") not in inputs]
+        interface = manifest.get("interface", {})
+        # A hybrid step's OUTPUTS are what the step emits; they are not
+        # what the LLM writes. mesh_spine's post-bridge computes
+        # audio_spine and timed_spine from a creative `structure` - asking
+        # the LLM for the computed keys made it fail QA every run and fall
+        # through to "proceeding with best attempt".
+        # `interface.llm_outputs` declares the LLM's actual contribution.
+        if "llm_outputs" in interface:
+            llm_outputs = interface["llm_outputs"]
+        else:
+            outputs = interface.get("outputs", [])
+            # Never ask for a key the step already has: pre-bridge outputs
+            # are merged back in by run_hybrid_step.
+            already_have = set(inputs) | set(bridge_supplied or ())
+            llm_outputs = [
+                o for o in outputs if o.get("name") not in already_have
+            ]
         expected_schema_str = json.dumps(llm_outputs)
         
         llm_manifest = dict(manifest)
@@ -707,7 +744,7 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
         ["python3", str(script_path)],
         input=json.dumps(inputs),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=600,
     )
     if result.returncode != 0:
@@ -745,7 +782,10 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     
     # LLM creative decision on compressed context
     try:
-        llm_output = present_llm_step(prompt_path, compressed, node_id, manifest, full_auto, llm_timeout)
+        llm_output = present_llm_step(
+            prompt_path, compressed, node_id, manifest, full_auto,
+            llm_timeout, bridge_supplied=set(pre_output),
+        )
     except Exception as e:
         raise LLMError(f"LLM generation failed: {e}")
     
@@ -776,6 +816,54 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     if isinstance(llm_output, dict):
         result.update(llm_output)
     return result
+
+
+# Steps whose output is allowed to say "I could not run" without stopping
+# the pipeline.  Everything NOT listed here must produce real output: an
+# `available: false` result from any other step is a failure, not a note.
+OPTIONAL_ANALYSIS_STEPS = frozenset()
+
+
+def check_output_is_real(node_id: str, output: dict) -> list:
+    """Detect steps that report success while emitting nothing usable.
+
+    Three separate steps used to do this in the same run: prosody wrote
+    `available: true` with zero profiles, music_analysis wrote
+    `available: false` around a captured traceback, and the pipeline
+    carried on and still called the run SUCCESS.
+    """
+    problems = []
+    if node_id in OPTIONAL_ANALYSIS_STEPS or not isinstance(output, dict):
+        return problems
+
+    def inspect(value, path):
+        if not isinstance(value, dict):
+            return
+        if value.get("available") is False:
+            reason = value.get("error") or value.get("reason") or "no reason given"
+            problems.append(
+                f"{path} reports available=false: "
+                f"{str(reason).splitlines()[0][:200]}"
+            )
+        elif value.get("available") is True:
+            payload = {
+                k: v for k, v in value.items()
+                if k not in ("available", "error", "reason")
+            }
+            if payload and all(
+                isinstance(v, (list, dict, str)) and len(v) == 0
+                for v in payload.values()
+                if isinstance(v, (list, dict, str))
+            ) and any(isinstance(v, (list, dict)) for v in payload.values()):
+                problems.append(
+                    f"{path} reports available=true but every payload "
+                    f"field is empty: {sorted(payload)}"
+                )
+        for key, sub in value.items():
+            inspect(sub, f"{path}.{key}" if path else key)
+
+    inspect(output, node_id)
+    return problems
 
 
 def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> list:
@@ -843,6 +931,7 @@ def run_pipeline(
     from_step: str = None,
     single_step: str = None,
 
+    dry_run: bool = False,
     auto_mode: bool = False,
     review_mode: bool = False,
     resume_mode: bool = False,
@@ -892,11 +981,23 @@ def run_pipeline(
             steps_to_run.append(node_id)
     
     print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
+
+    if dry_run:
+        for node_id in steps_to_run:
+            impl = get_step_implementation(get_step_dir(nodes[node_id]))
+            done = node_id in state.get("steps_completed", {})
+            print(f"    {'[done] ' if done else '       '}{node_id} "
+                  f"({impl['type']})", file=sys.stderr)
+        summary = {"status": "DRY_RUN", "steps_to_run": steps_to_run}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
+
     
     completed = []
     failed = []
     awaiting_llm = []
-    
+    paused_at_gate = None
+
     current_phase = None
     
     for node_id in steps_to_run:
@@ -921,11 +1022,13 @@ def run_pipeline(
                 if feedback:
                     if feedback.action == "pending":
                         print(f"  ⏸  {node_id}: gate is pending, stopping.", file=sys.stderr)
+                        paused_at_gate = node_id
                         break
                     elif feedback.action == "rejected":
                         print(f"  ✗  {node_id}: rejected by reviewer.", file=sys.stderr)
                         failed.append(node_id)
-                        state.setdefault("failed_steps", []).append(node_id)
+                        _record_step_failure(
+                            state, node_id, "rejected by reviewer at review gate")
                         save_pipeline_state(project_dir, state)
                         break
                     elif feedback.action == "revised":
@@ -1006,8 +1109,7 @@ def run_pipeline(
                         logger = get_logger()
                         if logger:
                             logger.log(step_id=node_id, event_type="step_failed", error=str(step_e))
-                        state.setdefault("failed_steps", []).append(node_id)
-                        state.setdefault("step_errors", {})[node_id] = str(step_e)
+                        _record_step_failure(state, node_id, str(step_e))
                         save_pipeline_state(project_dir, state)
                         failed.append(node_id)
                         break
@@ -1039,9 +1141,15 @@ def run_pipeline(
             
             # Check 1.3: LLM Response Clip ID Validation
             if impl["type"] in ("llm_only", "hybrid") and not is_awaiting:
-                catalog = state.get("step_outputs", {}).get("catalog", {}).get("clips", [])
+                # The catalog step writes `clip_catalog`; reading `clips`
+                # made this check see an empty catalog and warn that every
+                # legitimate clip_id was unrecognized.
+                catalog = state.get("step_outputs", {}).get("catalog", {}).get("clip_catalog", [])
                 catalog_ids = {c.get("clip_id") for c in catalog if c.get("clip_id")}
-                catalog_paths = {c.get("source_path") for c in catalog if c.get("source_path")}
+                catalog_paths = {
+                    c.get(key) for c in catalog
+                    for key in ("source_file", "path") if c.get(key)
+                }
                 
                 def extract_refs(obj, ids, paths):
                     if isinstance(obj, dict):
@@ -1070,8 +1178,28 @@ def run_pipeline(
                 for issue in issues:
                     print(f"       - {issue}", file=sys.stderr)
                 # Do not crash on validation failures (warning mode for now)
-            
+
+            # A step that emits an unavailable or hollow result has not
+            # succeeded, whatever its exit code said.
+            hollow = check_output_is_real(node_id, output)
+            if hollow:
+                message = (
+                    f"Step '{node_id}' reported success but produced no "
+                    f"usable output:\n  - " + "\n  - ".join(hollow)
+                )
+                print(f"     \u2717 FAILED (HollowOutput): {message}", file=sys.stderr)
+                run_logger = get_logger()
+                if run_logger:
+                    run_logger.log(step_id=node_id, event_type="step_failed",
+                                   error=message)
+                _record_step_failure(state, node_id, message)
+                save_pipeline_state(project_dir, state)
+                failed.append(node_id)
+                print("     Stopping pipeline due to failure.", file=sys.stderr)
+                break
+
             state.setdefault("step_outputs", {})[node_id] = output
+            _clear_step_failure(state, node_id)
             state.setdefault("steps_completed", {})[node_id] = {
                 "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "elapsed_s": round(elapsed, 1),
@@ -1103,8 +1231,9 @@ def run_pipeline(
                     summary_md = "Review required for this step."
 
                 completed.append(node_id)
+                paused_at_gate = node_id
                 break
-                
+
             completed.append(node_id)
 
                 
@@ -1114,33 +1243,78 @@ def run_pipeline(
             logger = get_logger()
             if logger:
                 logger.log(step_id=node_id, event_type="step_failed", error=str(e))
-            state.setdefault("failed_steps", []).append(node_id)
+            _record_step_failure(state, node_id, str(e))
             save_pipeline_state(project_dir, state)
             failed.append(node_id)
             break
     
-    # Summary
+    # ── Summary ──
+    # Status is derived from the whole project ledger, not just the steps
+    # this invocation happened to touch.  A resumed run that skipped every
+    # step used to report "Failed: 0" while pipeline_data.json still held
+    # 69 unresolved failures, and that is how a hollow timeline shipped as
+    # SUCCESS.
+    outstanding_failures = sorted(set(state.get("failed_steps", [])))
+    never_run = [
+        node_id for node_id in order
+        if node_id not in state.get("steps_completed", {})
+        and node_id not in awaiting_llm
+    ]
+    # `--step`, `--from` and a review-gate pause all leave DAG steps unrun
+    # on purpose.  Those runs are incomplete, not broken, and must not
+    # report the same status as a run whose steps blew up.
+    partial_invocation = (
+        list(steps_to_run) != list(order) or paused_at_gate is not None
+    )
+
+    if outstanding_failures or failed:
+        status = "FAILED"
+    elif awaiting_llm:
+        status = "AWAITING_LLM"
+    elif never_run:
+        status = "PARTIAL" if partial_invocation else "FAILED"
+    else:
+        status = "SUCCESS"
+
     print(f"\n{'═'*60}", file=sys.stderr)
     print(f"  Pipeline Summary", file=sys.stderr)
     print(f"{'═'*60}", file=sys.stderr)
-    print(f"  Completed:    {len(completed)} steps", file=sys.stderr)
+    print(f"  Status:       {status}", file=sys.stderr)
+    print(f"  Ran now:      {len(completed)} steps", file=sys.stderr)
     print(f"  Awaiting LLM: {len(awaiting_llm)} steps", file=sys.stderr)
-    print(f"  Failed:       {len(failed)} steps", file=sys.stderr)
-    
+    print(f"  Failed now:   {len(failed)} steps", file=sys.stderr)
+    print(f"  Outstanding failures (all runs): "
+          f"{len(outstanding_failures)}", file=sys.stderr)
+    print(f"  Never completed: {len(never_run)} steps", file=sys.stderr)
+    if paused_at_gate:
+        print(f"  Paused at review gate: {paused_at_gate}", file=sys.stderr)
+
     if completed:
         print(f"  ✓ {', '.join(completed)}", file=sys.stderr)
     if awaiting_llm:
         print(f"  ⏸ {', '.join(awaiting_llm)}", file=sys.stderr)
-    if failed:
-        print(f"  ✗ {', '.join(failed)}", file=sys.stderr)
-    
+    if outstanding_failures:
+        print(f"  ✗ {', '.join(outstanding_failures)}", file=sys.stderr)
+        for node_id in outstanding_failures:
+            err = state.get("step_errors", {}).get(node_id, "")
+            print(f"      {node_id}: {str(err).splitlines()[0][:160]}",
+                  file=sys.stderr)
+    if never_run:
+        print(f"  ○ never completed: {', '.join(never_run)}", file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
-    
+
     # Output final state
     summary = {
+        "status": status,
         "completed": completed,
+        "completed_steps": len(state.get("steps_completed", {})),
         "awaiting_llm": awaiting_llm,
         "failed": failed,
+        "outstanding_failures": outstanding_failures,
+        "never_completed": never_run,
+        "partial_invocation": partial_invocation,
+        "paused_at_gate": paused_at_gate,
         "state_file": os.path.join(project_dir, "pipeline_data.json"),
     }
     json.dump(summary, sys.stdout, indent=2)
@@ -1185,6 +1359,8 @@ def main():
     group.add_argument("--slug", help="Project slug (looked up from project registry)")
     parser.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     parser.add_argument("--step", help="Run only this step")
+    parser.add_argument("--dry-run", action="store_true",
+                       help="Print the execution plan without running steps")
 
     parser.add_argument("--auto", action="store_true", 
                        help="Auto-complete hybrid steps (use bridge output as final)")
@@ -1207,17 +1383,23 @@ def main():
         except (ImportError, FileNotFoundError) as e:
             print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
             sys.exit(1)
-    run_pipeline(
+    summary = run_pipeline(
         project_dir=project_dir,
         from_step=args.from_step,
         single_step=args.step,
 
+        dry_run=args.dry_run,
         auto_mode=args.auto,
         review_mode=args.review,
         resume_mode=args.resume,
         full_auto=args.full_auto,
         llm_timeout=args.llm_timeout,
     )
+    # A failed run must look failed to whatever invoked us. Printing
+    # "Status: FAILED" and exiting 0 is how a hollow timeline shipped as a
+    # green CI job.
+    if (summary or {}).get("status") == "FAILED":
+        sys.exit(1)
 
 
 if __name__ == "__main__":
