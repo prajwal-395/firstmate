@@ -130,7 +130,16 @@ def _resolve_cut_block_index(trans: dict, spine_blocks: list):
         for i, b in enumerate(spine_blocks):
             if str(b["position"]) == str(pos):
                 return i if i > 0 else None
-        return None
+        # Position didn't match any spine label - fall through to
+        # timeline-based matching using it as a timeline timestamp.
+        if isinstance(pos, (int, float)):
+            candidates = [
+                (abs(b["timeline_start"] - float(pos)), i)
+                for i, b in enumerate(spine_blocks)
+                if i > 0
+            ]
+            if candidates:
+                return min(candidates)[1]
 
     for key in ("cut_point_original", "cut_point_timeline", "cut_time"):
         if trans.get(key) is not None:
