@@ -1165,7 +1165,11 @@ launch_template() {
     # execution (same flag as claude). agy's turn-end signal is a Stop hook
     # installed in .agents/hooks.json inside the worktree, so no launch
     # placeholder is needed. The template is identical for ship/scout/secondmate.
-    agy) printf '%s' 'agy --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__-i "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # The env scrub mirrors cursor's and muse's: fm-harness.sh checks
+    # ANTIGRAVITY_AGENT LAST in its marker layer, so an agy worker spawned from
+    # a Claude, Pi, or Grok firstmate would otherwise inherit that parent's
+    # marker and report the PARENT's harness instead of agy.
+    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS agy --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__-i "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # muse (Muse Code): a positional prompt starts the supervised interactive
     # session. --yolo is the single flag that makes a crewmate pane viable: muse
     # ships approval prompts AND a filesystem/network sandbox ON by default
@@ -2797,8 +2801,19 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|muse|agy)
+  agy)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS $LAUNCH"
+    ;;
+  claude|codex|opencode|pi|pi-signed|grok|kimi|muse)
+    # ANTIGRAVITY_AGENT is agy's identity marker (bin/fm-harness.sh), and it is
+    # exported into every shell Antigravity opens. Firstmate is routinely driven
+    # from such a terminal, so without this scrub EVERY non-agy worker inherits
+    # the marker and reports itself as agy - the same inheritance hazard the
+    # CURSOR_* scrub above exists for.
+    LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ANTIGRAVITY_AGENT $LAUNCH"
+    ;;
+  cursor)
+    LAUNCH="env -u ANTIGRAVITY_AGENT $LAUNCH"
     ;;
 esac
 # Crewmate panes are created by a long-lived tmux/herdr daemon that does not

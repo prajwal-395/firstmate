@@ -87,7 +87,12 @@ detect_own() {
       *codex*) echo codex; return ;;
       *opencode*) echo opencode; return ;;
       *grok*) echo grok; return ;;
-      *agy*) echo agy; return ;;
+      # agy ships a single stable binary named `agy`, so it is anchored like
+      # kimi and pi rather than globbed like claude/codex (whose installers
+      # produce version-named executables). An unanchored *agy* would misread
+      # a sibling such as agy-helper, exactly the way pi-signed-helper must not
+      # resolve to pi-signed.
+      agy) echo agy; return ;;
       kimi) echo kimi; return ;;
       # muse's installed launcher ~/.local/bin/muse execs ~/.local/bin/muse-bin-<version>
       # (verified in the published launcher, muse 0.1.0-R708.1), so the live process
