@@ -61,12 +61,21 @@
 #   left-bar   - opencode: rows prefixed by a heavy left bar `┃` with no
 #                closing border, holding the idle hint, blank rows, and a
 #                mode/model footer line.
-#   separated  - pi: content rows between two solid horizontal `─` rules, no
-#                glyph and no side border. Provable only with a live agent
-#                identity reporting an idle/done/blocked pi (herdr `agent
-#                get`; the tmux foreground-process probe), because a blank
-#                region between two transcript rules is otherwise exactly the
-#                strict rule's unidentifiable blank row.
+#   separated  - pi and agy: content rows between two solid horizontal `─`
+#                rules, no side border. Provable only with a live agent
+#                identity reporting an idle/done/blocked pi or agy (herdr
+#                `agent get`; the tmux foreground-process probe), because a
+#                blank region between two transcript rules is otherwise
+#                exactly the strict rule's unidentifiable blank row.
+#                pi draws no glyph, so its rows are classified as a blank
+#                region. agy 1.1.12 draws a `>` SHELL glyph on its single
+#                content row (verified capture: a truecolor rule pair at
+#                RGB(65,72,104) bracketing `>` at RGB(122,162,247), followed
+#                by a model/ctx/quota footer OUTSIDE the pair), so its rows go
+#                through the shared container classifier, where a shell glyph
+#                is legitimately empty. That distinction is exactly THE SAFETY
+#                RULE: agy's `>` is proof only because the rule pair contains
+#                it, never on a bare row.
 #
 # THE SAFETY RULE for glyphs: a bare shell prompt glyph (`>` `$` `%` `#`) -
 # what a pane shows once its agent has exited to a plain login shell - is a
@@ -1349,11 +1358,18 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
     return 0
   fi
   agent=${identity%%$'\t'*}
-  if [ "$agent" = pi ]; then
-    _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
-  else
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
-  fi
+  case "$agent" in
+    pi|agy)
+      # agy's `>` row IS the separated composer's content row, so the pair
+      # verdict owns it. Falling through to the bare-row reader would apply
+      # THE SAFETY RULE to a shell glyph that is legitimately contained, and
+      # every agy pane would read unknown.
+      _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
+      ;;
+    *)
+      _fm_composer_classify_bare_row "$screen" "$styled" "$row"
+      ;;
+  esac
 }
 
 # The pi separated-shape verdict: identity + structure conjunction (herdr's
@@ -1377,15 +1393,35 @@ _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
   fi
   agent=${identity%%$'\t'*}
   agent_status=${identity#*$'\t'}
-  if [ "$agent" != pi ] || [ "$FM_COMPOSER_SCAN_PI_PAIR_VALID" != 1 ]; then
+  case "$agent" in
+    pi|agy) ;;
+    *) printf 'unknown'; return 0 ;;
+  esac
+  if [ "$FM_COMPOSER_SCAN_PI_PAIR_VALID" != 1 ]; then
     printf 'unknown'
     return 0
   fi
-  state=$(_fm_composer_classify_pi_rows "$screen" "$styled")
-  if [ "$state" = pending ]; then
-    printf 'pending'
-    return 0
+  if [ "$agent" = agy ]; then
+    # agy puts a `>` shell glyph on its content row, so the shared container
+    # classifier is the right reader: inside this proven rule pair a shell
+    # glyph is an empty composer, and it also applies the ghost/idle-text and
+    # styled=0 degradation rules uniformly. ambiguous=0 because the pair was
+    # already validated above.
+    state=$(_fm_composer_classify_rows "$screen" "$styled" 0 \
+      "$((FM_COMPOSER_SCAN_PI_OPEN + 1))" "$((FM_COMPOSER_SCAN_PI_CLOSE - 1))")
+  else
+    state=$(_fm_composer_classify_pi_rows "$screen" "$styled")
   fi
+  case "$state" in
+    pending|pending-unproven)
+      printf '%s' "$state"
+      return 0
+      ;;
+    unknown)
+      printf 'unknown'
+      return 0
+      ;;
+  esac
   case "$agent_status" in
     idle|done|blocked) printf 'empty' ;;
     *) printf 'unknown' ;;
