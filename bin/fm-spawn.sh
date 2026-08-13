@@ -1389,7 +1389,7 @@ model_flag_for_harness() {
 }
 
 effort_flag_for_harness() {
-  local harness=$1 effort=$2
+  local harness=$1 effort=$2 model=${3:-}
   [ -n "$effort" ] && [ "$effort" != default ] || return 0
   case "$harness" in
     claude)
@@ -1438,6 +1438,15 @@ effort_flag_for_harness() {
     agy)
       # agy accepts --effort low|medium|high. It does not support xhigh or max,
       # so those are omitted rather than passed as unsupported values.
+      #
+      # agy's display-name models bake effort into the name as a parenthesized
+      # suffix ("Gemini 3.1 Pro (High)"). Passing a separate --effort alongside
+      # such a model makes agy SILENTLY fall back to its default model rather
+      # than erroring, so the effort flag is skipped when the model already
+      # carries one. Verified 2026-08-05; see data/learnings.md.
+      case "$model" in
+        *'('[Ll]ow')'*|*'('[Mm]edium')'*|*'('[Hh]igh')'*) return 0 ;;
+      esac
       case "$effort" in
         low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
@@ -2773,7 +2782,7 @@ sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
+EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL")
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
