@@ -58,6 +58,10 @@ library/steps/step_6_01_render/fusion_comps/
 # Exported Resolve project files
 library/steps/step_6_01_render/drp_exports/
 
+# Root pipeline artifacts
+/pipeline_output/
+/.vision_cache/
+
 # ─── Project data (lives in PROJECTS_ROOT, not in the repo) ──
 # These directories contain project-specific assets that are
 # managed by the project registry and should not be in git.
@@ -69,3 +73,4 @@ Lucie Podcast/
 /tmp/
 .env
 .venv/
+/pr_body.md

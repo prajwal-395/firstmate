@@ -8,7 +8,7 @@ out
 
 # Compositions are assets - the src/compositions/ symlink points to the
 # shared assets directory (PIPELINE_REMOTION_COMPOSITIONS env var).
-src/compositions
+# (Comment retained for history; directory is currently tracked)
 
 # Brand assets are project-specific and populated at render time.
 public/brand/*
