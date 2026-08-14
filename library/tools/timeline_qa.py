@@ -83,13 +83,52 @@ def verify_clip_placement(timeline, track_items, manifest_clips) -> QAReport:
 
     return report
 
-def verify_transitions(timeline, track_items, manifest_transitions) -> QAReport:
-    """Station 2: After transitions. Verify transitions exist between correct clips."""
+def verify_transitions(timeline, track_items, fusion_transitions) -> QAReport:
+    """Station 2: after the Fusion pass. Each transition must be on a clip.
+
+    Takes `fusion_effects.transitions` - the list carrying `after_clip`,
+    the index of the OUTGOING V1 clip. A transition is drawn as a tail
+    effect on that clip and a head effect on the next one, so both must
+    come back with a Fusion composition on them.
+
+    This station used to be a stub that returned `passed=True` without
+    looking at anything, which is why zero transitions reaching the video
+    went unnoticed for the whole life of the pipeline.
+    """
     report = QAReport(station="transitions", passed=True)
-    # Check if clips have fusion comps if they're macro transitions, or whatever logic
-    # For each expected transition: check V2 clip exists at boundary, has Fusion comp
-    # The prompt actually says: "For each expected transition: check V2 clip exists at boundary, has Fusion comp" Wait, no, it says: "For each expected transition: check V2 clip exists at boundary, has Fusion comp". Oh, maybe transitions are added on V2? Or it just means checking if the transition is applied via fusion comp.
-    
+    if not fusion_transitions:
+        return report
+
+    v1_items = timeline.GetItemListInTrack("video", 1) or []
+
+    def has_comp(index):
+        if index >= len(v1_items):
+            return None
+        return bool(v1_items[index].GetFusionCompNameList())
+
+    for spec in fusion_transitions:
+        after_clip = spec.get("after_clip")
+        ttype = spec.get("type", "?")
+        if after_clip is None:
+            report.checks.append(QACheck(
+                name=f"transition_{ttype}_after_clip",
+                passed=False, expected="a V1 clip index", actual=None,
+            ))
+            report.passed = False
+            continue
+
+        for role, index in (("tail", after_clip), ("head", after_clip + 1)):
+            present = has_comp(index)
+            if present:
+                continue
+            report.checks.append(QACheck(
+                name=f"transition_{ttype}_{role}_on_v1[{index}]",
+                passed=False,
+                expected="a Fusion comp on the clip",
+                actual="no clip at that index" if present is None else "no comp",
+            ))
+            report.passed = False
+
     return report
 
 def verify_color_grades(timeline, track_items, manifest_color) -> QAReport:

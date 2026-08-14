@@ -59,8 +59,12 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(adj["c2"]["slope_r"], 2.0)
         self.assertEqual(adj["c3"]["slope_r"], 0.5)
         
-        self.assertEqual(adj["c1"]["offset_r"], 0.02)
-        self.assertEqual(adj["c1"]["offset_b"], -0.02)
+        # White balance offset (200/10000) PLUS node_2's lift_shadows
+        # (0.02), which was designed and then dropped on the floor: only
+        # the white balance used to reach the CDL.
+        self.assertEqual(adj["c1"]["offset_r"], 0.04)
+        self.assertEqual(adj["c1"]["offset_g"], 0.02)
+        self.assertEqual(adj["c1"]["offset_b"], 0.0)
         
         inputs = {
             "color_grade_spec": spec,
@@ -143,12 +147,22 @@ class TestIntegration(unittest.TestCase):
                 {"source_clip_id": "c_lowres", "source_file": files["l.mov"], "width": 720, "height": 1280},
                 {"source_clip_id": "c_standard", "source_file": files["s.mov"], "width": 1920, "height": 1080},
             ],
+            # The documents key step_1_03 actually writes, carrying the
+            # fields the vision schemas actually have. `tags` and
+            # `description` were fiction: the reader looked for them and
+            # neither schema has ever produced them.
             "semantic_analysis": {
-                "clips": [
-                    {"clip_id": "c_handheld", "tags": ["handheld footage"]},
-                    {"clip_id": "c_interview", "description": "a person speaking, interview setting"},
+                "semantic_analysis_documents": [
+                    {"clip_id": "c_handheld",
+                     "analysis": {"motion": "Handheld throughout, the frame "
+                                            "drifts and shakes."}},
+                    {"clip_id": "c_interview",
+                     "analysis": {"motion": "The camera is locked off on a "
+                                            "tripod and stays still."},
+                     "assessment": {"clip_type": "a-roll"}},
                     {"clip_id": "c_lowres"},
-                    {"clip_id": "c_standard"}
+                    {"clip_id": "c_standard",
+                     "analysis": {"motion": "The camera remains stationary."}}
                 ]
             },
             "clip_catalog": [
@@ -180,9 +194,13 @@ class TestIntegration(unittest.TestCase):
             return {}
             
         self.assertTrue(get_dir(files["h.mov"]).get("stabilize"))
-        self.assertTrue(get_dir(files["i.mov"]).get("magic_mask"))
+        # A locked-off camera must NOT be stabilised.
+        self.assertNotIn("stabilize", get_dir(files["i.mov"]))
         self.assertEqual(get_dir(files["l.mov"]).get("super_scale"), 2)
         self.assertNotIn("super_scale", get_dir(files["s.mov"]))
+        # Magic Mask is withdrawn - see library/tools/neural_engine.py.
+        for name in files.values():
+            self.assertNotIn("magic_mask", get_dir(name))
         
         # Verify directives appear in compile_manifest() as well
         # We can't easily test compile_manifest() since it reads from files,

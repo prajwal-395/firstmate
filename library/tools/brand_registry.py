@@ -8,12 +8,18 @@ except ImportError:
     yaml = None
 
 from library.schemas.brand_template import BrandTemplate, StyleSlots, EffectSlots, ContentSlots
+from library.tools.transition_vocabulary import PLANNABLE_TYPES
 
 def _get_default_template() -> BrandTemplate:
     return BrandTemplate(
         series_id="default",
         style=StyleSlots(color_palette=["#ffffff", "#000000"], energy_profile="moderate"),
-        effect=EffectSlots(transition_types=["cut", "dissolve"], sfx_density="moderate"),
+        # The fallback allow-list governs whenever no template resolves, so
+        # it has to be the full drawable vocabulary. "dissolve" sat here and
+        # is not drawable at all - see library/tools/transition_vocabulary.py.
+        effect=EffectSlots(
+            transition_types=list(PLANNABLE_TYPES), sfx_density="moderate"
+        ),
         content=ContentSlots(music_genre=["ambient"])
     )
 

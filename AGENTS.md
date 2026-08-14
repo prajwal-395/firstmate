@@ -97,6 +97,36 @@ One `ImportFusionComp` returns a Composition object, not a boolean, so check `cl
 Tool loading is lazy and `GetToolList()` may show 0 tools immediately after import.
 For reliable bulk comp building, use `comp.AddTool()` on the Fusion page to bypass lazy loading.
 
+### Transitions go through Fusion. Both other routes are closed.
+Captain's ruling: the Python timeline builder plus Fusion IS the
+architecture, not a workaround. **FCPXML** is deprecated - it does not
+recognise DaVinci's effects, and Resolve's importer silently degrades
+unrecognised transitions to Cross Dissolve and scrambles the audio track
+layout on a round trip (both measured; see the corrected table at
+`research/drp_reverse_engineering.md:98-106`). **DRP project-file surgery**
+wrote to a temp file the renderer never loaded, and could not fire.
+`library/tools/execution/apply_native_transitions.py` and its test remain
+in the tree unused - do not wire either route back in.
+
+Every transition type the pipeline may plan lives in ONE enumeration,
+`library/tools/transition_vocabulary.py`, with a recorded reason for each
+withdrawn type. `tests/test_transition_vocabulary.py` checks the handoff
+toolkit, the brand templates, the registry fallback and the renderer's
+dispatch against it - a type advertised anywhere else fails CI. Adding a
+transition means adding a builder to `library/tools/fusion/effects.py`
+first. Note that no per-clip Fusion comp can mix two clips, so there is
+no cross dissolve or wipe on this route.
+
+### Resolve API facts that cost a debugging cycle each
+`hasattr` is **always True** on Resolve's scripting proxies, including
+invented names - guard on return values, never on `hasattr`.
+`TimelineItem.Stabilize()` works. `CreateMagicMask` returns False for
+every mode, so it is withdrawn. Super Scale is a **MediaPoolItem**
+property taking an **int**, with the companion keys
+`SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after
+Super); setting it on a TimelineItem or passing `"2"` silently returns
+False.
+
 ### Fusion .comp Files - NEVER DO THESE
 Never use `ApplyMode` in a Merge node because it crashes Resolve with a SIGSEGV.
 Never use `Path {}` when a Merge node exists in the same comp because it causes black output.
@@ -273,6 +303,20 @@ timeline builder allocates A3, A4, ... Identical SFX positions are not.
 differs from the step's outputs (e.g. mesh_spine's LLM writes `structure`;
 the post-bridge computes `audio_spine`/`timed_spine`). Without it the QA
 loop demands post-bridge outputs from the LLM and every attempt "fails".
+
+**A capability is only real where the renderer reads it.** The renderer
+dispatches on parameter NAMES
+(`library/tools/execution/apply_fusion_comps.build_effect_comp`), so a
+planner emitting a name nothing reads produces a comp without that effect
+and no warning - `zoom_percent`, `intensity_px` and `scale_factor` killed
+three of five VFX types that way, and four of the colour grade's five
+nodes had no reader at all. When you add a knob, add it to
+`build_effect_comp` in the same commit and assert it draws nodes
+(`tests/test_vfx_delivery.py`). When a design node cannot be delivered,
+record the reason where the design lives - see
+`GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/step.py` and
+`WITHDRAWN` in `transition_vocabulary.py`. Withdrawal is a legitimate
+outcome; a silent unread key is not.
 
 **One vision schema, two views.** `vision_pipeline_v3.py` emits
 `scene[]/camera[]/actions[]/objects[]/assessment{}`; consumers historically

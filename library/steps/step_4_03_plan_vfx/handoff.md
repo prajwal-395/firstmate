@@ -30,13 +30,19 @@ apply. Focus on talking head clips that need subtle movement.
 
 ### Effect toolkit:
 
-| Type | Parameters | When to use |
-|------|-----------|------------|
-| `slow_zoom` | direction (in/out), zoom_percent (5-10%) | Nearly always on talking head clips — makes static shots feel alive |
-| `screen_shake` | intensity_px (2-3), duration_frames (3-4), trigger_reason | Emphasis moments — use sparingly (max 2-3 per video) |
-| `zoom_emphasis` | zoom_percent (5%), trigger_time, duration_ms (150-300) | Key words/moments — punctuates important statements |
-| `cut_in` | scale_factor (1.2-1.4) | Tighter framing on same shot — simulates multi-cam |
-| `cut_out` | scale_factor (0.85-0.95) | Wider framing — creates visual variety |
+Every effect takes exactly one parameter: `intensity`, one of `subtle`,
+`moderate` or `strong`. The bridge turns that into the concrete Fusion
+parameters — do not send zoom percentages, pixel counts or durations, they
+have no reader.
+
+| Type | When to use |
+|------|------------|
+| `slow_zoom_in` | Nearly always on talking head clips — makes static shots feel alive |
+| `slow_zoom_out` | The same, drifting the other way; alternate for variety |
+| `zoom_emphasis` | Key words/moments — punches in and settles back |
+| `screen_shake` | Emphasis moments — an impact that settles. Use sparingly (max 2-3 per video) |
+| `cut_in` | Tighter framing held for the shot — simulates multi-cam |
+| `cut_out` | Wider framing held for the shot — creates visual variety |
 
 **DaVinci Resolve Built-in Fusion Effects:**
 You can also use any of the 143 built-in Fusion effects by providing their exact snake_case name as the `effect_type`.
@@ -45,7 +51,10 @@ Available built-in effects include:
 
 ### Rules:
 - You MUST plan at least 3-7 VFX items across the video. An empty list is a failure.
-- Every A-roll talking head clip >3 seconds MUST have at least slow_zoom
+- Use only the type names above or an exact built-in effect name. Anything
+  else is dropped, not approximated.
+- Every A-roll talking head clip >3 seconds MUST have at least `slow_zoom_in`
+  or `slow_zoom_out`
 - Screen shake: sparingly — max 2-3 per video
 - Zoom emphasis: only for genuinely important moments
 - Animation timing: 100-200ms for micro-animations, never >500ms

@@ -32,24 +32,38 @@ BPM for beat-aligned cuts.
 
 ### Transition toolkit:
 
+This is the complete list. Every type here is drawn by the renderer; the
+list is checked against `library/tools/transition_vocabulary.py` in CI, so
+nothing is offered that the finished video cannot show.
+
 | Type | Parameters | When to use |
 |------|-----------|------------|
 | `hard_cut` | None | Default — instant cut |
 | `jump_cut` | None | Same subject, different moment (implies time skip) |
-| `whip_pan` | direction, speed | Energy shifts, scene changes |
-| `zoom_transition` | direction, speed | Emphasis, reveals |
-| `match_cut` | match_element | Shape/motion/composition matching |
-| `j_cut` | audio_overlap_seconds | Smooth audio continuity (audio precedes video) |
-| `l_cut` | audio_overlap_seconds | Extended audio feel (audio lingers) |
-| `cross_dissolve` | duration_frames (8-15) | Time passing, mood shifts |
-| `light_leak` | asset_id, opacity | Stylistic warmth, dreamy quality |
+| `match_cut` | None | Shape/motion/composition matching across the cut |
+| `fade_to_black` | duration_feel | Dip to black. Chapter breaks, time passing |
+| `zoom_blur` | duration_feel | Crash zoom. Energy spikes, punches into a line |
+| `defocus` | duration_feel | Blur through the cut. Mood shifts, soft scene changes |
+| `flash` | duration_feel | Brightness flash. Beat hits, hard energy changes |
+
+`duration_feel` is one of `instant`, `quick`, `medium`, `slow`.
+
+### Not available — do not use:
+
+`cross_dissolve`, `dissolve` and `wipe` need the outgoing and incoming
+clips mixed in one composition. The renderer draws each clip's effects on
+that clip alone, so it cannot mix two. `fade_to_black` is a dip to black,
+not a dissolve — it is not a substitute, so do not ask for one expecting
+the other.
+
+`whip_pan`, `light_leak`, `j_cut` and `l_cut` have no implementation.
+J/L cuts are audio edits and are handled by the audio pass, not here.
 
 ### Rules:
 - You MUST output a transition entry for EVERY single cut point in the shot list.
 - Hard cuts dominate — use `hard_cut` as the default for most cuts.
 - Never repeat the same creative transition type consecutively
 - Beat-align major transitions when BPM data is available
-- J/L-cut audio overlaps max 1 second
 - Match energy of surrounding content
 
 ### Context data available:
@@ -113,4 +127,4 @@ energy profile.
 | Failure Mode | Action |
 |-------------|--------|
 | BPM data unavailable | Skip beat alignment, place at existing cut points |
-| VFX asset unavailable for light leak | Fall back to cross dissolve or hard cut |
+| A type outside the toolkit is requested | The bridge downgrades it to `hard_cut` and records `downgrade_reason` on the entry |

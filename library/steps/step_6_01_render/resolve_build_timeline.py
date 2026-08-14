@@ -34,31 +34,21 @@ from typing import Optional
 # Add tools to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
 try:
-    from neural_engine import apply_magic_mask, apply_smart_reframe, apply_super_scale, apply_stabilization
+    from neural_engine import apply_smart_reframe, apply_super_scale, apply_stabilization
     from fairlight_presets import get_preset, apply_fairlight_preset
     from timeline_qa import (
         verify_clip_placement, verify_transitions, verify_color_grades,
         verify_audio, verify_fusion_comps, run_full_timeline_qa
     )
-    from execution.apply_native_transitions import apply_native_transitions
     from visual_qa_router import (
         plan_qa_checks, execute_frame_grab, execute_video_segment_check,
         analyze_frame_locally, format_frame_grab_for_llm, format_segment_result_for_llm
     )
 except ImportError:
-    apply_magic_mask = apply_smart_reframe = apply_super_scale = apply_stabilization = None
+    apply_smart_reframe = apply_super_scale = apply_stabilization = None
     get_preset = apply_fairlight_preset = None
     verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
-    apply_native_transitions = None
     plan_qa_checks = None
-
-
-# ─── Mappings ────────────────────────────────────────────────
-
-NATIVE_TRANSITIONS = {
-    "cross_dissolve": "Cross Dissolve",
-    "dissolve": "Cross Dissolve",
-}
 
 
 # ─── Resolve Connection ──────────────────────────────────────
@@ -504,7 +494,13 @@ def build_timeline(
     v1_timeline_items = []
     v1_placed_labels = []
 
-    # Pre-process J/L cuts from native transitions
+    # Pre-process J/L cuts from the planner's transition list.
+    # UNREACHABLE as it stands, deliberately left in place: it needs a
+    # from_block/to_block or "between_N_M" position that the transition
+    # spec has never carried, and j_cut/l_cut are withdrawn from the
+    # plannable vocabulary because they are audio edits (see
+    # library/tools/transition_vocabulary.py). Reviving them belongs with
+    # the audio pass, which owns everything this block touches.
     native_transitions = manifest.get('transitions', [])
     for ci, clip in enumerate(v1_clips):
         src_in = clip.get('source_in', 0)
@@ -702,9 +698,6 @@ def build_timeline(
 
         results["tracks"]["V2"] = v2_count
         
-    if verify_transitions:
-        _run_qa(verify_transitions(timeline, {}, manifest.get("transitions", [])))
-
     # ══════════════════════════════════════════════════════════
     # PLACE V3: Subtitle Overlay Segments (Remotion)
     # ══════════════════════════════════════════════════════════
@@ -1007,48 +1000,75 @@ def build_timeline(
         _run_qa(verify_fusion_comps(
             timeline, None, manifest.get("fusion_effects", {})))
 
+    # Transitions are drawn by the Fusion pass above, so the station that
+    # checks them has to run after it - not back at V2 placement, where it
+    # used to sit and could never have seen a comp.
+    planned_transitions = manifest.get("fusion_effects", {}).get("transitions", [])
+    if verify_transitions:
+        transition_report = verify_transitions(timeline, None, planned_transitions)
+        _run_qa(transition_report)
+        # An individual miss is a warning; every single one missing is the
+        # collapse this whole layer exists to catch - zero transitions of
+        # any kind reached the finished video for the life of the
+        # pipeline, and nothing noticed.
+        if planned_transitions and not transition_report.passed:
+            v1_with_comps = sum(
+                1 for item in (timeline.GetItemListInTrack("video", 1) or [])
+                if item.GetFusionCompNameList()
+            )
+            if v1_with_comps == 0:
+                results["errors"].append(
+                    f"{len(planned_transitions)} transitions were planned "
+                    f"and not one clip on V1 carries a Fusion comp"
+                )
+
     # ══════════════════════════════════════════════════════════
     # NEURAL ENGINE DIRECTIVES (Per-Clip)
     # ══════════════════════════════════════════════════════════
     neural_directives = manifest.get('neural_engine_directives', {})
     if neural_directives and apply_stabilization is not None:
         print(f"\n── Neural Engine: {len(neural_directives)} clips ──", file=sys.stderr)
-        # Apply to V1
-        v1_items = timeline.GetItemListInTrack("video", 1) or []
-        for ci, label in enumerate(v1_placed_labels):
-            if label in neural_directives and ci < len(v1_items):
+
+        def _apply_directives(track, items, labels):
+            """Apply one track's directives, recording what really happened.
+
+            The wrappers return False when Resolve declines - which they
+            do - and this used to print a tick regardless of the answer.
+            Magic Mask is not handled at all: CreateMagicMask returns
+            False for every mode, so compile_manifest no longer emits it.
+            """
+            for ci, label in enumerate(labels):
+                if label not in neural_directives or ci >= len(items):
+                    continue
                 directives = neural_directives[label]
-                tl_clip = v1_items[ci]
-                
+                tl_clip = items[ci]
+
                 if directives.get('stabilize'):
-                    apply_stabilization(tl_clip)
-                    print(f"  ✓ [{ci}] {label}: Stabilization applied", file=sys.stderr)
+                    ok = apply_stabilization(tl_clip)
+                    mark = "✓" if ok else "✗"
+                    print(f"  {mark} [{track}{ci}] {label}: Stabilization",
+                          file=sys.stderr)
+                    if not ok:
+                        results["warnings"].append(
+                            f"Stabilization refused on {track}{ci} {label}")
                 if directives.get('super_scale'):
-                    apply_super_scale(tl_clip, scale_factor=directives['super_scale'])
-                    print(f"  ✓ [{ci}] {label}: Super Scale {directives['super_scale']}x applied", file=sys.stderr)
-                if directives.get('magic_mask'):
-                    apply_magic_mask(tl_clip)
-                    print(f"  ✓ [{ci}] {label}: Magic Mask applied", file=sys.stderr)
-                    
-        # Apply to V2
-        v2_items = timeline.GetItemListInTrack("video", 2) or []
-        # if v2_clips is empty, v2_placed_labels might not exist if it was skipped entirely
-        v2_labels = v2_placed_labels if 'v2_placed_labels' in locals() else []
-        for ci, label in enumerate(v2_labels):
-            if label in neural_directives and ci < len(v2_items):
-                directives = neural_directives[label]
-                tl_clip = v2_items[ci]
-                
-                if directives.get('stabilize'):
-                    apply_stabilization(tl_clip)
-                    print(f"  ✓ [{ci}] {label}: Stabilization applied", file=sys.stderr)
-                if directives.get('super_scale'):
-                    apply_super_scale(tl_clip, scale_factor=directives['super_scale'])
-                    print(f"  ✓ [{ci}] {label}: Super Scale {directives['super_scale']}x applied", file=sys.stderr)
-                if directives.get('magic_mask'):
-                    apply_magic_mask(tl_clip)
-                    print(f"  ✓ [{ci}] {label}: Magic Mask applied", file=sys.stderr)
-                    
+                    ok = apply_super_scale(
+                        tl_clip, scale_factor=directives['super_scale'])
+                    mark = "✓" if ok else "✗"
+                    print(f"  {mark} [{track}{ci}] {label}: Super Scale "
+                          f"{directives['super_scale']}x", file=sys.stderr)
+                    if not ok:
+                        results["warnings"].append(
+                            f"Super Scale refused on {track}{ci} {label}")
+
+        _apply_directives(
+            "V1", timeline.GetItemListInTrack("video", 1) or [],
+            v1_placed_labels)
+        # v2_placed_labels only exists when V2 placement ran at all.
+        _apply_directives(
+            "V2", timeline.GetItemListInTrack("video", 2) or [],
+            v2_placed_labels if 'v2_placed_labels' in locals() else [])
+
     # ══════════════════════════════════════════════════════════
     # SMART REFRAME (Timeline Level)
     # ══════════════════════════════════════════════════════════
@@ -1143,7 +1163,14 @@ def build_timeline(
                     except Exception as e:
                         results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
 
-                if powergrade_path and os.path.exists(powergrade_path):
+                if powergrade_path:
+                    if not os.path.exists(powergrade_path):
+                        raise FileNotFoundError(
+                            f"color_grade.powergrade_path points at "
+                            f"{powergrade_path}, which does not exist. A "
+                            f"missing PowerGrade used to be skipped without "
+                            f"a word, so the grade simply never happened."
+                        )
                     res = item.ApplyGradeFromDRX(powergrade_path, 1)
                     if res:
                         print(f"  ✓ Applied PowerGrade to {clip_name}", file=sys.stderr)
@@ -1185,66 +1212,14 @@ def build_timeline(
         timeline.SetTrackName("audio", i, label)
         print(f"  A{i}: {label}", file=sys.stderr)
 
-    # ══════════════════════════════════════════════════════════
-    # DRP TRANSITION SURGERY (Pass 2)
-    # ══════════════════════════════════════════════════════════
-    if apply_native_transitions:
-        native_transitions = manifest.get('transitions', [])
-        trans_ops = []
-        for trans in native_transitions:
-            ttype = trans.get('transition_type', trans.get('type', ''))
-            mapped_type = NATIVE_TRANSITIONS.get(ttype)
-            if mapped_type:
-                from_idx = trans.get('from_block')
-                to_idx = trans.get('to_block')
-                if from_idx is None:
-                    pos = trans.get('position', '')
-                    if pos.startswith('between_'):
-                        parts = pos.replace('between_', '').split('_')
-                        if len(parts) == 2:
-                            from_idx = int(parts[0])
-                            to_idx = int(parts[1])
-                
-                from_clip_idx = None
-                if from_idx is not None:
-                    for ci, clip in enumerate(v1_clips):
-                        label = clip.get('label', '')
-                        if label.endswith(f"_{from_idx}") or f"_{from_idx}_seg" in label:
-                            from_clip_idx = ci
-                            break
-                            
-                if from_clip_idx is not None:
-                    at_frame = v1_clips[from_clip_idx].get('timeline_out_frame')
-                    if at_frame:
-                        trans_ops.append({
-                            "track": 1,
-                            "at_frame": at_frame,
-                            "duration_frames": trans.get('duration_frames', 24),
-                            "type": mapped_type
-                        })
-                        
-        if trans_ops:
-            print(f"\n── DRP Transition Surgery: {len(trans_ops)} transitions ──", file=sys.stderr)
-            import tempfile
-            drp_fd, drp_path = tempfile.mkstemp(suffix=".drp")
-            os.close(drp_fd)
-            os.remove(drp_path)
-            
-            project_name_str = project.GetName()
-            if pm.ExportProject(project_name_str, drp_path):
-                print(f"  ✓ Exported project to {drp_path}", file=sys.stderr)
-                try:
-                    apply_native_transitions(drp_path, trans_ops)
-                    print(f"  ✓ Applied {len(trans_ops)} native transitions to DRP", file=sys.stderr)
-                    print(f"  ⚠ RELOAD REQUIRED: DRP surgery completed. The modified project is saved at:", file=sys.stderr)
-                    print(f"    {drp_path}", file=sys.stderr)
-                    print(f"  ⚠ Please import this DRP manually to see the native transitions.", file=sys.stderr)
-                except Exception as e:
-                    print(f"  ✗ DRP Surgery failed: {e}", file=sys.stderr)
-                    if os.path.exists(drp_path):
-                        os.remove(drp_path)
-            else:
-                print(f"  ✗ Failed to export project {project_name_str} to DRP", file=sys.stderr)
+    # The DRP transition-surgery pass used to sit here. It exported the
+    # project to a temp .drp, edited it, and printed "RELOAD REQUIRED /
+    # please import this DRP manually" - while step_6_01_render went on to
+    # export the live, unmodified timeline. It could not fire in any case:
+    # it needed a from_block or "between_N_M" position that the transition
+    # spec has never carried. Transitions go through Fusion (see
+    # library/tools/transition_vocabulary.py); the surgery tool and its
+    # test remain in the tree unused.
 
     # ══════════════════════════════════════════════════════════
     # VERIFICATION

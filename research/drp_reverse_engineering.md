@@ -97,13 +97,45 @@ For each editing technique, we evaluate what's possible across all methods.
 
 ### Transitions
 
+> [!CAUTION]
+> **The FCPXML rows in this section were wrong, and this document caused a
+> route to be chosen on the strength of them. Corrected 2026-08-14.**
+>
+> FCPXML is **not** the transition route for this pipeline, by the
+> captain's ruling: it does not recognise DaVinci's own effects and
+> Resolve's importer handles real projects badly. That is precisely why
+> the pipeline builds its timeline through the Python API and applies
+> Fusion to it - the Fusion path is the architecture, not a workaround.
+>
+> Two things measured against Resolve 21.0.0b while checking this table,
+> which corroborate the ruling:
+>
+> - **Unrecognised transitions degrade silently to Cross Dissolve.** An
+>   FCPXML naming `Smooth Cut`, `Additive Dissolve` or `Wipe Right`
+>   imports without complaint and the timeline item comes back named
+>   `Cross Dissolve`. The re-export still echoes the original name from
+>   the `<effect>` resource, so a round trip *looks* faithful while the
+>   picture is not. "⚠️ Partial, need the right `.motr` UID" was too
+>   generous: the failure is silent, which is worse than an error.
+> - **A round trip scrambles the audio track layout.** Exporting a real
+>   built timeline (V1-V4 + A1 speech / A2 music / A3 SFX) and importing
+>   it back put music on A1, SFX on A2 and speech split across A3 and A4.
+>   Any per-track audio work downstream would be operating on the wrong
+>   tracks.
+>
+> A plain cross dissolve *does* survive on a stripped, video-only
+> timeline. That is the trivial case and it is not evidence about
+> anything this pipeline builds. **Do not re-derive a route from this
+> table.**
+
 | Technique | Can We Do It? | How | Notes |
 |---|---|---|---|
-| **Cross dissolve** | ✅ Full | FCPXML | `<transition name="Cross Dissolve">` with duration and offset. Proven working. |
-| **Dip to black** | ✅ Full | FCPXML | Same transition element with different effect ref. |
-| **Wipe / Iris / Push** | ⚠️ Partial | FCPXML | Need correct `.motr` effect UID. Resolve ships many transition types but you need to find each one's UID. |
-| **Custom GPU transitions** | ❌ | — | Requires OFX plugins or Fusion comps, can't be specified in FCPXML. |
-| **Variable-duration transitions** | ✅ Full | FCPXML | Duration is a parameter on the transition element. |
+| **Cross dissolve** | ❌ (route rejected) | — | Survives an FCPXML round trip only on a stripped video-only timeline; the route is closed regardless. There is no true two-clip dissolve on the Fusion route either - see `library/tools/transition_vocabulary.py`. |
+| **Dip to black** | ✅ Full | Fusion | `fade_to_black`, drawn as a tail effect on the outgoing clip and a head effect on the incoming one. |
+| **Wipe / Iris / Push** | ❌ | — | Needs both clips composited together, which a per-clip Fusion comp never has. FCPXML silently substitutes a cross dissolve. |
+| **Custom GPU transitions** | ❌ | — | Requires OFX plugins. |
+| **Blur / crash zoom / flash** | ✅ Full | Fusion | `defocus`, `zoom_blur`, `flash` - see `library/tools/fusion/effects.py`. |
+| **Variable-duration transitions** | ✅ Full | Fusion | `duration_frames` on the transition spec drives the head/tail keyframes. |
 
 ---
 

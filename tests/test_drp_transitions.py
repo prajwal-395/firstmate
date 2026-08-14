@@ -3,7 +3,12 @@ import os
 import zipfile
 from io import BytesIO
 from library.tools.execution.apply_native_transitions import apply_native_transitions
-from library.steps.step_6_01_render.resolve_build_timeline import NATIVE_TRANSITIONS
+
+# apply_native_transitions is an UNUSED tool. The DRP-surgery route it
+# belongs to is closed: it wrote to a temp file that the renderer never
+# loaded, and the pipeline draws transitions with Fusion instead (see
+# library/tools/transition_vocabulary.py). These tests keep the tool
+# honest; nothing in the pipeline calls it.
 
 @pytest.fixture
 def dummy_drp():
@@ -37,11 +42,6 @@ def dummy_drp():
         z.writestr("SeqContainer1.xml", xml_content)
     
     return buf.getvalue()
-
-def test_transition_type_mapping():
-    assert NATIVE_TRANSITIONS.get("cross_dissolve") == "Cross Dissolve"
-    assert NATIVE_TRANSITIONS.get("dissolve") == "Cross Dissolve"
-    assert "zoom_blur" not in NATIVE_TRANSITIONS
 
 def test_apply_native_transitions_no_ops():
     res = apply_native_transitions("/tmp/fake.drp", [])

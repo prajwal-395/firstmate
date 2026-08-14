@@ -86,8 +86,11 @@ class TestPresetIndexer(unittest.TestCase):
         # Scan the actual populated library
         library_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "library", "presets")
         index = scan_library(library_path)
-        # We expect 15 presets from our population script
-        self.assertGreaterEqual(len(index.presets), 15)
+        # 13 since the three fusion-macro TRANSITION descriptors were
+        # removed: they pointed at .setting files that do not exist, so
+        # selecting one failed and the renderer silently substituted a
+        # transition nobody chose.
+        self.assertGreaterEqual(len(index.presets), 13)
         
         for p in index.presets:
             self.assertTrue(p.name)

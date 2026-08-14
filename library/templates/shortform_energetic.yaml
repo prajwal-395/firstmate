@@ -7,7 +7,8 @@ style:
   color_palette: ["#ff0055", "#00ffcc", "#ffffff", "#000000"]
   preferred_powergrade: "High Contrast Pop"
 effect:
-  transition_types: ["zoom", "glitch"]
+  # zoom/glitch never existed as renderer types - see transition_vocabulary.py
+  transition_types: ["hard_cut", "jump_cut", "zoom_blur", "flash"]
   vfx_intensity: 0.8
   subtitle_style: "bold_large"
   sfx_density: dense

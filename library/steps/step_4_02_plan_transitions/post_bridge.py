@@ -193,16 +193,8 @@ def resolve_transitions(
             for i in range(int(total_dur / beat_interval) + 1)
         ]
 
-    # Initialize preset index
-    from library.tools.preset_indexer import scan_library
-    import os
-    try:
-        preset_dir = os.path.join(os.path.dirname(__file__), "..", "..", "presets")
-        preset_index = scan_library(os.path.abspath(preset_dir))
-    except Exception:
-        preset_index = None
-
     from library.tools.transition_selector import select_transition
+    from library.tools.transition_vocabulary import is_cut
 
     resolved = []
     seen_block_indices = set()
@@ -237,19 +229,15 @@ def resolve_transitions(
             from_clip=outgoing,
             to_clip=block,
             brand_effect=brand_effect,
-            preset_index=preset_index,
             creative_direction=creative_direction,
             requested_type=trans.get("type", trans.get("transition_type", "")),
         )
 
         ttype = selected_trans["type"]
-        macro_preset = selected_trans.get("macro_preset")
-        
+
         # Duration frame calculation
-        if ttype in ("hard_cut", "cut", "jump_cut"):
+        if is_cut(ttype):
             dur_frames = 0
-        elif ttype == "macro":
-            dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
         else:
             # For dissolve/wipe, we might fall back to LLM feel if needed, but selector returns duration_ms
             dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
@@ -293,14 +281,13 @@ def resolve_transitions(
             "placement_method": cut_info["method"],
             "word_beat_coincidence": cut_info["word_beat_coincidence"],
             "rationale": trans.get("rationale", ""),
+            # What the plan asked for, and why it is not what shipped.
+            # The rationale used to be carried through unchanged onto a
+            # transition it no longer described - "Standard dialogue cut"
+            # sitting on a 15-frame dissolve.
+            "requested_type": selected_trans["requested_type"],
+            "downgrade_reason": selected_trans["downgrade_reason"],
         }
-        if macro_preset:
-            trans_dict["macro_preset"] = {
-                "name": macro_preset.name,
-                "file_path": macro_preset.file_path,
-                "category": macro_preset.category,
-                "tags": macro_preset.tags
-            }
         resolved.append(trans_dict)
 
     resolved.sort(key=lambda t: t["cut_point_timeline"])
@@ -416,9 +403,12 @@ def main():
             if mood_changed or topic_shift:
                 creative.append({
                     "cut_point_position": curr_block.get("position", i),
-                    "type": "cross_dissolve",
+                    # A drawable type, not cross_dissolve: nothing on the
+                    # Fusion route can mix two clips (see
+                    # library/tools/transition_vocabulary.py).
+                    "type": "defocus",
                     "duration_feel": "medium",
-                    "rationale": "Default cross_dissolve added at scene boundary due to mood/topic shift"
+                    "rationale": "Default defocus added at scene boundary due to mood/topic shift"
                 })
 
     spine = data.get("timed_spine", {})

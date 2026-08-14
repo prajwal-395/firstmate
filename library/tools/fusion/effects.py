@@ -45,6 +45,22 @@ class EffectBlock:
             self.output_name = self.input_name
 
 
+#: The transition types `transition_tail`/`transition_head` can draw.
+#: `library/tools/transition_vocabulary.FUSION_TYPES` must equal this, and
+#: `tests/test_transition_vocabulary.py` asserts it - the whole defect was
+#: four vocabularies drifting apart with nothing comparing them.
+DRAWABLE_TRANSITIONS = ("fade_to_black", "zoom_blur", "defocus", "flash")
+
+
+def _unknown_transition_message(ttype) -> str:
+    return (
+        f"No Fusion transition builder for {ttype!r}. Drawable types: "
+        f"{', '.join(DRAWABLE_TRANSITIONS)}. This used to return an empty "
+        f"effect block, so an unrenderable type produced a comp with "
+        f"nothing in it and no warning."
+    )
+
+
 # ─── Counter for unique node names ──────────────────────────
 
 _counters: dict[str, int] = {}
@@ -97,8 +113,8 @@ class fx:
         """
         has_anim = not (start == mid == end)
 
-        if not has_anim and pan_end is None:
-            # No zoom, no pan - skip entirely
+        if not has_anim and start == 1.0 and pan_end is None:
+            # Identity: no zoom, no pan - skip entirely
             return EffectBlock(nodes=[], input_name="", output_name="")
 
         tf_name = _next_name("Transform")
@@ -128,6 +144,11 @@ class fx:
 
             tf.set_input("Size", spline)
             nodes.append(spline)
+        elif start != 1.0:
+            # A constant reframe - what cut_in/cut_out are. Without this a
+            # static zoom produced a Transform with Size left at its
+            # default of 1, so the effect drew nothing.
+            tf.set_input("Size", start)
 
         if pan_end is not None:
             tf.set_input("Center", pan_end)
@@ -362,8 +383,7 @@ class fx:
             return fx._flash_transition(
                 clip_dur, start_f, last_frame, suffix="Tail"
             )
-        else:
-            return EffectBlock(nodes=[], input_name="", output_name="")
+        raise ValueError(_unknown_transition_message(ttype))
 
     @staticmethod
     def transition_head(
@@ -399,8 +419,7 @@ class fx:
                 clip_dur, 0, dur_frames, suffix="Head",
                 hold_end=last_frame,
             )
-        else:
-            return EffectBlock(nodes=[], input_name="", output_name="")
+        raise ValueError(_unknown_transition_message(ttype))
 
     # ── Internal transition builders ──
 
@@ -608,30 +627,46 @@ class fx:
         *,
         x_amount: float = 0.01,
         y_amount: float = 0.01,
+        decay_frames: Optional[int] = None,
     ) -> EffectBlock:
-        """Transform node with animated random X/Y position."""
+        """Transform node with animated random X/Y position.
+
+        `decay_frames` makes it an impact rather than a texture: full
+        amplitude on the clip's first frame, falling linearly to nothing
+        by frame `decay_frames`, still for the rest of the clip. That is
+        what a screen shake punctuating a cut looks like. Left None, the
+        shake runs at constant amplitude for the whole clip.
+        """
         if x_amount <= 0 and y_amount <= 0:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
         import random
         r = random.Random(42) # Deterministic for reproducible comps
-        
+
         tf_name = _next_name("ShakeTransform")
         tf = FusionNode(tf_name, "Transform")
         tf.set_attr("CtrlWZoom", False)
-        
+
         path_name = _next_name("ShakePath")
         path = FusionNode(path_name, "XYPath")
-        
+
         x_spline = BezierSpline(f"{tf_name}X")
         y_spline = BezierSpline(f"{tf_name}Y")
-        
+
+        def envelope(frame: int) -> float:
+            if not decay_frames or decay_frames <= 0:
+                return 1.0
+            if frame >= decay_frames:
+                return 0.0
+            return 1.0 - (frame / float(decay_frames))
+
         for f in range(0, clip_dur):
-            xo = r.uniform(-x_amount, x_amount)
-            yo = r.uniform(-y_amount, y_amount)
+            scale = envelope(f)
+            xo = r.uniform(-x_amount, x_amount) * scale
+            yo = r.uniform(-y_amount, y_amount) * scale
             x_spline.add_key(f, 0.5 + xo, flags={"Linear": True})
             y_spline.add_key(f, 0.5 + yo, flags={"Linear": True})
-            
+
         x_spline.linearize()
         y_spline.linearize()
         

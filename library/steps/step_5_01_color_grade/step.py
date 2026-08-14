@@ -54,6 +54,79 @@ GRADE_PIPELINE = {
     },
 }
 
+
+def _midpoint(spec: str, default: float) -> float:
+    """Middle of a designed range like "10-15%" or "0.2-0.3".
+
+    The pipeline's numbers come from the design above rather than being
+    invented at the point of use, so a change to GRADE_PIPELINE moves the
+    picture.
+    """
+    numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", str(spec))]
+    if not numbers:
+        return default
+    value = sum(numbers) / len(numbers)
+    return value / 100.0 if "%" in str(spec) else value
+
+
+def _fusion_look(pipeline: dict) -> dict:
+    """node_4's creative film look, as parameters the renderer reads.
+
+    The five-node grade was designed and only node_2 ever reached the
+    picture, as a CDL. Glow, grain and vignette are Fusion nodes the comp
+    engine already draws (fx.glow / fx.grain / fx.vignette), so node_4 is
+    delivered by emitting the parameter names apply_fusion_comps
+    dispatches on. Halation has no Fusion builder and is not emitted -
+    see grade_pipeline_delivery.
+    """
+    look = pipeline.get("node_4", {})
+    glow = _midpoint(look.get("glow_opacity"), 0.12)
+    grain = _midpoint(look.get("grain_amount"), 0.25)
+    vignette = _midpoint(look.get("vignette_amount"), 0.175)
+    return {
+        "glow_gain": round(glow, 4),
+        "glow_threshold": 0.75,
+        "glow_size": 3.5,
+        "film_grain": True,
+        "film_grain_power": round(grain, 4),
+        "film_grain_size": 1.5,
+        "vignette": True,
+        "vignette_blend": round(vignette, 4),
+        "vignette_soft": 0.35,
+    }
+
+
+#: What actually happens to each designed node. A node with no
+#: `delivered_by` does not reach the viewer, and the reason says why -
+#: four of the five used to be silently unread.
+GRADE_PIPELINE_DELIVERY = {
+    "node_1": {
+        "delivered_by": None,
+        "reason": "A camera to DaVinci Wide Gamut transform is project-level "
+                  "colour management, not a per-clip grade. Setting it would "
+                  "change the colour science of the whole project.",
+    },
+    "node_2": {
+        "delivered_by": "per_clip_adjustments[].cdl_values",
+        "partial": ["contrast_curve", "roll_highlights"],
+        "reason": "An ASC CDL has slope/offset/power/saturation only, so the "
+                  "gentle-S contrast curve and the highlight roll-off have "
+                  "nowhere to go. White balance, shadow lift, power and "
+                  "saturation are carried.",
+    },
+    "node_3": {
+        "delivered_by": None,
+        "reason": "Warm/cool tone shaping with skin-tone protection needs a "
+                  "hue qualifier node, which the Resolve API cannot create.",
+    },
+    "node_4": {"delivered_by": "fusion_look"},
+    "node_5": {
+        "delivered_by": None,
+        "reason": "See node_1: the Rec.709 output transform is project-level "
+                  "colour management. output_color_space records the intent.",
+    },
+}
+
 # Reference brightness target (0-255 scale). Typical well-exposed
 # iPhone footage sits around 115-130. We aim for the middle.
 _REFERENCE_BRIGHTNESS = 122.0
@@ -220,11 +293,16 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
                 notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
     
             slope = round(2.0 ** exposure_offset, 3)
-            wb_offset = GRADE_PIPELINE["node_2"].get("white_balance_offset", 0)
-            offset_r = round(wb_offset / 10000.0, 3)
-            offset_g = 0.0
-            offset_b = round(-wb_offset / 10000.0, 3)
-            
+            node_2 = GRADE_PIPELINE["node_2"]
+            wb_offset = node_2.get("white_balance_offset", 0)
+            # node_2's shadow lift is a CDL offset on all three channels.
+            # It was designed and then dropped: only white balance reached
+            # the offsets, so the grade sat 0.02 darker than intended.
+            lift = node_2.get("lift_shadows", 0.0)
+            offset_r = round(wb_offset / 10000.0 + lift, 3)
+            offset_g = round(lift, 3)
+            offset_b = round(-wb_offset / 10000.0 + lift, 3)
+
             cdl_values = {
                 "slope_r": slope,
                 "slope_g": slope,
@@ -251,13 +329,21 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
     return {
         "color_grade_spec": {
             "grade_pipeline": GRADE_PIPELINE,
+            "grade_pipeline_delivery": GRADE_PIPELINE_DELIVERY,
             "per_clip_adjustments": per_clip_adjustments,
+            # node_4, as Fusion parameters. compile_manifest merges this
+            # onto every V1/V2 clip's effects.
+            "fusion_look": _fusion_look(GRADE_PIPELINE),
             "output_color_space": "Rec.709, Gamma 2.4",
             "consistency_notes": (
                 "Grade pipeline is uniform across all clips. "
                 "Per-clip exposure offsets are estimated from average "
                 "brightness analysis via ffprobe signalstats."
             ),
+            # No PowerGrade ships with the pipeline:
+            # library/presets/powergrades/default.drx is a placeholder, not
+            # a real .drx. Set this to a real file to have the renderer
+            # apply it - it will fail loudly if the path does not resolve.
             "powergrade_path": None,
             "creative_look_dctl": creative_look_dctl,
         },

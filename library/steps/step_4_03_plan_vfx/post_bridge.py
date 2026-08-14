@@ -17,9 +17,19 @@ from library.tools.pipeline_validation import require_keys
 
 
 # Style spec ranges for VFX parameters.
-# AGENTS.md: "NEVER set transition zoom > 1.04" - all zoom values
-# are clamped to this limit.
+#
+# EVERY parameter name here must be one the renderer reads. The renderer
+# (library/tools/execution/apply_fusion_comps.py) dispatches on parameter
+# NAMES, so `zoom_percent`, `intensity_px` and `scale_factor` - the names
+# this map used to emit for zoom_emphasis, screen_shake and cut_in - had
+# no reader at all: three of the five advertised effects rendered nothing
+# while the manifest recorded them as planned.
+#
+# AGENTS.md: "NEVER set transition zoom > 1.04". That bound is about
+# transitions between shots; cut_in/cut_out are framing changes on one
+# shot, which is the whole point of them, so they are not clamped to it.
 INTENSITY_MAP = {
+    # Ken Burns drift across the clip.
     "slow_zoom_in": {
         "subtle": {"zoom_start": 1.0, "zoom_end": 1.03},
         "moderate": {"zoom_start": 1.0, "zoom_end": 1.04},
@@ -30,26 +40,61 @@ INTENSITY_MAP = {
         "moderate": {"zoom_start": 1.04, "zoom_end": 1.0},
         "strong": {"zoom_start": 1.04, "zoom_end": 1.0},
     },
+    # Punch in and settle back - fx.zoom's three-point spline, so the
+    # emphasis reads as a push rather than a permanent reframe.
     "zoom_emphasis": {
-        "subtle": {"zoom_percent": 3.0},
-        "moderate": {"zoom_percent": 4.0},
-        "strong": {"zoom_percent": 4.0},
+        "subtle": {"zoom_start": 1.0, "zoom_mid": 1.03, "zoom_end": 1.0},
+        "moderate": {"zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.0},
+        "strong": {"zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.0},
     },
+    # fx.shake offsets the frame centre as a FRACTION of frame width, so
+    # the old pixel counts are converted here: 2/3/4 px of a 1080-wide
+    # frame. shake_decay_frames makes it an impact that settles, which is
+    # what the old (unread) duration_frames was asking for.
     "screen_shake": {
-        "subtle": {"intensity_px": 2, "duration_frames": 3},
-        "moderate": {"intensity_px": 3, "duration_frames": 4},
-        "strong": {"intensity_px": 4, "duration_frames": 5},
+        "subtle": {"shake_x": 0.00185, "shake_y": 0.00185, "shake_decay_frames": 3},
+        "moderate": {"shake_x": 0.00278, "shake_y": 0.00278, "shake_decay_frames": 4},
+        "strong": {"shake_x": 0.0037, "shake_y": 0.0037, "shake_decay_frames": 5},
     },
+    # Static reframes: a constant Size on the Transform, held for the clip.
     "cut_in": {
-        "subtle": {"scale_factor": 1.15},
-        "moderate": {"scale_factor": 1.25},
-        "strong": {"scale_factor": 1.4},
+        "subtle": {"zoom_start": 1.15, "zoom_mid": 1.15, "zoom_end": 1.15},
+        "moderate": {"zoom_start": 1.25, "zoom_mid": 1.25, "zoom_end": 1.25},
+        "strong": {"zoom_start": 1.4, "zoom_mid": 1.4, "zoom_end": 1.4},
     },
+    "cut_out": {
+        "subtle": {"zoom_start": 0.95, "zoom_mid": 0.95, "zoom_end": 0.95},
+        "moderate": {"zoom_start": 0.9, "zoom_mid": 0.9, "zoom_end": 0.9},
+        "strong": {"zoom_start": 0.85, "zoom_mid": 0.85, "zoom_end": 0.85},
+    },
+}
+
+# Spellings that mean an existing effect. `slow_zoom` was advertised in
+# the handoff without a direction and fell through to the default, which
+# is how six of eight effects came out as the same 3% zoom.
+EFFECT_ALIASES = {
+    "slow_zoom": "slow_zoom_in",
+    "ken_burns": "slow_zoom_in",
+    "push_in": "zoom_emphasis",
 }
 
 # Minimum A-roll clip duration (seconds) to receive default Ken Burns zoom.
 # Clips shorter than this are too brief for a slow zoom to be perceptible.
 KEN_BURNS_MIN_DURATION_S = 3.0
+
+
+def _builtin_effect_names() -> set:
+    """The built-in Fusion effects the handoff also offers, by name.
+
+    Empty when the preset index is unreadable, which makes an unknown
+    effect_type a drop rather than an import that would fail later.
+    """
+    try:
+        from library.tools.builtin_effect_loader import list_builtin_effects
+        return set(list_builtin_effects() or {})
+    except Exception as exc:  # pragma: no cover - index missing
+        print(f"  Built-in effect index unavailable: {exc}", file=sys.stderr)
+        return set()
 
 
 def resolve_vfx(
@@ -91,16 +136,30 @@ def resolve_vfx(
         tl_start = block["timeline_start"]
         tl_end = block["timeline_end"]
 
-        effect_type = vfx.get("effect_type", "slow_zoom_in")
+        raw_type = vfx.get("effect_type", "slow_zoom_in")
+        effect_type = EFFECT_ALIASES.get(raw_type, raw_type)
         intensity = vfx.get("intensity", "moderate")
 
         # Resolve intensity → concrete parameters
-        params = {}
-        type_map = INTENSITY_MAP.get(effect_type, {})
+        type_map = INTENSITY_MAP.get(effect_type)
         if type_map:
-            params = dict(type_map.get(intensity, type_map.get("moderate", {})))
+            params = dict(type_map.get(intensity, type_map["moderate"]))
+        elif effect_type in _builtin_effect_names():
+            # A built-in Fusion effect, imported whole by the renderer.
+            # It takes no intensity parameters.
+            params = {}
         else:
-            params = {"zoom_start": 1.0, "zoom_end": 1.03}
+            # No silent default. An unknown type used to become the
+            # default 3% zoom while keeping its own name, so the manifest
+            # claimed an effect the viewer never saw.
+            print(
+                f"  Dropped VFX {raw_type!r} on block {pos!r}: not in the "
+                f"effect toolkit ({', '.join(sorted(INTENSITY_MAP))}) and "
+                f"not a built-in Fusion effect",
+                file=sys.stderr,
+            )
+            covered_positions.discard(str(pos))
+            continue
 
         resolved.append({
             "vfx_id": f"vfx_{len(resolved)+1:03d}",

@@ -11,22 +11,15 @@ os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Desi
 os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
 import DaVinciResolveScript as dvr
 
-ZOOM_KEYS = ('zoom_start', 'zoom_mid', 'zoom_end', 'pan_start', 'pan_end')
+# This module runs both as a script (launched by resolve_build_timeline in
+# its own process) and as `library.tools.execution.apply_fusion_comps`, so
+# put library/tools on the path rather than assume either entry point.
+_TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
-
-def _normalize_effects(effects, has_zoom):
-    """Settle every default the comp generator would apply, in place.
-
-    The bank key has to describe the comp that actually gets written, so
-    every mutation of `effects` must happen before the key is derived -
-    otherwise the lookup asks for a comp nobody ever banks.
-    """
-    if not has_zoom and 'vignette' not in effects:
-        effects.setdefault('zoom_start', 1.0)
-        effects.setdefault('zoom_mid', 1.0)
-        effects.setdefault('zoom_end', 1.0)
-        effects.setdefault('vignette', False)
-    return effects
+from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
 
 
 def apply_fusion_comps(manifest, project_folder):
@@ -54,21 +47,31 @@ def apply_fusion_comps(manifest, project_folder):
     
     fusion_effects = manifest.get('fusion_effects', {})
     per_clip_effects = fusion_effects.get('per_clip', {})
-    transition_specs = manifest.get('transitions', [])
+    # fusion_effects.transitions is the list compile_manifest indexes
+    # against the V1 clips and validates. The top-level manifest
+    # 'transitions' key is the planner's record and carries no clip index
+    # at all, so reading it put every transition on clip 0.
+    transition_specs = fusion_effects.get('transitions', [])
 
     transition_by_clip = {}
-    macro_transitions_by_clip = {}
     for tspec in transition_specs:
-        ttype = tspec.get('transition_type', tspec.get('type', 'cut'))
-        if ttype in ('cut', 'hard_cut', '', None):
+        ttype = canonical_type(tspec.get('type', tspec.get('transition_type')))
+        if ttype is None:
+            raise ValueError(
+                f"Transition {tspec!r} names a type the renderer cannot "
+                f"draw: {withdrawal_reason(tspec.get('type', tspec.get('transition_type')))}"
+            )
+        if is_cut(ttype):
             continue
-            
-        after_idx = tspec.get('from_block', tspec.get('after_clip', 0))
-        
-        if ttype == 'macro':
-            macro_transitions_by_clip[after_idx] = tspec
-            continue
-            
+
+        if 'after_clip' not in tspec:
+            raise ValueError(
+                f"Transition {tspec!r} carries no after_clip index. It used "
+                f"to default to 0, which stacked every transition on the "
+                f"first clip of the timeline."
+            )
+        after_idx = tspec['after_clip']
+
         dur_f = tspec.get('duration_frames', 12)
         transition_by_clip.setdefault(after_idx, {})
         transition_by_clip[after_idx]['tail_transition'] = ttype
@@ -78,7 +81,7 @@ def apply_fusion_comps(manifest, project_folder):
         transition_by_clip[next_idx]['head_transition'] = ttype
         transition_by_clip[next_idx]['head_transition_frames'] = dur_f
 
-    has_any_effects = per_clip_effects or transition_by_clip or macro_transitions_by_clip
+    has_any_effects = per_clip_effects or transition_by_clip
     comp_dir = None
 
     # Map legacy vfx_entries
@@ -125,12 +128,8 @@ def apply_fusion_comps(manifest, project_folder):
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, {len(transition_specs)} transitions ──", file=sys.stderr)
         
         try:
-            # We are inside library/tools/execution, so we need to go up to library/tools
-            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
-            from fusion_macro_loader import apply_macro_to_transition
             from builtin_effect_loader import list_builtin_effects, import_effect_to_clip, import_customized_effect
         except ImportError:
-            apply_macro_to_transition = None
             list_builtin_effects = None
             import_effect_to_clip = None
             import_customized_effect = None
@@ -139,8 +138,6 @@ def apply_fusion_comps(manifest, project_folder):
             # Also fusion_comp_generator is in library/steps/step_6_01_render
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'steps', 'step_6_01_render'))
             from fusion_comp_generator import write_comp, SEGMENT_PRESETS
-            from fusion.engine import CompEngine
-            from fusion.effects import fx
             from custom_asset_bank import (
                 clip_asset_key, import_custom_asset, save_custom_asset,
                 get_custom_asset,
@@ -167,17 +164,16 @@ def apply_fusion_comps(manifest, project_folder):
 
             preset_name = effects.get('_preset', None)
             
+            # Exact match only. The substring fallback that used to sit
+            # here could turn one effect name into an unrelated built-in -
+            # the handoff tells the planner to use the exact snake_case
+            # name, so a near miss is a mistake to surface, not to guess at.
             builtin_effect = None
             if preset_name and list_builtin_effects:
-                builtin_effects = list_builtin_effects()
-                if preset_name in builtin_effects:
+                if preset_name in (list_builtin_effects() or {}):
                     builtin_effect = preset_name
-                else:
-                    for b_name in builtin_effects:
-                        if preset_name in b_name or b_name in preset_name:
-                            builtin_effect = b_name
-                            break
-            
+
+
             if builtin_effect:
                 # Remove _preset since we handled it
                 effects.pop('_preset', None)
@@ -210,8 +206,7 @@ def apply_fusion_comps(manifest, project_folder):
             if trans_params:
                 effects.update(trans_params)
 
-            macro_trans = macro_transitions_by_clip.get(orig_ci, None)
-            if not effects and not macro_trans:
+            if not effects:
                 continue
 
             mpi = tl_clip.GetMediaPoolItem()
@@ -220,23 +215,8 @@ def apply_fusion_comps(manifest, project_folder):
             frames_prop = mpi.GetClipProperty('Frames')
             clip_dur = int(frames_prop) if frames_prop else tl_clip.GetDuration()
 
-            macro_applied = False
-            if macro_trans and apply_macro_to_transition:
-                macro_data = macro_trans.get("macro_preset", {})
-                duration_ms = macro_trans.get("duration_ms", 500)
-                macro_applied = apply_macro_to_transition(tl_clip, macro_data, duration_ms)
-                if macro_applied:
-                    print(f"  ✓ [{orig_ci}] {label}: Applied Fusion Macro transition", file=sys.stderr)
-                else:
-                    print(f"  ⚠ [{orig_ci}] {label}: Macro transition failed, falling back to dissolve", file=sys.stderr)
-                    effects["tail_transition"] = "fade_to_black"
-                    effects["tail_transition_frames"] = 12
-
-            if not effects:
-                continue
-
             has_zoom = any(k in effects for k in ZOOM_KEYS)
-            _normalize_effects(effects, has_zoom)
+            normalize_effects(effects, has_zoom)
 
             # 2. Check custom asset bank.
             # A generated comp bakes the clip's own frame count into its
@@ -257,78 +237,7 @@ def apply_fusion_comps(manifest, project_folder):
                 continue
 
             # 3. Generate custom .comp via composable engine
-            engine = CompEngine(clip_dur=clip_dur)
-
-            if has_zoom:
-                engine.add(fx.zoom(
-                    clip_dur,
-                    start=effects.get('zoom_start', 1.0),
-                    mid=effects.get('zoom_mid', 1.0),
-                    end=effects.get('zoom_end', 1.0),
-                    pan_start=effects.get('pan_start'),
-                    pan_end=effects.get('pan_end')
-                ))
-
-            if 'grade_gain' in effects or 'grade_contrast' in effects or 'grade_saturation' in effects:
-                engine.add(fx.grade(
-                    gain=effects.get('grade_gain', 1.0),
-                    contrast=effects.get('grade_contrast', 0.0),
-                    saturation=effects.get('grade_saturation', 1.0)
-                ))
-
-            if effects.get('glow_gain', 0.0) > 0:
-                engine.add(fx.glow(
-                    gain=effects.get('glow_gain', 0.0),
-                    threshold=effects.get('glow_threshold', 0.75),
-                    size=effects.get('glow_size', 3.5)
-                ))
-
-            if effects.get('film_grain'):
-                engine.add(fx.grain(
-                    power=effects.get('film_grain_power', 0.25),
-                    size=effects.get('film_grain_size', 1.5)
-                ))
-
-            if effects.get('defocus'):
-                engine.add(fx.defocus(size=effects.get('defocus_size', 2.0)))
-                
-            if 'shake_x' in effects or 'shake_y' in effects:
-                engine.add(fx.shake(
-                    clip_dur,
-                    x_amount=effects.get('shake_x', 0.01),
-                    y_amount=effects.get('shake_y', 0.01)
-                ))
-                
-            if 'chromatic_aberration' in effects or 'chromatic_aberration_amount' in effects:
-                engine.add(fx.chromatic_aberration(amount=effects.get('chromatic_aberration_amount', 0.01)))
-
-            if 'lens_distortion' in effects or 'lens_distortion_amount' in effects:
-                engine.add(fx.lens_distortion(distortion=effects.get('lens_distortion_amount', 0.1)))
-
-            if effects.get('vignette', True):
-                engine.add(fx.vignette(
-                    clip_dur=clip_dur,
-                    width=effects.get('vignette_width', 1.0),
-                    height=effects.get('vignette_height', 1.0),
-                    soft=effects.get('vignette_soft', 0.35),
-                    blend=effects.get('vignette_blend', 0.25),
-                    color=effects.get('vignette_color', (0.0, 0.0, 0.0))
-                ))
-
-            fade_in = effects.get('fade_in_frames', 0)
-            fade_out = effects.get('fade_out_frames', 0)
-            if fade_in > 0 or fade_out > 0:
-                engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out))
-
-            tail_trans = effects.get('tail_transition')
-            if tail_trans:
-                engine.add(fx.transition_tail(clip_dur, tail_trans, effects.get('tail_transition_frames', 7)))
-
-            head_trans = effects.get('head_transition')
-            if head_trans:
-                engine.add(fx.transition_head(clip_dur, head_trans, effects.get('head_transition_frames', 7)))
-
-            comp_content = engine.serialize()
+            comp_content = build_effect_comp(effects, clip_dur)
 
             save_custom_asset(project_folder, asset_key, comp_content)
             

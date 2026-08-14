@@ -38,6 +38,29 @@ export type SubtitleOverlayProps = {
 
 export const subtitleOverlaySchema = {} as any;
 
+/**
+ * Whether a rendered word is one the plan marked for emphasis.
+ *
+ * step_4_01 computes emphasis words for every caption and
+ * generate_remotion_props serialises them as `emphasisWords`, but nothing
+ * ever read them: every word was styled identically. Matching is
+ * case-insensitive and ignores surrounding punctuation, because the word
+ * timings carry the spoken token ("post,") while the emphasis list
+ * carries the bare word ("post").
+ */
+export const normaliseWord = (word: string): string =>
+  word.toLowerCase().replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, "");
+
+export const isEmphasisWord = (
+  word: string,
+  emphasisWords?: string[],
+): boolean => {
+  if (!emphasisWords || emphasisWords.length === 0) return false;
+  const target = normaliseWord(word);
+  if (!target) return false;
+  return emphasisWords.some((e) => normaliseWord(e) === target);
+};
+
 export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   subtitles,
   style,
@@ -63,9 +86,9 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   
   let bottomStyle = "128px";
   if (pos === "top") bottomStyle = "auto";
-  let topStyle = pos === "top" ? "128px" : "auto";
-  let centerStyle = pos === "center" ? "50%" : undefined;
-  let transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
+  const topStyle = pos === "top" ? "128px" : "auto";
+  const centerStyle = pos === "center" ? "50%" : undefined;
+  const transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
 
   return (
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
@@ -114,6 +137,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
                         word={w.word}
                         startFrame={w.startFrame}
                         endFrame={w.endFrame}
+                        isEmphasis={isEmphasisWord(w.word, sub.emphasisWords)}
                         style={style}
                       />
                     );

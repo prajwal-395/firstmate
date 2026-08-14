@@ -20,7 +20,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Instantaneous transitions - a cut has no duration by definition.
-CUT_TRANSITION_TYPES = ("cut", "hard_cut", "jump_cut")
+# The list itself lives in tools.transition_vocabulary; this module reads
+# it through is_cut() so there is one place a type can be classified.
 
 # Tracks whose clips must lie end-to-end. A3 is excluded: SFX are allowed
 # to overlap and the timeline builder allocates extra audio tracks for them.
@@ -30,24 +31,87 @@ SINGLE_LANE_TRACKS = ("A3",)
 # clips, not something the viewer can see.
 COVERAGE_TOLERANCE_FRAMES = 1
 
-# Add parent directories to path so we can import shared tools
+# Add parent directories to path so we can import shared tools.
+# Both `library/` (for `tools.x`) and the repo root (for `library.tools.x`,
+# which the shared tools use to import each other).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
 from tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS, is_speech_block
+from tools.semantic_index import build_semantic_lookup
+from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
+from tools.vision_schema_adapter import camera_prose, stability_summary
 
-def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
+# Wording that means the camera was not locked off. Read from the vision
+# analysis's own stability verdict and motion prose, which is where both
+# the v3 schema and the retired one put it.
+_UNSTABLE_CAMERA_WORDS = (
+    "handheld", "hand-held", "shaky", "shake", "unstable", "jitter",
+    "wobble", "bumpy", "walking",
+)
+
+def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> dict:
+    """Apply the cohesion review's adjustments and record every one of them.
+
+    Every adjustment is either applied or recorded as not applied WITH a
+    reason.  It used to apply `transition_spec` entries carrying a
+    `target_index` and drop everything else without a word - in the
+    reference run an sfx density adjustment vanished that way - while
+    creative_cohesion's own `applied_adjustments` stayed empty, so neither
+    the acting step nor the recording step told the truth.
+
+    Returns {"applied": [...], "not_applied": [{"adjustment", "reason"}]}.
+    """
+    record = {"applied": [], "not_applied": []}
     if not cohesion_review or not cohesion_review.get("adjustments"):
-        return
+        return record
+
+    def skip(adj, reason):
+        record["not_applied"].append({"adjustment": adj, "reason": reason})
+        print(
+            f"  Cohesion adjustment NOT applied "
+            f"({adj.get('target_step')}.{adj.get('field')}): {reason}",
+            file=sys.stderr,
+        )
+
     for adj in cohesion_review["adjustments"]:
-        if adj.get("target_step") == "transition_spec" and "target_index" in adj:
+        target = adj.get("target_step")
+        field = adj.get("field")
+
+        if target == "transition_spec":
+            if "target_index" not in adj:
+                skip(adj, "no target_index, so no transition to change")
+                continue
             idx = adj["target_index"]
-            if 0 <= idx < len(transitions_raw):
-                old_val = transitions_raw[idx].get(adj["field"])
-                transitions_raw[idx][adj["field"]] = adj["suggested_value"]
-                print(f"  Applied Cohesion Adjustment: Transition {idx} {adj['field']} {old_val} -> {adj['suggested_value']}", file=sys.stderr)
+            if not 0 <= idx < len(transitions_raw):
+                skip(adj, f"target_index {idx} is outside the {len(transitions_raw)} transitions")
+                continue
+            old_val = transitions_raw[idx].get(field)
+            transitions_raw[idx][field] = adj["suggested_value"]
+            record["applied"].append(
+                f"transition[{idx}].{field}: {old_val} -> {adj['suggested_value']}"
+            )
+            print(
+                f"  Applied Cohesion Adjustment: Transition {idx} {field} "
+                f"{old_val} -> {adj['suggested_value']}",
+                file=sys.stderr,
+            )
+        elif target == "sfx_spec" and field == "density":
+            # SFX are chosen and placed in step 4.04. Honouring a density
+            # change here would mean inventing or deleting sound effects
+            # the planner never picked, which is a re-plan, not a compile.
+            skip(adj, "SFX density is decided in step_4_04_plan_sfx; the "
+                      "manifest compiler cannot add or remove SFX")
+        elif target == "speech_sequence":
+            skip(adj, "re-ordering the narrative would invalidate every "
+                      "downstream timing; it belongs in step_2_02")
+        else:
+            skip(adj, "no consumer in the manifest compiler")
+
+    return record
 
 
 def _apply_manifest_qa_checks(manifest: dict):
@@ -111,7 +175,7 @@ def _apply_manifest_qa_checks(manifest: dict):
         # A cut IS zero-length. Only overlapping transitions need a
         # duration, and giving a cut 15 frames invented an effect the
         # editor never planned.
-        if t.get('transition_type') in CUT_TRANSITION_TYPES:
+        if is_cut(t.get('transition_type')):
             t['duration_frames'] = 0
         elif t.get('duration_frames', 0) <= 0:
             t['duration_frames'] = 15  # default 15 frames (~0.5s at 30fps)
@@ -306,6 +370,70 @@ def _assert_planner_output_preserved(
     if problems:
         raise ValueError(
             "Planner output did not survive compilation:\n  - "
+            + "\n  - ".join(problems)
+        )
+
+
+def _assert_subtitle_overlay_matches_plan(manifest: dict) -> None:
+    """The rendered overlay must cover the subtitles the plan produced.
+
+    `manifest.subtitles` is not what reaches the picture - the render path
+    places `subtitle_overlay`, the pre-rendered Remotion segments, and
+    reads the subtitle list not at all.  That made the two impossible to
+    disagree usefully: a stale or partial Remotion render shipped a video
+    missing captions while the manifest still listed all of them.
+
+    Comparing them is what the subtitle list is FOR. Each spine block with
+    captions must have an overlay segment, and that segment must span the
+    captions in it.
+    """
+    subtitles = manifest.get("subtitles", [])
+    overlay = manifest.get("subtitle_overlay", {}) or {}
+    segments = overlay.get("segments", [])
+
+    if not subtitles or not segments:
+        # Nothing planned, or no overlay step ran. Coverage of the picture
+        # itself is asserted separately.
+        return
+
+    by_block = {}
+    for sub in subtitles:
+        position = sub.get("spine_block_position")
+        if position is None:
+            continue
+        start = sub.get("timeline_start", 0)
+        end = sub.get("timeline_end", 0)
+        lo, hi = by_block.get(position, (start, end))
+        by_block[position] = (min(lo, start), max(hi, end))
+
+    segment_by_block = {
+        seg.get("block_position"): seg for seg in segments
+        if seg.get("block_position") is not None
+    }
+
+    problems = []
+    for position, (lo, hi) in sorted(by_block.items(), key=lambda kv: str(kv[0])):
+        seg = segment_by_block.get(position)
+        if seg is None:
+            problems.append(
+                f"block {position}: {lo:.3f}-{hi:.3f}s has captions but no "
+                f"rendered overlay segment"
+            )
+            continue
+        seg_start = seg.get("timeline_start", 0)
+        seg_end = seg.get("timeline_end", 0)
+        tolerance = COVERAGE_TOLERANCE_FRAMES / max(
+            manifest.get("project", {}).get("frame_rate", 30.0), 1.0)
+        if seg_start > lo + tolerance or seg_end < hi - tolerance:
+            problems.append(
+                f"block {position}: captions span {lo:.3f}-{hi:.3f}s but the "
+                f"overlay segment only covers {seg_start:.3f}-{seg_end:.3f}s"
+            )
+
+    if problems:
+        raise ValueError(
+            "The rendered subtitle overlay does not match the subtitle "
+            "plan - re-run step_4_05_render_subtitles:\n  - "
             + "\n  - ".join(problems)
         )
 
@@ -626,30 +754,61 @@ def compile_manifest(out_dir: str) -> dict:
             if path == sf: return cid
         return None
 
-    # Process semantic analysis for neural engine directives
-    semantic_clips = semantic_data.get("semantic_analysis", {}).get("clips", [])
-    if isinstance(semantic_data.get("semantic_analysis"), list):
-        semantic_clips = semantic_data["semantic_analysis"]
-    semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
+    # ── Semantic analysis → neural engine directives ──
+    # step_1_03 emits {"semantic_analysis_documents": [...]} and keys its
+    # documents by FILE STEM while the catalog uses clip_XXX. This used to
+    # read `semantic_data["semantic_analysis"]["clips"]` - a key nothing
+    # writes - so the lookup was empty on every run and no clip was ever
+    # stabilised. build_semantic_lookup does the id join in one place.
+    semantic_lookup = build_semantic_lookup(
+        semantic_data, catalog_data.get("clip_catalog", []))
+
+    # Index the documents key directly rather than trusting truthiness:
+    # step 1.03's output is what has to join, and a join that produces
+    # nothing from real documents is a failure, not a quiet skip.
+    if isinstance(semantic_data, list):
+        semantic_docs = semantic_data
+    elif isinstance(semantic_data, dict):
+        semantic_docs = (semantic_data.get("semantic_analysis_documents")
+                         or semantic_data.get("semantic_analysis"))
+    else:
+        semantic_docs = None
+    if semantic_docs and not semantic_lookup:
+        raise ValueError(
+            f"semantic_analysis carries {len(semantic_docs)} document(s) but "
+            f"none of them joined to a catalog clip. Stabilisation and Super "
+            f"Scale decide off this lookup, so an empty join means no clip "
+            f"gets either."
+        )
 
     neural_engine_directives = {}
 
     def compute_neural_directives(clip_id, clip_entry):
         directives = {}
-        sem = semantic_lookup.get(clip_id, {})
+        sem = semantic_lookup.get(clip_id) or {}
         meta = clip_metadata.get(clip_id, {})
-        
-        # Determine tags/description
-        tags = sem.get("tags", []) + sem.get("keywords", [])
-        description = sem.get("description", "")
-        text_data = " ".join(tags).lower() + " " + description.lower()
-        
-        if "handheld" in text_data or "shaky" in text_data:
-            directives["stabilize"] = True
-            
-        if "interview" in text_data or "speaker" in text_data or "subject" in text_data:
-            directives["magic_mask"] = True
-            
+
+        # Read the adapter's derived view, which exists for both the v3
+        # schema (scene/camera/actions/objects) and the retired one. The
+        # old code read `tags`/`description`, which neither schema has.
+        analysis = sem.get("analysis") or {}
+        assessment = sem.get("assessment") or {}
+        text_data = " ".join(str(part).lower() for part in (
+            stability_summary(sem),
+            analysis.get("motion") or camera_prose(sem),
+            analysis.get("scene") or "",
+            " ".join(str(k) for k in (assessment.get("keywords") or [])),
+        ) if part)
+
+        if text_data:
+            unstable = any(w in text_data for w in _UNSTABLE_CAMERA_WORDS)
+            if unstable:
+                directives["stabilize"] = True
+
+        # Magic Mask is NOT emitted. DaVinci's CreateMagicMask returns
+        # False for every mode on the supported build, so a directive for
+        # it could only ever be a promise nothing kept.
+
         width = meta.get("width", proj_res[0])
         height = meta.get("height", proj_res[1])
         proj_w, proj_h = proj_res[0], proj_res[1]
@@ -658,7 +817,7 @@ def compile_manifest(out_dir: str) -> dict:
         # If low res
         if clip_max < proj_max * 0.8:
             directives["super_scale"] = 2
-            
+
         if directives:
             neural_engine_directives[clip_entry["label"]] = directives
 
@@ -822,7 +981,8 @@ def compile_manifest(out_dir: str) -> dict:
         transition_data.get("transition_spec", []) or
         (transition_data.get("transition_spec", {}).get("transitions", []) if isinstance(transition_data.get("transition_spec"), dict) else [])
     )
-    apply_cohesion_adjustments(transitions, cohesion_data.get("cohesion_review", {}))
+    cohesion_record = apply_cohesion_adjustments(
+        transitions, cohesion_data.get("cohesion_review", {}))
     for t in transitions:
         # Provide frames/seconds if not set, but do not override canonical keys
         if "duration_seconds" not in t and "duration" in t:
@@ -930,6 +1090,18 @@ def compile_manifest(out_dir: str) -> dict:
         effect["_preset"] = v.get("preset", v.get("fusion_preset")) or v["effect_type"]
         effect.update(v.get("params", {}))
 
+    # ── The designed film look (color_grade node_4) ──
+    # Glow, grain and vignette are Fusion nodes, so the only route to the
+    # picture is the per-clip effects the comp engine reads. Without this
+    # merge, four of the grade's five nodes were designed and discarded.
+    # A VFX entry's own value wins: the planner asked for that one.
+    fusion_look = color_data.get("color_grade_spec", {}).get("fusion_look", {})
+    if fusion_look:
+        for clip in v1_clips + v2_clips:
+            effect = per_clip_effects.setdefault(clip["label"], {})
+            for key, value in fusion_look.items():
+                effect.setdefault(key, value)
+
     if unplaced_vfx:
         raise ValueError(
             f"{len(unplaced_vfx)} VFX entries do not overlap any V1 clip: "
@@ -943,9 +1115,33 @@ def compile_manifest(out_dir: str) -> dict:
     # `after_clip` is the index of the OUTGOING V1 clip - the one whose
     # tail the transition sits on.
     fusion_transitions = []
+    transitions_downgraded = []
     for t in transitions:
-        comp_type = t.get("transition_type", "cut")
-        if comp_type in CUT_TRANSITION_TYPES or not comp_type:
+        raw_type = t.get("transition_type", "hard_cut")
+        comp_type = canonical_type(raw_type)
+        if comp_type is None:
+            # step_4_02 is the gate that enforces the vocabulary; state
+            # written before it existed can still carry a withdrawn type.
+            # Downgrade to the hard cut it will actually look like and put
+            # that on the record - what must never happen is shipping a
+            # different creative transition in its place, or a comp with
+            # nothing in it.
+            reason = withdrawal_reason(raw_type)
+            transitions_downgraded.append({
+                "transition_id": t.get("transition_id", "?"),
+                "requested_type": raw_type,
+                "shipped_type": "hard_cut",
+                "reason": reason,
+            })
+            print(
+                f"  Transition {t.get('transition_id', '?')} requested "
+                f"{raw_type!r}, shipping a hard cut: {reason}",
+                file=sys.stderr,
+            )
+            t["transition_type"] = "hard_cut"
+            t["duration_frames"] = 0
+            continue
+        if is_cut(comp_type):
             continue
 
         cut_time = t.get("cut_point_timeline", t.get("cut_point_original"))
@@ -956,14 +1152,22 @@ def compile_manifest(out_dir: str) -> dict:
                 f"does not sit at the end of any V1 clip"
             )
 
-        trans_obj = {
+        # The effect is a tail on the outgoing clip AND a head on the
+        # incoming one, so there has to be an incoming clip. Without this
+        # a transition on the last clip drew half a transition into
+        # nothing.
+        if after_clip + 1 >= len(v1_clips):
+            raise ValueError(
+                f"Transition {t.get('transition_id', '?')} sits at the end "
+                f"of the last V1 clip ({after_clip}); there is no incoming "
+                f"clip for its head effect"
+            )
+
+        fusion_transitions.append({
             "type": comp_type,
             "after_clip": after_clip,
             "duration_frames": t.get("duration_frames", int(0.5 * fps)),
-        }
-        if "macro_preset" in t:
-            trans_obj["macro_preset"] = t["macro_preset"]
-        fusion_transitions.append(trans_obj)
+        })
 
     # Audio config
     audio_preset = sfx_preset or audio_mix_data.get("audio_mix_spec", {}).get("fairlight_preset", "")
@@ -1018,9 +1222,21 @@ def compile_manifest(out_dir: str) -> dict:
         "vfx": vfx,
         "fusion_effects": {
             "per_clip": per_clip_effects,
+            # THE authoritative transition list for the renderer: each
+            # entry carries the index of the outgoing V1 clip. The
+            # top-level "transitions" key above is the planner's record
+            # and carries no index - reading it is what put every
+            # transition on clip 0.
             "transitions": fusion_transitions,
         },
+        # Types the plan asked for that nothing can draw, and what shipped
+        # instead. Empty on any run whose plan came from step_4_02 at or
+        # after the vocabulary was unified.
+        "transitions_downgraded": transitions_downgraded,
         "neural_engine_directives": neural_engine_directives,
+        # The authoritative record of what creative_cohesion asked for and
+        # what actually happened to each request.
+        "cohesion_adjustments": cohesion_record,
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
@@ -1039,6 +1255,9 @@ def compile_manifest(out_dir: str) -> dict:
 
     # No frame of the finished video may be black for want of a clip.
     _assert_timeline_fully_covered(manifest)
+
+    # The captions in the manifest and the captions on screen must agree.
+    _assert_subtitle_overlay_matches_plan(manifest)
 
     # Everything the planners produced must survive into the manifest.
     # Nine B-roll assignments becoming one invisible clip, and five SFX

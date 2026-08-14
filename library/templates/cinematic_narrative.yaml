@@ -10,7 +10,8 @@ style:
   # reference_look_image: "/path/to/reference.jpg"
   # creative_look_dctl: "/path/to/look.dctl"
 effect:
-  transition_types: ["dissolve", "wipe"]
+  # dissolve/wipe are not deliverable - see transition_vocabulary.py
+  transition_types: ["hard_cut", "match_cut", "fade_to_black", "defocus"]
   vfx_intensity: 0.3
   subtitle_style: "minimal"
   sfx_density: moderate

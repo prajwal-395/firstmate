@@ -82,11 +82,23 @@ class TestCompileManifest(unittest.TestCase):
                 }
             ],
             "semantic_analysis": {
-                "clips": [
+                "semantic_analysis_documents": [
                     {
+                        # The real document shape: the stability verdict
+                        # and the camera prose. `tags`/`description` were
+                        # what the reader used to look for and neither
+                        # vision schema has ever written them.
                         "clip_id": "clip_1",
-                        "tags": ["shaky", "interview"],
-                        "description": "handheld shot of speaker"
+                        "analysis": {
+                            "motion": "The camera is handheld throughout, "
+                                      "with visible shake as the speaker "
+                                      "walks.",
+                            "scene": "A speaker on a city street.",
+                        },
+                        "assessment": {
+                            "clip_type": "a-roll",
+                            "keywords": ["handheld", "speaker"],
+                        },
                     }
                 ]
             }
@@ -108,12 +120,16 @@ class TestCompileManifest(unittest.TestCase):
         self.assertIn("V1", manifest["tracks"])
         self.assertGreater(len(manifest["tracks"]["V1"]["clips"]), 0)
         
-        # Assert neural_engine_directives is populated (stabilize and magic_mask from tags)
+        # Handheld footage must actually be marked for stabilisation:
+        # the lookup this decides off used to join nothing, so no clip in
+        # any run was ever stabilised.
         self.assertIn("neural_engine_directives", manifest)
         self.assertIn("speech_1", manifest["neural_engine_directives"])
         directives = manifest["neural_engine_directives"]["speech_1"]
         self.assertTrue(directives.get("stabilize"))
-        self.assertTrue(directives.get("magic_mask"))
+        # Magic Mask is withdrawn: CreateMagicMask returns False for every
+        # mode, so a directive for it could never be honoured.
+        self.assertNotIn("magic_mask", directives)
         
         # B-roll must survive compilation with its real extents.
         v2_clips = manifest["tracks"]["V2"]["clips"]

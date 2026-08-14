@@ -6,6 +6,12 @@ Reviews creative decisions across plans for cohesion and consistency.
 import json
 import sys
 
+from library.tools.transition_vocabulary import canonical_type, is_cut
+
+# Transitions that read as slow and soft, so a calm edit wants them long.
+SOFT_TRANSITIONS = ("fade_to_black", "defocus")
+
+
 def map_energy(energy_str):
     energy_str = str(energy_str).lower()
     if any(w in energy_str for w in ["high", "building", "dynamic", "fast", "intense"]):
@@ -54,7 +60,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
         ttype = t.get("transition_type", t.get("type", ""))
         
         if energy == "high":
-            if dur_ms >= 500 and ttype not in ["cut", "hard_cut", ""]:
+            if dur_ms >= 500 and not is_cut(ttype):
                 warnings.append(f"High energy but found slow transition ({dur_ms}ms)")
                 score -= 5
                 adjustments.append({
@@ -66,7 +72,11 @@ def review_creative_cohesion(inputs: dict) -> dict:
                     "target_index": transitions.index(t)
                 })
         elif energy == "calm":
-            if dur_ms <= 1000 and ttype in ["cross_dissolve", "fade_in", "fade_out", "dip_to_black"]:
+            # The soft transitions a calm edit should hold on. Named from
+            # the one vocabulary rather than a list of types that no
+            # longer exist - "cross_dissolve" here matched nothing the
+            # planner could emit.
+            if dur_ms <= 1000 and canonical_type(ttype) in SOFT_TRANSITIONS:
                 warnings.append(f"Calm energy but found fast dissolve ({dur_ms}ms)")
                 score -= 5
                 adjustments.append({
@@ -191,12 +201,15 @@ def review_creative_cohesion(inputs: dict) -> dict:
         "cohesion_score": score,
         "warnings": warnings,
         "adjustments": adjustments,
-        "applied_adjustments": applied_adjustments
+        "applied_adjustments": applied_adjustments,
+        # This step's edits above are a local preview: it emits only
+        # cohesion_review, so nothing it changes reaches pipeline state.
+        # `applied_adjustments` therefore said nothing was applied while
+        # compile_manifest was applying three things. The authoritative
+        # record of what happened to each adjustment is
+        # assembly_manifest.cohesion_adjustments.
+        "applied_by": "step_5_04_compile_manifest",
     }
-
-    # If we modified transition_spec in-place, we should output the modified version so 
-    # the orchestrator or compile_manifest can use it. But our output is just cohesion_review.
-    # compile_manifest will read cohesion_review and apply it.
 
     return cohesion_review
 

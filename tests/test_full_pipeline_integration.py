@@ -5,12 +5,13 @@ from library.tools.look_matcher import analyze_frame_colors, compute_match_cdl
 from library.tools.dctl_generator import generate_film_emulation_dctl, generate_look_match_dctl
 from library.tools.fusion_macro_loader import load_macro, list_available_transitions
 from library.tools.transition_selector import select_transition
+from library.tools.transition_vocabulary import PLANNABLE_TYPES
 from library.tools.fairlight_presets import get_preset, select_preset_for_content
 from library.tools.audio_ducker import compute_ducking_curves
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.brand_registry import load_brand_template, query_slots
 from library.tools.preset_indexer import scan_library, find_presets, find_preset_for_mood
-from library.tools.neural_engine import apply_magic_mask, apply_smart_reframe
+from library.tools.neural_engine import apply_smart_reframe
 from library.tools.engagement_scorer import compute_engagement
 from library.schemas.brand_template import BrandTemplate
 from library.schemas.preset_metadata import PresetEntry
@@ -35,7 +36,10 @@ def test_full_brand_template_flow():
 
 def test_preset_library_scan():
     presets = scan_library("library/presets")
-    assert len(presets.presets) >= 16
+    # 13 after the three fusion-macro TRANSITION descriptors were removed:
+    # they pointed at .setting files that do not exist, so selecting one
+    # failed and the renderer substituted a transition nobody chose.
+    assert len(presets.presets) >= 13
     # verify find_preset_for_mood returns results
     mood_preset = find_preset_for_mood(presets, mood="cinematic", energy="high")
     assert mood_preset is not None
@@ -96,18 +100,26 @@ def test_color_grade_look_match_chain():
     assert "assembly_manifest" in manifest
     assert manifest["assembly_manifest"].get("color_grade", {}).get("cdl") == cdl
 
-def test_transition_selection_fusion_macro_chain():
-    clip_a = {"name": "clip1", "speaker": "A", "scene_id": "1"}
-    clip_b = {"name": "clip2", "speaker": "A", "scene_id": "2"}
-    
-    presets = scan_library("library/presets")
-    
-    transition = select_transition(clip_a, clip_b, {"transition_types": ["cut", "dissolve"]}, presets, {"target_energy": "high"})
-    
-    assert transition is not None
-    if "macro_preset" in transition and transition["macro_preset"]:
-        macro = load_macro(transition["macro_preset"])
-        assert macro is not None
+def test_transition_selection_only_yields_drawable_types():
+    """A brand list of undrawable types must not produce one anyway."""
+    clip_a = {"name": "clip1", "clip_id": "clip_001"}
+    clip_b = {"name": "clip2", "clip_id": "clip_002"}
+
+    # "dissolve" is withdrawn and "cut" canonicalises to hard_cut, so the
+    # only thing this brand actually permits is a hard cut.
+    transition = select_transition(
+        clip_a, clip_b,
+        {"transition_types": ["cut", "dissolve"]},
+        {"target_energy": "high"},
+    )
+    assert transition["type"] in PLANNABLE_TYPES
+
+    # With the full vocabulary allowed, a high-energy scene change gets a
+    # transition the renderer can draw.
+    energetic = select_transition(
+        clip_a, clip_b, {}, {"target_energy": "high"},
+    )
+    assert energetic["type"] == "flash"
 
 def test_audio_chain():
     preset = select_preset_for_content("narrative", "cinematic")

@@ -4,7 +4,10 @@ style:
     - "#ff0000"
     - "#00ff00"
     - "#0000ff"
-  preferred_powergrade: "library/presets/powergrades/default.drx"
+  # No preferred_powergrade: library/presets/powergrades/default.drx is a
+  # placeholder text file, not a real DaVinci .drx, and pointing at it
+  # made the pipeline look configured for a grade it could never apply.
+  # Set this to a real .drx to turn the PowerGrade path on.
   typography:
     font: "Helvetica"
     size: 42
@@ -14,10 +17,20 @@ style:
     max_cuts_per_minute: 20
   energy_profile: "high"
 effect:
+  # Must be types from library/tools/transition_vocabulary.py - anything
+  # else is rejected with a warning rather than silently ignored.
+  # "dissolve" and "wipe" were listed here and are NOT deliverable: both
+  # need the outgoing and incoming clips mixed in one composition, which
+  # the per-clip Fusion route cannot do. The gap is real, not narrowed
+  # away; see WITHDRAWN in that module for the full reasoning.
   transition_types:
-    - "cut"
-    - "dissolve"
-    - "wipe"
+    - "hard_cut"
+    - "jump_cut"
+    - "match_cut"
+    - "fade_to_black"
+    - "defocus"
+    - "flash"
+    - "zoom_blur"
   transition_duration_ms:
     min: 200
     max: 500
