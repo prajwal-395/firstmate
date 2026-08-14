@@ -311,3 +311,17 @@ def test_every_semantic_consumer_projects_all_three_document_shapes(step_id):
                  [LEGACY_PROFILE]):
         assert _semantic_context(step_id, docs).strip()
 
+
+def test_clip_observations_excludes_legacy_chain_of_thought_objects():
+    """Do not surface raw model reasoning from legacy profiles.
+    
+    In older profiles, analysis.objects often contains verbose model
+    chain-of-thought text (e.g., 'Based on the images provided...').
+    This must not leak into the subjects column.
+    """
+    profile_with_cot = dict(LEGACY_PROFILE)
+    profile_with_cot["analysis"] = dict(LEGACY_PROFILE.get("analysis", {}))
+    profile_with_cot["analysis"]["objects"] = "Based on the images provided, here are the distinct elements:\n* People: A young man..."
+    
+    observed = clip_observations(profile_with_cot)
+    assert observed["subjects"] == ""

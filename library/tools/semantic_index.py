@@ -150,12 +150,6 @@ def clip_observations(doc: dict) -> dict:
         usable = portions.strip() if isinstance(portions, str) else ""
 
     subjects = subject_summary(adapted)
-    if not subjects:
-        objects = analysis.get("objects")
-        if isinstance(objects, str):
-            subjects = objects.strip()
-        elif isinstance(objects, list):
-            subjects = "; ".join(str(o) for o in objects if o)
 
     return {
         "description": describe_clip(adapted),
