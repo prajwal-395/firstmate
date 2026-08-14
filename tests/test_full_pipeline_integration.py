@@ -51,12 +51,39 @@ def test_color_grade_look_match_chain():
         "color_grade_spec": {
             "cdl": cdl
         },
-        "audio_spine": {"structure": []},
-    "clip_catalog": [
-        {"clip_id": "c1", "path": __file__, "width": 1080,
-         "height": 1920, "duration_seconds": 10.0},
+        # A one-block spine, not an empty one: an empty structure
+        # compiles a 60s timeline with no picture on it, which is a
+        # manifest describing a minute of black.
+        "audio_spine": {
+            "structure": [
+                {
+                    "block_type": "speech",
+                    "position": 1,
+                    "clip_id": "c1",
+                    "source_start": 2.417,
+                    "source_end": 12.417,
+                    "timeline_start": 0.0,
+                    "timeline_end": 10.0,
+                    "content": {"clip_id": "c1"},
+                }
+            ],
+            "frame_rate": 30.0,
+        },
+        "clip_catalog": [
+            {"clip_id": "c1", "path": __file__, "width": 1080,
+             "height": 1920, "duration_seconds": 10.0},
         ],
-        "a_roll_assignments": [],
+        "a_roll_assignments": [
+            {
+                "spine_block_position": 1,
+                "clip_id": "c1",
+                "source_file": __file__,
+                "video_in": 2.417,
+                "video_out": 12.417,
+                "timeline_start": 0.0,
+                "timeline_end": 10.0,
+            }
+        ],
         "b_roll_assignments": [],
         "transition_spec": [],
         "enhancement_spec": [],

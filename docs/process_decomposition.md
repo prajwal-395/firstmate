@@ -381,6 +381,9 @@ STEP 1.2:
 
 ### Step 1.3: Semantic Analysis ⚡ NONDETERMINISTIC
 
+*This section is the original decomposition record for Step 1.3, kept as written.*
+*The analysis document schema it describes below is superseded - the current authority is [Vision Pipeline v3 - Architecture](./architecture/vision_architecture.md).*
+
 ```
 STEP 1.3:
 ├── Action: For each clip, perform a comprehensive visual, editorial, and

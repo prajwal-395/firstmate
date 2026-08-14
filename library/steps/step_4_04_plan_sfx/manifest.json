@@ -122,6 +122,8 @@
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.audio_prediction",
     "semantic_analysis_documents.*.assessment.keywords",
+    "semantic_analysis_documents.*.scene",
+    "semantic_analysis_documents.*.assessment.content_type",
     "temporal_event_indices.*.clip_id",
     "temporal_event_indices.*.scene_boundaries"
   ]

@@ -98,6 +98,12 @@
     "semantic_analysis_documents.*.assessment.moment_type",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.usable_portions",
+    "semantic_analysis_documents.*.scene",
+    "semantic_analysis_documents.*.camera",
+    "semantic_analysis_documents.*.assessment.content_type",
+    "semantic_analysis_documents.*.assessment.speech_coverage",
+    "semantic_analysis_documents.*.assessment.usable_ranges",
+    "semantic_analysis_documents.*.assessment.unusable_ranges",
     "temporal_index.*.clip_id",
     "temporal_index.*.speech_regions",
     "temporal_index.*.scene_boundaries"

@@ -4,6 +4,33 @@ Runs the vision pipeline on new raw footage clips to generate semantic analysis 
 """
 import json, sys, subprocess, os, glob
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))
+from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
+
+def _rename_profile(analysis_dir, clip_basename, clip_id, suffix):
+    """Rename a freshly written profile from file stem to catalog clip_id.
+
+    `os.rename` overwrites its destination.  A catalog entry with no
+    clip_id used to produce `clip_profile_.json` and silently destroy
+    whatever already sat there, and any clip_id collision would do the
+    same to another clip's analysis.  Neither is worth a re-analysis, so
+    both refuse instead.
+    """
+    if not clip_id:
+        return
+    old = os.path.join(analysis_dir, f"clip_profile_{clip_basename}{suffix}.json")
+    new = os.path.join(analysis_dir, f"clip_profile_{clip_id}{suffix}.json")
+    if not os.path.exists(old) or old == new:
+        return
+    if os.path.exists(new):
+        print(f"  ⚠ Not renaming {os.path.basename(old)} to "
+              f"{os.path.basename(new)}: that profile already exists",
+              file=sys.stderr)
+        return
+    os.rename(old, new)
+
+
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
     if missing:
@@ -78,16 +105,10 @@ def main():
                     timeout=600,  # 10 min max per clip
                 )
                 # Rename the output to use clip_id instead of clip_basename to prevent collisions
-                out_path = os.path.join(analysis_dir, f"clip_profile_{clip_basename}.json")
-                new_path = os.path.join(analysis_dir, f"clip_profile_{clip_id}.json")
-                if os.path.exists(out_path) and out_path != new_path:
-                    os.rename(out_path, new_path)
-                    
-                out_path_vid = os.path.join(analysis_dir, f"clip_profile_{clip_basename}_video_only.json")
-                new_path_vid = os.path.join(analysis_dir, f"clip_profile_{clip_id}_video_only.json")
-                if os.path.exists(out_path_vid) and out_path_vid != new_path_vid:
-                    os.rename(out_path_vid, new_path_vid)
-                    
+                _rename_profile(analysis_dir, clip_basename, clip_id, "")
+                _rename_profile(analysis_dir, clip_basename, clip_id, "_video_only")
+
+
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
             except subprocess.CalledProcessError as e:
@@ -95,23 +116,36 @@ def main():
     else:
         print("All clips already have vision profiles, skipping analysis.", file=sys.stderr)
     
-    # Collect ALL clip profiles (existing + new)
+    # Collect ALL clip profiles (existing + new).
+    #
+    # The v3 analyser emits scene[]/camera[]/actions[]/objects[]/assessment{}
+    # while every consumer addresses the retired analysis.*/blocks shape.
+    # Passing profiles through verbatim, as this step used to, meant the
+    # richest observation of the footage reached nobody - and a re-run of
+    # the analysis failed step 3.02 outright, because no clip yielded a
+    # description. The adapter derives the consumer-facing view alongside
+    # the v3 fields; legacy profiles pass through unchanged.
     profiles = []
-    
+    adapted_count = 0
+
     for f in sorted(glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json'))):
         if '_video_only' in f:
             continue  # Skip partial profiles
         with open(f) as fp:
             try:
                 profile_data = json.load(fp)
+                if is_v3_profile(profile_data):
+                    adapted_count += 1
+                profile_data = adapt_semantic_document(profile_data)
                 # Inject clip_id for downstream synchronization
                 clip_id = os.path.basename(f).replace('clip_profile_', '').replace('.json', '')
                 profile_data["clip_id"] = clip_id
                 profiles.append(profile_data)
             except json.JSONDecodeError:
                 print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
-    
-    print(f"Collected {len(profiles)} clip profiles", file=sys.stderr)
+
+    print(f"Collected {len(profiles)} clip profiles "
+          f"({adapted_count} adapted from the v3 vision schema)", file=sys.stderr)
     
     json.dump({
         'semantic_analysis_documents': profiles,

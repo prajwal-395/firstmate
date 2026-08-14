@@ -26,12 +26,26 @@ CUT_TRANSITION_TYPES = ("cut", "hard_cut", "jump_cut")
 # to overlap and the timeline builder allocates extra audio tracks for them.
 SINGLE_LANE_TRACKS = ("A3",)
 
+# A hole shorter than one frame is float noise between two abutting
+# clips, not something the viewer can see.
+COVERAGE_TOLERANCE_FRAMES = 1
+
+# The longest stretch a spine block may deliberately leave black. Matches
+# default_brand.yaml's effect.transition_duration_ms.max of 500ms - the
+# longest deliberate moment the brand allows between two shots - so a
+# chosen black beat is bounded by the same figure. Hardcoded rather than
+# read from the brand template: this step declares no brand_* input, so
+# the runner never resolves one for it, and `brand_registry`'s fallback
+# template carries no transition_duration_ms at all.
+MAX_DECLARED_BLACK_BEAT_SECONDS = 0.5
+
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
+from tools.spine_contract import is_speech_block
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
     if not cohesion_review or not cohesion_review.get("adjustments"):
@@ -303,6 +317,154 @@ def _assert_planner_output_preserved(
             "Planner output did not survive compilation:\n  - "
             + "\n  - ".join(problems)
         )
+
+
+def _video_coverage_gaps(manifest: dict) -> list:
+    """Stretches of timeline where no video track shows anything.
+
+    Returned as ``(start_seconds, end_seconds)`` pairs, quoting the clip
+    boundaries the gap sits between so the range can be found in the
+    manifest.  Whether a gap *counts* is decided in frames: a hole is only
+    real if it lasts at least one frame, and comparing seconds would turn
+    float noise between abutting clips into findings.
+    """
+    project = manifest.get("project", {})
+    fps = project.get("frame_rate") or 30.0
+    duration = project.get("duration_seconds") or 0.0
+    total_frames = int(round(duration * fps))
+    if total_frames <= 0:
+        return []
+
+    spans = []
+    for track_name, track_data in manifest.get("tracks", {}).items():
+        if not track_name.startswith("V"):
+            continue
+        for clip in track_data.get("clips", []):
+            start_s = clip.get("timeline_in", 0.0)
+            end_s = clip.get("timeline_out", 0.0)
+            start = clip.get("timeline_in_frame")
+            end = clip.get("timeline_out_frame")
+            if start is None:
+                start = int(round(start_s * fps))
+            if end is None:
+                end = int(round(end_s * fps))
+            if end > start:
+                spans.append((start, end, start_s, end_s))
+
+    spans.sort()
+    gaps = []
+    cursor, cursor_s = 0, 0.0
+    for start, end, start_s, end_s in spans:
+        if start - cursor >= COVERAGE_TOLERANCE_FRAMES:
+            gaps.append((cursor_s, start_s))
+        if end > cursor:
+            cursor, cursor_s = end, end_s
+    if total_frames - cursor >= COVERAGE_TOLERANCE_FRAMES:
+        gaps.append((cursor_s, duration))
+    return gaps
+
+
+def _spine_block_entry(block: dict) -> dict:
+    """One `_spine_blocks` entry: what downstream needs from a spine block.
+
+    The optional black-beat declaration is carried through only when the
+    spine actually made it, so an absent flag keeps meaning "nobody chose
+    this hole" by the time the coverage assertion reads it.
+    """
+    entry = {
+        "position": block.get("position", ""),
+        "timeline_start": block.get("timeline_start", 0),
+        "timeline_end": block.get("timeline_end", 0),
+        "block_type": block.get("block_type", ""),
+        "music_behavior": "full" if block.get("block_type") in
+            ("transition_slot", "outro") else "ducked",
+    }
+    for key in ("intentional_black_beat", "black_beat_reason"):
+        if key in block:
+            entry[key] = block[key]
+    return entry
+
+
+def _undeclared_black_beat_reason(start: float, end: float,
+                                  spine_blocks: list):
+    """Why an uncovered range is not a legitimate black beat, or None.
+
+    A hole in the picture is legitimate only when the plan says so.  The
+    declaration lives on the spine block that owns the stretch - see
+    `library/tools/spine_contract.py` - and never on the absence of
+    coverage, so "nobody placed a clip here" stays distinguishable from
+    "hold on black here".  A declared beat must additionally sit outside
+    speech, carry a reason, and be short.
+    """
+    declared = [
+        b for b in spine_blocks
+        if isinstance(b, dict) and b.get("intentional_black_beat")
+    ]
+    containing = [
+        b for b in declared
+        if b["timeline_start"] - 1e-6 <= start
+        and end <= b["timeline_end"] + 1e-6
+    ]
+    if not containing:
+        return ("no spine block declares an intentional black beat "
+                "covering it")
+
+    block = containing[0]
+    label = f"block {block.get('position', '?')}"
+    if is_speech_block(block):
+        return (f"{label} declares a black beat but is a "
+                f"{block['block_type']} block - speech is never held on "
+                f"black")
+
+    reason = block.get("black_beat_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return (f"{label} declares a black beat but carries no "
+                f"black_beat_reason")
+
+    if end - start > MAX_DECLARED_BLACK_BEAT_SECONDS:
+        return (f"{label} declares a black beat of {end - start:.3f}s, "
+                f"longer than the {MAX_DECLARED_BLACK_BEAT_SECONDS}s a "
+                f"deliberate beat may run")
+
+    return None
+
+
+def _assert_timeline_fully_covered(manifest: dict) -> None:
+    """Every frame of the timeline must show a clip on some video track.
+
+    The shipped export carried 7.2s of black, 6.4s of it starting at
+    4.3s: an intro block was covered with a 3.567s clip and the B-roll
+    post-bridge shortened the clip's timeline_end rather than the block,
+    leaving nothing underneath.  Nothing upstream could see it - the
+    rough-cut review records only negative gaps by design, and the
+    B-roll duration invariant was satisfied by the very shortening that
+    made the hole.  Only the final ffmpeg probe caught it, one step
+    before the run ended, with nothing left to do but fail.
+
+    This is the same check, moved to where it can still be acted on.  A
+    black beat the plan deliberately declared is allowed through, within
+    the bounds `_undeclared_black_beat_reason` enforces; an undeclared
+    hole - which is what shipped - still fails.
+    """
+    spine_blocks = manifest.get("_spine_blocks") or []
+    problems = []
+    for start, end in _video_coverage_gaps(manifest):
+        reason = _undeclared_black_beat_reason(start, end, spine_blocks)
+        if reason:
+            problems.append((start, end, reason))
+    if not problems:
+        return
+    total = sum(end - start for start, end, _ in problems)
+    raise ValueError(
+        f"Timeline has {len(problems)} uncovered range(s) totalling "
+        f"{total:.3f}s - these render as black frames:\n  - "
+        + "\n  - ".join(
+            f"{start:.3f}s to {end:.3f}s ({end - start:.3f}s): {reason}"
+            for start, end, reason in problems
+        )
+        + "\nEvery frame must show a clip on V1 or V2 unless a spine "
+          "block declares an intentional black beat."
+    )
 
 
 def _v1_label_at(v1_clips: list, timeline_time: float):
@@ -875,16 +1037,7 @@ def compile_manifest(out_dir: str) -> dict:
             "speech_volume_db": -18,
             "gap_volume_db": -10,
         },
-        "_spine_blocks": [
-            {
-                "timeline_start": b.get("timeline_start", 0),
-                "timeline_end": b.get("timeline_end", 0),
-                "block_type": b.get("block_type", ""),
-                "music_behavior": "full" if b.get("block_type") in
-                    ("transition_slot", "outro") else "ducked",
-            }
-            for b in structure
-        ],
+        "_spine_blocks": [_spine_block_entry(b) for b in structure],
         "subtitle_overlay": subtitle_overlay_data.get(
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
@@ -892,6 +1045,9 @@ def compile_manifest(out_dir: str) -> dict:
     }
 
     _apply_manifest_qa_checks(manifest)
+
+    # No frame of the finished video may be black for want of a clip.
+    _assert_timeline_fully_covered(manifest)
 
     # Everything the planners produced must survive into the manifest.
     # Nine B-roll assignments becoming one invisible clip, and five SFX

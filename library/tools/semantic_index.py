@@ -13,6 +13,18 @@ speaks.
 
 import os
 
+from library.tools.vision_schema_adapter import (
+    adapt_semantic_document,
+    camera_prose,
+    format_ranges,
+    framing_summary,
+    is_v3_profile,
+    movement_summary,
+    scene_prose,
+    stability_summary,
+    subject_summary,
+)
+
 
 def _normalize_docs(semantic_docs) -> list:
     """Accept the several shapes step 1.03 output has taken over time."""
@@ -84,12 +96,21 @@ def build_semantic_lookup(semantic_docs, clip_catalog: list) -> dict:
 def describe_clip(doc: dict) -> str:
     """Best available prose description of what a clip shows.
 
-    Step 1.03 nests its vision output under ``analysis.scene``; older
-    outputs used ``visual_description`` or ``description`` at the top
-    level.  Returns "" when the document carries no usable description.
+    v3 profiles describe the clip as time-bounded ``scene[]`` segments;
+    step 1.03's retired schema nested a single-still caption under
+    ``analysis.scene``, and older outputs used ``visual_description`` or
+    ``description`` at the top level.  A raw v3 profile is adapted here
+    too, so a document that reaches a consumer without passing through
+    step 1.03 still describes itself instead of returning "" and failing
+    the B-roll bridge.  Returns "" when the document carries no usable
+    description.
     """
     if not doc:
         return ""
+    if is_v3_profile(doc):
+        described = scene_prose(doc)
+        if described:
+            return described
     for key in ("visual_description", "description", "summary"):
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
@@ -102,11 +123,61 @@ def describe_clip(doc: dict) -> str:
     return ""
 
 
+def clip_observations(doc: dict) -> dict:
+    """What the analyser measured about a clip, as flat display fields.
+
+    Candidate tables used to carry 180 characters of a single-frame
+    caption and nothing else, so the model could not tell a wide
+    establishing shot from a close-up.  Framing, stability and usable
+    ranges were measured all along - this is the accessor that reaches
+    them.  Every value is "" when the document never measured it, never a
+    guessed default.
+    """
+    if not doc:
+        return {}
+    adapted = adapt_semantic_document(doc)
+    analysis = adapted.get("analysis") or {}
+    assessment = adapted.get("assessment") or {}
+
+    activity = camera_prose(adapted) if is_v3_profile(adapted) else ""
+    if not activity:
+        motion = analysis.get("motion")
+        activity = motion.strip() if isinstance(motion, str) else ""
+
+    usable = format_ranges(assessment.get("usable_ranges"))
+    if not usable:
+        portions = assessment.get("usable_portions")
+        usable = portions.strip() if isinstance(portions, str) else ""
+
+    subjects = subject_summary(adapted)
+    if not subjects:
+        objects = analysis.get("objects")
+        if isinstance(objects, str):
+            subjects = objects.strip()
+        elif isinstance(objects, list):
+            subjects = "; ".join(str(o) for o in objects if o)
+
+    return {
+        "description": describe_clip(adapted),
+        "activity": activity,
+        "framing": framing_summary(adapted),
+        "stability": stability_summary(adapted),
+        "movement": movement_summary(adapted),
+        "content_type": str(assessment.get("content_type")
+                            or assessment.get("clip_type") or ""),
+        "usable_ranges": usable,
+        "subjects": subjects,
+    }
+
+
 def clip_tags(doc: dict) -> set:
     """Tags/keywords attached to a semantic document, lowercased."""
     if not doc:
         return set()
+    doc = adapt_semantic_document(doc)
     tags = list(doc.get("tags", []) or []) + list(doc.get("keywords", []) or [])
     analysis = doc.get("analysis") or {}
     tags += list(analysis.get("tags", []) or [])
+    assessment = doc.get("assessment") or {}
+    tags += list(assessment.get("keywords", []) or [])
     return {str(t).lower() for t in tags if t}

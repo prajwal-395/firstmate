@@ -1,19 +1,47 @@
 #!/usr/bin/env python3
 """Step 3.02 pre-bridge: build the B-roll candidate table for the LLM.
 
-For every A-roll slot this lists the clips that could cover it, excluding
-the slot's own A-roll clip - covering a talking head with the same take is
-not B-roll, it is the same shot twice.
+The table lists what the vision analysis actually measured about each
+clip: what it shows, how it is framed, how steady it is, who is in it and
+which stretch of it may be cut from.
+
+It used to be built per A-roll slot, alphabetically, truncated to 12 rows
+of a 180-character single-frame caption. Every slot therefore received the
+same 12 clips in the same order, four clips were never offered to any slot
+at all, and the model - having no content to choose on - selected straight
+down the list. One row per clip carries strictly more information in
+fewer rows: the slots themselves, with their timings and visual notes,
+already reach the model in `timed_spine` and `a_roll_assignments`.
+
+The row order carries NO relevance ranking. A slot-relevance score would
+need a matching rule this pipeline has never settled, and inventing one
+would repeat the mistake in a subtler form; the table says so explicitly
+so the model does not read list order as preference.
 """
 import sys
 import json
 
 from library.tools.pipeline_validation import require_keys
-from library.tools.semantic_index import build_semantic_lookup, describe_clip
+from library.tools.semantic_index import build_semantic_lookup, clip_observations
 
-# How many candidate clips to offer per slot. Enough choice for the LLM to
-# match content, small enough to keep the prompt affordable.
-MAX_CANDIDATES_PER_SLOT = 12
+# Upper bound on the candidate table. One row per clip, so this only binds
+# on unusually large catalogs; whatever it drops is reported, never
+# silently truncated.
+MAX_CANDIDATE_CLIPS = 60
+
+# Descriptions are time-bounded scene prose, not a caption. Long enough to
+# carry every segment of a multi-scene clip.
+MAX_DESCRIPTION_CHARS = 600
+
+# Every other cell is a short label or list. Retired-schema documents put
+# a whole model transcript in `analysis.objects`, so the cap is what keeps
+# one bad legacy field from swamping the table.
+MAX_CELL_CHARS = 200
+
+CANDIDATE_HEADERS = [
+    "clip_id", "duration_s", "used_as_aroll", "framing", "stability",
+    "camera_move", "content_type", "usable_range", "subjects", "description",
+]
 
 
 def format_toon(headers, rows):
@@ -21,6 +49,12 @@ def format_toon(headers, rows):
     for row in rows:
         out += "\t".join(str(row.get(h, "")) for h in headers) + "\n"
     return out
+
+
+def _cell(value, limit: int = MAX_CELL_CHARS) -> str:
+    """A TOON cell: single-line, tab-free, length-capped."""
+    text = " ".join(str(value or "").split())
+    return text[:limit] if limit else text
 
 
 def _slot_aroll_clip(slot: dict) -> str:
@@ -64,30 +98,25 @@ def main():
     candidates_rows = []
     clips_without_description = []
 
-    for slot in slots:
-        slot_id = slot.get("segment_id", slot.get("spine_block_position", "unknown"))
-        slot_aroll_clip = _slot_aroll_clip(slot)
-
-        scored = []
-        for clip_id, clip_info in catalog.items():
-            if clip_id == slot_aroll_clip:
-                continue
-            desc = describe_clip(semantic.get(clip_id, {}))
-            if not desc:
-                clips_without_description.append(clip_id)
-                continue
-            # Prefer clips not already carrying A-roll anywhere.
-            rank = 1 if clip_id in aroll_clips else 0
-            scored.append((rank, clip_id, desc, clip_info))
-
-        scored.sort(key=lambda s: (s[0], s[1]))
-        for _, clip_id, desc, clip_info in scored[:MAX_CANDIDATES_PER_SLOT]:
-            candidates_rows.append({
-                "slot_id": str(slot_id),
-                "clip_id": clip_id,
-                "duration_s": round(clip_info.get("duration_seconds", 0.0), 2),
-                "description": desc[:180].replace("\t", " ").replace("\n", " "),
-            })
+    for clip_id, clip_info in catalog.items():
+        doc = semantic.get(clip_id, {})
+        observed = clip_observations(doc)
+        desc = observed.get("description", "")
+        if not desc:
+            clips_without_description.append(clip_id)
+            continue
+        candidates_rows.append({
+            "clip_id": clip_id,
+            "duration_s": round(clip_info.get("duration_seconds", 0.0), 2),
+            "used_as_aroll": "yes" if clip_id in aroll_clips else "no",
+            "framing": _cell(observed.get("framing")),
+            "stability": _cell(observed.get("stability")),
+            "camera_move": _cell(observed.get("movement")),
+            "content_type": _cell(observed.get("content_type")),
+            "usable_range": _cell(observed.get("usable_ranges")),
+            "subjects": _cell(observed.get("subjects")),
+            "description": _cell(desc, MAX_DESCRIPTION_CHARS),
+        })
 
     if slots and not candidates_rows:
         # An empty candidate table means the LLM has nothing to choose
@@ -103,8 +132,28 @@ def main():
         }))
         sys.exit(1)
 
-    candidates_toon = format_toon(
-        ["slot_id", "clip_id", "duration_s", "description"], candidates_rows)
+    # Clips already carrying A-roll are listed last: they are the least
+    # interesting cutaway, not a ranking of the rest.
+    candidates_rows.sort(key=lambda r: (r["used_as_aroll"] == "yes", r["clip_id"]))
+
+    if len(candidates_rows) > MAX_CANDIDATE_CLIPS:
+        dropped = [r["clip_id"] for r in candidates_rows[MAX_CANDIDATE_CLIPS:]]
+        print(
+            f"  Candidate table capped at {MAX_CANDIDATE_CLIPS} clips; "
+            f"not offered: {', '.join(dropped)}",
+            file=sys.stderr,
+        )
+        candidates_rows = candidates_rows[:MAX_CANDIDATE_CLIPS]
+
+    if clips_without_description:
+        print(
+            f"  {len(clips_without_description)} catalog clip(s) have no "
+            f"semantic description and are not offered as B-roll: "
+            f"{', '.join(sorted(set(clips_without_description)))}",
+            file=sys.stderr,
+        )
+
+    candidates_toon = format_toon(CANDIDATE_HEADERS, candidates_rows)
 
     print(json.dumps({"broll_candidates_toon": candidates_toon}))
 

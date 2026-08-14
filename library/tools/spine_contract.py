@@ -25,6 +25,22 @@ Consumers read these keys directly (`block["clip_id"]`, not
 `block.get("clip_id", "")`).  A missing key is a contract violation and must
 raise, not degrade.  `validate_spine_blocks` is the single gate that keeps
 that promise, and mesh_spine runs it before emitting.
+
+Two OPTIONAL keys may also be present:
+
+    intentional_black_beat   True when the plan deliberately leaves this
+                             block's picture empty for a beat.  Absent means
+                             "not declared", which is how an accidental hole
+                             stays distinguishable from a chosen one -
+                             `compile_manifest` fails any uncovered stretch
+                             that no block declares.
+    black_beat_reason        Non-empty string saying WHY the beat is there.
+                             A declaration without one is a rubber stamp and
+                             is rejected at compile time.
+
+They are optional by design: no block needs them, and neither is in
+REQUIRED_BLOCK_KEYS.  A declared beat is still bounded - see
+`MAX_DECLARED_BLACK_BEAT_SECONDS` in step 5.04.
 """
 
 SPEECH_BLOCK_TYPES = ("speech", "hook")

@@ -193,7 +193,7 @@ Data flows through the pipeline via `pipeline_data.json`.
 Each step reads required upstream outputs from this file based on the DAG's `data_mapping` edges.
 Each step writes its own output back to `pipeline_data.json` under `step_outputs.<step_id>`.
 The `catalog` output contains video metadata, durations, and file paths.
-The `semantic_analysis` output contains mood, energy, visual descriptions, and detected objects.
+The `semantic_analysis` output carries the v3 vision observations - scene, camera, actions, objects, assessment - plus the view derived from them; it measures no mood or energy (see "One vision schema, two views").
 The `speech_sequence` output orders speech segments into a coherent narrative.
 The `aroll_assignments` output maps narrative blocks to specific source clips and timeline ranges.
 The `broll_selections` output assigns secondary footage (`b_roll_assignments`) and standalone cutaways (`b_roll_interjections`) to cover A-roll segments or insert visual breaks.
@@ -273,6 +273,31 @@ timeline builder allocates A3, A4, ... Identical SFX positions are not.
 differs from the step's outputs (e.g. mesh_spine's LLM writes `structure`;
 the post-bridge computes `audio_spine`/`timed_spine`). Without it the QA
 loop demands post-bridge outputs from the LLM and every attempt "fails".
+
+**One vision schema, two views.** `vision_pipeline_v3.py` emits
+`scene[]/camera[]/actions[]/objects[]/assessment{}`; consumers historically
+read `analysis.*`/`blocks`. `library/tools/vision_schema_adapter.py` derives
+the second view from the first (step 1.03 applies it on write,
+`semantic_index` on read), so either may be addressed. Derive only what v3
+measured - an absent field warns in `context_projector`, a fabricated one
+silently misleads the model. A step that wants framing, stability, usable
+ranges or subject visibility must also list those paths in its manifest's
+`context_fields`, or they are deleted before the prompt.
+
+**Every frame of the timeline must show a clip.** `compile_manifest` fails
+on any stretch of V1+V2 with nothing on it (`_assert_timeline_fully_covered`).
+The one exception is a hole the plan deliberately declared, via the optional
+`intentional_black_beat`/`black_beat_reason` spine keys documented in
+`library/tools/spine_contract.py`; an undeclared hole always fails.
+The rough-cut review records only negative gaps by design, so before this
+existed the only thing that noticed 6.4s of black was the ffmpeg probe in
+step 6.02, one step from the end.
+
+**Never invoke `step_1_03_semantic_analysis/step.py` against a real
+project to test it.** Any clip whose id is not already a
+`raw/analysis/clip_profile_<clip_id>.json` triggers a full local vision
+run. Exercise the collection half with an analysis dir of copied profiles
+and `raw_footage_files: []`.
 
 ## Maintaining this file
 

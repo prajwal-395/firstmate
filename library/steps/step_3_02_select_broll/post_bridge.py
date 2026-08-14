@@ -106,7 +106,8 @@ def find_best_segment(
             text_score = 0.0
             if preferred_moment:
                 text_score = _text_match_score(
-                    preferred_moment, clip_analysis, i, len(scene_times) - 1
+                    preferred_moment, clip_analysis, i, len(scene_times) - 1,
+                    seg_start, seg_end,
                 )
 
             # Combined score: energy + motion + text relevance
@@ -194,8 +195,9 @@ def find_best_segment(
                 best_score = overlap
                 best_idx = i
 
-        total = len(blocks)
-        block_start = (best_idx / total) * clip_duration
+        block_start = _block_start_seconds(
+            blocks, best_idx, clip_duration
+        )
         return _fit_to_clip(
             block_start, block_start + target_duration,
             target_duration, clip_duration,
@@ -261,21 +263,80 @@ def _peak_energy_in_range(
     return (i_start + peak_idx) / sr
 
 
+def _block_time_bounds(block: dict) -> tuple:
+    """A block's measured (start, end), or (None, None) when it has none.
+
+    Blocks derived from the v3 analyser carry the time window the action
+    was actually observed in; blocks from the retired schema carry only
+    their position in the list.
+    """
+    start, end = block.get("start"), block.get("end")
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        return float(start), float(end)
+    return None, None
+
+
+def _block_start_seconds(
+    blocks: list, block_idx: int, clip_duration: float
+) -> float:
+    """Where in the clip a block sits.
+
+    Reads the block's measured start when it has one; only a block with
+    no time bounds falls back to estimating its position from how far
+    down the list it is.
+    """
+    start, _ = _block_time_bounds(blocks[block_idx])
+    if start is not None:
+        return start
+    return (block_idx / len(blocks)) * clip_duration
+
+
+def _block_for_segment(
+    blocks: list,
+    segment_idx: int,
+    total_segments: int,
+    seg_start=None,
+    seg_end=None,
+) -> dict:
+    """The block describing a scene segment.
+
+    Picked by time overlap when the blocks carry measured bounds, so the
+    segment is scored against what was observed while it was on screen.
+    Blocks without bounds keep the index-proportion mapping, which is all
+    a retired-schema document supports.
+    """
+    if seg_start is not None and seg_end is not None:
+        best, best_overlap = None, 0.0
+        for block in blocks:
+            start, end = _block_time_bounds(block)
+            if start is None:
+                continue
+            overlap = min(seg_end, end) - max(seg_start, start)
+            if overlap > best_overlap:
+                best, best_overlap = block, overlap
+        if best is not None:
+            return best
+
+    block_idx = int(segment_idx / max(total_segments, 1) * len(blocks))
+    return blocks[min(block_idx, len(blocks) - 1)]
+
+
 def _text_match_score(
     preferred_moment: str,
     clip_analysis: dict,
     segment_idx: int,
     total_segments: int,
+    seg_start=None,
+    seg_end=None,
 ) -> float:
     """Score how well a segment matches the preferred moment description."""
     blocks = clip_analysis.get("blocks", [])
     if not blocks:
         return 0.0
 
-    # Map segment index to approximate block index
-    block_idx = int(segment_idx / total_segments * len(blocks))
-    block_idx = min(block_idx, len(blocks) - 1)
-    block = blocks[block_idx]
+    block = _block_for_segment(
+        blocks, segment_idx, total_segments, seg_start, seg_end
+    )
 
     block_text = " ".join([
         block.get("label", ""),
