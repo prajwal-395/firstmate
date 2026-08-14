@@ -27,15 +27,12 @@ direction. Now they must be woven into one coherent timeline plan.
 
 ### Timeline duration anchor
 
-The selected music track's `duration_seconds` is your natural timeline
-anchor. Read it from the `music_selection.tracks` in your context. Your
-spine's `total_estimated_duration_seconds` should be informed by the
-music duration - use intro, outro, transition_slot, and breather blocks
-to fill the timeline so the video and music end together naturally. If
-the speech content is shorter than the music, add non-speech blocks
-(transition slots, intro, outro) rather than cutting the music short.
-If the speech content is longer, you may trim speech to fit or accept
-a longer video.
+Speech and music are two halves of one backbone — neither anchors the other.
+You must not let either input silently stretch the timeline past the target duration band.
+Your spine's `total_estimated_duration_seconds` must fall within the project's target duration zone.
+If the music track is longer than the target duration, do NOT fill the timeline to match the music length; the music will be trimmed or faded out downstream.
+If the speech content is shorter than the target duration, you may add non-speech blocks (transition slots, intro, outro) to reach the target, but do NOT add dead air or silence at the head of the video. Silence at the head of a video is a gap, not spine.
+If the speech content is longer than the target duration, you may need to adjust pacing or recommend speech cuts, but do not just blindly accept a longer video that exceeds the target band.
 
 ---
 
@@ -164,7 +161,7 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 4. **Music-speech fit**: Music behavior is appropriate for each block type
 5. **No content loss**: Every speech passage from body_sequence appears in
    exactly one speech block
-6. **Duration plausibility**: Estimated total aligns with the music track duration
+6. **Duration plausibility**: Estimated total falls within the target duration band
 
 ---
 

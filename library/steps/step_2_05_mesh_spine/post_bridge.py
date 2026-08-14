@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame
 
 
-def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
+def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
     """
     Enrich the LLM's creative spine with execution-layer data.
     """
@@ -175,10 +175,13 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict) -> dict:
     # Recalculate total duration from enriched blocks
     total_dur = sum(b.get("duration_seconds", 0) for b in enriched_blocks)
 
+    from library.tools.duration_targets import get_target_duration_zone
+    target_duration_zone = get_target_duration_zone(data or {})
+
     # The single gate on the spine contract. Every creative step downstream
     # reads these blocks directly, so a malformed spine stops here rather
     # than degrading silently in five different consumers.
-    validate_spine_blocks(enriched_blocks)
+    validate_spine_blocks(enriched_blocks, total_dur, target_duration_zone)
 
     return {
         "audio_spine": {
@@ -235,7 +238,7 @@ def main():
     speech = data.get("speech_sequence", {})
     music = data.get("music_selection", {})
 
-    result = enrich_spine(spine, speech, music)
+    result = enrich_spine(spine, speech, music, data)
     result["timed_spine"] = result["audio_spine"]
     json.dump(result, sys.stdout, indent=2)
 

@@ -160,24 +160,22 @@ def review_creative_cohesion(inputs: dict) -> dict:
             })
 
     # 3. Duration Warning
-    # Check actual duration against project_config.target_duration_seconds
-    if isinstance(project_config, dict):
-        target_dur = project_config.get("target_duration_seconds")
-        if target_dur is not None:
-            target_dur = float(target_dur)
-            # Warn if more than 50% over or under target
-            if total_duration > target_dur * 1.5:
-                warnings.append(
-                    f"Duration warning: actual duration ({total_duration:.1f}s) "
-                    f"exceeds target ({target_dur:.0f}s) by more than 50%"
-                )
-                score -= 3
-            elif total_duration < target_dur * 0.5:
-                warnings.append(
-                    f"Duration warning: actual duration ({total_duration:.1f}s) "
-                    f"is less than half the target ({target_dur:.0f}s)"
-                )
-                score -= 3
+    # Check actual duration against target duration zone
+    from library.tools.duration_targets import get_target_duration_zone
+    min_dur, target_dur, max_dur = get_target_duration_zone(inputs)
+    
+    if total_duration > max_dur:
+        warnings.append(
+            f"Duration warning: actual duration ({total_duration:.1f}s) "
+            f"exceeds the maximum target zone ({max_dur:.1f}s)"
+        )
+        score -= 3
+    elif total_duration < min_dur:
+        warnings.append(
+            f"Duration warning: actual duration ({total_duration:.1f}s) "
+            f"is below the minimum target zone ({min_dur:.1f}s)"
+        )
+        score -= 3
 
     # 4. Output Adjustments
     score = max(0, score)

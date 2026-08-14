@@ -182,7 +182,7 @@ class TestPostBridgeBlackBeatPassthrough:
 
     def test_declared_beat_survives_enrichment(self):
         spine = self._minimal_spine_with_beat()
-        result = enrich_spine(spine, {}, {})
+        result = enrich_spine(spine, {}, {}, {"project_config": {"target_duration_seconds": 2.0}})
         blocks = result["audio_spine"]["structure"]
         assert len(blocks) == 1
         assert blocks[0]["intentional_black_beat"] is True
@@ -201,7 +201,7 @@ class TestPostBridgeBlackBeatPassthrough:
                 },
             ],
         }
-        result = enrich_spine(spine, {}, {})
+        result = enrich_spine(spine, {}, {}, {"project_config": {"target_duration_seconds": 2.0}})
         blocks = result["audio_spine"]["structure"]
         assert "intentional_black_beat" not in blocks[0]
         assert "black_beat_reason" not in blocks[0]

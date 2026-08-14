@@ -89,13 +89,26 @@ def is_speech_block(block: dict) -> bool:
     return block.get("block_type") in SPEECH_BLOCK_TYPES
 
 
-def validate_spine_blocks(blocks: list) -> None:
+def validate_spine_blocks(blocks: list, total_duration: float = None, target_duration_zone: tuple = None) -> None:
     """Raise SpineContractError if any block violates the spine contract.
 
     Called by mesh_spine before it emits, so a malformed spine never
     reaches the creative steps that read it.
     """
     problems = []
+
+    if target_duration_zone and total_duration is not None:
+        min_dur, target_dur, max_dur = target_duration_zone
+        if total_duration < min_dur or total_duration > max_dur:
+            problems.append(
+                f"total duration ({total_duration:.1f}s) is outside the target duration zone "
+                f"[{min_dur:.1f}s, {max_dur:.1f}s]"
+            )
+
+    if blocks and isinstance(blocks[0], dict):
+        first_type = blocks[0].get("block_type")
+        if first_type in ("silence", "gap"):
+            problems.append(f"leading {first_type} block at the head of the timeline is not allowed")
 
     for i, block in enumerate(blocks):
         if not isinstance(block, dict):

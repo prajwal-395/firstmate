@@ -242,22 +242,18 @@ def check_total_duration(a_roll_assignments: list, audio_spine: dict,
             default=0.0,
         )
 
-    # Determine target duration from project_config
-    target_duration = 60.0  # default
-    project_config = data.get("project_config", {})
-    if isinstance(project_config, dict):
-        pct = project_config.get("target_duration_seconds")
-        if pct is not None and float(pct) > 0:
-            target_duration = float(pct)
+    # Determine target duration zone from precedence rules
+    from library.tools.duration_targets import get_target_duration_zone
+    min_dur, target_duration, max_dur = get_target_duration_zone(data)
 
-    threshold = target_duration * 1.5
-    exceeded = actual_duration > threshold
+    exceeded = actual_duration > max_dur or actual_duration < min_dur
 
     result = {
         "passed": not exceeded,
         "actual_duration_seconds": round(actual_duration, 2),
         "target_duration_seconds": round(target_duration, 2),
-        "threshold_seconds": round(threshold, 2),
+        "min_duration_seconds": round(min_dur, 2),
+        "max_duration_seconds": round(max_dur, 2),
     }
     if exceeded:
         result["overshoot_ratio"] = round(actual_duration / target_duration, 2)
@@ -337,10 +333,9 @@ def run_mechanical_checks(data: dict) -> dict:
             )
     if not total_dur["passed"]:
         rejection_reasons.append(
-            f"Total duration ({total_dur['actual_duration_seconds']}s) exceeds "
-            f"target ({total_dur['target_duration_seconds']}s) by more than 50% "
-            f"(threshold: {total_dur['threshold_seconds']}s, "
-            f"ratio: {total_dur.get('overshoot_ratio', 'N/A')}x)"
+            f"Total duration ({total_dur['actual_duration_seconds']}s) is outside "
+            f"the target zone [{total_dur['min_duration_seconds']}s, {total_dur['max_duration_seconds']}s] "
+            f"(target: {total_dur['target_duration_seconds']}s)"
         )
 
     result["rejection_reasons"] = rejection_reasons

@@ -667,14 +667,8 @@ def main():
         if start is not None and end is not None:
             total_duration += (end - start)
             
-    project_config = data.get("project_config", {})
-    target_duration = project_config.get("target_duration_seconds") if isinstance(project_config, dict) else None
-    if target_duration:
-        min_dur = target_duration * 0.9
-        max_dur = target_duration * 1.1
-    else:
-        min_dur = 30.0
-        max_dur = 60.0
+    from library.tools.duration_targets import get_target_duration_zone
+    min_dur, target_dur, max_dur = get_target_duration_zone(data)
 
     if total_duration > max_dur or total_duration < min_dur:
         print(f"WARNING: Total speech duration ({total_duration:.1f}s) is out of bounds ({min_dur:.1f}-{max_dur:.1f}s).", file=sys.stderr)

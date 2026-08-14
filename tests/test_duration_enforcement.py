@@ -12,7 +12,7 @@ from library.steps.step_5_03_creative_cohesion.step import review_creative_cohes
 # --- step_3_03 total duration tests ---
 
 class TestCheckTotalDuration:
-    """check_total_duration hard-fails when duration exceeds target by >50%."""
+    """check_total_duration hard-fails when duration is outside target zone."""
 
     def test_within_target_passes(self):
         """60s actual vs 60s target = passes."""
@@ -22,18 +22,16 @@ class TestCheckTotalDuration:
         assert result["actual_duration_seconds"] == 60.0
 
     def test_at_threshold_passes(self):
-        """90s actual vs 60s target = exactly 150%, should pass."""
-        a_rolls = [{"timeline_start": 0, "timeline_end": 90}]
+        """66s actual vs 60s target (max is 66), should pass."""
+        a_rolls = [{"timeline_start": 0, "timeline_end": 66}]
         result = check_total_duration(a_rolls, {}, {})
         assert result["passed"] is True
 
     def test_over_threshold_fails(self):
-        """91s actual vs 60s target = >150%, should fail."""
-        a_rolls = [{"timeline_start": 0, "timeline_end": 91}]
+        """67s actual vs 60s target (max is 66), should fail."""
+        a_rolls = [{"timeline_start": 0, "timeline_end": 67}]
         result = check_total_duration(a_rolls, {}, {})
         assert result["passed"] is False
-        assert "overshoot_ratio" in result
-        assert result["overshoot_ratio"] > 1.5
 
     def test_audio_spine_takes_precedence(self):
         """When audio_spine has structure, it is used instead of a_rolls."""
@@ -46,18 +44,18 @@ class TestCheckTotalDuration:
         }
         result = check_total_duration(a_rolls, audio_spine, {})
         assert result["actual_duration_seconds"] == 100.0
-        # 100 > 60*1.5=90 -> fail
+        # 100 > 66 -> fail
         assert result["passed"] is False
 
     def test_project_config_target(self):
         """project_config.target_duration_seconds sets the target."""
-        a_rolls = [{"timeline_start": 0, "timeline_end": 200}]
+        a_rolls = [{"timeline_start": 0, "timeline_end": 315}]
         data = {
             "project_config": {
                 "target_duration_seconds": 300
             }
         }
-        # 200 <= 300*1.5=450, passes
+        # zone is [270, 330], 315 passes
         result = check_total_duration(a_rolls, {}, data)
         assert result["passed"] is True
         assert result["target_duration_seconds"] == 300.0
@@ -68,12 +66,11 @@ class TestCheckTotalDuration:
         result = check_total_duration(a_rolls, {}, {})
         assert result["passed"] is False
         assert result["actual_duration_seconds"] == 516.0
-        assert result["overshoot_ratio"] == 8.6
 
     def test_empty_inputs(self):
-        """Empty inputs should pass (0s duration)."""
+        """Empty inputs means 0s duration, which is below min 54s, so fails."""
         result = check_total_duration([], {}, {})
-        assert result["passed"] is True
+        assert result["passed"] is False
         assert result["actual_duration_seconds"] == 0.0
 
 
@@ -82,7 +79,7 @@ class TestRunMechanicalChecksWithDuration:
 
     def test_duration_check_included(self):
         data = {
-            "a_roll_assignments": [{"timeline_start": 0, "timeline_end": 50}],
+            "a_roll_assignments": [{"timeline_start": 0, "timeline_end": 60}],
             "b_roll_assignments": [],
             "audio_spine": {},
             "project_folder": ".",
@@ -92,18 +89,13 @@ class TestRunMechanicalChecksWithDuration:
         assert result["mechanical_checks"]["total_duration"]["passed"] is True
 
     def test_b_roll_checks_run_on_real_assignments(self):
-        """The B-roll checks need B-roll to check.
-
-        Every rough-cut test used to pass `b_roll_assignments: []`, so the
-        duration invariant and source-file checks never saw a single
-        assignment and could not fail on a broken one.
-        """
+        """The B-roll checks need B-roll to check."""
         data = {
             "a_roll_assignments": [
-                {"timeline_start": 0, "timeline_end": 50,
+                {"timeline_start": 0, "timeline_end": 60,
                  "spine_block_position": 1, "block_type": "speech",
                  "source_file": __file__,
-                 "video_segments": [{"video_in": 1.204, "video_out": 3.086}]}
+                 "video_segments": [{"video_in": 1.204, "video_out": 61.204}]}
             ],
             "b_roll_assignments": [
                 {"spine_block_position": 1, "clip_id": "clip_2",
@@ -125,10 +117,10 @@ class TestRunMechanicalChecksWithDuration:
         """A B-roll clip whose source range does not fill its slot."""
         data = {
             "a_roll_assignments": [
-                {"timeline_start": 0, "timeline_end": 50,
+                {"timeline_start": 0, "timeline_end": 60,
                  "spine_block_position": 1, "block_type": "speech",
                  "source_file": __file__,
-                 "video_segments": [{"video_in": 0.0, "video_out": 50.0}]}
+                 "video_segments": [{"video_in": 0.0, "video_out": 60.0}]}
             ],
             "b_roll_assignments": [
                 {"spine_block_position": 1, "clip_id": "clip_2",
@@ -164,7 +156,7 @@ class TestRunMechanicalChecksWithDuration:
 # --- step_5_03 duration warning tests ---
 
 class TestCohesionDurationWarning:
-    """creative_cohesion warns (does not fail) when outside project target."""
+    """creative_cohesion warns (does not fail) when outside target zone."""
 
     def test_duration_over_target_warns(self):
         inputs = {
@@ -180,7 +172,7 @@ class TestCohesionDurationWarning:
             },
         }
         review = review_creative_cohesion(inputs)
-        assert any("exceeds target" in w for w in review["warnings"])
+        assert any("exceeds the maximum" in w for w in review["warnings"])
 
     def test_duration_under_target_warns(self):
         inputs = {
@@ -196,7 +188,7 @@ class TestCohesionDurationWarning:
             },
         }
         review = review_creative_cohesion(inputs)
-        assert any("less than half" in w for w in review["warnings"])
+        assert any("is below the minimum" in w for w in review["warnings"])
 
     def test_duration_within_range_no_warning(self):
         inputs = {
@@ -204,7 +196,7 @@ class TestCohesionDurationWarning:
             "transition_spec": {"transitions": []},
             "sfx_spec": [],
             "speech_sequence": {
-                "body_sequence": [{"start_time": 0, "end_time": 45}]
+                "body_sequence": [{"start_time": 0, "end_time": 60}]
             },
             "color_grade_spec": {},
             "project_config": {
@@ -214,8 +206,8 @@ class TestCohesionDurationWarning:
         review = review_creative_cohesion(inputs)
         assert not any("Duration warning" in w for w in review["warnings"])
 
-    def test_no_project_config_no_warning(self):
-        """Without project_config, no duration warning is produced."""
+    def test_no_project_config_warns_with_default(self):
+        """Without project_config, it falls back to 54-66s default and warns if out of bounds."""
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
             "transition_spec": {"transitions": []},
@@ -226,4 +218,4 @@ class TestCohesionDurationWarning:
             "color_grade_spec": {},
         }
         review = review_creative_cohesion(inputs)
-        assert not any("Duration warning" in w for w in review["warnings"])
+        assert any("Duration warning" in w for w in review["warnings"])
