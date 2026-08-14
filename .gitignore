@@ -68,3 +68,4 @@ Lucie Podcast/
 *.log
 /tmp/
 .env
+.venv/

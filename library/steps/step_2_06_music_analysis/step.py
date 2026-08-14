@@ -96,7 +96,7 @@ def main():
 
     try:
         result = subprocess.run(
-            ["python3", MUSIC_PIPELINE, track_path,
+            [sys.executable, MUSIC_PIPELINE, track_path,
              "--output-dir", output_dir],
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",

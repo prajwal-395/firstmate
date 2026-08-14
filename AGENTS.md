@@ -244,6 +244,7 @@ Multi-project environments group projects by client folders if specified during 
 ## 9. Environment and dependencies
 
 The pipeline requires specific environment variables and dependencies to function.
+**Virtual Environment**: The pipeline MUST be run from its dedicated `.venv` which contains all ML dependencies. Activate it via `source .venv/bin/activate` before running `manage_project.py`. The `manage_project.py` script enforces this via a preflight check.
 Set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to point to your DaVinci Resolve installation.
 Set `HF_TOKEN` for HuggingFace models like Audio Flamingo Next.
 Set `PIPELINE_SFX_LIBRARY` to the absolute path of the sound effects library.

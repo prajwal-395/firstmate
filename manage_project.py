@@ -26,6 +26,31 @@ import argparse
 import json
 import os
 import sys
+
+def _preflight_check():
+    try:
+        import torchaudio
+        if not hasattr(torchaudio, 'set_audio_backend'):
+            torchaudio.set_audio_backend = lambda x: None
+        if not hasattr(torchaudio, 'get_audio_backend'):
+            torchaudio.get_audio_backend = lambda: "soundfile"
+    except ImportError:
+        pass
+    required = ["mlx_vlm", "whisperx", "easyocr", "torch"]
+    missing = []
+    for pkg in required:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"ERROR: Missing ML dependencies: {', '.join(missing)}")
+        print("The pipeline must be run from its virtual environment.")
+        print("Run this to activate it:")
+        print("    source .venv/bin/activate")
+        sys.exit(1)
+
+_preflight_check()
 from pathlib import Path
 
 # Add repo root to path

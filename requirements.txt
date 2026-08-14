@@ -1,5 +1,6 @@
 # Core pipeline
 jsonschema>=4.0
+matplotlib
 pyyaml>=6.0
 
 # Analysis subsystem
@@ -8,11 +9,11 @@ librosa>=0.10
 numpy>=1.24
 scipy>=1.10
 torch>=2.0
-torchaudio>=2.0
+torchaudio>=2.0,<2.1.0
 opencv-python>=4.8
 easyocr>=1.7
 Pillow>=9.0
-sam2==1.0.0
+sam2>=1.0.0
 
 # Dashboard subsystem
 fastapi>=0.100.0
@@ -23,3 +24,4 @@ faiss-cpu>=1.7
 
 # Subtitles subsystem
 # Node.js Remotion used for rendering (see remotion-subtitles)
+mlx_vlm>=0.0.14

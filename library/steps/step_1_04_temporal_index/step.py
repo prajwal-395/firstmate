@@ -160,6 +160,14 @@ def _get_whisperx_models(model_size: str = "large-v3"):
     Alignment uses wav2vec2 via PyTorch — uses MPS on Apple Silicon
     for GPU acceleration, falls back to CPU.
     """
+    try:
+        import torchaudio
+        if not hasattr(torchaudio, 'set_audio_backend'):
+            torchaudio.set_audio_backend = lambda x: None
+        if not hasattr(torchaudio, 'get_audio_backend'):
+            torchaudio.get_audio_backend = lambda: "soundfile"
+    except ImportError:
+        pass
     import whisperx
 
     def _load_transcribe():
@@ -313,6 +321,14 @@ def detect_speech_regions(
     regions = []
 
     try:
+        try:
+            import torchaudio
+            if not hasattr(torchaudio, 'set_audio_backend'):
+                torchaudio.set_audio_backend = lambda x: None
+            if not hasattr(torchaudio, 'get_audio_backend'):
+                torchaudio.get_audio_backend = lambda: "soundfile"
+        except ImportError:
+            pass
         import whisperx
 
         trans_model, align_model, align_metadata, align_device = \

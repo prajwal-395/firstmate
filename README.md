@@ -50,9 +50,12 @@ An end-to-end automated video editing pipeline for shortform (30–60s, vertical
 
 ## Project Management CLI
 
-Manage projects and run the pipeline using `manage_project.py`:
+The pipeline must be run from its dedicated virtual environment, which contains all ML dependencies.
 
 ```bash
+# Activate the virtual environment
+source .venv/bin/activate
+
 # Initialize the projects root directory
 python3 manage_project.py init-root
 

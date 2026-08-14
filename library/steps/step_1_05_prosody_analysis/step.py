@@ -144,7 +144,7 @@ def main():
 
         try:
             result = subprocess.run(
-                ["python3", PROSODY_PIPELINE],
+                [sys.executable, PROSODY_PIPELINE],
                 input=json.dumps(input_data),
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",

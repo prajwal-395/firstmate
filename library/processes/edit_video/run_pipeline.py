@@ -406,7 +406,7 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
 def run_deterministic_step(entry: str, inputs: dict) -> dict:
     """Run a deterministic step via subprocess (stdin JSON → stdout JSON)."""
     result = subprocess.run(
-        ["python3", entry],
+        [sys.executable, entry],
         input=json.dumps(inputs),
         capture_output=True,
         text=True, encoding="utf-8", errors="replace",
@@ -741,7 +741,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
 def run_subprocess(script_path: Path, inputs: dict) -> dict:
     """Run a Python script via subprocess with JSON stdin/stdout."""
     result = subprocess.run(
-        ["python3", str(script_path)],
+        [sys.executable, str(script_path)],
         input=json.dumps(inputs),
         capture_output=True,
         text=True, encoding="utf-8", errors="replace",

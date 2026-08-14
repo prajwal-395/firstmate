@@ -100,7 +100,7 @@ def main():
             print(f"  Analyzing: {os.path.basename(clip_path)}", file=sys.stderr)
             try:
                 subprocess.run(
-                    ['python3', VISION_PIPELINE, '--clip', clip_path, '--output-dir', analysis_dir],
+                    [sys.executable, VISION_PIPELINE, '--clip', clip_path, '--output-dir', analysis_dir],
                     check=True,
                     timeout=600,  # 10 min max per clip
                 )
