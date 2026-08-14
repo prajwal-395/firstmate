@@ -93,6 +93,10 @@ def test_compute_deterministic_assessment(sample_temporal_index):
     assert assessment["speech_present"] is True
     assert assessment["speech_coverage"] == 0.15 # 1.5s / 10.0s
     assert assessment["camera_stability"] == "stable" # residual mean ~0.012 < 0.02
+    # With low motion values (residual ~0.012), the whole clip is usable
+    assert assessment["usable_ranges_method"] == "unmeasured"  # only 12 motion samples < 30
+    assert isinstance(assessment["usable_ranges"], list)
+    assert isinstance(assessment["unusable_ranges"], list)
 
 def test_parse_json_array():
     # Valid JSON

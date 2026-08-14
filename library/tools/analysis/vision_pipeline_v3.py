@@ -725,10 +725,230 @@ def get_window_transcript(temporal_index, window_start, window_end, full_transcr
 #  Deterministic Assessment Fields
 # ═══════════════════════════════════════════════════════════════════════
 
-def compute_deterministic_assessment(temporal_index, transcript):
+# Motion thresholds are in absolute units: the mean absolute difference
+# between consecutive frames on a 0-1 grey scale, recovered from the
+# normalized motion curve via its `peak_mean_abs_diff`. Measured over the
+# reference project's 17 raw clips, a settled shot sits below 0.02 and
+# ordinary handheld drift below 0.07; only the three clips a human would
+# call badly handled hold above 0.08 for a full second.
+MOTION_ABS_HIGH = 0.08
+MOTION_ABS_HEAD_TAIL = 0.05
+MIN_HIGH_MOTION_RUN_S = 1.0
+MIN_HEAD_TAIL_S = 0.5
+FACE_PRESENT_THRESHOLD = 0.1
+MIN_FACE_ABSENT_RUN_S = 2.0
+
+# A usable range shorter than this is not a shot anyone can cut, so it is
+# not reported as one.
+MIN_USABLE_RANGE_S = 0.5
+
+AROLL_CONTENT_TYPES = ("person_talking_to_camera", "interview", "monologue")
+
+
+def _absolute_motion(motion):
+    """The motion curve in absolute units, or None if its scale is unknown.
+
+    `motion_energy.values` is normalized to each clip's own peak, so every
+    clip tops out at 1.0 and a threshold on it means "fraction of this
+    clip's peak". `peak_mean_abs_diff` restores the pre-normalization scale
+    so the same threshold means the same thing on every clip.
+    """
+    if not isinstance(motion, dict):
+        return None
+    values = motion.get("values") or []
+    peak = motion.get("peak_mean_abs_diff")
+    if not values or not isinstance(peak, (int, float)) or peak <= 0:
+        return None
+    return [float(v) * float(peak) for v in values]
+
+
+def _sustained_runs(values, sample_rate, predicate, min_seconds, duration,
+                    reason):
+    """Runs of `min_seconds` or more where `predicate` holds, as ranges."""
+    runs = []
+    if not values or not sample_rate or sample_rate <= 0:
+        return runs
+
+    min_samples = max(1, int(min_seconds * sample_rate))
+    run_start = None
+    n = len(values)
+    for i in range(n + 1):
+        if i < n and predicate(values[i]):
+            if run_start is None:
+                run_start = i
+            continue
+        if run_start is not None:
+            if i - run_start >= min_samples:
+                start = run_start / sample_rate
+                if start < duration:
+                    runs.append({
+                        "start": round(start, 3),
+                        "end": round(min(i / sample_rate, duration), 3),
+                        "reason": reason,
+                    })
+            run_start = None
+    return runs
+
+
+def _dead_head_tail(motion_vals, motion_sr, speech_regions, duration):
+    """Head/tail outside all speech whose mean motion reads as handling."""
+    ranges = []
+    first_speech = min(r.get("start", duration) for r in speech_regions)
+    last_speech = max(r.get("end", 0) for r in speech_regions)
+
+    if first_speech > MIN_HEAD_TAIL_S:
+        head = motion_vals[:int(first_speech * motion_sr)]
+        if head and sum(head) / len(head) > MOTION_ABS_HEAD_TAIL:
+            ranges.append({
+                "start": 0.0,
+                "end": round(min(first_speech, duration), 3),
+                "reason": "high_motion_head",
+            })
+
+    if duration - last_speech > MIN_HEAD_TAIL_S:
+        tail = motion_vals[int(last_speech * motion_sr):]
+        if tail and sum(tail) / len(tail) > MOTION_ABS_HEAD_TAIL:
+            ranges.append({
+                "start": round(last_speech, 3),
+                "end": round(duration, 3),
+                "reason": "high_motion_tail",
+            })
+
+    return ranges
+
+
+def _normalize_unusable(ranges):
+    """Unusable ranges sorted by start, with same-reason overlaps merged."""
+    out = []
+    for r in sorted(ranges, key=lambda r: (r["start"], r["end"])):
+        prev = next(
+            (p for p in reversed(out) if p["reason"] == r["reason"]), None)
+        if prev is not None and r["start"] <= prev["end"]:
+            prev["end"] = max(prev["end"], r["end"])
+        else:
+            out.append(dict(r))
+    return sorted(out, key=lambda r: (r["start"], r["end"]))
+
+
+def _complement_ranges(unusable, duration, min_usable=MIN_USABLE_RANGE_S):
+    """Compute the complement of unusable ranges within [0, duration].
+
+    Merges overlapping unusable ranges first, then returns the gaps as a
+    list of [start, end] pairs covering usable time. Gaps shorter than
+    `min_usable` are dropped: a sliver between two unusable runs is not
+    footage anyone can cut to, and rendering it as a bound invites a
+    zero-length cut.
+    """
+    if not unusable:
+        return [[0, round(duration, 3)]]
+
+    # Sort by start time and merge overlapping ranges
+    sorted_ranges = sorted(unusable, key=lambda r: r["start"])
+    merged = []
+    for r in sorted_ranges:
+        if merged and r["start"] <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], r["end"]))
+        else:
+            merged.append((r["start"], r["end"]))
+
+    # Compute complement
+    usable = []
+    prev_end = 0.0
+    for start, end in merged:
+        if start > prev_end:
+            usable.append([round(prev_end, 3), round(start, 3)])
+        prev_end = end
+    if prev_end < duration:
+        usable.append([round(prev_end, 3), round(duration, 3)])
+
+    return [r for r in usable if r[1] - r[0] >= min_usable]
+
+
+def _unmeasured(duration):
+    """The answer when no signal could measure the clip."""
+    whole = [[0, round(duration, 3)]] if duration > 0 else []
+    return whole, [], "unmeasured", []
+
+
+def _compute_usable_ranges(temporal_index, duration, content_type):
+    """Derive usable/unusable ranges from temporal index signals.
+
+    Rules:
+      1. Sustained high motion (>1s of handling-grade motion) -> unusable
+      2. Dead head/tail (no speech + high motion at clip boundaries) -> unusable
+      3. Subject absence on A-roll clips (face_presence < 0.1 for >2s) -> unusable
+
+    Rules 1 and 2 need the absolute motion scale; a temporal index written
+    before `peak_mean_abs_diff` existed carries only a per-clip normalized
+    curve, which cannot answer "is this a lot of motion", so those rules
+    are skipped rather than answered wrongly.
+
+    Returns (usable_ranges, unusable_ranges, method, signals_used).
+    """
+    signals_used = []
+    unusable = []
+    duration = float(duration or 0)
+
+    if not temporal_index or duration <= 0:
+        return _unmeasured(duration)
+
+    motion = temporal_index.get("motion_energy") or {}
+    motion_sr = motion.get("sample_rate_hz") or 30
+    motion_vals = _absolute_motion(motion)
+    if motion_vals is not None and len(motion_vals) < motion_sr:
+        motion_vals = None  # Less than 1s of data
+
+    if motion_vals is not None:
+        signals_used.append("motion_energy")
+
+        # Rule 1: Sustained high motion
+        unusable += _sustained_runs(
+            motion_vals, motion_sr, lambda v: v > MOTION_ABS_HIGH,
+            MIN_HIGH_MOTION_RUN_S, duration, "sustained_high_motion")
+
+        # Rule 2: Dead head/tail
+        speech_regions = temporal_index.get("speech_regions") or []
+        if speech_regions:
+            signals_used.append("speech_regions")
+            unusable += _dead_head_tail(
+                motion_vals, motion_sr, speech_regions, duration)
+
+    # Rule 3: Subject absence (A-roll clips only)
+    face = temporal_index.get("face_presence") or {}
+    face_vals = face.get("values") or []
+    face_sr = face.get("sample_rate_hz") or 5
+
+    if content_type in AROLL_CONTENT_TYPES and len(face_vals) > 10:
+        signals_used.append("face_presence")
+        unusable += _sustained_runs(
+            face_vals, face_sr, lambda v: v < FACE_PRESENT_THRESHOLD,
+            MIN_FACE_ABSENT_RUN_S, duration, "subject_absent")
+
+    if not signals_used:
+        return _unmeasured(duration)
+
+    unusable = _normalize_unusable(unusable)
+    usable = _complement_ranges(unusable, duration)
+
+    return usable, unusable, "deterministic_v1", signals_used
+
+
+def _set_usable_ranges(assessment, temporal_index, duration, content_type):
+    """Write the four usable-range fields onto an assessment dict."""
+    usable, unusable, method, signals = _compute_usable_ranges(
+        temporal_index, duration, content_type)
+    assessment["usable_ranges"] = usable
+    assessment["unusable_ranges"] = unusable
+    assessment["usable_ranges_method"] = method
+    assessment["usable_ranges_signals"] = signals
+    return assessment
+
+
+def compute_deterministic_assessment(temporal_index, transcript, duration=None):
     """Compute assessment fields that don't need the vision model.
 
-    Returns dict with speech_present, speech_coverage, camera_stability.
+    Returns dict with speech_present, speech_coverage, camera_stability,
+    usable_ranges, unusable_ranges, usable_ranges_method, usable_ranges_signals.
     """
     result = {
         "speech_present": bool(transcript and transcript.strip()),
@@ -737,19 +957,25 @@ def compute_deterministic_assessment(temporal_index, transcript):
     }
 
     if not temporal_index:
+        _set_usable_ranges(result, None, duration or 0, "unknown")
         return result
 
     # Support both key names: older temporal indices use "duration",
     # newer ones may use "duration_s"
-    duration = temporal_index.get("duration_s") or temporal_index.get("duration") or 0
+    ti_duration = temporal_index.get("duration_s") or temporal_index.get("duration") or 0
+    # Prefer the explicit parameter (from clip metadata) when provided
+    clip_duration = duration if duration is not None else ti_duration
+    # Use temporal_index duration for speech coverage (may differ from clip metadata)
+    if not ti_duration:
+        ti_duration = clip_duration
 
     # Speech coverage
     speech_regions = temporal_index.get("speech_regions", [])
-    if speech_regions and duration > 0:
+    if speech_regions and ti_duration > 0:
         total_speech = sum(
             r.get("end", 0) - r.get("start", 0) for r in speech_regions
         )
-        result["speech_coverage"] = round(min(total_speech / duration, 1.0), 2)
+        result["speech_coverage"] = round(min(total_speech / ti_duration, 1.0), 2)
 
     # Camera stability from optical flow variance
     camera_data = temporal_index.get("camera_motion", {})
@@ -779,6 +1005,10 @@ def compute_deterministic_assessment(temporal_index, transcript):
                     result["camera_stability"] = "handheld"
                 else:
                     result["camera_stability"] = "unstable"
+
+    # Usable ranges: Rules 1 & 2 (content_type not yet known; Rule 3
+    # is deferred to analyze_assessment where the model provides it).
+    _set_usable_ranges(result, temporal_index, clip_duration, "unknown")
 
     return result
 
@@ -1117,10 +1347,15 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, durat
     return merged, total_elapsed
 
 
-def analyze_assessment(analyzer, video_path, duration, deterministic):
-    """Assessment — model call for visual judgment fields.
+def analyze_assessment(analyzer, video_path, duration, deterministic,
+                       temporal_index=None):
+    """Assessment - model call for visual judgment fields.
 
-    Merges with pre-computed deterministic fields.
+    Merges with pre-computed deterministic fields.  Usable ranges come
+    from the deterministic dict (Rules 1-2); Rule 3 (subject absence)
+    is applied here because it requires `content_type` from the model.
+    All usable_ranges fields are set AFTER the model merge so the model
+    cannot override them.
     """
     prompt = PROMPT_ASSESSMENT.format(duration=duration)
     result, raw, elapsed = analyzer.analyze_with_retry(
@@ -1130,14 +1365,19 @@ def analyze_assessment(analyzer, video_path, duration, deterministic):
 
     # Merge deterministic fields into model results
     assessment = dict(deterministic)
-    assessment["usable_ranges"] = [[0, duration]]  # Default: entire clip usable
-    assessment["unusable_ranges"] = []
     if result:
         assessment["content_type"] = result.get("content_type", "unknown")
         assessment["primary_subject_visible"] = result.get("primary_subject_visible", [])
     else:
         assessment["content_type"] = "unknown"
         assessment["primary_subject_visible"] = []
+
+    # Usable ranges: deterministic measurement from temporal index signals.
+    # Re-compute with the model's content_type so Rule 3 (subject absence)
+    # can fire for A-roll clips.  Set AFTER the model merge above so the
+    # model result cannot override.
+    _set_usable_ranges(
+        assessment, temporal_index, duration, assessment["content_type"])
 
     return assessment, elapsed
 
@@ -1232,9 +1472,12 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # ── Group C: Final synthesis ─────────────────────────────────────
 
     # 6. Assessment — hybrid (deterministic + model)
-    deterministic = compute_deterministic_assessment(temporal_index, transcript)
+    deterministic = compute_deterministic_assessment(
+        temporal_index, transcript, duration=duration)
     print(f"  [Assessment] Hybrid (1 call, video + deterministic)...", end=" ", flush=True)
-    assessment, t = analyze_assessment(analyzer, video_path, duration, deterministic)
+    assessment, t = analyze_assessment(
+        analyzer, video_path, duration, deterministic,
+        temporal_index=temporal_index)
     total_time += t
     total_calls += 1
     print(f"({t:.1f}s) → {assessment.get('content_type', '?')}")

@@ -16,13 +16,13 @@ import os
 from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     camera_prose,
-    format_ranges,
     framing_summary,
     is_v3_profile,
     movement_summary,
     scene_prose,
     stability_summary,
     subject_summary,
+    usable_ranges_summary,
 )
 
 
@@ -144,7 +144,7 @@ def clip_observations(doc: dict) -> dict:
         motion = analysis.get("motion")
         activity = motion.strip() if isinstance(motion, str) else ""
 
-    usable = format_ranges(assessment.get("usable_ranges"))
+    usable = usable_ranges_summary(assessment)
     if not usable:
         portions = assessment.get("usable_portions")
         usable = portions.strip() if isinstance(portions, str) else ""

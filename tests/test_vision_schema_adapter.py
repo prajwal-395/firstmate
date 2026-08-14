@@ -74,6 +74,8 @@ V3_PROFILE = {
         "camera_stability": "unstable",
         "usable_ranges": [[0, 45.943]],
         "unusable_ranges": [],
+        "usable_ranges_method": "deterministic_v1",
+        "usable_ranges_signals": ["motion_energy"],
         "content_type": "person_talking_to_camera",
         "primary_subject_visible": [[0, 46]],
     },
@@ -159,6 +161,44 @@ def test_derived_assessment_fields_are_renderings_of_real_observations():
     assert "person" in assessment["keywords"]
     assert "outdoor" in assessment["keywords"]
     assert "close-up" in assessment["keywords"]
+
+
+def test_a_fully_excluded_clip_says_so_rather_than_rendering_blank():
+    """`usable_ranges: []` is a verdict, and a blank cell does not carry it.
+
+    An empty string is what an unmeasured clip renders as, so a consumer
+    reading one cannot tell "no bound was measured" from "no footage here
+    is usable" - the strongest signal the measurement can give.
+    """
+    excluded = dict(V3_PROFILE)
+    excluded["assessment"] = dict(
+        V3_PROFILE["assessment"],
+        usable_ranges=[],
+        unusable_ranges=[
+            {"start": 0.0, "end": 20.0, "reason": "sustained_high_motion"},
+            {"start": 20.0, "end": 45.9, "reason": "subject_absent"},
+        ],
+    )
+
+    portions = adapt_semantic_document(excluded)["assessment"]["usable_portions"]
+    assert portions == (
+        "none - whole clip excluded (sustained_high_motion, subject_absent)")
+    assert clip_observations(excluded)["usable_ranges"] == portions
+
+
+def test_an_unmeasured_clip_renders_no_usable_range_claim():
+    unmeasured = dict(V3_PROFILE)
+    unmeasured["assessment"] = dict(
+        V3_PROFILE["assessment"],
+        usable_ranges=[],
+        unusable_ranges=[],
+        usable_ranges_method="unmeasured",
+        usable_ranges_signals=[],
+    )
+
+    assessment = adapt_semantic_document(unmeasured)["assessment"]
+    assert "usable_portions" not in assessment
+    assert clip_observations(unmeasured)["usable_ranges"] == ""
 
 
 def test_scenery_content_type_is_not_labelled_a_roll():

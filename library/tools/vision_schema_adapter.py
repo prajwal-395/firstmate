@@ -254,6 +254,32 @@ def format_ranges(ranges) -> str:
     return ", ".join(out)
 
 
+def usable_ranges_summary(assessment) -> str:
+    """The usable ranges of a clip as one string, including "none at all".
+
+    An assessment that measured the clip and found nothing usable reports
+    ``usable_ranges: []``, which formats to the empty string - the same
+    thing an unmeasured clip renders as. A consumer reading that cell
+    cannot tell "no bound" from "no footage", so the fully-excluded case
+    is spelled out with the reasons that excluded it.
+    """
+    if not isinstance(assessment, dict):
+        return ""
+    text = format_ranges(assessment.get("usable_ranges"))
+    if text or assessment.get("usable_ranges_method") != "deterministic_v1":
+        return text
+    reasons = []
+    for entry in assessment.get("unusable_ranges") or []:
+        if not isinstance(entry, dict):
+            continue
+        reason = entry.get("reason")
+        if reason and str(reason) not in reasons:
+            reasons.append(str(reason))
+    if not reasons:
+        return ""
+    return "none - whole clip excluded (" + ", ".join(reasons) + ")"
+
+
 def subject_summary(doc: dict, limit: int = 4) -> str:
     """Who or what is in shot, primary subject first."""
     primary, other = [], []
@@ -301,7 +327,7 @@ def adapt_semantic_document(doc: dict) -> dict:
 
     assessment.setdefault("clip_type", _derived_clip_type(assessment))
     assessment.setdefault("keywords", derived_keywords(doc))
-    usable = format_ranges(assessment.get("usable_ranges"))
+    usable = usable_ranges_summary(assessment)
     if usable:
         assessment.setdefault("usable_portions", usable)
     adapted["assessment"] = assessment

@@ -94,10 +94,10 @@ For each block, read its `visual_note` and the speech around it, then filter
 
 **Step C — Select the sub-range**
 
-1. **Stay inside `usable_range`** — it is the outer bound of what you may cut
-   from, not a quality verdict. The analysis currently reports the whole clip
-   here and does not yet narrow it to a judged-usable portion, so nothing
-   outside it has been marked unusable; there simply is no footage there.
+1. **Stay inside `usable_range`** - it marks the portion of the clip that
+   deterministic analysis found usable (free of camera handling noise, dead
+   head/tail fumble, and - where data exists - subject absence). Ranges
+   outside it were excluded for a stated reason; do not cut from them.
 2. **Use the scene segment bounds** in the semantic documents (`scene[]`
    `start`/`end`) and the per-range `camera[]` entries to pick the stretch
    with the framing you want, then express it as `preferred_moment`.
@@ -172,9 +172,13 @@ per clip, offered to every placement. Fields:
 - `camera_move`: e.g. `stationary`, `panning_right`.
 - `content_type`: What kind of footage it is, e.g. `scenery`,
   `object_showcase`, `person_talking_to_camera`.
-- `usable_range`: The stretch you may cut from. The analysis reports the whole
-  clip here today rather than narrowing to a judged-usable portion, so read it
-  as an upper bound, not as an assessment of quality.
+- `usable_range`: The stretches you may cut from, as one or more
+  comma-separated ranges (`0.0-4.2s, 7.5-12.0s`). Deterministic analysis
+  measured them from motion, speech and face signals; the time between them
+  was excluded for a stated reason, so treat only the listed stretches as
+  available footage. `none - whole clip excluded (...)` means the whole clip
+  was rejected and you should pick another; an empty cell means the clip was
+  never measured, so the whole clip is fair game but unvetted.
 - `subjects`: Who and what is in shot, primary subject first.
 - `description`: Time-bounded scene prose for the whole clip.
 

@@ -686,10 +686,17 @@ def compute_motion_energy(
     enabling frame-aligned decisions for B-roll placement, VFX triggers,
     and scene boundary refinement.
 
+    `values` is normalized to the clip's own peak, so it says nothing about
+    how much motion the clip holds in absolute terms — every clip peaks at
+    1.0. `peak_mean_abs_diff` carries that peak before normalization (mean
+    absolute frame difference, 0-1 grey scale), so a consumer that needs an
+    absolute measure can recover it as `value * peak_mean_abs_diff`.
+
     Returns:
         {
             "sample_rate_hz": 10,
             "values": [0.0, 0.1, 0.8, ...],  # normalized 0-1
+            "peak_mean_abs_diff": 0.184,  # pre-normalization peak, 0-1
             "peak_motion_times": [4.5, 12.0, ...]  # scipy-detected peaks
             "high_motion_times": [4.5, 12.0, ...]   # values > 0.5
         }
@@ -716,6 +723,7 @@ def compute_motion_energy(
             return {
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
+                "peak_mean_abs_diff": 0.0,
                 "peak_motion_times": [],
                 "high_motion_times": [],
             }
@@ -729,6 +737,7 @@ def compute_motion_energy(
             return {
                 "sample_rate_hz": sample_rate_hz,
                 "values": [0.0],
+                "peak_mean_abs_diff": 0.0,
                 "peak_motion_times": [],
                 "high_motion_times": [],
             }
@@ -769,6 +778,7 @@ def compute_motion_energy(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": motion_values,
+            "peak_mean_abs_diff": round(float(m_max), 5),
             "peak_motion_times": peak_motion_times,
             "high_motion_times": high_motion,
         }
@@ -781,6 +791,7 @@ def compute_motion_energy(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": [],
+            "peak_mean_abs_diff": 0.0,
             "peak_motion_times": [],
             "high_motion_times": [],
         }
@@ -792,6 +803,7 @@ def compute_motion_energy(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": [],
+            "peak_mean_abs_diff": 0.0,
             "peak_motion_times": [],
             "high_motion_times": [],
         }
