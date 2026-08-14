@@ -1,0 +1,3292 @@
+{
+  "_source": "step_outputs.mesh_spine.timed_spine.structure and step_outputs.compile_manifest.assembly_manifest from the creative-audit run captured in pipeline_data.json - the run that shipped 7.2s of undeclared black. Committed so the black-beat tests run everywhere, not only on the machine that holds the project.",
+  "project": {
+    "name": "Pipeline_Edit",
+    "resolution": [
+      1080,
+      1920
+    ],
+    "frame_rate": 30.0,
+    "duration_seconds": 114.916
+  },
+  "timed_spine_structure": [
+    {
+      "position": "hook",
+      "block_type": "hook",
+      "content": {
+        "passage_ref": "hook",
+        "text": "what even is today?",
+        "clip_id": "clip_009",
+        "source_start": 41.916,
+        "source_end": 42.657,
+        "v1_source_in": 41.916,
+        "v1_source_out": 42.657,
+        "source_duration": 0.741,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "what",
+            "source_start": 41.916,
+            "source_end": 42.056
+          },
+          {
+            "word": "even",
+            "source_start": 42.116,
+            "source_end": 42.217
+          },
+          {
+            "word": "is",
+            "source_start": 42.297,
+            "source_end": 42.377
+          },
+          {
+            "word": "today?",
+            "source_start": 42.397,
+            "source_end": 42.657
+          }
+        ]
+      },
+      "duration_seconds": 0.741,
+      "music_behavior": "prominent",
+      "visual_note": "A strong direct address question to immediately grab viewer attention",
+      "clip_id": "clip_009",
+      "source_clip_id": "clip_009",
+      "source_start": 41.916,
+      "source_end": 42.657,
+      "word_timestamps": [
+        {
+          "word": "what",
+          "source_start": 41.916,
+          "source_end": 42.056
+        },
+        {
+          "word": "even",
+          "source_start": 42.116,
+          "source_end": 42.217
+        },
+        {
+          "word": "is",
+          "source_start": 42.297,
+          "source_end": 42.377
+        },
+        {
+          "word": "today?",
+          "source_start": 42.397,
+          "source_end": 42.657
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "19b5d8da-51bc-4a4b-b875-87306f3cfaa4",
+      "music_track": "track_01",
+      "timeline_start": 0.0,
+      "timeline_end": 0.741,
+      "timeline_start_frame": 0,
+      "timeline_end_frame": 22,
+      "duration_frames": 22
+    },
+    {
+      "position": 1,
+      "block_type": "intro",
+      "duration_seconds": 10.0,
+      "music_behavior": "prominent",
+      "visual_note": "Music intro and B-roll before speech starts",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 0.741,
+      "timeline_end": 10.741,
+      "timeline_start_frame": 22,
+      "timeline_end_frame": 322,
+      "duration_frames": 300
+    },
+    {
+      "position": 2,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 1,
+        "text": "okay, i might have to just voiceover this entire part, but today is, what even is today?",
+        "clip_id": "clip_009",
+        "source_start": 30.72,
+        "source_end": 42.657,
+        "v1_source_in": 30.72,
+        "v1_source_out": 42.657,
+        "source_duration": 11.937,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "okay,",
+            "source_start": 30.72,
+            "source_end": 31.02
+          },
+          {
+            "word": "i",
+            "source_start": 32.578,
+            "source_end": 33.043
+          },
+          {
+            "word": "might",
+            "source_start": 33.063,
+            "source_end": 33.183
+          },
+          {
+            "word": "have",
+            "source_start": 33.203,
+            "source_end": 33.323
+          },
+          {
+            "word": "to",
+            "source_start": 33.343,
+            "source_end": 33.403
+          },
+          {
+            "word": "just",
+            "source_start": 33.443,
+            "source_end": 33.583
+          },
+          {
+            "word": "voiceover",
+            "source_start": 33.624,
+            "source_end": 34.004
+          },
+          {
+            "word": "this",
+            "source_start": 34.024,
+            "source_end": 34.204
+          },
+          {
+            "word": "entire",
+            "source_start": 34.244,
+            "source_end": 34.505
+          },
+          {
+            "word": "part,",
+            "source_start": 34.625,
+            "source_end": 34.905
+          },
+          {
+            "word": "but",
+            "source_start": 35.066,
+            "source_end": 35.366
+          },
+          {
+            "word": "today",
+            "source_start": 38.499,
+            "source_end": 38.912
+          },
+          {
+            "word": "is,",
+            "source_start": 39.192,
+            "source_end": 39.492
+          },
+          {
+            "word": "what",
+            "source_start": 41.916,
+            "source_end": 42.056
+          },
+          {
+            "word": "even",
+            "source_start": 42.116,
+            "source_end": 42.217
+          },
+          {
+            "word": "is",
+            "source_start": 42.297,
+            "source_end": 42.377
+          },
+          {
+            "word": "today?",
+            "source_start": 42.397,
+            "source_end": 42.657
+          }
+        ]
+      },
+      "duration_seconds": 11.937,
+      "music_behavior": "background",
+      "visual_note": "Establishing the slightly chaotic, informal vlog tone and setting up the date reveal",
+      "clip_id": "clip_009",
+      "source_clip_id": "clip_009",
+      "source_start": 30.72,
+      "source_end": 41.916,
+      "word_timestamps": [
+        {
+          "word": "okay,",
+          "source_start": 30.72,
+          "source_end": 31.02
+        },
+        {
+          "word": "i",
+          "source_start": 32.578,
+          "source_end": 33.043
+        },
+        {
+          "word": "might",
+          "source_start": 33.063,
+          "source_end": 33.183
+        },
+        {
+          "word": "have",
+          "source_start": 33.203,
+          "source_end": 33.323
+        },
+        {
+          "word": "to",
+          "source_start": 33.343,
+          "source_end": 33.403
+        },
+        {
+          "word": "just",
+          "source_start": 33.443,
+          "source_end": 33.583
+        },
+        {
+          "word": "voiceover",
+          "source_start": 33.624,
+          "source_end": 34.004
+        },
+        {
+          "word": "this",
+          "source_start": 34.024,
+          "source_end": 34.204
+        },
+        {
+          "word": "entire",
+          "source_start": 34.244,
+          "source_end": 34.505
+        },
+        {
+          "word": "part,",
+          "source_start": 34.625,
+          "source_end": 34.905
+        },
+        {
+          "word": "but",
+          "source_start": 35.066,
+          "source_end": 35.366
+        },
+        {
+          "word": "today",
+          "source_start": 38.499,
+          "source_end": 38.912
+        },
+        {
+          "word": "is,",
+          "source_start": 39.192,
+          "source_end": 39.492
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "b4bfcd37-9c38-4a1c-84e7-42375eb6c5da",
+      "music_track": "track_01",
+      "timeline_start": 10.741,
+      "timeline_end": 22.678,
+      "timeline_start_frame": 322,
+      "timeline_end_frame": 680,
+      "duration_frames": 358
+    },
+    {
+      "position": 3,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 2,
+        "text": "today is march 25th, 2026.",
+        "clip_id": "clip_011",
+        "source_start": 9.699,
+        "source_end": 11.28,
+        "v1_source_in": 9.699,
+        "v1_source_out": 11.28,
+        "source_duration": 1.581,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "today",
+            "source_start": 9.699,
+            "source_end": 9.979
+          },
+          {
+            "word": "is",
+            "source_start": 9.999,
+            "source_end": 10.039
+          },
+          {
+            "word": "march",
+            "source_start": 10.38,
+            "source_end": 10.62
+          },
+          {
+            "word": "25th,",
+            "source_start": 10.84,
+            "source_end": 11.28
+          }
+        ]
+      },
+      "duration_seconds": 1.581,
+      "music_behavior": "background",
+      "visual_note": "Answering the opening question, grounding the video in a specific moment",
+      "clip_id": "clip_011",
+      "source_clip_id": "clip_011",
+      "source_start": 9.699,
+      "source_end": 11.28,
+      "word_timestamps": [
+        {
+          "word": "today",
+          "source_start": 9.699,
+          "source_end": 9.979
+        },
+        {
+          "word": "is",
+          "source_start": 9.999,
+          "source_end": 10.039
+        },
+        {
+          "word": "march",
+          "source_start": 10.38,
+          "source_end": 10.62
+        },
+        {
+          "word": "25th,",
+          "source_start": 10.84,
+          "source_end": 11.28
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "85ce257d-d8fe-4f97-ade3-ee6140f8b578",
+      "music_track": "track_01",
+      "timeline_start": 22.678,
+      "timeline_end": 24.259,
+      "timeline_start_frame": 680,
+      "timeline_end_frame": 728,
+      "duration_frames": 48
+    },
+    {
+      "position": 4,
+      "block_type": "transition_slot",
+      "duration_seconds": 2.0,
+      "music_behavior": "prominent",
+      "visual_note": "Short transition with B-roll to let the date sink in",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 24.259,
+      "timeline_end": 26.259,
+      "timeline_start_frame": 728,
+      "timeline_end_frame": 788,
+      "duration_frames": 60
+    },
+    {
+      "position": 5,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 3,
+        "text": "and so my very, very small announcement is that i just want to post every single day.",
+        "clip_id": "clip_011",
+        "source_start": 63.135,
+        "source_end": 66.635,
+        "v1_source_in": 63.135,
+        "v1_source_out": 66.635,
+        "source_duration": 3.5,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "and",
+            "source_start": 63.135,
+            "source_end": 63.233
+          },
+          {
+            "word": "so",
+            "source_start": 63.251,
+            "source_end": 63.393
+          },
+          {
+            "word": "my",
+            "source_start": 63.433,
+            "source_end": 63.533
+          },
+          {
+            "word": "very,",
+            "source_start": 63.573,
+            "source_end": 63.713
+          },
+          {
+            "word": "very",
+            "source_start": 63.733,
+            "source_end": 63.873
+          },
+          {
+            "word": "small",
+            "source_start": 63.878,
+            "source_end": 64.073
+          },
+          {
+            "word": "announcement",
+            "source_start": 64.114,
+            "source_end": 64.514
+          },
+          {
+            "word": "is",
+            "source_start": 64.674,
+            "source_end": 64.814
+          },
+          {
+            "word": "that",
+            "source_start": 65.054,
+            "source_end": 65.254
+          },
+          {
+            "word": "i",
+            "source_start": 65.494,
+            "source_end": 65.614
+          },
+          {
+            "word": "just",
+            "source_start": 65.634,
+            "source_end": 65.734
+          },
+          {
+            "word": "want",
+            "source_start": 65.774,
+            "source_end": 65.874
+          },
+          {
+            "word": "to",
+            "source_start": 65.894,
+            "source_end": 65.954
+          },
+          {
+            "word": "post",
+            "source_start": 65.994,
+            "source_end": 66.175
+          },
+          {
+            "word": "every",
+            "source_start": 66.215,
+            "source_end": 66.375
+          },
+          {
+            "word": "single",
+            "source_start": 66.395,
+            "source_end": 66.535
+          },
+          {
+            "word": "day.",
+            "source_start": 66.595,
+            "source_end": 66.635
+          }
+        ]
+      },
+      "duration_seconds": 3.5,
+      "music_behavior": "background",
+      "visual_note": "Delivering the core thesis and challenge of the video",
+      "clip_id": "clip_011",
+      "source_clip_id": "clip_011",
+      "source_start": 63.135,
+      "source_end": 66.635,
+      "word_timestamps": [
+        {
+          "word": "and",
+          "source_start": 63.135,
+          "source_end": 63.233
+        },
+        {
+          "word": "so",
+          "source_start": 63.251,
+          "source_end": 63.393
+        },
+        {
+          "word": "my",
+          "source_start": 63.433,
+          "source_end": 63.533
+        },
+        {
+          "word": "very,",
+          "source_start": 63.573,
+          "source_end": 63.713
+        },
+        {
+          "word": "very",
+          "source_start": 63.733,
+          "source_end": 63.873
+        },
+        {
+          "word": "small",
+          "source_start": 63.878,
+          "source_end": 64.073
+        },
+        {
+          "word": "announcement",
+          "source_start": 64.114,
+          "source_end": 64.514
+        },
+        {
+          "word": "is",
+          "source_start": 64.674,
+          "source_end": 64.814
+        },
+        {
+          "word": "that",
+          "source_start": 65.054,
+          "source_end": 65.254
+        },
+        {
+          "word": "i",
+          "source_start": 65.494,
+          "source_end": 65.614
+        },
+        {
+          "word": "just",
+          "source_start": 65.634,
+          "source_end": 65.734
+        },
+        {
+          "word": "want",
+          "source_start": 65.774,
+          "source_end": 65.874
+        },
+        {
+          "word": "to",
+          "source_start": 65.894,
+          "source_end": 65.954
+        },
+        {
+          "word": "post",
+          "source_start": 65.994,
+          "source_end": 66.175
+        },
+        {
+          "word": "every",
+          "source_start": 66.215,
+          "source_end": 66.375
+        },
+        {
+          "word": "single",
+          "source_start": 66.395,
+          "source_end": 66.535
+        },
+        {
+          "word": "day.",
+          "source_start": 66.595,
+          "source_end": 66.635
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "ea760ff2-5003-48cb-84ee-c7fce11f8be7",
+      "music_track": "track_01",
+      "timeline_start": 26.259,
+      "timeline_end": 29.759,
+      "timeline_start_frame": 788,
+      "timeline_end_frame": 893,
+      "duration_frames": 105
+    },
+    {
+      "position": 6,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 4,
+        "text": "the goal of all this is just to get momentum going.",
+        "clip_id": "clip_012",
+        "source_start": 21.796,
+        "source_end": 24.158,
+        "v1_source_in": 21.796,
+        "v1_source_out": 24.158,
+        "source_duration": 2.362,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "the",
+            "source_start": 21.796,
+            "source_end": 21.896
+          },
+          {
+            "word": "goal",
+            "source_start": 21.943,
+            "source_end": 22.177
+          },
+          {
+            "word": "of",
+            "source_start": 22.197,
+            "source_end": 22.237
+          },
+          {
+            "word": "all",
+            "source_start": 22.317,
+            "source_end": 22.417
+          },
+          {
+            "word": "this",
+            "source_start": 22.457,
+            "source_end": 22.657
+          },
+          {
+            "word": "is",
+            "source_start": 22.732,
+            "source_end": 22.857
+          },
+          {
+            "word": "just",
+            "source_start": 22.877,
+            "source_end": 23.037
+          },
+          {
+            "word": "to",
+            "source_start": 23.057,
+            "source_end": 23.137
+          },
+          {
+            "word": "get",
+            "source_start": 23.157,
+            "source_end": 23.317
+          },
+          {
+            "word": "momentum",
+            "source_start": 23.336,
+            "source_end": 23.858
+          },
+          {
+            "word": "going.",
+            "source_start": 23.893,
+            "source_end": 24.158
+          }
+        ]
+      },
+      "duration_seconds": 2.362,
+      "music_behavior": "background",
+      "visual_note": "Explaining the reasoning behind the challenge",
+      "clip_id": "clip_012",
+      "source_clip_id": "clip_012",
+      "source_start": 21.796,
+      "source_end": 24.158,
+      "word_timestamps": [
+        {
+          "word": "the",
+          "source_start": 21.796,
+          "source_end": 21.896
+        },
+        {
+          "word": "goal",
+          "source_start": 21.943,
+          "source_end": 22.177
+        },
+        {
+          "word": "of",
+          "source_start": 22.197,
+          "source_end": 22.237
+        },
+        {
+          "word": "all",
+          "source_start": 22.317,
+          "source_end": 22.417
+        },
+        {
+          "word": "this",
+          "source_start": 22.457,
+          "source_end": 22.657
+        },
+        {
+          "word": "is",
+          "source_start": 22.732,
+          "source_end": 22.857
+        },
+        {
+          "word": "just",
+          "source_start": 22.877,
+          "source_end": 23.037
+        },
+        {
+          "word": "to",
+          "source_start": 23.057,
+          "source_end": 23.137
+        },
+        {
+          "word": "get",
+          "source_start": 23.157,
+          "source_end": 23.317
+        },
+        {
+          "word": "momentum",
+          "source_start": 23.336,
+          "source_end": 23.858
+        },
+        {
+          "word": "going.",
+          "source_start": 23.893,
+          "source_end": 24.158
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "b0c76bc9-7b14-477e-b5e1-69168fa0e29f",
+      "music_track": "track_01",
+      "timeline_start": 29.759,
+      "timeline_end": 32.121,
+      "timeline_start_frame": 893,
+      "timeline_end_frame": 964,
+      "duration_frames": 71
+    },
+    {
+      "position": 7,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 5,
+        "text": "it doesn't matter if it's even edited.",
+        "clip_id": "clip_012",
+        "source_start": 30.14,
+        "source_end": 33.521,
+        "v1_source_in": 30.14,
+        "v1_source_out": 33.521,
+        "source_duration": 3.381,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "it",
+            "source_start": 30.14,
+            "source_end": 30.195
+          },
+          {
+            "word": "doesn't",
+            "source_start": 30.215,
+            "source_end": 30.456
+          },
+          {
+            "word": "matter",
+            "source_start": 30.476,
+            "source_end": 30.716
+          },
+          {
+            "word": "if",
+            "source_start": 32.508,
+            "source_end": 32.539
+          },
+          {
+            "word": "it's",
+            "source_start": 32.856,
+            "source_end": 32.96
+          },
+          {
+            "word": "even",
+            "source_start": 33.042,
+            "source_end": 33.2
+          },
+          {
+            "word": "edited.",
+            "source_start": 33.274,
+            "source_end": 33.521
+          }
+        ]
+      },
+      "duration_seconds": 3.381,
+      "music_behavior": "background",
+      "visual_note": "Lowering the bar for success to emphasize action over perfection",
+      "clip_id": "clip_012",
+      "source_clip_id": "clip_012",
+      "source_start": 30.14,
+      "source_end": 33.521,
+      "word_timestamps": [
+        {
+          "word": "it",
+          "source_start": 30.14,
+          "source_end": 30.195
+        },
+        {
+          "word": "doesn't",
+          "source_start": 30.215,
+          "source_end": 30.456
+        },
+        {
+          "word": "matter",
+          "source_start": 30.476,
+          "source_end": 30.716
+        },
+        {
+          "word": "if",
+          "source_start": 32.508,
+          "source_end": 32.539
+        },
+        {
+          "word": "it's",
+          "source_start": 32.856,
+          "source_end": 32.96
+        },
+        {
+          "word": "even",
+          "source_start": 33.042,
+          "source_end": 33.2
+        },
+        {
+          "word": "edited.",
+          "source_start": 33.274,
+          "source_end": 33.521
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "25af94d1-289e-469b-8526-a37b50cc3634",
+      "music_track": "track_01",
+      "timeline_start": 32.121,
+      "timeline_end": 35.502,
+      "timeline_start_frame": 964,
+      "timeline_end_frame": 1065,
+      "duration_frames": 101
+    },
+    {
+      "position": 8,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 6,
+        "text": "it just matters that it gets posted.",
+        "clip_id": "clip_012",
+        "source_start": 33.553,
+        "source_end": 35.404,
+        "v1_source_in": 33.553,
+        "v1_source_out": 35.404,
+        "source_duration": 1.851,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "it",
+            "source_start": 33.553,
+            "source_end": 33.641
+          },
+          {
+            "word": "just",
+            "source_start": 34.001,
+            "source_end": 34.182
+          },
+          {
+            "word": "matters",
+            "source_start": 34.249,
+            "source_end": 34.482
+          },
+          {
+            "word": "that",
+            "source_start": 34.502,
+            "source_end": 34.662
+          },
+          {
+            "word": "it",
+            "source_start": 34.691,
+            "source_end": 34.723
+          },
+          {
+            "word": "gets",
+            "source_start": 34.743,
+            "source_end": 34.943
+          },
+          {
+            "word": "posted.",
+            "source_start": 34.983,
+            "source_end": 35.404
+          }
+        ]
+      },
+      "duration_seconds": 1.851,
+      "music_behavior": "background",
+      "visual_note": "Reinforcing the central rule",
+      "clip_id": "clip_012",
+      "source_clip_id": "clip_012",
+      "source_start": 33.553,
+      "source_end": 35.404,
+      "word_timestamps": [
+        {
+          "word": "it",
+          "source_start": 33.553,
+          "source_end": 33.641
+        },
+        {
+          "word": "just",
+          "source_start": 34.001,
+          "source_end": 34.182
+        },
+        {
+          "word": "matters",
+          "source_start": 34.249,
+          "source_end": 34.482
+        },
+        {
+          "word": "that",
+          "source_start": 34.502,
+          "source_end": 34.662
+        },
+        {
+          "word": "it",
+          "source_start": 34.691,
+          "source_end": 34.723
+        },
+        {
+          "word": "gets",
+          "source_start": 34.743,
+          "source_end": 34.943
+        },
+        {
+          "word": "posted.",
+          "source_start": 34.983,
+          "source_end": 35.404
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "56f49584-945c-4a69-b0a8-9d4fc81965db",
+      "music_track": "track_01",
+      "timeline_start": 35.502,
+      "timeline_end": 37.353,
+      "timeline_start_frame": 1065,
+      "timeline_end_frame": 1121,
+      "duration_frames": 56
+    },
+    {
+      "position": 9,
+      "block_type": "transition_slot",
+      "duration_seconds": 2.0,
+      "music_behavior": "prominent",
+      "visual_note": "B-roll montage to build momentum",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 37.353,
+      "timeline_end": 39.353,
+      "timeline_start_frame": 1121,
+      "timeline_end_frame": 1181,
+      "duration_frames": 60
+    },
+    {
+      "position": 10,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 7,
+        "text": "so you might be asking, you know, why the sudden change of heart?",
+        "clip_id": "clip_013",
+        "source_start": 0.673,
+        "source_end": 3.783,
+        "v1_source_in": 0.673,
+        "v1_source_out": 3.783,
+        "source_duration": 3.11,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "so",
+            "source_start": 0.673,
+            "source_end": 0.922
+          },
+          {
+            "word": "you",
+            "source_start": 0.982,
+            "source_end": 1.082
+          },
+          {
+            "word": "might",
+            "source_start": 1.122,
+            "source_end": 1.282
+          },
+          {
+            "word": "be",
+            "source_start": 1.302,
+            "source_end": 1.402
+          },
+          {
+            "word": "asking,",
+            "source_start": 1.502,
+            "source_end": 1.902
+          },
+          {
+            "word": "you",
+            "source_start": 1.922,
+            "source_end": 1.983
+          },
+          {
+            "word": "know,",
+            "source_start": 2.163,
+            "source_end": 2.323
+          },
+          {
+            "word": "why",
+            "source_start": 2.363,
+            "source_end": 2.503
+          },
+          {
+            "word": "the",
+            "source_start": 2.523,
+            "source_end": 2.683
+          },
+          {
+            "word": "sudden",
+            "source_start": 2.723,
+            "source_end": 3.003
+          },
+          {
+            "word": "change",
+            "source_start": 3.065,
+            "source_end": 3.283
+          },
+          {
+            "word": "of",
+            "source_start": 3.297,
+            "source_end": 3.383
+          },
+          {
+            "word": "heart?",
+            "source_start": 3.443,
+            "source_end": 3.783
+          }
+        ]
+      },
+      "duration_seconds": 3.11,
+      "music_behavior": "background",
+      "visual_note": "Pivoting to internal motivations and backstory",
+      "clip_id": "clip_013",
+      "source_clip_id": "clip_013",
+      "source_start": 0.673,
+      "source_end": 3.783,
+      "word_timestamps": [
+        {
+          "word": "so",
+          "source_start": 0.673,
+          "source_end": 0.922
+        },
+        {
+          "word": "you",
+          "source_start": 0.982,
+          "source_end": 1.082
+        },
+        {
+          "word": "might",
+          "source_start": 1.122,
+          "source_end": 1.282
+        },
+        {
+          "word": "be",
+          "source_start": 1.302,
+          "source_end": 1.402
+        },
+        {
+          "word": "asking,",
+          "source_start": 1.502,
+          "source_end": 1.902
+        },
+        {
+          "word": "you",
+          "source_start": 1.922,
+          "source_end": 1.983
+        },
+        {
+          "word": "know,",
+          "source_start": 2.163,
+          "source_end": 2.323
+        },
+        {
+          "word": "why",
+          "source_start": 2.363,
+          "source_end": 2.503
+        },
+        {
+          "word": "the",
+          "source_start": 2.523,
+          "source_end": 2.683
+        },
+        {
+          "word": "sudden",
+          "source_start": 2.723,
+          "source_end": 3.003
+        },
+        {
+          "word": "change",
+          "source_start": 3.065,
+          "source_end": 3.283
+        },
+        {
+          "word": "of",
+          "source_start": 3.297,
+          "source_end": 3.383
+        },
+        {
+          "word": "heart?",
+          "source_start": 3.443,
+          "source_end": 3.783
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "671fb820-5c39-4339-a3f1-1a9cdaf80338",
+      "music_track": "track_01",
+      "timeline_start": 39.353,
+      "timeline_end": 42.463,
+      "timeline_start_frame": 1181,
+      "timeline_end_frame": 1274,
+      "duration_frames": 93
+    },
+    {
+      "position": 11,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 8,
+        "text": "and a lot of the stuff i ended up doing was not really the stuff in the back of my head that got me excited.",
+        "clip_id": "clip_013",
+        "source_start": 18.389,
+        "source_end": 24.251,
+        "v1_source_in": 18.389,
+        "v1_source_out": 24.251,
+        "source_duration": 5.862,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "and",
+            "source_start": 18.389,
+            "source_end": 18.549
+          },
+          {
+            "word": "a",
+            "source_start": 18.569,
+            "source_end": 18.589
+          },
+          {
+            "word": "lot",
+            "source_start": 18.831,
+            "source_end": 18.989
+          },
+          {
+            "word": "of",
+            "source_start": 19.009,
+            "source_end": 19.069
+          },
+          {
+            "word": "the",
+            "source_start": 19.089,
+            "source_end": 19.149
+          },
+          {
+            "word": "stuff",
+            "source_start": 19.189,
+            "source_end": 19.409
+          },
+          {
+            "word": "i",
+            "source_start": 19.482,
+            "source_end": 19.509
+          },
+          {
+            "word": "ended",
+            "source_start": 19.529,
+            "source_end": 19.709
+          },
+          {
+            "word": "up",
+            "source_start": 19.737,
+            "source_end": 19.809
+          },
+          {
+            "word": "doing",
+            "source_start": 19.876,
+            "source_end": 20.209
+          },
+          {
+            "word": "was",
+            "source_start": 20.229,
+            "source_end": 21.87
+          },
+          {
+            "word": "not",
+            "source_start": 21.93,
+            "source_end": 22.03
+          },
+          {
+            "word": "really",
+            "source_start": 22.05,
+            "source_end": 22.23
+          },
+          {
+            "word": "the",
+            "source_start": 22.25,
+            "source_end": 22.35
+          },
+          {
+            "word": "stuff",
+            "source_start": 22.37,
+            "source_end": 22.55
+          },
+          {
+            "word": "in",
+            "source_start": 22.593,
+            "source_end": 22.65
+          },
+          {
+            "word": "the",
+            "source_start": 22.67,
+            "source_end": 22.73
+          },
+          {
+            "word": "back",
+            "source_start": 22.779,
+            "source_end": 22.87
+          },
+          {
+            "word": "of",
+            "source_start": 22.91,
+            "source_end": 22.95
+          },
+          {
+            "word": "my",
+            "source_start": 23.011,
+            "source_end": 23.071
+          },
+          {
+            "word": "head",
+            "source_start": 23.111,
+            "source_end": 23.291
+          },
+          {
+            "word": "that",
+            "source_start": 23.351,
+            "source_end": 23.571
+          },
+          {
+            "word": "got",
+            "source_start": 23.638,
+            "source_end": 23.731
+          },
+          {
+            "word": "me",
+            "source_start": 23.771,
+            "source_end": 23.851
+          },
+          {
+            "word": "excited.",
+            "source_start": 23.871,
+            "source_end": 24.251
+          }
+        ]
+      },
+      "duration_seconds": 5.862,
+      "music_behavior": "background",
+      "visual_note": "Revealing the dissatisfaction that sparked this new project",
+      "clip_id": "clip_013",
+      "source_clip_id": "clip_013",
+      "source_start": 18.389,
+      "source_end": 24.251,
+      "word_timestamps": [
+        {
+          "word": "and",
+          "source_start": 18.389,
+          "source_end": 18.549
+        },
+        {
+          "word": "a",
+          "source_start": 18.569,
+          "source_end": 18.589
+        },
+        {
+          "word": "lot",
+          "source_start": 18.831,
+          "source_end": 18.989
+        },
+        {
+          "word": "of",
+          "source_start": 19.009,
+          "source_end": 19.069
+        },
+        {
+          "word": "the",
+          "source_start": 19.089,
+          "source_end": 19.149
+        },
+        {
+          "word": "stuff",
+          "source_start": 19.189,
+          "source_end": 19.409
+        },
+        {
+          "word": "i",
+          "source_start": 19.482,
+          "source_end": 19.509
+        },
+        {
+          "word": "ended",
+          "source_start": 19.529,
+          "source_end": 19.709
+        },
+        {
+          "word": "up",
+          "source_start": 19.737,
+          "source_end": 19.809
+        },
+        {
+          "word": "doing",
+          "source_start": 19.876,
+          "source_end": 20.209
+        },
+        {
+          "word": "was",
+          "source_start": 20.229,
+          "source_end": 21.87
+        },
+        {
+          "word": "not",
+          "source_start": 21.93,
+          "source_end": 22.03
+        },
+        {
+          "word": "really",
+          "source_start": 22.05,
+          "source_end": 22.23
+        },
+        {
+          "word": "the",
+          "source_start": 22.25,
+          "source_end": 22.35
+        },
+        {
+          "word": "stuff",
+          "source_start": 22.37,
+          "source_end": 22.55
+        },
+        {
+          "word": "in",
+          "source_start": 22.593,
+          "source_end": 22.65
+        },
+        {
+          "word": "the",
+          "source_start": 22.67,
+          "source_end": 22.73
+        },
+        {
+          "word": "back",
+          "source_start": 22.779,
+          "source_end": 22.87
+        },
+        {
+          "word": "of",
+          "source_start": 22.91,
+          "source_end": 22.95
+        },
+        {
+          "word": "my",
+          "source_start": 23.011,
+          "source_end": 23.071
+        },
+        {
+          "word": "head",
+          "source_start": 23.111,
+          "source_end": 23.291
+        },
+        {
+          "word": "that",
+          "source_start": 23.351,
+          "source_end": 23.571
+        },
+        {
+          "word": "got",
+          "source_start": 23.638,
+          "source_end": 23.731
+        },
+        {
+          "word": "me",
+          "source_start": 23.771,
+          "source_end": 23.851
+        },
+        {
+          "word": "excited.",
+          "source_start": 23.871,
+          "source_end": 24.251
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "22d6bed5-b09f-4153-844c-445b3922c617",
+      "music_track": "track_01",
+      "timeline_start": 42.463,
+      "timeline_end": 48.325,
+      "timeline_start_frame": 1274,
+      "timeline_end_frame": 1450,
+      "duration_frames": 176
+    },
+    {
+      "position": 12,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 9,
+        "text": "my thinking is i just need to get over some starting trouble.",
+        "clip_id": "clip_015",
+        "source_start": 7.175,
+        "source_end": 10.311,
+        "v1_source_in": 7.175,
+        "v1_source_out": 10.311,
+        "source_duration": 3.136,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "my",
+            "source_start": 7.175,
+            "source_end": 7.269
+          },
+          {
+            "word": "thinking",
+            "source_start": 7.309,
+            "source_end": 7.69
+          },
+          {
+            "word": "is",
+            "source_start": 7.89,
+            "source_end": 8.01
+          },
+          {
+            "word": "i",
+            "source_start": 8.05,
+            "source_end": 8.15
+          },
+          {
+            "word": "just",
+            "source_start": 8.197,
+            "source_end": 8.27
+          },
+          {
+            "word": "need",
+            "source_start": 8.29,
+            "source_end": 8.37
+          },
+          {
+            "word": "to",
+            "source_start": 8.39,
+            "source_end": 8.45
+          },
+          {
+            "word": "get",
+            "source_start": 8.49,
+            "source_end": 8.59
+          },
+          {
+            "word": "over",
+            "source_start": 8.63,
+            "source_end": 8.87
+          },
+          {
+            "word": "some",
+            "source_start": 8.89,
+            "source_end": 8.97
+          },
+          {
+            "word": "starting",
+            "source_start": 9.571,
+            "source_end": 9.911
+          },
+          {
+            "word": "trouble.",
+            "source_start": 9.985,
+            "source_end": 10.311
+          }
+        ]
+      },
+      "duration_seconds": 3.136,
+      "music_behavior": "background",
+      "visual_note": "Acknowledging the mental block he is trying to overcome",
+      "clip_id": "clip_015",
+      "source_clip_id": "clip_015",
+      "source_start": 7.175,
+      "source_end": 10.311,
+      "word_timestamps": [
+        {
+          "word": "my",
+          "source_start": 7.175,
+          "source_end": 7.269
+        },
+        {
+          "word": "thinking",
+          "source_start": 7.309,
+          "source_end": 7.69
+        },
+        {
+          "word": "is",
+          "source_start": 7.89,
+          "source_end": 8.01
+        },
+        {
+          "word": "i",
+          "source_start": 8.05,
+          "source_end": 8.15
+        },
+        {
+          "word": "just",
+          "source_start": 8.197,
+          "source_end": 8.27
+        },
+        {
+          "word": "need",
+          "source_start": 8.29,
+          "source_end": 8.37
+        },
+        {
+          "word": "to",
+          "source_start": 8.39,
+          "source_end": 8.45
+        },
+        {
+          "word": "get",
+          "source_start": 8.49,
+          "source_end": 8.59
+        },
+        {
+          "word": "over",
+          "source_start": 8.63,
+          "source_end": 8.87
+        },
+        {
+          "word": "some",
+          "source_start": 8.89,
+          "source_end": 8.97
+        },
+        {
+          "word": "starting",
+          "source_start": 9.571,
+          "source_end": 9.911
+        },
+        {
+          "word": "trouble.",
+          "source_start": 9.985,
+          "source_end": 10.311
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "c8b9d7b5-9638-43a7-b824-a7b3d4402f1b",
+      "music_track": "track_01",
+      "timeline_start": 48.325,
+      "timeline_end": 51.461,
+      "timeline_start_frame": 1450,
+      "timeline_end_frame": 1544,
+      "duration_frames": 94
+    },
+    {
+      "position": 13,
+      "block_type": "transition_slot",
+      "duration_seconds": 2.0,
+      "music_behavior": "prominent",
+      "visual_note": "Reflective B-roll moment before the climax",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 51.461,
+      "timeline_end": 53.461,
+      "timeline_start_frame": 1544,
+      "timeline_end_frame": 1604,
+      "duration_frames": 60
+    },
+    {
+      "position": 14,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 10,
+        "text": "i'm happy that i at least recorded this i almost didn't do this again i've been literally this week i've quit every single day and the only reason i'm recording today is because i told myself this is the last shot i got because like what other like you know how other way would it line up it lines up so nicely that this day 11 years ago was the day that um was the day that casey neistat posted his first vlog",
+        "clip_id": "clip_017",
+        "source_start": 26.484,
+        "source_end": 55.59,
+        "v1_source_in": 26.484,
+        "v1_source_out": 55.59,
+        "source_duration": 29.106,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "i'm",
+            "source_start": 26.484,
+            "source_end": 26.584
+          },
+          {
+            "word": "happy",
+            "source_start": 28.532,
+            "source_end": 28.792
+          },
+          {
+            "word": "that",
+            "source_start": 28.812,
+            "source_end": 28.952
+          },
+          {
+            "word": "i",
+            "source_start": 29.002,
+            "source_end": 29.022
+          },
+          {
+            "word": "at",
+            "source_start": 29.033,
+            "source_end": 29.073
+          },
+          {
+            "word": "least",
+            "source_start": 29.133,
+            "source_end": 29.353
+          },
+          {
+            "word": "recorded",
+            "source_start": 29.413,
+            "source_end": 29.833
+          },
+          {
+            "word": "this",
+            "source_start": 29.853,
+            "source_end": 30.053
+          },
+          {
+            "word": "i",
+            "source_start": 30.073,
+            "source_end": 30.093
+          },
+          {
+            "word": "almost",
+            "source_start": 30.581,
+            "source_end": 30.814
+          },
+          {
+            "word": "didn't",
+            "source_start": 30.834,
+            "source_end": 30.994
+          },
+          {
+            "word": "do",
+            "source_start": 31.014,
+            "source_end": 31.114
+          },
+          {
+            "word": "this",
+            "source_start": 31.134,
+            "source_end": 31.254
+          },
+          {
+            "word": "again",
+            "source_start": 31.3,
+            "source_end": 31.434
+          },
+          {
+            "word": "i've",
+            "source_start": 31.454,
+            "source_end": 31.594
+          },
+          {
+            "word": "been",
+            "source_start": 31.614,
+            "source_end": 31.754
+          },
+          {
+            "word": "literally",
+            "source_start": 32.034,
+            "source_end": 32.275
+          },
+          {
+            "word": "this",
+            "source_start": 32.295,
+            "source_end": 32.415
+          },
+          {
+            "word": "week",
+            "source_start": 32.675,
+            "source_end": 32.895
+          },
+          {
+            "word": "i've",
+            "source_start": 32.935,
+            "source_end": 33.075
+          },
+          {
+            "word": "quit",
+            "source_start": 33.135,
+            "source_end": 33.295
+          },
+          {
+            "word": "every",
+            "source_start": 33.367,
+            "source_end": 33.495
+          },
+          {
+            "word": "single",
+            "source_start": 33.535,
+            "source_end": 33.736
+          },
+          {
+            "word": "day",
+            "source_start": 33.785,
+            "source_end": 33.916
+          },
+          {
+            "word": "and",
+            "source_start": 33.936,
+            "source_end": 34.656
+          },
+          {
+            "word": "the",
+            "source_start": 34.676,
+            "source_end": 34.756
+          },
+          {
+            "word": "only",
+            "source_start": 34.853,
+            "source_end": 35.076
+          },
+          {
+            "word": "reason",
+            "source_start": 35.137,
+            "source_end": 35.457
+          },
+          {
+            "word": "i'm",
+            "source_start": 35.503,
+            "source_end": 35.617
+          },
+          {
+            "word": "recording",
+            "source_start": 35.666,
+            "source_end": 35.997
+          },
+          {
+            "word": "today",
+            "source_start": 36.061,
+            "source_end": 36.297
+          },
+          {
+            "word": "is",
+            "source_start": 36.317,
+            "source_end": 36.357
+          },
+          {
+            "word": "because",
+            "source_start": 37.407,
+            "source_end": 37.778
+          },
+          {
+            "word": "i",
+            "source_start": 37.779,
+            "source_end": 37.818
+          },
+          {
+            "word": "told",
+            "source_start": 38.639,
+            "source_end": 38.779
+          },
+          {
+            "word": "myself",
+            "source_start": 38.824,
+            "source_end": 39.059
+          },
+          {
+            "word": "this",
+            "source_start": 39.126,
+            "source_end": 39.199
+          },
+          {
+            "word": "is",
+            "source_start": 39.219,
+            "source_end": 39.259
+          },
+          {
+            "word": "the",
+            "source_start": 39.279,
+            "source_end": 39.379
+          },
+          {
+            "word": "last",
+            "source_start": 39.439,
+            "source_end": 39.636
+          },
+          {
+            "word": "shot",
+            "source_start": 39.636,
+            "source_end": 39.84
+          },
+          {
+            "word": "i",
+            "source_start": 39.869,
+            "source_end": 39.9
+          },
+          {
+            "word": "got",
+            "source_start": 39.94,
+            "source_end": 40.12
+          },
+          {
+            "word": "because",
+            "source_start": 40.542,
+            "source_end": 41.0
+          },
+          {
+            "word": "like",
+            "source_start": 41.901,
+            "source_end": 42.061
+          },
+          {
+            "word": "what",
+            "source_start": 42.101,
+            "source_end": 42.241
+          },
+          {
+            "word": "other",
+            "source_start": 42.307,
+            "source_end": 42.521
+          },
+          {
+            "word": "like",
+            "source_start": 42.621,
+            "source_end": 42.801
+          },
+          {
+            "word": "you",
+            "source_start": 43.027,
+            "source_end": 43.142
+          },
+          {
+            "word": "know",
+            "source_start": 43.162,
+            "source_end": 43.302
+          },
+          {
+            "word": "how",
+            "source_start": 43.862,
+            "source_end": 44.102
+          },
+          {
+            "word": "other",
+            "source_start": 44.188,
+            "source_end": 44.423
+          },
+          {
+            "word": "way",
+            "source_start": 44.703,
+            "source_end": 44.883
+          },
+          {
+            "word": "would",
+            "source_start": 44.903,
+            "source_end": 45.023
+          },
+          {
+            "word": "it",
+            "source_start": 45.043,
+            "source_end": 45.103
+          },
+          {
+            "word": "line",
+            "source_start": 45.14,
+            "source_end": 45.283
+          },
+          {
+            "word": "up",
+            "source_start": 45.325,
+            "source_end": 45.383
+          },
+          {
+            "word": "it",
+            "source_start": 45.441,
+            "source_end": 45.543
+          },
+          {
+            "word": "lines",
+            "source_start": 45.581,
+            "source_end": 45.763
+          },
+          {
+            "word": "up",
+            "source_start": 45.843,
+            "source_end": 45.944
+          },
+          {
+            "word": "so",
+            "source_start": 45.964,
+            "source_end": 46.104
+          },
+          {
+            "word": "nicely",
+            "source_start": 46.184,
+            "source_end": 46.504
+          },
+          {
+            "word": "that",
+            "source_start": 46.524,
+            "source_end": 47.304
+          },
+          {
+            "word": "this",
+            "source_start": 47.965,
+            "source_end": 48.225
+          },
+          {
+            "word": "day",
+            "source_start": 48.305,
+            "source_end": 48.525
+          },
+          {
+            "word": "years",
+            "source_start": 48.945,
+            "source_end": 49.126
+          },
+          {
+            "word": "ago",
+            "source_start": 49.18,
+            "source_end": 49.446
+          },
+          {
+            "word": "was",
+            "source_start": 49.923,
+            "source_end": 50.086
+          },
+          {
+            "word": "the",
+            "source_start": 50.155,
+            "source_end": 50.206
+          },
+          {
+            "word": "day",
+            "source_start": 50.248,
+            "source_end": 50.426
+          },
+          {
+            "word": "that",
+            "source_start": 50.486,
+            "source_end": 50.767
+          },
+          {
+            "word": "um",
+            "source_start": 51.527,
+            "source_end": 51.707
+          },
+          {
+            "word": "was",
+            "source_start": 52.779,
+            "source_end": 52.888
+          },
+          {
+            "word": "the",
+            "source_start": 52.928,
+            "source_end": 53.048
+          },
+          {
+            "word": "day",
+            "source_start": 53.228,
+            "source_end": 53.388
+          },
+          {
+            "word": "that",
+            "source_start": 53.452,
+            "source_end": 53.649
+          },
+          {
+            "word": "casey",
+            "source_start": 53.847,
+            "source_end": 54.089
+          },
+          {
+            "word": "neistat",
+            "source_start": 54.149,
+            "source_end": 54.549
+          },
+          {
+            "word": "posted",
+            "source_start": 54.569,
+            "source_end": 54.869
+          },
+          {
+            "word": "his",
+            "source_start": 54.909,
+            "source_end": 55.009
+          },
+          {
+            "word": "first",
+            "source_start": 55.049,
+            "source_end": 55.27
+          },
+          {
+            "word": "vlog",
+            "source_start": 55.33,
+            "source_end": 55.59
+          }
+        ]
+      },
+      "duration_seconds": 29.106,
+      "music_behavior": "background",
+      "visual_note": "The vulnerable climax: confessing he almost quit, and revealing the poetic timing of the start date",
+      "clip_id": "clip_017",
+      "source_clip_id": "clip_017",
+      "source_start": 26.484,
+      "source_end": 55.59,
+      "word_timestamps": [
+        {
+          "word": "i'm",
+          "source_start": 26.484,
+          "source_end": 26.584
+        },
+        {
+          "word": "happy",
+          "source_start": 28.532,
+          "source_end": 28.792
+        },
+        {
+          "word": "that",
+          "source_start": 28.812,
+          "source_end": 28.952
+        },
+        {
+          "word": "i",
+          "source_start": 29.002,
+          "source_end": 29.022
+        },
+        {
+          "word": "at",
+          "source_start": 29.033,
+          "source_end": 29.073
+        },
+        {
+          "word": "least",
+          "source_start": 29.133,
+          "source_end": 29.353
+        },
+        {
+          "word": "recorded",
+          "source_start": 29.413,
+          "source_end": 29.833
+        },
+        {
+          "word": "this",
+          "source_start": 29.853,
+          "source_end": 30.053
+        },
+        {
+          "word": "i",
+          "source_start": 30.073,
+          "source_end": 30.093
+        },
+        {
+          "word": "almost",
+          "source_start": 30.581,
+          "source_end": 30.814
+        },
+        {
+          "word": "didn't",
+          "source_start": 30.834,
+          "source_end": 30.994
+        },
+        {
+          "word": "do",
+          "source_start": 31.014,
+          "source_end": 31.114
+        },
+        {
+          "word": "this",
+          "source_start": 31.134,
+          "source_end": 31.254
+        },
+        {
+          "word": "again",
+          "source_start": 31.3,
+          "source_end": 31.434
+        },
+        {
+          "word": "i've",
+          "source_start": 31.454,
+          "source_end": 31.594
+        },
+        {
+          "word": "been",
+          "source_start": 31.614,
+          "source_end": 31.754
+        },
+        {
+          "word": "literally",
+          "source_start": 32.034,
+          "source_end": 32.275
+        },
+        {
+          "word": "this",
+          "source_start": 32.295,
+          "source_end": 32.415
+        },
+        {
+          "word": "week",
+          "source_start": 32.675,
+          "source_end": 32.895
+        },
+        {
+          "word": "i've",
+          "source_start": 32.935,
+          "source_end": 33.075
+        },
+        {
+          "word": "quit",
+          "source_start": 33.135,
+          "source_end": 33.295
+        },
+        {
+          "word": "every",
+          "source_start": 33.367,
+          "source_end": 33.495
+        },
+        {
+          "word": "single",
+          "source_start": 33.535,
+          "source_end": 33.736
+        },
+        {
+          "word": "day",
+          "source_start": 33.785,
+          "source_end": 33.916
+        },
+        {
+          "word": "and",
+          "source_start": 33.936,
+          "source_end": 34.656
+        },
+        {
+          "word": "the",
+          "source_start": 34.676,
+          "source_end": 34.756
+        },
+        {
+          "word": "only",
+          "source_start": 34.853,
+          "source_end": 35.076
+        },
+        {
+          "word": "reason",
+          "source_start": 35.137,
+          "source_end": 35.457
+        },
+        {
+          "word": "i'm",
+          "source_start": 35.503,
+          "source_end": 35.617
+        },
+        {
+          "word": "recording",
+          "source_start": 35.666,
+          "source_end": 35.997
+        },
+        {
+          "word": "today",
+          "source_start": 36.061,
+          "source_end": 36.297
+        },
+        {
+          "word": "is",
+          "source_start": 36.317,
+          "source_end": 36.357
+        },
+        {
+          "word": "because",
+          "source_start": 37.407,
+          "source_end": 37.778
+        },
+        {
+          "word": "i",
+          "source_start": 37.779,
+          "source_end": 37.818
+        },
+        {
+          "word": "told",
+          "source_start": 38.639,
+          "source_end": 38.779
+        },
+        {
+          "word": "myself",
+          "source_start": 38.824,
+          "source_end": 39.059
+        },
+        {
+          "word": "this",
+          "source_start": 39.126,
+          "source_end": 39.199
+        },
+        {
+          "word": "is",
+          "source_start": 39.219,
+          "source_end": 39.259
+        },
+        {
+          "word": "the",
+          "source_start": 39.279,
+          "source_end": 39.379
+        },
+        {
+          "word": "last",
+          "source_start": 39.439,
+          "source_end": 39.636
+        },
+        {
+          "word": "shot",
+          "source_start": 39.636,
+          "source_end": 39.84
+        },
+        {
+          "word": "i",
+          "source_start": 39.869,
+          "source_end": 39.9
+        },
+        {
+          "word": "got",
+          "source_start": 39.94,
+          "source_end": 40.12
+        },
+        {
+          "word": "because",
+          "source_start": 40.542,
+          "source_end": 41.0
+        },
+        {
+          "word": "like",
+          "source_start": 41.901,
+          "source_end": 42.061
+        },
+        {
+          "word": "what",
+          "source_start": 42.101,
+          "source_end": 42.241
+        },
+        {
+          "word": "other",
+          "source_start": 42.307,
+          "source_end": 42.521
+        },
+        {
+          "word": "like",
+          "source_start": 42.621,
+          "source_end": 42.801
+        },
+        {
+          "word": "you",
+          "source_start": 43.027,
+          "source_end": 43.142
+        },
+        {
+          "word": "know",
+          "source_start": 43.162,
+          "source_end": 43.302
+        },
+        {
+          "word": "how",
+          "source_start": 43.862,
+          "source_end": 44.102
+        },
+        {
+          "word": "other",
+          "source_start": 44.188,
+          "source_end": 44.423
+        },
+        {
+          "word": "way",
+          "source_start": 44.703,
+          "source_end": 44.883
+        },
+        {
+          "word": "would",
+          "source_start": 44.903,
+          "source_end": 45.023
+        },
+        {
+          "word": "it",
+          "source_start": 45.043,
+          "source_end": 45.103
+        },
+        {
+          "word": "line",
+          "source_start": 45.14,
+          "source_end": 45.283
+        },
+        {
+          "word": "up",
+          "source_start": 45.325,
+          "source_end": 45.383
+        },
+        {
+          "word": "it",
+          "source_start": 45.441,
+          "source_end": 45.543
+        },
+        {
+          "word": "lines",
+          "source_start": 45.581,
+          "source_end": 45.763
+        },
+        {
+          "word": "up",
+          "source_start": 45.843,
+          "source_end": 45.944
+        },
+        {
+          "word": "so",
+          "source_start": 45.964,
+          "source_end": 46.104
+        },
+        {
+          "word": "nicely",
+          "source_start": 46.184,
+          "source_end": 46.504
+        },
+        {
+          "word": "that",
+          "source_start": 46.524,
+          "source_end": 47.304
+        },
+        {
+          "word": "this",
+          "source_start": 47.965,
+          "source_end": 48.225
+        },
+        {
+          "word": "day",
+          "source_start": 48.305,
+          "source_end": 48.525
+        },
+        {
+          "word": "years",
+          "source_start": 48.945,
+          "source_end": 49.126
+        },
+        {
+          "word": "ago",
+          "source_start": 49.18,
+          "source_end": 49.446
+        },
+        {
+          "word": "was",
+          "source_start": 49.923,
+          "source_end": 50.086
+        },
+        {
+          "word": "the",
+          "source_start": 50.155,
+          "source_end": 50.206
+        },
+        {
+          "word": "day",
+          "source_start": 50.248,
+          "source_end": 50.426
+        },
+        {
+          "word": "that",
+          "source_start": 50.486,
+          "source_end": 50.767
+        },
+        {
+          "word": "um",
+          "source_start": 51.527,
+          "source_end": 51.707
+        },
+        {
+          "word": "was",
+          "source_start": 52.779,
+          "source_end": 52.888
+        },
+        {
+          "word": "the",
+          "source_start": 52.928,
+          "source_end": 53.048
+        },
+        {
+          "word": "day",
+          "source_start": 53.228,
+          "source_end": 53.388
+        },
+        {
+          "word": "that",
+          "source_start": 53.452,
+          "source_end": 53.649
+        },
+        {
+          "word": "casey",
+          "source_start": 53.847,
+          "source_end": 54.089
+        },
+        {
+          "word": "neistat",
+          "source_start": 54.149,
+          "source_end": 54.549
+        },
+        {
+          "word": "posted",
+          "source_start": 54.569,
+          "source_end": 54.869
+        },
+        {
+          "word": "his",
+          "source_start": 54.909,
+          "source_end": 55.009
+        },
+        {
+          "word": "first",
+          "source_start": 55.049,
+          "source_end": 55.27
+        },
+        {
+          "word": "vlog",
+          "source_start": 55.33,
+          "source_end": 55.59
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "22bf98a6-e914-4514-9ec9-1cd9125ec780",
+      "music_track": "track_01",
+      "timeline_start": 53.461,
+      "timeline_end": 82.567,
+      "timeline_start_frame": 1604,
+      "timeline_end_frame": 2477,
+      "duration_frames": 873
+    },
+    {
+      "position": 15,
+      "block_type": "transition_slot",
+      "duration_seconds": 3.0,
+      "music_behavior": "prominent",
+      "visual_note": "Dramatic pause and music swell",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 82.567,
+      "timeline_end": 85.567,
+      "timeline_start_frame": 2477,
+      "timeline_end_frame": 2567,
+      "duration_frames": 90
+    },
+    {
+      "position": 16,
+      "block_type": "speech",
+      "content": {
+        "passage_ref": 11,
+        "text": "and you know i'm not gonna copy him but he's the reason he's a huge reason why i'm into all of this so you know why not why not post on why not post today i think he's got like something like 500 vlogs out there who knows maybe i'll post 500 times here can't be that hard can it no idea okay now i'm done talking i think",
+        "clip_id": "clip_017",
+        "source_start": 56.543,
+        "source_end": 83.892,
+        "v1_source_in": 56.543,
+        "v1_source_out": 83.892,
+        "source_duration": 27.349,
+        "alignment_method": "whisperx_word_alignment",
+        "word_timestamps": [
+          {
+            "word": "and",
+            "source_start": 56.543,
+            "source_end": 56.703
+          },
+          {
+            "word": "you",
+            "source_start": 56.763,
+            "source_end": 56.863
+          },
+          {
+            "word": "know",
+            "source_start": 56.866,
+            "source_end": 57.083
+          },
+          {
+            "word": "i'm",
+            "source_start": 57.103,
+            "source_end": 57.904
+          },
+          {
+            "word": "not",
+            "source_start": 57.911,
+            "source_end": 57.98
+          },
+          {
+            "word": "gonna",
+            "source_start": 57.98,
+            "source_end": 58.144
+          },
+          {
+            "word": "copy",
+            "source_start": 58.236,
+            "source_end": 58.624
+          },
+          {
+            "word": "him",
+            "source_start": 58.664,
+            "source_end": 58.824
+          },
+          {
+            "word": "but",
+            "source_start": 58.984,
+            "source_end": 59.204
+          },
+          {
+            "word": "he's",
+            "source_start": 59.984,
+            "source_end": 60.144
+          },
+          {
+            "word": "the",
+            "source_start": 60.164,
+            "source_end": 60.224
+          },
+          {
+            "word": "reason",
+            "source_start": 60.264,
+            "source_end": 60.664
+          },
+          {
+            "word": "he's",
+            "source_start": 60.684,
+            "source_end": 60.764
+          },
+          {
+            "word": "a",
+            "source_start": 60.785,
+            "source_end": 60.805
+          },
+          {
+            "word": "huge",
+            "source_start": 61.285,
+            "source_end": 61.585
+          },
+          {
+            "word": "reason",
+            "source_start": 61.625,
+            "source_end": 61.925
+          },
+          {
+            "word": "why",
+            "source_start": 61.965,
+            "source_end": 62.165
+          },
+          {
+            "word": "i'm",
+            "source_start": 62.185,
+            "source_end": 62.245
+          },
+          {
+            "word": "into",
+            "source_start": 62.787,
+            "source_end": 63.145
+          },
+          {
+            "word": "all",
+            "source_start": 63.205,
+            "source_end": 63.325
+          },
+          {
+            "word": "of",
+            "source_start": 63.345,
+            "source_end": 63.385
+          },
+          {
+            "word": "this",
+            "source_start": 63.445,
+            "source_end": 63.625
+          },
+          {
+            "word": "so",
+            "source_start": 63.705,
+            "source_end": 63.966
+          },
+          {
+            "word": "you",
+            "source_start": 63.986,
+            "source_end": 65.126
+          },
+          {
+            "word": "know",
+            "source_start": 65.132,
+            "source_end": 65.266
+          },
+          {
+            "word": "why",
+            "source_start": 65.286,
+            "source_end": 65.446
+          },
+          {
+            "word": "not",
+            "source_start": 65.486,
+            "source_end": 65.666
+          },
+          {
+            "word": "why",
+            "source_start": 65.706,
+            "source_end": 65.826
+          },
+          {
+            "word": "not",
+            "source_start": 65.866,
+            "source_end": 65.986
+          },
+          {
+            "word": "post",
+            "source_start": 66.026,
+            "source_end": 66.326
+          },
+          {
+            "word": "on",
+            "source_start": 66.426,
+            "source_end": 66.566
+          },
+          {
+            "word": "why",
+            "source_start": 67.152,
+            "source_end": 67.227
+          },
+          {
+            "word": "not",
+            "source_start": 67.247,
+            "source_end": 67.367
+          },
+          {
+            "word": "post",
+            "source_start": 67.407,
+            "source_end": 67.587
+          },
+          {
+            "word": "today",
+            "source_start": 67.627,
+            "source_end": 67.907
+          },
+          {
+            "word": "i",
+            "source_start": 68.522,
+            "source_end": 68.567
+          },
+          {
+            "word": "think",
+            "source_start": 68.587,
+            "source_end": 68.727
+          },
+          {
+            "word": "he's",
+            "source_start": 68.747,
+            "source_end": 68.947
+          },
+          {
+            "word": "got",
+            "source_start": 68.986,
+            "source_end": 69.107
+          },
+          {
+            "word": "like",
+            "source_start": 69.149,
+            "source_end": 69.287
+          },
+          {
+            "word": "something",
+            "source_start": 69.521,
+            "source_end": 69.827
+          },
+          {
+            "word": "like",
+            "source_start": 69.846,
+            "source_end": 69.947
+          },
+          {
+            "word": "vlogs",
+            "source_start": 70.188,
+            "source_end": 70.688
+          },
+          {
+            "word": "out",
+            "source_start": 70.751,
+            "source_end": 70.828
+          },
+          {
+            "word": "there",
+            "source_start": 70.891,
+            "source_end": 71.068
+          },
+          {
+            "word": "who",
+            "source_start": 74.409,
+            "source_end": 74.509
+          },
+          {
+            "word": "knows",
+            "source_start": 74.529,
+            "source_end": 74.769
+          },
+          {
+            "word": "maybe",
+            "source_start": 74.789,
+            "source_end": 74.909
+          },
+          {
+            "word": "i'll",
+            "source_start": 74.949,
+            "source_end": 75.129
+          },
+          {
+            "word": "post",
+            "source_start": 75.149,
+            "source_end": 75.529
+          },
+          {
+            "word": "times",
+            "source_start": 75.743,
+            "source_end": 75.929
+          },
+          {
+            "word": "here",
+            "source_start": 75.952,
+            "source_end": 76.129
+          },
+          {
+            "word": "can't",
+            "source_start": 76.67,
+            "source_end": 76.83
+          },
+          {
+            "word": "be",
+            "source_start": 76.85,
+            "source_end": 76.91
+          },
+          {
+            "word": "that",
+            "source_start": 76.93,
+            "source_end": 77.07
+          },
+          {
+            "word": "hard",
+            "source_start": 77.11,
+            "source_end": 77.23
+          },
+          {
+            "word": "can",
+            "source_start": 77.25,
+            "source_end": 77.43
+          },
+          {
+            "word": "it",
+            "source_start": 77.485,
+            "source_end": 77.57
+          },
+          {
+            "word": "no",
+            "source_start": 79.931,
+            "source_end": 80.071
+          },
+          {
+            "word": "idea",
+            "source_start": 80.132,
+            "source_end": 80.331
+          },
+          {
+            "word": "okay",
+            "source_start": 80.511,
+            "source_end": 80.771
+          },
+          {
+            "word": "now",
+            "source_start": 81.331,
+            "source_end": 81.611
+          },
+          {
+            "word": "i'm",
+            "source_start": 81.651,
+            "source_end": 81.771
+          },
+          {
+            "word": "done",
+            "source_start": 81.791,
+            "source_end": 81.991
+          },
+          {
+            "word": "talking",
+            "source_start": 82.315,
+            "source_end": 82.652
+          },
+          {
+            "word": "i",
+            "source_start": 83.661,
+            "source_end": 83.692
+          },
+          {
+            "word": "think",
+            "source_start": 83.732,
+            "source_end": 83.892
+          }
+        ]
+      },
+      "duration_seconds": 27.349,
+      "music_behavior": "background",
+      "visual_note": "Concluding with a mix of ambition and humorous uncertainty",
+      "clip_id": "clip_017",
+      "source_clip_id": "clip_017",
+      "source_start": 56.543,
+      "source_end": 83.892,
+      "word_timestamps": [
+        {
+          "word": "and",
+          "source_start": 56.543,
+          "source_end": 56.703
+        },
+        {
+          "word": "you",
+          "source_start": 56.763,
+          "source_end": 56.863
+        },
+        {
+          "word": "know",
+          "source_start": 56.866,
+          "source_end": 57.083
+        },
+        {
+          "word": "i'm",
+          "source_start": 57.103,
+          "source_end": 57.904
+        },
+        {
+          "word": "not",
+          "source_start": 57.911,
+          "source_end": 57.98
+        },
+        {
+          "word": "gonna",
+          "source_start": 57.98,
+          "source_end": 58.144
+        },
+        {
+          "word": "copy",
+          "source_start": 58.236,
+          "source_end": 58.624
+        },
+        {
+          "word": "him",
+          "source_start": 58.664,
+          "source_end": 58.824
+        },
+        {
+          "word": "but",
+          "source_start": 58.984,
+          "source_end": 59.204
+        },
+        {
+          "word": "he's",
+          "source_start": 59.984,
+          "source_end": 60.144
+        },
+        {
+          "word": "the",
+          "source_start": 60.164,
+          "source_end": 60.224
+        },
+        {
+          "word": "reason",
+          "source_start": 60.264,
+          "source_end": 60.664
+        },
+        {
+          "word": "he's",
+          "source_start": 60.684,
+          "source_end": 60.764
+        },
+        {
+          "word": "a",
+          "source_start": 60.785,
+          "source_end": 60.805
+        },
+        {
+          "word": "huge",
+          "source_start": 61.285,
+          "source_end": 61.585
+        },
+        {
+          "word": "reason",
+          "source_start": 61.625,
+          "source_end": 61.925
+        },
+        {
+          "word": "why",
+          "source_start": 61.965,
+          "source_end": 62.165
+        },
+        {
+          "word": "i'm",
+          "source_start": 62.185,
+          "source_end": 62.245
+        },
+        {
+          "word": "into",
+          "source_start": 62.787,
+          "source_end": 63.145
+        },
+        {
+          "word": "all",
+          "source_start": 63.205,
+          "source_end": 63.325
+        },
+        {
+          "word": "of",
+          "source_start": 63.345,
+          "source_end": 63.385
+        },
+        {
+          "word": "this",
+          "source_start": 63.445,
+          "source_end": 63.625
+        },
+        {
+          "word": "so",
+          "source_start": 63.705,
+          "source_end": 63.966
+        },
+        {
+          "word": "you",
+          "source_start": 63.986,
+          "source_end": 65.126
+        },
+        {
+          "word": "know",
+          "source_start": 65.132,
+          "source_end": 65.266
+        },
+        {
+          "word": "why",
+          "source_start": 65.286,
+          "source_end": 65.446
+        },
+        {
+          "word": "not",
+          "source_start": 65.486,
+          "source_end": 65.666
+        },
+        {
+          "word": "why",
+          "source_start": 65.706,
+          "source_end": 65.826
+        },
+        {
+          "word": "not",
+          "source_start": 65.866,
+          "source_end": 65.986
+        },
+        {
+          "word": "post",
+          "source_start": 66.026,
+          "source_end": 66.326
+        },
+        {
+          "word": "on",
+          "source_start": 66.426,
+          "source_end": 66.566
+        },
+        {
+          "word": "why",
+          "source_start": 67.152,
+          "source_end": 67.227
+        },
+        {
+          "word": "not",
+          "source_start": 67.247,
+          "source_end": 67.367
+        },
+        {
+          "word": "post",
+          "source_start": 67.407,
+          "source_end": 67.587
+        },
+        {
+          "word": "today",
+          "source_start": 67.627,
+          "source_end": 67.907
+        },
+        {
+          "word": "i",
+          "source_start": 68.522,
+          "source_end": 68.567
+        },
+        {
+          "word": "think",
+          "source_start": 68.587,
+          "source_end": 68.727
+        },
+        {
+          "word": "he's",
+          "source_start": 68.747,
+          "source_end": 68.947
+        },
+        {
+          "word": "got",
+          "source_start": 68.986,
+          "source_end": 69.107
+        },
+        {
+          "word": "like",
+          "source_start": 69.149,
+          "source_end": 69.287
+        },
+        {
+          "word": "something",
+          "source_start": 69.521,
+          "source_end": 69.827
+        },
+        {
+          "word": "like",
+          "source_start": 69.846,
+          "source_end": 69.947
+        },
+        {
+          "word": "vlogs",
+          "source_start": 70.188,
+          "source_end": 70.688
+        },
+        {
+          "word": "out",
+          "source_start": 70.751,
+          "source_end": 70.828
+        },
+        {
+          "word": "there",
+          "source_start": 70.891,
+          "source_end": 71.068
+        },
+        {
+          "word": "who",
+          "source_start": 74.409,
+          "source_end": 74.509
+        },
+        {
+          "word": "knows",
+          "source_start": 74.529,
+          "source_end": 74.769
+        },
+        {
+          "word": "maybe",
+          "source_start": 74.789,
+          "source_end": 74.909
+        },
+        {
+          "word": "i'll",
+          "source_start": 74.949,
+          "source_end": 75.129
+        },
+        {
+          "word": "post",
+          "source_start": 75.149,
+          "source_end": 75.529
+        },
+        {
+          "word": "times",
+          "source_start": 75.743,
+          "source_end": 75.929
+        },
+        {
+          "word": "here",
+          "source_start": 75.952,
+          "source_end": 76.129
+        },
+        {
+          "word": "can't",
+          "source_start": 76.67,
+          "source_end": 76.83
+        },
+        {
+          "word": "be",
+          "source_start": 76.85,
+          "source_end": 76.91
+        },
+        {
+          "word": "that",
+          "source_start": 76.93,
+          "source_end": 77.07
+        },
+        {
+          "word": "hard",
+          "source_start": 77.11,
+          "source_end": 77.23
+        },
+        {
+          "word": "can",
+          "source_start": 77.25,
+          "source_end": 77.43
+        },
+        {
+          "word": "it",
+          "source_start": 77.485,
+          "source_end": 77.57
+        },
+        {
+          "word": "no",
+          "source_start": 79.931,
+          "source_end": 80.071
+        },
+        {
+          "word": "idea",
+          "source_start": 80.132,
+          "source_end": 80.331
+        },
+        {
+          "word": "okay",
+          "source_start": 80.511,
+          "source_end": 80.771
+        },
+        {
+          "word": "now",
+          "source_start": 81.331,
+          "source_end": 81.611
+        },
+        {
+          "word": "i'm",
+          "source_start": 81.651,
+          "source_end": 81.771
+        },
+        {
+          "word": "done",
+          "source_start": 81.791,
+          "source_end": 81.991
+        },
+        {
+          "word": "talking",
+          "source_start": 82.315,
+          "source_end": 82.652
+        },
+        {
+          "word": "i",
+          "source_start": 83.661,
+          "source_end": 83.692
+        },
+        {
+          "word": "think",
+          "source_start": 83.732,
+          "source_end": 83.892
+        }
+      ],
+      "alignment_method": "whisperx_word_alignment",
+      "link_group_id": "699b1d8b-3870-42bb-a6b3-f6a5c1e307aa",
+      "music_track": "track_01",
+      "timeline_start": 85.567,
+      "timeline_end": 112.916,
+      "timeline_start_frame": 2567,
+      "timeline_end_frame": 3387,
+      "duration_frames": 820
+    },
+    {
+      "position": 17,
+      "block_type": "outro",
+      "duration_seconds": 2.0,
+      "music_behavior": "fade_out",
+      "visual_note": "Final outro fade out",
+      "clip_id": null,
+      "source_clip_id": null,
+      "source_start": null,
+      "source_end": null,
+      "word_timestamps": [],
+      "alignment_method": null,
+      "content": null,
+      "music_track": "track_01",
+      "timeline_start": 112.916,
+      "timeline_end": 114.916,
+      "timeline_start_frame": 3387,
+      "timeline_end_frame": 3447,
+      "duration_frames": 60
+    }
+  ],
+  "spine_blocks": [
+    {
+      "timeline_start": 0.0,
+      "timeline_end": 0.741,
+      "block_type": "hook",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 0.741,
+      "timeline_end": 10.741,
+      "block_type": "intro",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 10.741,
+      "timeline_end": 22.678,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 22.678,
+      "timeline_end": 24.259,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 24.259,
+      "timeline_end": 26.259,
+      "block_type": "transition_slot",
+      "music_behavior": "full"
+    },
+    {
+      "timeline_start": 26.259,
+      "timeline_end": 29.759,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 29.759,
+      "timeline_end": 32.121,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 32.121,
+      "timeline_end": 35.502,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 35.502,
+      "timeline_end": 37.353,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 37.353,
+      "timeline_end": 39.353,
+      "block_type": "transition_slot",
+      "music_behavior": "full"
+    },
+    {
+      "timeline_start": 39.353,
+      "timeline_end": 42.463,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 42.463,
+      "timeline_end": 48.325,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 48.325,
+      "timeline_end": 51.461,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 51.461,
+      "timeline_end": 53.461,
+      "block_type": "transition_slot",
+      "music_behavior": "full"
+    },
+    {
+      "timeline_start": 53.461,
+      "timeline_end": 82.567,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 82.567,
+      "timeline_end": 85.567,
+      "block_type": "transition_slot",
+      "music_behavior": "full"
+    },
+    {
+      "timeline_start": 85.567,
+      "timeline_end": 112.916,
+      "block_type": "speech",
+      "music_behavior": "ducked"
+    },
+    {
+      "timeline_start": 112.916,
+      "timeline_end": 114.916,
+      "block_type": "outro",
+      "music_behavior": "full"
+    }
+  ]
+}

@@ -30,22 +30,13 @@ SINGLE_LANE_TRACKS = ("A3",)
 # clips, not something the viewer can see.
 COVERAGE_TOLERANCE_FRAMES = 1
 
-# The longest stretch a spine block may deliberately leave black. Matches
-# default_brand.yaml's effect.transition_duration_ms.max of 500ms - the
-# longest deliberate moment the brand allows between two shots - so a
-# chosen black beat is bounded by the same figure. Hardcoded rather than
-# read from the brand template: this step declares no brand_* input, so
-# the runner never resolves one for it, and `brand_registry`'s fallback
-# template carries no transition_duration_ms at all.
-MAX_DECLARED_BLACK_BEAT_SECONDS = 0.5
-
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
-from tools.spine_contract import is_speech_block
+from tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS, is_speech_block
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict):
     if not cohesion_review or not cohesion_review.get("adjustments"):

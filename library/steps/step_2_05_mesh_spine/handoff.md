@@ -97,11 +97,42 @@ compensate. You cannot trim a passage here by shortening
 in/out points - trimming belongs to step 2.2, which chooses the passages.
 
 ### Transition slot guidance:
-- Duration varies by intent — determined by the purpose of the transition
+- Duration varies by intent - determined by the purpose of the transition
 - No fixed minimum or maximum
 - Examples: dramatic pause (brief), scene change (medium), musical
   buildup (longer)
-- These are CRITICAL for pacing — a video that's all speech feels exhausting
+- These are CRITICAL for pacing - a video that's all speech feels exhausting
+
+### Intentional black beats (rare):
+
+A non-speech block may declare a deliberate hold on black - a stretch
+where no clip plays and the viewer sees a black frame.  This is a real
+editorial tool (a breath before a reveal, a hard cut to silence) but it
+is almost never the right choice.  Most "pauses" should use a B-roll
+cutaway or a transition slot with visual content instead.
+
+To declare one, set two keys on the block:
+
+    "intentional_black_beat": true,
+    "black_beat_reason": "hold on black before the tonal shift"
+
+Rules:
+- **Only on non-speech blocks** (intro, transition_slot, outro).  Speech
+  blocks are never held on black - the viewer must see the speaker or
+  a cutaway.
+- **The reason is mandatory.**  A flag with no reason - or an empty one -
+  is rejected outright.  A vague reason like "pause" clears the gate but
+  fails review: say WHY the black serves the edit.
+- **Maximum 0.5 seconds** (`MAX_DECLARED_BLACK_BEAT_SECONDS` in
+  `library/tools/spine_contract.py`).  Longer holds are not a beat, they
+  are a hole.  If you need more than half a second of visual silence,
+  reconsider the structure.
+- **This should be rare** - most videos have zero black beats.  Use it
+  only when holding on black is genuinely better than showing any image.
+
+An undeclared gap - where no clip covers a stretch of the timeline and
+no block declares a beat - hard-fails compilation.  The declaration is
+the only way to tell the pipeline "this is intentional."
 
 ---
 

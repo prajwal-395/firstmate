@@ -33,17 +33,35 @@ Two OPTIONAL keys may also be present:
                              "not declared", which is how an accidental hole
                              stays distinguishable from a chosen one -
                              `compile_manifest` fails any uncovered stretch
-                             that no block declares.
+                             that no block declares.  Only a non-speech block
+                             may declare: speech is never held on black.
     black_beat_reason        Non-empty string saying WHY the beat is there.
-                             A declaration without one is a rubber stamp and
-                             is rejected at compile time.
+                             A declaration without one is a rubber stamp.
+
+`validate_spine_blocks` rejects both malformed shapes - a speech block that
+declares, and a declaration with no reason - when mesh_spine emits, so they
+fail at the spine gate rather than surviving to `compile_manifest`, which
+rejects them again on the stretch of timeline they excuse.  `mesh_spine`'s
+handoff.md tells the LLM when a beat is worth declaring.
 
 They are optional by design: no block needs them, and neither is in
-REQUIRED_BLOCK_KEYS.  A declared beat is still bounded - see
-`MAX_DECLARED_BLACK_BEAT_SECONDS` in step 5.04.
+REQUIRED_BLOCK_KEYS.  A declared beat is still bounded by
+`MAX_DECLARED_BLACK_BEAT_SECONDS`, and every gate that has to tell a
+chosen hole from an accidental one - `compile_manifest` on the manifest,
+`render_qa` on the rendered file - reads that bound and
+`declared_black_beat_ranges` from here, so the two cannot drift apart.
 """
 
 SPEECH_BLOCK_TYPES = ("speech", "hook")
+
+# The longest stretch a spine block may deliberately leave black. Matches
+# default_brand.yaml's effect.transition_duration_ms.max of 500ms - the
+# longest deliberate moment the brand allows between two shots - so a
+# chosen black beat is bounded by the same figure. Hardcoded rather than
+# read from the brand template: compile_manifest declares no brand_* input,
+# so the runner never resolves one for it, and `brand_registry`'s fallback
+# template carries no transition_duration_ms at all.
+MAX_DECLARED_BLACK_BEAT_SECONDS = 0.5
 
 # Keys every spine block must carry, whatever its block_type.
 REQUIRED_BLOCK_KEYS = (
@@ -91,6 +109,21 @@ def validate_spine_blocks(blocks: list) -> None:
             problems.append(f"{label}: missing required keys {missing}")
             continue
 
+        # Optional black-beat declaration: catch malformed ones at the gate
+        # so they fail here rather than silently reaching compile_manifest.
+        if block.get("intentional_black_beat"):
+            if is_speech_block(block):
+                problems.append(
+                    f"{label}: speech block declares intentional_black_beat "
+                    f"- speech is never held on black"
+                )
+            reason = block.get("black_beat_reason")
+            if not isinstance(reason, str) or not reason.strip():
+                problems.append(
+                    f"{label}: intentional_black_beat is set but "
+                    f"black_beat_reason is missing or empty"
+                )
+
         if not is_speech_block(block):
             continue
 
@@ -131,6 +164,37 @@ def validate_spine_blocks(blocks: list) -> None:
             "Spine contract violated by "
             f"{len(problems)} block(s):\n  - " + "\n  - ".join(problems)
         )
+
+
+def declares_black_beat(block: dict) -> bool:
+    """True when the block carries a declaration a gate may honour.
+
+    A declaration counts only when it comes from a non-speech block and
+    carries a non-empty reason - the same two conditions
+    `validate_spine_blocks` enforces at emit time.  Anything else is a
+    malformed declaration, and honouring it would excuse a hole the spine
+    gate would have rejected.
+    """
+    if not isinstance(block, dict) or not block.get("intentional_black_beat"):
+        return False
+    if is_speech_block(block):
+        return False
+    reason = block.get("black_beat_reason")
+    return isinstance(reason, str) and bool(reason.strip())
+
+
+def declared_black_beat_ranges(blocks: list) -> list:
+    """Timeline ranges of the blocks that validly declare a black beat.
+
+    Returned as ``(timeline_start, timeline_end)`` pairs so a gate working
+    on the rendered file - which has no spine - can still tell a chosen
+    hole from an accidental one.
+    """
+    return [
+        (block["timeline_start"], block["timeline_end"])
+        for block in blocks
+        if declares_black_beat(block)
+    ]
 
 
 def block_word_end_times(block: dict) -> list:

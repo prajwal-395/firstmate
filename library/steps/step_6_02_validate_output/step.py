@@ -26,6 +26,7 @@ import traceback
 # Import new QA modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.render_qa import run_full_render_qa
+from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing, verify_subtitle_safe_zone
 
 
@@ -65,6 +66,17 @@ def _extract_frame(filepath, frame_num, output_path, fps=30):
 
 
 
+def _declared_black_beats(assembly_manifest: dict) -> list:
+    """Black beats the plan declared, as timeline ranges.
+
+    `compile_manifest` already accepted these holes on the strength of the
+    declaration; the render carries the same ruling into the final gate,
+    so a beat that survived compilation is not failed here after a full
+    render. Black nobody declared still fails.
+    """
+    return declared_black_beat_ranges(assembly_manifest.get("_spine_blocks") or [])
+
+
 def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     """Run automated validation checks on the rendered video using render_qa."""
     video_path = rendered_output.get('output_path', '')
@@ -102,7 +114,10 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     # ── Run QA Toolkit ──
     qa_results = []
     try:
-        qa_results = run_full_render_qa(video_path, expected_duration)
+        qa_results = run_full_render_qa(
+            video_path, expected_duration,
+            declared_black_beats=_declared_black_beats(assembly_manifest),
+        )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)
         traceback.print_exc()

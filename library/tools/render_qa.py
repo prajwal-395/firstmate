@@ -6,6 +6,20 @@ import re
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+try:
+    from library.tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS
+except ImportError:  # imported as a top-level module from library/tools
+    from spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS
+
+# Slack when matching detected black against a declared beat. blackdetect
+# reports whole-frame timestamps, so the segment it reports for a beat can
+# run a frame wider than the gap the manifest planned; 50ms covers a frame
+# at any framerate the pipeline ships. Without it a beat declared at
+# exactly MAX_DECLARED_BLACK_BEAT_SECONDS would pass compile_manifest and
+# then fail here, one render too late.
+DECLARED_BEAT_TOLERANCE_SECONDS = 0.05
+
+
 @dataclass
 class RenderQAResult:
     metric: str
@@ -61,8 +75,40 @@ def measure_lufs(video_path: str, target_lufs: float = -14.0, tolerance: float =
     except Exception as e:
         return RenderQAResult("lufs", False, str(e), target_lufs, "error", f"Error measuring LUFS: {e}")
 
-def detect_black_frames(video_path: str, min_duration: float = 0.5) -> RenderQAResult:
-    """Detect sustained black frames using ffmpeg blackdetect."""
+def segment_is_declared(segment: dict, declared_beats: Optional[List] = None,
+                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS) -> bool:
+    """True when a detected black segment is a beat the plan declared.
+
+    The plan declares beats on spine blocks (see
+    `library/tools/spine_contract.py`); `declared_beats` is what
+    `declared_black_beat_ranges` returned for the manifest that produced
+    this render.  A segment is excused only when it sits inside one of
+    those ranges AND runs no longer than a deliberate beat may - so a
+    render that turned a declared 0.4s hold into three seconds of black
+    is still a defect, and black anywhere else always is.
+    """
+    if not declared_beats:
+        return False
+    if segment["duration"] > max_declared_seconds + DECLARED_BEAT_TOLERANCE_SECONDS:
+        return False
+    return any(
+        start - DECLARED_BEAT_TOLERANCE_SECONDS <= segment["start"]
+        and segment["end"] <= end + DECLARED_BEAT_TOLERANCE_SECONDS
+        for start, end in declared_beats
+    )
+
+
+def detect_black_frames(video_path: str, min_duration: float = 0.5,
+                        declared_beats: Optional[List] = None,
+                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS) -> RenderQAResult:
+    """Detect sustained black frames using ffmpeg blackdetect.
+
+    Black the plan deliberately declared is not a defect - the captain's
+    ruling is that a short, defensible hold on black is allowed.  Pass the
+    declared beat ranges and each segment is tagged `declared`; only the
+    undeclared ones fail the check.  With no ranges passed, every black
+    segment fails, which is what an unplanned render deserves.
+    """
     try:
         cmd = [
             'ffmpeg', '-i', video_path,
@@ -79,20 +125,34 @@ def detect_black_frames(video_path: str, min_duration: float = 0.5) -> RenderQAR
                 m_end = re.search(r'black_end:([0-9.]+)', line)
                 m_dur = re.search(r'black_duration:([0-9.]+)', line)
                 if m_start and m_end and m_dur:
-                    black_segments.append({
+                    segment = {
                         "start": float(m_start.group(1)),
                         "end": float(m_end.group(1)),
                         "duration": float(m_dur.group(1))
-                    })
-                    
-        passed = len(black_segments) == 0
-        detail = f"Found {len(black_segments)} black frame segments" if not passed else "No black frames detected"
-        
+                    }
+                    segment["declared"] = segment_is_declared(
+                        segment, declared_beats, max_declared_seconds
+                    )
+                    black_segments.append(segment)
+
+        undeclared = [s for s in black_segments if not s["declared"]]
+        declared_count = len(black_segments) - len(undeclared)
+        passed = len(undeclared) == 0
+
+        if undeclared:
+            detail = f"Found {len(undeclared)} undeclared black frame segments"
+        elif declared_count:
+            detail = (f"No undeclared black frames "
+                      f"({declared_count} declared black beat(s) allowed through)")
+        else:
+            detail = "No black frames detected"
+
         return RenderQAResult(
             metric="black_frames",
             passed=passed,
             value=black_segments,
-            threshold=min_duration,
+            threshold={"min_duration": min_duration,
+                       "max_declared_seconds": max_declared_seconds},
             severity="error" if not passed else "info",
             detail=detail
         )
@@ -324,11 +384,19 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
             
     return extracted
 
-def run_full_render_qa(video_path: str, expected_duration: float = None, target_lufs: float = -14.0) -> List[RenderQAResult]:
+def run_full_render_qa(video_path: str, expected_duration: float = None, target_lufs: float = -14.0,
+                       declared_black_beats: Optional[List] = None) -> List[RenderQAResult]:
+    """Run every render QA check.
+
+    `declared_black_beats` carries the black beats the plan declared, as
+    `spine_contract.declared_black_beat_ranges` returns them, so the
+    black-frame check judges the render by the same ruling
+    `compile_manifest` judged the manifest by.
+    """
     results = []
-    
+
     results.append(measure_lufs(video_path, target_lufs=target_lufs))
-    results.append(detect_black_frames(video_path))
+    results.append(detect_black_frames(video_path, declared_beats=declared_black_beats))
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))
     results.append(verify_resolution(video_path))

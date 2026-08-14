@@ -63,7 +63,7 @@
         "name": "structure",
         "type": "list",
         "required": true,
-        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"), content.passage_ref matching a speech_sequence position, and duration_seconds"
+        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"intro\"|\"speech\"|\"transition_slot\"|\"outro\") and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position"
       }
     ]
   },

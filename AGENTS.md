@@ -291,7 +291,11 @@ The one exception is a hole the plan deliberately declared, via the optional
 `library/tools/spine_contract.py`; an undeclared hole always fails.
 The rough-cut review records only negative gaps by design, so before this
 existed the only thing that noticed 6.4s of black was the ffmpeg probe in
-step 6.02, one step from the end.
+step 6.02, one step from the end. That probe honours the same declaration:
+step 6.02 passes `declared_black_beat_ranges` into `render_qa`, and both
+gates bound a beat by `MAX_DECLARED_BLACK_BEAT_SECONDS` from the spine
+contract - keep the bound in one place or a beat passes compilation, burns
+a render, and fails at the last step.
 
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real
 project to test it.** Any clip whose id is not already a
