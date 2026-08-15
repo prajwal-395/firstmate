@@ -210,7 +210,7 @@ def _extract_frame(video_path: str) -> str:
             os.remove(path)
         return ""
 
-def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "", creative_look_dctl: str = "") -> dict:
+def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "") -> dict:
     """Define the color grading specification based on style spec.
 
     Runs per-clip exposure analysis via ffprobe to estimate brightness
@@ -345,7 +345,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             # a real .drx. Set this to a real file to have the renderer
             # apply it - it will fail loudly if the path does not resolve.
             "powergrade_path": None,
-            "creative_look_dctl": creative_look_dctl,
+
         },
     }
 
@@ -357,55 +357,8 @@ def main():
     brand_template = input_data.get("brand_template", {})
     style = brand_template.get("style", {})
     reference_image = style.get("reference_look_image", "")
-    creative_look_dctl = style.get("creative_look_dctl", "")
-    
-    # Generate custom DCTL if LLM specifies it based on creative direction
-    creative_direction = input_data.get("creative_direction", {})
-    if not creative_look_dctl and creative_direction:
-        target_mood = creative_direction.get("target_mood", "")
-        if target_mood:
-            try:
-                from library.tools.llm_client import LLMClient
-                provider = os.environ.get("PIPELINE_LLM_PROVIDER", "gemini")
-                model = os.environ.get("PIPELINE_LLM_MODEL", "gemini-2.5-flash")
-                client = LLMClient(provider, model)
-                prompt = f"""
-                We are color grading a video. The target mood is: "{target_mood}".
-                Do we need a custom film emulation DCTL for this mood?
-                If so, provide the parameters.
-                Respond ONLY with a valid JSON object matching this schema:
-                {{
-                    "warranted": true/false,
-                    "params": {{
-                        "highlight_rolloff": 0.5,
-                        "shadow_lift": 0.05,
-                        "saturation_curve": 1.1,
-                        "color_temperature_shift": 0.0
-                    }}
-                }}
-                """
-                res_text = client.generate(prompt)
-                json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', res_text, re.DOTALL)
-                if json_match:
-                    res_text = json_match.group(1)
-                res_data = json.loads(res_text)
-                if res_data.get("warranted") and "params" in res_data:
-                    from library.tools.dctl_generator import generate_film_emulation_dctl, install_dctl
-                    dctl_source = generate_film_emulation_dctl(res_data["params"])
-                    
-                    name = f"custom_look_{int(time.time())}"
-                    
-                    if project_folder:
-                        asset_dir = os.path.join(project_folder, "assets", "dctl")
-                        os.makedirs(asset_dir, exist_ok=True)
-                        project_dctl_path = os.path.join(asset_dir, f"{name}.dctl")
-                        with open(project_dctl_path, "w") as f:
-                            f.write(dctl_source)
-                            
-                    creative_look_dctl = install_dctl(name, dctl_source)
-            except Exception as e:
-                print(f"Warning: Failed to generate custom DCTL: {e}", file=sys.stderr)
 
+    
     entries = []
 
     # A-roll assignments
@@ -448,7 +401,7 @@ def main():
         })
 
     shot_list = {"entries": entries}
-    result = define_color_grade(shot_list, project_folder, reference_image, creative_look_dctl)
+    result = define_color_grade(shot_list, project_folder, reference_image)
     json.dump(result, sys.stdout, indent=2)
 
 

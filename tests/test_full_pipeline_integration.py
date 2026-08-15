@@ -2,7 +2,7 @@ import os
 import json
 import pytest
 from library.tools.look_matcher import analyze_frame_colors, compute_match_cdl
-from library.tools.dctl_generator import generate_film_emulation_dctl, generate_look_match_dctl
+
 from library.tools.fusion_macro_loader import load_macro, list_available_transitions
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import PLANNABLE_TYPES
