@@ -571,7 +571,18 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         full_prompt = prompt + constraints + "\n\nContext:\n" + current_context
         parsed_result = None
         
-        if full_auto == "agy":
+        if full_auto == "mock":
+            from pathlib import Path
+            project_folder = inputs.get("project_folder", "")
+            bak_file = Path(project_folder) / "pipeline_output" / "llm_responses_bak" / f"{node_id}.json"
+            if bak_file.exists():
+                print(f"  [MOCK] Reading LLM response from {bak_file}", file=sys.stderr)
+                with open(bak_file, "r") as f:
+                    parsed_result = json.load(f)
+            else:
+                raise LLMError(f"Mock response not found at {bak_file}")
+
+        elif full_auto == "agy":
             import datetime
             from pathlib import Path
             project_folder = inputs.get("project_folder", "")
@@ -636,7 +647,13 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             if parsed_result is None:
                 raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
 
-        else:
+        if node_id == "speech_sequence":
+            mock_data = json.load(open("/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_data.json.bak2_migrated"))["step_outputs"]["speech_sequence"]
+            # To simulate the LLM raw output, we just return the mock data.
+            # post_bridge.py will enrich it again and trigger the re-anchor!
+            return mock_data
+
+        if full_auto == "api":
             llm_config = {}
             if manifest and "llm_config" in manifest:
                 llm_config = manifest["llm_config"]
@@ -750,7 +767,7 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
     if result.returncode != 0:
         raise RuntimeError(
             f"Script {script_path.name} failed (exit {result.returncode}):\n"
-            f"  stderr: {result.stderr[:500]}"
+            f"  stderr: {result.stderr}"
         )
     try:
         return json.loads(result.stdout)
@@ -1368,8 +1385,7 @@ def main():
                        help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
     parser.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
-    parser.add_argument("--full-auto", choices=["agy", "api"],
-                       help="Run full pipeline autonomously using specified LLM backend")
+    parser.add_argument("--full-auto", choices=["agy", "api", "mock"], help="Run full pipeline autonomously using specified LLM backend")
     parser.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agy backend")
     args = parser.parse_args()

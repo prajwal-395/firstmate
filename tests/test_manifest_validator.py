@@ -136,3 +136,20 @@ def test_v2_overlap_is_rejected():
     ]}
     errors = validate_manifest(manifest)
     assert any("overlaps the previous clip" in e for e in errors), errors
+
+def test_repeated_source_audio_is_rejected():
+    """Consecutive V1 clips from the same source with overlapping source ranges repeat audio."""
+    manifest = get_valid_manifest()
+    # Add a second clip on V1 from the same source file, overlapping source range
+    manifest["tracks"]["V1"]["clips"].append(
+        {
+            "source_file": __file__,
+            "source_in": 20.0,  # Overlaps with the first clip's 17.666-22.348
+            "source_out": 25.0,
+            "timeline_in": 4.682,
+            "timeline_out": 9.682,
+            "label": "clip_2"
+        }
+    )
+    errors = validate_manifest(manifest)
+    assert any("repeats" in e for e in errors), f"Expected overlap error, got {errors}"

@@ -686,14 +686,16 @@ def main():
         broll_creative = []
 
     if not broll_creative:
-        print(json.dumps({
+        err_msg = json.dumps({
             "error": (
                 "Missing: broll_creative. The B-roll selection step "
                 "produced no assignments; it must choose clips from "
                 "broll_candidates_toon."
             ),
             "step": "3.2_bridge",
-        }))
+        })
+        print(err_msg, file=sys.stderr)
+        print(err_msg)
         sys.exit(1)
 
     for broll in broll_creative:
