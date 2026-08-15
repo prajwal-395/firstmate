@@ -111,6 +111,14 @@ case "${1:-}:${2:-}:${3:-}" in
     printf '{"id":"cli:pane:close","result":{}}\n'
     printf '%s\n' "$pane_id" >> "$STATE/closed-panes.log"
     ;;
+  pane:process-info:*)
+    pane_id=$4
+    if [ -f "$STATE/process-info-$pane_id.json" ]; then
+      cat "$STATE/process-info-$pane_id.json"
+    else
+      printf '{"result":{"process_info":{"pane_id":"%s"}},"type":"pane_process_info"}\n' "$pane_id"
+    fi
+    ;;
   session:list:*)
     printf '{"sessions":[{"name":"test-session","running":true,"socket_path":"/tmp/test.sock"}]}\n'
     ;;
@@ -212,6 +220,13 @@ seed_meta() {
     "herdr_workspace_id=wA" \
     "herdr_tab_id=wA:t1" \
     "herdr_pane_id=$pane_id"
+}
+
+seed_process_info() {
+  local pane_id=$1 shell_pid=$2
+  cat > "$HERDR_STATE/process-info-$pane_id.json" <<JSON
+{"result":{"process_info":{"pane_id":"$pane_id","shell_pid":$shell_pid}},"type":"pane_process_info"}
+JSON
 }
 
 SAVE_PATH="$PATH"
@@ -388,5 +403,42 @@ rc=$?
 [ "$rc" -eq 0 ] || fail "no agent: expected exit 0, got $rc"
 assert_contains "$out" "ORPHAN wA:p1" "no agent: should detect orphan with no agent"
 pass "pane with no agent at all (deregistered) is still orphan"
+
+# --- Test 11: refuses to close its own supervisor pane -----------------------
+PATH="$SAVE_PATH"
+setup_test "self-owned"
+seed_workspace "wA" "2ndmate-lucie"
+seed_tab "wA" "wA:t1" "fm-lucie"
+seed_pane "wA:p1" "wA:t1" "wA"
+seed_agent "wA:p1" "done"  # ordinarily an orphan
+
+printf 'lucie\n' > "$TDIR/home/.fm-secondmate-home"
+
+out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] || fail "self-owned pane: expected exit 0, got $rc"
+assert_contains "$out" "SKIP wA:p1" "self-owned pane: should report SKIP"
+assert_contains "$out" "this home's own supervisor pane" "self-owned pane: should mention own supervisor pane"
+assert_not_contains "$out" "REAPER: ORPHAN" "self-owned pane: should not report any orphans"
+pass "refuses to close its own supervisor pane"
+
+# --- Test 12: refuses to close a pane that is too young ----------------------
+PATH="$SAVE_PATH"
+setup_test "young-pane"
+seed_workspace "wA" "firstmate"
+seed_tab "wA" "wA:t1" "fm-new-task"
+seed_pane "wA:p1" "wA:t1" "wA"
+seed_agent "wA:p1" "done"  # ordinarily an orphan
+
+# Mock process_info so shell_pid points to the current process ($$), which was just created
+seed_process_info "wA:p1" "$$"
+
+out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] || fail "young pane: expected exit 0, got $rc"
+assert_contains "$out" "SKIP wA:p1" "young pane: should report SKIP"
+assert_contains "$out" "pane is too young" "young pane: should mention pane is too young"
+assert_not_contains "$out" "REAPER: ORPHAN" "young pane: should not report any orphans"
+pass "refuses to close a pane that is too young (startup race immunity)"
 
 echo "all tests passed"
