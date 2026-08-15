@@ -49,6 +49,12 @@
         "description": "State input: temporal_event_indices"
       },
       {
+        "name": "music_analysis",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_analysis"
+      },
+      {
         "name": "timed_spine",
         "type": "object",
         "required": true,
@@ -123,8 +129,10 @@
     "b_roll_assignments",
     "creative_direction",
     "music_selection",
+    "music_analysis",
     "rough_cut_review",
     "timed_spine",
+    "semantic_analysis",
     "temporal_event_indices.*.clip_id",
     "temporal_event_indices.*.scene_boundaries"
   ]

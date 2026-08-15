@@ -71,9 +71,12 @@ J/L cuts are audio edits and are handled by the audio pass, not here.
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.
 
 The `cuts_toon` table provides a summarized list of cut points with the following fields:
+- `cut_point_position`: The exact position identifier of the incoming block. Use this value for `cut_point_position` in your response.
 - `cut_time`: The timeline position of the cut.
 - `type`: The classification of the cut (e.g. speech-to-speech, speech-to-broll).
 - `beat_near_cut`: Summary of whether a musical beat is near the cut.
+- `outgoing_footage`: The mood and tags of the clip ending at the cut.
+- `incoming_footage`: The mood and tags of the clip starting at the cut.
 
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.

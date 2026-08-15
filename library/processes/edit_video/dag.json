@@ -734,6 +734,13 @@
       }
     },
     {
+      "from": "music_analysis",
+      "to": "plan_transitions",
+      "data_mapping": {
+        "music_analysis": "music_analysis"
+      }
+    },
+    {
       "from": "creative_direction",
       "to": "plan_vfx",
       "data_mapping": {

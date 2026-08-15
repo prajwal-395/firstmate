@@ -181,7 +181,7 @@ def resolve_transitions(
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
 
     # Build beat grid if BPM available
-    bpm = music_selection.get("bpm", 0)
+    bpm = music_selection.get("tracks", [{}])[0].get("bpm", 0)
     beat_positions = []
     if bpm > 0:
         beat_interval = 60.0 / bpm
@@ -198,6 +198,8 @@ def resolve_transitions(
 
     resolved = []
     seen_block_indices = set()
+    last_drawn_time = -999.0
+    
     for trans in creative_plan:
         block_idx = _resolve_cut_block_index(trans, spine_blocks)
         if block_idx is None:
@@ -231,9 +233,12 @@ def resolve_transitions(
             brand_effect=brand_effect,
             creative_direction=creative_direction,
             requested_type=trans.get("type", trans.get("transition_type", "")),
+            last_drawn_time=last_drawn_time,
         )
 
         ttype = selected_trans["type"]
+        if not is_cut(ttype):
+            last_drawn_time = original_tl
 
         # Duration frame calculation
         if is_cut(ttype):

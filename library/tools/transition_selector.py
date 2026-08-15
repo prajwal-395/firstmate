@@ -15,7 +15,7 @@ _HIGH_ENERGY_WORDS = ("high", "frantic", "intense", "peak", "explosive", "energe
 
 # Scene-change defaults, most to least energetic. Every entry is drawable.
 _SCENE_CHANGE_HIGH = "flash"
-_SCENE_CHANGE_DEFAULT = "defocus"
+_SCENE_CHANGE_DEFAULT = "hard_cut"
 
 
 def _resolve_duration_ms(raw, default: int = 500) -> int:
@@ -47,6 +47,7 @@ def select_transition(
     brand_effect: dict,
     creative_direction: dict,
     requested_type: str = "",
+    last_drawn_time: float = -999.0,
 ) -> dict:
     """
     Choose the transition to draw at one cut.
@@ -124,11 +125,27 @@ def select_transition(
 
     # 2. Scene change = the drawable transition matching the energy
     if known and from_clip_id != to_clip_id:
-        wanted = (
-            _SCENE_CHANGE_HIGH
-            if _is_high_energy(creative_direction)
-            else _SCENE_CHANGE_DEFAULT
-        )
+        wanted = "hard_cut"
+        
+        # Select drawn transition from signal, capped at one per 20 seconds
+        tl_start = to_clip.get("timeline_start", 0)
+        time_since_last = tl_start - last_drawn_time
+        
+        if time_since_last >= 20.0:
+            block_type = to_clip.get("block_type", "")
+            music_behavior = to_clip.get("music_behavior", "")
+            if not block_type:
+                block_type = from_clip.get("block_type", "")
+            if not music_behavior:
+                music_behavior = from_clip.get("music_behavior", "")
+                
+            if block_type in ("transition_slot", "breather"):
+                wanted = "fade_to_black"
+            elif music_behavior == "step_up":
+                wanted = "flash"
+            else:
+                wanted = "defocus"
+                
         if wanted in preferred_types:
             return settle(wanted)
         for fallback in preferred_types:

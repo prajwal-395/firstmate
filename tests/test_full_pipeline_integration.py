@@ -114,10 +114,12 @@ def test_transition_selection_only_yields_drawable_types():
     )
     assert transition["type"] in PLANNABLE_TYPES
 
-    # With the full vocabulary allowed, a high-energy scene change gets a
+    # With the full vocabulary allowed, a music step up gets a
     # transition the renderer can draw.
+    clip_b["timeline_start"] = 25.0
+    clip_b["music_behavior"] = "step_up"
     energetic = select_transition(
-        clip_a, clip_b, {}, {"target_energy": "high"},
+        clip_a, clip_b, {}, {},
     )
     assert energetic["type"] == "flash"
 

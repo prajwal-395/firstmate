@@ -10,24 +10,20 @@ def test_same_source_clip_is_a_jump_cut():
     assert res["duration_ms"] == 0
 
 
-def test_scene_change_takes_a_drawable_transition():
+def test_scene_change_defaults_to_hard_cut_if_under_cap():
     res = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {"transition_duration_ms": 600}, {"target_energy": "reflective"},
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 5.0},
+        {"transition_duration_ms": 600}, {}, last_drawn_time=0.0
     )
-    assert res["type"] == "defocus"
-    assert res["duration_ms"] == 600
+    assert res["type"] == "hard_cut"
+    assert res["duration_ms"] == 0
 
 
-def test_high_energy_scene_change_reads_target_energy():
-    """`energy` was never a creative_direction key; `target_energy` is.
-
-    The old code read `energy`, so the energy-driven branch could not fire
-    on any real run.
-    """
+def test_music_step_up_yields_flash():
+    """`music_behavior` step up gives a flash."""
     res = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {}, {"target_energy": "high, building to a frantic peak"},
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 25.0, "music_behavior": "step_up"},
+        {}, {},
     )
     assert res["type"] == "flash"
 
@@ -100,3 +96,26 @@ def test_every_outcome_is_a_plannable_type():
             requested_type=requested,
         )
         assert res["type"] in PLANNABLE_TYPES, res
+
+def test_drawn_transition_capped_per_20_seconds():
+    # First one at 20s should draw
+    res1 = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 20.0, "block_type": "breather"},
+        {}, {},
+    )
+    assert res1["type"] == "fade_to_black"
+
+    # Second one at 25s should fall back to hard cut (under 20s cap from last drawn time at 0, well wait)
+    # The last_drawn_time must be passed explicitly to test it
+    res2 = select_transition(
+        {"clip_id": "clip_002"}, {"clip_id": "clip_003", "timeline_start": 25.0, "block_type": "breather"},
+        {}, {}, last_drawn_time=20.0
+    )
+    assert res2["type"] == "hard_cut"
+
+    # Third one at 41s should draw again
+    res3 = select_transition(
+        {"clip_id": "clip_003"}, {"clip_id": "clip_004", "timeline_start": 41.0, "block_type": "breather"},
+        {}, {}, last_drawn_time=20.0
+    )
+    assert res3["type"] == "fade_to_black"
