@@ -651,7 +651,7 @@ def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     return dropped
 
 
-def _conform_fields(clip_metadata: dict, clip_id, proj_res) -> dict:
+def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict = None, source_in: float = 0.0, source_out: float = 0.0) -> dict:
     """Scale factor needed to fill the output frame, if any.
 
     Every A-roll assignment already carries a needs_conform flag and
@@ -677,6 +677,30 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res) -> dict:
     fit_scale = min(target_w / width, target_h / height)
     fill_scale = max(target_w / width, target_h / height)
     if fill_scale <= fit_scale * (1 + 1e-6):
+        return {"needs_conform": False}
+
+    # Decide whether to letterbox or crop based on primary subject visibility.
+    # If the primary subject is visible during this clip's source range, a center crop
+    # might cut them off, so we prefer letterbox (needs_conform=False).
+    subject_visible = False
+    if semantic_doc:
+        ranges = []
+        assessment = semantic_doc.get("assessment", {})
+        if "primary_subject_visible" in assessment:
+            ranges.extend(assessment["primary_subject_visible"])
+        for obj in semantic_doc.get("objects", []):
+            if isinstance(obj, dict) and obj.get("role") == "primary_subject":
+                ranges.extend(obj.get("appearances", []))
+        
+        for r in ranges:
+            if isinstance(r, (list, tuple)) and len(r) >= 2:
+                # Overlap check
+                if r[0] - 0.1 <= source_out and r[1] + 0.1 >= source_in:
+                    subject_visible = True
+                    break
+
+    if subject_visible:
+        # Prefer letterbox over losing the subject
         return {"needs_conform": False}
 
     return {
@@ -856,8 +880,7 @@ def compile_manifest(out_dir: str) -> dict:
                         "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
                     }
                     convert_clip_to_frames(clip, fps)
-                    clip.update(_conform_fields(
-                        clip_metadata, get_clip_id(seg), proj_res))
+                    clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res, semantic_lookup.get(get_clip_id(seg)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
                     v1_clips.append(clip)
                     compute_neural_directives(get_clip_id(seg), clip)
                     current_tl_in += dur
@@ -875,8 +898,7 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(
-                    clip_metadata, get_clip_id(assignment), proj_res))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res, semantic_lookup.get(get_clip_id(assignment)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(assignment), clip)
             else:
@@ -893,8 +915,7 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(
-                    clip_metadata, get_clip_id(block), proj_res))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res, semantic_lookup.get(get_clip_id(block)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(block), clip)
 
@@ -920,8 +941,7 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"broll_{broll['spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        v2_clip.update(_conform_fields(
-            clip_metadata, get_clip_id(broll), proj_res))
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res, semantic_lookup.get(get_clip_id(broll)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0)))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "assignment"
         compute_neural_directives(get_clip_id(broll), v2_clip)
@@ -938,8 +958,7 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"interjection_{interj['over_spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        v2_clip.update(_conform_fields(
-            clip_metadata, get_clip_id(assigned), proj_res))
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res, semantic_lookup.get(get_clip_id(assigned)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0)))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "interjection"
         compute_neural_directives(get_clip_id(assigned), v2_clip)
@@ -1242,6 +1261,11 @@ def compile_manifest(out_dir: str) -> dict:
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
             "motion_graphics_overlay", {}),
+        "smart_reframe": {
+            "target_aspect": f"{proj_res[0]}:{proj_res[1]}",
+            "unverified_by_design": True,
+            "status": "behaviour unknown, unverified"
+        }
     }
 
     _apply_manifest_qa_checks(manifest)

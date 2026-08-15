@@ -142,5 +142,39 @@ class TestCompileManifest(unittest.TestCase):
         self.assertAlmostEqual(broll["timeline_out"], 1.882)
         self.assertGreater(broll["timeline_out"] - broll["timeline_in"], 0)
 
+        # Assert smart_reframe is in manifest
+        self.assertIn("smart_reframe", manifest)
+        self.assertEqual(manifest["smart_reframe"]["target_aspect"], "1080:1920")
+        self.assertTrue(manifest["smart_reframe"]["unverified_by_design"])
+        self.assertIn("status", manifest["smart_reframe"])
+        self.assertNotIn("reason", manifest["smart_reframe"])
+
+
+
+    def test_conform_fields_letterbox_fallback_on_primary_subject(self):
+        from library.steps.step_5_04_compile_manifest.step import _conform_fields
+        from tests.test_vision_schema_adapter import V3_PROFILE
+        
+        # A horizontal 4K source (3840x2160) going into a vertical 1080x1920 timeline.
+        # This gives a massive fit_scale (~0.28) and fill_scale (~0.88), forcing a crop.
+        clip_meta = {"clip_1": {"width": 3840, "height": 2160}}
+        proj_res = [1080, 1920]
+        
+        # 1. No semantic_doc: defaults to cropping
+        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=None, source_in=0.0, source_out=1.0)
+        self.assertTrue(res["needs_conform"])
+        
+        # 2. V3_PROFILE where subject is visible: falls back to letterbox
+        # V3_PROFILE has primary_subject_visible: [[0, 29.8]]
+        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=V3_PROFILE, source_in=10.0, source_out=12.0)
+        self.assertFalse(res["needs_conform"])
+        
+        # 3. V3_PROFILE where clip source range is completely outside subject visibility: still crops
+        # Actually V3_PROFILE has subject visible 0 to 29.8, let's test a range past it.
+        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=V3_PROFILE, source_in=50.0, source_out=55.0)
+        self.assertTrue(res["needs_conform"])
+        
+
+
 if __name__ == '__main__':
     unittest.main()
