@@ -52,7 +52,8 @@ def classify_builtin_effects() -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dic
 
     Clip effects declare an image input (MainInput1 = InstanceInput)
     and modify the picture they receive. Generators produce content
-    from nothing and belong on an overlay track.
+    from nothing and are routed to the overlay track (V5) by
+    resolve_generator_overlays in step 4.03's post_bridge.
 
     The split is derived from each preset's declared image input,
     not from the category label in index.json.

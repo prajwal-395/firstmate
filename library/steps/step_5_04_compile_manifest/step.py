@@ -1090,6 +1090,17 @@ def compile_manifest(out_dir: str) -> dict:
         if v.get("timeline_end", 0) > total_duration:
             v["timeline_end"] = total_duration
 
+    # ── Generator overlays ──
+    # Generator presets (particles, backgrounds, etc.) produce content from
+    # nothing and are routed to the overlay track. They travel inside
+    # enhancement_spec.generator_overlays from step 4.03's post_bridge.
+    generator_overlays = []
+    if isinstance(vfx_container, dict):
+        generator_overlays = vfx_container.get("generator_overlays", [])
+    for go in generator_overlays:
+        if go.get("timeline_end", 0) > total_duration:
+            go["timeline_end"] = total_duration
+
     # ── Build fusion_effects section ──
     # Per-clip VFX: every planned VFX becomes a Fusion comp on the V1 clip
     # it covers.  This used to require the planner to emit a `preset` key
@@ -1236,6 +1247,7 @@ def compile_manifest(out_dir: str) -> dict:
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
+        "generator_overlays": generator_overlays,
         "fusion_effects": {
             "per_clip": per_clip_effects,
             # THE authoritative transition list for the renderer: each
@@ -1300,6 +1312,9 @@ def compile_manifest(out_dir: str) -> dict:
     print(f"  Transitions: {len(transitions)}", file=sys.stderr)
     sfx_resolved = len(manifest["tracks"]["A3"]["clips"])
     print(f"  SFX:         {sfx_resolved} placed on A3", file=sys.stderr)
+    gen_count = len(manifest.get("generator_overlays", []))
+    if gen_count:
+        print(f"  Generator overlays: {gen_count} on overlay track", file=sys.stderr)
     print(f"  Duration:    {total_duration:.1f}s", file=sys.stderr)
 
     A1_clips = manifest["tracks"]["A1"]["clips"]

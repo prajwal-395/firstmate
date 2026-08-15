@@ -48,7 +48,7 @@ have no reader.
 You can also use any of the built-in Fusion clip effects listed below by providing their exact snake_case name as the `effect_type`. These presets modify the picture - they take the clip's image as input.
 `advanced_camera_shake`, `chromatic_aberration`, `edge_control`, `chrome`, `cloth`, `posterize`, `3d_tube_maker`, `reflections`, `lens_flare_v11`, `lens_flare_v12`, `lens_flare_v13`, `lens_flare_v14`, `lens_flare_v15`, `lens_flare_v16`, `lens_flare_v17`, `lens_flare_v18`, `lens_flare_v19`, `lens_flare_v21`, `lens_flare_v22`, `lens_flare_v23`, `lens_flare_v24`, `lens_flare_v25`, `lens_flare_v26`, `lens_flare_v28`, `lens_flare_v30`, `lens_flare_v31`, `lens_flare_v32`, `lens_flare_v35`, `lens_flare_v36`, `lens_flare_v38`, `lens_flare_v39`, `lens_flare_v40`
 
-**Not available as clip effects:** Generator presets (particles, backgrounds, shaders, standalone text, and standalone lens flares) produce content from nothing and have no image input. They cannot be used as clip effects and are instead routed to the V4 overlay track.
+**Not available as clip effects:** Generator presets (particles, backgrounds, shaders, standalone text, and standalone lens flares) produce content from nothing and have no image input. They cannot be used as clip effects. However, you CAN select them as overlay effects - the post-bridge will automatically route generator presets to the overlay track (V5) where they are composited over the picture. To use a generator, include it in your VFX plan with its exact snake_case name as the `effect_type`. Examples: `fireworks`, `snow`, `embers`, `bubbles`, `matrix`, `rain`.
 
 ### Rules:
 - You MUST plan at least 3-7 VFX items across the video. An empty list is a failure.

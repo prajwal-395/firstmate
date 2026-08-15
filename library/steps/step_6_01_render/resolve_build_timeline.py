@@ -7,7 +7,7 @@ API. This gives us:
   - Exact track targeting (trackIndex parameter)
   - Animated Fusion VFX via .comp file import (BezierSpline keyframes)
   - Clean track layout: V1=A-Roll, V2=B-Roll, V3=Subtitles, V4=MotionGraphics,
-    A1=Speech(auto), A2=Music, A3+=SFX
+    V5=GeneratorEffects, A1=Speech(auto), A2=Music, A3+=SFX
   - Fairlight preset application for audio effects
 
 Reads an assembly_manifest.json and optional Remotion overlay paths.
@@ -201,6 +201,88 @@ def _preflight_check(manifest):
                 errors.append(f"{track_key}[{ci}] file not found: {os.path.basename(src)}")
 
     return errors
+
+
+# ─── Transparent Carrier for Generator Overlays ──────────────
+
+def _ensure_transparent_carrier(
+    project_folder: str,
+    width: int,
+    height: int,
+    fps: int,
+    duration_s: float,
+    media_pool,
+    root_folder,
+):
+    """Create a transparent ProRes 4444 carrier clip via ffmpeg and import it.
+
+    Generator presets produce content from nothing and are placed on
+    the overlay track as Fusion comps on top of a transparent carrier
+    clip. This function ensures the carrier always exists - no warnings,
+    no silent skips.
+
+    Returns the MediaPoolItem for the imported carrier, or raises
+    RuntimeError if creation or import fails.
+    """
+    # The carrier lives next to the project's pipeline assets so it
+    # persists across runs and is never mistaken for user footage.
+    carrier_dir = os.path.join(project_folder, "pipeline_assets") if project_folder else os.path.join(os.path.dirname(__file__), "_carriers")
+    os.makedirs(carrier_dir, exist_ok=True)
+    carrier_path = os.path.join(
+        carrier_dir,
+        f"transparent_{width}x{height}_{fps}fps.mov",
+    )
+
+    # Generate via ffmpeg if not already on disk.
+    if not os.path.exists(carrier_path):
+        # Duration needs to be at least as long as the longest generator
+        # overlay, but we generate one that covers the whole timeline to
+        # be safe. Generous ceiling avoids off-by-one frame issues.
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi",
+            "-i", f"color=c=black@0.0:s={width}x{height}:r={fps}:d={duration_s + 1}",
+            "-c:v", "prores_ks",
+            "-profile:v", "4",       # ProRes 4444 for alpha
+            "-pix_fmt", "yuva444p10le",
+            "-t", str(duration_s + 1),
+            carrier_path,
+        ]
+        result = subprocess.run(
+            cmd, capture_output=True, encoding="utf-8",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg failed to create transparent carrier: {result.stderr}"
+            )
+        print(
+            f"  Created transparent carrier: {carrier_path}",
+            file=sys.stderr,
+        )
+
+    # Import into the media pool under a Generators subfolder.
+    media_pool.SetCurrentFolder(root_folder)
+    gen_folder = None
+    for sub in (root_folder.GetSubFolderList() or []):
+        if sub.GetName() == "Generators":
+            gen_folder = sub
+            break
+    if not gen_folder:
+        gen_folder = media_pool.AddSubFolder(root_folder, "Generators")
+
+    media_pool.SetCurrentFolder(gen_folder)
+    imported = media_pool.ImportMedia([carrier_path])
+    media_pool.SetCurrentFolder(root_folder)
+
+    if not imported or len(imported) == 0:
+        raise RuntimeError(
+            f"Resolve refused to import transparent carrier: {carrier_path}"
+        )
+
+    carrier_item = imported[0]
+    # ProRes 4444 alpha must be recognized as premultiplied.
+    carrier_item.SetClipProperty("Alpha mode", "Premultiplied")
+    return carrier_item
 
 
 # ─── Core: Build Timeline ────────────────────────────────────
@@ -456,6 +538,8 @@ def build_timeline(
     has_v2 = bool(v2_clips)
     has_subtitles = bool(sub_segments)
     has_mg = bool(mg_segments)
+    generator_overlays = manifest.get('generator_overlays', [])
+    has_generators = bool(generator_overlays)
 
     # Calculate how many SFX tracks we need
     sfx_allocations = _allocate_sfx_tracks(a3_clips, base_track_index=3, fps=fps)
@@ -470,6 +554,8 @@ def build_timeline(
         target_video_tracks = max(target_video_tracks, 3)
     if has_mg:
         target_video_tracks = max(target_video_tracks, 4)
+    if has_generators:
+        target_video_tracks = max(target_video_tracks, 5)
 
     while timeline.GetTrackCount("video") < target_video_tracks:
         timeline.AddTrack("video")
@@ -828,6 +914,77 @@ def build_timeline(
         results["tracks"]["V4"] = v4_count
 
     # ══════════════════════════════════════════════════════════
+    # PLACE V5: Generator Effect Overlays (Fusion Presets)
+    # ══════════════════════════════════════════════════════════
+    # Generator presets produce content from nothing (no image input).
+    # They are placed on V5 as transparent carrier clips; the Fusion
+    # comp import subprocess imports the .setting file onto each clip.
+    # Composite mode is set per-entry (default: Screen) so the generated
+    # content blends over the picture on V1/V2 below.
+    if has_generators:
+        print(f"\n-- V5 Generator Effects: {len(generator_overlays)} overlays --", file=sys.stderr)
+        v5_count = 0
+
+        # Create and import the transparent carrier clip. This call
+        # generates the MOV via ffmpeg if it doesn't exist on disk,
+        # imports it to the media pool, and returns the pool item.
+        # It raises RuntimeError on failure - no silent skips.
+        transparent_carrier = _ensure_transparent_carrier(
+            project_folder=project_folder,
+            width=width,
+            height=height,
+            fps=fps,
+            duration_s=total_duration,
+            media_pool=media_pool,
+            root_folder=root_folder,
+        )
+
+        # Store generator overlay metadata for apply_fusion_comps
+        # to pick up and import the .setting files.
+        manifest.setdefault('fusion_effects', {})
+        manifest['fusion_effects']['generator_overlays'] = generator_overlays
+
+        COMPOSITE_MODES = {
+            "normal": 0, "screen": 5, "add": 1, "multiply": 3,
+        }
+        for gi, gen in enumerate(generator_overlays):
+            tl_start = gen['timeline_start']
+            tl_end = gen['timeline_end']
+            dur_frames = round((tl_end - tl_start) * fps)
+            tl_in_frame = round(tl_start * fps)
+
+            result = media_pool.AppendToTimeline([{
+                "mediaPoolItem": transparent_carrier,
+                "startFrame": 0,
+                "endFrame": dur_frames,
+                "trackIndex": 5,
+                "recordFrame": tl_in_frame,
+                "mediaType": 1,
+            }])
+
+            if result:
+                placed = result[0] if isinstance(result, list) else result
+                # Set composite mode for the overlay blend
+                mode_name = gen.get('composite_mode', 'screen')
+                mode_val = COMPOSITE_MODES.get(mode_name, 5)
+                placed.SetProperty('CompositeMode', mode_val)
+                v5_count += 1
+                print(
+                    f"  V [{gi}] {gen['effect_name']}: "
+                    f"V5 {dur_frames}f @ TL {tl_in_frame} "
+                    f"(composite: {mode_name})",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"  X [{gi}] {gen['effect_name']}: "
+                    f"placement failed",
+                    file=sys.stderr,
+                )
+
+        results["tracks"]["V5"] = v5_count
+
+    # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
     # ══════════════════════════════════════════════════════════
     if a2_clips:
@@ -1184,7 +1341,7 @@ def build_timeline(
 
     # ══════════════════════════════════════════════════════════
     print(f"\n── Track Labels ──", file=sys.stderr)
-    video_labels = {1: "A-Roll", 2: "B-Roll", 3: "Subtitles", 4: "Motion Graphics"}
+    video_labels = {1: "A-Roll", 2: "B-Roll", 3: "Subtitles", 4: "Motion Graphics", 5: "Generator Effects"}
     audio_labels = {1: "Speech", 2: "Music"}
 
     for i in range(1, timeline.GetTrackCount("video") + 1):

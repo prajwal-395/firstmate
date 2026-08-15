@@ -322,8 +322,56 @@ def apply_fusion_comps(manifest, project_folder):
                 if item.GetStart() <= vfx_start_f < item.GetEnd():
                     item.SetProperty("ZoomX", 1.05)
                     item.SetProperty("ZoomY", 1.05)
-                    print(f"  ✓ zoom_pulse on {item.GetName()} at {vfx_start_f}f", file=sys.stderr)
+                    print(f"  V zoom_pulse on {item.GetName()} at {vfx_start_f}f", file=sys.stderr)
                     break
+
+    # ── Generator overlays on V5 ──
+    # Generator presets (.setting files) produce content from nothing and
+    # are placed on V5 carrier clips by resolve_build_timeline. Here we
+    # import the .setting file onto each V5 clip.
+    gen_overlays = fusion_effects.get('generator_overlays', [])
+    if gen_overlays and import_effect_to_clip:
+        v5_items = timeline.GetItemListInTrack("video", 5) or []
+        if v5_items:
+            print(
+                f"\n-- V5 Generator Imports: "
+                f"{len(gen_overlays)} overlays, {len(v5_items)} clips --",
+                file=sys.stderr,
+            )
+            for gi, gen in enumerate(gen_overlays):
+                if gi >= len(v5_items):
+                    print(
+                        f"  X [{gi}] {gen['effect_name']}: no V5 clip",
+                        file=sys.stderr,
+                    )
+                    continue
+                tl_clip = v5_items[gi]
+                effect_name = gen['effect_name']
+
+                # Clear any existing comps on the carrier clip
+                for cn in (tl_clip.GetFusionCompNameList() or []):
+                    tl_clip.DeleteFusionCompByName(cn)
+
+                import_effect_to_clip(tl_clip, effect_name)
+
+                comp_names = tl_clip.GetFusionCompNameList()
+                if comp_names and len(comp_names) > 0:
+                    print(
+                        f"  V [{gi}] {gen['effect_name']}: "
+                        f"imported generator preset",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"  X [{gi}] {gen['effect_name']}: "
+                        f"import failed",
+                        file=sys.stderr,
+                    )
+        else:
+            print(
+                "  WARNING: generator_overlays present but no V5 clips",
+                file=sys.stderr,
+            )
 
     if comp_dir:
         shutil.rmtree(comp_dir, ignore_errors=True)

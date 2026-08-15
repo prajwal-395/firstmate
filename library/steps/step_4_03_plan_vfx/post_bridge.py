@@ -169,12 +169,13 @@ def resolve_vfx(
         elif effect_type in _generator_effect_names():
             # Generator preset: produces pixels from nothing, has no image
             # input. Cannot be used as a clip effect - it would cover the
-            # shot rather than modify it. Route to an overlay track instead.
+            # shot rather than modify it. Route to the overlay track via
+            # resolve_generator_overlays instead.
             print(
                 f"  Rejected generator preset {raw_type!r} on block {pos!r}: "
                 f"this preset has no image input and cannot modify the "
-                f"picture. Generator presets belong on the overlay track "
-                f"(V4), not as clip effects.",
+                f"picture. Generator presets are routed to the overlay "
+                f"track (V5) via resolve_generator_overlays.",
                 file=sys.stderr,
             )
             covered_positions.discard(str(pos))
@@ -225,6 +226,92 @@ def _assert_vfx_distinct(resolved: list) -> None:
             f"timeline range(s): {sorted(ranges)}. Each VFX must target "
             f"its own spine block."
         )
+
+
+def resolve_generator_overlays(
+    creative_plan: list,
+    timed_spine: dict,
+    frame_rate: float = 30.0,
+) -> list:
+    """Extract generator presets from the creative plan and resolve them
+    to overlay track entries.
+
+    Generator presets produce content from nothing (no image input) and
+    belong on the overlay track, composited over the picture. This
+    function is the planning-side pair of the clip-effect rejection in
+    resolve_vfx: that function rejects generators from V1, this one
+    routes them to the overlay track.
+
+    Returns a list of overlay entries, each with:
+      - overlay_id: unique identifier
+      - effect_name: the generator preset's snake_case name
+      - timeline_start / timeline_end: seconds
+      - target_block_position: spine block position
+      - composite_mode: how to composite (default: "screen")
+      - rationale: from the creative plan
+    """
+    spine_blocks = timed_spine.get(
+        "structure",
+        timed_spine.get("audio_spine", {}).get("structure", []),
+    )
+    block_lookup = {
+        str(b["position"]): b for b in spine_blocks if "position" in b
+    }
+
+    generator_names = _generator_effect_names()
+    if not generator_names:
+        return []
+
+    overlays = []
+    covered_positions = set()
+    for entry in creative_plan:
+        pos = entry.get("target_block_position", entry.get("segment_id"))
+        raw_type = entry.get("effect_type", "")
+        effect_type = EFFECT_ALIASES.get(raw_type, raw_type)
+
+        if effect_type not in generator_names:
+            continue
+
+        block = block_lookup.get(str(pos))
+        if block is None:
+            print(
+                f"  Dropped generator overlay {raw_type!r}: "
+                f"target_block_position {pos!r} is not a spine block",
+                file=sys.stderr,
+            )
+            continue
+
+        if str(pos) in covered_positions:
+            print(
+                f"  Dropped duplicate generator overlay on block {pos!r} "
+                f"({raw_type!r})",
+                file=sys.stderr,
+            )
+            continue
+        covered_positions.add(str(pos))
+
+        overlays.append({
+            "overlay_id": f"gen_{len(overlays)+1:03d}",
+            "effect_name": effect_type,
+            "target_block_position": block["position"],
+            "timeline_start": round(block["timeline_start"], 3),
+            "timeline_end": round(block["timeline_end"], 3),
+            "composite_mode": entry.get("composite_mode", "screen"),
+            "rationale": entry.get("rationale", ""),
+        })
+
+    overlays.sort(key=lambda o: o["timeline_start"])
+    for i, o in enumerate(overlays, start=1):
+        o["overlay_id"] = f"gen_{i:03d}"
+
+    if overlays:
+        print(
+            f"  Generator overlays: {len(overlays)} presets routed to "
+            f"overlay track",
+            file=sys.stderr,
+        )
+
+    return overlays
 
 
 def inject_default_ken_burns(
@@ -329,9 +416,18 @@ def main():
         sys.exit(1)
 
     result = resolve_vfx(creative, spine, fps)
+
+    # Extract generator presets for the overlay track.
+    # resolve_vfx rejects these from the clip-effect path; this routes
+    # them to the overlay track instead of discarding them.
+    gen_overlays = resolve_generator_overlays(creative, spine, fps)
+
     # C5 fix: Output key must be enhancement_spec to match manifest contract.
     # The DAG edge plan_vfx -> compile_manifest maps enhancement_spec.
-    json.dump({"enhancement_spec": {"visual_effects": result}}, sys.stdout, indent=2)
+    output = {"enhancement_spec": {"visual_effects": result}}
+    if gen_overlays:
+        output["enhancement_spec"]["generator_overlays"] = gen_overlays
+    json.dump(output, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":
