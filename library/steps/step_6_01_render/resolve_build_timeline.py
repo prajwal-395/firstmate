@@ -3,7 +3,7 @@
 Resolve API Timeline Builder (Pipeline v4)
 
 Builds a complete DaVinci Resolve timeline entirely via the Resolve scripting
-API — no FCPXML intermediate. This gives us:
+API. This gives us:
   - Exact track targeting (trackIndex parameter)
   - Animated Fusion VFX via .comp file import (BezierSpline keyframes)
   - Clean track layout: V1=A-Roll, V2=B-Roll, V3=Subtitles, V4=MotionGraphics,

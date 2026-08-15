@@ -1,1 +1,1 @@
-# Execution tools — DaVinci Resolve, FCPXML, SFX placement, subtitles
+# Execution tools — DaVinci Resolve, SFX placement, subtitles

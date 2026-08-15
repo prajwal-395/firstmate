@@ -38,7 +38,7 @@ The pipeline has three layers:
 ┌─────────────────────────────────────────────────────────────────┐
 │  LAYER 3: EXECUTION (Local tools + DaVinci Resolve)             │
 │                                                                 │
-│  Resolve Assembly → Fusion Lua scripts + resolve_bridge.py      │
+│  Resolve Assembly → Python timeline builder + Fusion            │
 │  Subtitle Render  → Remotion (ProRes 4444 + alpha)              │
 │  SFX Placement    → sfx_placer.py (scoring engine + Resolve API)│
 └─────────────────────────────────────────────────────────────────┘
@@ -237,11 +237,11 @@ All planning outputs accumulate in [pipeline_data.json](file:///Users/prajwal/Do
 
 ## Layer 3: Execution (Local Tools + DaVinci Resolve)
 
-### 3A. Timeline Assembly — Resolve Bridge
+### 3A. Timeline Assembly
 
 | Property | Value |
 |---|---|
-| Script | [resolve_bridge.py](file:///Users/prajwal/Documents/content_stuff/video_editing_pilot/library/tools/execution/resolve_bridge.py) |
+| Script | Python timeline builder (`resolve_full_assembly.py`) |
 | Step | 6.01 Render |
 | Requires | DaVinci Resolve running on Edit page |
 
@@ -321,8 +321,7 @@ video_editing_pilot/
 │   │   ├── step_5_02_audio_mix/
 │   │   ├── step_5_03_creative_cohesion/
 │   │   ├── step_5_04_compile_manifest/
-│   │   ├── step_6_01_render/                 ← FCPXML + Fusion + Resolve
-│   │   │   ├── fcpxml_generator.py            ← FCPXML 1.10 (primary)
+│   │   ├── step_6_01_render/                 ← Python timeline builder + Fusion
 │   │   │   ├── fusion_comp_generator.py       ← Fusion .comp files (VFX)
 │   │   │   ├── generate_fusion_lua.py         ← Fusion Lua scripts
 │   │   │   ├── resolve_full_assembly.py       ← Resolve orchestrator
@@ -336,7 +335,6 @@ video_editing_pilot/
 │   │   │   ├── music_pipeline.py             ← Beat/BPM/key analysis
 │   │   │   └── speech_advanced_pipeline.py   ← Prosody (parselmouth)
 │   │   └── execution/                        ← Execution tools
-│   │       ├── resolve_bridge.py             ← Low-level Resolve API
 │   │       ├── build_powergrade.py           ← ASC CDL PowerGrade builder
 │   │       ├── generate_subtitle_props.py    ← Remotion input props
 │   │       ├── sfx_placer.py                 ← SFX scoring + placement
@@ -368,8 +366,6 @@ video_editing_pilot/
 | Remotion subtitle rendering | ✅ Built + tested + wired | Step 4.05, ProRes 4444 overlays |
 | Remotion motion graphics | ✅ Built + tested | Title card, progress bar |
 | sfx_placer.py scoring engine | ✅ Built + tested | 11 clips placed in test run |
-| resolve_bridge.py | ✅ Built + tested | Clip import, overlay import |
-| FCPXML 1.10 generator | ✅ Built | Timeline structure + SFX track |
 | Fusion .comp generator | ✅ Built | Animated VFX, transitions |
 | Fusion Lua generation | ✅ Built | Subtitle keyframes via clipboard |
 | Music analysis pipeline | ✅ Built + wired | Step 2.06, BPM/key/beat grid |
@@ -420,7 +416,7 @@ cd video_testing && python3 run_pipeline.py
 # 5. Place SFX on timeline
 cd video_testing && python3 sfx_placer.py
 
-# 6. Assembly in Resolve is done via resolve_bridge.py and Fusion scripts
+# 6. Assembly in Resolve is done via the Python timeline builder and Fusion
 ```
 
 ---

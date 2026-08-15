@@ -91,7 +91,7 @@ MIGRATIONS = [
             "name": "Lucie Podcast Roughcut",
             "client": "lucie",
             "status": "complete",
-            "description": "Podcast roughcut with EDL, FCPXML, and timeline structure JSON",
+            "description": "Podcast roughcut with EDL and timeline structure JSON",
             "tags": ["podcast", "roughcut", "longform"],
             "source_type": "mixed",
             "resolution": "1920x1080",

@@ -833,7 +833,6 @@ def main():
 
     # Try known format codes
     format_tests = [
-        (0, "fcpxml", "Format 0"),
         (10, "aaf", "Format 10 (AAF)"),
     ]
 

@@ -3,7 +3,7 @@
 Manifest Compiler (Step 5.04)
 
 Reads pipeline step outputs and compiles them into an assembly_manifest
-compatible with the existing resolve_full_assembly.py + fcpxml_generator.py.
+compatible with the existing resolve_full_assembly.py.
 
 Usage:
   python step.py <pipeline_output_dir>

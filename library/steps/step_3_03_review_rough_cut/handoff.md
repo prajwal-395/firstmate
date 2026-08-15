@@ -65,7 +65,7 @@ material. There are two valid resolutions:
 
 **What is NOT valid:** Setting `source_out` to the full speech block end
 while setting a shorter `timeline_duration` and hoping something downstream
-will "trim it." If nobody performs the trim, the FCPXML generator will
+will "trim it." If nobody performs the trim, the timeline builder will
 play from `source_in` for `timeline_duration` seconds and silently chop
 off the end.
 
