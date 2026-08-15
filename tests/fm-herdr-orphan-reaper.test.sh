@@ -129,6 +129,17 @@ esac
 exit 0
 SH
   chmod +x "$fb/herdr"
+
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ] && [ "$2" = "99999" ]; then
+  echo "Fri Jan  1 00:00:00 2000"
+  exit 0
+fi
+exec /bin/ps "$@"
+SH
+  chmod +x "$fb/ps"
+
   printf '%s\n' "$fb"
 }
 
@@ -285,6 +296,7 @@ setup_test "other-home"
 seed_workspace_multi "wA" "firstmate" "wB" "2ndmate-lucie"
 seed_tab "wA" "wA:t1" "fm-primary-orphan"
 seed_pane "wA:p1" "wA:t1" "wA"
+seed_process_info "wA:p1" 99999
 
 # Primary home should find the orphan.
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
@@ -310,6 +322,7 @@ seed_workspace "wA" "firstmate"
 seed_tab "wA" "wA:t1" "fm-dead-task"
 seed_pane "wA:p1" "wA:t1" "wA"
 seed_agent "wA:p1" "done"
+seed_process_info "wA:p1" 99999
 
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
 rc=$?
@@ -342,6 +355,7 @@ seed_workspace "wA" "firstmate"
 seed_tab "wA" "wA:t1" "fm-dead-task"
 seed_pane "wA:p1" "wA:t1" "wA"
 seed_agent "wA:p1" "idle"
+seed_process_info "wA:p1" 99999
 
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --close 2>&1)
 rc=$?
@@ -373,6 +387,7 @@ seed_meta "claimed-task" "wA:p1"
 seed_tab "wA" "wA:t2" "fm-orphan-task"
 seed_pane "wA:p2" "wA:t2" "wA"
 seed_agent "wA:p2" "done"
+seed_process_info "wA:p2" 99999
 
 seed_tab "wA" "wA:t3" "my-shell"
 seed_pane "wA:p3" "wA:t3" "wA"
@@ -397,6 +412,7 @@ setup_test "no-agent"
 seed_workspace "wA" "firstmate"
 seed_tab "wA" "wA:t1" "fm-old-task"
 seed_pane "wA:p1" "wA:t1" "wA"
+seed_process_info "wA:p1" 99999
 
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
 rc=$?
@@ -440,5 +456,24 @@ assert_contains "$out" "SKIP wA:p1" "young pane: should report SKIP"
 assert_contains "$out" "pane is too young" "young pane: should mention pane is too young"
 assert_not_contains "$out" "REAPER: ORPHAN" "young pane: should not report any orphans"
 pass "refuses to close a pane that is too young (startup race immunity)"
+
+# --- Test 13: refuses to close a pane whose age cannot be determined --------
+PATH="$SAVE_PATH"
+setup_test "undeterminable-age"
+seed_workspace "wA" "firstmate"
+seed_tab "wA" "wA:t1" "fm-undeterminable"
+seed_pane "wA:p1" "wA:t1" "wA"
+seed_agent "wA:p1" "done"  # ordinarily an orphan
+
+# The default mock returns process_info without a shell_pid, simulating failure to determine age.
+# No seed_process_info call is needed here.
+
+out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] || fail "undeterminable age: expected exit 0, got $rc"
+assert_contains "$out" "SKIP wA:p1" "undeterminable age: should report SKIP"
+assert_contains "$out" "pane is too young (unknowns < 15s)" "undeterminable age: should mention unknown age"
+assert_not_contains "$out" "REAPER: ORPHAN" "undeterminable age: should not report any orphans"
+pass "refuses to close a pane whose age cannot be determined (fail closed)"
 
 echo "all tests passed"
