@@ -46,7 +46,6 @@ GRADE_PIPELINE = {
         "glow_opacity": "10-15%",
         "grain_amount": "0.2-0.3",
         "vignette_amount": "0.15-0.20",
-        "halation": "optional_subtle",
     },
     "node_5": {
         "type": "color_space_transform",

@@ -1,10 +1,9 @@
 {
-  "name": "Film Emulation",
-  "description": "Kodak 2383 emulation LUT.",
+  "name": "Kodak 2383 D65",
+  "description": "Built-in DaVinci Resolve Kodak 2383 emulation LUT (D65 white point).",
   "category": "lut",
-  "tags": ["film", "kodak", "cinematic"],
-  "compatibility": {"resolve_version": ">=18.0"},
-  "file_path": "film_emulation.cube",
-  "mood_match": ["cinematic", "nostalgic"],
-  "energy_match": ["moderate", "low"]
+  "tags": ["film", "kodak", "2383", "emulation"],
+  "mood_match": ["cinematic", "dramatic", "moody"],
+  "energy_match": ["low", "balanced"],
+  "file_path": "RESOLVE_LUT_DIR/Film Looks/Rec709 Kodak 2383 D65.cube"
 }

@@ -1,10 +1,7 @@
 {
-  "name": "Rec709 to sRGB",
+  "name": "Rec.709 to sRGB",
   "description": "Utility LUT for web delivery.",
   "category": "lut",
-  "tags": ["utility", "colorspace", "web"],
-  "compatibility": {"resolve_version": ">=18.0"},
-  "file_path": "rec709_to_srgb.cube",
-  "mood_match": ["neutral"],
-  "energy_match": ["low", "moderate", "high"]
+  "tags": ["utility", "rec709", "srgb", "colorspace"],
+  "file_path": "rec709_to_srgb.cube"
 }

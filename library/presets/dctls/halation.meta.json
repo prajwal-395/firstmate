@@ -1,10 +1,25 @@
 {
-  "name": "Halation",
-  "description": "Film halation DCTL for bright highlights.",
+  "name": "Subtle Halation",
+  "description": "Adds a subtle red/orange glow around bright highlights, simulating film stock halation. Sourced from Thatcher Freeman's utility-dctls under the MIT license.",
   "category": "dctl",
-  "tags": ["film", "halation", "vfx"],
-  "compatibility": {"resolve_version": ">=18.0"},
+  "tags": [
+    "halation",
+    "film",
+    "glow",
+    "optional_subtle"
+  ],
+  "compatibility": {
+    "resolve_version": "18.0+"
+  },
   "file_path": "halation.dctl",
-  "mood_match": ["cinematic", "warm"],
-  "energy_match": ["moderate"]
+  "mood_match": [
+    "cinematic",
+    "vintage",
+    "nostalgic",
+    "moody"
+  ],
+  "energy_match": [
+    "low",
+    "medium"
+  ]
 }

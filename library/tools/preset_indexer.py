@@ -2,6 +2,7 @@ import os
 import json
 from typing import List, Optional
 from library.schemas.preset_metadata import PresetEntry
+import library.tools.paths as paths
 
 class PresetIndex:
     def __init__(self, presets: List[PresetEntry]):
@@ -26,8 +27,20 @@ def scan_library(library_path: str) -> PresetIndex:
                         else:
                             target_file = meta_path # fallback
                     else:
-                        if not os.path.isabs(target_file):
+                        parts = target_file.split("/")
+                        if len(parts) > 1 and hasattr(paths, parts[0]):
+                            prefix_val = getattr(paths, parts[0])
+                            target_file = os.path.join(str(prefix_val), *parts[1:])
+                        elif not os.path.isabs(target_file):
                             target_file = os.path.join(root, target_file)
+
+                    if not os.path.exists(target_file):
+                        if os.path.isabs(target_file) and "DaVinci Resolve" in target_file:
+                            # Built-in Resolve assets may not be present in CI environments, but they are valid.
+                            pass
+                        else:
+                            print(f"Warning: Asset {target_file} for preset {meta_path} is missing. Skipping preset.")
+                            continue
 
                     entry = PresetEntry.from_dict(data, target_file)
                     presets.append(entry)

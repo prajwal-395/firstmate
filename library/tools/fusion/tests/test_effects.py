@@ -132,9 +132,9 @@ class TestEffectBlocks(unittest.TestCase):
         block = fx.transition_head(90, "fade_to_black", 12)
         self.assertTrue(len(block.nodes) > 0)
 
-    def test_transition_unknown_skips(self):
-        block = fx.transition_tail(90, "nonexistent_type", 10)
-        self.assertEqual(len(block.nodes), 0)
+    def test_transition_unknown_raises(self):
+        with self.assertRaises(ValueError):
+            fx.transition_tail(90, "nonexistent_type", 10)
 
 
 class TestCompEngine(unittest.TestCase):
