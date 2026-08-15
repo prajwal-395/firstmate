@@ -58,7 +58,6 @@ esac
 # Gate: only herdr backend.
 BACKEND=$(fm_backend_name 2>/dev/null) || BACKEND=
 if [ "$BACKEND" != herdr ]; then
-  echo "HERDR_ORPHAN_REAPER: skipped (backend is ${BACKEND:-unknown}, not herdr)"
   exit 0
 fi
 
@@ -78,7 +77,6 @@ SESSION=$(fm_backend_herdr_session)
 # Find this home's workspace by label.
 HOME_WORKSPACE_ID=$(fm_backend_herdr_workspace_find "$SESSION") || HOME_WORKSPACE_ID=
 if [ -z "$HOME_WORKSPACE_ID" ]; then
-  echo "HERDR_ORPHAN_REAPER: no workspace found for this home"
   exit 0
 fi
 
@@ -155,9 +153,7 @@ while IFS=$'\t' read -r tab_id label; do
   fi
 done < <(printf '%s' "$TABS_JSON" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
 
-if [ "$orphan_count" -eq 0 ]; then
-  echo "HERDR_ORPHAN_REAPER: no orphaned panes found in workspace $HOME_WORKSPACE_LABEL ($HOME_WORKSPACE_ID)"
-else
+if [ "$orphan_count" -gt 0 ]; then
   if [ "$MODE" = report ]; then
     echo "HERDR_ORPHAN_REAPER: found $orphan_count orphaned pane(s) in workspace $HOME_WORKSPACE_LABEL ($HOME_WORKSPACE_ID) (report mode, use --close to remove)"
   else

@@ -317,10 +317,8 @@ seed_pane "wA:p2" "wA:t2" "wA"
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] || fail "captain tab: expected exit 0, got $rc"
-assert_not_contains "$out" "REAPER: ORPHAN" "captain tab: should not flag captain's tabs as orphans"
-assert_not_contains "$out" "SKIP" "captain tab: should not even consider captain's tabs"
-assert_contains "$out" "no orphaned panes" "captain tab: should report zero orphans"
-pass "non-fm- tabs are ignored (captain's own terminals)"
+[ -z "$out" ] || fail "captain tab: expected silent exit (no fm- tabs), got: $out"
+pass "non-fm- tabs are ignored (captain's own terminals, silent)"
 
 # --- Test 7: --close actually closes orphans ---------------------------------
 PATH="$SAVE_PATH"
@@ -345,9 +343,8 @@ printf 'tmux\n' > "$TDIR/home/config/backend"
 out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --report 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] || fail "non-herdr: expected exit 0, got $rc"
-assert_contains "$out" "skipped" "non-herdr: should report skipped"
-assert_contains "$out" "not herdr" "non-herdr: should mention not herdr"
-pass "non-herdr backend exits cleanly"
+[ -z "$out" ] || fail "non-herdr: expected silent exit, got: $out"
+pass "non-herdr backend exits cleanly (silent)"
 
 # --- Test 9: mixed panes - claimed, orphan, captain, live-agent --------------
 PATH="$SAVE_PATH"
