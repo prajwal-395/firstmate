@@ -1,8 +1,9 @@
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 from library.tools.paths import PRESETS_ROOT
 from library.tools.fusion.parser import parse_setting
@@ -12,6 +13,7 @@ BUILTIN_DIR = PRESETS_ROOT / "resolve-builtin"
 INDEX_FILE = BUILTIN_DIR / "index.json"
 
 _cached_index = None
+_cached_classification = None
 
 def list_builtin_effects() -> Dict[str, Dict[str, Any]]:
     """Return the dictionary of built-in effects from index.json."""
@@ -22,6 +24,80 @@ def list_builtin_effects() -> Dict[str, Dict[str, Any]]:
         with open(INDEX_FILE, 'r') as f:
             _cached_index = json.load(f)
     return _cached_index
+
+
+def _has_image_input(setting_path: Path) -> bool:
+    """Check whether a .setting file declares an image input.
+
+    The signal is ``MainInput1 = InstanceInput`` at the GroupOperator /
+    MacroOperator level. That declaration gives the macro its image
+    input - without it the preset generates pixels from nothing and has
+    no picture to modify.
+
+    We match the raw text rather than round-tripping through the parser
+    because the parser deliberately drops InstanceInput declarations
+    (see import_customized_effect's WITHDRAWN note).
+    """
+    with open(setting_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return bool(re.search(r"MainInput1\s*=\s*InstanceInput", content))
+
+
+def classify_builtin_effects() -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """Split built-in presets into clip effects and generators.
+
+    Returns:
+        (clip_effects, generators) where each is a dict of
+        {name: index_entry} from index.json.
+
+    Clip effects declare an image input (MainInput1 = InstanceInput)
+    and modify the picture they receive. Generators produce content
+    from nothing and belong on an overlay track.
+
+    The split is derived from each preset's declared image input,
+    not from the category label in index.json.
+    """
+    global _cached_classification
+    if _cached_classification is not None:
+        return _cached_classification
+
+    effects = list_builtin_effects()
+    clip_effects = {}
+    generators = {}
+
+    for name, entry in effects.items():
+        setting_path = BUILTIN_DIR / entry["path"]
+        if setting_path.exists() and _has_image_input(setting_path):
+            clip_effects[name] = entry
+        else:
+            generators[name] = entry
+
+    _cached_classification = (clip_effects, generators)
+    return _cached_classification
+
+
+def list_clip_effects() -> Dict[str, Dict[str, Any]]:
+    """Return only presets that modify the picture (have an image input)."""
+    clip_effects, _ = classify_builtin_effects()
+    return clip_effects
+
+
+def list_generator_effects() -> Dict[str, Dict[str, Any]]:
+    """Return only presets that generate content (no image input)."""
+    _, generators = classify_builtin_effects()
+    return generators
+
+
+def is_generator_effect(effect_name: str) -> bool:
+    """True if the named effect is a generator (no image input).
+
+    Raises ValueError if the effect is not in the index at all.
+    """
+    effects = list_builtin_effects()
+    if effect_name not in effects:
+        raise ValueError(f"Built-in effect not found: {effect_name}")
+    _, generators = classify_builtin_effects()
+    return effect_name in generators
 
 def get_effect_path(effect_name: str) -> Path:
     """Return the absolute path to the .setting file for the given effect."""

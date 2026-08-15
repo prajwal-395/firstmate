@@ -130,10 +130,11 @@ def apply_fusion_comps(manifest, project_folder):
         # import_customized_effect is deliberately NOT imported here - see
         # the built-in branch below.
         try:
-            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip
+            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip, is_generator_effect
         except ImportError:
             list_builtin_effects = None
             import_effect_to_clip = None
+            is_generator_effect = None
 
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
@@ -173,6 +174,28 @@ def apply_fusion_comps(manifest, project_folder):
             if preset_name and list_builtin_effects:
                 if preset_name in (list_builtin_effects() or {}):
                     builtin_effect = preset_name
+
+            # Defense in depth: reject generator presets at the renderer.
+            # A generator has no image input and would cover the clip's
+            # picture rather than modify it. An unclassifiable preset is
+            # rejected too - the gate must fail closed, not open.
+            if builtin_effect and is_generator_effect:
+                try:
+                    if is_generator_effect(builtin_effect):
+                        print(
+                            f"  ✗ [{orig_ci}] {label}: Rejected generator "
+                            f"preset {builtin_effect} - no image input, "
+                            f"cannot modify the picture as a clip effect",
+                            file=sys.stderr,
+                        )
+                        builtin_effect = None
+                except ValueError as exc:
+                    print(
+                        f"  ✗ [{orig_ci}] {label}: Rejected unclassifiable "
+                        f"preset {builtin_effect} - classifier raised: {exc}",
+                        file=sys.stderr,
+                    )
+                    builtin_effect = None
 
 
             if builtin_effect and import_effect_to_clip:

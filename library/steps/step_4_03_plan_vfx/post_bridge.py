@@ -84,16 +84,34 @@ KEN_BURNS_MIN_DURATION_S = 3.0
 
 
 def _builtin_effect_names() -> set:
-    """The built-in Fusion effects the handoff also offers, by name.
+    """The built-in Fusion clip effects the handoff offers, by name.
+
+    Only returns presets that declare an image input (clip effects).
+    Generator presets (particles, backgrounds, standalone lens flares,
+    etc.) are excluded - they produce content from nothing and belong
+    on an overlay track, not as a clip effect.
 
     Empty when the preset index is unreadable, which makes an unknown
     effect_type a drop rather than an import that would fail later.
     """
     try:
-        from library.tools.builtin_effect_loader import list_builtin_effects
-        return set(list_builtin_effects() or {})
+        from library.tools.builtin_effect_loader import list_clip_effects
+        return set(list_clip_effects() or {})
     except Exception as exc:  # pragma: no cover - index missing
         print(f"  Built-in effect index unavailable: {exc}", file=sys.stderr)
+        return set()
+
+
+def _generator_effect_names() -> set:
+    """Generator presets that CANNOT be used as clip effects.
+
+    These have no image input and would cover the picture rather than
+    modify it. They are routed to an overlay track instead.
+    """
+    try:
+        from library.tools.builtin_effect_loader import list_generator_effects
+        return set(list_generator_effects() or {})
+    except Exception:  # pragma: no cover
         return set()
 
 
@@ -140,14 +158,27 @@ def resolve_vfx(
         effect_type = EFFECT_ALIASES.get(raw_type, raw_type)
         intensity = vfx.get("intensity", "moderate")
 
-        # Resolve intensity → concrete parameters
+        # Resolve intensity -> concrete parameters
         type_map = INTENSITY_MAP.get(effect_type)
         if type_map:
             params = dict(type_map.get(intensity, type_map["moderate"]))
         elif effect_type in _builtin_effect_names():
-            # A built-in Fusion effect, imported whole by the renderer.
+            # A built-in Fusion clip effect, imported whole by the renderer.
             # It takes no intensity parameters.
             params = {}
+        elif effect_type in _generator_effect_names():
+            # Generator preset: produces pixels from nothing, has no image
+            # input. Cannot be used as a clip effect - it would cover the
+            # shot rather than modify it. Route to an overlay track instead.
+            print(
+                f"  Rejected generator preset {raw_type!r} on block {pos!r}: "
+                f"this preset has no image input and cannot modify the "
+                f"picture. Generator presets belong on the overlay track "
+                f"(V4), not as clip effects.",
+                file=sys.stderr,
+            )
+            covered_positions.discard(str(pos))
+            continue
         else:
             # No silent default. An unknown type used to become the
             # default 3% zoom while keeping its own name, so the manifest
@@ -155,7 +186,7 @@ def resolve_vfx(
             print(
                 f"  Dropped VFX {raw_type!r} on block {pos!r}: not in the "
                 f"effect toolkit ({', '.join(sorted(INTENSITY_MAP))}) and "
-                f"not a built-in Fusion effect",
+                f"not a built-in Fusion clip effect",
                 file=sys.stderr,
             )
             covered_positions.discard(str(pos))
