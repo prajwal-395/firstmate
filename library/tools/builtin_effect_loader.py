@@ -56,7 +56,21 @@ def import_effect_to_clip(clip: Any, effect_name: str) -> bool:
 
 def import_customized_effect(clip: Any, effect_name: str, overrides: dict) -> bool:
     """Import a built-in effect with modified parameters.
-    
+
+    WITHDRAWN from the render path - `apply_fusion_comps` imports built-in
+    presets verbatim instead. Do not wire this back in for a macro.
+
+    The object model has no GroupOperator/MacroOperator, so parsing a
+    .setting and re-serializing it emits a bare `Composition` with the
+    macro wrapper and every InstanceInput gone. That includes MainInput1,
+    which is what gives the macro its image input, so the result cannot
+    receive the clip's picture at all. Measured across the 143 shipped
+    presets: 43 InstanceInput declarations -> 0, and 0 MediaIn/MediaOut in
+    any output. Advanced Camera Shake went 10,201 bytes -> 3,783.
+
+    Overriding an exposed macro control means editing its InstanceInput in
+    place, not round-tripping the file. Nobody has asked for that yet.
+
     1. Load the .setting file content
     2. Parse it with fusion/parser.py
     3. Apply overrides to matching node inputs

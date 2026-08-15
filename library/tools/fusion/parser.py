@@ -115,8 +115,9 @@ class _LuaTableParser:
             # - boolean (true/false)
             # - nil
             # - A type constructor like Input { ... }
+            # - A namespaced type constructor like Fuse.RealFastNoiseFuse { ... }
             # - A standalone identifier reference
-            ident = self._consume_identifier()
+            ident = self._consume_qualified_identifier()
 
             if ident == "true":
                 return True
@@ -159,8 +160,19 @@ class _LuaTableParser:
             if self._peek_char() == "":
                 return result  # EOF
 
+            # An anonymous table used as an array element:
+            #     Curves = { { Points = { ... } }, { Points = { ... } } }
+            # Without this branch the opening brace fell through to the
+            # identifier arm below, which consumed it as an "unknown
+            # character" and never recursed - so the inner keys merged
+            # into THIS table and the matching '}' closed it early. The
+            # desync then cascaded to the end of the file. Fusion writes
+            # this shape for every ColorCurves / LUTBezier control.
+            if self._peek_char() == "{":
+                result[array_index] = self._parse_table()
+                array_index += 1
             # Check for [key] = value  (bracketed key)
-            if self._peek_char() == "[":
+            elif self._peek_char() == "[":
                 self._consume_char()
                 self._skip_ws()
 
@@ -260,6 +272,27 @@ class _LuaTableParser:
             self.pos += 1
         return self.text[start : self.pos]
 
+    def _consume_qualified_identifier(self) -> str:
+        """Consume an identifier plus any ``.identifier`` suffixes.
+
+        Fuse plugins are namespaced, so their tool type carries a dot:
+        ``Fuse.RealFastNoiseFuse { ... }``. Stopping at the dot left a
+        bare '.' in the stream, which the table parser then handed to
+        _parse_number as a numeric literal.
+
+        Only value positions use this. Keys never need it - Fusion
+        quotes any key containing a dot: ``["MediaIn1.GlobalStart"]``.
+        """
+        ident = self._consume_identifier()
+        while (
+            self.pos + 1 < self.length
+            and self.text[self.pos] == "."
+            and (self.text[self.pos + 1].isalpha() or self.text[self.pos + 1] == "_")
+        ):
+            self.pos += 1  # the dot
+            ident += "." + self._consume_identifier()
+        return ident
+
     def _peek_identifier(self) -> str:
         """Peek at the next identifier without consuming."""
         saved = self.pos
@@ -319,7 +352,9 @@ def _build_comp(data: dict) -> FusionComp:
     else:
         duration = 76
 
-    comp = FusionComp(duration=duration)
+    # authored=False: a parsed file was written by someone else, so the
+    # gotcha rules that police our own generators do not apply to it.
+    comp = FusionComp(duration=duration, authored=False)
 
     # Parse Tools
     tools = data.get("Tools", {})
@@ -334,7 +369,9 @@ def _build_from_setting(data: dict) -> FusionComp:
 
     # .setting files typically have one top-level GroupOperator/MacroOperator
     # with nested Tools inside
-    comp = FusionComp(duration=100)  # default; no RenderRange in .setting
+    # default duration; no RenderRange in .setting. authored=False - see
+    # _build_comp.
+    comp = FusionComp(duration=100, authored=False)
 
     for name, value in tools.items():
         if name.startswith("_"):

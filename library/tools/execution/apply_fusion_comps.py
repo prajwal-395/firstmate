@@ -127,12 +127,13 @@ def apply_fusion_comps(manifest, project_folder):
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, {len(transition_specs)} transitions ──", file=sys.stderr)
         
+        # import_customized_effect is deliberately NOT imported here - see
+        # the built-in branch below.
         try:
-            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip, import_customized_effect
+            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip
         except ImportError:
             list_builtin_effects = None
             import_effect_to_clip = None
-            import_customized_effect = None
 
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
@@ -174,18 +175,32 @@ def apply_fusion_comps(manifest, project_folder):
                     builtin_effect = preset_name
 
 
-            if builtin_effect:
-                # Remove _preset since we handled it
+            if builtin_effect and import_effect_to_clip:
+                # DaVinci's own .setting file goes to Resolve byte-identical,
+                # with no parser in the path.
+                #
+                # This used to branch to import_customized_effect whenever the
+                # clip carried any parameter, which is always: compile_manifest
+                # merges the film look onto every V1/V2 clip. That path parsed
+                # the macro and re-serialized it, which dropped the
+                # GroupOperator wrapper and every InstanceInput - including
+                # MainInput1, the declaration that gives the macro its image
+                # input. Chromatic Aberration came out with its DirectionalBlur
+                # wired to nothing.
+                #
+                # The overrides it was applying are our own comp-engine
+                # parameter names (glow_gain, film_grain, vignette...), read
+                # only by library/tools/fusion/comp_builder.py. No Resolve tool
+                # reads them, so setting them on a macro's nodes never did
+                # anything but corrupt the file. Dropping them costs the
+                # picture nothing.
                 effects.pop('_preset', None)
                 tl_clip = v1_items[item_idx]
                 for cn in (tl_clip.GetFusionCompNameList() or []):
                     tl_clip.DeleteFusionCompByName(cn)
-                
-                if effects and import_customized_effect:
-                    import_customized_effect(tl_clip, builtin_effect, effects)
-                else:
-                    import_effect_to_clip(tl_clip, builtin_effect)
-                    
+
+                import_effect_to_clip(tl_clip, builtin_effect)
+
                 comp_names = tl_clip.GetFusionCompNameList()
                 if comp_names and len(comp_names) > 0:
                     print(f"  ✓ [{orig_ci}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)

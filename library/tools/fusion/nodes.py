@@ -347,7 +347,12 @@ class FusionNode:
         return self
 
     def _validate(self) -> None:
-        """Enforce safety rules from AGENTS.md / fusion_gotchas.md."""
+        """Enforce safety rules from AGENTS.md / fusion_gotchas.md.
+
+        These are AUTHORSHIP rules - they describe comps this pipeline
+        writes. They are not a well-formedness check, so they must not be
+        pointed at a file someone else authored; see FusionComp.authored.
+        """
         # NEVER use ApplyMode on Merge → SIGSEGV crash
         if self.tool_type == "Merge" and "ApplyMode" in self.inputs:
             raise ValueError(
@@ -408,9 +413,14 @@ class FusionNode:
                     "Creates excessive blur artifacts."
                 )
 
-    def serialize(self, indent: str = "\t\t") -> str:
-        """Serialize to Lua tool definition."""
-        self._validate()
+    def serialize(self, indent: str = "\t\t", *, validate: bool = True) -> str:
+        """Serialize to Lua tool definition.
+
+        ``validate=False`` skips the authorship rules. Only a comp that
+        came from the parser passes it - see FusionComp.authored.
+        """
+        if validate:
+            self._validate()
 
         i1 = indent
         i2 = indent + "\t"
@@ -465,8 +475,22 @@ class FusionComp:
         }
     """
 
-    def __init__(self, duration: int):
+    def __init__(self, duration: int, *, authored: bool = True):
+        """
+        Args:
+            duration: Composition length in frames.
+            authored: True when this pipeline built the comp, which is
+                when the gotcha rules in FusionNode._validate and
+                _validate_global apply. The parser passes False: those
+                rules describe comps we write, and DaVinci's own shipped
+                macros legitimately break them - 20 of the 143 built-in
+                presets carry a Background with no GlobalOut, 14 an
+                EllipseMask with no Inverted, 4 an ApplyMode on Merge.
+                Auditing a foreign file against them reported those
+                presets as crashes when nothing was wrong with them.
+        """
         self.duration = duration
+        self.authored = authored
         self.nodes: list[Union[FusionNode, BezierSpline]] = []
 
     @property
@@ -570,7 +594,8 @@ class FusionComp:
 
     def serialize(self) -> str:
         """Serialize to a complete .comp file string."""
-        self._validate_global()
+        if self.authored:
+            self._validate_global()
 
         last = self.last_frame
         lines = [
@@ -586,7 +611,10 @@ class FusionComp:
         ]
 
         for node in self.nodes:
-            lines.append(node.serialize())
+            if isinstance(node, FusionNode):
+                lines.append(node.serialize(validate=self.authored))
+            else:
+                lines.append(node.serialize())
 
         lines.append("\t},")
         lines.append("}")
@@ -646,8 +674,14 @@ def _serialize_input(name: str, val: dict, indent: str) -> str:
             f"{indent}}},"
         )
     elif inp_type == "value":
+        # Through _lua_value, not str(): a Python bool renders as "True",
+        # which Lua reads as an undefined global (nil), and a bare string
+        # renders unquoted. Numbers are unchanged either way.
+        # A dict payload still falls through to repr() inside _lua_value -
+        # only a parsed foreign comp can produce one, and those are no
+        # longer re-serialized by the pipeline (see builtin_effect_loader).
         v = val["value"]
-        return f"{indent}{name} = Input {{ Value = {v}, }},"
+        return f"{indent}{name} = Input {{ Value = {_lua_value(v)}, }},"
     elif inp_type == "point":
         x, y = val["value"]
         return f"{indent}{name} = Input {{ Value = {{ {x}, {y} }}, }},"
