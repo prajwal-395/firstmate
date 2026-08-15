@@ -38,8 +38,10 @@ effect:
   subtitle_style: "default_subtitles"
   sfx_density: "dense"
 content:
-  intro_template: "library/presets/fusion-macros/intro.setting"
-  outro_template: "library/presets/fusion-macros/outro.setting"
+  series_title: "Default Series"
+  channel_name: "Default Channel"
+  intro_template: "library/presets/fusion-macros/intro_lower_third.setting"
+  outro_template: "library/presets/fusion-macros/outro_subscribe.setting"
   watermark:
     image: "library/assets/watermark.png"
     position: "bottom-right"

@@ -76,10 +76,10 @@ WITHDRAWN = {
         "Needs a light-leak asset library. library/presets ships none."
     ),
     "macro": (
-        "library/presets/fusion-macros/ holds .meta.json descriptors whose "
-        ".setting files do not exist, so fusion_macro_loader always failed "
-        "and the caller substituted fade_to_black - a transition nobody "
-        "chose. The macro transition path was removed."
+        "The macro transition path was removed because fusion_macro_loader "
+        "previously failed on missing files, falling back to fade_to_black. "
+        "While title macros (intro/outro) have been restored with real .setting "
+        "files, macro transitions remain unsupported as they are not wired."
     ),
 }
 

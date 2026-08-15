@@ -22,6 +22,8 @@ class EffectSlots:
 
 @dataclass
 class ContentSlots:
+    series_title: str = ""
+    channel_name: str = ""
     intro_template: str = ""
     outro_template: str = ""
     watermark: Dict[str, Any] = field(default_factory=dict)
@@ -74,6 +76,8 @@ class BrandTemplate:
                 "content": {
                     "type": "object",
                     "properties": {
+                        "series_title": {"type": "string"},
+                        "channel_name": {"type": "string"},
                         "intro_template": {"type": "string"},
                         "outro_template": {"type": "string"},
                         "watermark": {"type": "object"},
