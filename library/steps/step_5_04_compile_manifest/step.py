@@ -996,9 +996,6 @@ def compile_manifest(out_dir: str) -> dict:
         sfx_container.get("sfx", []) or sfx_container.get("sfx_list", [])
     )
     sfx_preset = (sfx_container if isinstance(sfx_container, dict) else sfx_data if isinstance(sfx_data, dict) else {}).get("fairlight_preset")
-    sfx_ducking = (sfx_container if isinstance(sfx_container, dict) else sfx_data if isinstance(sfx_data, dict) else {}).get("music_ducking")
-    if isinstance(sfx_ducking, list):
-        sfx_ducking = {"ducking_curves": sfx_ducking}
 
     sfx_index = load_sfx_index()
 
@@ -1240,10 +1237,6 @@ def compile_manifest(out_dir: str) -> dict:
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
-        "music_ducking": sfx_ducking or {
-            "speech_volume_db": -18,
-            "gap_volume_db": -10,
-        },
         "_spine_blocks": [_spine_block_entry(b) for b in structure],
         "subtitle_overlay": subtitle_overlay_data.get(
             "subtitle_overlay", {}),

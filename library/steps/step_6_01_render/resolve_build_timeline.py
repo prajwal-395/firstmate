@@ -878,27 +878,6 @@ def build_timeline(
                             f"Volume set failed for {basename}: {e}"
                         )
                         
-                # Apply music ducking keyframes if present
-                music_ducking = manifest.get('music_ducking', {})
-                ducking_curves = music_ducking.get('ducking_curves', [])
-                audio_mix = manifest.get('audio_mix', {})
-                music_automation = audio_mix.get('music_automation', [])
-                
-                if ducking_curves and isinstance(ducking_curves, list):
-                    for kf in ducking_curves:
-                        time_ms = kf.get('time_ms', 0)
-                        vol_db = kf.get('volume_db', 0)
-                        frame = round((time_ms / 1000.0) * fps)
-                        timeline.AddMarker(frame, "Cyan", f"Ducking: {vol_db}dB", "API lacks volume automation", 1)
-                    print(f"  ✓ Added {len(ducking_curves)} ducking markers to timeline (volume automation unsupported via API)", file=sys.stderr)
-                elif music_automation and isinstance(music_automation, list):
-                    for auto in music_automation:
-                        time_sec = auto.get('timeline_start', 0)
-                        vol_db = auto.get('target_level_db', 0)
-                        behavior = auto.get('music_behavior', 'background')
-                        frame = round(time_sec * fps)
-                        timeline.AddMarker(frame, "Cyan", f"Music: {vol_db}dB ({behavior})", "API lacks volume automation", 1)
-                    print(f"  ✓ Added {len(music_automation)} music automation markers to timeline (volume automation unsupported via API)", file=sys.stderr)
 
             else:
                 print(f"  ✗ {basename}: failed", file=sys.stderr)
@@ -1102,6 +1081,24 @@ def build_timeline(
         except Exception as e:
             results["warnings"].append(f"Fairlight preset '{fairlight_preset}' exception: {e}")
             print(f"  ⚠ Fairlight preset '{fairlight_preset}' raised an exception: {e}", file=sys.stderr)
+
+    # Apply audio mix automation and master limiter markers
+    audio_mix = manifest.get('audio_mix', {})
+    music_automation = audio_mix.get('music_automation', [])
+    master_limiter = audio_mix.get('master_limiter', {})
+    
+    if master_limiter and master_limiter.get('enabled'):
+        threshold_db = master_limiter.get('threshold_db', -1.0)
+        timeline.AddMarker(0, "Purple", f"Master Limiter: {threshold_db}dBTP", "Set the master track limiter to this threshold", 1)
+
+    if music_automation and isinstance(music_automation, list):
+        for auto in music_automation:
+            time_sec = auto.get('timeline_start', 0)
+            vol_db = auto.get('target_level_db', 0)
+            behavior = auto.get('music_behavior', 'background')
+            frame = round(time_sec * fps)
+            timeline.AddMarker(frame, "Cyan", f"Target Level: {vol_db}dB ({behavior})", "Duck or boost the music track to this target level", 1)
+        print(f"  ✓ Added {len(music_automation)} audio target markers to timeline", file=sys.stderr)
 
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))

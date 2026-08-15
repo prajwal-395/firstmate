@@ -47,15 +47,7 @@ def main():
         "sfx_candidates_toon": sfx_toon,
         "sfx_spec": {
             "sfx_list": [],
-            "fairlight_preset": "default",
-            "music_ducking": {
-                "ducking_curves": [{
-                    "trigger_type": "sfx",
-                    "duck_amount_db": -10,
-                    "attack_ms": 50,
-                    "release_ms": 200
-                }]
-            }
+            "fairlight_preset": "default"
         }
     }
     

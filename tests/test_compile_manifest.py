@@ -142,10 +142,5 @@ class TestCompileManifest(unittest.TestCase):
         self.assertAlmostEqual(broll["timeline_out"], 1.882)
         self.assertGreater(broll["timeline_out"] - broll["timeline_in"], 0)
 
-        # Assert music_ducking is properly formatted
-        self.assertIn("music_ducking", manifest)
-        self.assertIn("ducking_curves", manifest["music_ducking"])
-        self.assertEqual(len(manifest["music_ducking"]["ducking_curves"]), 1)
-
 if __name__ == '__main__':
     unittest.main()

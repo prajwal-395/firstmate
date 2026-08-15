@@ -29,7 +29,7 @@ import json
 import sys
 
 from library.tools.fairlight_presets import select_preset_for_content
-from library.tools.audio_ducker import compute_ducking_curves, compute_sfx_ducking
+from library.tools.audio_ducker import compute_sfx_ducking
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.sfx_library import available_sfx_types
@@ -452,18 +452,9 @@ def resolve_sfx(
         content_type = creative_direction.get("content_type", "vlog")
     preset_name = select_preset_for_content(content_type, brand_audio)
 
-    # Compute music ducking
-    music_dur = 60.0
-    if music_analysis and "duration" in music_analysis:
-        music_dur = music_analysis["duration"]
-    music_ducking = compute_ducking_curves(speech_segments, music_dur)
-    
-    require_type(music_ducking, list, "music_ducking", "step_4_04_plan_sfx/post_bridge.py")
-
     return {
         "sfx_list": resolved,
         "fairlight_preset": preset_name,
-        "music_ducking": music_ducking,
     }
 
 

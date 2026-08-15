@@ -219,3 +219,52 @@ def test_allocate_sfx_tracks():
     assert allocations[0][1] == 3
     assert allocations[1][1] == 4
     assert allocations[2][1] == 3
+
+def test_audio_markers_added(mock_resolve, sample_manifest):
+    """Test that audio mix target markers and master limiter are added."""
+    sample_manifest["audio_mix"] = {
+        "master_limiter": {
+            "enabled": True,
+            "threshold_db": -1.5
+        },
+        "music_automation": [
+            {
+                "timeline_start": 2.0,
+                "target_level_db": -18,
+                "music_behavior": "background"
+            }
+        ]
+    }
+    
+    timeline = mock_resolve['timeline']
+    media_pool = mock_resolve['media_pool']
+    root_folder = mock_resolve['root_folder']
+    
+    pool_item = MagicMock()
+    root_folder.GetClipList.return_value = [pool_item]
+    
+    def get_clip_prop(prop):
+        if prop == "File Path":
+            return "test_v1.mov"
+        return ""
+    pool_item.GetClipProperty.side_effect = get_clip_prop
+    
+    placed_item = MagicMock()
+    placed_item.GetDuration.return_value = 60
+    placed_item.GetStart.return_value = 0
+    media_pool.AppendToTimeline.return_value = [placed_item]
+    
+    with patch('os.path.exists', return_value=True):
+        build_timeline(sample_manifest)
+        
+    assert timeline.AddMarker.call_count >= 2
+    
+    # Check Master Limiter marker
+    timeline.AddMarker.assert_any_call(
+        0, "Purple", "Master Limiter: -1.5dBTP", "Set the master track limiter to this threshold", 1
+    )
+    
+    # Check Music Automation marker (2.0s * 30fps = 60 frame)
+    timeline.AddMarker.assert_any_call(
+        60, "Cyan", "Target Level: -18dB (background)", "Duck or boost the music track to this target level", 1
+    )

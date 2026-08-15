@@ -332,12 +332,6 @@
       "type": "object",
       "additionalProperties": true
     },
-    "music_ducking": {
-      "title": "Music Ducking",
-      "description": "Settings for ducking music against speech",
-      "type": "object",
-      "additionalProperties": true
-    },
     "_spine_blocks": {
       "title": "Spine Blocks",
       "description": "Internal blocks defining the structure of the timeline spine",

@@ -169,7 +169,6 @@ def validate_manifest_semantics(manifest: dict) -> list[str]:
     errors.extend(_check_vfx_distinct(manifest))
     errors.extend(_check_broll_differs_from_aroll(manifest))
     errors.extend(_check_overlay_segments_do_not_overlap(manifest))
-    errors.extend(_check_ducking_monotonic(manifest))
     errors.extend(_check_no_fabricated_source_ranges(manifest))
     errors.extend(_check_no_repeated_source_audio(manifest))
     return errors
@@ -303,20 +302,6 @@ def _check_overlay_segments_do_not_overlap(manifest: dict) -> list[str]:
                 )
     return errors
 
-
-def _check_ducking_monotonic(manifest: dict) -> list[str]:
-    """Automation keyframes must advance in time; Resolve ignores them otherwise."""
-    curves = (manifest.get("music_ducking") or {}).get("ducking_curves", [])
-    if not isinstance(curves, list):
-        return []
-    errors = []
-    for prev, curr in zip(curves, curves[1:]):
-        if curr.get("time_ms", 0) < prev.get("time_ms", 0):
-            errors.append(
-                f"music_ducking: keyframe at {curr.get('time_ms')}ms follows "
-                f"one at {prev.get('time_ms')}ms - the curve runs backwards"
-            )
-    return errors
 
 
 def _check_no_repeated_source_audio(manifest: dict) -> list[str]:

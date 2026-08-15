@@ -7,7 +7,6 @@ from library.tools.fusion_macro_loader import load_macro, list_available_transit
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import PLANNABLE_TYPES
 from library.tools.fairlight_presets import get_preset, select_preset_for_content
-from library.tools.audio_ducker import compute_ducking_curves
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.brand_registry import load_brand_template, query_slots
 from library.tools.preset_indexer import scan_library, find_presets, find_preset_for_mood
@@ -122,19 +121,6 @@ def test_transition_selection_only_yields_drawable_types():
         clip_a, clip_b, {}, {},
     )
     assert energetic["type"] == "flash"
-
-def test_audio_chain():
-    preset = select_preset_for_content("narrative", "cinematic")
-    assert preset is not None
-    
-    speech_regions = [{"start_time": 1.0, "end_time": 2.0}]
-    curves = compute_ducking_curves(speech_regions, music_track_duration=3.0)
-    assert len(curves) > 0
-    
-    sfx = [{"start": 1.2, "name": "woosh"}]
-    prosody = {"peaks": [1.25]}
-    aligned_sfx = align_sfx_to_prosody(sfx, prosody, engagement_scores={})
-    assert len(aligned_sfx) == 1
 
 def test_cohesion_review_end_to_end():
     inputs = {

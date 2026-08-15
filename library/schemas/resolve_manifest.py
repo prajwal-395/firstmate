@@ -87,7 +87,6 @@ class ResolveManifest(BaseModel):
     vfx: List[VFXEntry] = Field(default_factory=list)
     sfx: List[SFXClip] = Field(default_factory=list)
     color_grade: Optional[ColorGrade] = None
-    music_ducking: Dict[str, Any] = Field(default_factory=dict)
     audio_mix: Dict[str, Any] = Field(default_factory=dict)
     subtitle_overlay: Dict[str, Any] = Field(default_factory=dict)
     motion_graphics_overlay: Dict[str, Any] = Field(default_factory=dict)

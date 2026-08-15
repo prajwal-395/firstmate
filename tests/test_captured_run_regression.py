@@ -26,7 +26,6 @@ from library.tools.manifest_validator import (
     validate_manifest_semantics,
     _check_broll_differs_from_aroll,
     _check_distinct_cut_points,
-    _check_ducking_monotonic,
     _check_no_fabricated_source_ranges,
     _check_no_zero_duration_clips,
     _check_overlay_segments_do_not_overlap,
@@ -37,7 +36,6 @@ from library.tools.spine_contract import (
     SpineContractError,
     validate_spine_blocks,
 )
-from library.tools.audio_ducker import compute_ducking_curves
 
 FIXTURES = Path(__file__).parent / "fixtures" / "captured_run"
 
@@ -105,10 +103,6 @@ def test_subtitle_overlays_overlap(broken_manifest):
     errors = _check_overlay_segments_do_not_overlap(broken_manifest)
     assert len(errors) == 13, errors
 
-
-def test_ducking_curve_runs_backwards(broken_manifest):
-    errors = _check_ducking_monotonic(broken_manifest)
-    assert len(errors) == 13, errors
 
 
 def test_back_half_uses_fabricated_source_ranges(broken_manifest):
@@ -210,19 +204,6 @@ def test_word_end_cutting_is_reachable_on_a_conformant_spine():
     # The cut lands on the last word's end, not the block boundary.
     assert result["cut_time"] == pytest.approx(4.022, abs=0.01)
 
-
-def test_ducking_curves_are_monotonic_for_back_to_back_speech():
-    """Contiguous blocks are what used to make the curve run backwards."""
-    blocks = [
-        {"start_time": 0.0, "end_time": 2.682},
-        {"start_time": 2.682, "end_time": 4.067},
-        {"start_time": 4.067, "end_time": 6.896},
-        {"start_time": 20.0, "end_time": 22.0},
-    ]
-    curves = compute_ducking_curves(blocks, 43.0)
-    times = [k["time_ms"] for k in curves]
-    assert times == sorted(times), curves
-    assert _check_ducking_monotonic({"music_ducking": {"ducking_curves": curves}}) == []
 
 
 def test_subtitle_overlay_segments_no_longer_overlap():
