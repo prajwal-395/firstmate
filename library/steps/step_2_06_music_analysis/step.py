@@ -11,10 +11,15 @@ Per-project step that analyzes the selected music track to produce:
 Delegates to library/tools/analysis/music_pipeline.py for the actual
 analysis, wrapping it in the step interface (JSON stdin → JSON stdout).
 
-This data is consumed by:
-  - Step 2.05 (mesh_spine) for beat-aligned audio spine construction
-  - Step 4.04 (plan_sfx) for beat-snapped SFX placement
-  - Step 5.02 (audio_mix) for music-aware ducking
+Consumed by step 4.04 (plan_sfx), which snaps SFX to bar boundaries
+(post_bridge.py:344).
+
+The DAG also wires this output into 2.05 (mesh_spine) and 4.02
+(plan_transitions), and neither reads it. plan_transitions synthesises its
+own uniform grid from BPM instead (bridge.py:24-33), so its cuts snap to a
+grid starting at t=0 rather than to the track's actual beats. Do not add
+"consumed by" lines here for edges that exist only in the DAG; see
+docs/PIPELINE_PLAN.md.
 
 Classification: Deterministic / Data Transformation
 Idempotent: Yes (same track → same analysis)

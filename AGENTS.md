@@ -292,10 +292,12 @@ render under an ASCII locale.
 
 **Manifest validation has a semantic half.** `library/tools/manifest_validator.py`
 asserts distinct cut points, distributed SFX, distinct VFX ranges, B-roll
-differing from the A-roll it covers, no overlay overlaps, monotonic ducking
-curves, no zero-duration clips and no fabricated round-number source
-ranges. Regression fixtures live in `tests/fixtures/captured_run/` and come
-from a real broken run - never replace them with empty-list fixtures.
+differing from the A-roll it covers, no overlay overlaps, no repeated
+source audio across consecutive V1 clips, no zero-duration clips and no
+fabricated round-number source ranges. It does NOT check ducking curves;
+this entry claimed it did, and nothing in the module ever has. Regression
+fixtures live in `tests/fixtures/captured_run/` and come from a real
+broken run - never replace them with empty-list fixtures.
 
 **A3 is a logical SFX bucket, not one lane.** Overlapping SFX are fine; the
 timeline builder allocates A3, A4, ... Identical SFX positions are not.
@@ -317,7 +319,10 @@ nodes had no reader at all. When you add a knob, add it to
 record the reason where the design lives - see
 `GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/step.py` and
 `WITHDRAWN` in `transition_vocabulary.py`. Withdrawal is a legitimate
-outcome; a silent unread key is not.
+outcome; a silent unread key is not. `docs/PIPELINE_PLAN.md` is the
+standing audit of which manifest keys have a reader and which do not;
+check it before assuming a stage's output reaches the picture, and update
+it when you wire or withdraw one.
 
 **One vision schema, two views.** `vision_pipeline_v3.py` emits
 `scene[]/camera[]/actions[]/objects[]/assessment{}`; consumers historically

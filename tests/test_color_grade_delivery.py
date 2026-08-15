@@ -127,3 +127,46 @@ def test_compile_manifest_merges_the_look_onto_every_clip():
     for effects in per_clip.values():
         assert effects["film_grain"] is True
         assert effects["glow_gain"] == pytest.approx(0.125)
+
+
+def test_every_brand_template_powergrade_resolves_to_a_real_asset():
+    """A template may not name a PowerGrade that is not on disk.
+
+    step_5_01 turns `style.preferred_powergrade` into
+    library/presets/powergrades/<slug>.drx and puts that path in the
+    manifest even when it does not exist, so the renderer fails loudly
+    (resolve_build_timeline raises FileNotFoundError before applying the
+    grade). Two of the four shipped templates named grades that were never
+    added, which meant no run under those templates could produce a video
+    at all - and nothing checked, because the templates were only ever
+    read for their transition lists.
+    """
+    import yaml
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    templates_dir = os.path.join(repo_root, "library", "templates")
+    powergrades_dir = os.path.join(
+        repo_root, "library", "presets", "powergrades")
+
+    template_files = sorted(
+        f for f in os.listdir(templates_dir) if f.endswith((".yaml", ".yml"))
+    )
+    assert template_files, "no brand templates found to check"
+
+    missing = []
+    for filename in template_files:
+        with open(os.path.join(templates_dir, filename)) as handle:
+            template = yaml.safe_load(handle) or {}
+        name = (template.get("style") or {}).get("preferred_powergrade", "")
+        if not name:
+            continue
+        # Same slug rule as step_5_01_color_grade.define_color_grade.
+        slug = name.lower().replace(" ", "_")
+        drx = os.path.join(powergrades_dir, f"{slug}.drx")
+        if not os.path.exists(drx):
+            missing.append(f"{filename} names {name!r} -> missing {drx}")
+
+    assert not missing, (
+        "brand templates name PowerGrades with no asset on disk:\n  "
+        + "\n  ".join(missing)
+    )

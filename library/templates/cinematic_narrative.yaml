@@ -5,7 +5,11 @@ style:
     cuts_per_minute_min: 8
     cuts_per_minute_max: 15
   color_palette: ["#223344", "#aabbcc", "#111111"]
-  preferred_powergrade: "Moody Desaturated"
+  # No preferred_powergrade. This named "Moody Desaturated", and
+  # library/presets/powergrades/moody_desaturated.drx does not exist, so
+  # every run under this template died with FileNotFoundError at the
+  # PowerGrade apply in resolve_build_timeline. Re-add this line when a
+  # real .drx of that name ships.
   # Add path to reference frame for AI color matching here:
   # reference_look_image: "/path/to/reference.jpg"
   # creative_look_dctl: "/path/to/look.dctl"

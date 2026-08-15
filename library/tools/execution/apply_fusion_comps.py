@@ -84,6 +84,25 @@ def apply_fusion_comps(manifest, project_folder):
     has_any_effects = per_clip_effects or transition_by_clip
     comp_dir = None
 
+    # Imported at function scope, not inside the `has_any_effects` branch:
+    # the generator-overlay pass at the bottom of this function reads
+    # `import_effect_to_clip`, and a plan with generator overlays but no
+    # per-clip VFX and no drawn transitions never entered that branch, so
+    # the name was unbound and the whole subprocess died with a NameError.
+    # resolve_build_timeline only records that as a warning, so the
+    # generators silently never reached V5.
+    #
+    # import_customized_effect is deliberately NOT imported - see the
+    # built-in branch below.
+    try:
+        from builtin_effect_loader import (
+            list_builtin_effects, import_effect_to_clip, is_generator_effect,
+        )
+    except ImportError:
+        list_builtin_effects = None
+        import_effect_to_clip = None
+        is_generator_effect = None
+
     # Map legacy vfx_entries
     v1_items = timeline.GetItemListInTrack("video", 1) or []
     
@@ -126,15 +145,6 @@ def apply_fusion_comps(manifest, project_folder):
 
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, {len(transition_specs)} transitions ──", file=sys.stderr)
-        
-        # import_customized_effect is deliberately NOT imported here - see
-        # the built-in branch below.
-        try:
-            from builtin_effect_loader import list_builtin_effects, import_effect_to_clip, is_generator_effect
-        except ImportError:
-            list_builtin_effects = None
-            import_effect_to_clip = None
-            is_generator_effect = None
 
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
