@@ -68,7 +68,7 @@ fm_agy_quota_observe() {  # <text> <state_dir>
 
 # fm_agy_quota_read: returns the last known value for a model together with its age.
 fm_agy_quota_read() {  # <model> <state_dir> [<now>]
-  local model="$1" state_dir="$2" now_override="$3"
+  local model="$1" state_dir="$2" now_override="${3:-}"
   local safe_model
   if command -v md5 >/dev/null 2>&1; then
     safe_model=$(printf '%s' "$model" | md5 -q)

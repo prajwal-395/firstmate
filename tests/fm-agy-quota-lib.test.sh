@@ -77,4 +77,15 @@ res=$(fm_agy_quota_read "Ambiguous Model" "$state" "$(date +%s)")
 assert_eq "unknown" "$res"
 pass "missing unparseable ambiguous fail open"
 
+echo "Testing set -u compliance with 2 arguments"
+state="$TMP_ROOT/state4"
+mkdir -p "$state"
+footer="Model Two Args | ctx: 10% | quota: 50% (1h)"
+fm_agy_quota_observe "$footer" "$state"
+# This call must not crash under set -u
+res=$(fm_agy_quota_read "Model Two Args" "$state")
+# It should successfully read the value (age will be 0 as it was just observed)
+assert_eq "50 0" "$res"
+pass "set -u compliance with 2 arguments works"
+
 echo "ALL TESTS PASSED"
