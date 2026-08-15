@@ -348,6 +348,10 @@ project to test it.** Any clip whose id is not already a
 run. Exercise the collection half with an analysis dir of copied profiles
 and `raw_footage_files: []`.
 
+## 11. Third-Party Asset Licenses
+
+**PowerGrades**: The "Cinematic Warm" PowerGrade (`cinematic_warm.drx`) is intended to be "The Grade" provided by Zay's Aesthetics. It is offered as a free gift ("no strings, no catch") with no formal written terms on the author's website. Since this repository produces commercial video, note that there is no explicit commercial usage clause provided by the author. Usage is at your own discretion.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

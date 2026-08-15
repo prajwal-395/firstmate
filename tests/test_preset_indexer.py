@@ -120,11 +120,11 @@ class TestPresetIndexer(unittest.TestCase):
                 elif asset_path.endswith('.cube'):
                     self.assertTrue('LUT_' in content, f"Asset {asset_path} does not look like a valid .cube LUT file")
         
-        # The honest count on this branch is 5 curated descriptors:
-        # halation, intro_lower_third, outro_subscribe, film_emulation, and rec709_to_srgb.
+        # The honest count on this branch is 6 curated descriptors:
+        # 5 from main plus the new cinematic_warm powergrade.
         # This floor ensures the index actually found them, preventing the test from passing on an empty directory,
         # so losing curated presets is caught rather than tolerated.
-        self.assertGreaterEqual(len(index.presets), 5)
+        self.assertGreaterEqual(len(index.presets), 6)
         
         for p in index.presets:
             self.assertTrue(p.name)

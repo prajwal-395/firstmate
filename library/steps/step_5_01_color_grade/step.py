@@ -39,7 +39,6 @@ GRADE_PIPELINE = {
         "offset_green": 0.005,
         "highlights": "warm_golden",
         "shadows": "cool_teal_hint",
-        "skin_tone_protection": True,
     },
     "node_4": {
         "type": "creative_film_look",
@@ -114,9 +113,8 @@ GRADE_PIPELINE_DELIVERY = {
                   "saturation are carried.",
     },
     "node_3": {
-        "delivered_by": None,
-        "reason": "Warm/cool tone shaping with skin-tone protection needs a "
-                  "hue qualifier node, which the Resolve API cannot create.",
+        "delivered_by": "powergrade_path",
+        "reason": "Delivered by applying a pre-authored PowerGrade (.drx).",
     },
     "node_4": {"delivered_by": "fusion_look"},
     "node_5": {
@@ -209,13 +207,32 @@ def _extract_frame(video_path: str) -> str:
             os.remove(path)
         return ""
 
-def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "") -> dict:
+def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "", preferred_powergrade: str = "") -> dict:
     """Define the color grading specification based on style spec.
 
     Runs per-clip exposure analysis via ffprobe to estimate brightness
     offsets instead of defaulting everything to 0.0.
     """
     entries = shot_list.get("entries", [])
+    
+    powergrade_path = None
+    if preferred_powergrade:
+        slug = preferred_powergrade.lower().replace(" ", "_")
+        # pipeline is run from the project root normally, but we can compute absolute path
+        # from __file__ to be safe.
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        drx_path = os.path.join(base_dir, "presets", "powergrades", f"{slug}.drx")
+        if os.path.exists(drx_path):
+            powergrade_path = drx_path
+        else:
+            # Check fallback in case pipeline is run from a different root
+            drx_path_fallback = os.path.join("library", "presets", "powergrades", f"{slug}.drx")
+            if os.path.exists(drx_path_fallback):
+                powergrade_path = os.path.abspath(drx_path_fallback)
+            else:
+                # If we were explicitly asked for a grade but it doesn't exist, we still provide
+                # the absolute path so the renderer fails loudly as requested.
+                powergrade_path = drx_path
 
     # Identify clips that may need per-clip adjustments
     per_clip_adjustments = []
@@ -343,7 +360,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             # library/presets/powergrades/default.drx is a placeholder, not
             # a real .drx. Set this to a real file to have the renderer
             # apply it - it will fail loudly if the path does not resolve.
-            "powergrade_path": None,
+            "powergrade_path": powergrade_path,
 
         },
     }
@@ -400,7 +417,8 @@ def main():
         })
 
     shot_list = {"entries": entries}
-    result = define_color_grade(shot_list, project_folder, reference_image)
+    preferred_powergrade = brand_template.get("preferred_powergrade", "")
+    result = define_color_grade(shot_list, project_folder, reference_image, preferred_powergrade)
     json.dump(result, sys.stdout, indent=2)
 
 

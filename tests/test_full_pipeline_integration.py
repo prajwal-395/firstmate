@@ -35,11 +35,11 @@ def test_full_brand_template_flow():
 
 def test_preset_library_scan():
     presets = scan_library("library/presets")
-    # The honest count on this branch is 5 curated descriptors:
-    # halation, intro_lower_third, outro_subscribe, film_emulation, and rec709_to_srgb.
+    # The honest count on this branch is 6 curated descriptors:
+    # 5 from main plus the new cinematic_warm powergrade.
     # This floor ensures the index actually found them, preventing the test from passing on an empty directory,
     # so losing curated presets is caught rather than tolerated.
-    assert len(presets.presets) >= 5
+    assert len(presets.presets) >= 6
     import glob
     for meta_path in glob.glob("library/presets/**/*.meta.json", recursive=True):
         with open(meta_path) as f:
