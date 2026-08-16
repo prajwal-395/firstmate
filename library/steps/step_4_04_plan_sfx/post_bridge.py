@@ -29,7 +29,6 @@ import json
 import sys
 
 from library.tools.fairlight_presets import select_preset_for_content
-from library.tools.audio_ducker import compute_sfx_ducking
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.sfx_library import available_sfx_types
@@ -424,27 +423,6 @@ def resolve_sfx(
         })
 
     _assert_sfx_distributed(resolved)
-
-    # Apply SFX ducking
-    speech_segments = []
-    if prosody_analysis and "speech_segments" in prosody_analysis:
-        speech_segments = prosody_analysis["speech_segments"]
-    elif spine_blocks:
-        # Fallback to spine blocks to ensure ducking is applied
-        for block in spine_blocks:
-            if is_speech_block(block):
-                speech_segments.append({
-                    "start_time": block["timeline_start"],
-                    "end_time": block["timeline_end"],
-                })
-
-    if speech_segments:
-        # compute_sfx_ducking expects {"start_time": x, "end_time": y}
-        mapped_resolved = [{"start_time": s["timeline_in"], "end_time": s["timeline_out"], **s} for s in resolved]
-        ducked_sfx = compute_sfx_ducking(mapped_resolved, speech_segments)
-        # map back
-        for i, s in enumerate(ducked_sfx):
-            resolved[i]["volume_db"] = s.get("volume_db", resolved[i]["volume_db"])
 
     # Determine Fairlight preset
     content_type = "vlog"

@@ -48,7 +48,6 @@ class TestCompileManifest(unittest.TestCase):
             "subtitle_plan": {"subtitles": []},
             "transition_spec": [],
             "enhancement_spec": [],
-            "music_ducking": [{"timeline_start": 0.0, "timeline_end": 1.0, "volume_db": -10}],
             "color_grade_spec": {},
             "audio_mix_spec": {},
             "music_selection": {},

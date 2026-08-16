@@ -288,23 +288,10 @@ under a day and makes the next four phases measurable.
   dead-centre. The Pan infrastructure exists; the policy to drive it from
   vision data is the remaining work. **Medium.**
 
-### Phase 2: audio. Second biggest, and mostly mechanical.
+### Phase 2: audio. (OUT OF SCOPE)
 
-- **P2.1 Real music level.** At minimum, carry a `volume_db` on the A2 clip
-  so the existing reader at `resolve_build_timeline.py:1022` applies it.
-  Cheap, and it converts "unlistenable" to "acceptable" on its own.
-- **P2.2 Real ducking.** Per-block music automation needs keyframed track
-  volume, which the Resolve scripting API does not expose on a timeline
-  item. Two routes: split the A2 clip at each `music_automation` boundary
-  and set a per-segment level (works today with the existing reader), or
-  render the ducked music offline with ffmpeg `sidechaincompress` and place
-  one pre-mixed file. **Medium.** Route choice is a captain question.
-- **P2.3 Music fades.** A 1s fade in and a 1.5s fade out, wherever P2.2
-  lands. Cheap.
-- **P2.4 Master limiter.** Currently a marker. `resolve_render.py` already
-  probes the output; a post-render ffmpeg `loudnorm` pass to the -14 LUFS
-  that `render_qa.measure_lufs` already checks against is the direct path.
-  Cheap, and it closes the loop with an existing gate.
+The audio thread was ruled OUT OF SCOPE on 2026-08-15. The half-built ducking machinery (P2.2) and J/L cut offset code was removed under that ruling.
+The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limiter) are not happening as part of the automated pipeline.
 
 ### Phase 3: the look. Where "publishable" is actually decided.
 

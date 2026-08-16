@@ -2,7 +2,7 @@
 """
 Step 5.2: Define Audio Mix Specification
 
-Define the audio mix parameters — volume levels, ducking rules, and spatial
+Define the audio mix parameters — volume levels and spatial
 positioning for each audio track. Translates the spine's music_behavior
 values into concrete dB levels.
 
@@ -24,7 +24,6 @@ TRACK_LEVELS = {
         "prominent_level_db": -6,
         "background_level_db": -18,
         "fade_duration_seconds": 1.0,
-        "ducking_trigger": "A1 activity",
     },
     "A3_sfx": {
         "base_level_db": -12,
@@ -85,7 +84,7 @@ def define_audio_mix(audio_spine: dict, enhancement_spec: dict) -> dict:
                 "enabled": True,
             },
             "notes": (
-                "Speech (A1) is the reference at 0dB. Music ducks to "
+                "Speech (A1) is the reference at 0dB. Music plays at "
                 f"{TRACK_LEVELS['A2_music']['background_level_db']}dB under speech, "
                 f"rises to {TRACK_LEVELS['A2_music']['prominent_level_db']}dB during "
                 "non-speech moments. Fade duration: "

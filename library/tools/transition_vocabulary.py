@@ -64,13 +64,14 @@ WITHDRAWN = {
         "is a crash zoom and looks nothing like a whip pan."
     ),
     "j_cut": (
-        "An audio-lead edit, not a picture effect. The offset code in "
-        "resolve_build_timeline is unreachable (the manifest carries no "
-        "from_block/to_block) and belongs with the audio work."
+        "An audio-lead edit, not a picture effect. The audio thread was ruled "
+        "OUT OF SCOPE on 2026-08-15, and the unreachable J/L cut offset code "
+        "was removed under that ruling."
     ),
     "l_cut": (
-        "An audio-lag edit, not a picture effect. Unreachable for the same "
-        "reason as j_cut, and it belongs with the audio work."
+        "An audio-lag edit, not a picture effect. The audio thread was ruled "
+        "OUT OF SCOPE on 2026-08-15, and the unreachable J/L cut offset code "
+        "was removed under that ruling."
     ),
     "light_leak": (
         "Needs a light-leak asset library. library/presets ships none."
