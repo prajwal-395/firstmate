@@ -44,6 +44,7 @@ from tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS, is_speech_bloc
 from tools.semantic_index import build_semantic_lookup
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
+from tools.brand_registry import load_brand_template
 
 # Wording that means the camera was not locked off. Read from the vision
 # analysis's own stability verdict and motion prose, which is where both
@@ -651,12 +652,21 @@ def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     return dropped
 
 
-def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict = None, source_in: float = 0.0, source_out: float = 0.0) -> dict:
+def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict = None, source_in: float = 0.0, source_out: float = 0.0, framing_intent: float = None, framing_pan_x: float = None) -> dict:
     """Scale factor needed to fill the output frame, if any.
 
-    Every A-roll assignment already carries a needs_conform flag and
-    nothing has ever consumed it, so landscape source dropped into a
-    vertical timeline rendered as a thin strip between black bars.
+    ``framing_intent`` is a normalised scalar spanning the continuum from
+    full letterbox (0.0) through partial punch-in to complete fill (1.0).
+    When *None* (unset), the legacy subject-visibility heuristic runs, so
+    existing projects render identically.
+
+    ``framing_pan_x`` is a normalised horizontal pan (-1.0 to 1.0) that
+    shifts the crop window within the zoomed source.  0 = centred (default).
+    At a given zoom the available pan range is
+    ``(zoomed_source_width - target_width) / 2`` pixels, and the normalised
+    value maps linearly into that range.  PanY is not currently exposed -
+    for landscape-in-portrait the crop is always width-limited, so Y has
+    no slack.
     """
     meta = clip_metadata.get(clip_id) or {}
     width = meta.get("width")
@@ -677,11 +687,38 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict =
     fit_scale = min(target_w / width, target_h / height)
     fill_scale = max(target_w / width, target_h / height)
     if fill_scale <= fit_scale * (1 + 1e-6):
+        # Source already matches the target aspect ratio - no conform needed
+        # regardless of framing_intent (there are no bars to remove).
         return {"needs_conform": False}
 
+    max_zoom = round(fill_scale / fit_scale, 4)
+
+    # ── Resolve framing_intent ──
+    # Priority: explicit per-clip value > template bias (caller merges
+    # before calling) > auto (legacy heuristic).
+    if framing_intent is not None:
+        intent = max(0.0, min(1.0, framing_intent))
+        if intent == 0.0:
+            return {"needs_conform": False}
+        zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
+        result = {
+            "needs_conform": True,
+            "source_width": width,
+            "source_height": height,
+            "fill_zoom": zoom,
+        }
+        # Pan: convert normalised (-1..1) to pixel offset.
+        if framing_pan_x is not None and framing_pan_x != 0.0:
+            pan_norm = max(-1.0, min(1.0, framing_pan_x))
+            zoomed_w = width * fit_scale * zoom
+            max_pan_px = (zoomed_w - target_w) / 2.0
+            result["framing_pan_x"] = round(pan_norm * max_pan_px, 2)
+        return result
+
+    # ── Legacy auto-decision (framing_intent not set) ──
     # Decide whether to letterbox or crop based on primary subject visibility.
-    # If the primary subject is visible during this clip's source range, a center crop
-    # might cut them off, so we prefer letterbox (needs_conform=False).
+    # If the primary subject is visible during this clip's source range, a
+    # center crop might cut them off, so we prefer letterbox.
     subject_visible = False
     if semantic_doc:
         ranges = []
@@ -707,7 +744,7 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict =
         "needs_conform": True,
         "source_width": width,
         "source_height": height,
-        "fill_zoom": round(fill_scale / fit_scale, 4),
+        "fill_zoom": max_zoom,
     }
 
 
@@ -854,6 +891,52 @@ def compile_manifest(out_dir: str) -> dict:
     if hook_assignment and "spine_block_position" in hook_assignment:
         a_roll_dict[hook_assignment["spine_block_position"]] = hook_assignment
 
+    # ── Framing intent: template fallback ──
+    # Load the brand template's default framing_intent so it can bias clips
+    # that don't carry an explicit per-clip value. The template file is a
+    # static config in the repo, not a pipeline step output, so this reads
+    # it directly rather than threading a DAG edge.
+    _template_framing_intent = None
+    try:
+        import yaml as _yaml
+        _project_root = os.path.dirname(out_dir) if out_dir != "." else "."
+        _project_yaml = os.path.join(_project_root, "project.yaml")
+        if os.path.exists(_project_yaml):
+            with open(_project_yaml) as _f:
+                _proj_cfg = _yaml.safe_load(_f) or {}
+            _tmpl_name = _proj_cfg.get("pipeline", {}).get("brand_template", "default_brand")
+        else:
+            _tmpl_name = "default_brand"
+        _tmpl_dir = os.path.join(os.path.dirname(__file__), "..", "..", "templates")
+        _tmpl_path = os.path.join(_tmpl_dir, f"{_tmpl_name}.yaml")
+        _tmpl = load_brand_template(_tmpl_path)
+        _template_framing_intent = getattr(_tmpl.style, "framing_intent", None)
+    except Exception:
+        pass  # template framing is a bias, not a requirement
+
+    def _resolve_framing(block_or_clip):
+        """Return (framing_intent, framing_pan_x) for a clip.
+
+        Priority: explicit per-clip value on the spine block > template
+        default > None (auto). The spine block carries these as optional
+        keys, like intentional_black_beat.
+        """
+        fi = block_or_clip.get("framing_intent")
+        if fi is None:
+            fi = _template_framing_intent
+        pan = block_or_clip.get("framing_pan_x")
+        if fi is not None:
+            try:
+                fi = float(fi)
+            except (TypeError, ValueError):
+                fi = None
+        if pan is not None:
+            try:
+                pan = float(pan)
+            except (TypeError, ValueError):
+                pan = None
+        return fi, pan
+
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
     for block in structure:
@@ -863,7 +946,8 @@ def compile_manifest(out_dir: str) -> dict:
                     or content.get("link_group_id"))
 
             assignment = a_roll_dict.get(block.get("position"))
-            
+            _fi, _fp = _resolve_framing(block)
+
             if assignment and assignment.get("video_segments"):
                 current_tl_in = block.get("timeline_start", 0.0)
                 for seg_idx, seg in enumerate(assignment["video_segments"]):
@@ -880,7 +964,7 @@ def compile_manifest(out_dir: str) -> dict:
                         "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
                     }
                     convert_clip_to_frames(clip, fps)
-                    clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res, semantic_lookup.get(get_clip_id(seg)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
+                    clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res, semantic_lookup.get(get_clip_id(seg)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp))
                     v1_clips.append(clip)
                     compute_neural_directives(get_clip_id(seg), clip)
                     current_tl_in += dur
@@ -898,7 +982,7 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res, semantic_lookup.get(get_clip_id(assignment)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res, semantic_lookup.get(get_clip_id(assignment)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(assignment), clip)
             else:
@@ -915,7 +999,7 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res, semantic_lookup.get(get_clip_id(block)), clip.get("source_in", 0.0), clip.get("source_out", 0.0)))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res, semantic_lookup.get(get_clip_id(block)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(block), clip)
 
@@ -941,7 +1025,8 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"broll_{broll['spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res, semantic_lookup.get(get_clip_id(broll)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0)))
+        _fi, _fp = _resolve_framing(broll)
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res, semantic_lookup.get(get_clip_id(broll)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "assignment"
         compute_neural_directives(get_clip_id(broll), v2_clip)
@@ -958,7 +1043,8 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"interjection_{interj['over_spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res, semantic_lookup.get(get_clip_id(assigned)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0)))
+        _fi, _fp = _resolve_framing(interj)
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res, semantic_lookup.get(get_clip_id(assigned)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "interjection"
         compute_neural_directives(get_clip_id(assigned), v2_clip)

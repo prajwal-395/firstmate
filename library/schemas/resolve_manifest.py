@@ -12,6 +12,10 @@ class V1Clip(BaseModel):
     audio_src_in: Optional[float] = None
     audio_src_out: Optional[float] = None
     label: Optional[str] = None
+    needs_conform: Optional[bool] = None
+    fill_zoom: Optional[float] = None
+    framing_pan_x: Optional[float] = None  # pixels
+    framing_pan_y: Optional[float] = None  # pixels
 
 class V2Clip(BaseModel):
     source_file: str
@@ -22,6 +26,10 @@ class V2Clip(BaseModel):
     timeline_in_frame: int
     timeline_out_frame: Optional[int] = None
     label: Optional[str] = None
+    needs_conform: Optional[bool] = None
+    fill_zoom: Optional[float] = None
+    framing_pan_x: Optional[float] = None
+    framing_pan_y: Optional[float] = None
 
 class A2Clip(BaseModel):
     source_file: str

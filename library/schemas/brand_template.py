@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 @dataclass
 class StyleSlots:
@@ -11,6 +11,7 @@ class StyleSlots:
     typography: Dict[str, Any] = field(default_factory=dict)
     pacing: Dict[str, float] = field(default_factory=dict)
     energy_profile: str = "moderate"
+    framing_intent: Optional[float] = None  # 0.0=letterbox, 1.0=fill, None=auto
 
 @dataclass
 class EffectSlots:
@@ -61,7 +62,13 @@ class BrandTemplate:
 
                         "typography": {"type": "object"},
                         "pacing": {"type": "object"},
-                        "energy_profile": {"type": "string", "enum": ["calm", "moderate", "high"]}
+                        "energy_profile": {"type": "string", "enum": ["calm", "moderate", "high"]},
+                        "framing_intent": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "description": "Default clip framing: 0.0=full letterbox, 1.0=complete fill. Omit for auto."
+                        }
                     }
                 },
                 "effect": {

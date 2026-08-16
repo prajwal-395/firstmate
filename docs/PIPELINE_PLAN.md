@@ -56,16 +56,14 @@ manifest says.
 
 ### Partial
 
-**Conform is a dead-centre crop, or a letterbox.**
-`resolve_build_timeline.py:152-171` sets `ZoomX`/`ZoomY` and nothing else.
-There is no `Pan`. Worse, `compile_manifest/step.py:702-704` returns
-`needs_conform: False` whenever the vision pass says the primary subject is
-visible in the clip's source range, on the reasoning that a centre crop
-might cut them off. The consequence for 16:9 source in a 9:16 timeline is
-that the subject-bearing shots, which is most of the A-roll, render as a
-horizontal strip with roughly two thirds of a vertical frame black. Nothing
-fails: `_assert_timeline_fully_covered` only asks that a clip exists, and
-`render_qa.detect_black_frames` only fires on a fully black frame.
+**Conform is a per-clip creative parameter, not a binary decision.**
+`compile_manifest/step.py:_conform_fields` accepts `framing_intent` (0.0 =
+letterbox, 1.0 = fill) and `framing_pan_x` (-1.0 to 1.0 normalised).
+`resolve_build_timeline.py:_apply_conform` sets `ZoomX`/`ZoomY` and
+`PanX`/`PanY`. When `framing_intent` is unset (None), the legacy
+subject-visibility heuristic runs so existing projects render identically.
+Brand templates can bias the default via `style.framing_intent`. Spine
+blocks can override per clip. Tests: `tests/test_framing_parameter.py`.
 
 **Music plays at unity and never ducks.** `compile_manifest/step.py:974-983`
 builds the A2 clip with no `volume_db` key at all. The reader,
@@ -280,15 +278,15 @@ under a day and makes the next four phases measurable.
 
 ### Phase 1: framing. The biggest single change to the finished video.
 
-- **P1.1 Subject-aware conform.** Replace the letterbox fallback with a crop
-  whose horizontal and vertical offset comes from the vision pass's subject
-  position, applied as `Pan`/`Tilt` alongside the existing `ZoomX`/`ZoomY`
-  in `_apply_conform`. The measurement already exists; nothing consumes it
-  for framing. **Medium.** The renderer change is small; deciding the
-  offset policy and validating it on real footage is the work.
-- **P1.2 Fail compilation on a letterboxed clip.** Once P1.1 lands, a clip
-  that would still letterbox is a planning failure, not an output. Add it to
-  `manifest_validator` semantics. Cheap once P1.1 exists.
+- **P1.1 Per-clip creative framing.** ~~DONE.~~ `_conform_fields` accepts
+  `framing_intent` (0.0-1.0) and `framing_pan_x` (-1.0-1.0). The renderer
+  applies `ZoomX`/`ZoomY` and `PanX`. Brand templates can bias via
+  `style.framing_intent`. Spine blocks can override per clip.
+  Tests: `tests/test_framing_parameter.py` (21 tests).
+- **P1.2 Subject-aware pan offset.** Use the vision pass's subject bounding
+  box to compute an intelligent `framing_pan_x` default rather than
+  dead-centre. The Pan infrastructure exists; the policy to drive it from
+  vision data is the remaining work. **Medium.**
 
 ### Phase 2: audio. Second biggest, and mostly mechanical.
 

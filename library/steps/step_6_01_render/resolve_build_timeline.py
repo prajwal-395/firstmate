@@ -150,12 +150,16 @@ def _source_fps(pool_item, timeline_fps: float) -> float:
 
 
 def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
-    """Scale a clip to FILL the output frame instead of letterboxing.
+    """Scale and optionally pan a clip within the output frame.
 
-    Resolve fits source inside the timeline frame by default, so 16:9
-    footage in a 9:16 timeline rendered as a strip with two thirds of the
-    frame black. compile_manifest works out the fill scale; this applies
-    it.
+    ``fill_zoom`` controls how much of the gap between fit (letterbox) and
+    fill (no bars) is closed.  ``framing_pan_x`` / ``framing_pan_y`` shift
+    the crop window within the zoomed source so the framing is not locked
+    to dead centre.
+
+    compile_manifest computes all three values from the per-clip
+    ``framing_intent`` parameter and writes them into the manifest clip
+    dict.  This function applies them to the placed Resolve TimelineItem.
     """
     if not clip.get("needs_conform"):
         return
@@ -168,6 +172,20 @@ def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
     except Exception as e:  # Resolve raises bare Exceptions here
         results["warnings"].append(
             f"Conform zoom failed for {clip.get('label', '?')}: {e}")
+        return
+    # Pan: pixel offset from centre, computed by compile_manifest from a
+    # normalised -1..1 value. Only applied when non-zero so existing
+    # projects that never set Pan are byte-identical.
+    pan_x = clip.get("framing_pan_x")
+    pan_y = clip.get("framing_pan_y")
+    try:
+        if pan_x and pan_x != 0.0:
+            timeline_item.SetProperty("PanX", pan_x)
+        if pan_y and pan_y != 0.0:
+            timeline_item.SetProperty("PanY", pan_y)
+    except Exception as e:
+        results["warnings"].append(
+            f"Conform pan failed for {clip.get('label', '?')}: {e}")
 
 
 def _preflight_check(manifest):

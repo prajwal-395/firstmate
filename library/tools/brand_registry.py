@@ -53,6 +53,9 @@ def validate_template(template: BrandTemplate) -> list[str]:
         errors.append(f"Invalid energy_profile: {template.style.energy_profile}")
     if template.effect.vfx_intensity < 0.0 or template.effect.vfx_intensity > 1.0:
         errors.append(f"Invalid vfx_intensity: {template.effect.vfx_intensity} must be between 0.0 and 1.0")
+    if template.style.framing_intent is not None:
+        if not (0.0 <= template.style.framing_intent <= 1.0):
+            errors.append(f"Invalid framing_intent: {template.style.framing_intent} must be between 0.0 and 1.0")
     if template.effect.sfx_density not in ["sparse", "moderate", "dense"]:
         errors.append(f"Invalid sfx_density: {template.effect.sfx_density}")
     return errors

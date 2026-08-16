@@ -1,6 +1,7 @@
 series_id: cinematic_narrative
 style:
   energy_profile: calm
+  framing_intent: 0.0  # full letterbox - cinematic bars are part of the look
   pacing:
     cuts_per_minute_min: 8
     cuts_per_minute_max: 15
