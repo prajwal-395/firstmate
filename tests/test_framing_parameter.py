@@ -56,6 +56,50 @@ EXPECTED_FULL_FILL_ZOOM = round(
 )
 
 
+# The Inspector Transform properties Resolve actually exposes on a video
+# TimelineItem, read off `GetProperty()` on Resolve 21.0.0b.28. Note what
+# is NOT here: `PanX` and `PanY`. Horizontal and vertical position are
+# `Pan` and `Tilt`.
+RESOLVE_VIDEO_ITEM_PROPERTIES = frozenset({
+    "AnchorPointX", "AnchorPointY", "CompositeMode", "CropBottom",
+    "CropLeft", "CropRetain", "CropRight", "CropSoftness", "CropTop",
+    "Distortion", "DynamicZoomEase", "FlipX", "FlipY", "MotionEstimation",
+    "Opacity", "Pan", "Pitch", "ResizeFilter", "RetimeProcess",
+    "RotationAngle", "Scaling", "Tilt", "Yaw", "ZoomGang", "ZoomX", "ZoomY",
+})
+
+
+class FakeTimelineItem:
+    """A TimelineItem that refuses unknown property names, as Resolve does.
+
+    This exists because a bare `MagicMock` accepts every name and returns
+    whatever `return_value` says. Under one, `_apply_conform` wrote `PanX`
+    and `PanY` for the life of the feature: Resolve returned False, read
+    back None, and the picture never moved, while the test suite was
+    green. Resolve does not raise on a bad property name - it declines -
+    so a fake that cannot decline cannot catch this.
+    """
+
+    def __init__(self):
+        self.properties = {}
+        self.refused = []
+
+    def SetProperty(self, name, value):
+        if name not in RESOLVE_VIDEO_ITEM_PROPERTIES:
+            self.refused.append((name, value))
+            return False
+        self.properties[name] = value
+        return True
+
+    def GetProperty(self, name=None):
+        if name is None:
+            return dict(self.properties)
+        return self.properties.get(name)
+
+    def GetName(self):
+        return "fake.mov"
+
+
 # ─────────────────────────────────────────────────────────
 # 1. Parameter surviving planner -> manifest -> renderer
 # ─────────────────────────────────────────────────────────
@@ -106,10 +150,13 @@ class TestFramingEndToEnd:
         assert result["framing_pan_x"] > 0
 
     def test_renderer_applies_zoom_and_pan(self):
-        """_apply_conform should call SetProperty for ZoomX, ZoomY, and
-        PanX when the clip dict carries them."""
-        mock_item = MagicMock()
-        mock_item.SetProperty.return_value = True
+        """_apply_conform must set properties Resolve actually accepts.
+
+        Asserted against a fake that refuses unknown names, because that
+        is what Resolve does. `PanX` passed this test for the life of the
+        feature and moved nothing.
+        """
+        item = FakeTimelineItem()
         results = {"warnings": []}
         clip = {
             "needs_conform": True,
@@ -117,12 +164,54 @@ class TestFramingEndToEnd:
             "framing_pan_x": 50.0,
             "label": "test_clip",
         }
-        _apply_conform(mock_item, clip, results)
+        _apply_conform(item, clip, results)
 
-        mock_item.SetProperty.assert_any_call("ZoomX", 2.0)
-        mock_item.SetProperty.assert_any_call("ZoomY", 2.0)
-        mock_item.SetProperty.assert_any_call("PanX", 50.0)
+        assert item.refused == [], f"Resolve would refuse {item.refused}"
+        assert item.properties["ZoomX"] == 2.0
+        assert item.properties["ZoomY"] == 2.0
+        assert item.properties["Pan"] == 50.0
         assert not results["warnings"]
+
+    def test_renderer_uses_tilt_for_vertical_pan(self):
+        item = FakeTimelineItem()
+        results = {"warnings": []}
+        _apply_conform(item, {
+            "needs_conform": True, "fill_zoom": 2.0,
+            "framing_pan_y": -25.0, "label": "test_clip",
+        }, results)
+        assert item.refused == []
+        assert item.properties["Tilt"] == -25.0
+        assert not results["warnings"]
+
+    def test_renderer_warns_when_resolve_refuses_a_property(self):
+        """A refused SetProperty must be reported, not swallowed.
+
+        Resolve returns False rather than raising, so a function that only
+        catches exceptions reports success for a property that never
+        landed - the same shape as the withdrawn Smart Reframe call.
+        """
+        class RefuseEverything(FakeTimelineItem):
+            def SetProperty(self, name, value):
+                self.refused.append((name, value))
+                return False
+
+        item = RefuseEverything()
+        results = {"warnings": []}
+        _apply_conform(item, {
+            "needs_conform": True, "fill_zoom": 2.0, "label": "test_clip",
+        }, results)
+        assert results["warnings"], "a refused property must be recorded"
+        assert "ZoomX" in results["warnings"][0]
+
+    def test_pan_property_names_match_resolve(self):
+        """The names are pinned, so a rename cannot pass silently."""
+        import resolve_build_timeline as rbt
+        assert rbt._CONFORM_PAN_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
+        assert rbt._CONFORM_TILT_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
+        for prop in rbt._CONFORM_ZOOM_PROPS:
+            assert prop in RESOLVE_VIDEO_ITEM_PROPERTIES
+        assert "PanX" not in RESOLVE_VIDEO_ITEM_PROPERTIES
+        assert "PanY" not in RESOLVE_VIDEO_ITEM_PROPERTIES
 
 
 # ─────────────────────────────────────────────────────────
@@ -251,24 +340,20 @@ class TestUnsetPreservesLegacy:
         assert result.get("needs_conform") is False
 
     def test_renderer_no_pan_when_unset(self):
-        """When no Pan values are in the clip dict, _apply_conform must
-        not call SetProperty for PanX or PanY."""
-        mock_item = MagicMock()
-        mock_item.SetProperty.return_value = True
+        """With no pan in the clip dict, only zoom is touched, so a
+        project that never set framing renders byte-identically."""
+        item = FakeTimelineItem()
         results = {"warnings": []}
         clip = {
             "needs_conform": True,
             "fill_zoom": EXPECTED_FULL_FILL_ZOOM,
             "label": "legacy_clip",
         }
-        _apply_conform(mock_item, clip, results)
+        _apply_conform(item, clip, results)
 
-        # Only ZoomX and ZoomY, never PanX/PanY
-        prop_calls = [c[0][0] for c in mock_item.SetProperty.call_args_list]
-        assert "ZoomX" in prop_calls
-        assert "ZoomY" in prop_calls
-        assert "PanX" not in prop_calls
-        assert "PanY" not in prop_calls
+        assert set(item.properties) == {"ZoomX", "ZoomY"}
+        assert item.refused == []
+        assert not results["warnings"]
 
 
 # ─────────────────────────────────────────────────────────

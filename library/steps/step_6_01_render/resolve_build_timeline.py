@@ -31,24 +31,55 @@ import subprocess
 import sys
 from typing import Optional
 
-# Add tools to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
+# Add tools AND the repository root to the path. The repo root matters:
+# this module is normally run as a SCRIPT (`resolve_build_timeline.py
+# <manifest>`), so sys.path[0] is this directory and not the repo, and
+# `visual_qa_router` imports `library.tools.*` absolutely. Without the
+# root it raised ModuleNotFoundError - and because all four import groups
+# below shared ONE try/except, that single failure set every timeline QA
+# station, the neural-engine wrappers and the Fairlight helpers to None.
+# The whole verification layer was dead in every scripted run, announced
+# by one line reading "Timeline QA script not loaded".
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
+    _p = os.path.abspath(_p)
+    if _p not in sys.path:
+        sys.path.append(_p)
+
+# One try per group, so a failure costs only its own group. Each records
+# WHY, because "not loaded" without a reason is what let this sit.
+_TOOLING_IMPORT_ERRORS = {}
+
 try:
     from neural_engine import apply_super_scale, apply_stabilization
+except ImportError as _e:
+    apply_super_scale = apply_stabilization = None
+    _TOOLING_IMPORT_ERRORS["neural_engine"] = str(_e)
+
+try:
     from fairlight_presets import get_preset, apply_fairlight_preset
+except ImportError as _e:
+    get_preset = apply_fairlight_preset = None
+    _TOOLING_IMPORT_ERRORS["fairlight_presets"] = str(_e)
+
+try:
     from timeline_qa import (
         verify_clip_placement, verify_transitions, verify_color_grades,
         verify_audio, verify_fusion_comps, run_full_timeline_qa
     )
+except ImportError as _e:
+    verify_clip_placement = verify_transitions = verify_color_grades = None
+    verify_audio = verify_fusion_comps = run_full_timeline_qa = None
+    _TOOLING_IMPORT_ERRORS["timeline_qa"] = str(_e)
+
+try:
     from visual_qa_router import (
         plan_qa_checks, execute_frame_grab, execute_video_segment_check,
         analyze_frame_locally, format_frame_grab_for_llm, format_segment_result_for_llm
     )
-except ImportError:
-    apply_super_scale = apply_stabilization = None
-    get_preset = apply_fairlight_preset = None
-    verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
+except ImportError as _e:
     plan_qa_checks = None
+    _TOOLING_IMPORT_ERRORS["visual_qa_router"] = str(_e)
 
 
 # ─── Resolve Connection ──────────────────────────────────────
@@ -149,43 +180,69 @@ def _source_fps(pool_item, timeline_fps: float) -> float:
     return timeline_fps
 
 
+# Resolve's Inspector Transform properties, as `TimelineItem.GetProperty()`
+# reports them on a video item. The horizontal and vertical position are
+# **Pan** and **Tilt**. There is no `PanX` and no `PanY`: setting either
+# returns False, reads back None, and changes nothing on screen. Measured
+# on Resolve 21.0.0b.28 - three renders at pan +682.67, 0 and -682.67 came
+# out byte-identical until these names were corrected.
+_CONFORM_ZOOM_PROPS = ("ZoomX", "ZoomY")
+_CONFORM_PAN_PROP = "Pan"
+_CONFORM_TILT_PROP = "Tilt"
+
+
 def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
     """Scale and optionally pan a clip within the output frame.
 
     ``fill_zoom`` controls how much of the gap between fit (letterbox) and
     fill (no bars) is closed.  ``framing_pan_x`` / ``framing_pan_y`` shift
     the crop window within the zoomed source so the framing is not locked
-    to dead centre.
+    to dead centre.  A positive ``framing_pan_x`` moves the picture right,
+    which moves the crop window LEFT over the source - so a subject in the
+    left third of a landscape frame needs a positive value.
 
     compile_manifest computes all three values from the per-clip
     ``framing_intent`` parameter and writes them into the manifest clip
     dict.  This function applies them to the placed Resolve TimelineItem.
+
+    Every SetProperty is judged by its RETURN VALUE. Resolve does not raise
+    on a property name it does not know - it returns False and carries on,
+    which is how `PanX` survived in this function with a passing test suite
+    behind it.
     """
     if not clip.get("needs_conform"):
         return
     zoom = clip.get("fill_zoom")
     if not zoom or zoom <= 1.0:
         return
-    try:
-        timeline_item.SetProperty("ZoomX", zoom)
-        timeline_item.SetProperty("ZoomY", zoom)
-    except Exception as e:  # Resolve raises bare Exceptions here
-        results["warnings"].append(
-            f"Conform zoom failed for {clip.get('label', '?')}: {e}")
-        return
-    # Pan: pixel offset from centre, computed by compile_manifest from a
-    # normalised -1..1 value. Only applied when non-zero so existing
-    # projects that never set Pan are byte-identical.
+    label = clip.get("label", "?")
+
+    def _set(prop, value):
+        """Set one property, and say so when Resolve declines."""
+        try:
+            ok = timeline_item.SetProperty(prop, value)
+        except Exception as e:  # Resolve raises bare Exceptions here
+            results["warnings"].append(
+                f"Conform {prop} failed for {label}: {e}")
+            return False
+        if not ok:
+            results["warnings"].append(
+                f"Conform {prop}={value} refused by Resolve for {label}")
+        return bool(ok)
+
+    for prop in _CONFORM_ZOOM_PROPS:
+        if not _set(prop, zoom):
+            return
+
+    # Pan/Tilt: pixel offset from centre, computed by compile_manifest from
+    # a normalised -1..1 value. Only applied when non-zero so existing
+    # projects that never set them are byte-identical.
     pan_x = clip.get("framing_pan_x")
     pan_y = clip.get("framing_pan_y")
-    try:
-        if pan_x and pan_x != 0.0:
-            timeline_item.SetProperty("PanX", pan_x)
-        if pan_y and pan_y != 0.0:
-            timeline_item.SetProperty("PanY", pan_y)
-    except Exception as e:
-        results["warnings"].append(
-            f"Conform pan failed for {clip.get('label', '?')}: {e}")
+    if pan_x:
+        _set(_CONFORM_PAN_PROP, pan_x)
+    if pan_y:
+        _set(_CONFORM_TILT_PROP, pan_y)
 
 
 def _preflight_check(manifest):
@@ -1335,7 +1392,14 @@ def build_timeline(
             if not check.passed and check.severity == "error":
                 results["warnings"].append(f"Final QA Failed {check.name}: {check.actual}")
     else:
-        print("  ⚠ Timeline QA script not loaded.", file=sys.stderr)
+        # A verification layer that is absent must not read like a passing
+        # one. Name the module and the reason, and put it on the record as
+        # a warning the caller can see - not one line on stderr.
+        reason = _TOOLING_IMPORT_ERRORS.get("timeline_qa", "reason not recorded")
+        msg = (f"Timeline QA did not load ({reason}) - no clip placement, "
+               f"transition, colour, audio or Fusion-comp check ran")
+        print(f"  ⚠ {msg}", file=sys.stderr)
+        results["warnings"].append(msg)
 
     if plan_qa_checks:
         print(f"\n── Visual QA Router ──", file=sys.stderr)
