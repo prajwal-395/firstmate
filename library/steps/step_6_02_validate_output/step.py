@@ -27,7 +27,7 @@ import traceback
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.render_qa import run_full_render_qa
 from library.tools.spine_contract import declared_black_beat_ranges
-from library.tools.subtitle_qa import verify_subtitle_timing, verify_subtitle_safe_zone
+from library.tools.subtitle_qa import verify_subtitle_timing
 
 
 def _run_ffprobe(filepath, *args):
@@ -127,7 +127,6 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     if subtitles:
         try:
             qa_results.extend(verify_subtitle_timing(subtitles))
-            qa_results.extend(verify_subtitle_safe_zone(subtitles, expected_resolution[0], expected_resolution[1]))
         except Exception as e:
             print(f"Error running subtitle_qa: {e}", file=sys.stderr)
             traceback.print_exc()

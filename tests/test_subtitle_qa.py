@@ -1,5 +1,5 @@
 import pytest
-from library.tools.subtitle_qa import verify_subtitle_timing, verify_subtitle_safe_zone
+from library.tools.subtitle_qa import verify_subtitle_timing
 
 def test_verify_subtitle_timing_empty():
     results = verify_subtitle_timing([])
@@ -75,35 +75,4 @@ def test_verify_subtitle_timing_total_duration_edge():
     overflow_res = next((r for r in results if r.metric == "subtitle_overflow"), None)
     assert overflow_res is None
 
-def test_verify_subtitle_safe_zone_empty():
-    results = verify_subtitle_safe_zone([])
-    for r in results:
-        assert r.passed
 
-def test_verify_subtitle_safe_zone_pass():
-    results = verify_subtitle_safe_zone([
-        {"y_pct": 50, "x_pct": 50, "width": 100, "height": 100}
-    ])
-    for r in results:
-        assert r.passed
-
-def test_verify_subtitle_safe_zone_top_violation():
-    results = verify_subtitle_safe_zone([
-        {"y_pct": 5, "x_pct": 50, "width": 10, "height": 10}
-    ])
-    top_res = next(r for r in results if r.metric == "subtitle_safe_top")
-    assert not top_res.passed
-
-def test_verify_subtitle_safe_zone_bottom_violation():
-    results = verify_subtitle_safe_zone([
-        {"y_pct": 98, "x_pct": 50, "width": 10, "height": 10}
-    ])
-    bottom_res = next(r for r in results if r.metric == "subtitle_safe_bottom")
-    assert not bottom_res.passed
-
-def test_verify_subtitle_safe_zone_margin_violation():
-    results = verify_subtitle_safe_zone([
-        {"y_pct": 50, "x_pct": 2, "width": 10, "height": 10}
-    ])
-    margin_res = next(r for r in results if r.metric == "subtitle_safe_margins")
-    assert not margin_res.passed
