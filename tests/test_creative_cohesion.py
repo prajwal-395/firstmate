@@ -5,8 +5,7 @@ from library.steps.step_5_03_creative_cohesion.step import review_creative_cohes
 def test_creative_cohesion_high_energy_mismatch():
     inputs = {
         "creative_direction": {
-            "target_energy": "high",
-            "pacing": {"cuts_per_minute": 30}
+            "target_energy": "high"
         },
         "transition_spec": {
             "transitions": [
@@ -40,8 +39,7 @@ def test_creative_cohesion_high_energy_mismatch():
 def test_creative_cohesion_aligned_specs():
     inputs = {
         "creative_direction": {
-            "target_energy": "calm",
-            "pacing": {"cuts_per_minute": 5}
+            "target_energy": "calm"
         },
         "transition_spec": {
             "transitions": [

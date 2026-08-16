@@ -40,6 +40,7 @@ from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
+from tools.beat_grid import assert_music_starts_at_timeline_zero
 from tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS, is_speech_block
 from tools.semantic_index import build_semantic_lookup
 from tools.subject_framing import subject_center_x, subject_centers_by_clip
@@ -1429,6 +1430,12 @@ def compile_manifest(out_dir: str) -> dict:
 
     # No frame of the finished video may be black for want of a clip.
     _assert_timeline_fully_covered(manifest)
+
+    # Beat-snapped cuts and SFX are placed using beat times measured in the
+    # MUSIC file's clock. That is only the timeline's clock while music
+    # starts at source_in 0 / timeline_in 0, which is how it is placed
+    # above - so say it out loud rather than leave it implicit.
+    assert_music_starts_at_timeline_zero(manifest)
 
     # The captions in the manifest and the captions on screen must agree.
     _assert_subtitle_overlay_matches_plan(manifest)

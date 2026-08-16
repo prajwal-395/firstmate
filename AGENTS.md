@@ -337,6 +337,16 @@ empty - so per-clip SFX `volume_db` does not reach the mix. Read the
 truth off `TimelineItem.GetProperty()` with no argument, which returns
 the whole dict, before trusting any property name.
 
+**The beat grid is `tempo.beats` / `tempo.downbeats`, and it does not
+start at zero.** `music_pipeline.analyze_music` emits those under `tempo`;
+there has never been a `beat_grid` key, though two steps asked for one and
+got `[]`. Read it through `library/tools/beat_grid.py` and never
+synthesise `[i * 60/bpm ...]` - no track's first beat lands at 0.000s, so
+a synthetic grid is offset from the music by the whole lead-in. The times
+are in the MUSIC file's clock and are used as timeline times, which holds
+only while music is placed at `source_in` 0; `compile_manifest` asserts
+that.
+
 **Subject position comes from `face_center_x`, not from the vision pass.**
 `vision_pipeline_v3` measures shot size, identity and time ranges - never
 a position - and `object_segmentation`/`ocr_extraction` produce boxes but

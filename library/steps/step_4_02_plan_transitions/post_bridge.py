@@ -164,6 +164,7 @@ def resolve_transitions(
     frame_rate: float = 30.0,
     creative_direction: dict = None,
     brand_effect: dict = None,
+    music_analysis: dict = None,
 ) -> list:
     """Resolve creative transition plan to execution specs.
 
@@ -180,18 +181,14 @@ def resolve_transitions(
 
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
 
-    # Build beat grid if BPM available
-    bpm = music_selection.get("tracks", [{}])[0].get("bpm", 0)
-    beat_positions = []
-    if bpm > 0:
-        beat_interval = 60.0 / bpm
-        total_dur = timed_spine.get("total_estimated_duration_seconds", timed_spine.get("audio_spine", {}).get(
-            "total_estimated_duration_seconds", 60
-        ))
-        beat_positions = [
-            round(i * beat_interval, 4)
-            for i in range(int(total_dur / beat_interval) + 1)
-        ]
+    from library.tools.beat_grid import beat_positions as real_beat_positions
+
+    # The REAL beat grid, from step 2.06's analysis of the actual track.
+    # This used to synthesise [i * 60/bpm for i in ...] starting at t=0,
+    # and no track's first beat lands at 0.000s - so every "beat-snapped"
+    # cut was snapped to a grid offset from the music by the track's
+    # lead-in. See library/tools/beat_grid.py.
+    beat_positions = real_beat_positions(music_analysis)
 
     from library.tools.transition_selector import select_transition
     from library.tools.transition_vocabulary import is_cut
@@ -435,7 +432,10 @@ def main():
     creative_direction = data.get("creative_direction", {})
     brand_effect = data.get("brand_effect", {})
 
-    result = resolve_transitions(creative, spine, music, temporal, fps, creative_direction, brand_effect)
+    music_analysis = data.get("music_analysis", {})
+    result = resolve_transitions(creative, spine, music, temporal, fps,
+                                 creative_direction, brand_effect,
+                                 music_analysis=music_analysis)
     json.dump({"transition_spec": result}, sys.stdout, indent=2)
 
 

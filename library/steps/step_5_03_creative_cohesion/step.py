@@ -20,12 +20,6 @@ def map_energy(energy_str):
         return "calm"
     return "moderate"
 
-def extract_cuts_per_minute(creative_direction):
-    pacing = creative_direction.get("pacing", {})
-    if isinstance(pacing, dict) and "cuts_per_minute" in pacing:
-        return pacing["cuts_per_minute"]
-    return None
-
 def review_creative_cohesion(inputs: dict) -> dict:
     creative_direction = inputs.get("creative_direction", {})
     transition_spec_raw = inputs.get("transition_spec", [])
@@ -127,15 +121,26 @@ def review_creative_cohesion(inputs: dict) -> dict:
         warnings.append("Calm energy but color grade is highly saturated/contrasty")
         score -= 5
 
-    # 2. Pacing Consistency Check
-    cuts_per_min_target = extract_cuts_per_minute(creative_direction)
-    if cuts_per_min_target is not None:
-        actual_cuts_per_min = (len(transitions) / total_duration) * 60 if total_duration > 0 else 0
-        diff = abs(actual_cuts_per_min - cuts_per_min_target)
-        if diff > 5:
-            warnings.append(f"Pacing mismatch: target {cuts_per_min_target} cuts/min, actual {actual_cuts_per_min:.1f}")
-            score -= 5
-            
+    # The pacing consistency check used to sit here. It is REMOVED, not
+    # disabled - see docs/PIPELINE_PLAN.md P4.2. Three reasons, any one of
+    # which is sufficient:
+    #
+    #   1. It read `creative_direction["pacing"]["cuts_per_minute"]`, a
+    #      singular key no producer has ever emitted, so the target was
+    #      always None and the check never ran. The tests that covered it
+    #      supplied the key themselves.
+    #   2. The brand templates' pacing blocks - the thing a target would
+    #      have come from - had no reader anywhere in the repository, and
+    #      spelled themselves two different ways across four files.
+    #   3. Even had it run, it emitted no adjustment, and it runs at 5.03,
+    #      after the spine, the speech sequence and the transitions have
+    #      fixed the cut. Changing pacing means re-cutting, which is a
+    #      re-plan; `apply_cohesion_adjustments` refuses those by design
+    #      and the DAG has no edge back to the planning steps.
+    #
+    # A score nobody can act on reads as coverage. If pacing control is
+    # wanted it is a re-cut loop, and that is a design job.
+
     # Engagement score check
     if isinstance(speech_sequence, dict):
         hook = speech_sequence.get("hook_segment") or {}

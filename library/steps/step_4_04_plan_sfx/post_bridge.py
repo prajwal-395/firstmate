@@ -338,11 +338,14 @@ def resolve_sfx(
         if cid:
             ti_lookup[cid] = ti
 
-    # Build beat grid from music analysis
-    beat_grid = []
-    if music_analysis:
-        bars = music_analysis.get("beat_grid", {}).get("bars", [])
-        beat_grid = [b["start"] for b in bars]
+    # Bar starts from the music analysis. This used to read
+    # `music_analysis["beat_grid"]["bars"]`, and the producer emits no
+    # `beat_grid` key at all - `analyze_music` returns
+    # {"tempo": {"bpm", "beats", "downbeats"}, ...} - so `bars` was always
+    # empty and SFX never snapped to anything. See
+    # library/tools/beat_grid.py.
+    from library.tools.beat_grid import downbeat_positions
+    beat_grid = downbeat_positions(music_analysis)
 
     # Apply SFX density scaling based on energy
     energy_level = "moderate"

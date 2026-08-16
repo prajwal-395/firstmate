@@ -156,7 +156,9 @@ and `FourthWallOverlay`. The pipeline renders two:
 has zero references anywhere including tests, so the end card has no route
 in either.
 
-**6. Beat alignment uses a synthetic grid.** `step_2_06_music_analysis` runs
+**6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
+`plan_sfx` was not reading the real grid either; the key it asked for has
+never existed. Original text:~~ `step_2_06_music_analysis` runs
 librosa and produces a real beat grid. `dag.json` wires
 `music_analysis -> plan_transitions`. `step_4_02_plan_transitions/bridge.py:24-33`
 and `post_bridge.py:184-190` ignore it and synthesise
@@ -279,11 +281,13 @@ whip pan, and this is a hard architectural ceiling on the current route
 (`transition_vocabulary.py:46-84`). The four available types are all "punch"
 transitions. An edit that needs a soft transition cannot have one.
 
-**Pacing has no reader for its own target.** Brand templates carry
+**Pacing has no reader for its own target.** ~~Brand templates carry
 `pacing.cuts_per_minute_min/max`. `step_5_03_creative_cohesion` reads
-`creative_direction.pacing` and scores it, but the score is advisory: nothing
-re-cuts. The cut rhythm is whatever `speech_sequence` and `mesh_spine`
-produced.
+`creative_direction.pacing` and scores it, but the score is advisory:
+nothing re-cuts.~~ **CLOSED by removal** (P4.2). It was worse than
+advisory - the scorer read a key no producer emits, so it never ran at
+all. The cut rhythm is still whatever `speech_sequence` and `mesh_spine`
+produced, and the pipeline no longer implies otherwise.
 
 ---
 
@@ -531,9 +535,17 @@ stations fired, no rendered runs at all**. That is not a number worth
 making a fatality decision on. `qa_failures` is now the channel that
 accrues it, from the next real render onward.
 
-**`default_brand` is a fallback that renders, not a look anyone should
-ship.** Found while assigning motion accents per template (Q3), and worth
-stating on its own because it is invisible until it bites.
+**`default_brand` was a fallback that rendered, not a look anyone should
+ship.** **FIXED 2026-08-16** by giving it a real neutral palette -
+`#F5F5F5` / `#9AA0A6` / `#141414`, every entry below the accent saturation
+floor so the fallback cannot invent a brand colour. The finding is kept
+rather than deleted, because how it was found matters more than the fix.
+Rejected, deliberately: refusing to run without a named brand template. A
+fallback whose job is to work should work, and that change could block a
+render at the worst moment.
+
+Found while assigning motion accents per template (Q3), and worth
+stating on its own because it was invisible until it bit.
 
 `default_brand.yaml` is what a project gets when `project.yaml` names no
 brand template, and `compile_manifest` falls back to it by name. Its
@@ -570,10 +582,52 @@ four templates should ship at all.
 
 ### Phase 4: rhythm.
 
-- **P4.1 Use the real beat grid.** `plan_transitions` should read
-  `music_analysis.beat_grid` instead of synthesising one. The data is
-  already wired through the DAG. Cheap, and it makes every beat-snapped cut
-  actually land on a beat.
+- **P4.1 Use the real beat grid.** ~~`plan_transitions` should read
+  `music_analysis.beat_grid` instead of synthesising one.~~ **DONE**, and
+  the item understated it: there is no `beat_grid` key to read. The
+  producer, `music_pipeline.analyze_music`, returns
+  `{"tempo": {"bpm", "beats", "downbeats"}, "key", "structure", ...}` and
+  step 2.06 passes it through unchanged. So `plan_sfx`'s
+  `music_analysis["beat_grid"]["bars"]` - credited in section 1 as the one
+  honest consumer of the real grid - was always `[]`, and **the SFX beat
+  snapping never ran either**. Both consumers now go through
+  `library/tools/beat_grid.py`, which is the single place that knows the
+  producer's shape, and `tests/test_beat_grid.py` asserts the two ends
+  agree by reading the producer's own AST rather than a fixture.
+
+  Also fixed: step 2.06's completion log read `analysis['bpm']`, which is
+  not where BPM lives, so it printed `BPM=?` on every run.
+
+  The grid is expressed in the MUSIC file's clock and used as timeline
+  time. That holds only while music is placed at `source_in` 0 /
+  `timeline_in` 0, so `compile_manifest` now asserts it - an offset would
+  move every snapped cut and SFX hit silently.
+
+- ~~**P4.2 Close the pacing loop.**~~ **NOT CLOSED - the machinery is
+  REMOVED**, under the captain's ruling that "or stop pretending" is a real
+  option. Three independent reasons, any one sufficient:
+
+  1. The check read `creative_direction["pacing"]["cuts_per_minute"]`, a
+     singular key **no producer has ever emitted**, so the target was
+     always `None` and the check never ran. The two tests that covered it
+     supplied the key themselves - a fixture proving a fixture.
+  2. The brand templates' pacing blocks, where a target would have come
+     from, had **no reader anywhere in the repository**, and spelled
+     themselves two ways: `cuts_per_minute_min`/`_max` in three templates,
+     `min_cuts_per_minute`/`max_cuts_per_minute` in the fourth. They do not
+     reach an LLM prompt either - only `plan_subtitles` and
+     `render_motion_graphics` receive `brand_style`, and no handoff
+     mentions pacing.
+  3. Even had it run, it emitted no adjustment, and 5.03 runs **after** the
+     spine, the speech sequence and the transitions have fixed the cut.
+     Changing pacing means re-cutting, which is a re-plan;
+     `apply_cohesion_adjustments` refuses those by design and the DAG has
+     no edge back to the planning steps.
+
+  Removed: the check, `extract_cuts_per_minute`, `StyleSlots.pacing`, and
+  the pacing block in all four templates. `tests/test_beat_grid.py` fails
+  if any of it returns. Pacing control remains possible, but it is a
+  re-cut loop and therefore a design job, not a config key.
 - **P4.2 Close the pacing loop.** `creative_cohesion` scores cuts per minute
   against the template and nothing acts. Either feed the score back into a
   re-cut, or stop pretending pacing is controlled. **Medium.**

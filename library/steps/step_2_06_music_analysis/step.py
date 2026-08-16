@@ -131,8 +131,15 @@ def main():
             with open(analysis_path) as f:
                 analysis = json.load(f)
             analysis["available"] = True
-            print(f"Music analysis complete: BPM={analysis.get('bpm', '?')}, "
-                  f"Key={analysis.get('key', '?')}",
+            # BPM lives under `tempo`, not at the top level - this line
+            # read analysis['bpm'] and printed "BPM=?" on every run.
+            _tempo = analysis.get("tempo") or {}
+            _key = analysis.get("key") or {}
+            print(f"Music analysis complete: "
+                  f"BPM={_tempo.get('bpm', '?')}, "
+                  f"beats={len(_tempo.get('beats') or [])}, "
+                  f"downbeats={len(_tempo.get('downbeats') or [])}, "
+                  f"Key={_key.get('key', '?')}",
                   file=sys.stderr)
             json.dump({"music_analysis": analysis}, sys.stdout, indent=2)
         else:

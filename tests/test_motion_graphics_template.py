@@ -317,3 +317,40 @@ def test_default_brand_declares_nothing():
                                 brand_effect=effect)
     assert not any(p["showAccents"] for p in got)
     assert not any(p["showProgress"] for p in got)
+
+
+def test_the_fallback_template_has_a_real_palette():
+    """default_brand is what a project gets when it names no template.
+
+    Its palette used to be three pure RGB primaries - placeholder data
+    that stopped being harmless once colour started coming from the
+    palette: the upper-third subtitle rendered in #ff0000. A fallback
+    whose job is to work should render something legible.
+    """
+    from library.tools.brand_palette import (
+        hex_to_rgb, is_usable_accent, roles_from_palette,
+    )
+    palette = (_template("default_brand").get("style") or {}).get("color_palette")
+    assert palette, "the fallback template must carry a palette"
+
+    primaries = {"#ff0000", "#00ff00", "#0000ff"}
+    assert not {c.lower() for c in palette} & primaries, (
+        "pure RGB primaries are placeholder data, not a palette")
+
+    roles = roles_from_palette(palette)
+    assert "text" in roles and "outline" in roles
+
+    # Deliberately NO accent: a fallback should not invent a brand colour.
+    assert "accent" not in roles, (
+        "the fallback template must not carry an accent - anything it "
+        "declared would be mistaken for a brand colour")
+    assert not any(is_usable_accent(hex_to_rgb(c)) for c in palette)
+
+
+def test_the_fallback_upper_third_is_legible():
+    """The concrete regression: it rendered #ff0000 before."""
+    tmpl = _template("default_brand")
+    got = generate_motion_props({}, {}, SPINE, brand_style=tmpl.get("style"),
+                                brand_effect=tmpl.get("effect"))
+    assert all(p["accentColor"] == "#F5F5F5" for p in got)
+    assert all(p["accentColor"].lower() != "#ff0000" for p in got)

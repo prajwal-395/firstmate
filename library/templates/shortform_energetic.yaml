@@ -2,9 +2,8 @@ series_id: shortform_energetic
 style:
   energy_profile: high
   framing_intent: 1.0  # always fill - no black bars for punchy content
-  pacing:
-    cuts_per_minute_min: 15
-    cuts_per_minute_max: 25
+  # No pacing block. It used to declare cuts_per_minute_min/max, which
+  # nothing in the repository read - see docs/PIPELINE_PLAN.md P4.2.
   color_palette: ["#ff0055", "#00ffcc", "#ffffff", "#000000"]
   # Inky blacks, pushed contrast, full saturation, no temperature at all -
   # the accent colour lives in the overlays, not in the grade.

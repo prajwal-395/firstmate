@@ -9,7 +9,6 @@ class StyleSlots:
     reference_look_image: str = ""
 
     typography: Dict[str, Any] = field(default_factory=dict)
-    pacing: Dict[str, float] = field(default_factory=dict)
     energy_profile: str = "moderate"
     framing_intent: Optional[float] = None  # 0.0=letterbox, 1.0=fill, None=auto
 
@@ -66,7 +65,6 @@ class BrandTemplate:
                         "reference_look_image": {"type": "string"},
 
                         "typography": {"type": "object"},
-                        "pacing": {"type": "object"},
                         "energy_profile": {"type": "string", "enum": ["calm", "moderate", "high"]},
                         "framing_intent": {
                             "type": "number",

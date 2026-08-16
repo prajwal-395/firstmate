@@ -1,9 +1,21 @@
 series_id: "default_series"
 style:
+  # A real NEUTRAL palette, not a placeholder. This template is the
+  # fallback a project gets when project.yaml names no brand template, so
+  # its job is to render something legible rather than to express a brand.
+  #
+  # It used to be three pure RGB primaries, which was visibly placeholder
+  # data - and once colour started coming from the palette (P3.1/P3.2) it
+  # stopped being harmless: the motion-graphics upper third rendered its
+  # subtitle line in #ff0000. See docs/PIPELINE_PLAN.md.
+  #
+  # Deliberately carries NO accent: every entry is below the saturation
+  # floor in library/tools/brand_palette.py, so nothing here can be
+  # mistaken for a brand colour. A fallback should not invent one.
   color_palette:
-    - "#ff0000"
-    - "#00ff00"
-    - "#0000ff"
+    - "#F5F5F5"  # text - near-white, reads over most footage
+    - "#9AA0A6"  # mid neutral
+    - "#141414"  # outline - near-black
   # The channel's neutral state: warm-leaning, rich, no series accent.
   # See library/tools/house_look.py.
   house_look: pmk_default
@@ -11,9 +23,9 @@ style:
     font: "Helvetica"
     size: 42
     weight: "bold"
-  pacing:
-    min_cuts_per_minute: 10
-    max_cuts_per_minute: 20
+  # No pacing block. It used to declare min_cuts_per_minute /
+  # max_cuts_per_minute - a third spelling of a key nothing read.
+  # See docs/PIPELINE_PLAN.md P4.2.
   energy_profile: "high"
 effect:
   # Must be types from library/tools/transition_vocabulary.py - anything

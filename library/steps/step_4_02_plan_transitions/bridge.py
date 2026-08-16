@@ -22,16 +22,16 @@ def main():
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
 
     music_selection = data.get("music_selection", {})
-    bpm = music_selection.get("tracks", [{}])[0].get("bpm", 0)
-    
-    total_dur = timed_spine.get("total_estimated_duration_seconds", timed_spine.get("audio_spine", {}).get("total_estimated_duration_seconds", 60))
-    beat_positions = []
-    if bpm > 0:
-        beat_interval = 60.0 / bpm
-        beat_positions = [
-            round(i * beat_interval, 4)
-            for i in range(int(total_dur / beat_interval) + 1)
-        ]
+
+    # The REAL beat grid, so the context the LLM plans against matches the
+    # grid post_bridge actually snaps to. This used to synthesise
+    # [i * 60/bpm for i in ...] from t=0; see library/tools/beat_grid.py.
+    from library.tools.beat_grid import beat_positions as real_beat_positions
+    from library.tools.beat_grid import bpm as real_bpm
+
+    music_analysis = data.get("music_analysis", {})
+    beat_positions = real_beat_positions(music_analysis)
+    bpm = real_bpm(music_analysis) or 0
 
     semantic_data = data.get("semantic_analysis", {})
     if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:

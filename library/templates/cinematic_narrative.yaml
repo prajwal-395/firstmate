@@ -2,9 +2,7 @@ series_id: cinematic_narrative
 style:
   energy_profile: calm
   framing_intent: 0.0  # full letterbox - cinematic bars are part of the look
-  pacing:
-    cuts_per_minute_min: 8
-    cuts_per_minute_max: 15
+  # No pacing block - see docs/PIPELINE_PLAN.md P4.2.
   color_palette: ["#223344", "#aabbcc", "#111111"]
   # Warm amber highlights, warm shadows that never go blue, medium-high
   # contrast, falloff into a warm dark. See library/tools/house_look.py.

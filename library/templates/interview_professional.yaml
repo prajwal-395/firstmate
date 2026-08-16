@@ -1,9 +1,7 @@
 series_id: interview_professional
 style:
   energy_profile: moderate
-  pacing:
-    cuts_per_minute_min: 5
-    cuts_per_minute_max: 12
+  # No pacing block - see docs/PIPELINE_PLAN.md P4.2.
   color_palette: ["#f5f5f5", "#333333", "#ddab7e"]
   # Cream highlights, warm lifted shadows, muted-but-present colour -
   # the same near-white / warm-dark / warm-tan triad this palette
