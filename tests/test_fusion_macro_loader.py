@@ -34,7 +34,7 @@ def test_apply_macro_to_transition_failure():
 
 def test_list_available_transitions():
     p1 = PresetEntry(name="T1", description="", category="fusion-macro", tags=["transition"], compatibility={}, file_path="")
-    p2 = PresetEntry(name="P2", description="", category="powergrade", tags=["transition"], compatibility={}, file_path="")
+    p2 = PresetEntry(name="P2", description="", category="fairlight", tags=["transition"], compatibility={}, file_path="")
     p3 = PresetEntry(name="T3", description="", category="fusion-macro", tags=["other"], compatibility={}, file_path="")
     idx = DummyIndex([p1, p2, p3])
     

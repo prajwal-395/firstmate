@@ -23,7 +23,7 @@ The repository is structured to separate the pipeline engine from project data.
 - `library/schemas/`: Pydantic data schemas defining pipeline state and project configurations.
 - `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
 - `library/templates/`: Brand templates defining styles, effects, and content rules.
-- `library/presets/`: Reusable assets indexed with metadata for powergrades, LUTs, and Fusion macros.
+- `library/presets/`: Reusable Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React application used to render subtitle overlays.
 - `scripts/`: Assorted bash helper scripts for environment setup and maintenance.
 - `tests/`: Unit and integration tests for the pipeline engine.
@@ -355,7 +355,37 @@ and `raw_footage_files: []`.
 
 ## 11. Third-Party Asset Licenses
 
-**PowerGrades**: The "Cinematic Warm" PowerGrade (`cinematic_warm.drx`) is intended to be "The Grade" provided by Zay's Aesthetics. It is offered as a free gift ("no strings, no catch") with no formal written terms on the author's website. Since this repository produces commercial video, note that there is no explicit commercial usage clause provided by the author. Usage is at your own discretion.
+**No third-party look assets ship.** The repository previously carried one
+PowerGrade, `cinematic_warm.drx` - a free gift from Zay's Aesthetics with no
+written terms of any kind, and so no commercial usage clause for a repository
+that produces commercial video. It has been removed, along with the whole
+PowerGrade route (`build_powergrade.py`, the `luts/` and `dctls/` preset
+directories, `preset_indexer.py`). `tests/test_color_grade_delivery.py` fails
+if any `.drx` reappears.
+
+The house look is now authored in this repository as CDL plus Fusion values -
+see section 12. Anything added to `library/presets/` from an outside source
+needs its licence recorded here before it lands.
+
+## 12. The house look
+
+One enumeration, `library/tools/house_look.py`, holds every look a brand
+template may name via `style.house_look`; an unknown name raises and a
+template naming none gets exposure normalisation only. Each look is delivered
+in two halves, because that is what the mechanisms can express: **CDL** carries
+hue and level (slope = highlights, offset = shadows and the black floor, power
+= midtones, plus saturation) and is applied by `SetCDL` in
+`resolve_build_timeline`; **Fusion** carries what a CDL has no term for -
+pivot contrast, glow, grain, and a shaped, optionally coloured vignette - and
+reaches the picture only through the parameter names
+`fusion/comp_builder.build_effect_comp` dispatches on.
+
+The values are authored from the captain's planning docs at
+`PLAN/series portfolio '26 planning/`, which are READ-ONLY and live outside
+this repo. Every look cites its source in `derived_from` and records design it
+cannot deliver in `withdrawn`. Nothing depends on a file inside a Resolve
+installation. Add a look only with a template that names it -
+`tests/test_house_look.py` fails on an orphan.
 
 ## Maintaining this file
 

@@ -4,10 +4,9 @@ style:
     - "#ff0000"
     - "#00ff00"
     - "#0000ff"
-  # No preferred_powergrade: library/presets/powergrades/default.drx is a
-  # placeholder text file, not a real DaVinci .drx, and pointing at it
-  # made the pipeline look configured for a grade it could never apply.
-  # Set this to a real .drx to turn the PowerGrade path on.
+  # The channel's neutral state: warm-leaning, rich, no series accent.
+  # See library/tools/house_look.py.
+  house_look: pmk_default
   typography:
     font: "Helvetica"
     size: 42

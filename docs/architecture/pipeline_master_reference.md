@@ -335,7 +335,6 @@ video_editing_pilot/
 │   │   │   ├── music_pipeline.py             ← Beat/BPM/key analysis
 │   │   │   └── speech_advanced_pipeline.py   ← Prosody (parselmouth)
 │   │   └── execution/                        ← Execution tools
-│   │       ├── build_powergrade.py           ← ASC CDL PowerGrade builder
 │   │       ├── generate_subtitle_props.py    ← Remotion input props
 │   │       ├── sfx_placer.py                 ← SFX scoring + placement
 │   │       └── import_endcard.py             ← Endcard import utility

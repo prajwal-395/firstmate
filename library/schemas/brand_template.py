@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 @dataclass
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
-    preferred_powergrade: str = ""
+    house_look: str = ""
     reference_look_image: str = ""
 
     typography: Dict[str, Any] = field(default_factory=dict)
@@ -56,7 +56,7 @@ class BrandTemplate:
                     "type": "object",
                     "properties": {
                         "color_palette": {"type": "array", "items": {"type": "string"}},
-                        "preferred_powergrade": {"type": "string"},
+                        "house_look": {"type": "string"},
                         "reference_look_image": {"type": "string"},
 
                         "typography": {"type": "object"},

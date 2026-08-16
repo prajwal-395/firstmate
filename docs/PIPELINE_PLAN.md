@@ -26,7 +26,7 @@ There are two renderers, and they are the only two things that matter:
 
 | Renderer | Reads |
 | --- | --- |
-| `library/steps/step_6_01_render/resolve_build_timeline.py` | clip placement, conform zoom, CDL, PowerGrade, Fairlight, markers, neural directives |
+| `library/steps/step_6_01_render/resolve_build_timeline.py` | clip placement, conform zoom, CDL, Fairlight, markers, neural directives |
 | `library/tools/execution/apply_fusion_comps.py` -> `library/tools/fusion/comp_builder.py:build_effect_comp` | every per-clip VFX, every drawn transition, the film look |
 
 Anything a planner emits that neither of those reads is inert, whatever the
@@ -49,9 +49,8 @@ manifest says.
 | 4.03 VFX (zoom family, shake) | `comp_builder.py:49-94` | Parameter names now match the dispatch. |
 | 4.04 SFX + SFX ducking | `resolve_build_timeline.py:1045-1101` | Placed on A3+, and `volume_db` is applied per clip at 1087-1096. |
 | 4.06 motion graphics | `resolve_build_timeline.py:880-914` | Remotion segments on V4. See section 2 on what they draw. |
-| 5.01 colour, node_2 only | `resolve_build_timeline.py:1296-1318` | CDL slope/offset/power/saturation via `SetCDL`. |
-| 5.01 colour, node_4 film look | `compile_manifest/step.py:1125-1130` -> `comp_builder.py:66-104` | Glow, grain, vignette merged onto every V1/V2 clip. |
-| 5.01 PowerGrade | `resolve_build_timeline.py:1320-1333` | Real, and now reachable for exactly one template (see fix commit). |
+| 5.01 house look, CDL half (node_2) | `resolve_build_timeline.py:1276-1327` | Slope/offset/power/saturation from the named look via `SetCDL`. |
+| 5.01 house look, Fusion half (nodes 3-4) | `compile_manifest/step.py:1125-1130` -> `comp_builder.py:59-104` | Contrast, glow, grain and the (optionally coloured) vignette, merged onto every V1/V2 clip. |
 | 6.01 export | `resolve_render.py` | Audio explicitly enabled and probed. |
 | 6.02 validation | `render_qa.py`, `step_6_02/step.py:80-208` | Resolution, fps, duration, LUFS, black frames, audio streams. |
 
@@ -105,15 +104,12 @@ lowercase (`spine_contract.py:55`). `"hook_1" in {"HOOK", ...}` is never
 true. `SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
 `library/tools/fusion/tests/test_effects.py`.
 
-**3. The preset index.** `library/tools/preset_indexer.py` is imported by
-`tests/test_preset_indexer.py` and `tests/test_full_pipeline_integration.py`
-and by nothing in `library/steps/`. Its mood and energy matching, and with
-it every `.meta.json` descriptor, reaches no render. The only presets that
-reach a timeline do so by direct path construction: `.drx` at
-`step_5_01_color_grade/step.py:220-235` and `.setting` at
-`builtin_effect_loader.py`. Consequently `library/presets/luts/` and
-`library/presets/dctls/` have no reader at all. `halation.dctl` is a
-disabled node with a shipped asset.
+**3. The preset index.** ~~`library/tools/preset_indexer.py`~~ **REMOVED**
+along with `library/presets/luts/` and `library/presets/dctls/`, which had no
+reader at all, and the descriptors for them. It was imported only by tests and
+by nothing in `library/steps/`. Presets that reach a timeline still do so by
+direct path: `.setting` at `builtin_effect_loader.py` and the two title macros
+named by `default_brand.yaml`.
 
 **4. The title macros.** `library/presets/fusion-macros/intro_lower_third.setting`
 and `outro_subscribe.setting` are real files with real metadata, landed one
@@ -170,8 +166,9 @@ effect toolkit, so the branch cannot fire.
 
 **10. Unused execution tools.** `library/tools/execution/sfx_placer.py`
 (1445 lines) is imported only by `tests/test_sfx_placer.py`.
-`build_powergrade.py` (434 lines) and `import_endcard.py` have no reference
-anywhere in the repo, including tests. `library/tools/agent_poll.py` has
+~~`build_powergrade.py`~~ is **REMOVED** with the rest of the PowerGrade
+route; `import_endcard.py` still has no reference anywhere in the repo,
+including tests. `library/tools/agent_poll.py` has
 zero references of any kind. `apply_native_transitions.py` is documented as
 withdrawn and kept deliberately.
 
@@ -230,12 +227,14 @@ the letterforms. Nothing downstream can tell.
 style decision hardcoded in a planner rather than expressed in the brand
 template. Question for the captain in section 4.
 
-**Colour is one CDL and, for one template, a PowerGrade.** node_1 and node_5
-of the designed grade are project-level colour management and are recorded
-as undelivered with reasons, which is the right call. But the practical
-result is that the shipped look is an exposure-matched slope plus a fixed
-+0.02 lift and 1.12 saturation, with a Fusion glow/grain/vignette on top. It
-is uniform, it is not wrong, and it is not a look.
+**Colour is CDL plus Fusion, and it is now an authored look.** ~~The shipped
+look is an exposure-matched slope plus a fixed +0.02 lift and 1.12 saturation
+- uniform, not wrong, and not a look.~~ **CLOSED.** Four looks are authored in
+`library/tools/house_look.py` from the captain's planning docs, one named by
+each shipped template; the CDL half carries hue and level and the Fusion half
+carries contrast, glow, grain and a shaped vignette. node_1 and node_5 of the
+designed grade remain project-level colour management, recorded as undelivered
+with reasons, which is still the right call.
 
 **Every drawn transition is a per-clip effect.** No dissolve, no wipe, no
 whip pan, and this is a hard architectural ceiling on the current route
@@ -325,9 +324,9 @@ under a day and makes the next four phases measurable.
   casing so `SEGMENT_PRESETS` can be selected, or remove it and
   `SEGMENT_RECIPES` with it. Cheap either way; the decision is a captain
   question because it changes what the edit looks like.
-- **P3.5 More than one PowerGrade.** Two of four templates now name no grade
-  at all because their assets do not exist. Authoring `.drx` files needs
-  Resolve and taste. **Large**, and mostly not engineering.
+- ~~**P3.5 More than one PowerGrade.**~~ **DONE**, by dropping the PowerGrade
+  rather than authoring more: see Q6. All four templates name a look and the
+  values live in this repo.
 
 ### Phase 4: rhythm.
 
@@ -394,13 +393,14 @@ shrink and fill the surround with a blurred copy of the frame. Which?
 currently unconditional and hardcoded. Should it be a brand template setting,
 and what should each of the four shipped templates use?
 
-**Q6. What is the actual house look?**
-One PowerGrade ships, `cinematic_warm.drx`, and it is a third-party gift with
-no written commercial licence (AGENTS.md section 11). Two templates now name
-no grade at all. Producing more requires grading a reference frame in Resolve
-by hand. Is the captain willing to author two or three `.drx` files, or
-should the pipeline drop the PowerGrade node and deliver its look entirely
-through CDL plus Fusion, which it can do unaided?
+**Q6. What is the actual house look?** **ANSWERED (2026-08-15).** The captain
+ruled: drop the PowerGrade node and deliver the look entirely through CDL plus
+Fusion, which the pipeline can do unaided. It needs no hand-grading, it removes
+an unlicensed third-party asset, and it fixes the templates that named no grade
+- in one move. Four looks now ship in `library/tools/house_look.py`, authored
+from the planning docs at `PLAN/series portfolio '26 planning/`; see AGENTS.md
+section 12. Rejected: hand-authoring `.drx` files in Resolve; keeping the
+gifted grade and merely flagging the licence.
 
 **Q7. Do intros, outros and end cards belong in this pipeline?**
 Three Remotion compositions (`LucieEndCard`, `LucieLogoAnimation`,
@@ -434,11 +434,11 @@ that claims more. In rough order of how much noise removal saves:
 | Delete | Why |
 | --- | --- |
 | `library/tools/execution/sfx_placer.py` (1445 lines) | Imported only by its own test. SFX resolution lives in `compile_manifest/step.py:1026-1082` and placement in `resolve_build_timeline.py:1045-1101`. This is a second, parallel, unreferenced implementation. |
-| `library/tools/execution/build_powergrade.py` (434 lines) | Zero references in the repo, including tests. |
+| ~~`library/tools/execution/build_powergrade.py`~~ | **DELETED** with the PowerGrade route. |
 | `library/tools/execution/import_endcard.py` | Zero references in the repo, including tests. Delete, or wire per Q7. |
 | `library/tools/agent_poll.py` | Zero references of any kind. |
-| `library/tools/preset_indexer.py` and every `.meta.json` it indexes | No pipeline consumer. Presets that reach a timeline are found by direct path. Keep the asset files, delete the index and its mood matching, or wire it per Q6. |
-| `library/presets/luts/`, `library/presets/dctls/` | No reader. `film_emulation.meta.json` has no asset at all; it points at a path inside a Resolve install and `preset_indexer.py:36-42` explicitly exempts it from the existence check. |
+| ~~`library/tools/preset_indexer.py`~~ | **DELETED**, with the descriptors for the asset families that went with it. The two fusion-macro descriptors were kept: `tests/test_title_macros.py` reads them to hold the descriptors, the assets and `default_brand.yaml` to the same filenames. |
+| ~~`library/presets/luts/`, `library/presets/dctls/`~~ | **DELETED.** No reader, and `film_emulation.meta.json` had no asset at all - it pointed inside a Resolve install and the indexer exempted it from its own existence check. |
 | `library/tools/fusion_macro_loader.py` and `tests/test_title_macros.py` | No pipeline consumer. The test asserts the descriptor and the file, which is the exact shape that hid the preset library problem. Delete both, or wire per Q7. |
 | `SEGMENT_RECIPES` and `CompEngine.from_preset` | Reachable only from `library/tools/fusion/tests/test_effects.py`. Duplicates `SEGMENT_PRESETS_FLAT`. |
 | `resolve_build_timeline.py:330` (`vfx_entries`) | Bound and never used. |

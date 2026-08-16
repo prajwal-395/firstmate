@@ -1,7 +1,0 @@
-{
-  "name": "Rec.709 to sRGB",
-  "description": "Utility LUT for web delivery.",
-  "category": "lut",
-  "tags": ["utility", "rec709", "srgb", "colorspace"],
-  "file_path": "rec709_to_srgb.cube"
-}

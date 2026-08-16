@@ -67,7 +67,7 @@ class ColorGradeAdjustment(BaseModel):
 
 class ColorGrade(BaseModel):
     per_clip_adjustments: List[ColorGradeAdjustment] = Field(default_factory=list)
-    powergrade_path: Optional[str] = None
+    house_look: Optional[str] = None
 
 
 class DuckingCurve(BaseModel):

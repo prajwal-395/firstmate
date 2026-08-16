@@ -9,7 +9,6 @@ from library.tools.transition_vocabulary import PLANNABLE_TYPES
 from library.tools.fairlight_presets import get_preset, select_preset_for_content
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
 from library.tools.brand_registry import load_brand_template, query_slots
-from library.tools.preset_indexer import scan_library, find_presets, find_preset_for_mood
 from library.tools.neural_engine import apply_smart_reframe
 from library.tools.engagement_scorer import compute_engagement
 from library.schemas.brand_template import BrandTemplate
@@ -32,47 +31,6 @@ def test_full_brand_template_flow():
     }
     result = review_creative_cohesion(inputs)
     assert "cohesion_score" in result
-
-def test_preset_library_scan():
-    presets = scan_library("library/presets")
-    # The honest count on this branch is 6 curated descriptors:
-    # 5 from main plus the new cinematic_warm powergrade.
-    # This floor ensures the index actually found them, preventing the test from passing on an empty directory,
-    # so losing curated presets is caught rather than tolerated.
-    assert len(presets.presets) >= 6
-    import glob
-    for meta_path in glob.glob("library/presets/**/*.meta.json", recursive=True):
-        with open(meta_path) as f:
-            meta = json.load(f)
-            
-        asset_file = meta.get("file_path")
-        assert asset_file is not None, f"{meta_path} has no file_path"
-        
-        # Handle dynamic resolution like in preset_indexer
-        import library.tools.paths as paths
-        parts = asset_file.split("/")
-        if len(parts) > 1 and hasattr(paths, parts[0]):
-            prefix_val = getattr(paths, parts[0])
-            asset_path = os.path.join(str(prefix_val), *parts[1:])
-        else:
-            asset_path = asset_file if os.path.isabs(asset_file) else os.path.join(os.path.dirname(meta_path), asset_file)
-            
-        if os.path.isabs(asset_path) and "DaVinci Resolve" in asset_path:
-            # Built-in Resolve assets may not be present in CI environments.
-            pass
-        else:
-            assert os.path.exists(asset_path), f"Asset {asset_path} missing for {meta_path}"
-            
-            # Existence is not validity. Reject placeholder files.
-            with open(asset_path, 'r', encoding='utf-8', errors='ignore') as asset_f:
-                content = asset_f.read(1024)
-            if asset_path.endswith('.drx'):
-                assert '<?xml' in content, f"Asset {asset_path} does not look like a valid .drx XML file"
-            elif asset_path.endswith('.cube'):
-                assert 'LUT_' in content, f"Asset {asset_path} does not look like a valid .cube LUT file"
-    # verify find_preset_for_mood returns results
-    mood_preset = find_preset_for_mood(presets, mood="cinematic", energy="high")
-    assert mood_preset is not None
 
 def test_color_grade_look_match_chain():
     cdl = compute_match_cdl(

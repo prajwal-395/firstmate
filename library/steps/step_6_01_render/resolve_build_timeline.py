@@ -1205,11 +1205,15 @@ def build_timeline(
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
 
     # ══════════════════════════════════════════════════════════
-    # COLOR GRADING (CDL + PowerGrade)
+    # COLOR GRADING (house look: CDL half)
     # ══════════════════════════════════════════════════════════
+    # The look's other half is Fusion, and it does not arrive here: it is
+    # merged into fusion_effects.per_clip by compile_manifest and drawn by
+    # apply_fusion_comps. There is no PowerGrade route - see
+    # library/tools/house_look.py for why the look is CDL plus Fusion.
     color_grade = manifest.get("color_grade", {})
     per_clip_adjs = color_grade.get("per_clip_adjustments", [])
-    powergrade_path = color_grade.get("powergrade_path")
+    house_look = color_grade.get("house_look")
 
     # Build a lookup by source_file basename
     color_lookup = {}
@@ -1218,10 +1222,10 @@ def build_timeline(
         if src:
             color_lookup[os.path.basename(src).lower()] = adj.get("cdl_values", {})
 
-    if color_lookup or powergrade_path:
-        print(f"\n── Color Grading (CDL + PowerGrade) ──", file=sys.stderr)
-        graded_sources = {}
-        
+    if color_lookup:
+        label = house_look or "no house look named - exposure only"
+        print(f"\n── Color Grading (CDL: {label}) ──", file=sys.stderr)
+
         for track_idx in range(1, timeline.GetTrackCount("video") + 1):
             items = timeline.GetItemListInTrack("video", track_idx)
             if not items: continue
@@ -1234,52 +1238,38 @@ def build_timeline(
                 if not clip_name: continue
 
                 cdl_vals = color_lookup.get(clip_name.lower())
-                if not cdl_vals and not powergrade_path:
+                if not cdl_vals:
                     continue
 
-                if cdl_vals:
-                    slope = f"{cdl_vals.get('slope_r', 1.0):.3f} {cdl_vals.get('slope_g', 1.0):.3f} {cdl_vals.get('slope_b', 1.0):.3f}"
-                    offset = f"{cdl_vals.get('offset_r', 0.0):.3f} {cdl_vals.get('offset_g', 0.0):.3f} {cdl_vals.get('offset_b', 0.0):.3f}"
-                    power = f"{cdl_vals.get('power_r', 1.0):.3f} {cdl_vals.get('power_g', 1.0):.3f} {cdl_vals.get('power_b', 1.0):.3f}"
-                    sat = f"{cdl_vals.get('saturation', 1.0):.3f}"
-                    
-                    try:
-                        # Try SetCDL first
-                        res = item.SetCDL({
-                            "NodeIndex": "1",
-                            "Slope": slope,
-                            "Offset": offset,
-                            "Power": power,
-                            "Saturation": sat
-                        })
-                        if not res:
-                            # Fallback to SetClipProperty
-                            item.SetClipProperty("Slope", slope)
-                            item.SetClipProperty("Offset", offset)
-                            item.SetClipProperty("Power", power)
-                            item.SetClipProperty("Saturation", sat)
-                    except Exception as e:
-                        results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
+                # 4 decimals, matching the precision the looks are
+                # authored at - at 3 the offsets, which are the smallest
+                # numbers in a CDL, lose part of the shadow tint.
+                slope = f"{cdl_vals.get('slope_r', 1.0):.4f} {cdl_vals.get('slope_g', 1.0):.4f} {cdl_vals.get('slope_b', 1.0):.4f}"
+                offset = f"{cdl_vals.get('offset_r', 0.0):.4f} {cdl_vals.get('offset_g', 0.0):.4f} {cdl_vals.get('offset_b', 0.0):.4f}"
+                power = f"{cdl_vals.get('power_r', 1.0):.4f} {cdl_vals.get('power_g', 1.0):.4f} {cdl_vals.get('power_b', 1.0):.4f}"
+                sat = f"{cdl_vals.get('saturation', 1.0):.4f}"
 
-                if powergrade_path:
-                    if not os.path.exists(powergrade_path):
-                        raise FileNotFoundError(
-                            f"color_grade.powergrade_path points at "
-                            f"{powergrade_path}, which does not exist. A "
-                            f"missing PowerGrade used to be skipped without "
-                            f"a word, so the grade simply never happened."
-                        )
-                    res = item.ApplyGradeFromDRX(powergrade_path, 1)
-                    if res:
-                        print(f"  ✓ Applied PowerGrade to {clip_name}", file=sys.stderr)
-                    else:
-                        print(f"  ✗ Failed to apply PowerGrade to {clip_name}", file=sys.stderr)
-                        results["warnings"].append(f"Failed to apply PowerGrade to {clip_name}")
-
-
+                try:
+                    # Try SetCDL first
+                    res = item.SetCDL({
+                        "NodeIndex": "1",
+                        "Slope": slope,
+                        "Offset": offset,
+                        "Power": power,
+                        "Saturation": sat
+                    })
+                    if not res:
+                        # Fallback to SetClipProperty
+                        item.SetClipProperty("Slope", slope)
+                        item.SetClipProperty("Offset", offset)
+                        item.SetClipProperty("Power", power)
+                        item.SetClipProperty("Saturation", sat)
+                except Exception as e:
+                    results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
 
                 print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
-                    
+
+
     if verify_color_grades:
         _run_qa(verify_color_grades(timeline, None, manifest.get("color_grade", {})))
 

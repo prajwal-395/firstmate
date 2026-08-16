@@ -1,9 +1,14 @@
 # Fusion macros
 
-**This directory ships no `.setting` files.** Every `.meta.json` here is a
-descriptor whose `file_path` points at a Fusion macro that does not exist,
-so `fusion_macro_loader.load_macro` returns `{}` and
-`apply_macro_to_transition` returns `False` for all of them.
+Two macros ship here, `intro_lower_third.setting` and
+`outro_subscribe.setting`, and `library/templates/default_brand.yaml`
+names them **by direct path** (`content.intro_template` /
+`content.outro_template`). That direct path is the only route to a
+timeline: `preset_indexer.py`, which used to build an index out of the
+`.meta.json` descriptors, was removed along with the PowerGrade route it
+served. The two descriptors that remain are checked against the assets
+and the template by `tests/test_title_macros.py`, so a filename can no
+longer drift apart from its descriptor unnoticed.
 
 Three transition descriptors (`glitch_transition`, `slide_left`,
 `smooth_zoom_in`) were removed rather than left describing transitions the
@@ -13,7 +18,6 @@ transition nobody chose. Transitions are now drawn by
 `library/tools/fusion/effects.py` from the fixed vocabulary in
 `library/tools/transition_vocabulary.py`.
 
-The two remaining descriptors (`intro_lower_third`, `outro_subscribe`) have
-the same problem and belong to the titles path, which is not wired to them
-yet. Adding a real `.setting` file next to a descriptor is all that is
-needed to make it work.
+The two that remain belong to the titles path, which no pipeline step
+imports into a timeline yet. The assets are real; the wiring is what is
+missing.

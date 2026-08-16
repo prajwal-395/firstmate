@@ -5,7 +5,10 @@ style:
     cuts_per_minute_min: 5
     cuts_per_minute_max: 12
   color_palette: ["#f5f5f5", "#333333", "#ddab7e"]
-  preferred_powergrade: "Cinematic Warm"
+  # Cream highlights, warm lifted shadows, muted-but-present colour -
+  # the same near-white / warm-dark / warm-tan triad this palette
+  # already carries. See library/tools/house_look.py.
+  house_look: film_stock_warmth
 effect:
   # dissolve is not deliverable - see transition_vocabulary.py
   transition_types: ["hard_cut", "jump_cut", "defocus"]

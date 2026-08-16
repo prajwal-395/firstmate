@@ -6,7 +6,11 @@ This document outlines potential upgrades discussed during the engine refactor t
 
 ## 1. DRX PowerGrade Reverse Engineering
 
-**Status:** Research complete, implementation deferred
+**Status: WITHDRAWN (2026-08-15).** The pipeline no longer applies PowerGrades
+at all: the house look is CDL plus Fusion values committed in this repo
+(`library/tools/house_look.py`, AGENTS.md section 12), and no `.drx` ships.
+Cracking the format would buy a route nothing needs. The research below is
+kept as a record of what was learned, not as a plan.
 
 **What we know:**
 - `.drx` files are XML with human-readable node hierarchy + opaque `FieldsBlob` binary data
@@ -107,7 +111,10 @@ These values can be used directly in our `fx.*()` composable blocks to match DaV
 
 ## 4. Automated PowerGrade Application Pipeline
 
-**Status:** API available, integration pending
+**Status: WITHDRAWN (2026-08-15).** See section 1. Step 5.01 selects a named
+house look instead, and every third-party grade below carries the same
+licence problem that removed `cinematic_warm.drx` - do not import one without
+recording written terms in AGENTS.md section 11 first.
 
 **Current capability:**
 ```python

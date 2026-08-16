@@ -6,19 +6,27 @@ Define the color grading parameters — the node tree, per-clip adjustments,
 and overall look per the style specification. This step is deterministic
 because the parameters come directly from the style spec.
 
+The look itself is NOT defined here. It lives in one enumeration,
+`library/tools/house_look.py`, which a brand template names via
+`style.house_look`. This step turns the named look into the two things
+that actually reach the picture: an ASC CDL per clip, and the Fusion
+parameters `build_effect_comp` dispatches on.
+
 Classification: Deterministic / Specification
 Input:  { "shot_list": {...} }
 Output: { "color_grade_spec": { grade_pipeline, per_clip_adjustments } }
 """
 import json
 import os
-import re
 import subprocess
 import sys
-import time
+
+from library.tools.house_look import NEUTRAL_CDL, resolve_look
 
 
-# Style spec color grading pipeline (fixed)
+# The designed grade, as five nodes. Only the shape lives here now: the
+# per-look numbers are in library/tools/house_look.py, so a change to a
+# look moves the picture without touching this step.
 GRADE_PIPELINE = {
     "node_1": {
         "type": "color_space_transform",
@@ -26,72 +34,25 @@ GRADE_PIPELINE = {
         "to": "davinci_wide_gamut_intermediate",
     },
     "node_2": {
-        "type": "primary_correction",
-        "white_balance_offset": 200,
-        "contrast_curve": "gentle_s",
-        "lift_shadows": 0.02,
-        "roll_highlights": -0.03,
-        "saturation": "+10-15%",
+        "type": "house_look_primary",
+        "carries": ["slope", "offset", "power", "saturation"],
+        "source": "library/tools/house_look.py",
     },
     "node_3": {
-        "type": "warm_tone_shaping",
-        "offset_red": 0.01,
-        "offset_green": 0.005,
-        "highlights": "warm_golden",
-        "shadows": "cool_teal_hint",
+        "type": "tonal_shaping",
+        "carries": ["pivot_contrast"],
+        "source": "library/tools/house_look.py",
     },
     "node_4": {
         "type": "creative_film_look",
-        "glow_opacity": "10-15%",
-        "grain_amount": "0.2-0.3",
-        "vignette_amount": "0.15-0.20",
+        "carries": ["glow", "grain", "vignette"],
+        "source": "library/tools/house_look.py",
     },
     "node_5": {
         "type": "color_space_transform",
         "to": "rec709_gamma24",
     },
 }
-
-
-def _midpoint(spec: str, default: float) -> float:
-    """Middle of a designed range like "10-15%" or "0.2-0.3".
-
-    The pipeline's numbers come from the design above rather than being
-    invented at the point of use, so a change to GRADE_PIPELINE moves the
-    picture.
-    """
-    numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", str(spec))]
-    if not numbers:
-        return default
-    value = sum(numbers) / len(numbers)
-    return value / 100.0 if "%" in str(spec) else value
-
-
-def _fusion_look(pipeline: dict) -> dict:
-    """node_4's creative film look, as parameters the renderer reads.
-
-    The five-node grade was designed and only node_2 ever reached the
-    picture, as a CDL. Glow, grain and vignette are Fusion nodes the comp
-    engine already draws (fx.glow / fx.grain / fx.vignette), so node_4 is
-    delivered by emitting the parameter names apply_fusion_comps
-    dispatches on. Halation has no Fusion builder and is not emitted -
-    see grade_pipeline_delivery.
-    """
-    look = pipeline.get("node_4", {})
-    glow = _midpoint(look.get("glow_opacity"), 0.12)
-    grain = _midpoint(look.get("grain_amount"), 0.25)
-    vignette = _midpoint(look.get("vignette_amount"), 0.175)
-    return {
-        "glow_gain": round(glow, 4),
-        "glow_threshold": 0.75,
-        "glow_size": 3.5,
-        "film_grain": True,
-        "film_grain_power": round(grain, 4),
-        "film_grain_size": 1.5,
-        "vignette": True,
-        "vignette_blend": round(vignette, 4),
-        "vignette_soft": 0.35,
-    }
 
 
 #: What actually happens to each designed node. A node with no
@@ -106,17 +67,24 @@ GRADE_PIPELINE_DELIVERY = {
     },
     "node_2": {
         "delivered_by": "per_clip_adjustments[].cdl_values",
-        "partial": ["contrast_curve", "roll_highlights"],
-        "reason": "An ASC CDL has slope/offset/power/saturation only, so the "
-                  "gentle-S contrast curve and the highlight roll-off have "
-                  "nowhere to go. White balance, shadow lift, power and "
-                  "saturation are carried.",
+        "reason": "The look's hue and level, as an ASC CDL: slope carries "
+                  "the highlight tint, offset the shadow tint and the black "
+                  "floor, power the midtones, plus one saturation term. "
+                  "Applied with TimelineItem.SetCDL.",
     },
     "node_3": {
-        "delivered_by": "powergrade_path",
-        "reason": "Delivered by applying a pre-authored PowerGrade (.drx).",
+        "delivered_by": "fusion_look.grade_contrast",
+        "reason": "A CDL has no contrast term - slope/offset/power cannot "
+                  "pivot around mid grey. Fusion's BrightnessContrast can, "
+                  "so the look's contrast is delivered there.",
     },
-    "node_4": {"delivered_by": "fusion_look"},
+    "node_4": {
+        "delivered_by": "fusion_look",
+        "reason": "Glow, grain and the vignette are Fusion nodes the comp "
+                  "engine already draws (fx.glow / fx.grain / fx.vignette). "
+                  "A coloured vignette is the clearest thing a CDL cannot "
+                  "express at all: it shapes falloff, not values.",
+    },
     "node_5": {
         "delivered_by": None,
         "reason": "See node_1: the Rec.709 output transform is project-level "
@@ -207,32 +175,22 @@ def _extract_frame(video_path: str) -> str:
             os.remove(path)
         return ""
 
-def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "", preferred_powergrade: str = "") -> dict:
+def define_color_grade(shot_list: dict, project_folder: str = "", reference_image: str = "", house_look: str = "") -> dict:
     """Define the color grading specification based on style spec.
 
     Runs per-clip exposure analysis via ffprobe to estimate brightness
     offsets instead of defaulting everything to 0.0.
+
+    Args:
+        house_look: The look named by the brand template's
+            `style.house_look`. An unknown name raises; an empty name
+            means the template names no look, and the clips get exposure
+            normalisation and nothing else - see `look_notes` in the
+            returned spec.
     """
     entries = shot_list.get("entries", [])
-    
-    powergrade_path = None
-    if preferred_powergrade:
-        slug = preferred_powergrade.lower().replace(" ", "_")
-        # pipeline is run from the project root normally, but we can compute absolute path
-        # from __file__ to be safe.
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        drx_path = os.path.join(base_dir, "presets", "powergrades", f"{slug}.drx")
-        if os.path.exists(drx_path):
-            powergrade_path = drx_path
-        else:
-            # Check fallback in case pipeline is run from a different root
-            drx_path_fallback = os.path.join("library", "presets", "powergrades", f"{slug}.drx")
-            if os.path.exists(drx_path_fallback):
-                powergrade_path = os.path.abspath(drx_path_fallback)
-            else:
-                # If we were explicitly asked for a grade but it doesn't exist, we still provide
-                # the absolute path so the renderer fails loudly as requested.
-                powergrade_path = drx_path
+
+    look = resolve_look(house_look)
 
     # Identify clips that may need per-clip adjustments
     per_clip_adjustments = []
@@ -283,8 +241,12 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             source_file = os.path.join(project_folder, source_file)
 
         if reference_image and entry["clip_id"] in cdl_matches:
+            # A reference frame REPLACES the house look's CDL half - the
+            # captain matched a specific still and that is the whole
+            # point. The Fusion half (contrast, glow, grain, vignette)
+            # still applies: a reference frame carries no grain.
             match = cdl_matches[entry["clip_id"]]
-            notes = "AI Look Match CDL applied"
+            notes = "AI Look Match CDL applied (replaces the house look's CDL)"
             cdl_values = {
                 "slope_r": match["slope"][0],
                 "slope_g": match["slope"][1],
@@ -300,37 +262,24 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             exposure_offset = 0.0
         else:
             exposure_offset = _estimate_exposure(source_file)
-    
+
             if exposure_offset == 0.0:
                 notes = "Exposure within normal range, no adjustment needed"
             elif exposure_offset > 0:
                 notes = f"Clip underexposed, brightening by {exposure_offset:.3f}"
             else:
                 notes = f"Clip overexposed, darkening by {abs(exposure_offset):.3f}"
-    
-            slope = round(2.0 ** exposure_offset, 3)
-            node_2 = GRADE_PIPELINE["node_2"]
-            wb_offset = node_2.get("white_balance_offset", 0)
-            # node_2's shadow lift is a CDL offset on all three channels.
-            # It was designed and then dropped: only white balance reached
-            # the offsets, so the grade sat 0.02 darker than intended.
-            lift = node_2.get("lift_shadows", 0.0)
-            offset_r = round(wb_offset / 10000.0 + lift, 3)
-            offset_g = round(lift, 3)
-            offset_b = round(-wb_offset / 10000.0 + lift, 3)
 
-            cdl_values = {
-                "slope_r": slope,
-                "slope_g": slope,
-                "slope_b": slope,
-                "offset_r": offset_r,
-                "offset_g": offset_g,
-                "offset_b": offset_b,
-                "power_r": 0.95,
-                "power_g": 0.95,
-                "power_b": 0.95,
-                "saturation": 1.12
-            }
+            # Exposure normalisation is a plain gain on slope; it puts the
+            # clip where the look expects it and is not part of the look.
+            exposure_gain = 2.0 ** exposure_offset
+            if look is None:
+                cdl_values = dict(NEUTRAL_CDL)
+                cdl_values["slope_r"] = round(exposure_gain, 4)
+                cdl_values["slope_g"] = round(exposure_gain, 4)
+                cdl_values["slope_b"] = round(exposure_gain, 4)
+            else:
+                cdl_values = look.cdl(exposure_gain=exposure_gain)
 
         per_clip_adjustments.append({
             "entry_id": entry.get("entry_id", ""),
@@ -342,32 +291,38 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
             "cdl_values": cdl_values
         })
 
+    if look is None:
+        look_notes = (
+            "The brand template names no house look (style.house_look), so "
+            "the clips carry exposure normalisation and nothing else. Name "
+            "one of the looks in library/tools/house_look.py to grade them."
+        )
+    else:
+        look_notes = f"{look.title}: {look.intent} Derived from {look.derived_from}"
+
     return {
         "color_grade_spec": {
             "grade_pipeline": GRADE_PIPELINE,
             "grade_pipeline_delivery": GRADE_PIPELINE_DELIVERY,
             "per_clip_adjustments": per_clip_adjustments,
-            # node_4, as Fusion parameters. compile_manifest merges this
-            # onto every V1/V2 clip's effects.
-            "fusion_look": _fusion_look(GRADE_PIPELINE),
+            # nodes 3 and 4, as Fusion parameters. compile_manifest merges
+            # this onto every V1/V2 clip's effects.
+            "fusion_look": look.fusion() if look else {},
+            "house_look": look.name if look else None,
+            "house_look_title": look.title if look else None,
+            "look_notes": look_notes,
+            "withdrawn": dict(look.withdrawn) if look else {},
             "output_color_space": "Rec.709, Gamma 2.4",
             "consistency_notes": (
                 "Grade pipeline is uniform across all clips. "
                 "Per-clip exposure offsets are estimated from average "
                 "brightness analysis via ffprobe signalstats."
             ),
-            # No PowerGrade ships with the pipeline:
-            # library/presets/powergrades/default.drx is a placeholder, not
-            # a real .drx. Set this to a real file to have the renderer
-            # apply it - it will fail loudly if the path does not resolve.
-            "powergrade_path": powergrade_path,
-
         },
     }
 
 
 def main():
-    import sys
     input_data = json.loads(sys.stdin.read())
     project_folder = input_data.get("project_folder", "")
     brand_template = input_data.get("brand_template", {})
@@ -417,8 +372,12 @@ def main():
         })
 
     shot_list = {"entries": entries}
-    preferred_powergrade = brand_template.get("preferred_powergrade", "")
-    result = define_color_grade(shot_list, project_folder, reference_image, preferred_powergrade)
+    # Read from `style`, where the templates actually put it. The
+    # PowerGrade name this replaces was read off the top level of
+    # brand_template, where no template has ever written one, so the
+    # template's choice of grade never reached the manifest at all.
+    house_look = style.get("house_look", "")
+    result = define_color_grade(shot_list, project_folder, reference_image, house_look)
     json.dump(result, sys.stdout, indent=2)
 
 

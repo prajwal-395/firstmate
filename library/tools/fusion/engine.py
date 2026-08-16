@@ -91,7 +91,7 @@ class CompEngine:
         return self
 
     def add_all(self, blocks: list[EffectBlock]) -> "CompEngine":
-        """Append multiple blocks (for powergrades/recipes)."""
+        """Append multiple blocks (for composed recipes)."""
         for b in blocks:
             self.add(b)
         return self

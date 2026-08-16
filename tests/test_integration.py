@@ -7,6 +7,7 @@ from library.schemas.brand_template import BrandTemplate
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 from library.tools.brand_registry import load_brand_template
 from library.steps.step_5_01_color_grade.step import define_color_grade
+from library.tools.house_look import HOUSE_LOOKS
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.tools.engagement_scorer import compute_engagement
 
@@ -49,22 +50,26 @@ class TestIntegration(unittest.TestCase):
             ]
         }
         mock_estimate.side_effect = [0.0, 1.0, -1.0]
-        
-        res = define_color_grade(shot_list, project_folder="proj")
+
+        look = HOUSE_LOOKS["film_stock_warmth"]
+        res = define_color_grade(shot_list, project_folder="proj",
+                                 house_look=look.name)
         spec = res["color_grade_spec"]
-        
+
         adj = {a["clip_id"]: a["cdl_values"] for a in spec["per_clip_adjustments"]}
-        
-        self.assertEqual(adj["c1"]["slope_r"], 1.0)
-        self.assertEqual(adj["c2"]["slope_r"], 2.0)
-        self.assertEqual(adj["c3"]["slope_r"], 0.5)
-        
-        # White balance offset (200/10000) PLUS node_2's lift_shadows
-        # (0.02), which was designed and then dropped on the floor: only
-        # the white balance used to reach the CDL.
-        self.assertEqual(adj["c1"]["offset_r"], 0.04)
-        self.assertEqual(adj["c1"]["offset_g"], 0.02)
-        self.assertEqual(adj["c1"]["offset_b"], 0.0)
+
+        # Exposure normalisation is a gain on the look's slope, so an
+        # under-exposed clip lands on the same look one stop brighter.
+        self.assertAlmostEqual(adj["c1"]["slope_r"], look.slope[0])
+        self.assertAlmostEqual(adj["c2"]["slope_r"], round(look.slope[0] * 2.0, 4))
+        self.assertAlmostEqual(adj["c3"]["slope_r"], round(look.slope[0] * 0.5, 4))
+
+        # The look's hue lives in the CDL and is identical on every clip:
+        # only the exposure gain differs.
+        for clip_id in ("c1", "c2", "c3"):
+            self.assertAlmostEqual(adj[clip_id]["offset_r"], look.offset[0])
+            self.assertAlmostEqual(adj[clip_id]["power_b"], look.power[2])
+            self.assertAlmostEqual(adj[clip_id]["saturation"], look.saturation)
         
         inputs = {
             "color_grade_spec": spec,
@@ -112,7 +117,11 @@ class TestIntegration(unittest.TestCase):
         
         self.assertIn("color_grade", manifest)
         self.assertIn("per_clip_adjustments", manifest["color_grade"])
-        self.assertIn("powergrade_path", manifest["color_grade"])
+        # The look's name travels with the CDL; its Fusion half rides on
+        # the per-clip effects, which is where the renderer reads it.
+        self.assertEqual(manifest["color_grade"]["house_look"], look.name)
+        for effects in manifest["fusion_effects"]["per_clip"].values():
+            self.assertAlmostEqual(effects["grade_contrast"], look.contrast)
 
     def test_neural_engine_directives(self):
         import tempfile

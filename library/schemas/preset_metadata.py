@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 class PresetEntry:
     name: str
     description: str
-    category: str  # powergrade, fusion-macro, lut, dctl, fairlight
+    category: str  # fusion-macro, fairlight
     tags: List[str]
     compatibility: Dict[str, Any]
     file_path: str

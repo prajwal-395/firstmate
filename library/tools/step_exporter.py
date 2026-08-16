@@ -410,12 +410,17 @@ def _summary_plan_sfx(name: str, out: dict) -> str:
 def _summary_color_grade(name: str, out: dict) -> str:
     spec = out.get("color_grade_spec", out)
     lines = [f"# {name}", ""]
-    look = spec.get("target_look", spec.get("look", ""))
+    # `house_look` is what step_5_01 emits. This used to look for
+    # `target_look`/`look`/`lut`, none of which any step has ever
+    # written, so the summary never named the grade it was summarising.
+    look = spec.get("house_look_title") or spec.get("house_look")
     if look:
-        lines.append(f"**Target Look**: {look}")
-    lut = spec.get("lut", spec.get("lut_name", ""))
-    if lut:
-        lines.append(f"**LUT**: {lut}")
+        lines.append(f"**House Look**: {look}")
+    else:
+        lines.append("**House Look**: none named - exposure normalisation only")
+    notes = spec.get("look_notes", "")
+    if notes:
+        lines.append(f"\n{notes}")
     lines.append(f"\n```json\n{json.dumps(spec, indent=2)[:800]}\n```")
     return "\n".join(lines)
 

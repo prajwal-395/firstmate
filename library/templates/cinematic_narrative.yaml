@@ -5,14 +5,17 @@ style:
     cuts_per_minute_min: 8
     cuts_per_minute_max: 15
   color_palette: ["#223344", "#aabbcc", "#111111"]
-  # No preferred_powergrade. This named "Moody Desaturated", and
-  # library/presets/powergrades/moody_desaturated.drx does not exist, so
-  # every run under this template died with FileNotFoundError at the
-  # PowerGrade apply in resolve_build_timeline. Re-add this line when a
-  # real .drx of that name ships.
+  # Warm amber highlights, warm shadows that never go blue, medium-high
+  # contrast, falloff into a warm dark. See library/tools/house_look.py.
+  #
+  # NOTE: this palette is cool blue-grey and the look is warm. The
+  # palette predates any authored direction; every planning document
+  # that speaks about shadows rules out cold blue ones by name, so the
+  # look follows the docs. Reconcile the palette when this template's
+  # series identity is decided.
+  house_look: warm_reflection
   # Add path to reference frame for AI color matching here:
   # reference_look_image: "/path/to/reference.jpg"
-  # creative_look_dctl: "/path/to/look.dctl"
 effect:
   # dissolve/wipe are not deliverable - see transition_vocabulary.py
   transition_types: ["hard_cut", "match_cut", "fade_to_black", "defocus"]

@@ -76,10 +76,10 @@ _load_dotenv(PILOT_ROOT / ".env")
 
 # ─── Preset Subdirectories ───────────────────────────────────
 
-PRESETS_LUTS = PRESETS_ROOT / "luts"
-PRESETS_DCTLS = PRESETS_ROOT / "dctls"
+# The look is delivered by CDL plus Fusion from values committed in this
+# repo (library/tools/house_look.py), so there are no luts/, dctls/ or
+# powergrades/ preset directories to point at any more.
 PRESETS_FUSION_MACROS = PRESETS_ROOT / "fusion-macros"
-PRESETS_POWERGRADES = PRESETS_ROOT / "powergrades"
 PRESETS_FAIRLIGHT = PRESETS_ROOT / "fairlight"
 
 

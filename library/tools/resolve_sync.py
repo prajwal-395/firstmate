@@ -9,12 +9,14 @@ pipeline assets are placed under a namespaced subdirectory (default:
 user-installed assets or Resolve updates.
 
 Symlink map:
-    library/presets/luts/         -> Resolve/LUT/Pipeline/
-    library/presets/dctls/        -> Resolve/LUT/Pipeline/
     library/tools/execution/*.dctl -> Resolve/LUT/4th Wall/
     library/presets/fusion-macros/ -> Resolve/Fusion/Macros/Pipeline/
-    library/presets/powergrades/   -> Resolve/Fusion/Settings/Pipeline/
     library/presets/fairlight/     -> Resolve/Fairlight/Presets/Pipeline/
+
+These are assets a human uses on the Color and Fusion pages. The
+pipeline's own look is not among them: it is CDL plus Fusion values in
+library/tools/house_look.py, applied by the renderer, with no file
+inside a Resolve installation involved.
 
 Usage:
     python resolve_sync.py sync      # Create/repair all symlinks
@@ -31,10 +33,7 @@ from pathlib import Path
 # Add tools to path for local imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paths import (
-    PRESETS_LUTS,
-    PRESETS_DCTLS,
     PRESETS_FUSION_MACROS,
-    PRESETS_POWERGRADES,
     PRESETS_FAIRLIGHT,
     RESOLVE_LUT_DIR,
     RESOLVE_FUSION_DIR,
@@ -57,21 +56,9 @@ def _build_link_map():
     ns = RESOLVE_SYNC_NAMESPACE
     links = []
 
-    # LUTs (.cube files) -> Resolve/LUT/Pipeline/
-    links.append({
-        "label": "LUTs",
-        "source": PRESETS_LUTS,
-        "target_dir": RESOLVE_LUT_DIR / ns,
-        "globs": ["*.cube"],
-    })
-
-    # DCTLs (.dctl files from presets) -> Resolve/LUT/Pipeline/
-    links.append({
-        "label": "DCTLs (presets)",
-        "source": PRESETS_DCTLS,
-        "target_dir": RESOLVE_LUT_DIR / ns,
-        "globs": ["*.dctl"],
-    })
+    # There is no luts/ or dctls/ preset directory: nothing in the
+    # pipeline ever read one, and the look now ships as CDL plus Fusion
+    # values in library/tools/house_look.py.
 
     # Project DCTL (4thWall_Base_Memory.dctl) -> Resolve/LUT/4th Wall/
     # This one has its own namespace because it was already manually placed there
@@ -90,14 +77,7 @@ def _build_link_map():
         "globs": ["*.setting"],
     })
 
-    # PowerGrades (.drx files) -> Resolve/Fusion/Settings/Pipeline/
-    # Note: Resolve reads .drx from multiple locations; Fusion/Settings is one
-    links.append({
-        "label": "PowerGrades",
-        "source": PRESETS_POWERGRADES,
-        "target_dir": RESOLVE_FUSION_DIR / "Settings" / ns,
-        "globs": ["*.drx"],
-    })
+    # No PowerGrades: the pipeline ships no .drx and applies none.
 
     # Fairlight Presets -> Resolve/Fairlight/Presets/Pipeline/
     links.append({
