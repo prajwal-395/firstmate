@@ -698,10 +698,43 @@ sample. Cost is roughly 6s per frame on the local model, so the run is
 bounded to 6 frames sampled evenly across the timeline, and the number
 skipped is reported - a silent cap reads as full coverage.
 
-**Not done: the calibration step.** Renders alongside model verdicts, in
-front of the captain, once. If the model and the captain disagree on
-something concrete, that disagreement is the most valuable thing this
-phase can produce.
+**Ask it closed questions. This is the finding, not a detail.** Asked
+openly - "report only what is WRONG and why, as JSON" - the model
+returned `{"issues": []}` on a frame whose subject was visibly cut in
+half at the frame edge. Given the grounded, closed questions in
+`perceptual_qa.DIMENSIONS`, the same model on the same frames got all
+three right, including naming which edge the subject was cut off on. What
+it notices depends almost entirely on being asked something specific.
+Do not re-derive this by trying the open prompt; it has been tried.
+
+**Not done: the calibration step, and it is the next thing.** Renders
+alongside model verdicts, in front of the captain, once. If the model and
+the captain disagree on something concrete, that disagreement is the most
+valuable thing this phase can produce - more valuable than the gate
+working.
+
+It is **blocked on real footage**, not on effort. The three calibration
+frames are synthetic patterns built to make geometry legible, and the
+model correctly reads them as charts - on the clean one it reported
+cropped ruler numbers, which is true of the pattern and irrelevant to
+video. No project on disk has footage or a completed run: three of four
+have no `pipeline_data.json` at all, and `test-proof` has 2 completed
+steps of 26. So a false-positive rate cannot be established yet, which is
+also why the gate is observation-only.
+
+What is known about the gate, for whoever picks this up:
+
+- It reliably catches **letterboxing** and **a subject cut off by the
+  frame edge**, and says which edge. Those are the two loudest defects in
+  section 2 and neither is visible to any technical gate.
+- It returns clean on a correctly framed frame, so it discriminates
+  rather than complaining about everything.
+- It costs roughly **6s per frame** plus a ~4s model load, all local and
+  free. The run is bounded to 6 frames sampled evenly, and reports how
+  many it skipped.
+- `text_legible` has variance 1 over three frames. That is not yet
+  evidence it cannot discriminate - it is an unverified dimension awaiting
+  a real sample, and it should be dropped if a real set leaves it at 1.
 
 ### Phase 5: the ceiling.
 
@@ -855,6 +888,115 @@ is to keep one.
 
 ---
 
+## 4.5 The test-suite hang of 2026-08-16 — RESOLVED, recorded in full
+
+Kept because it cost about an hour across three people-hours of wrong
+theories, and because a future session meeting a slow suite should know
+what was already eliminated.
+
+**Status: fixed, in the same commit as the perceptual gate.** Verified by
+three consecutive clean runs — `988 passed, 7 skipped` in 5.08s, 5.01s and
+5.09s, with CPU time (3.1s) close to wall time, which is the signature of
+a suite doing work rather than sleeping.
+
+### What it looked like
+
+`python3 -m pytest tests/ -q` started, did a few seconds of work, and
+stalled indefinitely. Three occurrences. The clearest measurement: **10
+minutes 17 seconds of wall clock for 2.75 seconds of CPU**, at 0.0%, with
+four sleeping threads, **no network connections at all**, stdin on
+`/dev/null`, and three pipe file descriptors pointing at one endpoint.
+Verbose output stopped at
+`tests/test_resolve_build_timeline.py::test_media_import_logic`.
+
+### The cause
+
+A `faulthandler.dump_traceback_later` stack dump, rather than any theory:
+
+```
+build_timeline
+  -> execute_frame_grab
+    -> render_single_frame
+      -> segment_renderer.render_segment:102
+```
+
+`render_segment` polls `project.IsRenderingInProgress()` and sleeps 0.5s
+between polls. Under `tests/test_resolve_build_timeline.py` the project is
+a `MagicMock`, which answers **truthy forever**, so the loop slept out its
+entire timeout — **once per frame grab**. Not a deadlock: a long poll.
+That is why CPU was near zero and why threads and pipes were present.
+
+**Why it appeared only that day.** It was dormant. `plan_qa_checks` read
+`manifest["clips"]` / `manifest["video_clips"]`, neither of which has ever
+existed, so it returned zero frame grabs and this path never executed.
+Fixing that key-name bug switched it on.
+
+### The fixes
+
+1. The mock now answers `IsRenderingInProgress` honestly.
+2. A unit test no longer spawns real subprocesses at the live application.
+3. **Both the frame-grab loop and the perceptual pass are opt-in**
+   (`PIPELINE_PERCEPTUAL_QA`). Each frame grab is a real Deliver-page
+   render, so the key-name fix would otherwise have added minutes to every
+   production export unasked — trading a silent no-op for a silent cost.
+4. Unrelated but found on the way: the Fusion comp subprocess in
+   `resolve_build_timeline` had **no timeout** — the only Resolve-touching
+   subprocess in the codebase without one, against seventeen that have
+   one. A real render could hang forever, indistinguishable from a slow
+   Fusion pass. It is bounded now and a timeout is a failure, not silence.
+
+### Theories that were WRONG — do not re-walk these
+
+- **"`vision_model` loads the 12B model at import time."** False. It is a
+  lazy singleton; `load()` is called only inside `_ensure_loaded()` at use
+  time, and the module-level `from mlx_vlm import ...` is inside a
+  try/except that tolerates absence. That module is correct.
+- **"A test opens a Resolve connection or binds a port and waits."** No
+  network connections existed on the hung process.
+- **"A heredoc left the process waiting on stdin."** Its stdin was
+  `/dev/null`. (A *separate* hang earlier that day genuinely was a
+  malformed heredoc piping a script into `python3 -` inside a compound
+  command; write edit scripts to a file and run them by path instead.)
+- **"It hangs during collection."** Not reproduced. `--collect-only`
+  completes in 1.5–1.8s, measured repeatedly before and after the fix, and
+  it executes no test bodies so it never reaches the polling loop. One
+  process observed in that state was most likely a stale orphan; if
+  collection ever genuinely hangs, that is a **second** problem and this
+  entry does not cover it.
+
+### The debt it left
+
+Every passing count quoted in the Phase 3, Phase 4 and Q5 gates came from
+this suite while it was capable of hanging. Those runs did complete and
+did report their numbers, but the suite was not trustworthy at the time.
+The baseline was re-established from scratch afterwards — **988 passed, 7
+skipped** — and that is the number to carry forward, not any earlier one.
+
+**The general lesson**, which is the same one this document keeps
+recording: a suite that can hang belongs to the same family as a check
+that cannot fail. A green run and a hung run are indistinguishable to
+anyone who does not wait, and CI eventually just times out and gets
+re-run.
+
+### The bigger lesson, which is not about the hang
+
+**Repairing a reader that never ran is not a bug fix. It is a feature
+being switched on for the first time, and it must be treated as one.**
+
+The one-line change from `manifest["clips"]` to `tracks.V1.clips` looked
+like a typo correction. It was not: it activated a loop that performs a
+real Deliver-page render **per placed clip**, which had never executed in
+the pipeline's life. Shipped as a bug fix, it would have added minutes to
+every production export — unasked, unmentioned, and not noticed until
+somebody wondered why renders had got slow.
+
+Before fixing a key-name mismatch, establish what the repaired reader
+will now DO, and how often, and what it costs. If the answer is anything
+but free, the switch-on is a separate decision from the correction — here
+it became `PIPELINE_PERCEPTUAL_QA`, off by default, reporting how many
+checks it skipped. Several other findings in this document are dormant
+readers of exactly this kind; treat each one the same way.
+
 ## 5. What should be deleted
 
 A pipeline that advertises less and delivers all of it is better than one
@@ -882,6 +1024,79 @@ keeps on purpose as a record of a closed route, and every regression fixture
 in `tests/fixtures/captured_run/`.
 
 ---
+
+## Handover, 2026-08-16
+
+Written at a halt, after Phases 0-4. Everything here that is not obvious
+from the code, because context does not survive a session.
+
+### Merged
+
+| PR | What |
+| --- | --- |
+| #110 | Phase 0 — Smart Reframe withdrawn, two vacuous QA gates made real, plan reconciled |
+| #111 | The conform pan never moved the picture (`PanX` → `Pan`); the QA layer never loaded |
+| #112 | P1.2 — the crop follows the subject |
+| #113 | Phase 3 — subtitle styling, bundled font, template-declared motion accents, P3.4 delete |
+| #114 | Phase 4 — the real beat grid; pacing removed rather than pretended |
+| #115 | Q5 pinned; P5.1 scoped with measurements |
+
+**Open: #116** — perceptual QA (Q8) as observation-only, plus the suite-hang
+fix and the unbounded Fusion subprocess. CI green. It is coherent and
+honest about its limits; the calibration step is explicitly NOT done.
+
+### The pattern behind almost every finding
+
+Six separate times, a producer and a consumer disagreed about a key name,
+the reader `.get()`ed a default, and the run reported success over empty
+data: `framing_pan_x` written to a property Resolve does not have;
+`subtitle_plan.style` never written while Remotion consumed it;
+`music_analysis.beat_grid` never existing while two steps read it;
+`creative_direction.pacing.cuts_per_minute` never emitted while a check
+scored it; `manifest["clips"]` never existing while the QA router planned
+from it; and the whole QA import block nulled by one absent module.
+
+**The two techniques that caught them, both reusable.** Assert
+producer/consumer agreement by parsing the **producer's own AST** — a
+fixture agreeing with a reader only proves the fixture. And **render it**:
+byte sizes and md5s settle arguments that reasoning does not. The caption
+collision, the beheaded subject, the red fallback subtitle and the
+letterboxed strip were all found by looking at pixels, not code.
+
+### Still open, needing the captain
+
+- **Q4** — what `cut_out` should mean. Unanswered, and `cut_out` is still
+  live in `step_4_03`. Options are in section 4.
+- **Q7 residue** — Q7 unblocks the *general* mechanism (a spine block type
+  plus a template slot, nothing by default) but does **not** close three
+  things: whether this engine serves client work at all; whether the 4th
+  Wall copy is placeholder or ships; and whether `import_endcard.py` is
+  live hand-run tooling. Do not delete a tool someone may be running.
+- **Perceptual QA calibration** — renders alongside model verdicts, in
+  front of the captain, once. Until then none of it is anybody's standard.
+  Blocked on real footage: the calibration frames are synthetic patterns
+  the model reads as charts, and **no project on disk has any footage or a
+  completed run** (three of four have no `pipeline_data.json`; `test-proof`
+  has 2 completed steps of 26).
+- **QA-station fatality** — step two of that ruling needs a failure rate
+  from real runs. `qa_failures` now accrues it; there is still no data.
+
+### Things known that are not obvious anywhere else
+
+- **Audio is out of scope by ruling**, but two audio facts were measured
+  and matter: `SetProperty("Volume", …)` returns **False** on an audio
+  `TimelineItem` on Resolve 21 (its property dict is empty), so per-clip
+  SFX levels do not reach the mix; and a pre-rendered two-clip transition
+  leaves a **16-frame hole in the speech track** unless A1 is placed from
+  the untrimmed sources.
+- **`_apply_conform` writes `Pan`/`Tilt`.** There is no `PanX`/`PanY`.
+  Read `TimelineItem.GetProperty()` with no argument to see the truth.
+- **`hasattr` is always True on Resolve proxies.** Judge by return value.
+- **The worktree `.venv` has no pytest and no cv2**; the suite runs on
+  system `python3` (3.14). OpenCV 5 removed Haar cascades, so
+  `opencv-python` is pinned `<5`.
+- **Resolve was running throughout**, with many leftover proof timelines
+  (`FramingProof_*`, `P51_Scope`, `Gate_*`). Harmless, but they accumulate.
 
 ## What changed in this branch
 
