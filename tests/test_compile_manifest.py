@@ -141,12 +141,9 @@ class TestCompileManifest(unittest.TestCase):
         self.assertAlmostEqual(broll["timeline_out"], 1.882)
         self.assertGreater(broll["timeline_out"] - broll["timeline_in"], 0)
 
-        # Assert smart_reframe is in manifest
-        self.assertIn("smart_reframe", manifest)
-        self.assertEqual(manifest["smart_reframe"]["target_aspect"], "1080:1920")
-        self.assertTrue(manifest["smart_reframe"]["unverified_by_design"])
-        self.assertIn("status", manifest["smart_reframe"])
-        self.assertNotIn("reason", manifest["smart_reframe"])
+        # Smart Reframe is withdrawn: the manifest must not advertise a
+        # capability nothing delivers. See library/tools/neural_engine.py.
+        self.assertNotIn("smart_reframe", manifest)
 
 
 

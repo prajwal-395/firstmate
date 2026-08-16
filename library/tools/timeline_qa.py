@@ -176,41 +176,99 @@ def verify_color_grades(timeline, track_items, manifest_color) -> QAReport:
                                     expected=exp_val, actual=parts[0]
                                 ))
                                 report.passed = False
-            except Exception:
-                pass
+            except Exception as e:
+                # A readback that raises used to vanish here, and the
+                # station reported pass. It cannot fail the render - the
+                # grade may well be on the clip and only the readback
+                # broke - but it must not be silent either.
+                report.checks.append(QACheck(
+                    name=f"{clip_name}_cdl_readback", passed=False,
+                    expected="a CDL readback", actual=f"{type(e).__name__}: {e}",
+                    severity="warning",
+                ))
 
     return report
 
 def verify_audio(timeline, project, manifest_audio) -> QAReport:
-    """Station 4: After audio. Check per-track levels."""
+    """Station 4: after audio. Check the timeline has audio tracks at all.
+
+    It does NOT check per-track levels, and the docstring used to say it
+    did. Nothing in the pipeline sets a per-track level: audio mixing is
+    out of scope by ruling and `audio_mix` reaches the timeline as
+    markers for a human editor. Do not restore the claim without a
+    reader that sets a level.
+    """
     report = QAReport(station="audio", passed=True)
-    # Check Fairlight preset was applied (return value from ApplyFairlightPresetToCurrentTimeline)
-    # Check timeline audio tracks exist and have items
     audio_track_count = timeline.GetTrackCount("audio")
     if audio_track_count == 0:
         report.checks.append(QACheck(name="audio_track_count", passed=False, expected=">0", actual=0))
         report.passed = False
-        
+
     return report
 
-def verify_fusion_comps(timeline, track_items, manifest_vfx) -> QAReport:
-    """Station 5: After VFX. Verify Fusion comps loaded."""
+def verify_fusion_comps(timeline, placed_labels_by_track, manifest_fusion_effects) -> QAReport:
+    """Station 5: after the Fusion pass. Every clip the plan gave an
+    effect must carry a comp.
+
+    This station used to be vacuous: its only loop body was `pass` and it
+    returned passed=True whatever the timeline held. It is the station
+    that should have caught the collapse the renderer now catches with an
+    ad-hoc count next to the transition station - no Fusion comp of any
+    kind reaching the picture while the run reported success.
+
+    `manifest_fusion_effects` is the manifest's `fusion_effects`, whose
+    `per_clip` is keyed by CLIP LABEL, not by index. So the caller must
+    hand over the labels it actually placed, per video track index, in
+    timeline order: {1: v1_placed_labels, 2: v2_placed_labels}. Deriving
+    a label from the index instead is what made the old body meaningless.
+
+    `GetFusionCompNameList()` is the reliable readback; comp tool loading
+    is lazy, so `GetToolList()` can be empty right after an import.
+    """
     report = QAReport(station="fusion_comps", passed=True)
-    # For each clip with expected Fusion comp: GetFusionCompCount() > 0
-    v1_items = timeline.GetItemListInTrack("video", 1) or []
-    
-    # We can check if manifest_vfx (which might be fusion_effects) expects comps.
-    per_clip_effects = manifest_vfx.get("per_clip", {})
-    transitions = manifest_vfx.get("transitions", [])
-    
-    has_comp_expected = set()
-    for i, _ in enumerate(v1_items):
-        label = f"clip_{i}" # simplification
-        if per_clip_effects or transitions:
-            # We'll just check if any comp exists if we expect it
-            pass
-            
-    # For now, just ensure we don't crash
+
+    per_clip = (manifest_fusion_effects or {}).get("per_clip", {}) or {}
+    if not per_clip:
+        return report
+
+    labels_by_track = placed_labels_by_track or {}
+    if not labels_by_track:
+        report.checks.append(QACheck(
+            name="fusion_comps_unverifiable", passed=False,
+            expected=f"placed labels for {len(per_clip)} planned effects",
+            actual="no labels supplied by the caller",
+        ))
+        report.passed = False
+        return report
+
+    expected = 0
+    carried = 0
+    for track_index in sorted(labels_by_track):
+        labels = labels_by_track[track_index] or []
+        items = timeline.GetItemListInTrack("video", track_index) or []
+        for i, label in enumerate(labels):
+            if label not in per_clip or i >= len(items):
+                continue
+            expected += 1
+            comps = items[i].GetFusionCompNameList() or []
+            if comps:
+                carried += 1
+            else:
+                report.checks.append(QACheck(
+                    name=f"V{track_index}_clip_{i}_fusion_comp",
+                    passed=False, expected=f"a comp on '{label}'", actual="no comp",
+                ))
+                report.passed = False
+
+    # Every planned effect missing is not N individual misses, it is the
+    # Fusion pass never having run. Say so, so it is not read as noise.
+    if expected and carried == 0:
+        report.checks.append(QACheck(
+            name="fusion_comps_all_missing", passed=False,
+            expected=f"{expected} clips carrying a Fusion comp", actual=0,
+        ))
+        report.passed = False
+
     return report
 
 def run_full_timeline_qa(timeline, project, manifest) -> QAReport:

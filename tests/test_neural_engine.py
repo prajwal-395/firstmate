@@ -3,7 +3,7 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/tools')))
-from neural_engine import apply_smart_reframe, apply_super_scale, apply_stabilization
+from neural_engine import apply_super_scale, apply_stabilization
 
 
 class MockMediaPoolItem:
@@ -26,7 +26,6 @@ class MockClip:
     def __init__(self, name="TestClip"):
         self.name = name
         self.properties = {}
-        self.smart_reframe_result = True
         self.stabilize_result = True
         self.media_pool_item = MockMediaPoolItem()
 
@@ -35,9 +34,6 @@ class MockClip:
 
     def GetMediaPoolItem(self):
         return self.media_pool_item
-
-    def SmartReframe(self):
-        return self.smart_reframe_result
 
     def SetClipProperty(self, key, value):
         self.properties[key] = value
@@ -48,9 +44,17 @@ class MockClip:
 
 
 class TestNeuralEngine(unittest.TestCase):
-    def test_apply_smart_reframe(self):
-        clip = MockClip()
-        self.assertTrue(apply_smart_reframe(clip, "9:16"))
+    def test_smart_reframe_has_no_wrapper(self):
+        """The wrapper is withdrawn, and a mock must not resurrect it.
+
+        The test that used to sit here asserted that a MockClip whose
+        `SmartReframe()` returns True made the wrapper return True. It
+        proved the mock, not Resolve: the real caller passed a Timeline,
+        and the wrapper's `hasattr` guard is True for every name on a
+        Resolve proxy. See the note in neural_engine.py.
+        """
+        import neural_engine
+        self.assertFalse(hasattr(neural_engine, "apply_smart_reframe"))
 
     def test_apply_super_scale_targets_the_media_pool_item(self):
         clip = MockClip()

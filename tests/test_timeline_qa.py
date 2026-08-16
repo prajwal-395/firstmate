@@ -19,23 +19,28 @@ class MockMediaPoolItem:
         return None
 
 class MockTimelineItem:
-    def __init__(self, start=0, end=30, mpi=None):
+    def __init__(self, start=0, end=30, mpi=None, comps=()):
         self.start = start
         self.end = end
         self.mpi = mpi or MockMediaPoolItem()
         self.name = self.mpi.name
-        
+        self.comps = list(comps)
+
     def GetStart(self): return self.start
     def GetEnd(self): return self.end
     def GetDuration(self): return self.end - self.start
     def GetMediaPoolItem(self): return self.mpi
     def GetName(self): return self.name
     def GetCDL(self): return {"Slope": "1.0 1.0 1.0"}
+    def GetFusionCompNameList(self): return self.comps
 
 class MockTimeline:
-    def __init__(self, items):
+    def __init__(self, items, by_track=None):
         self.items = items
+        self.by_track = by_track or {}
     def GetItemListInTrack(self, t_type, index):
+        if self.by_track:
+            return self.by_track.get(index, [])
         return self.items
     def GetTrackCount(self, t_type):
         return 2
@@ -93,3 +98,70 @@ def test_verify_color_grades():
     }
     report = verify_color_grades(timeline, None, manifest_color)
     assert report.passed
+
+
+def test_verify_color_grades_records_a_readback_that_raises():
+    """The bare `except: pass` used to make a broken readback a pass."""
+    class Exploding(MockTimelineItem):
+        def GetCDL(self): raise RuntimeError("boom")
+
+    timeline = MockTimeline([Exploding()])
+    manifest_color = {
+        "per_clip_adjustments": [
+            {"source_file": "test.mov", "cdl_values": {"slope_r": 1.0}}
+        ]
+    }
+    report = verify_color_grades(timeline, None, manifest_color)
+    assert any("cdl_readback" in c.name for c in report.checks)
+
+
+# ── Station 5: fusion comps ───────────────────────────────────────
+# This station had `pass` as its only loop body and returned passed=True
+# whatever the timeline held. These tests exist so it cannot go back.
+
+FUSION_EFFECTS = {"per_clip": {"a_roll_0": {"glow_gain": 2.0}}}
+
+
+def test_verify_fusion_comps_passes_when_the_comp_is_there():
+    item = MockTimelineItem(comps=["Fusion Composition 1"])
+    timeline = MockTimeline([], by_track={1: [item], 2: []})
+    report = verify_fusion_comps(timeline, {1: ["a_roll_0"], 2: []}, FUSION_EFFECTS)
+    assert report.passed
+    assert report.checks == []
+
+
+def test_verify_fusion_comps_fails_when_the_planned_comp_is_missing():
+    item = MockTimelineItem(comps=[])
+    timeline = MockTimeline([], by_track={1: [item], 2: []})
+    report = verify_fusion_comps(timeline, {1: ["a_roll_0"], 2: []}, FUSION_EFFECTS)
+    assert not report.passed
+    assert any(c.name == "V1_clip_0_fusion_comp" for c in report.checks)
+    # Nothing at all carried a comp: that is the collapse, said once.
+    assert any(c.name == "fusion_comps_all_missing" for c in report.checks)
+
+
+def test_verify_fusion_comps_covers_v2():
+    v1 = MockTimelineItem(comps=["Fusion Composition 1"])
+    v2 = MockTimelineItem(comps=[])
+    timeline = MockTimeline([], by_track={1: [v1], 2: [v2]})
+    effects = {"per_clip": {"a_roll_0": {}, "b_roll_0": {}}}
+    report = verify_fusion_comps(
+        timeline, {1: ["a_roll_0"], 2: ["b_roll_0"]}, effects)
+    assert not report.passed
+    assert any(c.name == "V2_clip_0_fusion_comp" for c in report.checks)
+    # One of two carried a comp, so this is a miss, not a collapse.
+    assert not any(c.name == "fusion_comps_all_missing" for c in report.checks)
+
+
+def test_verify_fusion_comps_is_quiet_when_no_effect_was_planned():
+    timeline = MockTimeline([], by_track={1: [MockTimelineItem(comps=[])]})
+    report = verify_fusion_comps(timeline, {1: ["a_roll_0"]}, {"per_clip": {}})
+    assert report.passed
+
+
+def test_verify_fusion_comps_will_not_pass_without_labels():
+    """No labels means it cannot check, and that is not a pass."""
+    timeline = MockTimeline([], by_track={1: [MockTimelineItem(comps=[])]})
+    report = verify_fusion_comps(timeline, None, FUSION_EFFECTS)
+    assert not report.passed
+    assert any(c.name == "fusion_comps_unverifiable" for c in report.checks)

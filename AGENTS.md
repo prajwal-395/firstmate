@@ -319,10 +319,27 @@ nodes had no reader at all. When you add a knob, add it to
 record the reason where the design lives - see
 `GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/step.py` and
 `WITHDRAWN` in `transition_vocabulary.py`. Withdrawal is a legitimate
-outcome; a silent unread key is not. `docs/PIPELINE_PLAN.md` is the
-standing audit of which manifest keys have a reader and which do not;
-check it before assuming a stage's output reaches the picture, and update
-it when you wire or withdraw one.
+outcome; a silent unread key is not. Every TOP-LEVEL manifest key is held
+to this by `tests/test_manifest_readers.py`: it discovers the keys from
+`compile_manifest`'s manifest literal, and each one must name a reader
+that really contains `manifest[key]` PLUS one sentence saying what that
+reader does to the picture or the sound - or sit in `EXEMPTED_KEYS` with
+a reason. Writing the sentence is the check the AST cannot do for you.
+`docs/PIPELINE_PLAN.md` is the standing audit of which manifest keys have
+a reader and which do not; check it before assuming a stage's output
+reaches the picture, and update it when you wire or withdraw one.
+
+**A reader that reports success is not proof either.** The harder version
+of the above: `smart_reframe` had a reader, the reader ran, and it printed
+"✓ Applied Smart Reframe" on every run for months. It guarded on
+`hasattr` (always True on a Resolve proxy), was handed a Timeline that
+exposes no such method, and discarded the return value. Judge a Resolve
+call by what it returns and say so when it declines - the neural-directive
+block in `resolve_build_timeline` is the pattern to copy. The same rot
+reaches QA stations: `timeline_qa.verify_fusion_comps` had `pass` as its
+only loop body and reported the Fusion pass healthy whatever the timeline
+held. A gate that cannot fail is worse than no gate, because it reads as
+coverage; if you cannot make it read real state, delete it.
 
 **One vision schema, two views.** `vision_pipeline_v3.py` emits
 `scene[]/camera[]/actions[]/objects[]/assessment{}`; consumers historically

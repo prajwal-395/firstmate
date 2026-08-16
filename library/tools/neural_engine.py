@@ -13,30 +13,26 @@ import sys
 # reaches the same conclusion for rotoscoping and motion tracking - see
 # research/drp_reverse_engineering.md.
 
+# Smart Reframe has no wrapper here either, and the manifest no longer
+# carries a `smart_reframe` key. The wrapper that used to live here was
+# the last surviving instance of the bug the neural-directive block in
+# `resolve_build_timeline` was fixed for: it guarded on
+# `hasattr(clip, 'SmartReframe')`, which is True for every name on a
+# Resolve proxy including invented ones, called the method, and the one
+# caller discarded the answer and printed "✓ Applied Smart Reframe"
+# unconditionally. It was also handed a Timeline rather than a clip, and
+# Resolve exposes Smart Reframe as a ResolveFX plugin, not as a scripting
+# method on Timeline or TimelineItem. Its own manifest entry said
+# `"unverified_by_design": true, "status": "behaviour unknown"`. Nothing
+# in the repository ever confirmed it did anything, and framing is now a
+# per-clip creative parameter delivered by `_apply_conform`
+# (`framing_intent`/`framing_pan_x`), which a working Smart Reframe would
+# have fought. Do not re-add a wrapper without a render that proves the
+# call changes the picture.
+
 # `hasattr` is useless on Resolve's scripting proxies: every attribute
 # lookup succeeds, including invented ones. The wrappers below therefore
 # call the method and judge it by its return value.
-
-
-def apply_smart_reframe(clip, target_aspect="9:16"):
-    """
-    AI-driven reframing for different aspect ratios.
-    """
-    try:
-        # The API can be tricky here, usually SmartReframe is a method or property
-        if hasattr(clip, 'SmartReframe'):
-            result = clip.SmartReframe() # Often doesn't take args directly, or takes dict
-            return bool(result)
-        elif hasattr(clip, 'SetClipProperty'):
-            result = clip.SetClipProperty('Smart Reframe', target_aspect)
-            return bool(result)
-        elif hasattr(clip, 'SetProperty'):
-            result = clip.SetProperty('Smart Reframe', target_aspect)
-            return bool(result)
-        return False
-    except Exception as e:
-        print(f"Error applying Smart Reframe to {clip.GetName()}: {e}", file=sys.stderr)
-        return False
 
 
 def apply_super_scale(clip, scale_factor=2, sharpness="Medium", noise_reduction="Medium"):

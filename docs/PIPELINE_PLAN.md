@@ -2,6 +2,11 @@
 
 Audit date: 2026-08-15. Head at audit: `155bf31`.
 
+**Reconciled 2026-08-16 at `d8bb263`.** Items that landed between the audit
+head and this reconciliation are struck where they appear, not rewritten.
+Phase 0 is complete except for the residue named at the end of section 3,
+which is gated on Q7.
+
 The goal this document is measured against is the captain's: **make high
 quality edits programmatically**. Footage in one end, an edit out the other
 that someone would be happy to publish. Not a green DAG. Not a full
@@ -88,9 +93,10 @@ each one. A purple marker reading "Master Limiter: -1.0dBTP" and cyan
 markers reading "Duck or boost the music track to this target level". Those
 are notes to a human editor. `track_levels` has no reader at all: A1's
 compressor, the -12dB SFX bed, the A4 transition-audio bus are three designs
-with nowhere to go. AGENTS.md section 10 says `manifest_validator` asserts
-"monotonic ducking curves"; it does not. There is no ducking check in
-`library/tools/manifest_validator.py`.
+with nowhere to go. ~~AGENTS.md section 10 says `manifest_validator` asserts
+"monotonic ducking curves"; it does not.~~ The doc claim was corrected under
+P0.4; there is still no ducking check in `library/tools/manifest_validator.py`
+and, audio being out of scope, there is not going to be one.
 
 **2. The block-type look library.** `library/tools/fusion/presets.py:16-59`
 defines seven curated per-block looks (HOOK punch and glow, EMOTIONAL_PEAK
@@ -99,8 +105,9 @@ with grain, OUTRO with a 15-frame fade). The reader is
 are built at `compile_manifest/step.py:880,897,914` as
 `f"{block['block_type']}_{block['position']}"`, and `block_type` is
 lowercase (`spine_contract.py:55`). `"hook_1" in {"HOOK", ...}` is never
-true. `SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
-`library/tools/fusion/tests/test_effects.py`.
+true. ~~`SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
+`library/tools/fusion/tests/test_effects.py`.~~ Those two were deleted in
+#103; `SEGMENT_PRESETS` itself remains, still unselectable, and is P3.4.
 
 **3. The preset index.** ~~`library/tools/preset_indexer.py`~~ **REMOVED**
 along with `library/presets/luts/` and `library/presets/dctls/`, which had no
@@ -156,19 +163,24 @@ where `subtitle_data` is the `subtitle_plan` from 4.01, which never writes a
 template's `style.color_palette` and `effect.subtitle_style`
 ("bold_large", "minimal", "clean_standard") reach nothing.
 
-**9. Two dead branches in the renderers.**
-`resolve_build_timeline.py:330` binds `vfx_entries` and never uses it again.
-`apply_fusion_comps.py:329` gates on `vfx.get('type') == 'zoom_pulse'`; VFX
-entries carry `effect_type`, not `type`, and `zoom_pulse` is not in the
-effect toolkit, so the branch cannot fire.
+**9. Two dead branches in the renderers.** ~~`resolve_build_timeline.py:330`
+binds `vfx_entries` and never uses it again. `apply_fusion_comps.py:329` gates
+on `vfx.get('type') == 'zoom_pulse'`.~~ **CLOSED** in #103, both deleted.
 
-**10. Unused execution tools.** `library/tools/execution/sfx_placer.py`
-(1445 lines) is imported only by `tests/test_sfx_placer.py`.
-~~`build_powergrade.py`~~ is **REMOVED** with the rest of the PowerGrade
-route; `import_endcard.py` still has no reference anywhere in the repo,
-including tests. `library/tools/agent_poll.py` has
-zero references of any kind. `apply_native_transitions.py` is documented as
-withdrawn and kept deliberately.
+**10. Unused execution tools.** ~~`sfx_placer.py` (1445 lines)~~ **DELETED**,
+~~`build_powergrade.py`~~ **DELETED** with the PowerGrade route,
+~~`agent_poll.py`~~ **DELETED**. `import_endcard.py` still has no reference
+anywhere in the repo including tests, and waits on Q7.
+`apply_native_transitions.py` is documented as withdrawn and kept
+deliberately.
+
+**11. Smart Reframe.** ~~The manifest carried a `smart_reframe` key with
+`"unverified_by_design": true`, and `resolve_build_timeline.py` called
+`apply_smart_reframe(timeline, ...)` and printed a tick whatever came back.~~
+**CLOSED** by withdrawal; see the row in section 5. This is worth keeping on
+the record because it is the failure mode in its purest form: not a value
+nothing read, but a value something read, acted on, and reported success for,
+while the picture never changed.
 
 ---
 
@@ -257,24 +269,55 @@ unit of work.
 You cannot prioritise against a manifest that lies. Everything in Phase 0 is
 under a day and makes the next four phases measurable.
 
-- **P0.1 Delete or wire the inert list.** Section 5 names what should go.
-  Cheap.
-- **P0.2 Make an inert key a test failure, not a discovery.** There is one
-  precedent that works: `tests/test_transition_vocabulary.py` checks the
-  handoff, the templates, the fallback and the dispatch against one
-  enumeration. Generalise it. A manifest-key manifest: for each top-level
-  manifest key, the module and function that reads it, asserted by a test
-  that greps the two renderer modules. Any new key without a reader fails
-  CI. Cheap, and it is the single highest-leverage item in this document
-  because it retires the failure mode rather than one instance of it.
-- **P0.3 Fix the vacuous gates.** Subtitle safe-zone QA must read the real
-  rendered geometry, or be deleted. A check that structurally cannot fail is
-  worse than no check because it reads as coverage. Cheap.
+- **P0.1 Delete or wire the inert list.** ~~Section 5 names what should go.~~
+  **DONE except the Q7 residue.** `sfx_placer.py`, `agent_poll.py`,
+  `SEGMENT_RECIPES`, `CompEngine.from_preset`, the `vfx_entries` binding, the
+  `zoom_pulse` branch, `content.watermark` and the J/L cut block went in #103;
+  `build_powergrade.py`, `preset_indexer.py`, `luts/` and `dctls/` went with
+  the PowerGrade route in #106. `smart_reframe` is now withdrawn: see the note
+  at the top of `library/tools/neural_engine.py`. Residue below.
+- **P0.2 Make an inert key a test failure, not a discovery.** ~~There is one
+  precedent that works...~~ **DONE.** `tests/test_manifest_readers.py` (#105)
+  discovers the top-level keys from `compile_manifest`'s manifest literal by
+  AST and asserts each one is named in `EXPECTED_READERS` with a reader that
+  really contains `manifest[key]`, or is in `EXEMPTED_KEYS` with a reason.
+  Verified by injecting an unread key: the test fails with the key's name.
+  Each entry now also carries one sentence on what the reader DOES with the
+  value, asserted non-empty. That sentence is the part a static check cannot
+  do for you - `smart_reframe` satisfied "a reader exists" for its whole life
+  while its reader called a method Resolve does not expose and printed a tick
+  regardless of the answer. It stays honest in both directions: `audio_mix`'s
+  sentence says it draws markers for a human editor and changes no level.
+- **P0.3 Fix the vacuous gates.** ~~Subtitle safe-zone QA must read the real
+  rendered geometry, or be deleted.~~ **DONE.** The safe-zone gate was deleted
+  in #104. Two more were found in the same sweep and both are now real:
+  `timeline_qa.verify_fusion_comps` had `pass` as its only loop body and
+  returned `passed=True` whatever the timeline held - it is the station that
+  should have caught "no Fusion comp of any kind reached the picture", the
+  collapse the renderer catches with an ad-hoc count next to the transition
+  station. It now maps the manifest's label-keyed `fusion_effects.per_clip`
+  onto the labels the run actually placed, per track, and reads
+  `GetFusionCompNameList()`. `timeline_qa.verify_color_grades` swallowed every
+  readback exception with a bare `except: pass` and reported pass; a failed
+  readback is now recorded as a warning-severity check. `verify_audio`'s
+  docstring claimed it checked per-track levels, which nothing sets.
 - **P0.4 Correct the docs that describe readers that do not exist.**
-  AGENTS.md claimed `manifest_validator` asserts monotonic ducking curves
+  ~~AGENTS.md claimed `manifest_validator` asserts monotonic ducking curves
   (it has no ducking check) and `step_2_06`'s docstring claimed `mesh_spine`
-  and `audio_mix` consume its beat grid (neither does). Cheap, and **done on
-  this branch** in commit 3 below.
+  and `audio_mix` consume its beat grid (neither does).~~ **DONE**, verified
+  at `d8bb263`: AGENTS.md section 10 now says the validator does NOT check
+  ducking, and `step_2_06`'s docstring names `plan_sfx` as its only consumer
+  and says outright that the DAG edges into 2.05 and 4.02 are not read.
+
+**Phase 0 residue, gated on Q7.** Five section-5 entries all turn on the same
+question - whether intros, outros and end cards belong in this pipeline - so
+none of them can be deleted or wired until it is answered:
+`library/tools/execution/import_endcard.py`,
+`library/tools/fusion_macro_loader.py` with `tests/test_title_macros.py`,
+`content.intro_template` and `content.outro_template` in `default_brand.yaml`
+with the two `.setting` macros they name, and the `LucieEndCard`,
+`LucieLogoAnimation` and `FourthWallOverlay` Remotion compositions. They are
+inert today and nothing in Phases 1 to 4 depends on them.
 
 ### Phase 1: framing. The biggest single change to the finished video.
 
@@ -418,20 +461,20 @@ that claims more. In rough order of how much noise removal saves:
 
 | Delete | Why |
 | --- | --- |
-| `library/tools/execution/sfx_placer.py` (1445 lines) | Imported only by its own test. SFX resolution lives in `compile_manifest/step.py:1026-1082` and placement in `resolve_build_timeline.py:1045-1101`. This is a second, parallel, unreferenced implementation. |
+| ~~`library/tools/execution/sfx_placer.py` (1445 lines)~~ | **DELETED** in #103. SFX resolution lives in `compile_manifest/step.py` and placement in `resolve_build_timeline.py`. |
 | ~~`library/tools/execution/build_powergrade.py`~~ | **DELETED** with the PowerGrade route. |
 | `library/tools/execution/import_endcard.py` | Zero references in the repo, including tests. Delete, or wire per Q7. |
-| `library/tools/agent_poll.py` | Zero references of any kind. |
+| ~~`library/tools/agent_poll.py`~~ | **DELETED** in #103. |
 | ~~`library/tools/preset_indexer.py`~~ | **DELETED**, with the descriptors for the asset families that went with it. The two fusion-macro descriptors were kept: `tests/test_title_macros.py` reads them to hold the descriptors, the assets and `default_brand.yaml` to the same filenames. |
 | ~~`library/presets/luts/`, `library/presets/dctls/`~~ | **DELETED.** No reader, and `film_emulation.meta.json` had no asset at all - it pointed inside a Resolve install and the indexer exempted it from its own existence check. |
 | `library/tools/fusion_macro_loader.py` and `tests/test_title_macros.py` | No pipeline consumer. The test asserts the descriptor and the file, which is the exact shape that hid the preset library problem. Delete both, or wire per Q7. |
-| `SEGMENT_RECIPES` and `CompEngine.from_preset` | Reachable only from `library/tools/fusion/tests/test_effects.py`. Duplicates `SEGMENT_PRESETS_FLAT`. |
-| `resolve_build_timeline.py:330` (`vfx_entries`) | Bound and never used. |
-| `apply_fusion_comps.py:328-336` (`zoom_pulse`) | Gates on a key VFX entries do not carry, for a type not in the toolkit. |
-| `resolve_build_timeline.py:590-649` (J/L cut offsets) | Documented as unreachable and deliberately kept. Keep only if Q2's answer is that the audio pass will revive it; otherwise it is 60 lines of live-looking code that cannot run. |
-| `content.intro_template`, `content.outro_template`, `content.watermark` in `default_brand.yaml` | No reader. `library/assets/watermark.png` does not exist; `library/assets/` does not exist. |
+| ~~`SEGMENT_RECIPES` and `CompEngine.from_preset`~~ | **DELETED** in #103. `SEGMENT_PRESETS`, which they duplicated, is still there and still unselectable - that is P3.4, not this table. |
+| ~~`resolve_build_timeline.py:330` (`vfx_entries`)~~ | **DELETED** in #103. |
+| ~~`apply_fusion_comps.py:328-336` (`zoom_pulse`)~~ | **DELETED** in #103. |
+| ~~`resolve_build_timeline.py:590-649` (J/L cut offsets)~~ | **DELETED** in #103, under the ruling that put audio out of scope. Q2 is moot with it. |
+| `content.intro_template`, `content.outro_template` in `default_brand.yaml` | No reader. `content.watermark` was **DELETED** in #103; the other two name the fusion macros and wait on Q7. |
 | `LucieEndCard`, `LucieLogoAnimation`, `FourthWallOverlay` | Registered in `Root.tsx`, rendered by nothing. Delete or wire per Q7. |
-| `smart_reframe` in the manifest | Emitted with `"unverified_by_design": true` and `"status": "behaviour unknown"` (`compile_manifest/step.py:1276-1280`). A capability nobody has confirmed exists. Verify it or drop it. |
+| ~~`smart_reframe` in the manifest~~ | **DELETED**, having been unverifiable rather than unverified. Its wrapper guarded on `hasattr(clip, 'SmartReframe')`, which is True for every name on a Resolve proxy including invented ones; its only caller handed it a Timeline, which exposes no such method, discarded the return value and printed "✓ Applied Smart Reframe" whatever happened; and its test asserted that a mock returning True made the wrapper return True. Framing is delivered per clip by `_apply_conform`, which a working Smart Reframe would have fought. Reason recorded at the top of `library/tools/neural_engine.py`, beside the Magic Mask withdrawal. |
 
 Not on this list, deliberately: `apply_native_transitions.py`, which AGENTS.md
 keeps on purpose as a record of a closed route, and every regression fixture

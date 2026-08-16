@@ -1359,11 +1359,6 @@ def compile_manifest(out_dir: str) -> dict:
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
             "motion_graphics_overlay", {}),
-        "smart_reframe": {
-            "target_aspect": f"{proj_res[0]}:{proj_res[1]}",
-            "unverified_by_design": True,
-            "status": "behaviour unknown, unverified"
-        }
     }
 
     _apply_manifest_qa_checks(manifest)

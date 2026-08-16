@@ -1,6 +1,23 @@
 """
 Ensure every manifest key produced by compile_manifest is actually read
 by a downstream renderer, or explicitly exempted.
+
+What this test can and cannot prove
+-----------------------------------
+It proves a reader EXISTS: that the named function really contains
+`manifest[key]` or `manifest.get(key)`. It cannot prove the reader turns
+the value into picture or sound, and there is no static check that can.
+`smart_reframe` passed this test for its whole life while its reader
+called a method Resolve does not expose on a Timeline and printed a tick
+regardless of the answer.
+
+So each entry carries a third element: one sentence saying what the
+reader DOES with the value. Writing that sentence is the check - if you
+cannot say what a viewer gets, the key is inert and belongs in
+EXEMPTED_KEYS with a reason, or nowhere. The sentence is asserted
+non-empty so it cannot be skipped, and it must be honest: "draws a
+marker for a human editor" is a legitimate thing to write, and it is
+what `audio_mix` says.
 """
 import ast
 import pathlib
@@ -15,53 +32,76 @@ EXEMPTED_KEYS = {
     "cohesion_adjustments": "Recorded for dashboard export only, no renderer consumes it",
 }
 
+RENDERER = "library/steps/step_6_01_render/resolve_build_timeline.py"
+FUSION = "library/tools/execution/apply_fusion_comps.py"
+COMPILE = "library/steps/step_5_04_compile_manifest/step.py"
+
 # The expected readers for each top-level manifest key.
-# Mapping of key -> list of (module_path, function_name)
+# Mapping of key -> list of (module_path, function_name, what the reader
+# does with the value).
 EXPECTED_READERS = {
     "project": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Sets the timeline resolution and timebase before any clip is placed."),
     ],
     "tracks": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Places every V1/V2 video clip and every A1/A2/A3+ audio clip on the timeline."),
     ],
     "subtitles": [
-        ("library/steps/step_5_04_compile_manifest/step.py", "_apply_manifest_qa_checks"),
+        (COMPILE, "_apply_manifest_qa_checks",
+         "Timing and overlap checks; the captions themselves reach the picture "
+         "through subtitle_overlay, which carries the rendered Remotion segments."),
     ],
     "transitions": [
-        ("library/tools/manifest_validator.py", "_check_distinct_cut_points"),
+        ("library/tools/manifest_validator.py", "_check_distinct_cut_points",
+         "The planner's record, validated for distinct cut points. The list the "
+         "renderer draws from is fusion_effects.transitions, which carries clip indices."),
     ],
     "vfx": [
-        ("library/tools/execution/apply_fusion_comps.py", "apply_fusion_comps"),
+        (FUSION, "apply_fusion_comps",
+         "Each entry becomes a Fusion comp on its clip via build_effect_comp."),
     ],
     "generator_overlays": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Imports each .setting generator onto a V5 carrier clip."),
     ],
     "fusion_effects": [
-        ("library/tools/execution/apply_fusion_comps.py", "apply_fusion_comps"),
+        (FUSION, "apply_fusion_comps",
+         "per_clip becomes the film-look comp on every V1/V2 clip; transitions "
+         "become the drawn transition comp on the outgoing clip."),
     ],
     "neural_engine_directives": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Calls Stabilize() and the Super Scale media-pool property per clip, and "
+         "records a warning when Resolve declines."),
     ],
     "audio": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Applies the named Fairlight preset to the timeline."),
     ],
     "color_grade": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Applies the house look's CDL half - slope, offset, power, saturation - "
+         "with SetCDL on every graded clip."),
     ],
     "audio_mix": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Adds coloured timeline markers only. Nothing changes a level: audio "
+         "mixing is out of scope by ruling, and this key is a note to a human editor."),
     ],
     "_spine_blocks": [
-        ("library/steps/step_5_04_compile_manifest/step.py", "_assert_timeline_fully_covered"),
+        (COMPILE, "_assert_timeline_fully_covered",
+         "Fails compilation on any stretch of timeline with no clip on it, except "
+         "a hole the spine declared as an intentional black beat."),
     ],
     "subtitle_overlay": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Places the rendered Remotion ProRes 4444 caption segments on V3."),
     ],
     "motion_graphics_overlay": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
-    ],
-    "smart_reframe": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        (RENDERER, "build_timeline",
+         "Places the rendered Remotion motion-graphics segments on V4."),
     ],
 }
 
@@ -117,6 +157,14 @@ def test_every_manifest_key_has_a_reader_or_is_exempt():
         assert key in EXPECTED_READERS, f"Manifest key '{key}' has no expected reader and is not exempted."
         
         readers = EXPECTED_READERS[key]
-        for module_path, func_name in readers:
+        for module_path, func_name, effect in readers:
             assert does_function_read_key(module_path, func_name, key), \
                 f"Function {func_name} in {module_path} does not actually consume manifest key '{key}'"
+            # The reader existing is not the same as the reader doing
+            # something. Say what a viewer gets, or the key is inert.
+            assert effect and effect.strip(), (
+                f"Manifest key '{key}' names {func_name} as its reader but does not "
+                f"say what that reader does with the value. Write one sentence about "
+                f"what reaches the picture or the sound, or move the key to "
+                f"EXEMPTED_KEYS with a reason."
+            )

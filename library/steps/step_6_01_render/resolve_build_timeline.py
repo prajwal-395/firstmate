@@ -34,7 +34,7 @@ from typing import Optional
 # Add tools to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tools')))
 try:
-    from neural_engine import apply_smart_reframe, apply_super_scale, apply_stabilization
+    from neural_engine import apply_super_scale, apply_stabilization
     from fairlight_presets import get_preset, apply_fairlight_preset
     from timeline_qa import (
         verify_clip_placement, verify_transitions, verify_color_grades,
@@ -45,7 +45,7 @@ try:
         analyze_frame_locally, format_frame_grab_for_llm, format_segment_result_for_llm
     )
 except ImportError:
-    apply_smart_reframe = apply_super_scale = apply_stabilization = None
+    apply_super_scale = apply_stabilization = None
     get_preset = apply_fairlight_preset = None
     verify_clip_placement = verify_transitions = verify_color_grades = verify_audio = verify_fusion_comps = run_full_timeline_qa = None
     plan_qa_checks = None
@@ -1093,10 +1093,17 @@ def build_timeline(
         results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
     if verify_fusion_comps:
-        # verify_fusion_comps reads per_clip/transitions - that is
-        # fusion_effects, not the flat vfx LIST, which has no .get().
+        # verify_fusion_comps reads per_clip - that is fusion_effects, not
+        # the flat vfx LIST, which has no .get(). per_clip is keyed by clip
+        # LABEL, so the station needs the labels this run actually placed,
+        # in timeline order, per track.
         _run_qa(verify_fusion_comps(
-            timeline, None, manifest.get("fusion_effects", {})))
+            timeline,
+            {
+                1: v1_placed_labels,
+                2: v2_placed_labels if 'v2_placed_labels' in locals() else [],
+            },
+            manifest.get("fusion_effects", {})))
 
     # Transitions are drawn by the Fusion pass above, so the station that
     # checks them has to run after it - not back at V2 placement, where it
@@ -1167,17 +1174,10 @@ def build_timeline(
             "V2", timeline.GetItemListInTrack("video", 2) or [],
             v2_placed_labels if 'v2_placed_labels' in locals() else [])
 
-    # ══════════════════════════════════════════════════════════
-    # SMART REFRAME (Timeline Level)
-    # ══════════════════════════════════════════════════════════
-    # The instruction says "Smart Reframe is timeline-level, not per-clip. Add as an optional post-render pass".
-    # We can apply it here on the timeline if needed, but since it's an optional post-render pass,
-    # maybe we just check if it's in the manifest and apply it to timeline.
-    if manifest.get("smart_reframe") and apply_smart_reframe is not None:
-        print(f"\n── Smart Reframe ──", file=sys.stderr)
-        target_aspect = manifest["smart_reframe"].get("target_aspect", "9:16")
-        apply_smart_reframe(timeline, target_aspect=target_aspect)
-        print(f"  ✓ Applied Smart Reframe to timeline ({target_aspect})", file=sys.stderr)
+    # Smart Reframe used to be applied here, on the timeline, and printed a
+    # tick whatever Resolve answered. It is withdrawn; see the note at the
+    # top of library/tools/neural_engine.py. Framing is delivered per clip
+    # by _apply_conform above.
 
     # ══════════════════════════════════════════════════════════
     # APPLY FAIRLIGHT PRESET (if specified)
