@@ -52,7 +52,7 @@ manifest says.
 | 4.01 + 4.05 subtitles | `resolve_build_timeline.py:790-875` | Remotion ProRes 4444 segments on V3. Per-word timing and emphasis both reach the picture (`AnimatedWord.tsx:39-49`). |
 | 4.02 transitions (4 types only) | `apply_fusion_comps.py:54-82` -> `comp_builder.py:111-117` | `fade_to_black`, `zoom_blur`, `defocus`, `flash`. `transition_vocabulary.py` is honest about the rest. |
 | 4.03 VFX (zoom family, shake) | `comp_builder.py:49-94` | Parameter names now match the dispatch. |
-| 4.04 SFX + SFX ducking | `resolve_build_timeline.py:1045-1101` | Placed on A3+, and `volume_db` is applied per clip at 1087-1096. |
+| 4.04 SFX placement | `resolve_build_timeline.py:1045-1101` | SFX clips are placed on A3+. That half is real. ~~and `volume_db` is applied per clip~~ - see Partial below: the level is not. |
 | 4.06 motion graphics | `resolve_build_timeline.py:880-914` | Remotion segments on V4. See section 2 on what they draw. |
 | 5.01 house look, CDL half (node_2) | `resolve_build_timeline.py:1276-1327` | Slope/offset/power/saturation from the named look via `SetCDL`. |
 | 5.01 house look, Fusion half (nodes 3-4) | `compile_manifest/step.py:1125-1130` -> `comp_builder.py:59-104` | Contrast, glow, grain and the (optionally coloured) vignette, merged onto every V1/V2 clip. |
@@ -61,14 +61,35 @@ manifest says.
 
 ### Partial
 
-**Conform is a per-clip creative parameter, not a binary decision.**
-`compile_manifest/step.py:_conform_fields` accepts `framing_intent` (0.0 =
-letterbox, 1.0 = fill) and `framing_pan_x` (-1.0 to 1.0 normalised).
-`resolve_build_timeline.py:_apply_conform` sets `ZoomX`/`ZoomY` and
-`PanX`/`PanY`. When `framing_intent` is unset (None), the legacy
-subject-visibility heuristic runs so existing projects render identically.
-Brand templates can bias the default via `style.framing_intent`. Spine
-blocks can override per clip. Tests: `tests/test_framing_parameter.py`.
+**Conform is a per-clip creative parameter, not a binary decision, and it
+now tracks the subject.** `compile_manifest/step.py:_conform_fields` accepts
+`framing_intent` (0.0 = letterbox, 1.0 = fill), `framing_pan_x` (-1.0 to 1.0
+normalised) and `subject_center_x` (0.0-1.0 across the source width).
+`resolve_build_timeline.py:_apply_conform` sets `ZoomX`/`ZoomY` and Resolve's
+`Pan`/`Tilt` - ~~`PanX`/`PanY`~~, which Resolve does not have and which
+therefore moved nothing for the life of P1.1. When `framing_intent` is unset
+(None), the legacy subject-visibility heuristic runs so existing projects
+render identically. Brand templates can bias the default via
+`style.framing_intent`. Spine blocks can override per clip, and an explicit
+per-clip pan outranks the measurement. Tests:
+`tests/test_framing_parameter.py`, `tests/test_subject_framing.py`.
+
+**Per-clip SFX levels do not reach the mix.** This table listed 4.04 under
+Rendered on the strength of `resolve_build_timeline.py:1087-1096` calling
+`placed.SetProperty("Volume", linear_vol)`. Measured on Resolve 21.0.0b.28,
+an audio `TimelineItem` reports an EMPTY property dict and
+`SetProperty("Volume", 0.5)` returns **False** with a readback of `None`.
+The call site discards the return value, so every SFX plays at source
+level and the run says nothing. The SFX are placed and audible; only the
+level is lost. The same measurement applies to the `Volume` call on the
+music clip at :1054.
+
+Not fixed, deliberately: audio is out of scope by the captain's ruling of
+2026-08-15, and this entry exists because a plan that overstates what
+reaches the screen is the exact problem Phase 0 was for. Anyone reviving
+the audio thread should start by finding what Resolve *does* accept for a
+clip level - the property dict being empty suggests it is not a
+TimelineItem property at all on this build.
 
 **Music plays at unity and never ducks.** `compile_manifest/step.py:974-983`
 builds the A2 clip with no `volume_db` key at all. The reader,
@@ -191,11 +212,15 @@ What a viewer would actually notice, ordered by how loud it is.
 **Landscape A-roll renders letterboxed.** Section 1 under Partial. In a
 vertical feed this is the single most obvious amateur tell there is: a
 postage-stamp strip of video with black above and below. It is not a bug in
-the sense of an accident; `compile_manifest/step.py:702-704` chooses it
+the sense of an accident; `compile_manifest/step.py` chooses it
 deliberately as the safer of two bad options, because the alternative on
-offer is a dead-centre crop that can behead the speaker. The real answer is
-a subject-aware crop offset, and the vision pass already measures where the
-subject is.
+offer is a dead-centre crop that can behead the speaker. ~~The real answer
+is a subject-aware crop offset, and the vision pass already measures where
+the subject is.~~ The subject-aware crop offset is built (P1.2) - but the
+vision pass does NOT measure where the subject is, and never did; see P1.2
+for what does. The captain has ruled that letterbox remains the DEFAULT,
+so this is still what most A-roll looks like; the crop is now safe for any
+clip a template or spine block pushes toward fill.
 
 **The music is as loud as the voice.** No ducking, no automation, no
 limiter. Everything the mix step designed comes out as timeline markers. On
@@ -326,10 +351,41 @@ inert today and nothing in Phases 1 to 4 depends on them.
   applies `ZoomX`/`ZoomY` and `PanX`. Brand templates can bias via
   `style.framing_intent`. Spine blocks can override per clip.
   Tests: `tests/test_framing_parameter.py` (21 tests).
-- **P1.2 Subject-aware pan offset.** Use the vision pass's subject bounding
+- **P1.2 Subject-aware pan offset.** ~~Use the vision pass's subject bounding
   box to compute an intelligent `framing_pan_x` default rather than
   dead-centre. The Pan infrastructure exists; the policy to drive it from
-  vision data is the remaining work. **Medium.**
+  vision data is the remaining work.~~ **DONE**, but the premise was wrong
+  twice over and both corrections are worth keeping.
+
+  **The Pan infrastructure did not exist.** `_apply_conform` wrote `PanX`
+  and `PanY`, which Resolve does not have - the Inspector Transform names
+  are `Pan` and `Tilt`. `SetProperty("PanX", ...)` returns False and reads
+  back None. Three renders of the same clip at pan +682.67, 0 and -682.67
+  came out byte-identical. P1.1 delivered the zoom half only.
+
+  **The vision pass does not measure where the subject is.**
+  `vision_pipeline_v3` emits shot size (`camera[].framing`), identity
+  (`objects[].role`) and time ranges (`assessment.primary_subject_visible`),
+  none of which is a position. `object_segmentation` and `ocr_extraction`
+  do produce real boxes and are not wired into the DAG. The one place the
+  pipeline measures subject geometry is
+  `step_1_04_temporal_index.compute_face_presence`, whose Haar cascade
+  returned `(x, y, w, h)` per face and kept only `max(w*h)`. It now keeps
+  the horizontal centre too, as `face_center_x`.
+
+  The policy lives in `library/tools/subject_framing.py` and returns a
+  POSITION, not a pan: `compile_manifest._conform_fields` already holds the
+  source size, fit scale, zoom and target width, so the geometry stays at
+  one site. Silence is a real answer - no detections, too few, a subject
+  already near centre, or an OpenCV without Haar all yield None, which
+  means the framing a project gets today. Tests:
+  `tests/test_subject_framing.py`, `tests/test_face_presence_position.py`.
+
+  **Q1 (2026-08-16):** the captain ruled letterbox stays the default and
+  the tracking gets built regardless, so a clip a template or spine block
+  pushes toward fill follows the subject instead of centring blindly.
+  Whether the default should ever move is a separate question and is not
+  settled here.
 
 ### Phase 2: audio. (OUT OF SCOPE)
 

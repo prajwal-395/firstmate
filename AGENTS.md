@@ -329,6 +329,26 @@ a reason. Writing the sentence is the check the AST cannot do for you.
 a reader and which do not; check it before assuming a stage's output
 reaches the picture, and update it when you wire or withdraw one.
 
+**Resolve's transform properties are `Pan` and `Tilt`.** There is no
+`PanX` and no `PanY`: `SetProperty` returns False for them and reads back
+None, silently. `ZoomX`/`ZoomY` are real. `Volume` on an audio
+TimelineItem also returns False on Resolve 21 - its property dict is
+empty - so per-clip SFX `volume_db` does not reach the mix. Read the
+truth off `TimelineItem.GetProperty()` with no argument, which returns
+the whole dict, before trusting any property name.
+
+**Subject position comes from `face_center_x`, not from the vision pass.**
+`vision_pipeline_v3` measures shot size, identity and time ranges - never
+a position - and `object_segmentation`/`ocr_extraction` produce boxes but
+are not in the DAG. The horizontal centre of the largest detected face is
+emitted at 5Hz by `step_1_04_temporal_index.compute_face_presence` and
+reduced per clip by `library/tools/subject_framing.py`, which returns a
+POSITION; `compile_manifest._conform_fields` owns the one copy of the
+geometry that turns it into a pan. That module returns None whenever the
+footage cannot support an answer, and None means "frame centred" - do not
+replace it with a fabricated 0.5. Face detection needs Haar cascades, so
+`opencv-python` is pinned `<5`; OpenCV 5 removed them.
+
 **A reader that reports success is not proof either.** The harder version
 of the above: `smart_reframe` had a reader, the reader ran, and it printed
 "✓ Applied Smart Reframe" on every run for months. It guarded on

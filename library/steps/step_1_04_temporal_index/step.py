@@ -1095,25 +1095,87 @@ def decompose_camera_motion(
 
 # ── 10. Face presence (5Hz) ───────────────────────────────────────────
 
+def _load_face_cascade():
+    """The frontal-face Haar cascade, or None if this OpenCV has none.
+
+    Returning None matters as much as returning a classifier. OpenCV 5
+    dropped Haar cascades: there is no `cv2.CascadeClassifier` and no XML
+    in `cv2.data.haarcascades`. `requirements.txt` said `opencv-python>=4.8`,
+    which resolves to 5.x, and the AttributeError that produced was caught
+    by the broad `except Exception` around the whole function - so
+    `face_presence` came back with EMPTY values on such a machine, rather
+    than falling back to the variance heuristic. Empty is worse than
+    approximate: it silently disabled the subject-absence usable-range
+    rule in the vision pass as well as subject-aware framing.
+
+    The requirement is now pinned below 5 so the cascade is really there;
+    this function is the guard for anyone whose environment predates that.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    classifier = getattr(cv2, "CascadeClassifier", None)
+    if classifier is None:
+        return None
+
+    data = getattr(cv2, "data", None)
+    haar_dir = getattr(data, "haarcascades", None) if data else None
+    if not haar_dir:
+        return None
+
+    cascade_path = os.path.join(haar_dir, "haarcascade_frontalface_default.xml")
+    if not os.path.exists(cascade_path):
+        return None
+
+    cascade = classifier(cascade_path)
+    # A CascadeClassifier that failed to load its XML is not an error, it
+    # is an object that detects nothing on every frame.
+    if hasattr(cascade, "empty") and cascade.empty():
+        return None
+    return cascade
+
+
 def compute_face_presence(
     video_path: str,
     sample_rate_hz: int = 5,
 ) -> dict:
     """Detect face presence at 5Hz using ffmpeg + OpenCV's Haar cascade.
 
-    Provides a lightweight binary signal: is a human face present and
-    roughly prominent in frame at each sample point?
+    Provides a lightweight binary signal - is a human face present and
+    roughly prominent in frame at each sample point - AND where it is
+    horizontally, which is what lets a crop follow the subject instead of
+    blindly centring.
+
+    The cascade returns (x, y, w, h) per face and this function used to
+    keep only max(w*h) as a scalar. The position was measured and thrown
+    away, and the pipeline had no other source of subject geometry: the
+    v3 vision pass emits shot size (`camera[].framing`), identity
+    (`objects[].role`) and time ranges (`assessment.primary_subject_visible`),
+    none of which is a position, and the two steps that do produce real
+    bounding boxes (`object_segmentation`, `ocr_extraction`) are not wired
+    into the DAG.
 
     Falls back to a simple brightness-variance heuristic (faces tend to
-    introduce structured mid-frequency variation) if OpenCV is unavailable.
+    introduce structured mid-frequency variation) if OpenCV is
+    unavailable. That fallback cannot locate anything, so `face_center_x`
+    is None throughout and consumers must degrade to centred framing.
 
     Returns:
         {
             "sample_rate_hz": 5,
             "values": [0.0–1.0, ...],  # 0=no face, 1=face detected, 0.5=partial
+            "face_center_x": [float|None, ...],  # 0.0=left edge, 1.0=right
+                                                 # edge; None where no face
+                                                 # was located at that sample
             "face_present_times": [float, ...],  # timestamps where value > 0.5
             "face_absent_times": [float, ...]    # timestamps where value < 0.5
         }
+
+    `face_center_x` is parallel to `values` and the same length. It tracks
+    the LARGEST face in the frame, the same face `values` scores, so the
+    two never describe different people.
     """
     try:
         import numpy as np
@@ -1135,6 +1197,7 @@ def compute_face_presence(
             return {
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
+                "face_center_x": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
@@ -1147,17 +1210,18 @@ def compute_face_presence(
             return {
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
+                "face_center_x": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
 
         frames = raw[:n_frames * frame_size].reshape(n_frames, 180, 320, 3)
         face_values = []
+        face_center_x = []
 
-        try:
+        cascade = _load_face_cascade()
+        if cascade is not None:
             import cv2
-            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            cascade = cv2.CascadeClassifier(cascade_path)
 
             for frame in frames:
                 gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -1165,15 +1229,22 @@ def compute_face_presence(
                     gray, scaleFactor=1.1, minNeighbors=3, minSize=(20, 20)
                 )
                 if len(faces) > 0:
-                    # Score by face area relative to frame
-                    max_area = max(w * h for (x, y, w, h) in faces)
+                    # Score by face area relative to frame, and keep where
+                    # that same largest face sits horizontally.
+                    largest = max(faces, key=lambda f: f[2] * f[3])
+                    fx, _fy, fw, fh = largest
+                    max_area = fw * fh
                     frame_area = 320 * 180
                     presence = min(1.0, max_area / (frame_area * 0.15))
                     face_values.append(round(float(presence), 2))
+                    # Frames were scaled to 320 wide; normalise so the value
+                    # is independent of that and of the source resolution.
+                    face_center_x.append(round(float(fx + fw / 2.0) / 320.0, 4))
                 else:
                     face_values.append(0.0)
+                    face_center_x.append(None)
 
-        except ImportError:
+        else:
             # Fallback: mid-frequency variance heuristic.
             # Faces introduce structured variation in the mid-range.
             # High global variance + moderate spatial freq = face likely present.
@@ -1184,6 +1255,10 @@ def compute_face_presence(
                 # Normalize: typical indoor scene std is 30-60
                 presence = round(min(1.0, max(0.0, (local_var - 15) / 45)), 2)
                 face_values.append(presence)
+                # A variance heuristic knows nothing about WHERE. Saying
+                # "centred" here would be a fabricated measurement, so the
+                # honest answer is None and consumers centre by default.
+                face_center_x.append(None)
 
         # Derive presence/absence time arrays
         face_present_times = [
@@ -1198,6 +1273,7 @@ def compute_face_presence(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": face_values,
+            "face_center_x": face_center_x,
             "face_present_times": face_present_times,
             "face_absent_times": face_absent_times,
         }
@@ -1210,6 +1286,7 @@ def compute_face_presence(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": [],
+            "face_center_x": [],
             "face_present_times": [],
             "face_absent_times": [],
         }
@@ -1221,6 +1298,7 @@ def compute_face_presence(
         return {
             "sample_rate_hz": sample_rate_hz,
             "values": [],
+            "face_center_x": [],
             "face_present_times": [],
             "face_absent_times": [],
         }

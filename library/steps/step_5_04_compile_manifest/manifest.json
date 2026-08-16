@@ -97,6 +97,12 @@
         "description": "State input: subtitle_plan"
       },
       {
+        "name": "temporal_index",
+        "type": "object",
+        "required": false,
+        "description": "State input: temporal_index. Read for the per-clip face-centre track that drives subject-aware framing (P1.2); optional, and a run without it frames centred."
+      },
+      {
         "name": "transition_spec",
         "type": "array",
         "required": true,
