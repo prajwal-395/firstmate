@@ -28,7 +28,7 @@ EXPECTED_READERS = {
         ("library/steps/step_5_04_compile_manifest/step.py", "_apply_manifest_qa_checks"),
     ],
     "transitions": [
-        ("library/steps/step_6_01_render/resolve_build_timeline.py", "build_timeline"),
+        ("library/tools/manifest_validator.py", "_check_distinct_cut_points"),
     ],
     "vfx": [
         ("library/tools/execution/apply_fusion_comps.py", "apply_fusion_comps"),
