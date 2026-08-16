@@ -54,6 +54,9 @@ def test_props_carry_the_emphasis_words():
     from library.steps.step_4_05_render_subtitles.generate_remotion_props import (
         generate_subtitle_props_per_block,
     )
+    from library.tools.subtitle_style import (
+        resolve_subtitle_style,
+    )
     entries = [{
         "text": "post every single day",
         "spine_block_position": 3,
@@ -65,7 +68,8 @@ def test_props_carry_the_emphasis_words():
             for i, w in enumerate("post every single day".split())
         ],
     }]
-    blocks = generate_subtitle_props_per_block({"subtitle_entries": entries})
+    blocks = generate_subtitle_props_per_block(
+        {"subtitle_entries": entries, "style": resolve_subtitle_style()})
     assert blocks, "no props generated"
     assert blocks[0]["subtitles"][0]["emphasisWords"] == ["post", "single"]
 

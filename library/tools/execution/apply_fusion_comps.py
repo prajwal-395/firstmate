@@ -149,7 +149,7 @@ def apply_fusion_comps(manifest, project_folder):
         try:
             # Also fusion_comp_generator is in library/steps/step_6_01_render
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'steps', 'step_6_01_render'))
-            from fusion_comp_generator import write_comp, SEGMENT_PRESETS
+            from fusion_comp_generator import write_comp
             from custom_asset_bank import (
                 clip_asset_key, import_custom_asset, save_custom_asset,
                 get_custom_asset,
@@ -166,13 +166,10 @@ def apply_fusion_comps(manifest, project_folder):
             item_idx = orig_to_item[orig_ci]
             label = clip_spec.get('label', f'clip_{orig_ci}')
 
-            effects = per_clip_effects.get(label, {})
-            if not effects and label in SEGMENT_PRESETS:
-                effects = dict(SEGMENT_PRESETS[label])
-            elif effects:
-                effects = dict(effects)
-            else:
-                effects = {}
+            # A block-type preset used to be substituted here when a clip
+            # carried no effects. It was unreachable twice over and is
+            # deleted; see docs/PIPELINE_PLAN.md P3.4.
+            effects = dict(per_clip_effects.get(label, {}))
 
             preset_name = effects.get('_preset', None)
             
@@ -243,12 +240,6 @@ def apply_fusion_comps(manifest, project_folder):
 
             preset_name = effects.pop('_preset', None)
             tl_clip = v1_items[item_idx]
-
-            # 1. Check built-in effects
-            if preset_name and preset_name in SEGMENT_PRESETS:
-                base = dict(SEGMENT_PRESETS[preset_name])
-                base.update({k: v for k, v in effects.items() if k != '_preset'})
-                effects = base
 
             trans_params = transition_by_clip.get(orig_ci, {})
             if trans_params:

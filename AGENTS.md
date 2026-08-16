@@ -404,6 +404,20 @@ The house look is now authored in this repository as CDL plus Fusion values -
 see section 12. Anything added to `library/presets/` from an outside source
 needs its licence recorded here before it lands.
 
+**One third-party asset does ship, with its licence.** Montserrat, as
+`remotion-subtitles/public/fonts/Montserrat-Variable.ttf` - a variable font
+covering the 100-900 weight axis, which is every weight
+`library/tools/subtitle_style.py` can ask for. Licensed under the **SIL Open
+Font License 1.1**, which permits redistribution including commercially and
+requires the licence to travel with the font; it does, as
+`public/fonts/OFL-Montserrat.txt`. It is bundled rather than fetched because
+`@import url('https://fonts.googleapis.com/...')` with no `delayRender` made
+typography a race with the network, and a lost race rendered captions in
+Chromium's fallback sans at a different width with nothing downstream able to
+tell. `tests/test_bundled_fonts.py` fails if the font or its licence goes
+missing, if a font is imported over HTTP again, or if a template names a font
+that is neither bundled nor explicitly accepted as a system font.
+
 ## 12. The house look
 
 One enumeration, `library/tools/house_look.py`, holds every look a brand

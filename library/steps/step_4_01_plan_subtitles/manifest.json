@@ -28,7 +28,13 @@
         "name": "brand_effect",
         "type": "object",
         "required": false,
-        "description": "Brand template effect slots (injected by pipeline runner). Reads caption_case to control subtitle casing."
+        "description": "Brand template effect slots (injected by pipeline runner). Reads caption_case for subtitle casing and subtitle_style for the caption look."
+      },
+      {
+        "name": "brand_style",
+        "type": "object",
+        "required": false,
+        "description": "Brand template style slots (injected by pipeline runner). Reads typography and color_palette to resolve the caption style; see library/tools/subtitle_style.py."
       }
     ],
     "outputs": [
@@ -38,7 +44,8 @@
         "description": "State output: subtitle_plan",
         "expected_schema": {
           "subtitle_entries": "list",
-          "total_subtitles": "int"
+          "total_subtitles": "int",
+          "style": "dict"
         }
       }
     ],

@@ -94,7 +94,13 @@ def main():
     width = data.get("project_resolution", [1080, 1920])[0]
     height = data.get("project_resolution", [1080, 1920])[1]
     props_list = generate_motion_props(
-        enhancement_spec, creative_direction, audio_spine, fps=fps, width=width, height=height
+        enhancement_spec, creative_direction, audio_spine,
+        fps=fps, width=width, height=height,
+        # Brand slots, injected by the pipeline runner for any step whose
+        # manifest declares them. They drive the accent colour and whether
+        # the corner accents and progress bar are drawn at all (P3.1).
+        brand_style=data.get("brand_style", {}),
+        brand_effect=data.get("brand_effect", {}),
     )
 
     if not props_list:

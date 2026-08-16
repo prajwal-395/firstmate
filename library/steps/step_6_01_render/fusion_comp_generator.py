@@ -27,7 +27,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 
 from fusion.engine import CompEngine
 from fusion.engine import write_comp  # re-export
-from fusion.presets import SEGMENT_PRESETS  # re-export
 
 from typing import Optional
 

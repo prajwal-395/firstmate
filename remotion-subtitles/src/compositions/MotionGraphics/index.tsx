@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import { AbsoluteFill, useCurrentFrame, interpolate, spring } from "remotion";
+import { loadBundledFonts } from "../../fonts";
+
+// Same reason as SubtitleOverlay: this composition sets
+// fontFamily "Montserrat" and must not race the font load.
+loadBundledFonts();
 
 export type MotionGraphicsProps = {
   title: string;

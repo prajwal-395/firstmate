@@ -42,6 +42,23 @@ def generate_subtitle_props_per_block(
     if not entries:
         return []
 
+    # The caption look comes from step 4.01, which resolves it from the
+    # brand template. There is deliberately NO default here any more: this
+    # line used to be `subtitle_data.get("style", {...Montserrat 58px...})`,
+    # and because 4.01 never wrote the key, every project in the pipeline's
+    # life rendered that hardcoded look while four templates declared
+    # typography, palettes and subtitle_style that reached nothing. A
+    # missing style is now a loud failure rather than a silent house look.
+    style = subtitle_data.get('style')
+    if not style:
+        raise ValueError(
+            "subtitle_plan carries no 'style'. Step 4.01 resolves it from "
+            "the brand template (library/tools/subtitle_style.py) and must "
+            "run before 4.05. Refusing to substitute a default, because a "
+            "silent default is what made every template's caption styling "
+            "inert."
+        )
+
     # Group entries by spine_block_position
     block_groups: dict[int, list] = {}
     for entry in entries:
@@ -142,15 +159,7 @@ def generate_subtitle_props_per_block(
             "width": width,
             "height": height,
             "durationInFrames": total_frames,
-            "style": subtitle_data.get("style", {
-                "fontFamily": "Montserrat",
-                "fontColor": "#FFFFFF",
-                "accentColor": "#FBF0B8",
-                "position": "bottom",
-                "outlineColor": "#000000",
-                "outlineWidth": 4,
-                "fontSize": 58
-            }),
+            "style": style,
             # Metadata for placement (not consumed by Remotion).
             # timeline bounds are the block's TRUE content bounds; the
             # source_in/out frames trim the render padding.

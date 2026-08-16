@@ -28,7 +28,7 @@ os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 import DaVinciResolveScript as dvr
-from fusion_comp_generator import generate_comp, write_comp, SEGMENT_PRESETS
+from fusion_comp_generator import generate_comp, write_comp
 from fusion_transition_generator import generate_transition_comp, write_transition_comp
 
 TIMELINE_NAME = "__full_pipeline_demo__"
@@ -179,13 +179,41 @@ def run_integration_test():
 
     os.makedirs(COMP_DIR, exist_ok=True)
 
-    # Map each clip to a different preset to showcase variety
-    preset_order = ["HOOK", "CORE_INSIGHT", "EMOTIONAL_PEAK", "TURNING_POINT", "OUTRO"]
+    # Parameter sets for this demo, so each clip shows something
+    # different. These are LOCAL to the demo on purpose: the shared
+    # SEGMENT_PRESETS they used to come from were deleted under P3.4
+    # because nothing in the pipeline could select them, and a demo
+    # wanting variety is not a reason to keep a look library alive.
+    demo_params = {
+        "punch": {
+            "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
+            "grade_gain": 1.05, "grade_contrast": 0.04,
+            "grade_saturation": 1.15, "glow_gain": 0.08,
+        },
+        "settle": {
+            "zoom_start": 1.02, "zoom_mid": 1.0, "zoom_end": 1.02,
+            "grade_gain": 1.03, "grade_contrast": 0.04,
+            "grade_saturation": 1.10, "glow_gain": 0.08,
+        },
+        "grain": {
+            "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
+            "grade_gain": 1.06, "grade_contrast": 0.05,
+            "grade_saturation": 1.18, "glow_gain": 0.10,
+            "film_grain": True, "film_grain_power": 0.15,
+        },
+        "fade": {
+            "zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
+            "grade_gain": 1.05, "grade_contrast": 0.04,
+            "grade_saturation": 1.08, "glow_gain": 0.06,
+            "fade_out_frames": 15,
+        },
+    }
+    preset_order = list(demo_params)
     vfx_results = {"pass": 0, "fail": 0}
 
     for ci, item in enumerate(v1_items):
         preset_name = preset_order[ci % len(preset_order)]
-        preset = SEGMENT_PRESETS[preset_name]
+        preset = demo_params[preset_name]
         dur = item.GetDuration()
 
         comp_content = generate_comp(dur, **preset)

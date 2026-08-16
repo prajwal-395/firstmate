@@ -1,6 +1,17 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&display=swap');
+
+/* Fonts are NOT imported over HTTP here any more.
+ *
+ * There used to be two `@import url('https://fonts.googleapis.com/...')`
+ * lines, for Montserrat and for Inter, with no `delayRender` behind them -
+ * so whether the right font was in place when Remotion started
+ * rasterising was a race with the network, and a miss rendered captions
+ * in Chromium's fallback sans at a different width. The Inter import was
+ * inert on top of that: nothing in `src/` ever asked for Inter.
+ *
+ * Montserrat now ships in `public/fonts/` and is registered by
+ * `src/fonts.ts`, which blocks the render until the face is usable.
+ */
 
 /* Override Tailwind's default white background for transparent Remotion renders */
 @layer base {

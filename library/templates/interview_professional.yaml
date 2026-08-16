@@ -14,6 +14,11 @@ effect:
   transition_types: ["hard_cut", "jump_cut", "defocus"]
   vfx_intensity: 0.1
   subtitle_style: "clean_standard"
+  # Brackets yes, progress bar no. The warm #ddab7e reads as editorial
+  # rather than as a stock template, but a progress bar is a shortform
+  # retention device and cheapens a talking-head interview.
+  motion_accents: true
+  motion_progress_bar: false
   sfx_density: sparse
   caption_case: lowercase
 content:

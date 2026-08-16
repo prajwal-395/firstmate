@@ -13,6 +13,18 @@
         "description": "Timed audio spine for duration and block structure"
       },
       {
+        "name": "brand_effect",
+        "type": "object",
+        "required": false,
+        "description": "Brand template effect slots (injected by pipeline runner). motion_accents and motion_progress_bar control whether the corner accents and the progress bar are drawn."
+      },
+      {
+        "name": "brand_style",
+        "type": "object",
+        "required": false,
+        "description": "Brand template style slots (injected by pipeline runner). color_palette drives the motion-graphics accent colour; see library/tools/brand_palette.py."
+      },
+      {
         "name": "creative_direction",
         "type": "object",
         "required": true,

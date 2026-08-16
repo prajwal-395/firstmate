@@ -7,7 +7,57 @@ per-spine-block MotionGraphics prop files for Remotion rendering.
 """
 
 import json
+import os
+import sys
 from typing import Optional
+
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+from library.tools.brand_palette import (
+    accent_color as brand_accent_color,
+    roles_from_palette,
+)
+
+# The cyan every video carried until P3.1. It is not any shipped
+# template's colour and it is NO LONGER A FALLBACK - it exists only so
+# tests can assert it never reaches a frame again. The captain's ruling of
+# 2026-08-16: the accents belong to whichever templates want them, and
+# when a template wants them the colour comes from its own palette, never
+# from a constant in this file.
+WITHDRAWN_LEGACY_ACCENT_COLOR = "#00D4FF"
+
+# What the upper third's text uses when a template supplies no colour at
+# all. Not an accent - just legible.
+NEUTRAL_TEXT_COLOR = "#FFFFFF"
+
+
+class MissingAccentColor(ValueError):
+    """A template asked for accents but supplies no colour to draw them in.
+
+    Raised rather than defaulted. Drawing 6px corner brackets in a
+    hardcoded cyan is exactly what P3.1 removed, and drawing them in the
+    text colour would be a silent substitution of a different design.
+    """
+
+
+def _as_bool(value, default: bool) -> bool:
+    """Template flags arrive from YAML, so accept what YAML produces.
+
+    An unrecognised value keeps the default rather than being read as
+    falsey - a typo silently switching the house style off is the kind of
+    quiet change this repo keeps having to undo.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "yes", "on", "1"):
+            return True
+        if text in ("false", "no", "off", "0"):
+            return False
+    return default
 
 
 def generate_motion_props(
@@ -17,6 +67,8 @@ def generate_motion_props(
     fps: int = 30,
     width: int = 1080,
     height: int = 1920,
+    brand_style: dict = None,
+    brand_effect: dict = None,
 ) -> list[dict]:
     """Generate MotionGraphics props for each spine block.
 
@@ -32,10 +84,44 @@ def generate_motion_props(
 
     # Extract style from creative direction
     visual_style = creative_direction.get("visual_style", {})
-    accent_color = visual_style.get(
-        "accent_color",
-        creative_direction.get("accent_color", "#00D4FF"),
-    )
+
+    # ── Whether the accents are drawn at all (P3.1 / Q3) ──
+    # `show_accents` was hardcoded True, so four glowing L-brackets and a
+    # progress bar sat on every frame of every video the pipeline has ever
+    # made, and nothing in any config turned them off.
+    #
+    # The captain's ruling of 2026-08-16: templates are a growing library,
+    # so there is no universal default. A template that declares NOTHING
+    # gets NOTHING. Declaring is what turns an element on. That is the
+    # opposite of the old behaviour, and deliberately so - preserving the
+    # old behaviour is the thing that was rejected.
+    effect = brand_effect or {}
+    accents_enabled = _as_bool(effect.get("motion_accents"), False)
+    progress_enabled = _as_bool(effect.get("motion_progress_bar"), False)
+
+    # ── The accent colour (P3.1) ──
+    # The template's own palette first, then a per-video creative
+    # direction. There is no constant fallback: a template that wants
+    # accents must supply a colour to draw them in.
+    declared_accent = visual_style.get(
+        "accent_color", creative_direction.get("accent_color"))
+    accent_color = brand_accent_color(
+        (brand_style or {}).get("color_palette"), declared_accent)
+
+    if accents_enabled and not accent_color:
+        raise MissingAccentColor(
+            "A brand template enabled motion_accents but supplies no usable "
+            "accent colour. style.color_palette must contain one that would "
+            "read on screen - saturated, and vivid if it is dark; see "
+            "library/tools/brand_palette.py - or creative_direction must "
+            "name one. Corner brackets are not drawn in a default colour."
+        )
+
+    if not accent_color:
+        # Nothing is being drawn in an accent colour, but the upper third
+        # still needs to be legible. Prefer the palette's own text colour.
+        palette_roles = roles_from_palette((brand_style or {}).get("color_palette"))
+        accent_color = palette_roles.get("text", NEUTRAL_TEXT_COLOR)
     title = creative_direction.get("title", "")
     subtitle = creative_direction.get("subtitle", "")
 
@@ -98,8 +184,8 @@ def generate_motion_props(
         )
 
         # B-roll blocks: show accents but not upper third or progress
-        show_progress = block_type != "broll"
-        show_accents = True
+        show_progress = (block_type != "broll") and progress_enabled
+        show_accents = accents_enabled
 
         props = {
             "title": title if show_upper_third else "",

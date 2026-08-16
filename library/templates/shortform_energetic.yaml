@@ -15,6 +15,12 @@ effect:
   transition_types: ["hard_cut", "jump_cut", "zoom_blur", "flash"]
   vfx_intensity: 0.8
   subtitle_style: "bold_large"
+  # Motion graphics (Q3, 2026-08-16). Accents are declared per template,
+  # never defaulted - a template that says nothing gets nothing. This one
+  # says yes to both: high energy, dense SFX, and the corner brackets are
+  # drawn in this palette's #ff0055 rather than the withdrawn stock cyan.
+  motion_accents: true
+  motion_progress_bar: true
   sfx_density: dense
   caption_case: lowercase
 content:

@@ -33,19 +33,28 @@ export const AnimatedWord: React.FC<AnimatedWordProps> = ({
     color = style?.accentColor || "#FBF0B8";
   }
 
-  // The emphasis pass (step_4_01) exists to give these words a scale bump.
+  // The emphasis pass (step_4_01) exists to make these words bigger.
   // `isEmphasis` was declared here and never passed in, so every word was
   // rendered identically and the whole pass was invisible.
-  const restScale = isEmphasis ? EMPHASIS_SCALE : 1;
-  const enterScale = isEmphasis ? EMPHASIS_SCALE : 0.95;
+  //
+  // The size comes from FONT SIZE, not from a transform. `transform:
+  // scale()` grows the glyph without reserving any layout width, so an
+  // emphasised word overflowed its own box by width*(scale-1)/2 on each
+  // side and collided with its neighbours: "the brand template" rendered
+  // as "thebrandtemplate". The larger a caption got the worse it read,
+  // which the brand-template styles made obvious at 72px/900.
+  //
+  // Transform is still used for the entry animation, but only to grow
+  // INTO place from 0.95 - it never exceeds 1, so it cannot overlap.
+  const fontScale = isEmphasis ? EMPHASIS_SCALE : 1;
 
   const scale = isSpokenNow
-    ? interpolate(frame, [startFrame, startFrame + 4], [0.95, enterScale], {
+    ? interpolate(frame, [startFrame, startFrame + 4], [0.95, 1], {
         extrapolateRight: "clamp",
         easing: Easing.out(Easing.ease),
       })
     : hasSpoken
-      ? restScale
+      ? 1
       : 0.95;
 
   const opacity = 1;
@@ -55,9 +64,10 @@ export const AnimatedWord: React.FC<AnimatedWordProps> = ({
       style={{
         display: "inline-block",
         transform: `scale(${scale})`,
+        fontSize: `${fontScale}em`,
         opacity,
         color: color,
-        marginRight: "16px",
+        marginRight: "0.24em",
       }}
     >
       {word}

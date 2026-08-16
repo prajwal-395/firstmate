@@ -21,8 +21,13 @@ Input:  {
 Output: { "subtitle_entries": [...], "total_subtitles": int }
 """
 import json
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+from library.tools.subtitle_style import resolve_subtitle_style
 
 # ── Minimum display duration (seconds) ──
 # Matches Palmier Pro's AppTheme.Caption.minDisplayDuration.
@@ -267,7 +272,9 @@ def _words_in_source_window(
     return in_range
 
 
-def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase") -> dict:
+def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
+                       brand_effect: dict = None,
+                       brand_style: dict = None) -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
@@ -571,10 +578,19 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase") -> di
     # C4 fix: Wrap output under subtitle_plan key to match manifest contract.
     # Manifest declares output as 'subtitle_plan', and DAG edge
     # plan_subtitles -> render_subtitles maps subtitle_plan -> subtitle_plan.
+    # The caption LOOK, resolved from the brand template. Emitted here so
+    # step 4.05 has something to serialise into the Remotion props: the
+    # props generator used to supply a hardcoded Montserrat/58px default
+    # because this key never existed, and every template's typography,
+    # palette and subtitle_style reached nothing. See
+    # library/tools/subtitle_style.py.
+    style = resolve_subtitle_style(brand_effect, brand_style)
+
     return {
         "subtitle_plan": {
             "subtitle_entries": subtitle_entries,
             "total_subtitles": len(subtitle_entries),
+            "style": style,
         }
     }
 
@@ -593,10 +609,13 @@ def main():
     # Read caption case from brand template's effect slot.
     # Default to "lowercase" so omitted templates preserve the house look.
     brand_effect = input_data.get("brand_effect", {})
+    brand_style = input_data.get("brand_style", {})
     caption_case = brand_effect.get("caption_case", "lowercase")
 
     try:
-        result = generate_subtitles(audio_spine, caption_case=caption_case)
+        result = generate_subtitles(
+            audio_spine, caption_case=caption_case,
+            brand_effect=brand_effect, brand_style=brand_style)
     except (ValueError, AssertionError) as e:
         print(json.dumps({
             "error": str(e),

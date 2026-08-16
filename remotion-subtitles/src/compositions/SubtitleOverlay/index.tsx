@@ -2,6 +2,11 @@
 import React from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { AnimatedWord } from "./AnimatedWord";
+import { loadBundledFonts } from "../../fonts";
+
+// Registered at module scope so the delayRender handle is taken before
+// the first frame is rasterised, not during it.
+loadBundledFonts();
 
 export type WordTiming = {
   word: string;
@@ -25,6 +30,12 @@ export type SubtitleStyle = {
   outlineColor?: string;
   outlineWidth?: number;
   fontSize?: number;
+  /**
+   * Read from the brand template's `style.typography.weight` via
+   * library/tools/subtitle_style.py. The weight used to be hardcoded to
+   * 800 below, so a template asking for "bold" got 800 regardless.
+   */
+  fontWeight?: number;
 };
 
 export type SubtitleOverlayProps = {
@@ -71,6 +82,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   const fSize = style?.fontSize ? `${style.fontSize}px` : "58px";
   const outlineCol = style?.outlineColor || "#000000";
   const outlineW = style?.outlineWidth || 4;
+  const fWeight = style?.fontWeight || 800;
   const pos = style?.position || "bottom";
 
   const shadow = `
@@ -121,7 +133,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
                 alignItems: "center",
                 fontFamily: fontFam,
                 fontSize: fSize,
-                fontWeight: 800,
+                fontWeight: fWeight,
                 lineHeight: "1.2",
                 textAlign: "center",
                 textShadow: shadow,

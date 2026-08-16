@@ -21,6 +21,11 @@ class EffectSlots:
     subtitle_style: str = ""
     sfx_density: str = "moderate"
     caption_case: str = "lowercase"  # "lowercase" | "as_written"
+    # Motion graphics (P3.1). Both default to today's behaviour: the
+    # corner accents and the progress bar were drawn unconditionally, and
+    # whether the house style should keep them is Q3, a captain's call.
+    motion_accents: Optional[bool] = None
+    motion_progress_bar: Optional[bool] = None
 
 @dataclass
 class ContentSlots:
@@ -78,6 +83,8 @@ class BrandTemplate:
                         "transition_duration_ms": {"type": "object"},
                         "vfx_intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                         "subtitle_style": {"type": "string"},
+                        "motion_accents": {"type": "boolean"},
+                        "motion_progress_bar": {"type": "boolean"},
                         "sfx_density": {"type": "string", "enum": ["sparse", "moderate", "dense"]},
                         "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"}
                     }

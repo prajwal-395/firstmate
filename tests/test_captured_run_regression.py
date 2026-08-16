@@ -213,7 +213,9 @@ def test_subtitle_overlay_segments_no_longer_overlap():
         generate_subtitle_props_per_block,
     )
 
-    subtitle_data = {"subtitle_entries": [
+    from library.tools.subtitle_style import resolve_subtitle_style
+    subtitle_data = {"style": resolve_subtitle_style(),
+                     "subtitle_entries": [
         {"spine_block_position": 1, "timeline_start": 0.0,
          "timeline_end": 2.682, "text": "first", "words": []},
         {"spine_block_position": 2, "timeline_start": 2.682,

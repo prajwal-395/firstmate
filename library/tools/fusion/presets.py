@@ -1,65 +1,30 @@
 """
 Presets for the Fusion Composition Engine.
 
-SEGMENT_PRESETS_FLAT — the original flat-param format for backward
-compatibility with resolve_build_timeline.py.
+SEGMENT_PRESETS / SEGMENT_PRESETS_FLAT used to live here: seven curated
+per-block-type looks (HOOK punch and glow, EMOTIONAL_PEAK with grain,
+OUTRO with a 15-frame fade). They were DELETED under P3.4, by the
+captain's ruling of 2026-08-16, because they could not be selected -
+twice over, not once:
+
+  1. The reader was `if not effects and label in SEGMENT_PRESETS` in
+     apply_fusion_comps. It only fired for a clip carrying NO other
+     effects, and since the house look landed, compile_manifest merges
+     the Fusion half of the grade into per_clip for EVERY V1 and V2 clip.
+     `effects` is therefore non-empty on every clip and the branch was
+     unreachable regardless of the label casing.
+  2. Five of the seven were keyed to block types the spine cannot emit.
+     spine_contract documents block_type as "hook" | "speech" | anything
+     else, so CORE_INSIGHT, TURNING_POINT, EMOTIONAL_PEAK, RESOLUTION and
+     B_ROLL_CINEMATIC had no block that could ever select them.
+
+The standing plan text said the fix was to correct the label casing. It
+was not, and that theory is recorded as wrong in docs/PIPELINE_PLAN.md so
+nobody re-derives it. Per-block-type looks are not off the table, but they
+are a design job - new spine block types, plus a decision about how a
+block look composes with a house look that every clip already carries -
+and not a cleanup item.
 """
-
-# ─── Flat Presets (backward compat) ──────────────────────────
-# These match the exact format used by the old fusion_comp_generator.py
-# and resolve_build_timeline.py. Keys are the flat param names
-# consumed by CompEngine.from_params().
-
-SEGMENT_PRESETS_FLAT = {
-    "HOOK": {
-        "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
-        "pan_start": (0.5, 0.5), "pan_end": (0.5, 0.49),
-        "grade_gain": 1.05, "grade_contrast": 0.04, "grade_saturation": 1.15,
-        "glow_gain": 0.08,
-    },
-    "CORE_INSIGHT": {
-        "zoom_start": 1.02, "zoom_mid": 1.0, "zoom_end": 1.02,
-        "grade_gain": 1.03, "grade_contrast": 0.04, "grade_saturation": 1.10,
-        "glow_gain": 0.08,
-    },
-    "TURNING_POINT": {
-        "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.04,
-        "grade_gain": 1.05, "grade_contrast": 0.06, "grade_saturation": 1.15,
-        "glow_gain": 0.12, "glow_threshold": 0.72, "glow_size": 4.0,
-    },
-    "EMOTIONAL_PEAK": {
-        "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
-        "pan_start": (0.5, 0.5), "pan_end": (0.5, 0.48),
-        "grade_gain": 1.06, "grade_contrast": 0.05, "grade_saturation": 1.18,
-        "glow_gain": 0.10, "glow_threshold": 0.70, "glow_size": 4.5,
-        "film_grain": True, "film_grain_power": 0.15,
-    },
-    "RESOLUTION": {
-        "zoom_start": 1.03, "zoom_mid": 1.0, "zoom_end": 1.02,
-        "pan_start": (0.5, 0.5), "pan_end": (0.51, 0.5),
-        "grade_gain": 1.02, "grade_contrast": 0.03, "grade_saturation": 1.10,
-        "glow_gain": 0.08,
-    },
-    "B_ROLL_CINEMATIC": {
-        "zoom_start": 1.02, "zoom_mid": 1.04, "zoom_end": 1.02,
-        "pan_start": (0.5, 0.5), "pan_end": (0.52, 0.49),
-        "grade_gain": 1.08, "grade_contrast": 0.06, "grade_saturation": 1.20,
-        "glow_gain": 0.10,
-        "film_grain": True, "film_grain_power": 0.20,
-    },
-    "OUTRO": {
-        "zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
-        "grade_gain": 1.05, "grade_contrast": 0.04, "grade_saturation": 1.08,
-        "glow_gain": 0.06, "glow_threshold": 0.78, "glow_size": 3.0,
-        "fade_out_frames": 15,
-    },
-}
-
-# Re-export for backward compat
-SEGMENT_PRESETS = SEGMENT_PRESETS_FLAT
-
-
-
 
 # ─── Transition Presets ──────────────────────────────────────
 

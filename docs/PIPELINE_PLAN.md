@@ -119,7 +119,9 @@ with nowhere to go. ~~AGENTS.md section 10 says `manifest_validator` asserts
 P0.4; there is still no ducking check in `library/tools/manifest_validator.py`
 and, audio being out of scope, there is not going to be one.
 
-**2. The block-type look library.** `library/tools/fusion/presets.py:16-59`
+**2. The block-type look library.** ~~**DELETED** under P3.4; see section 3
+for why the casing fix in the text below would not have worked.~~
+`library/tools/fusion/presets.py:16-59`
 defines seven curated per-block looks (HOOK punch and glow, EMOTIONAL_PEAK
 with grain, OUTRO with a 15-frame fade). The reader is
 `apply_fusion_comps.py:170` and `:248`, `label in SEGMENT_PRESETS`. Labels
@@ -176,13 +178,14 @@ for every entry, so `top_violations`, `bottom_violations` and
 pass. The real caption position is hardcoded at
 `SubtitleOverlay/index.tsx:87-89` and the gate cannot see it.
 
-**8. Brand template style never reaches the caption.**
-`generate_remotion_props.py:145-153` reads `subtitle_data.get("style", ...)`
-where `subtitle_data` is the `subtitle_plan` from 4.01, which never writes a
-`style` key. So every project renders Montserrat 800 at 58px, white with a
-`#FBF0B8` accent, bottom, 4px black outline, regardless of template. Every
-template's `style.color_palette` and `effect.subtitle_style`
-("bold_large", "minimal", "clean_standard") reach nothing.
+**8. Brand template style never reaches the caption.** ~~`generate_remotion_props.py:145-153`
+reads `subtitle_data.get("style", ...)` where `subtitle_data` is the
+`subtitle_plan` from 4.01, which never writes a `style` key. So every project
+renders Montserrat 800 at 58px, white with a `#FBF0B8` accent, bottom, 4px
+black outline, regardless of template.~~ **CLOSED** by P3.2. All four
+templates now resolve to visibly distinct, legible captions, and the
+hardcoded default is gone rather than moved elsewhere: an absent style
+raises.
 
 **9. Two dead branches in the renderers.** ~~`resolve_build_timeline.py:330`
 binds `vfx_entries` and never uses it again. `apply_fusion_comps.py:329` gates
@@ -231,9 +234,11 @@ sets `source_in: 0.0` and `timeline_out: total_duration`, then clamps to the
 last V1 clip end (1205-1211). No fade in, no fade out. The track starts
 mid-nothing at frame 0 and is guillotined at the last frame.
 
-**Cyan corner brackets on every frame.**
-`generate_motion_props.py:102` sets `show_accents = True` unconditionally for
-every block, and `MotionGraphics/index.tsx:105-156` draws four glowing
+**Cyan corner brackets on every frame.** ~~`generate_motion_props.py:102`
+sets `show_accents = True` unconditionally for every block~~ **CLOSED** by
+P3.1 and Q3: accents are declared per template, never defaulted, and the
+cyan is withdrawn. Original text: `generate_motion_props.py:102` set
+`show_accents = True` unconditionally for every block, and `MotionGraphics/index.tsx:105-156` draws four glowing
 L-brackets in `accentColor` in the corners plus a 12px progress bar along
 the bottom. The default accent is `#00D4FF`
 (`generate_motion_props.py:35-38`), which is not any template's palette.
@@ -248,14 +253,12 @@ transparency around it, and there is nothing under it on V1, so it composites
 to black borders. You cannot pull out past the edge of the source. This one
 needs a design decision, not a parameter change (see section 4).
 
-**Typography is a webfont loaded over HTTP at render time.**
-`remotion-subtitles/src/index.css:3` is
-`@import url('https://fonts.googleapis.com/css2?family=Montserrat...')`.
-There is no `delayRender` and no `@remotion/google-fonts` handle, so
-whether the correct font is in place when Remotion starts rasterising is a
-race with the network. On a miss the captions silently render in Chromium's
-fallback sans at a different width, which changes line breaking as well as
-the letterforms. Nothing downstream can tell.
+**Typography is a webfont loaded over HTTP at render time.** ~~`remotion-subtitles/src/index.css:3`
+is `@import url('https://fonts.googleapis.com/css2?family=Montserrat...')`.
+There is no `delayRender`, so whether the correct font is in place when
+Remotion starts rasterising is a race with the network.~~ **CLOSED** by
+P3.3. The font is bundled, the load blocks the render, and a failure to
+load raises instead of silently substituting.
 
 **Captions are lowercased.** `step_4_01/step.py:318` calls
 `.lower().strip()` on every caption. That is a defensible style, but it is a
@@ -394,23 +397,176 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
 
 ### Phase 3: the look. Where "publishable" is actually decided.
 
-- **P3.1 Motion graphics under template control.** The corner brackets and
+- **P3.1 Motion graphics under template control.** ~~The corner brackets and
   progress bar must be opt-in per template, and `accentColor` must come from
-  the template palette. Cheap.
-- **P3.2 Subtitle style from the brand template.** Wire
+  the template palette.~~ **MECHANISM DONE; the default is Q3.** The colour
+  now comes from `style.color_palette` via `library/tools/brand_palette.py`,
+  the same rule the captions use - two copies of "which entry is the brand
+  accent" would let one video carry two different brand colours. The
+  brackets and the progress bar are `effect.motion_accents` and
+  `effect.motion_progress_bar`, and step 4.06 declares the brand slots so
+  the runner injects them.
+
+  **Q3 answered 2026-08-16, by reframing rather than by picking an option:**
+  "they are templates, so they dont need to be in every video, they are
+  just part of a growing library now". There is therefore NO universal
+  default. A template that declares nothing gets nothing; declaring is what
+  turns an element on. That is the opposite of the old behaviour, and
+  deliberately so - the old behaviour is what put the same cyan corners on
+  every video this pipeline has ever made, and preserving it is precisely
+  what was rejected.
+
+  A template that enables accents must supply a colour to draw them in,
+  from its own palette or from `creative_direction`; there is no constant
+  fallback and `#00D4FF` can no longer reach a frame. Asking for accents
+  with no usable accent colour raises `MissingAccentColor` rather than
+  silently drawing the withdrawn cyan. An unrecognised flag value keeps
+  the default rather than reading as false, so a typo cannot quietly
+  change the look. Tests: `tests/test_motion_graphics_template.py`.
+- **P3.2 Subtitle style from the brand template.** ~~Wire
   `style.typography` and `effect.subtitle_style` through 4.01 into the
   Remotion props, and delete the hardcoded default at
-  `generate_remotion_props.py:145-153`. Cheap, high visibility.
-- **P3.3 Self-host the font.** Bundle the .ttf and load it with
+  `generate_remotion_props.py:145-153`.~~ **DONE.** The named looks live in
+  one enumeration, `library/tools/subtitle_style.py`, on the same contract
+  as `transition_vocabulary` and `house_look`: an unknown name raises, and
+  a style no template names fails CI. A named style owns the SHAPE (size,
+  weight, outline, position); the template supplies the brand, via
+  `style.typography` and `style.color_palette`. Step 4.01 resolves it and
+  emits `subtitle_plan.style`; `generate_remotion_props` now RAISES when
+  that key is absent rather than substituting a house look, because the
+  substitute was the bug. `fontWeight` gained a reader in
+  `SubtitleOverlay/index.tsx`, where it had been hardcoded to 800 while
+  templates declared a weight. Tests: `tests/test_subtitle_style.py`.
+
+  Two things found by rendering it. An emphasised word was sized with
+  `transform: scale()`, which reserves no layout width, so it overflowed
+  and collided with its neighbours - "the brand template" rendered as
+  "thebrandtemplate", worse the larger the caption. Emphasis is now sized
+  with `fontSize`. And `cinematic_narrative`'s palette contains no usable
+  accent: its most saturated entry is a dark muted navy that would sit on
+  top of its own near-black outline, so the derivation rejects it and
+  keeps the style's accent. A dark accent is only kept when it is vivid,
+  which is what tells `#223344` from `#ff0055`.
+- **P3.3 Self-host the font.** ~~Bundle the .ttf and load it with
   `@remotion/google-fonts` or `staticFile` plus `delayRender`, so
-  typography is deterministic. Cheap.
-- **P3.4 The block-type look library, or delete it.** Either fix the label
-  casing so `SEGMENT_PRESETS` can be selected, or remove it and
-  `SEGMENT_RECIPES` with it. Cheap either way; the decision is a captain
-  question because it changes what the edit looks like.
+  typography is deterministic.~~ **DONE.** Montserrat ships as a single
+  variable file, `remotion-subtitles/public/fonts/Montserrat-Variable.ttf`,
+  covering the whole 100-900 axis - every weight `subtitle_style.py` can
+  ask for, asserted by reading the font's own `fvar` table. `src/fonts.ts`
+  registers it with `staticFile` plus `delayRender`/`continueRender` and
+  declares the variable axis, without which Chromium synthesises bold
+  instead of using the real 900. A font that fails to load now raises
+  rather than falling back to Chromium's default sans, which was invisible
+  in the output. Licence: SIL OFL 1.1, shipped beside the font and recorded
+  in AGENTS.md section 11. The `Inter` import went too - nothing in `src/`
+  ever asked for Inter. Tests: `tests/test_bundled_fonts.py`.
+
+  Verified two ways: removing the bundled file makes the render fail with
+  `Failed to load bundled font Montserrat`, proving the render really
+  depends on it rather than on a system or network fallback; and the
+  rendered still is **byte-identical** (md5 `fb3c4f9c…`) to the same frame
+  rendered when the webfont happened to win the race - so the typography
+  is now guaranteed rather than lucky, and nothing about the picture
+  changed.
+- **P3.4 The block-type look library, or delete it.** ~~Either fix the label
+  casing so `SEGMENT_PRESETS` can be selected~~, or remove it. **DELETED**,
+  by the captain's ruling of 2026-08-16.
+
+  **The casing theory in the struck text is wrong, and this is recorded so
+  nobody re-derives it.** Correcting the label casing would NOT have
+  enabled those seven looks. They were unreachable twice over, established
+  independently:
+
+  1. The reader was `if not effects and label in SEGMENT_PRESETS`
+     (`apply_fusion_comps.py:170`). It fired only for a clip carrying NO
+     other effects - and since the house look landed in #106,
+     `compile_manifest` merges the Fusion half of the grade into
+     `per_clip` for EVERY V1 and V2 clip. `effects` is therefore non-empty
+     on every clip and the branch could not run, whatever the labels said.
+  2. Five of the seven were keyed to block types the spine cannot emit.
+     `spine_contract` documents `block_type` as `"hook" | "speech" |
+     anything else`, so `CORE_INSIGHT`, `TURNING_POINT`, `EMOTIONAL_PEAK`,
+     `RESOLUTION` and `B_ROLL_CINEMATIC` had no block that could ever
+     select them.
+
+  Seven curated looks that cannot be selected are exactly the
+  reads-as-coverage problem Phase 0 existed to remove. The reason is
+  recorded in `library/tools/fusion/presets.py`, where they used to live.
+
+  Per-block-type looks are not off the table, but they are **their own
+  design job** if the captain asks for them: new spine block types, plus a
+  decision about how a block look composes with a house look that every
+  clip already carries. Explicitly not a cleanup item, and not to be
+  reopened as one.
 - ~~**P3.5 More than one PowerGrade.**~~ **DONE**, by dropping the PowerGrade
   rather than authoring more: see Q6. All four templates name a look and the
   values live in this repo.
+
+**A failed QA station is now loud, and deliberately not fatal.**
+Error-severity QA check failures used to be appended to
+`results["warnings"]`, alongside "Fairlight preset not found" and friends,
+while the build printed "Build succeeded" with an empty error list. They
+now go to `results["qa_failures"]`, are announced in their own banner under
+the verdict, and are forwarded by `step_6_01_render/step.py` into
+`pipeline_data.json` - that payload hand-picks its keys, so a value not
+named there never reaches the ledger.
+
+`success` is unchanged on purpose. The captain's ruling of 2026-08-16 is
+two steps: make it visible now, make it fatal only with evidence on how
+often a station fires on real footage, because making it fatal on no
+evidence is the mirror image of the defect it fixes.
+
+**The evidence does not exist yet, and that is the finding.** There is no
+complete pipeline run on disk to measure against. Of the four projects
+under `PIPELINE_PROJECTS_ROOT`, three have no `pipeline_data.json` at all
+and `test-proof` has two completed steps of twenty-six - `scan` and
+`catalog` - so it never reached `compile_manifest`, let alone a render.
+The one real manifest that survives is the `tests/fixtures/captured_run/`
+capture, which carries 14 V1 clips and 13 VFX but zero
+`fusion_effects.per_clip` and zero fusion transitions, so
+`verify_fusion_comps` returns early on it and would not have fired.
+
+So the measured failure rate today is: **one real manifest available, zero
+stations fired, no rendered runs at all**. That is not a number worth
+making a fatality decision on. `qa_failures` is now the channel that
+accrues it, from the next real render onward.
+
+**`default_brand` is a fallback that renders, not a look anyone should
+ship.** Found while assigning motion accents per template (Q3), and worth
+stating on its own because it is invisible until it bites.
+
+`default_brand.yaml` is what a project gets when `project.yaml` names no
+brand template, and `compile_manifest` falls back to it by name. Its
+`style.color_palette` is `["#ff0000", "#00ff00", "#0000ff"]` - three pure
+RGB primaries, visibly a placeholder rather than a palette. Everything
+that now derives colour from the palette will honour it: the motion
+accents would have drawn **red corner brackets**, and the caption accent
+would have gone red too if `default_subtitles` were palette-driven.
+
+It is only PARTLY defused, and I checked by rendering rather than by
+reasoning - the first version of this entry claimed nothing paints
+anything red, and that was wrong.
+
+Defused: `default_subtitles` opts out of palette derivation and keeps the
+legacy caption colours, and `default_brand` declares no motion accents, so
+no red corner brackets are drawn.
+
+**Not defused: the motion-graphics upper third renders in `#ff0000`
+today.** `MotionGraphics/index.tsx` colours the upper-third subtitle with
+`accentColor`, which is resolved from the palette whether or not the
+accent ELEMENTS are enabled - reasonably, since the two shipped templates
+that do declare accents want their subtitle in the brand colour, and
+`#ff0055` and `#ddab7e` both look deliberate there. On `default_brand` the
+same path yields pure red. Rendered proof: `115,030` bytes, md5
+`1eb6f065`, subtitle line in `#ff0000`.
+
+So a project that falls back to this template gets a red subtitle line
+now, and would get red corner brackets the moment anyone enabled them.
+
+Not in scope for Phase 3. The fix is either a real palette for
+`default_brand` or a refusal to run without an explicitly named template,
+and that is a decision, not a cleanup. Related: **Q9**, which asks whether
+four templates should ship at all.
 
 ### Phase 4: rhythm.
 

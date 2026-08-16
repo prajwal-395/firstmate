@@ -22,6 +22,22 @@ effect:
   transition_types: ["hard_cut", "match_cut", "fade_to_black", "defocus"]
   vfx_intensity: 0.3
   subtitle_style: "minimal"
+  # NO motion accents, and this is NOT an oversight - do not "fix" it by
+  # adding motion_accents: true.
+  #
+  # This template CANNOT carry them. Its palette is
+  # ["#223344", "#aabbcc", "#111111"], and the most saturated entry is a
+  # dark muted navy that would sit almost on top of its own near-black
+  # outline and read as a smudge rather than as an accent. The rule in
+  # library/tools/brand_palette.py rejects it, so enabling accents here
+  # raises MissingAccentColor rather than silently drawing something
+  # unreadable. The choice was made by the palette, not by taste.
+  #
+  # Give this template a palette entry that would survive against its own
+  # outline first, and the accents become available. Corner brackets also
+  # fight a letterboxed cinematic frame, which is the same reason its
+  # subtitle style is the quiet one.
+  # Guarded by tests/test_motion_graphics_template.py.
   sfx_density: moderate
   caption_case: lowercase
 content:

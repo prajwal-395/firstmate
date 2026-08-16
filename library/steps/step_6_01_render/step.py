@@ -109,6 +109,14 @@ def run(inputs: dict) -> dict:
                 "errors": result.get("errors", []),
                 "tracks": result.get("tracks", {}),
                 "warnings": result.get("warnings", []),
+                # Error-severity QA station failures, forwarded so they
+                # land in pipeline_data.json. This payload hand-picks its
+                # keys, so anything not named here is dropped before the
+                # ledger ever sees it - and this list is the evidence
+                # channel for whether a failing station should become
+                # fatal. Without it that question can never be answered
+                # from real runs. See docs/PIPELINE_PLAN.md.
+                "qa_failures": result.get("qa_failures", []),
                 "output_path": export["output_path"],
                 "output_size_bytes": export["size_bytes"],
                 "render_job": {

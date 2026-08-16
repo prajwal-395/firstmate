@@ -462,8 +462,21 @@ def build_timeline(
         "tracks": {},
         "errors": [],
         "warnings": [],
+        # Error-severity QA check failures, kept SEPARATE from warnings.
+        # They used to be appended to `warnings`, where they sat among
+        # "Fairlight preset not found" and friends, and the build still
+        # printed "Build succeeded" with an empty error list. A check that
+        # runs, can fail, and whose failure nobody sees is barely better
+        # than one that cannot fail - the defect Phase 0 existed to remove.
+        #
+        # Deliberately NOT fatal yet: `success` is unchanged by this list,
+        # because nobody has measured how often these fire on real footage
+        # and making them fatal on no evidence would be the mirror image of
+        # the mistake. `qa_failures` is the evidence channel for that
+        # decision. See docs/PIPELINE_PLAN.md.
+        "qa_failures": [],
     }
-    
+
     qa_reports = []
     def _run_qa(report):
         if not report: return
@@ -472,8 +485,14 @@ def build_timeline(
             for check in report.checks:
                 if not check.passed and check.severity == "error":
                     msg = f"QA [{report.station}] Failed {check.name}: expected {check.expected}, got {check.actual}"
-                    print(f"  ⚠ {msg}", file=sys.stderr)
-                    results["warnings"].append(msg)
+                    print(f"  ✗ {msg}", file=sys.stderr)
+                    results["qa_failures"].append({
+                        "station": report.station,
+                        "check": check.name,
+                        "expected": check.expected,
+                        "actual": check.actual,
+                        "detail": msg,
+                    })
 
     # ── Connect to Resolve ──
     try:
@@ -1432,6 +1451,25 @@ def build_timeline(
 
     status_emoji = "✓" if results["success"] else "✗"
     print(f"\n{status_emoji} Build {'succeeded' if results['success'] else 'FAILED'}", file=sys.stderr)
+
+    # Say this loudly and on its own, immediately under the verdict. A
+    # build that succeeded with failing QA stations is a specific and
+    # important state, and it must not read like a clean run.
+    if results["qa_failures"]:
+        stations = sorted({f["station"] for f in results["qa_failures"]})
+        print(f"\n{'!' * 60}", file=sys.stderr)
+        print(f"  {len(results['qa_failures'])} QA CHECK FAILURE(S) across "
+              f"{len(stations)} station(s): {', '.join(stations)}",
+              file=sys.stderr)
+        print("  The timeline was built. These checks say part of it is "
+              "not what the manifest asked for.", file=sys.stderr)
+        for f in results["qa_failures"]:
+            print(f"    ✗ [{f['station']}] {f['check']}: "
+                  f"expected {f['expected']}, got {f['actual']}", file=sys.stderr)
+        print("  Not fatal by ruling, pending evidence on how often these "
+              "fire on real footage.", file=sys.stderr)
+        print(f"{'!' * 60}", file=sys.stderr)
+
     if results["errors"]:
         for e in results["errors"]:
             print(f"  ERROR: {e}", file=sys.stderr)

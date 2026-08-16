@@ -35,6 +35,11 @@ effect:
     max: 500
   vfx_intensity: 0.5
   subtitle_style: "default_subtitles"
+  # No motion accents. This is the FALLBACK template, not a shipped look,
+  # and its color_palette is three pure RGB primaries that are visibly a
+  # placeholder - accents here would render as #ff0000 corner brackets.
+  # See docs/PIPELINE_PLAN.md: a fallback template that renders is not the
+  # same as one anyone should ship.
   sfx_density: "dense"
   caption_case: "lowercase"
 content:
