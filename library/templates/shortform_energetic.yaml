@@ -17,6 +17,7 @@ effect:
   vfx_intensity: 0.8
   subtitle_style: "bold_large"
   sfx_density: dense
+  caption_case: lowercase
 content:
   music_genre: ["electronic", "upbeat"]
   target_duration_seconds:

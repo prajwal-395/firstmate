@@ -19,6 +19,7 @@ effect:
   vfx_intensity: 0.3
   subtitle_style: "minimal"
   sfx_density: moderate
+  caption_case: lowercase
 content:
   music_genre: ["orchestral", "atmospheric"]
   target_duration_seconds:

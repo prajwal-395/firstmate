@@ -23,6 +23,12 @@
         "type": "object",
         "required": true,
         "description": "State input: speech_sequence"
+      },
+      {
+        "name": "brand_effect",
+        "type": "object",
+        "required": false,
+        "description": "Brand template effect slots (injected by pipeline runner). Reads caption_case to control subtitle casing."
       }
     ],
     "outputs": [

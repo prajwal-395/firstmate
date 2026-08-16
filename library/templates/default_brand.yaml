@@ -37,6 +37,7 @@ effect:
   vfx_intensity: 0.5
   subtitle_style: "default_subtitles"
   sfx_density: "dense"
+  caption_case: "lowercase"
 content:
   series_title: "Default Series"
   channel_name: "Default Channel"

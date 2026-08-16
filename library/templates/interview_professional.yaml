@@ -12,6 +12,7 @@ effect:
   vfx_intensity: 0.1
   subtitle_style: "clean_standard"
   sfx_density: sparse
+  caption_case: lowercase
 content:
   music_genre: ["ambient", "acoustic"]
   target_duration_seconds:

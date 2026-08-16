@@ -35,6 +35,25 @@ MIN_DISPLAY_DURATION = 0.7
 MIN_VISIBLE_DURATION = 0.08
 
 
+# ── Caption case transformation ──
+# Controlled by the brand template's effect.caption_case setting.
+# Default is "lowercase" so that templates omitting the key (including
+# older or third-party templates) preserve the house look.
+
+def apply_caption_case(text: str, mode: str) -> str:
+    """Apply the configured caption case transformation.
+
+    Args:
+        text: Raw caption text.
+        mode: One of "lowercase" or "as_written". Unknown values
+              fall back to "lowercase" for safety.
+    """
+    if mode == "as_written":
+        return text
+    # "lowercase" and any unknown value
+    return text.lower()
+
+
 # ── Font-agnostic visual-fit measurement ──
 # Used to check whether subtitle text fits on screen at a given
 # font. Falls back to character-count heuristic if PIL/Pillow
@@ -248,12 +267,18 @@ def _words_in_source_window(
     return in_range
 
 
-def generate_subtitles(audio_spine: dict) -> dict:
+def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase") -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
     Speech and hook blocks must carry populated word_timestamps; a block
     that does not fails the step rather than being timed by guesswork.
+
+    Args:
+        audio_spine: The audio spine with structure blocks.
+        caption_case: "lowercase" (default) or "as_written". Controls
+            whether subtitle text is lowercased or left as the source
+            transcript produced it.
     """
     structure = audio_spine.get("structure", [])
 
@@ -316,7 +341,7 @@ def generate_subtitles(audio_spine: dict) -> dict:
 
             for g in groups:
                 sub_counter += 1
-                entry_text = g["text"].lower().strip()
+                entry_text = apply_caption_case(g["text"], caption_case).strip()
                 subtitle_entries.append({
                     "id": f"sub_{sub_counter:03d}",
                     "timeline_start": max(g["start"], block_start),
@@ -327,7 +352,7 @@ def generate_subtitles(audio_spine: dict) -> dict:
                     "word_count": g["word_count"],
                     "words": [
                         {
-                            "word": w["word"].lower().strip(),
+                            "word": apply_caption_case(w["word"], caption_case).strip(),
                             "start": w["start"],
                             "end": w["end"],
                         }
@@ -405,7 +430,7 @@ def generate_subtitles(audio_spine: dict) -> dict:
 
                 for g in groups:
                     sub_counter += 1
-                    entry_text = g["text"].lower().strip()
+                    entry_text = apply_caption_case(g["text"], caption_case).strip()
                     subtitle_entries.append({
                         "id": f"sub_{sub_counter:03d}",
                         "timeline_start": max(g["start"], seg_tl_start),
@@ -416,7 +441,7 @@ def generate_subtitles(audio_spine: dict) -> dict:
                         "word_count": g["word_count"],
                         "words": [
                             {
-                                "word": w["word"].lower().strip(),
+                                "word": apply_caption_case(w["word"], caption_case).strip(),
                                 "start": w["start"],
                                 "end": w["end"],
                             }
@@ -521,10 +546,11 @@ def generate_subtitles(audio_spine: dict) -> dict:
                 file=sys.stderr,
             )
 
-    # All text is lowercase
-    for sub in subtitle_entries:
-        assert sub["text"] == sub["text"].lower(), \
-            f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} is not lowercase: {sub['text']}"
+    # All text matches the configured caption case
+    if caption_case != "as_written":
+        for sub in subtitle_entries:
+            assert sub["text"] == sub["text"].lower(), \
+                f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} is not lowercase: {sub['text']}"
 
     # Word count warnings
     for sub in subtitle_entries:
@@ -564,8 +590,13 @@ def main():
         }))
         sys.exit(1)
 
+    # Read caption case from brand template's effect slot.
+    # Default to "lowercase" so omitted templates preserve the house look.
+    brand_effect = input_data.get("brand_effect", {})
+    caption_case = brand_effect.get("caption_case", "lowercase")
+
     try:
-        result = generate_subtitles(audio_spine)
+        result = generate_subtitles(audio_spine, caption_case=caption_case)
     except (ValueError, AssertionError) as e:
         print(json.dumps({
             "error": str(e),

@@ -19,6 +19,7 @@ class EffectSlots:
     vfx_intensity: float = 0.0
     subtitle_style: str = ""
     sfx_density: str = "moderate"
+    caption_case: str = "lowercase"  # "lowercase" | "as_written"
 
 @dataclass
 class ContentSlots:
@@ -70,7 +71,8 @@ class BrandTemplate:
                         "transition_duration_ms": {"type": "object"},
                         "vfx_intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                         "subtitle_style": {"type": "string"},
-                        "sfx_density": {"type": "string", "enum": ["sparse", "moderate", "dense"]}
+                        "sfx_density": {"type": "string", "enum": ["sparse", "moderate", "dense"]},
+                        "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"}
                     }
                 },
                 "content": {
