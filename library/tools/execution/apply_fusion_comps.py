@@ -325,15 +325,6 @@ def apply_fusion_comps(manifest, project_folder):
             else:
                 print(f"  ✗ [{orig_ci}] {label}: ImportFusionComp failed", file=sys.stderr)
 
-    for vfx in vfx_entries:
-        if vfx.get('type', '') == 'zoom_pulse':
-            vfx_start_f = round(vfx.get('timeline_start', 0) * fps)
-            for item in v1_items:
-                if item.GetStart() <= vfx_start_f < item.GetEnd():
-                    item.SetProperty("ZoomX", 1.05)
-                    item.SetProperty("ZoomY", 1.05)
-                    print(f"  V zoom_pulse on {item.GetName()} at {vfx_start_f}f", file=sys.stderr)
-                    break
 
     # ── Generator overlays on V5 ──
     # Generator presets (.setting files) produce content from nothing and

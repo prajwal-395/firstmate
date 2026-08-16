@@ -327,7 +327,6 @@ def build_timeline(
     a3_clips = tracks.get('A3', {}).get('clips', [])
     # Note: transitions are applied via fusion_effects.transitions, not
     # the top-level 'transitions' key (which is informational only).
-    vfx_entries = manifest.get('vfx', [])  # legacy VFX entries
 
     # ── Resolve overlay segments from manifest ──
     # Per-segment overlays (new): manifest contains subtitle_overlay.segments
@@ -580,14 +579,7 @@ def build_timeline(
     v1_timeline_items = []
     v1_placed_labels = []
 
-    # Pre-process J/L cuts from the planner's transition list.
-    # UNREACHABLE as it stands, deliberately left in place: it needs a
-    # from_block/to_block or "between_N_M" position that the transition
-    # spec has never carried, and j_cut/l_cut are withdrawn from the
-    # plannable vocabulary because they are audio edits (see
-    # library/tools/transition_vocabulary.py). Reviving them belongs with
-    # the audio pass, which owns everything this block touches.
-    native_transitions = manifest.get('transitions', [])
+    # Compute per-clip source frame ranges for video and audio placement.
     for ci, clip in enumerate(v1_clips):
         src_in = clip.get('source_in', 0)
         src_out = clip.get('source_out')
@@ -599,54 +591,6 @@ def build_timeline(
         clip['audio_src_in'] = round(clip.get('audio_src_in', src_in) * fps)
         clip['audio_src_out'] = round(clip.get('audio_src_out', src_out) * fps)
 
-    for trans in native_transitions:
-        ttype = trans.get('transition_type', trans.get('type', ''))
-        from_idx = trans.get('from_block')
-        to_idx = trans.get('to_block')
-        # Support both formats (manifest vs direct)
-        if from_idx is None:
-            pos = trans.get('position', '')
-            if pos.startswith('between_'):
-                parts = pos.replace('between_', '').split('_')
-                if len(parts) == 2:
-                    from_idx = int(parts[0])
-                    to_idx = int(parts[1])
-                    
-        # Resolve from_block/to_block IDs to actual indices in v1_clips
-        from_clip_idx = None
-        to_clip_idx = None
-        
-        if from_idx is not None:
-            for i, clip in enumerate(v1_clips):
-                label = clip.get('label', '')
-                if label.endswith(f"_{from_idx}") or f"_{from_idx}_seg" in label:
-                    from_clip_idx = i
-                    
-        if to_idx is not None:
-            for i, clip in enumerate(v1_clips):
-                label = clip.get('label', '')
-                if label.endswith(f"_{to_idx}") or f"_{to_idx}_seg" in label:
-                    to_clip_idx = i
-                    break
-        
-        dur = trans.get('duration_frames', 15)
-        if from_clip_idx is not None and to_clip_idx is not None:
-            if ttype == 'j_cut':
-                # to_clip can only go back by its available head
-                actual_dur = min(dur, v1_clips[to_clip_idx]['audio_src_in'])
-                # from_clip can only give up what it has
-                from_clip_len = v1_clips[from_clip_idx]['audio_src_out'] - v1_clips[from_clip_idx]['audio_src_in']
-                actual_dur = max(0, min(actual_dur, from_clip_len))
-                
-                v1_clips[from_clip_idx]['audio_src_out'] -= actual_dur
-                v1_clips[to_clip_idx]['audio_src_in'] -= actual_dur
-            elif ttype == 'l_cut':
-                # to_clip can only give up what it has
-                to_clip_len = v1_clips[to_clip_idx]['audio_src_out'] - v1_clips[to_clip_idx]['audio_src_in']
-                actual_dur = max(0, min(dur, to_clip_len))
-                
-                v1_clips[from_clip_idx]['audio_src_out'] += actual_dur
-                v1_clips[to_clip_idx]['audio_src_in'] += actual_dur
 
     for ci, clip in enumerate(v1_clips):
         current_video_frame = clip.get('timeline_in_frame', 0)

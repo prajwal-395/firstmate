@@ -6,8 +6,7 @@ Verifies:
 1. Individual effect blocks produce valid nodes
 2. Empty/neutral effects are correctly skipped
 3. CompEngine chains effects and produces valid .comp output
-4. from_preset() builds known presets
-5. from_params() backward compatibility with old generator signature
+4. from_params() backward compatibility with old generator signature
 """
 
 import os
@@ -181,14 +180,6 @@ class TestCompEngine(unittest.TestCase):
         # SoftGlow should wire directly to MediaIn1
         self.assertIn('SourceOp = "MediaIn1"', comp)
 
-    def test_full_hook_preset(self):
-        comp = CompEngine.from_preset("HOOK", clip_dur=90).serialize()
-        # HOOK = zoom + grade + glow + vignette
-        self.assertIn("Transform", comp)
-        self.assertIn("BrightnessContrast", comp)
-        self.assertIn("SoftGlow", comp)
-        self.assertIn("EllipseMask", comp)
-        self.assertIn("Merge", comp)
 
     def test_from_params_backward_compat(self):
         """from_params should accept the old flat param format."""
@@ -219,10 +210,6 @@ class TestCompEngine(unittest.TestCase):
         # Should have a fade transition
         self.assertIn("BgTrans", comp)
         self.assertIn("MergeTrans", comp)
-
-    def test_unknown_preset_raises(self):
-        with self.assertRaises(ValueError):
-            CompEngine.from_preset("NONEXISTENT", clip_dur=90)
 
     def test_vignette_safety(self):
         """Vignette should always produce safe EllipseMask."""

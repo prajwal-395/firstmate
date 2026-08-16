@@ -16,9 +16,6 @@ Usage:
         .add(fx.vignette(clip_dur=90))
         .serialize())
 
-    # From preset
-    comp = CompEngine.from_preset("HOOK", clip_dur=90).serialize()
-
     # Backward-compatible
     comp = CompEngine.from_params(clip_dur=90, zoom_start=1.0, ...)
 """

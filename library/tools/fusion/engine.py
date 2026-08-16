@@ -121,56 +121,6 @@ class CompEngine:
 
         return self.comp.serialize()
 
-    @classmethod
-    def from_preset(
-        cls,
-        preset_name: str,
-        clip_dur: int,
-        *,
-        width: int = 1080,
-        height: int = 1920,
-        **overrides,
-    ) -> "CompEngine":
-        """Build from a named preset (HOOK, CORE_INSIGHT, etc.).
-
-        Looks up the preset in SEGMENT_PRESETS, applies effect blocks
-        in order, then applies any overrides.
-
-        Args:
-            preset_name: Name of the preset to build from.
-            clip_dur: SOURCE clip total frame count (NOT timeline duration).
-        """
-        from .presets import SEGMENT_RECIPES
-
-        recipe = SEGMENT_RECIPES.get(preset_name)
-        if not recipe:
-            raise ValueError(f"Unknown preset: {preset_name}")
-
-        engine = cls(clip_dur, width=width, height=height)
-
-        for effect_name, params in recipe.items():
-            merged = dict(params)
-            # Apply overrides for this effect if any
-            for k, v in overrides.items():
-                if k in merged:
-                    merged[k] = v
-
-            fn = getattr(fx, effect_name, None)
-            if fn is None:
-                continue
-
-            # Some effects need clip_dur — positional or keyword
-            if effect_name in ("zoom", "transition_tail", "transition_head"):
-                block = fn(clip_dur, **merged)
-            elif effect_name in ("vignette", "fade"):
-                merged["clip_dur"] = clip_dur
-                block = fn(**merged)
-            else:
-                block = fn(**merged)
-
-            engine.add(block)
-
-        return engine
 
     @classmethod
     def from_params(cls, clip_dur: int, **params) -> str:

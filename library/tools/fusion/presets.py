@@ -1,11 +1,8 @@
 """
-Presets and Recipes for the Fusion Composition Engine.
+Presets for the Fusion Composition Engine.
 
 SEGMENT_PRESETS_FLAT — the original flat-param format for backward
 compatibility with resolve_build_timeline.py.
-
-SEGMENT_RECIPES — structured recipes mapping effect names to params.
-Used by CompEngine.from_preset().
 """
 
 # ─── Flat Presets (backward compat) ──────────────────────────
@@ -62,56 +59,7 @@ SEGMENT_PRESETS_FLAT = {
 SEGMENT_PRESETS = SEGMENT_PRESETS_FLAT
 
 
-# ─── Structured Recipes ──────────────────────────────────────
-# Each recipe maps effect function names to their params.
-# Used by CompEngine.from_preset().
 
-SEGMENT_RECIPES = {
-    "HOOK": {
-        "zoom": {"start": 1.0, "mid": 1.04, "end": 1.03, "pan_end": (0.5, 0.49)},
-        "grade": {"gain": 1.05, "contrast": 0.04, "saturation": 1.15},
-        "glow": {"gain": 0.08},
-        "vignette": {},
-    },
-    "CORE_INSIGHT": {
-        "zoom": {"start": 1.02, "mid": 1.0, "end": 1.02},
-        "grade": {"gain": 1.03, "contrast": 0.04, "saturation": 1.10},
-        "glow": {"gain": 0.08},
-        "vignette": {},
-    },
-    "TURNING_POINT": {
-        "zoom": {"start": 1.0, "mid": 1.04, "end": 1.04},
-        "grade": {"gain": 1.05, "contrast": 0.06, "saturation": 1.15},
-        "glow": {"gain": 0.12, "threshold": 0.72, "size": 4.0},
-        "vignette": {},
-    },
-    "EMOTIONAL_PEAK": {
-        "zoom": {"start": 1.0, "mid": 1.04, "end": 1.03, "pan_end": (0.5, 0.48)},
-        "grade": {"gain": 1.06, "contrast": 0.05, "saturation": 1.18},
-        "glow": {"gain": 0.10, "threshold": 0.70, "size": 4.5},
-        "grain": {"power": 0.15},
-        "vignette": {},
-    },
-    "RESOLUTION": {
-        "zoom": {"start": 1.03, "mid": 1.0, "end": 1.02, "pan_end": (0.51, 0.5)},
-        "grade": {"gain": 1.02, "contrast": 0.03, "saturation": 1.10},
-        "glow": {"gain": 0.08},
-        "vignette": {},
-    },
-    "B_ROLL_CINEMATIC": {
-        "zoom": {"start": 1.02, "mid": 1.04, "end": 1.02, "pan_end": (0.52, 0.49)},
-        "grade": {"gain": 1.08, "contrast": 0.06, "saturation": 1.20},
-        "glow": {"gain": 0.10},
-        "grain": {"power": 0.20},
-        "vignette": {},
-    },
-    "OUTRO": {
-        "grade": {"gain": 1.05, "contrast": 0.04, "saturation": 1.08},
-        "glow": {"gain": 0.06, "threshold": 0.78, "size": 3.0},
-        "vignette": {},
-        "fade": {"fade_out": 15},
-    },
-}
 
 # ─── Transition Presets ──────────────────────────────────────
 

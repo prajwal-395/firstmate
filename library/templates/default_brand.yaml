@@ -43,9 +43,6 @@ content:
   channel_name: "Default Channel"
   intro_template: "library/presets/fusion-macros/intro_lower_third.setting"
   outro_template: "library/presets/fusion-macros/outro_subscribe.setting"
-  watermark:
-    image: "library/assets/watermark.png"
-    position: "bottom-right"
   music_genre:
     - "electronic"
     - "upbeat"
