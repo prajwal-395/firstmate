@@ -262,10 +262,11 @@ Remotion starts rasterising is a race with the network.~~ **CLOSED** by
 P3.3. The font is bundled, the load blocks the render, and a failure to
 load raises instead of silently substituting.
 
-**Captions are lowercased.** `step_4_01/step.py:318` calls
-`.lower().strip()` on every caption. That is a defensible style, but it is a
-style decision hardcoded in a planner rather than expressed in the brand
-template. Question for the captain in section 4.
+**Captions are lowercased.** ~~`step_4_01/step.py:318` calls
+`.lower().strip()` on every caption... a style decision hardcoded in a
+planner rather than expressed in the brand template.~~ **CLOSED** in #102,
+before this document was written: it is `effect.caption_case`, and all four
+templates declare it. See Q5.
 
 **Colour is CDL plus Fusion, and it is now an authored look.** ~~The shipped
 look is an exposure-matched slope plus a fixed +0.02 lift and 1.12 saturation
@@ -637,10 +638,64 @@ four templates should ship at all.
 - **P5.1 Transitions that mix two clips.** Cross dissolve, wipe and whip pan
   are impossible on the per-clip Fusion route, and the two alternative routes
   are closed by ruling. The only remaining path is pre-rendering a two-clip
-  transition segment with ffmpeg and placing it as a clip. **Large**, and it
-  should not start before Phases 1 to 3 are done, because a soft transition
-  in a letterboxed video with music over the vocal changes nothing a viewer
-  would notice.
+  transition segment with ffmpeg and placing it as a clip.
+
+  **SCOPED 2026-08-16, not built.** Measured rather than estimated, on
+  1080x1920 at 30fps with a 0.5s dissolve.
+
+  **The route works.** A real cross dissolve was placed on a Resolve
+  timeline through the existing renderer and rendered: both clips visible
+  mid-blend at frame 90. This is the thing the per-clip Fusion route
+  cannot do, and it is not hard.
+
+  **Cost is negligible, and that is the surprise.** Encoding only the
+  transition WINDOW - not the whole pair of clips:
+
+  | codec | encode | size | per 10 transitions |
+  | --- | --- | --- | --- |
+  | ProRes 422 HQ | 0.22s | 1.79 MB | 2.2s, 18 MB |
+  | ProRes 422 Proxy | 0.21s | 0.76 MB | 2.1s, 8 MB |
+  | H.264 crf18 | 0.17s | 0.05 MB | 1.7s, 0.5 MB |
+
+  ProRes 422 HQ is the right choice: it is an intermediate that a graded
+  timeline will re-encode, and 18 MB is nothing. Encoding the whole pair
+  instead of the window costs 7x the time and 10x the size for no gain.
+
+  **The design that works is duration-PRESERVING.** The segment spans the
+  cut, taking half its length from each neighbour, so A is trimmed by
+  0.25s, B starts 0.25s later, and total duration is unchanged. A naive
+  overlap dissolve shortens the timeline by the transition duration -
+  which would shift every subsequent subtitle, SFX hit, motion-graphics
+  segment and the music clamp, because all of those are placed at
+  absolute timeline times. That is the difference between a contained
+  change and a re-timing of the whole edit.
+
+  **The open risk is audio, and it is the real work.** The segment is
+  video-only, so the renderer placed A1 from the source clips either side
+  and left a **16-frame hole** across the transition:
+
+      A1: clip_A.mp4  0 -> 82        (audio present)
+          [82 -> 98 SILENT]          (the transition window)
+          clip_B.mp4  98 -> 180      (audio present)
+
+  Half a second of silence at every dissolve, in the speech track. Fixing
+  it means either carrying crossfaded audio in the segment - which is a
+  mix decision, and audio is out of scope by ruling - or placing A1 from
+  the untrimmed sources across the join while V1 takes the segment. The
+  second is probably right and is not free: it breaks the clip linking
+  the renderer relies on.
+
+  Also seen: V1 summed to 179 frames against an expected 180, so the
+  frame accounting needs proving before this ships.
+
+  **Where it has to run.** Before `compile_manifest`, because it must trim
+  both neighbours; and after `plan_transitions`, because it needs the cut
+  points. It also needs the real source files, so it cannot be a planner.
+
+  **Sequencing (captain, 2026-08-16):** the perceptual quality gate comes
+  first. This is a large change whose value is a soft transition, and
+  until something can see the render we cannot tell whether it is worth
+  the audio work.
 
 ---
 
@@ -682,10 +737,20 @@ the withdrawal, (b) make every clip default to a 1.15 baseline zoom so
 throwing away 13% of every frame's resolution on every shot, or (c) keep the
 shrink and fill the surround with a blurred copy of the frame. Which?
 
-**Q5. Should captions be lowercase?**
-`step_4_01` lowercases every caption. It is a deliberate look and it is
-currently unconditional and hardcoded. Should it be a brand template setting,
-and what should each of the four shipped templates use?
+**Q5. Should captions be lowercase?** **ANSWERED (2026-08-16):** make it a
+per-template setting and set all four templates to their CURRENT behaviour,
+so a hidden global becomes a declared choice without anyone making a look
+decision on the captain's behalf.
+
+**Already implemented**, in #102, before the question was put:
+`effect.caption_case` is in the schema with an enum, all four templates
+declare `lowercase` explicitly, `step_4_01` honours it, an unknown value
+falls back to lowercase, and `tests/test_caption_case.py` covers it. The
+only thing added under this ruling is a guard that all four keep declaring
+it, so the decision stays durable rather than drifting back to the default.
+
+The struck text below was already stale when written: `step_4_01` has not
+lowercased unconditionally since #102.
 
 **Q6. What is the actual house look?** **ANSWERED (2026-08-15).** The captain
 ruled: drop the PowerGrade node and deliver the look entirely through CDL plus

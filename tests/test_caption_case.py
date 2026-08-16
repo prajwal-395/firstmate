@@ -205,3 +205,65 @@ class TestShippedTemplates:
                 f"Template {name} should set caption_case: lowercase, "
                 f"got: {effect.get('caption_case')!r}"
             )
+
+
+# ── The shipped library declares its own casing ──
+# Q5, decided 2026-08-16: caption case is a per-template setting rather
+# than a hidden global, and every shipped template declares its CURRENT
+# behaviour so nothing about any existing video changed. The mechanism
+# landed earlier (#102); this pins the four declarations so the decision
+# is durable rather than incidental.
+
+import glob
+import os
+
+import yaml
+
+_TEMPLATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "library", "templates")
+
+# All four lowercase, which is what they already produced.
+EXPECTED_CAPTION_CASE = {
+    "cinematic_narrative": "lowercase",
+    "default_brand": "lowercase",
+    "interview_professional": "lowercase",
+    "shortform_energetic": "lowercase",
+}
+
+
+def _templates():
+    for path in sorted(glob.glob(os.path.join(_TEMPLATE_DIR, "*.yaml"))):
+        with open(path, encoding="utf-8") as f:
+            yield os.path.basename(path)[:-5], yaml.safe_load(f) or {}
+
+
+def test_every_template_is_accounted_for():
+    assert {n for n, _ in _templates()} == set(EXPECTED_CAPTION_CASE), (
+        "a template was added or removed without deciding its caption case")
+
+
+def test_every_template_declares_its_caption_case_explicitly():
+    """A hidden global became a declared choice; keep it declared.
+
+    Relying on the default would work, and would put the decision back
+    where it was - implicit.
+    """
+    missing = [n for n, t in _templates()
+               if "caption_case" not in (t.get("effect") or {})]
+    assert not missing, (
+        f"{missing} do not declare effect.caption_case. Every shipped "
+        f"template states its own casing rather than inheriting it.")
+
+
+def test_the_declared_values_are_the_approved_ones():
+    for name, tmpl in _templates():
+        assert (tmpl.get("effect") or {})["caption_case"] == \
+            EXPECTED_CAPTION_CASE[name], name
+
+
+def test_no_template_declares_an_unsupported_case():
+    valid = {"lowercase", "as_written"}
+    for name, tmpl in _templates():
+        value = (tmpl.get("effect") or {}).get("caption_case")
+        assert value in valid, f"{name}: {value!r} is not one of {valid}"
