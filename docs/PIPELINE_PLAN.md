@@ -633,6 +633,76 @@ four templates should ship at all.
   against the template and nothing acts. Either feed the score back into a
   re-cut, or stop pretending pacing is controlled. **Medium.**
 
+### Phase 4.5: the perceptual quality gate. Ahead of Phase 5, by ruling.
+
+**Q8 answered (2026-08-16), and not with the answer that was asked for.**
+The question was "what is publishable measured against", expecting a
+reference video. The captain's answer instead: feed the render to the local
+Gemma 4 12B model and ask it for a quality analysis. So the gate becomes
+**perceptual rather than technical**, and it runs on every render rather
+than being calibrated once against a reference.
+
+**What this settles and what it does not.** It genuinely closes the gap:
+every gate in this pipeline is technical - resolution, fps, duration,
+black frames, LUFS, audio streams - and not one would catch a letterboxed
+edit with the subject's head cropped off. A model that looks at the frame
+catches exactly that. What it does NOT settle is whose taste the bar is
+calibrated to; it moves it from the agent's taste to the model's. That is
+an improvement, because a model verdict is reproducible, inspectable and
+free to run locally - but it needs the captain to look once and say
+whether they agree, and until then none of it is anybody's standard.
+
+**The plumbing already existed and was never called.**
+`visual_qa_router` already routed to `library/tools/vision_model.VisionModel`
+with `MODEL_ID = "mlx-community/gemma-4-12b-it-4bit"`; `mlx_vlm` and the
+cached model are both present on the machine. The reason every render
+printed "Completed 0 frame grabs and 0 segment checks" was
+`plan_qa_checks` reading `manifest["clips"]` / `manifest["video_clips"]` -
+**neither of which has ever existed**. Clips live under `tracks.V1.clips`.
+The same key-name mismatch as the beat grid, the caption style and the
+conform pan, this time inside the QA layer itself, where it read as a
+clean visual pass rather than an absent one.
+
+**What the first real verdicts taught, which is why the dimensions are
+narrow.** Asked openly - "report only what is wrong" - the model returned
+`{"issues": []}` on a frame whose subject was visibly cut in half. Asked
+grounded, closed questions it got all three calibration frames right:
+
+| frame | verdict |
+| --- | --- |
+| letterboxed | `black_bars: top_and_bottom` - "large black bars at the top and bottom, failing to fill the screen" |
+| fill, dead-centre crop | `main_subject_fully_visible: false` - "cut off by the left edge of the frame" |
+| fill, subject-tracked | clean |
+
+So the dimension set was derived from what the model actually notices, not
+written in advance. `library/tools/perceptual_qa.py` holds them.
+
+**Four constraints, all deliberate.** Structured rather than prose, so
+verdicts compare across renders. Ask what is WRONG and WHY, never for a
+score - a number invites tuning toward the number, which this project has
+been burned by. Every dimension must discriminate: `dimension_variance()`
+counts distinct answers, and `fills_frame` was **dropped** for answering
+`true` on all three frames including the letterboxed one, contradicting
+the model's own `black_bars` answer. And **observation only** - it never
+touches `success`, for the same reason the QA stations are not fatal:
+there is no evidence yet about the false-positive rate.
+
+**Known limits, recorded rather than discovered later.** The calibration
+frames are synthetic test patterns built to make geometry legible, and the
+model reads them as charts - on the clean frame it reported cropped ruler
+numbers, which is true of the pattern and irrelevant to video quality.
+Real footage is needed before any false-positive rate means anything.
+`text_legible` has variance 1 over three frames, which is not yet evidence
+it cannot discriminate; it stays, marked unverified, pending a real
+sample. Cost is roughly 6s per frame on the local model, so the run is
+bounded to 6 frames sampled evenly across the timeline, and the number
+skipped is reported - a silent cap reads as full coverage.
+
+**Not done: the calibration step.** Renders alongside model verdicts, in
+front of the captain, once. If the model and the captain disagree on
+something concrete, that disagreement is the most valuable thing this
+phase can produce.
+
 ### Phase 5: the ceiling.
 
 - **P5.1 Transitions that mix two clips.** Cross dissolve, wipe and whip pan

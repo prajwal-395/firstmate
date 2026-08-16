@@ -48,15 +48,49 @@ def mock_resolve():
     
     root_folder = MagicMock()
     media_pool.GetRootFolder.return_value = root_folder
-    
-    return {
+
+    # A MagicMock says "yes" to everything, including "are you still
+    # rendering?" - so `segment_renderer.render_segment` polled a mock
+    # that never finished and slept out its entire timeout, once per
+    # frame grab. That is what hung the suite: not a deadlock, a long
+    # poll. Ten minutes of wall clock for 2.75 seconds of CPU.
+    #
+    # It only started happening when the visual QA router was fixed to
+    # find clips where they actually live: `plan_qa_checks` had been
+    # reading a top-level "clips" key that has never existed, so it
+    # returned zero frame grabs and this whole path lay dormant.
+    project.IsRenderingInProgress.return_value = False
+
+    # A unit test with a mocked Resolve must not launch a REAL subprocess
+    # at the real application. `build_timeline` shells out to
+    # apply_fusion_comps.py, and `test_media_import_logic` patches
+    # os.path.exists to True for everything - so the guard that normally
+    # skips a missing script let it launch for real, against the live
+    # Resolve, and wait forever. That hung the whole suite three times at
+    # ~58%: ten minutes of wall clock for 2.75 seconds of CPU.
+    #
+    # The renderer is now bounded too (FUSION_SUBPROCESS_TIMEOUT_S), so
+    # this can no longer hang either way - but a unit test should not be
+    # spawning processes at all, and a 600s bound is not a test runtime.
+    fusion_proc = MagicMock()
+    fusion_proc.returncode = 0
+    fusion_proc.stdout = ""
+    fusion_proc.stderr = ""
+    patcher = patch("resolve_build_timeline.subprocess.run",
+                    return_value=fusion_proc)
+    patcher.start()
+
+    yield {
         'resolve': resolve,
         'project_manager': project_manager,
         'project': project,
         'media_pool': media_pool,
         'timeline': timeline,
-        'root_folder': root_folder
+        'root_folder': root_folder,
+        'subprocess_run': patcher,
     }
+
+    patcher.stop()
 
 @pytest.fixture
 def sample_manifest():

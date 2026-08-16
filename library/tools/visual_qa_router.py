@@ -36,6 +36,11 @@ from library.tools.segment_renderer import (
     render_single_frame,
     cleanup_segment,
 )
+from library.tools.perceptual_qa import (
+    build_prompt as perceptual_prompt,
+    parse_verdict as parse_perceptual_verdict,
+    summarise as summarise_perceptual,
+)
 from library.tools.timeline_qa import VisualQACheck, VisualQAReport
 from library.tools.visual_qa_prompts import (
     frame_grab_inline_prompt,
@@ -106,6 +111,29 @@ def frame_to_timecode(frame: int, fps: float = 30.0) -> str:
 
 # --- Planning ---
 
+def _video_clips(manifest: dict) -> List[dict]:
+    """Every V1 and V2 clip, in timeline order.
+
+    The one place that knows where clips live in an assembly manifest.
+    `compile_manifest` writes them under `tracks.V1.clips` /
+    `tracks.V2.clips`; the legacy top-level spellings are accepted so a
+    hand-built manifest still works, but nothing produces them.
+    """
+    legacy = manifest.get("clips") or manifest.get("video_clips")
+    if legacy:
+        return list(legacy)
+
+    tracks = manifest.get("tracks") or {}
+    out = []
+    for name in ("V1", "V2"):
+        for clip in (tracks.get(name) or {}).get("clips") or []:
+            entry = dict(clip)
+            entry.setdefault("track", name)
+            out.append(entry)
+    out.sort(key=lambda c: c.get("timeline_in_frame", 0))
+    return out
+
+
 def plan_qa_checks(manifest: dict, phase: str = "post_build",
                    fps: float = 30.0) -> QAPassPlan:
     """Plan QA checks based on the assembly manifest and pipeline phase.
@@ -123,7 +151,12 @@ def plan_qa_checks(manifest: dict, phase: str = "post_build",
     """
     plan = QAPassPlan(context={"phase": phase})
 
-    clips = manifest.get("clips", manifest.get("video_clips", []))
+    # Clips live under tracks.V1/V2 - there has never been a top-level
+    # `clips` or `video_clips` key, so this read `[]` on every real
+    # manifest and the router planned ZERO frame grabs. Every render
+    # reported "Completed 0 frame grabs and 0 segment checks" and that
+    # read as a clean visual QA pass rather than as an absent one.
+    clips = _video_clips(manifest)
     transitions = manifest.get("transitions", [])
     vfx = manifest.get("vfx", manifest.get("enhancements", []))
     color = manifest.get("color_grade", {})
@@ -578,3 +611,93 @@ def format_qa_plan_for_llm(plan: QAPassPlan) -> dict:
             for sc in plan.segment_checks
         ],
     }
+
+
+# The perceptual observation is OPT-IN, and that is a design decision
+# rather than a convenience.
+#
+# It loads a 7.5GB 4-bit model and spends roughly 6 seconds per frame. A
+# render must not silently pay 40 seconds and several gigabytes for an
+# observation nobody asked for, and it must not do so inside a unit test
+# either: wiring this to run unconditionally inside `build_timeline` hung
+# the whole suite, because `tests/test_resolve_build_timeline.py` drives
+# `build_timeline` with a mocked Resolve and reached the model load. A
+# module or a function that costs gigabytes to CALL poisons every
+# consumer, exactly as one that costs gigabytes to IMPORT would.
+PERCEPTUAL_QA_ENV = "PIPELINE_PERCEPTUAL_QA"
+
+
+def perceptual_qa_enabled() -> bool:
+    """Whether to spend a model load on this render.
+
+    Off unless explicitly asked for. Set `PIPELINE_PERCEPTUAL_QA=1` for a
+    calibration run.
+    """
+    return os.environ.get(PERCEPTUAL_QA_ENV, "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def run_perceptual_observation(resolve, project, timeline, manifest: dict,
+                               fps: float = 30.0,
+                               max_frames: int = 6,
+                               force: bool = False) -> Optional[dict]:
+    """Watch the render and report what looks wrong. OBSERVATION ONLY.
+
+    Returns None unless `PIPELINE_PERCEPTUAL_QA` is set or `force=True`;
+    see PERCEPTUAL_QA_ENV above for why it is opt-in.
+
+    Q8's answer: every gate in this pipeline is technical, and none of
+    them would catch a letterboxed edit with the subject's head cropped
+    off. This grabs a frame from the middle of each placed clip and asks
+    the local vision model the grounded questions in
+    `library/tools/perceptual_qa.py`.
+
+    Nothing here fails a render, and the return value says so
+    (`observation_only: True`). There is no evidence yet about the
+    false-positive rate - the first calibration run produced one finding
+    on a frame that was correct - and making it fatal without that
+    evidence would repeat the mistake this project keeps undoing.
+
+    `max_frames` bounds the cost: a frame takes roughly 6 seconds on the
+    local model, so a 20-clip edit would otherwise add two minutes to
+    every render. Frames are sampled evenly across the timeline rather
+    than truncated to the first N, and the number dropped is reported -
+    a silent cap reads as full coverage.
+    """
+    if not (force or perceptual_qa_enabled()):
+        return None
+
+    plan = plan_qa_checks(manifest, phase="post_build", fps=fps)
+    grabs = list(plan.frame_grabs)
+    if not grabs:
+        return None
+
+    # Imported here, not at module scope: importing this router must stay
+    # free. mlx_vlm pulls in a large stack, and a reader that only wants
+    # `plan_qa_checks` should not pay for it.
+    from library.tools.vision_model import VisionModel
+
+    dropped = 0
+    if len(grabs) > max_frames:
+        step = len(grabs) / float(max_frames)
+        sampled = [grabs[int(i * step)] for i in range(max_frames)]
+        dropped = len(grabs) - len(sampled)
+        grabs = sampled
+
+    model = VisionModel()
+    prompt = perceptual_prompt()
+    verdicts = []
+    for req in grabs:
+        result = execute_frame_grab(resolve, project, timeline, req)
+        if not result.image_path:
+            continue
+        raw = model.analyze_image(result.image_path, prompt, max_tokens=240)
+        verdicts.append(parse_perceptual_verdict(raw, frame=req.frame_number))
+
+    if not verdicts:
+        return None
+
+    summary = summarise_perceptual(verdicts)
+    summary["frames_available"] = len(plan.frame_grabs)
+    summary["frames_not_examined"] = dropped
+    return summary

@@ -40,6 +40,10 @@ from typing import Optional
 # station, the neural-engine wrappers and the Fairlight helpers to None.
 # The whole verification layer was dead in every scripted run, announced
 # by one line reading "Timeline QA script not loaded".
+# How long the Fusion comp pass may take before it is killed. Generous
+# enough for a long edit, finite so a render cannot hang forever.
+FUSION_SUBPROCESS_TIMEOUT_S = 600
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
     _p = os.path.abspath(_p)
@@ -75,10 +79,13 @@ except ImportError as _e:
 try:
     from visual_qa_router import (
         plan_qa_checks, execute_frame_grab, execute_video_segment_check,
-        analyze_frame_locally, format_frame_grab_for_llm, format_segment_result_for_llm
+        analyze_frame_locally, format_frame_grab_for_llm,
+        format_segment_result_for_llm, run_perceptual_observation,
+        perceptual_qa_enabled
     )
 except ImportError as _e:
-    plan_qa_checks = None
+    plan_qa_checks = run_perceptual_observation = None
+    perceptual_qa_enabled = lambda: False
     _TOOLING_IMPORT_ERRORS["visual_qa_router"] = str(_e)
 
 
@@ -1156,9 +1163,35 @@ def build_timeline(
         if project_folder:
             cmd += ["--project-folder", project_folder]
         print(f"\n── Launching subprocess for Fusion Comps ──", file=sys.stderr)
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-        
-        if proc.returncode != 0:
+        # BOUNDED. This call had no timeout, and it is the one subprocess in
+        # the renderer that talks to Resolve from a second process - so when
+        # Resolve does not answer, it waits forever. That is not only a test
+        # problem: a real render would hang with no diagnostic and no way to
+        # tell it from a slow Fusion pass. It hung the whole test suite three
+        # times, at ~58%, with 2.75s of CPU over ten minutes of wall clock,
+        # because tests/test_resolve_build_timeline.py drives build_timeline
+        # with a mocked Resolve and a blanket os.path.exists patch, which
+        # let this launch for real against the live application.
+        #
+        # A timeout is a FAILURE here, not a skip: comps that did not draw
+        # must not read as comps that did.
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=FUSION_SUBPROCESS_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            msg = (f"Fusion subprocess did not finish within "
+                   f"{FUSION_SUBPROCESS_TIMEOUT_S}s and was killed; no comps "
+                   f"were applied")
+            results["errors"].append(msg)
+            print(f"  ✗ {msg}", file=sys.stderr)
+            proc = None
+
+        if proc is None:
+            pass
+        elif proc.returncode != 0:
             results["warnings"].append(f"Fusion subprocess failed: {proc.stderr}")
             print(f"  ✗ Fusion Comps Subprocess Failed", file=sys.stderr)
         else:
@@ -1425,7 +1458,25 @@ def build_timeline(
         try:
             qa_plan = plan_qa_checks(manifest, phase="post_build", fps=fps)
             visual_qa_results = []
-            
+
+            # Each frame grab is a REAL Deliver-page render, polled to
+            # completion. This loop never ran in production, because
+            # `plan_qa_checks` read a top-level "clips" key that has never
+            # existed and so returned zero grabs; fixing that switched on a
+            # dormant path that renders once per placed clip and would add
+            # minutes to every export unasked.
+            #
+            # So it is opt-in, on the same switch as the perceptual
+            # observation it feeds. Turning a key-name bug into a silent
+            # multi-minute cost would be a poor trade for a fix.
+            if not perceptual_qa_enabled():
+                print(f"  Skipped: {len(qa_plan.frame_grabs)} frame grab(s) "
+                      f"and {len(qa_plan.segment_checks)} segment check(s) "
+                      f"available. Set PIPELINE_PERCEPTUAL_QA=1 to run them.",
+                      file=sys.stderr)
+                qa_plan.frame_grabs = []
+                qa_plan.segment_checks = []
+
             for fg_req in qa_plan.frame_grabs:
                 res = execute_frame_grab(resolve, project, timeline, fg_req)
                 if res.image_path:
@@ -1438,6 +1489,40 @@ def build_timeline(
                 
             results["visual_qa"] = visual_qa_results
             print(f"  ✓ Completed {len(qa_plan.frame_grabs)} frame grabs and {len(qa_plan.segment_checks)} segment checks", file=sys.stderr)
+
+            # ── Perceptual observation (Q8) ──
+            # A model that WATCHES the render. Every other gate here is
+            # technical and none of them would catch a letterboxed edit
+            # with the subject's head cropped off.
+            #
+            # OBSERVATION ONLY: this never fails a build and never touches
+            # `success`. There is no evidence yet about its false-positive
+            # rate, and it has not been calibrated against the captain.
+            if run_perceptual_observation:
+                try:
+                    observation = run_perceptual_observation(
+                        resolve, project, timeline, manifest, fps=fps)
+                    if observation:
+                        results["perceptual_observation"] = observation
+                        n = len(observation.get("findings", []))
+                        print(f"\n── Perceptual QA (observation only) ──",
+                              file=sys.stderr)
+                        print(f"  {observation['frames_examined']} frames "
+                              f"examined, {n} observation(s)", file=sys.stderr)
+                        if observation.get("frames_not_examined"):
+                            print(f"  {observation['frames_not_examined']} "
+                                  f"frame(s) not examined (cost bound)",
+                                  file=sys.stderr)
+                        for f in observation.get("findings", []):
+                            print(f"    · frame {f['frame']} [{f['dimension']}]"
+                                  f" {f['detail'] or f['value']}",
+                                  file=sys.stderr)
+                        print("  Not a gate. Nothing here failed the build.",
+                              file=sys.stderr)
+                except Exception as e:
+                    # An observation that breaks must not break a render.
+                    print(f"  ⚠ Perceptual QA unavailable: {e}", file=sys.stderr)
+                    results["warnings"].append(f"Perceptual QA unavailable: {e}")
         except Exception as e:
             print(f"  ✗ Visual QA router failed: {e}", file=sys.stderr)
             results["warnings"].append(f"Visual QA router failed: {e}")
