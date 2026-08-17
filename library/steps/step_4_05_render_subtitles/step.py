@@ -72,15 +72,14 @@ def main():
         }, sys.stdout, indent=2)
         sys.exit(1)
 
-    # Prep Remotion: stage compositions from shared assets, link brand assets, generate Root.tsx
+    # Prep Remotion: link brand assets (logos, fonts) into Remotion's
+    # public/brand/ directory so staticFile("brand/...") resolves at render
+    # time.  There is no composition staging or Root.tsx generation -
+    # compositions live in src/compositions/ and Root.tsx is committed.
     try:
         sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
         from tools.remotion_brand_linker import prep_remotion
         prep_result = prep_remotion(project_folder=project_folder)
-        comp_info = prep_result.get("compositions", {})
-        if comp_info.get("staged"):
-            print(f"  Staged {comp_info['count']} compositions from {comp_info['source']}",
-                  file=sys.stderr)
         brand_info = prep_result.get("brand", {})
         if brand_info.get("linked"):
             print(f"  Linked {brand_info['count']} brand assets from {brand_info['source']}",

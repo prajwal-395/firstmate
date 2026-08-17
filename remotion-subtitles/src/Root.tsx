@@ -22,6 +22,11 @@ import {
   type LucieLogoAnimationProps,
 } from "./compositions/LucieLogoAnimation";
 import {
+  TimedTextOverlay,
+  timedTextOverlaySchema,
+  type TimedTextOverlayProps,
+} from "./compositions/TimedTextOverlay";
+import {
   FourthWallOverlay,
   fourthWallOverlaySchema,
   type FourthWallOverlayProps,
@@ -55,6 +60,16 @@ const calculateMotionMetadata: CalculateMetadataFunction<MotionGraphicsProps> =
   };
 
 const calculateFourthWallMetadata: CalculateMetadataFunction<FourthWallOverlayProps> =
+  async ({ props }) => {
+    return {
+      durationInFrames: props.durationInFrames,
+      fps: props.fps,
+      width: props.width,
+      height: props.height,
+    };
+  };
+
+const calculateTimedTextMetadata: CalculateMetadataFunction<TimedTextOverlayProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -254,20 +269,50 @@ export const RemotionRoot: React.FC = () => {
         width={1080}
         height={1920}
         defaultProps={{
-          nightCardText: "Night 1 — Through the 4th Wall",
-          nightCardColor: "#D4A34A",
-          nightCardStartFrame: 162,
-          nightCardDurationFrames: 60,
-          closingLine1Text: "It's 2:16.",
-          closingLine1Color: "#00BFFF",
-          closingLine1StartFrame: 1725,
-          closingLine2Text: "Day 1. Attack the day tomorrow.",
-          closingLine2Color: "#D4A34A",
-          closingLine2StartFrame: 1770,
-          counterText: "1 / 100",
-          counterColor: "#00BFFF",
-          counterStartFrame: 1530,
-          counterDurationFrames: 45,
+          moments: [
+            {
+              text: "Night 1 — Through the 4th Wall",
+              color: "#D4A34A",
+              fontSize: 48,
+              startFrame: 162,
+              durationFrames: 60,
+              x: 0.5,
+              y: 0.15,
+              fadeInFrames: 10,
+              fadeOutFrames: 10,
+              fontWeight: 400,
+              textAlign: "center" as const,
+              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+            },
+            {
+              text: "It's 2:16.",
+              color: "#00BFFF",
+              fontSize: 42,
+              startFrame: 1725,
+              durationFrames: 75,
+              x: 0.5,
+              y: 0.5,
+              fadeInFrames: 8,
+              fadeOutFrames: 8,
+              fontWeight: 400,
+              textAlign: "center" as const,
+              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+            },
+            {
+              text: "Night 1. Attack the day tomorrow.",
+              color: "#D4A34A",
+              fontSize: 42,
+              startFrame: 1770,
+              durationFrames: 30,
+              x: 0.5,
+              y: 0.6,
+              fadeInFrames: 8,
+              fadeOutFrames: 8,
+              fontWeight: 400,
+              textAlign: "center" as const,
+              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+            },
+          ],
           fontFamily: "'Nanum Pen Script', cursive",
           fps: 30,
           width: 1080,
@@ -275,6 +320,24 @@ export const RemotionRoot: React.FC = () => {
           durationInFrames: 1800,
         }}
         calculateMetadata={calculateFourthWallMetadata}
+      />
+      <Composition
+        id="TimedTextOverlay"
+        component={TimedTextOverlay}
+        schema={timedTextOverlaySchema}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          moments: [],
+          fontFamily: "Helvetica",
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          durationInFrames: 1800,
+        }}
+        calculateMetadata={calculateTimedTextMetadata}
       />
     </>
   );

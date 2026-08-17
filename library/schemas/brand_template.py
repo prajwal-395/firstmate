@@ -25,6 +25,10 @@ class EffectSlots:
     # whether the house style should keep them is Q3, a captain's call.
     motion_accents: Optional[bool] = None
     motion_progress_bar: Optional[bool] = None
+    # Timed text overlay (Q7, 2026-08-16). A template declares the text
+    # moments that appear as a transparent overlay, or omits the key to
+    # get nothing. Same opt-in shape as motion_accents.
+    timed_text_overlay: Optional[Dict[str, Any]] = None
 
 @dataclass
 class ContentSlots:
@@ -83,6 +87,31 @@ class BrandTemplate:
                         "subtitle_style": {"type": "string"},
                         "motion_accents": {"type": "boolean"},
                         "motion_progress_bar": {"type": "boolean"},
+                        "timed_text_overlay": {
+                            "type": "object",
+                            "description": "Timed text moments rendered as a transparent overlay. Omit for no overlay.",
+                            "properties": {
+                                "font_family": {"type": "string"},
+                                "moments": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "text": {"type": "string"},
+                                            "color": {"type": "string"},
+                                            "font_size": {"type": "integer"},
+                                            "start_frame": {"type": "integer"},
+                                            "duration_frames": {"type": "integer"},
+                                            "x": {"type": "number"},
+                                            "y": {"type": "number"},
+                                            "fade_in_frames": {"type": "integer"},
+                                            "fade_out_frames": {"type": "integer"}
+                                        },
+                                        "required": ["text", "color", "start_frame", "duration_frames"]
+                                    }
+                                }
+                            }
+                        },
                         "sfx_density": {"type": "string", "enum": ["sparse", "moderate", "dense"]},
                         "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"}
                     }

@@ -1,0 +1,64 @@
+# Through the 4th Wall - series brand template.
+#
+# The timed_text_overlay declares the text moments that appear as a
+# transparent overlay on this series' videos.  No other template carries
+# one, so no other series gets an overlay - see Q7 (2026-08-16).
+#
+# Copy locked to the series spec:
+#   - The closing line uses "Night X", never "Day 1" or "Episode X".
+#   - The "1 / 100" counter is DROPPED (no basis in the series docs).
+series_id: fourth_wall
+style:
+  energy_profile: calm
+  color_palette: ["#D4A34A", "#00BFFF", "#FFFFFF", "#111111"]
+  # The same warm-reflection look as cinematic_narrative - the 4th Wall
+  # is a night-time series and warm amber / warm shadows match its tone.
+  house_look: warm_reflection
+effect:
+  transition_types: ["hard_cut", "fade_to_black", "defocus"]
+  vfx_intensity: 0.3
+  subtitle_style: "minimal"
+  sfx_density: sparse
+  caption_case: lowercase
+  # Text overlay - the series' visual signature.
+  # Timing is in frames at 30 fps.  Per-video values like night number
+  # and the closing time are filled by the pipeline at render time;
+  # these are the series DEFAULTS (Night 1).
+  timed_text_overlay:
+    font_family: "'Nanum Pen Script', cursive"
+    moments:
+      - text: "Night 1 - Through the 4th Wall"
+        color: "#D4A34A"
+        font_size: 48
+        start_frame: 162
+        duration_frames: 60
+        x: 0.5
+        y: 0.15
+        fade_in_frames: 10
+        fade_out_frames: 10
+        font_weight: 400
+      - text: "It's 2:16."
+        color: "#00BFFF"
+        font_size: 42
+        start_frame: 1725
+        duration_frames: 75
+        x: 0.5
+        y: 0.5
+        fade_in_frames: 8
+        fade_out_frames: 8
+        font_weight: 400
+      - text: "Night 1. Attack the day tomorrow."
+        color: "#D4A34A"
+        font_size: 42
+        start_frame: 1770
+        duration_frames: 30
+        x: 0.5
+        y: 0.6
+        fade_in_frames: 8
+        fade_out_frames: 8
+        font_weight: 400
+content:
+  music_genre: ["ambient", "lo-fi"]
+  target_duration_seconds:
+    min: 45
+    max: 90

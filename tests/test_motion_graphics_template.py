@@ -251,6 +251,7 @@ EXPECTED_DECLARATIONS = {
     "interview_professional": {"motion_accents": True, "motion_progress_bar": False},
     "cinematic_narrative": {},
     "default_brand": {},
+    "fourth_wall": {},
 }
 
 
