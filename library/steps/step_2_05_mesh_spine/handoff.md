@@ -59,6 +59,15 @@ construct the complete audio spine.
 | `transition_slot` | Non-speech moment for B-roll + music | prominent |
 | `outro` | Closing section | fade_out |
 
+Note what is NOT in that table: `intro_card`, `outro_card` and `end_card`.
+Those are CARDS - a logo animation, a branded end card - and which card a
+video gets is a brand decision, not a per-run one. The brand template
+declares them in `content.bookends` and the bridge places them around
+your spine (`library/tools/bookends.py`); most templates declare none.
+Any you write yourself is dropped, with a line in the step's log. An
+`intro` block is still yours: it is a breath of music and B-roll, not a
+card.
+
 ### Music behavior values:
 - `"prominent"` — music leads (no competing speech)
 - `"background"` — music plays quietly under speech

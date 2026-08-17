@@ -336,8 +336,7 @@ video_editing_pilot/
 │   │   │   └── speech_advanced_pipeline.py   ← Prosody (parselmouth)
 │   │   └── execution/                        ← Execution tools
 │   │       ├── generate_subtitle_props.py    ← Remotion input props
-│   │       ├── sfx_placer.py                 ← SFX scoring + placement
-│   │       └── import_endcard.py             ← Endcard import utility
+│   │       └── sfx_placer.py                 ← SFX scoring + placement
 │   ├── processes/edit_video/
 │   │   ├── dag.json                          ← 26-node DAG, 92 edges
 │   │   ├── manifest.json                     ← Process-level manifest

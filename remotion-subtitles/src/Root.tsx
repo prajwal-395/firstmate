@@ -12,16 +12,6 @@ import {
   type MotionGraphicsProps,
 } from "./compositions/MotionGraphics";
 import {
-  LucieEndCard,
-  lucieEndCardSchema,
-  type LucieEndCardProps,
-} from "./compositions/LucieEndCard";
-import {
-  LucieLogoAnimation,
-  lucieLogoAnimationSchema,
-  type LucieLogoAnimationProps,
-} from "./compositions/LucieLogoAnimation";
-import {
   TimedTextOverlay,
   timedTextOverlaySchema,
   type TimedTextOverlayProps,
@@ -70,32 +60,6 @@ const calculateFourthWallMetadata: CalculateMetadataFunction<FourthWallOverlayPr
   };
 
 const calculateTimedTextMetadata: CalculateMetadataFunction<TimedTextOverlayProps> =
-  async ({ props }) => {
-    return {
-      durationInFrames: props.durationInFrames,
-      fps: props.fps,
-      width: props.width,
-      height: props.height,
-    };
-  };
-
-/**
- * Dynamic metadata calculation for LucieEndCard.
- */
-const calculateEndCardMetadata: CalculateMetadataFunction<LucieEndCardProps> =
-  async ({ props }) => {
-    return {
-      durationInFrames: props.durationInFrames,
-      fps: props.fps,
-      width: props.width,
-      height: props.height,
-    };
-  };
-
-/**
- * Dynamic metadata calculation for LucieLogoAnimation.
- */
-const calculateLogoMetadata: CalculateMetadataFunction<LucieLogoAnimationProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -219,46 +183,6 @@ export const RemotionRoot: React.FC = () => {
           durationInFrames: 150,
         }}
         calculateMetadata={calculateMotionMetadata}
-      />
-      <Composition
-        id="LucieEndCard"
-        component={LucieEndCard}
-        schema={lucieEndCardSchema}
-        durationInFrames={150}
-        fps={30}
-        width={1080}
-        height={1920}
-        defaultProps={{
-          headline: "We power what AI knows about you.",
-          tagline:
-            "Strategic storytelling built for human trust and AI visibility.",
-          websiteUrl: "luciecontent.com",
-          accentColor: "#FFAA4D",
-          bgColor: "#253746",
-          fps: 30,
-          width: 1080,
-          height: 1920,
-          durationInFrames: 150,
-        }}
-        calculateMetadata={calculateEndCardMetadata}
-      />
-      <Composition
-        id="LucieLogoAnimation"
-        component={LucieLogoAnimation}
-        schema={lucieLogoAnimationSchema}
-        durationInFrames={90}
-        fps={30}
-        width={1080}
-        height={1920}
-        defaultProps={{
-          accentColor: "#FFAA4D",
-          style: "full" as const,
-          fps: 30,
-          width: 1080,
-          height: 1920,
-          durationInFrames: 90,
-        }}
-        calculateMetadata={calculateLogoMetadata}
       />
       <Composition
         id="FourthWallOverlay"

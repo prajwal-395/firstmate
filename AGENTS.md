@@ -448,6 +448,28 @@ cannot deliver in `withdrawn`. Nothing depends on a file inside a Resolve
 installation. Add a look only with a template that names it -
 `tests/test_house_look.py` fails on an orphan.
 
+## 13. Intros, outros and end cards
+
+One enumeration, `library/tools/bookends.py`, holds the whole mechanism: a
+brand template declares `content.bookends`, and a template that declares
+nothing gets nothing (captain's Q7, 2026-08-16 - "wire them up, but only on
+some videos"). A declaration names either an `asset` that already exists or
+a `composition` to render, plus a `duration_seconds`; a malformed one
+raises rather than being dropped, because a dropped declaration is a card
+the editor believes shipped.
+
+The path is the same one every other clip takes, and that is the point:
+`mesh_spine` turns each declaration into an `intro_card`/`outro_card`/
+`end_card` spine block (NOT `intro`/`outro`, which already mean a
+non-speech pacing beat), step 4.06 renders the composition-mode ones,
+`compile_manifest` emits a V1 clip, and the renderer places it. So a card
+is inside the coverage assertion, the manifest duration and render QA.
+`library/tools/execution/import_endcard.py` appended one out of band after
+compilation and is deleted; see the row in `docs/PIPELINE_PLAN.md` section
+5. Project-owned compositions are staged **verbatim** by
+`bookend_render.py` into gitignored build output - the engine renders a
+client's asset, it never edits one.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

@@ -13,10 +13,16 @@ deterministic timing calculator (Step 2.6).
 Classification: Deterministic / Data Transformation
 Idempotent: Yes
 
+It also places the intro / outro / end card the brand template declares
+(``content.bookends``), which is the only place they come from - see
+``library/tools/bookends.py``.
+
 Input:  {
     "spine": <LLM output from 2.5>,
     "speech_sequence": <resolved output from 2.3>,
-    "music_selection": <output from 2.4>
+    "music_selection": <output from 2.4>,
+    "brand_content": <the template's content slots, injected by the runner>,
+    "project_folder": <used to resolve declared bookend paths>
 }
 Output: {
     "audio_spine": <enriched spine ready for 2.6 calc_timing>
@@ -27,7 +33,15 @@ import sys
 import uuid
 import os
 from library.tools.pipeline_validation import require_keys
-from library.tools.spine_contract import validate_spine_blocks
+from library.tools.spine_contract import (
+    BOOKEND_BLOCK_TYPES,
+    validate_spine_blocks,
+)
+from library.tools.bookends import (
+    declared_bookends,
+    insert_bookend_blocks,
+    resolve_bookend,
+)
 
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -149,6 +163,43 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
             + "\n  - ".join(unresolved)
         )
 
+    # ── Bookends: intro / outro / end card ──
+    # Only what the brand template declares (Q7). A template that declares
+    # nothing adds nothing here, which is every template unless someone
+    # opted in. The LLM never writes these blocks: the card a video shows
+    # is a brand decision, and inventing one per run is how a client's end
+    # card ends up on a series video. A planned intro/outro block with no
+    # declaration behind it is dropped OUT LOUD - left in, it would be a
+    # stretch of timeline with no clip under it, and the coverage
+    # assertion in compile_manifest would report it as a hole with its
+    # cause three steps behind it.
+    for b in enriched_blocks:
+        if b.get("block_type") in BOOKEND_BLOCK_TYPES:
+            print(
+                f"  Dropped planned {b['block_type']} block "
+                f"[{b.get('position')}]: intros, outros and end cards come "
+                f"from the brand template's content.bookends, not from the "
+                f"spine plan",
+                file=sys.stderr,
+            )
+    enriched_blocks = [
+        b for b in enriched_blocks
+        if b.get("block_type") not in BOOKEND_BLOCK_TYPES
+    ]
+    resolved_bookends = [
+        resolve_bookend(d, (data or {}).get("project_folder", ""))
+        for d in declared_bookends((data or {}).get("brand_content"))
+    ]
+    if resolved_bookends:
+        enriched_blocks = insert_bookend_blocks(
+            enriched_blocks, resolved_bookends)
+        for r in resolved_bookends:
+            print(
+                f"  Bookend [{r['slot']}]: {r['duration_seconds']}s from "
+                f"{r['mode']} {r['composition'] or r['asset']}",
+                file=sys.stderr,
+            )
+
     # Recalculate timeline positions from (potentially extended) durations.
     # Block extensions shift all subsequent blocks forward.
     cursor = 0.0
@@ -178,10 +229,20 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     from library.tools.duration_targets import get_target_duration_zone
     target_duration_zone = get_target_duration_zone(data or {})
 
+    # The duration zone is a target for the CONTENT the spine planned.
+    # A declared bookend is a fixed brand decision the planner never chose,
+    # so charging its seconds against the zone would fail a spine that hit
+    # its target exactly, for the crime of having an end card.
+    bookend_dur = sum(
+        b.get("duration_seconds", 0) for b in enriched_blocks
+        if b.get("block_type") in BOOKEND_BLOCK_TYPES
+    )
+
     # The single gate on the spine contract. Every creative step downstream
     # reads these blocks directly, so a malformed spine stops here rather
     # than degrading silently in five different consumers.
-    validate_spine_blocks(enriched_blocks, total_dur, target_duration_zone)
+    validate_spine_blocks(
+        enriched_blocks, total_dur - bookend_dur, target_duration_zone)
 
     return {
         "audio_spine": {

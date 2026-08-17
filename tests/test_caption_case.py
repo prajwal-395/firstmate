@@ -223,12 +223,14 @@ _TEMPLATE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "library", "templates")
 
-# All four lowercase, which is what they already produced.
+# Lowercase everywhere except the client template: lowercase captions are
+# the channel's voice, and a client's brand is not the channel's.
 EXPECTED_CAPTION_CASE = {
     "cinematic_narrative": "lowercase",
     "default_brand": "lowercase",
     "fourth_wall": "lowercase",
     "interview_professional": "lowercase",
+    "lucie_client": "as_written",
     "shortform_energetic": "lowercase",
 }
 

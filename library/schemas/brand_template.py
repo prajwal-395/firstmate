@@ -34,8 +34,14 @@ class EffectSlots:
 class ContentSlots:
     series_title: str = ""
     channel_name: str = ""
-    intro_template: str = ""
-    outro_template: str = ""
+    # Intro / outro / end card (Q7, 2026-08-16). A template declares which
+    # card fills which slot, or omits the key and gets none. The
+    # declaration shape, the two production modes and the path it takes to
+    # the timeline all live in library/tools/bookends.py.
+    # This replaced `intro_template` / `outro_template`, which named two
+    # Fusion .setting macros nothing imported - a full-frame red slate and
+    # a "Subscribe!" card the channel spec forbids by name.
+    bookends: Optional[Dict[str, Any]] = None
     watermark: Dict[str, Any] = field(default_factory=dict)
     music_genre: List[str] = field(default_factory=list)
     target_duration_seconds: Dict[str, int] = field(default_factory=dict)
@@ -121,8 +127,26 @@ class BrandTemplate:
                     "properties": {
                         "series_title": {"type": "string"},
                         "channel_name": {"type": "string"},
-                        "intro_template": {"type": "string"},
-                        "outro_template": {"type": "string"},
+                        "bookends": {
+                            "type": "object",
+                            "description": "Intro / outro / end card. Omit for none. See library/tools/bookends.py.",
+                            "properties": {
+                                slot: {
+                                    "type": "object",
+                                    "properties": {
+                                        "composition": {"type": "string", "description": "Remotion composition to render"},
+                                        "source": {"type": "string", "description": "Project-owned .tsx for that composition"},
+                                        "asset": {"type": "string", "description": "A clip that already exists"},
+                                        "duration_seconds": {"type": "number", "exclusiveMinimum": 0},
+                                        "props": {"type": "object"},
+                                        "has_audio": {"type": "boolean"}
+                                    },
+                                    "required": ["duration_seconds"]
+                                }
+                                for slot in ("intro", "outro", "end_card")
+                            },
+                            "additionalProperties": False
+                        },
                         "watermark": {"type": "object"},
                         "music_genre": {"type": "array", "items": {"type": "string"}},
                         "target_duration_seconds": {"type": "object"}

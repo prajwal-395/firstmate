@@ -57,8 +57,12 @@ effect:
 content:
   series_title: "Default Series"
   channel_name: "Default Channel"
-  intro_template: "library/presets/fusion-macros/intro_lower_third.setting"
-  outro_template: "library/presets/fusion-macros/outro_subscribe.setting"
+  # No bookends. The fallback template gets no intro, no outro and no end
+  # card, which is what "nothing by default" means (Q7, 2026-08-16). It
+  # used to name two Fusion .setting macros - a full-frame pure red slate
+  # and a "Subscribe!" card the channel spec forbids by name - that no
+  # step ever imported. Both are deleted; see library/tools/bookends.py
+  # for what a template that DOES want a card declares.
   music_genre:
     - "electronic"
     - "upbeat"

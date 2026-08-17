@@ -359,6 +359,12 @@ def _check_no_fabricated_source_ranges(manifest: dict) -> list[str]:
         src_out = clip.get("source_out")
         if src_in is None or src_out is None:
             continue
+        # A declared intro / outro / end card is not cut from footage: it
+        # is a rendered card that starts at its own frame 0 and runs the
+        # length the template declared, so whole seconds are what a
+        # correct one looks like. See library/tools/bookends.py.
+        if clip.get("bookend"):
+            continue
         if _is_round(src_in) and _is_round(src_out):
             errors.append(
                 f"V1 clip {clip.get('label', '?')} has a fabricated-looking "

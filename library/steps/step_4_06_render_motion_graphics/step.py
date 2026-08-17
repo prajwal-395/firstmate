@@ -92,6 +92,30 @@ def main():
     fps = data.get("project_fps", 30)
     width = data.get("project_resolution", [1080, 1920])[0]
     height = data.get("project_resolution", [1080, 1920])[1]
+    # Bookends first: an intro / outro / end card the brand template
+    # declared reaches the spine in step 2.05, and has to be a file before
+    # compile_manifest can put it on V1. A template that declares none -
+    # which is every template unless someone opted in - renders none.
+    # See library/tools/bookends.py.
+    try:
+        sys.path.insert(0, PILOT_ROOT)
+        from library.tools.bookend_render import render_declared_bookends
+        bookends_rendered = render_declared_bookends(
+            audio_spine.get("structure", []), REMOTION_DIR,
+            fps=fps, width=width, height=height)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        json.dump({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": f"bookend render failed: {e}",
+            }
+        }, sys.stdout, indent=2)
+        sys.exit(1)
+    if bookends_rendered:
+        print(f"Bookends ready: {len(bookends_rendered)}", file=sys.stderr)
+
     props_list = generate_motion_props(
         enhancement_spec, creative_direction, audio_spine,
         fps=fps, width=width, height=height,

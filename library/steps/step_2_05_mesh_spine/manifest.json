@@ -7,6 +7,12 @@
   "interface": {
     "inputs": [
       {
+        "name": "brand_content",
+        "type": "object",
+        "required": false,
+        "description": "Brand template content slots. Only content.bookends is read: it declares the intro / outro / end card this template gets, and a template declaring none gets none."
+      },
+      {
         "name": "music_analysis",
         "type": "object",
         "required": true,
@@ -63,7 +69,7 @@
         "name": "structure",
         "type": "list",
         "required": true,
-        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"intro\"|\"speech\"|\"transition_slot\"|\"outro\") and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position"
+        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"transition_slot\") and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position. Do NOT write \"intro\", \"outro\" or \"end_card\" blocks: those come from the brand template's content.bookends and the bridge drops any the plan invents"
       }
     ]
   },

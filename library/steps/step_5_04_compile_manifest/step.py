@@ -41,7 +41,12 @@ from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
 from tools.beat_grid import assert_music_starts_at_timeline_zero
-from tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS, is_speech_block
+from tools.bookends import block_bookend
+from tools.spine_contract import (
+    BOOKEND_BLOCK_TYPES,
+    MAX_DECLARED_BLACK_BEAT_SECONDS,
+    is_speech_block,
+)
 from tools.semantic_index import build_semantic_lookup
 from tools.subject_framing import subject_center_x, subject_centers_by_clip
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
@@ -498,8 +503,9 @@ def _spine_block_entry(block: dict) -> dict:
         "timeline_start": block.get("timeline_start", 0),
         "timeline_end": block.get("timeline_end", 0),
         "block_type": block.get("block_type", ""),
+        # A card carries no speech, so nothing is ducking under.
         "music_behavior": "full" if block.get("block_type") in
-            ("transition_slot", "outro") else "ducked",
+            ("transition_slot",) + BOOKEND_BLOCK_TYPES else "ducked",
     }
     for key in ("intentional_black_beat", "black_beat_reason"):
         if key in block:
@@ -549,6 +555,38 @@ def _undeclared_black_beat_reason(start: float, end: float,
                 f"deliberate beat may run")
 
     return None
+
+
+def _assert_nothing_covers_a_bookend(v1_clips: list, v2_clips: list) -> None:
+    """B-roll must not be laid over a declared card.
+
+    V2 sits above V1, so a cutaway that overlaps an end card hides it
+    completely - and the card is the one clip on the timeline whose whole
+    job is to be seen. Nothing upstream stops it: `select_broll` picks
+    spine block positions, and a card block is a non-speech block like any
+    other from where it stands. This is the one place that can see both.
+    """
+    cards = [c for c in v1_clips if c.get("bookend")]
+    if not cards:
+        return
+    problems = []
+    for card in cards:
+        for broll in v2_clips:
+            overlap = (min(card["timeline_out"], broll["timeline_out"])
+                       - max(card["timeline_in"], broll["timeline_in"]))
+            if overlap > 0.001:
+                problems.append(
+                    f"{broll.get('label', '?')} covers "
+                    f"{card['label']} for {overlap:.3f}s "
+                    f"({card['timeline_in']}s-{card['timeline_out']}s)"
+                )
+    if problems:
+        raise ValueError(
+            "B-roll is laid over a declared card, which hides it "
+            "completely:\n  - " + "\n  - ".join(problems)
+            + "\nA card is not a stretch of timeline to fill - remove the "
+              "B-roll assignment on that spine block."
+        )
 
 
 def _assert_timeline_fully_covered(manifest: dict) -> None:
@@ -1005,6 +1043,40 @@ def compile_manifest(out_dir: str) -> dict:
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
     for block in structure:
+        # A declared intro / outro / end card plays a finished clip, so it
+        # goes on V1 like any other picture: inside the coverage
+        # assertion, inside project.duration_seconds, and visible to the
+        # render QA in step 6.02. The retired import_endcard.py appended
+        # one to the timeline AFTER the manifest was written, which left
+        # every gate describing a video that no longer existed.
+        bookend = block_bookend(block)
+        if bookend:
+            clip = {
+                "source_file": bookend["asset_path"],
+                # A rendered card starts at its own frame 0 and runs its
+                # declared length; there is no footage to trim into.
+                "source_in": 0.0,
+                "source_out": bookend["duration_seconds"],
+                "timeline_in": block.get("timeline_start", 0.0),
+                "timeline_out": block.get("timeline_end", 0.0),
+                "timeline_in_frame": block.get("timeline_start_frame"),
+                "timeline_out_frame": block.get("timeline_end_frame"),
+                "link_group_id": None,
+                "label": f"bookend_{bookend['slot']}",
+                # Read by the renderer to skip the A1 placement, and by
+                # manifest_validator to exempt the card from the checks
+                # that only make sense for cut footage.
+                "bookend": bookend["slot"],
+                "video_only": not bookend.get("has_audio", False),
+            }
+            if clip["timeline_in_frame"] is None:
+                convert_clip_to_frames(clip, fps)
+            # No _conform_fields: a card is authored at the project
+            # resolution, so there is no framing decision to make and no
+            # catalog entry to make it from.
+            v1_clips.append(clip)
+            continue
+
         if block["block_type"] in ("speech", "hook"):
             content = block.get("content") or {}
             lgid = (block.get("link_group_id")
@@ -1115,6 +1187,7 @@ def compile_manifest(out_dir: str) -> dict:
         compute_neural_directives(get_clip_id(assigned), v2_clip)
 
     broll_dropped_by_overlap = _resolve_v2_overlaps(v2_clips, fps, v2_kinds)
+    _assert_nothing_covers_a_bookend(v1_clips, v2_clips)
 
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
@@ -1276,6 +1349,14 @@ def compile_manifest(out_dir: str) -> dict:
     fusion_look = color_data.get("color_grade_spec", {}).get("fusion_look", {})
     if fusion_look:
         for clip in v1_clips + v2_clips:
+            # Not the cards. A declared intro / outro / end card is a
+            # finished graphic - often a client's own brand asset - and
+            # putting the house glow, grain and vignette over it would
+            # regrade artwork that was delivered the way it is meant to
+            # look. The CDL half already skips it: it is not in the
+            # catalog, so step 5.01 writes no adjustment for it.
+            if clip.get("bookend"):
+                continue
             effect = per_clip_effects.setdefault(clip["label"], {})
             for key, value in fusion_look.items():
                 effect.setdefault(key, value)
@@ -1383,7 +1464,13 @@ def compile_manifest(out_dir: str) -> dict:
             },
             "A1": {
                 "label": "Speech",
-                "clips": sorted(v1_clips, key=lambda c: c["timeline_in"]),
+                # The audio that comes with the A-roll. A silent card -
+                # an end card, a logo animation - is deliberately absent:
+                # listing it here would claim an audio stream the file
+                # does not have.
+                "clips": sorted(
+                    (c for c in v1_clips if not c.get("video_only")),
+                    key=lambda c: c["timeline_in"]),
             },
             "A2": {
                 "label": "Music",
@@ -1470,7 +1557,8 @@ def compile_manifest(out_dir: str) -> dict:
     print(f"  Duration:    {total_duration:.1f}s", file=sys.stderr)
 
     A1_clips = manifest["tracks"]["A1"]["clips"]
-    V1_clips = manifest["tracks"]["V1"]["clips"]
+    V1_clips = [c for c in manifest["tracks"]["V1"]["clips"]
+                if not c.get("video_only")]
     assert len(A1_clips) == len(V1_clips), f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)}"
 
     sub_overlay = manifest.get("subtitle_overlay", {})

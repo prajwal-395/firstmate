@@ -10,7 +10,10 @@ is how beat-aligned cutting sat unreachable for four audits.
 There is now exactly one shape.  Every spine block carries:
 
     position            block identity ("hook" or an int)
-    block_type          "hook" | "speech" | anything else (non-speech)
+    block_type          "hook" | "speech" (speech), "intro_card" |
+                        "outro_card" | "end_card" (a template-declared
+                        card, see BOOKEND_BLOCK_TYPES) | anything else
+                        (non-speech: "intro", "transition_slot", "outro")
     clip_id             source clip id, or None for non-speech blocks
     source_start        source-domain in point (None for non-speech)
     source_end          source-domain out point (None for non-speech)
@@ -54,6 +57,20 @@ chosen hole from an accidental one - `compile_manifest` on the manifest,
 
 SPEECH_BLOCK_TYPES = ("speech", "hook")
 
+# Block types that play a CARD rather than footage.  Nothing produces one
+# unless a brand template declares it - see `library/tools/bookends.py`,
+# which owns the declaration shape and the two ways a card is produced.
+# The block carries the card it plays under `content.bookend`;
+# `compile_manifest` turns that into a V1 clip, so a card is inside the
+# coverage assertion, the manifest duration and render QA like every
+# other clip.
+#
+# Deliberately NOT named "intro"/"outro": those already mean something
+# else in this spine - a non-speech pacing beat of music and B-roll, with
+# no card in it - and the captured run in tests/fixtures/captured_run/ is
+# full of them.  A card and a breath are different things.
+BOOKEND_BLOCK_TYPES = ("intro_card", "outro_card", "end_card")
+
 # The longest stretch a spine block may deliberately leave black. Matches
 # default_brand.yaml's effect.transition_duration_ms.max of 500ms - the
 # longest deliberate moment the brand allows between two shots - so a
@@ -87,6 +104,45 @@ class SpineContractError(ValueError):
 def is_speech_block(block: dict) -> bool:
     """True when the block carries speech and therefore needs word timings."""
     return block.get("block_type") in SPEECH_BLOCK_TYPES
+
+
+def is_bookend_block(block: dict) -> bool:
+    """True when the block plays an intro, outro or end card."""
+    return block.get("block_type") in BOOKEND_BLOCK_TYPES
+
+
+def _bookend_problems(block: dict, label: str) -> list:
+    """What is wrong with a bookend block's declaration, if anything.
+
+    A bookend block that carries no playable file is a hole in the picture
+    wearing a name.  `compile_manifest` would emit no clip for it and the
+    coverage assertion would then fail on a range nothing declared, which
+    reads as a planning bug rather than an unrenderable card - so it is
+    caught here, at the spine gate, where the cause is still visible.
+    """
+    problems = []
+    bookend = (block.get("content") or {}).get("bookend")
+    if not isinstance(bookend, dict):
+        return [f"{label}: {block['block_type']} block carries no "
+                f"content.bookend declaring what it plays"]
+
+    if not bookend.get("asset_path"):
+        problems.append(
+            f"{label}: bookend declaration has no asset_path, so nothing "
+            f"names the clip this block would play")
+
+    duration = block.get("duration_seconds")
+    if not isinstance(duration, (int, float)) or duration <= 0:
+        problems.append(
+            f"{label}: bookend block has duration_seconds={duration!r} - "
+            f"a card with no duration shows nothing")
+
+    if block.get("intentional_black_beat"):
+        problems.append(
+            f"{label}: bookend block declares an intentional black beat, "
+            f"but it plays a card - the two cannot both be true")
+
+    return problems
 
 
 def validate_spine_blocks(blocks: list, total_duration: float = None, target_duration_zone: tuple = None) -> None:
@@ -136,6 +192,9 @@ def validate_spine_blocks(blocks: list, total_duration: float = None, target_dur
                     f"{label}: intentional_black_beat is set but "
                     f"black_beat_reason is missing or empty"
                 )
+
+        if is_bookend_block(block):
+            problems.extend(_bookend_problems(block, label))
 
         if not is_speech_block(block):
             continue

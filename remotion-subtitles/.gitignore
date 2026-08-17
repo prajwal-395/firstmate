@@ -17,3 +17,12 @@ public/brand/*
 # Props files are generated per-project render
 public/*Props.json
 build
+
+# Bookend staging (library/tools/bookend_render.py). A project's own
+# composition is copied in verbatim and given a generated entry point so
+# it can be rendered without touching the committed Root.tsx; its sibling
+# assets land at the public root, because that is the only place
+# staticFile() resolves. All of it is build output, rewritten per render.
+src/staged/
+/public/*
+!/public/*/

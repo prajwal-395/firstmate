@@ -726,16 +726,23 @@ def build_timeline(
         
         # Calculate Audio Record Frame to maintain sync
         a_rec = tl_in_f + (a_in - v_in)
-        
-        # Place Audio (A1)
-        a_res = media_pool.AppendToTimeline([{
-            "mediaPoolItem": pool_item,
-            "startFrame": a_in,
-            "endFrame": a_out,
-            "trackIndex": 1,
-            "recordFrame": a_rec,
-            "mediaType": 2
-        }])
+
+        # Place Audio (A1). A clip marked video_only has no audio to
+        # place - a declared intro / outro / end card is a silent card
+        # unless its template said otherwise - and asking Resolve for an
+        # audio item from a file with no audio stream returns nothing
+        # while looking like a failed placement in the log.
+        if clip.get("video_only"):
+            a_res = None
+        else:
+            a_res = media_pool.AppendToTimeline([{
+                "mediaPoolItem": pool_item,
+                "startFrame": a_in,
+                "endFrame": a_out,
+                "trackIndex": 1,
+                "recordFrame": a_rec,
+                "mediaType": 2
+            }])
 
         if v_res:
             placed = v_res[0] if isinstance(v_res, list) else v_res
@@ -754,8 +761,10 @@ def build_timeline(
             clip['timeline_in'] = tl_in_f / fps
             clip['timeline_out'] = (tl_in_f + placed_dur) / fps
             
+            audio_note = ("A1 silent (video_only)" if clip.get("video_only")
+                          else f"A1 {a_in}-{a_out} at {a_rec}")
             print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
-                  f"V1 {v_in}-{v_out} at {tl_in_f}, A1 {a_in}-{a_out} at {a_rec}", file=sys.stderr)
+                  f"V1 {v_in}-{v_out} at {tl_in_f}, {audio_note}", file=sys.stderr)
                   
             # Apply Fairlight preset to this dialogue track item
             fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')

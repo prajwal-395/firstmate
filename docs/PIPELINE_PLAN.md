@@ -4,8 +4,8 @@ Audit date: 2026-08-15. Head at audit: `155bf31`.
 
 **Reconciled 2026-08-16 at `d8bb263`.** Items that landed between the audit
 head and this reconciliation are struck where they appear, not rewritten.
-Phase 0 is complete except for the residue named at the end of section 3,
-which is gated on Q7.
+Phase 0 is complete: the residue named at the end of section 3 was gated on
+Q7, and Q7 is answered (2026-08-16/17) and delivered.
 
 The goal this document is measured against is the captain's: **make high
 quality edits programmatically**. Footage in one end, an edit out the other
@@ -136,25 +136,33 @@ true. ~~`SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
 along with `library/presets/luts/` and `library/presets/dctls/`, which had no
 reader at all, and the descriptors for them. It was imported only by tests and
 by nothing in `library/steps/`. Presets that reach a timeline still do so by
-direct path: `.setting` at `builtin_effect_loader.py` and the two title macros
-named by `default_brand.yaml`.
+direct path: `.setting` at `builtin_effect_loader.py`. The two title macros
+`default_brand.yaml` used to name are deleted - see item 4 - so
+`library/presets/fusion-macros/` now ships no assets at all.
 
-**4. The title macros.** `library/presets/fusion-macros/intro_lower_third.setting`
-and `outro_subscribe.setting` are real files with real metadata, landed one
-commit before this audit. `library/tools/fusion_macro_loader.py` has zero
-consumers outside `tests/`. `tests/test_title_macros.py` asserts the
-descriptor names the file, the file is non-empty, and `load_macro` returns
-non-empty. That is exactly the test shape that let the preset library
-advertise thirteen looks for months: it counts descriptors. No intro or
-outro title is ever placed on a timeline.
+**4. The title macros.** ~~`library/presets/fusion-macros/intro_lower_third.setting`
+and `outro_subscribe.setting` are real files with real metadata...
+`tests/test_title_macros.py` asserts the descriptor names the file, the file
+is non-empty, and `load_macro` returns non-empty. That is exactly the test
+shape that let the preset library advertise thirteen looks for months.~~
+**CLOSED** by deletion under Q7: both `.setting` files, both descriptors,
+`tests/test_title_macros.py` and `content.intro_template`/
+`content.outro_template` are gone. One was a full-frame pure red slate in
+Helvetica; the other read "Subscribe!", which
+`overall_branding_creative_direction.md:100` forbids by name. Neither could
+load - both opened `Tools = ordered() {`. `fusion_macro_loader.py` survives
+with no assets left to load; it is a generic reader, and deleting it is a
+separate call.
 
-**5. Three of five Remotion compositions.** `Root.tsx` registers
+**5. Three of five Remotion compositions.** ~~`Root.tsx` registers
 `SubtitleOverlay`, `MotionGraphics`, `LucieEndCard`, `LucieLogoAnimation`
-and `FourthWallOverlay`. The pipeline renders two:
-`step_4_05_render_subtitles/step.py` and
-`step_4_06_render_motion_graphics/step.py:138`. `library/tools/execution/import_endcard.py`
-has zero references anywhere including tests, so the end card has no route
-in either.
+and `FourthWallOverlay`, and the pipeline renders two.~~ **CLOSED** by
+Q7 in two moves. `FourthWallOverlay` became `TimedTextOverlay` in #119, a
+template-declared overlay. The two `Lucie*` registrations pointed at stub
+components that rendered a transparent frame and were deleted; the real
+implementations live with the client's project, and reach a timeline
+through `content.bookends` - see `library/tools/bookends.py`. The end card
+now has a route, and it is the manifest.
 
 **6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
 `plan_sfx` was not reading the real grid either; the key it asked for has
@@ -195,8 +203,9 @@ on `vfx.get('type') == 'zoom_pulse'`.~~ **CLOSED** in #103, both deleted.
 
 **10. Unused execution tools.** ~~`sfx_placer.py` (1445 lines)~~ **DELETED**,
 ~~`build_powergrade.py`~~ **DELETED** with the PowerGrade route,
-~~`agent_poll.py`~~ **DELETED**. `import_endcard.py` still has no reference
-anywhere in the repo including tests, and waits on Q7.
+~~`agent_poll.py`~~ **DELETED**. ~~`import_endcard.py` still has no
+reference anywhere in the repo including tests, and waits on Q7.~~
+**DELETED**, superseded rather than dropped - see section 5.
 `apply_native_transitions.py` is documented as withdrawn and kept
 deliberately.
 
@@ -306,12 +315,16 @@ You cannot prioritise against a manifest that lies. Everything in Phase 0 is
 under a day and makes the next four phases measurable.
 
 - **P0.1 Delete or wire the inert list.** ~~Section 5 names what should go.~~
-  **DONE except the Q7 residue.** `sfx_placer.py`, `agent_poll.py`,
+  **DONE.** The Q7 residue closed too, with Q7. `sfx_placer.py`, `agent_poll.py`,
   `SEGMENT_RECIPES`, `CompEngine.from_preset`, the `vfx_entries` binding, the
   `zoom_pulse` branch, `content.watermark` and the J/L cut block went in #103;
   `build_powergrade.py`, `preset_indexer.py`, `luts/` and `dctls/` went with
   the PowerGrade route in #106. `smart_reframe` is now withdrawn: see the note
-  at the top of `library/tools/neural_engine.py`. Residue below.
+  at the top of `library/tools/neural_engine.py`. The intro/outro/end-card
+  residue - `import_endcard.py`, the two title macros with their descriptors
+  and test, `content.intro_template`/`content.outro_template`, and the two
+  stub `Lucie*` compositions - was deleted when the bookend mechanism landed;
+  the section 5 rows record what replaced each.
 - **P0.2 Make an inert key a test failure, not a discovery.** ~~There is one
   precedent that works...~~ **DONE.** `tests/test_manifest_readers.py` (#105)
   discovers the top-level keys from `compile_manifest`'s manifest literal by
@@ -345,15 +358,16 @@ under a day and makes the next four phases measurable.
   ducking, and `step_2_06`'s docstring names `plan_sfx` as its only consumer
   and says outright that the DAG edges into 2.05 and 4.02 are not read.
 
-**Phase 0 residue, gated on Q7.** Five section-5 entries all turn on the same
-question - whether intros, outros and end cards belong in this pipeline - so
-none of them can be deleted or wired until it is answered:
-`library/tools/execution/import_endcard.py`,
-`library/tools/fusion_macro_loader.py` with `tests/test_title_macros.py`,
-`content.intro_template` and `content.outro_template` in `default_brand.yaml`
-with the two `.setting` macros they name, and the `LucieEndCard`,
-`LucieLogoAnimation` and `FourthWallOverlay` Remotion compositions. They are
-inert today and nothing in Phases 1 to 4 depends on them.
+~~**Phase 0 residue, gated on Q7.** Five section-5 entries all turn on the
+same question - whether intros, outros and end cards belong in this
+pipeline.~~ **CLOSED.** Q7 was answered "wire them up, but only on some
+videos" (2026-08-16) and the scope ruling of 2026-08-17 kept the captain's
+premade cards as reusable per-project assets. The mechanism landed as
+`content.bookends` plus the `intro_card`/`outro_card`/`end_card` spine block
+types (`library/tools/bookends.py`); the two title macros, the two stub
+compositions, `content.intro_template`/`content.outro_template` and
+`import_endcard.py` were deleted with it. `fusion_macro_loader.py` is the
+only piece of the five left standing.
 
 ### Phase 1: framing. The biggest single change to the finished video.
 
@@ -863,12 +877,15 @@ from the planning docs at `PLAN/series portfolio '26 planning/`; see AGENTS.md
 section 12. Rejected: hand-authoring `.drx` files in Resolve; keeping the
 gifted grade and merely flagging the licence.
 
-**Q7. Do intros, outros and end cards belong in this pipeline?**
-Three Remotion compositions (`LucieEndCard`, `LucieLogoAnimation`,
-`FourthWallOverlay`), two Fusion title macros and an `import_endcard.py` tool
-all exist and none is reachable. Either they get wired to a spine block type
-and a template slot, or they should be deleted. Which, and if wired: does
-every video get an outro card, or only some?
+~~**Q7. Do intros, outros and end cards belong in this pipeline?**~~
+**ANSWERED** 2026-08-16: "wire them up, but only on some videos", and the
+scope ruling of 2026-08-17 settled the residue - the engine serves client
+work as well as the 8 series, so the premade cards are kept as per-project
+assets rather than retired. Delivered: a brand template declares
+`content.bookends`, `mesh_spine` turns each declaration into an
+`intro_card`/`outro_card`/`end_card` block, and `compile_manifest` puts it
+on V1. A template that declares nothing gets nothing, which is every
+template but `lucie_client.yaml`.
 
 **Q8. What is "publishable" measured against?**
 Every gate in the pipeline today is technical: resolution, fps, duration,
@@ -1005,17 +1022,17 @@ that claims more. In rough order of how much noise removal saves:
 | --- | --- |
 | ~~`library/tools/execution/sfx_placer.py` (1445 lines)~~ | **DELETED** in #103. SFX resolution lives in `compile_manifest/step.py` and placement in `resolve_build_timeline.py`. |
 | ~~`library/tools/execution/build_powergrade.py`~~ | **DELETED** with the PowerGrade route. |
-| `library/tools/execution/import_endcard.py` | Zero references in the repo, including tests. Delete, or wire per Q7. |
+| ~~`library/tools/execution/import_endcard.py`~~ | **DELETED**, and this one was superseded rather than merely unused. It appended a rendered end card to V1 out of band, from a hand-run CLI, AFTER the manifest was written - so `manifest_validator`, the coverage assertion and the render-QA duration checks all described a timeline that no longer existed. The same card now enters through `content.bookends` -> a spine block -> a V1 clip in the manifest, which is the route every other clip takes; `library/tools/bookend_render.py` carries the note. Nothing was lost: its default input path (`library/tools/execution/output/lucie_endcard.mov`) never existed on disk, and git history holds the file. |
 | ~~`library/tools/agent_poll.py`~~ | **DELETED** in #103. |
 | ~~`library/tools/preset_indexer.py`~~ | **DELETED**, with the descriptors for the asset families that went with it. The two fusion-macro descriptors were kept: `tests/test_title_macros.py` reads them to hold the descriptors, the assets and `default_brand.yaml` to the same filenames. |
 | ~~`library/presets/luts/`, `library/presets/dctls/`~~ | **DELETED.** No reader, and `film_emulation.meta.json` had no asset at all - it pointed inside a Resolve install and the indexer exempted it from its own existence check. |
-| `library/tools/fusion_macro_loader.py` and `tests/test_title_macros.py` | No pipeline consumer. The test asserts the descriptor and the file, which is the exact shape that hid the preset library problem. Delete both, or wire per Q7. |
+| ~~`tests/test_title_macros.py`~~ and the two `.setting` macros | **DELETED** under Q7, with both `.meta.json` descriptors. The test asserted the descriptor, the filename and non-empty file contents - never a pixel - while the assets themselves were a full-frame pure red slate and a "Subscribe!" card the channel spec forbids by name. `library/tools/fusion_macro_loader.py` is still here and now has no asset to load; it is a generic reader rather than a route, so retiring it is its own decision. |
 | ~~`SEGMENT_RECIPES` and `CompEngine.from_preset`~~ | **DELETED** in #103. `SEGMENT_PRESETS`, which they duplicated, is still there and still unselectable - that is P3.4, not this table. |
 | ~~`resolve_build_timeline.py:330` (`vfx_entries`)~~ | **DELETED** in #103. |
 | ~~`apply_fusion_comps.py:328-336` (`zoom_pulse`)~~ | **DELETED** in #103. |
 | ~~`resolve_build_timeline.py:590-649` (J/L cut offsets)~~ | **DELETED** in #103, under the ruling that put audio out of scope. Q2 is moot with it. |
-| `content.intro_template`, `content.outro_template` in `default_brand.yaml` | No reader. `content.watermark` was **DELETED** in #103; the other two name the fusion macros and wait on Q7. |
-| `LucieEndCard`, `LucieLogoAnimation`, `FourthWallOverlay` | Registered in `Root.tsx`, rendered by nothing. Delete or wire per Q7. |
+| ~~`content.intro_template`, `content.outro_template` in `default_brand.yaml`~~ | **DELETED** under Q7, from the template and from `ContentSlots`. `content.bookends` replaced them: it names a card, a duration and its props, and `compile_manifest` reads it. |
+| ~~`LucieEndCard`, `LucieLogoAnimation`, `FourthWallOverlay`~~ | **RESOLVED** under Q7, each differently. `FourthWallOverlay` was generalised into `TimedTextOverlay` (#119). The two `Lucie*` entries in this repo were transparent stubs that rendered a byte-identical empty frame - deleted, with their `Root.tsx` registrations. The real implementations are the client's, live with the client's project, and are declared by `lucie_client.yaml` through `content.bookends`; `bookend_render.py` stages and renders them **verbatim**, so the engine never edits a client's asset. |
 | ~~`smart_reframe` in the manifest~~ | **DELETED**, having been unverifiable rather than unverified. Its wrapper guarded on `hasattr(clip, 'SmartReframe')`, which is True for every name on a Resolve proxy including invented ones; its only caller handed it a Timeline, which exposes no such method, discarded the return value and printed "✓ Applied Smart Reframe" whatever happened; and its test asserted that a mock returning True made the wrapper return True. Framing is delivered per clip by `_apply_conform`, which a working Smart Reframe would have fought. Reason recorded at the top of `library/tools/neural_engine.py`, beside the Magic Mask withdrawal. |
 
 Not on this list, deliberately: `apply_native_transitions.py`, which AGENTS.md
@@ -1066,11 +1083,11 @@ letterboxed strip were all found by looking at pixels, not code.
 
 - ~~**Q4** — what `cut_out` should mean.~~ **CLOSED** 2026-08-17: deleted,
   superseded by the framing parameter.
-- **Q7 residue** — Q7 unblocks the *general* mechanism (a spine block type
-  plus a template slot, nothing by default) but does **not** close three
-  things: whether this engine serves client work at all; whether the 4th
-  Wall copy is placeholder or ships; and whether `import_endcard.py` is
-  live hand-run tooling. Do not delete a tool someone may be running.
+- ~~**Q7 residue**~~ **CLOSED** 2026-08-17. The engine serves client work
+  as well as the 8 series; the 4th Wall copy ships corrected (#119); and
+  `import_endcard.py` is superseded by the bookend wiring rather than
+  dropped as dead code - the capability it stood for now runs through the
+  manifest, where the gates can see it.
 - **Perceptual QA calibration** — renders alongside model verdicts, in
   front of the captain, once. Until then none of it is anybody's standard.
   Blocked on real footage: the calibration frames are synthetic patterns
