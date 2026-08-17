@@ -145,7 +145,7 @@ class fx:
             tf.set_input("Size", spline)
             nodes.append(spline)
         elif start != 1.0:
-            # A constant reframe - what cut_in/cut_out are. Without this a
+            # A constant reframe - what cut_in is. Without this a
             # static zoom produced a Transform with Size left at its
             # default of 1, so the effect drew nothing.
             tf.set_input("Size", start)

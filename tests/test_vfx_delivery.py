@@ -3,9 +3,9 @@
 Three of the five advertised effects rendered nothing: `zoom_emphasis`
 emitted `zoom_percent`, `screen_shake` emitted `intensity_px`, `cut_in`
 emitted `scale_factor`, and the renderer dispatches on parameter NAMES,
-none of which it read. Two more (`slow_zoom`, `cut_out`) were not in the
-intensity map at all and silently became a default 3% zoom while keeping
-their own label.
+none of which it read. `slow_zoom` was not in the intensity map and
+silently became a default 3% zoom. `cut_out` was removed (captain's
+ruling 2026-08-17, superseded by the framing parameter).
 """
 import pathlib
 import re
@@ -78,9 +78,8 @@ def test_zoom_emphasis_punches_in_and_settles_back():
     assert params["zoom_mid"] > 1.0
 
 
-def test_cut_in_and_cut_out_reframe_in_opposite_directions():
+def test_cut_in_reframes_above_unity():
     assert INTENSITY_MAP["cut_in"]["moderate"]["zoom_start"] > 1.0
-    assert INTENSITY_MAP["cut_out"]["moderate"]["zoom_start"] < 1.0
 
 
 def test_a_static_reframe_is_actually_drawn():

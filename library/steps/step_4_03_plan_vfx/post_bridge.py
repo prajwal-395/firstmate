@@ -26,7 +26,7 @@ from library.tools.pipeline_validation import require_keys
 # while the manifest recorded them as planned.
 #
 # AGENTS.md: "NEVER set transition zoom > 1.04". That bound is about
-# transitions between shots; cut_in/cut_out are framing changes on one
+# transitions between shots; cut_in is a framing change on one
 # shot, which is the whole point of them, so they are not clamped to it.
 INTENSITY_MAP = {
     # Ken Burns drift across the clip.
@@ -62,11 +62,9 @@ INTENSITY_MAP = {
         "moderate": {"zoom_start": 1.25, "zoom_mid": 1.25, "zoom_end": 1.25},
         "strong": {"zoom_start": 1.4, "zoom_mid": 1.4, "zoom_end": 1.4},
     },
-    "cut_out": {
-        "subtle": {"zoom_start": 0.95, "zoom_mid": 0.95, "zoom_end": 0.95},
-        "moderate": {"zoom_start": 0.9, "zoom_mid": 0.9, "zoom_end": 0.9},
-        "strong": {"zoom_start": 0.85, "zoom_mid": 0.85, "zoom_end": 0.85},
-    },
+    # cut_out: DELETED per captain's ruling 2026-08-17.
+    # Superseded by the framing parameter (PR 109); a pull-back is now a
+    # lower framing value, so a separate sub-1.0 zoom effect is redundant.
 }
 
 # Spellings that mean an existing effect. `slow_zoom` was advertised in

@@ -247,13 +247,16 @@ the bottom. The default accent is `#00D4FF`
 That is a 2016 free-template look burned into every second of the video, and
 it is not switchable from any config the pipeline reads.
 
-**`cut_out` renders the picture floating in black.**
+~~**`cut_out` renders the picture floating in black.**
 `step_4_03/post_bridge.py:65-69` maps `cut_out` to `zoom_start/mid/end` of
 0.95, 0.9 or 0.85. `effects.py:147-151` sets `Transform.Size` to that
 constant. A Transform below 1.0 shrinks the image inside its own frame with
 transparency around it, and there is nothing under it on V1, so it composites
 to black borders. You cannot pull out past the edge of the source. This one
-needs a design decision, not a parameter change (see section 4).
+needs a design decision, not a parameter change (see section 4).~~ **CLOSED**
+by captain's ruling 2026-08-17: `cut_out` deleted from the toolkit,
+superseded by the framing parameter (PR 109). A pull-back is now a lower
+framing value.
 
 **Typography is a webfont loaded over HTTP at render time.** ~~`remotion-subtitles/src/index.css:3`
 is `@import url('https://fonts.googleapis.com/css2?family=Montserrat...')`.
@@ -831,14 +834,10 @@ config turns them off. Keep them as a house style with the colour driven by
 the template palette, keep them only on hook blocks, or delete the accents
 entirely and keep only the upper third?
 
-**Q4. What should `cut_out` mean?**
-It currently sets a Transform below 1.0, which shrinks the picture inside its
-own frame and surrounds it with black. You cannot zoom out past the edge of
-the source. The options are: (a) delete `cut_out` from the toolkit and record
-the withdrawal, (b) make every clip default to a 1.15 baseline zoom so
-`cut_out` can return toward 1.0 and read as a pull-back, at the cost of
-throwing away 13% of every frame's resolution on every shot, or (c) keep the
-shrink and fill the surround with a blurred copy of the frame. Which?
+**Q4. What should `cut_out` mean?** **ANSWERED (2026-08-17):** option (a) -
+delete `cut_out` from the toolkit. Framing already expresses a pull-back
+(PR 109 merged the framing parameter), so a separate sub-1.0 zoom effect is
+redundant. Removed from INTENSITY_MAP, handoff, and tests.
 
 **Q5. Should captions be lowercase?** **ANSWERED (2026-08-16):** make it a
 per-template setting and set all four templates to their CURRENT behaviour,
@@ -1065,8 +1064,8 @@ letterboxed strip were all found by looking at pixels, not code.
 
 ### Still open, needing the captain
 
-- **Q4** — what `cut_out` should mean. Unanswered, and `cut_out` is still
-  live in `step_4_03`. Options are in section 4.
+- ~~**Q4** — what `cut_out` should mean.~~ **CLOSED** 2026-08-17: deleted,
+  superseded by the framing parameter.
 - **Q7 residue** — Q7 unblocks the *general* mechanism (a spine block type
   plus a template slot, nothing by default) but does **not** close three
   things: whether this engine serves client work at all; whether the 4th

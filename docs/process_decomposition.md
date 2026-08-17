@@ -2036,7 +2036,7 @@ STEP 4.3:
 │     timeline_start: float,
 │     timeline_end: float,
 │     effect_type: string ("slow_zoom" | "screen_shake" | "zoom_emphasis"
-│       | "cut_in" | "cut_out"),
+│       | "cut_in"),
 │     parameters: { ... effect-type-specific ... }
 │   }, ...]
 │
@@ -2048,7 +2048,6 @@ STEP 4.3:
 │   - zoom_emphasis: { zoom_percent: float (5%), trigger_time: float
 │     (timeline position), duration_ms: integer (150-300) }
 │   - cut_in: { scale_factor: float (1.2-1.4), applied at: float }
-│   - cut_out: { scale_factor: float (0.85-0.95), applied at: float }
 ├── Verification:
 │   ├── Every A-roll talking head clip longer than 3 seconds has at least
 │   │   a slow_zoom effect (per style spec: the frame should always move)

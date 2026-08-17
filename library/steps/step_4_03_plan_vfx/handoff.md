@@ -42,7 +42,6 @@ have no reader.
 | `zoom_emphasis` | Key words/moments — punches in and settles back |
 | `screen_shake` | Emphasis moments — an impact that settles. Use sparingly (max 2-3 per video) |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam |
-| `cut_out` | Wider framing held for the shot — creates visual variety |
 
 **DaVinci Resolve Built-in Fusion Clip Effects:**
 You can also use any of the built-in Fusion clip effects listed below by providing their exact snake_case name as the `effect_type`. These presets modify the picture - they take the clip's image as input.
