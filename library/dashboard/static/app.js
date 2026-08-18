@@ -259,12 +259,15 @@ async function loadSteps() {
 
 function updateStatusCounts() {
     const completed = state.steps.filter(s => s.status === 'completed').length;
+    const failed = state.steps.filter(s => s.status === 'failed').length;
     const gatePending = state.steps.filter(s => s.status === 'gate_pending').length;
     const pending = state.steps.filter(s => s.status === 'pending').length;
 
     document.getElementById('completed-count').textContent = completed;
     document.getElementById('gate-count').textContent = gatePending;
     document.getElementById('pending-count').textContent = pending;
+    const failedEl = document.getElementById('failed-count');
+    if (failedEl) failedEl.textContent = failed;
 }
 
 async function refreshData() {
@@ -343,13 +346,9 @@ async function resumePipeline() {
 }
 
 async function pausePipeline() {
-    try {
-        await apiPost('/pipeline/pause', {});
-        stopPolling();
-        await refreshData();
-    } catch (err) {
-        alert(err.message);
-    }
+    // Pause is not yet implemented (stage 2 - run control).
+    // Surface an honest message instead of calling a non-existent route.
+    alert('Pipeline pause is not yet available. Use Ctrl+C in the terminal to stop a running pipeline.');
 }
 
 function startPolling() {

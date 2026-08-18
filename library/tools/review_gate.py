@@ -41,17 +41,29 @@ class GateSnapshot:
     created_at: str = ""
 
 
-def _gates_dir(project_dir: str) -> Path:
-    """Get the gates directory for a project."""
+def _gates_dir(project_dir: str, *, create: bool = False) -> Path:
+    """Get the gates directory for a project.
+
+    Args:
+        create: If True, create the directory tree. Read-only callers
+                must pass False (the default) so that listing steps
+                does not litter the project with empty gate dirs.
+    """
     p = Path(project_dir) / "pipeline_output" / "gates"
-    p.mkdir(parents=True, exist_ok=True)
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
     return p
 
 
-def _gate_dir(project_dir: str, step_id: str) -> Path:
-    """Get the gate directory for a specific step."""
-    p = _gates_dir(project_dir) / step_id
-    p.mkdir(parents=True, exist_ok=True)
+def _gate_dir(project_dir: str, step_id: str, *, create: bool = False) -> Path:
+    """Get the gate directory for a specific step.
+
+    Args:
+        create: If True, create the directory tree.
+    """
+    p = _gates_dir(project_dir, create=create) / step_id
+    if create:
+        p.mkdir(parents=True, exist_ok=True)
     return p
 
 
@@ -66,7 +78,7 @@ def save_gate_snapshot(
 
     Returns the path to the snapshot file.
     """
-    gate = _gate_dir(project_dir, step_id)
+    gate = _gate_dir(project_dir, step_id, create=True)
 
     snapshot = GateSnapshot(
         step_id=step_id,
@@ -143,7 +155,7 @@ def save_gate_feedback(
 
     action: "approved" | "rejected" | "revised"
     """
-    gate = _gate_dir(project_dir, step_id)
+    gate = _gate_dir(project_dir, step_id, create=True)
 
     fb = GateFeedback(
         action=action,
@@ -222,7 +234,7 @@ def apply_feedback_to_output(
 
 def clear_gate(project_dir: str, step_id: str) -> None:
     """Clear gate state for a step (e.g., before re-running)."""
-    gate = _gate_dir(project_dir, step_id)
+    gate = _gate_dir(project_dir, step_id, create=True)
     for filename in ["snapshot.json", "feedback.json", "status.json"]:
         filepath = gate / filename
         if filepath.exists():

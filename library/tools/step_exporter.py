@@ -139,9 +139,11 @@ def _summary_catalog(name: str, out: dict) -> str:
     lines.append("|---------|----------|------------|-----|")
     for c in clips[:30]:
         cid = c.get("clip_id", c.get("filename", "?"))
-        dur = c.get("duration_s", c.get("duration", "?"))
-        res = c.get("resolution", "?")
-        fps = c.get("fps", "?")
+        dur = c.get("duration_seconds", c.get("duration_s", "?"))
+        w = c.get("width", "")
+        h = c.get("height", "")
+        res = f"{w}x{h}" if w and h else c.get("resolution", "?")
+        fps = c.get("frame_rate", c.get("fps", "?"))
         lines.append(f"| {cid} | {dur}s | {res} | {fps} |")
     return "\n".join(lines)
 

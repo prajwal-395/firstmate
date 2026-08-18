@@ -1314,7 +1314,8 @@ def run_pipeline(
         print(f"  ✗ {', '.join(outstanding_failures)}", file=sys.stderr)
         for node_id in outstanding_failures:
             err = state.get("step_errors", {}).get(node_id, "")
-            print(f"      {node_id}: {str(err).splitlines()[0][:160]}",
+            err_line = (str(err).splitlines() or ["(no error message)"])[0][:160]
+            print(f"      {node_id}: {err_line}",
                   file=sys.stderr)
     if never_run:
         print(f"  ○ never completed: {', '.join(never_run)}", file=sys.stderr)

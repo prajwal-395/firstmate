@@ -130,6 +130,49 @@ def _list_messages(project_dir: str) -> List[dict]:
     return sorted(messages, key=lambda x: x.get("created_at", ""), reverse=True)
 
 
+# ── Catalog Key Helpers ─────────────────────────────────────────
+
+def _format_resolution(clip: dict) -> str:
+    """Build a resolution string from the catalog's width/height keys.
+
+    The catalog producer emits ``width`` and ``height`` as separate ints.
+    Falls back to a legacy ``resolution`` string if the structured keys
+    are missing.
+    """
+    w = clip.get("width")
+    h = clip.get("height")
+    if w and h:
+        return f"{w}x{h}"
+    return clip.get("resolution", "")
+
+
+def _extract_summary(sem: dict) -> str:
+    """Extract a summary string from a semantic analysis document.
+
+    v3 puts it under ``assessment.summary``; legacy had it at the top level.
+    """
+    assessment = sem.get("assessment", {})
+    if isinstance(assessment, dict):
+        s = assessment.get("summary", "")
+        if s:
+            return str(s)
+    s = sem.get("summary", "")
+    return str(s) if s else ""
+
+
+def _extract_interest_score(sem: dict) -> float:
+    """Extract interest_score from a semantic analysis document.
+
+    v3 nests it under ``assessment.interest_score``.
+    """
+    assessment = sem.get("assessment", {})
+    if isinstance(assessment, dict):
+        score = assessment.get("interest_score")
+        if score is not None:
+            return float(score)
+    return float(sem.get("interest_score", 0))
+
+
 # ── Pipeline State Helpers ──────────────────────────────────────────
 
 def _load_pipeline_state(project_dir: str) -> dict:
@@ -336,15 +379,17 @@ async def list_steps():
         node_id = node["id"]
         status = StepStatus.PENDING
 
-        if node_id in completed:
+        if node_id in state.get("failed_steps", []):
+            status = StepStatus.FAILED
+        elif node_id in completed:
             # Check if there is a pending gate
             gate_status = gate_statuses.get(node_id, "none")
             if gate_status == "pending":
                 status = StepStatus.GATE_PENDING
             else:
                 status = StepStatus.COMPLETED
-        elif node_id in state.get("failed_steps", []):
-            status = StepStatus.FAILED
+        elif node_id in state.get("awaiting_llm", []):
+            status = StepStatus.PENDING  # Awaiting LLM is still pending
 
         comp_data = completed.get(node_id, {})
         output_keys = list(outputs.get(node_id, {}).keys())
@@ -465,12 +510,12 @@ async def gate_action(step_id: str, request: GateActionRequest):
     )
 
     # If approved or revised, apply feedback to pipeline state
-    if request.action.value in ("approved", "revised"):
+    if mapped_action in ("approved", "revised"):
         state = _load_pipeline_state(project_dir)
         outputs = state.get("step_outputs", {})
         step_output = outputs.get(step_id, {})
 
-        if request.action.value == "revised" and request.revisions:
+        if mapped_action == "revised" and request.revisions:
             feedback = load_gate_feedback(project_dir, step_id)
             if feedback:
                 merged = apply_feedback_to_output(step_output, feedback)
@@ -628,10 +673,12 @@ async def get_transcript():
     state = _load_pipeline_state(project_dir)
     outputs = state.get("step_outputs", {})
 
-    # Get temporal index (has transcripts)
-    temporal = outputs.get("temporal_index", {}).get("temporal_index", {})
+    # Get temporal index (has transcripts).
+    # The temporal_index step emits under "temporal_event_indices" (not "temporal_index").
+    temporal = outputs.get("temporal_index", {}).get("temporal_event_indices", [])
     if not temporal:
-        temporal = outputs.get("temporal_index", {})
+        # Legacy fallback: some older runs may use "temporal_index" as the inner key.
+        temporal = outputs.get("temporal_index", {}).get("temporal_index", {})
 
     regions = []
     total_duration = 0.0
@@ -717,22 +764,24 @@ async def get_clips():
         if energy:
             mood_tags.append(energy)
 
-        # Detected objects
+        # Detected objects - handle both v3 list-of-dicts and legacy flat-dict
         objects = sem.get("detected_objects", sem.get("objects", []))
         if isinstance(objects, dict):
             objects = list(objects.keys())
+        elif isinstance(objects, list) and objects and isinstance(objects[0], dict):
+            objects = [o.get("label", str(o)) for o in objects if isinstance(o, dict)]
 
         clips.append(ClipInfo(
             clip_id=clip_id,
             filename=clip.get("filename", clip_id),
             filepath=clip.get("filepath", clip.get("path", "")),
-            duration_s=float(clip.get("duration_s", clip.get("duration", 0))),
-            resolution=clip.get("resolution", ""),
-            fps=float(clip.get("fps", 0)),
+            duration_s=float(clip.get("duration_seconds", clip.get("duration_s", 0))),
+            resolution=_format_resolution(clip),
+            fps=float(clip.get("frame_rate", clip.get("fps", 0))),
             thumbnail_url=thumb_url,
-            transcript_excerpt=sem.get("summary", "")[:200] if isinstance(sem.get("summary"), str) else "",
+            transcript_excerpt=_extract_summary(sem)[:200],
             mood_tags=mood_tags,
-            interest_score=float(sem.get("interest_score", 0)),
+            interest_score=_extract_interest_score(sem),
             detected_objects=objects[:10] if isinstance(objects, list) else [],
         ))
 
@@ -751,7 +800,7 @@ async def get_timeline():
     blocks = []
     total_dur = 0.0
 
-    # A-roll assignments
+    # A-roll assignments - clip details live inside video_segments[]
     aroll = outputs.get("assign_aroll", {}).get("a_roll_assignments", [])
     if isinstance(aroll, dict):
         aroll = list(aroll.values())
@@ -760,24 +809,32 @@ async def get_timeline():
             continue
         start = float(a.get("timeline_start", 0))
         end = float(a.get("timeline_end", 0))
+
+        # Extract clip info from video_segments (the producer nests it there)
+        vsegs = a.get("video_segments", [])
+        first_seg = vsegs[0] if isinstance(vsegs, list) and vsegs else {}
+        clip_id = first_seg.get("clip_id", a.get("clip_id", ""))
+        clip_name = clip_id
+        block_text = first_seg.get("text", a.get("text", ""))
+
         blocks.append(TimelineBlock(
             id=a.get("entry_id", f"aroll_{i}"),
             track="V1",
-            clip_id=a.get("clip_id", ""),
-            clip_name=a.get("clip_id", ""),
+            clip_id=clip_id,
+            clip_name=clip_name,
             start_s=start,
             end_s=end,
             duration_s=end - start,
             block_type="a_roll",
-            text=a.get("text", "")[:80],
-            thumbnail_url=get_thumbnail_url(project_dir, a.get("clip_id", "")),
+            text=block_text[:80],
+            thumbnail_url=get_thumbnail_url(project_dir, clip_id),
         ))
         
         blocks.append(TimelineBlock(
             id=f"a1_{a.get('entry_id', i)}",
             track="A1",
-            clip_id=a.get("clip_id", ""),
-            clip_name=a.get("clip_id", ""),
+            clip_id=clip_id,
+            clip_name=clip_name,
             start_s=start,
             end_s=end,
             duration_s=end - start,
@@ -807,14 +864,15 @@ async def get_timeline():
             thumbnail_url=get_thumbnail_url(project_dir, b.get("clip_id", "")),
         ))
 
-    # Music track (A2)
-    music = outputs.get("music_selection", {}).get("music_track", outputs.get("music_selection", {}))
-    if isinstance(music, dict) and (music.get("track_id") or music.get("title")):
+    # Music track (A2).
+    # The music_selection step wraps its output under "music_selection".
+    music = outputs.get("music_selection", {}).get("music_selection", {})
+    if isinstance(music, dict) and (music.get("title") or music.get("audio_path")):
         blocks.append(TimelineBlock(
             id="music_1",
             track="A2",
-            clip_id=music.get("track_id", "music"),
-            clip_name=music.get("title", music.get("track_id", "Music")),
+            clip_id=music.get("title", "music"),
+            clip_name=music.get("title", "Music"),
             start_s=0.0,
             end_s=total_dur,
             duration_s=total_dur,
