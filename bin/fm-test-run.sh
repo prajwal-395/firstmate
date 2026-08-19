@@ -200,6 +200,7 @@ family_for_basename() {
     fm-control.test.sh|fm-control-relaunch.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|fm-agy-ladder-enforcement.test.sh|\
+    fm-spawn-relaunch.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
@@ -1448,6 +1449,18 @@ if [ "$JOBS" -gt 1 ]; then
     fi
   done
 fi
+
+# Scrub the inherited Herdr pane identity for the entire suite. A test launched
+# from inside a live Herdr pane inherits HERDR_ENV, HERDR_PANE_ID, etc., and any
+# test that runs fm-bootstrap.sh with a temp FM_HOME will reach the live session
+# through fm-herdr-orphan-reaper.sh, evaluating every live worker pane as
+# unclaimed and closing them. Unsetting these once here makes isolation
+# structural: no test inherits the live session identity, and a test that
+# deliberately exercises Herdr behaviour is free to set its own values after.
+# The variable set matches herdr_forget_inherited_pane() in
+# tests/herdr-test-safety.sh - one canonical list, not two that can drift.
+unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID \
+  HERDR_SOCKET_PATH HERDR_SESSION 2>/dev/null || true
 
 RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run.XXXXXX")
 RECORDS="$RUN_TMP/records.tsv"
