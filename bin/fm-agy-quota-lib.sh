@@ -83,7 +83,7 @@ FM_AGY_INFLIGHT_TTL=${FM_AGY_INFLIGHT_TTL:-$FM_AGY_QUOTA_MAX_AGE}
 # evidence it was about to enforce. Stripping happens before anything is
 # extracted, so no key can ever carry one.
 fm_agy_strip_ansi() {
-  LC_ALL=C sed -E $'s/\033\\[[0-9;?]*[ -\/]*[@-~]//g; s/\033[@-Z\\\\-_]//g; s/\r//g'
+  LC_ALL=C sed -E $'s/\033\\[[0-9;?]*[ -/]*[@-~]//g; s/\033[@-Z\\\\-_]//g; s/\r//g'
 }
 
 # fm_agy_is_number: 0 when the argument is a bare decimal percentage.
