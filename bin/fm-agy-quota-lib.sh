@@ -149,8 +149,11 @@ fm_agy_quota_record() {  # <model> <percent> <reset-window> <state_dir> [<now>]
 # than as the exact literals " | ctx: " and " | quota: ". A renderer that pads a
 # column differently is a cosmetic change to agy; it must not silently stop the
 # floor being enforced, which is what an exact-literal match made it do.
-fm_agy_quota_observe() {  # <text> <state_dir>
-  local text="$1" state_dir="$2" line parsed model quota reset_time
+# The optional <now> stamps the reading instead of the wall clock, so a caller
+# that must reason about a reading's exact age - a test pinning the max-age
+# ceiling - can do so without racing the second hand.
+fm_agy_quota_observe() {  # <text> <state_dir> [<now>]
+  local text="$1" state_dir="$2" now="${3:-}" line parsed model quota reset_time
 
   line=$(printf '%s\n' "$text" | fm_agy_strip_ansi | LC_ALL=C grep -F 'quota:' | tail -1)
   [ -n "$line" ] || return 0
@@ -168,7 +171,7 @@ fm_agy_quota_observe() {  # <text> <state_dir>
   quota=${parsed%%	*}
   reset_time=${parsed#*	}
 
-  fm_agy_quota_record "$model" "$quota" "$reset_time" "$state_dir" || return 0
+  fm_agy_quota_record "$model" "$quota" "$reset_time" "$state_dir" "$now" || return 0
 }
 
 # fm_agy_quota_read: the last known value for a model together with its age, or
