@@ -106,7 +106,7 @@ test_no_jq_noop() {
   # Shadow jq with a nonexistent path.
   mkdir -p "$d/empty-bin"
   (
-    PATH="$d/empty-bin"
+    export PATH="$d/empty-bin"
     FM_AGY_SETTINGS="$d/settings.json" fm_agy_suppress_feedback_survey
   )
   local after
