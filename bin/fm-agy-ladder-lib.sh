@@ -204,7 +204,12 @@ fm_agy_ladder_state() {  # <rung> <state-dir> [<now>]
 # carries when headroom was reserved, and nothing at all when it was not, so the
 # ordinary single-launch reason stays exactly as short as it was.
 fm_agy_ladder_inflight_clause() {  # <percent> <in-flight>
-  [ "${2:-0}" -gt 0 ] || return 0
+  # Guarded rather than compared directly: a caller that reached here with a
+  # non-numeric count must add no clause, never abort the reason mid-sentence.
+  case "${2:-}" in
+    ''|*[!0-9]*) return 0 ;;
+    0) return 0 ;;
+  esac
   printf ' (%s launch(es) already in flight reserve %s%%, leaving %s%%)' \
     "$2" "$(awk -v n="$2" -v m="$FM_AGY_LADDER_INFLIGHT_MARGIN" 'BEGIN { printf "%.1f", n * m }')" \
     "$(fm_agy_ladder_reserved "$1" "$2")"
