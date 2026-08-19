@@ -32,6 +32,28 @@ was about 3 seconds, which is why it is affordable on the dispatch path where
 `/usage` is an accepted alias and returns the identical payload; the reported
 `command.name` is `usage` for both.
 
+Confirmed independently on 2026-08-19 by firstmate running the same command in
+the live home: `num_turns` 0 and `total_tokens` 0, so the poll is free in
+production and not only on this machine.
+
+## The stale-evidence defect, reproduced in production
+
+The same live run is also direct evidence of the defect this change fixes.
+At that moment the live home's recorded reading still said Claude Opus 4.6 was
+at 33.8% remaining, while the poll answered 93%.
+
+The recorded figure was hours old and its reset window had already elapsed, so
+the ladder was reasoning about a number that had stopped describing reality.
+Here that gap was benign, because the stale reading was the pessimistic one and
+merely blocked launches the account could afford.
+The gap is symmetric, though, and the dangerous direction is the other one: a
+reading taken early in a window overstates what is left for as long as the
+window lasts, which is exactly how automatic dispatch used to run below the
+captain's reserved 25%.
+A single number that is hours old cannot be trusted in either direction, which
+is why the ceiling in `fm_agy_quota_read` and the intake poll above are the fix
+rather than the parser hardening alone.
+
 ## The shape the poll parses
 
 One call answers EVERY model, which is what lets a single poll serve both of the
