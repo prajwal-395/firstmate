@@ -8,7 +8,11 @@
 # hard-resets/removes the worktree and kills its processes. Also REFUSES when
 # another LIVE task's metadata still claims the same worktree: returning the
 # slot would reset that task's copy and delete the branch checked out in it.
-# bin/fm-worktree-claim-lib.sh owns that ownership contract. Work has landed when it is
+# bin/fm-worktree-claim-lib.sh owns that ownership contract.
+# The pool return itself is forced only when THIS script was given --force: a
+# plain `treehouse return` already returns a clean worktree without prompting,
+# so forcing unconditionally only served to discard uncommitted work that the
+# pool would otherwise have preserved. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
 # upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
 # normal ship task whose commits are not so reachable - when its PR is merged and
@@ -64,7 +68,7 @@
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
 # killed mid-git-operation can leave a .git/worktrees/<wt>/index.lock (or, for a
-# non-linked worktree, .git/index.lock) that makes `treehouse return --force` fail
+# non-linked worktree, .git/index.lock) that makes the pool return fail
 # with Unable to create '...index.lock': File exists. That lock is usually transient
 # (the dying process finishes or exits within seconds) and must never be force-deleted
 # while a live git process might still own it - the fix is patience, not rm.
@@ -1051,18 +1055,61 @@ cleanup_stale_lock_for_safety_check() {
   return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
 }
 
-# Return a worktree/home via `treehouse return --force`, tolerating a transient or
-# stale git index.lock left by a killed crew process. See the script header.
+# Run one pool return and prove it happened.
+#
+# `--force` is NOT unconditional for a task worktree. A plain `treehouse return` returns a
+# clean worktree with no prompt; the only thing --force adds is turning "there
+# are uncommitted changes, abort and keep them" into "clean and return anyway".
+# Cleanup has its own landed-work refusals for that decision, and --force on
+# THIS script is the captain's explicit discard authority, so the pool flag now
+# follows that authority instead of always forcing. Work that appears between
+# the safety check and the return - the agent is alive until the return kills
+# it - is then preserved by the pool rather than silently discarded.
+#
+# The outcome must be verified rather than trusted: an aborted return exits 0
+# and leaves the slot held, so a bare exit-code check would report a return that
+# never happened and leak the slot out of the pool. A genuine return cleans and
+# resets the worktree, so a still-dirty tree afterwards is proof it aborted.
+#
+# A secondmate HOME release passes always-force to keep its previous behavior:
+# that retirement has its own emptiness guards, and a home's local material is
+# gitignored rather than uncommitted work. Only task worktrees, which hold a
+# crewmate's actual changes, follow the captain's authority here.
+teardown_pool_return_once() {  # <cd-dir> <dir> [always-force] -> 0 on a proven return
+  local cd_dir=$1 dir=$2 policy=${3:-captain} rc
+  TEARDOWN_POOL_RETURN_OUT=
+  if [ "$policy" = always-force ] || [ "$FORCE" = "--force" ]; then
+    TEARDOWN_POOL_RETURN_OUT=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 )
+    return $?
+  fi
+  TEARDOWN_POOL_RETURN_OUT=$( ( cd "$cd_dir" && treehouse return "$dir" </dev/null ) 2>&1 )
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  # Proven-return check. A worktree that no longer exists was returned and
+  # removed; one that is still dirty was not returned at all.
+  [ -d "$dir" ] || return 0
+  if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]; then
+    TEARDOWN_POOL_RETURN_OUT="$TEARDOWN_POOL_RETURN_OUT
+teardown: the pool declined to return $dir because it still holds uncommitted changes; they were preserved, not discarded. Land or discard them, or rerun with --force after explicit approval."
+    return 1
+  fi
+  return 0
+}
+
+# Return a worktree/home via the pool, tolerating a transient or stale git
+# index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
-  local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
+  local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-} policy=${5:-captain}
   local out lock attempt=0 max_retries lock_desc
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+  if teardown_pool_return_once "$cd_dir" "$dir" "$policy"; then
+    out=$TEARDOWN_POOL_RETURN_OUT
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
   fi
+  out=$TEARDOWN_POOL_RETURN_OUT
   [ -n "$out" ] && printf '%s\n' "$out" >&2
 
   if ! treehouse_return_is_index_lock_error "$out"; then
@@ -1084,11 +1131,13 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+    if teardown_pool_return_once "$cd_dir" "$dir" "$policy"; then
+      out=$TEARDOWN_POOL_RETURN_OUT
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
       return 0
     fi
+    out=$TEARDOWN_POOL_RETURN_OUT
     [ -n "$out" ] && printf '%s\n' "$out" >&2
 
     if ! treehouse_return_is_index_lock_error "$out"; then
@@ -1111,11 +1160,13 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
-      if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+      if teardown_pool_return_once "$cd_dir" "$dir" "$policy"; then
+        out=$TEARDOWN_POOL_RETURN_OUT
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
         return 0
       fi
+      out=$TEARDOWN_POOL_RETURN_OUT
       [ -n "$out" ] && printf '%s\n' "$out" >&2
       echo "teardown: $label return still failing after stale-lock cleanup" >&2
       return 1
@@ -1741,7 +1792,7 @@ remove_firstmate_home() {
       restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
       return 1
     }
-    teardown_treehouse_return "$abs_home_path" "$FM_ROOT" "$label" || {
+    teardown_treehouse_return "$abs_home_path" "$FM_ROOT" "$label" "" always-force || {
       echo "error: treehouse return failed for $label $abs_home_path; lease may still be held" >&2
       restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
       return 1

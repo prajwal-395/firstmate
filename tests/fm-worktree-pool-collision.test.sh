@@ -63,6 +63,35 @@ set -u
 if [ "${1:-}" = get ]; then
   printf '%s\n' "${FM_FAKE_LEASE_PATH:?}"
 fi
+# Model the real vendor semantics the fix turns on: a plain return ABORTS on a
+# dirty worktree, preserving it, and still exits 0; --force cleans and returns.
+if [ "${1:-}" = return ]; then
+  forced=0
+  target=
+  for a in "$@"; do
+    case "$a" in --force) forced=1 ;; return) ;; *) target=$a ;;
+    esac
+  done
+  # FM_FAKE_POOL_ABORT models the race the proven-return check exists for: the
+  # agent is alive until the return kills it, so work can appear between
+  # cleanup's safety check and the moment the pool looks. Measured behavior:
+  # the pool aborts, preserves the tree, and still exits 0.
+  if [ -n "${FM_FAKE_POOL_ABORT:-}" ] && [ "$forced" -eq 0 ]; then
+    [ -z "$target" ] || [ ! -d "$target" ] || printf 'raced\n' > "$target/raced-work.txt"
+    printf 'Worktree has uncommitted changes. Clean and return? [Y/n] Aborted.\n'
+    exit 0
+  fi
+  if [ -n "$target" ] && [ -d "$target" ] \
+    && [ -n "$(git -C "$target" status --porcelain 2>/dev/null)" ] \
+    && [ "$forced" -eq 0 ]; then
+    printf 'Worktree has uncommitted changes. Clean and return? [Y/n] Aborted.\n'
+    exit 0
+  fi
+  [ -z "$target" ] || [ ! -d "$target" ] \
+    || git -C "$target" reset -q --hard >/dev/null 2>&1 \
+    && [ -z "$target" ] || [ ! -d "$target" ] || git -C "$target" clean -qfd >/dev/null 2>&1
+  printf 'Worktree returned to pool.\n'
+fi
 exit 0
 SH
   chmod +x "$fakebin/tmux" "$fakebin/treehouse"
@@ -362,5 +391,53 @@ test_teardown_proceeds_when_the_other_claim_is_provably_gone
 pass 'teardown proceeds when the other claim is provably gone'
 test_force_overrides_the_live_claim_refusal
 pass '--force overrides the live-claim refusal'
+# The pool return is forced only under the captain's discard authority. Without
+# it, uncommitted work that appeared after the safety check - the agent is alive
+# until the return kills it - is preserved by the pool instead of discarded, and
+# cleanup must not report success for a return that silently aborted.
+test_unforced_return_preserves_uncommitted_work() {
+  local rec out status
+  rec=$(make_case return-unforced 'pool-dirty-task')
+  read_case "$rec"
+  claim_worktree 'pool-dirty-task' 'firstmate:fm-pool-dirty-task'
+  printf 'work that appeared after the safety check\n' > "$POOL_DIR/late-work.txt"
+
+  set +e
+  out=$(run_teardown 'pool-dirty-task' --force)
+  status=$?
+  set -e
+  # --force is the captain's discard authority: the slot really is returned.
+  expect_code 0 "$status" "--force did not return the slot: $out"
+  [ ! -f "$POOL_DIR/late-work.txt" ] \
+    || fail "--force did not discard the work the captain authorized discarding"
+  printf '# with --force: slot returned, work discarded as authorized\n'
+}
+
+test_unforced_return_refuses_rather_than_reporting_a_phantom_return() {
+  local rec out status
+  rec=$(make_case return-phantom 'pool-phantom-task')
+  read_case "$rec"
+  claim_worktree 'pool-phantom-task' 'firstmate:fm-pool-phantom-task'
+
+  # The worktree is CLEAN here, so cleanup's landed-work refusal passes and the
+  # run really does reach the pool return - which then aborts.
+  set +e
+  out=$(FM_FAKE_POOL_ABORT=1 run_teardown 'pool-phantom-task')
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] || fail "cleanup reported success for a return that aborted: $out"
+  assert_present "$POOL_DIR/raced-work.txt" \
+    "the aborted return did not preserve the raced work"
+  # Not vacuous: the refusal must come from the PROVEN-RETURN check, not from an
+  # earlier landed-work refusal that never reached the pool at all.
+  assert_contains "$out" 'declined to return' \
+    "the refusal did not come from the proven-return check"
+  printf '%s\n' "$out" | grep -F 'declined to return' | head -1
+}
+
 test_real_treehouse_lease_outlives_the_agent
 pass 'a real leased pool slot outlives its agent and is freed only by return'
+test_unforced_return_preserves_uncommitted_work
+pass 'the captain-authorized forced return still discards and returns'
+test_unforced_return_refuses_rather_than_reporting_a_phantom_return
+pass 'an aborted pool return is reported as a failure, not a phantom success'

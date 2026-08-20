@@ -21,6 +21,25 @@ Three vendor facts are load-bearing and are pinned by the self-skipping real-tre
 
 That assertion prints `skip - treehouse not found; pool lease semantics unverified here` where the binary is absent, and never reports a pass for a check it did not run.
 
+## The pool return is forced only under the captain's authority
+
+A plain `treehouse return` needs no `--force` for the normal path, and refuses rather than discarding when it finds uncommitted work.
+Measured against treehouse v2.0.1 with no controlling terminal:
+
+```console
+$ treehouse return "$WT" </dev/null      # clean worktree
+🌳 Worktree returned to pool.
+
+$ treehouse return "$WT" </dev/null      # worktree with uncommitted changes
+Worktree has uncommitted changes. Clean and return? [Y/n] 🌳 Aborted.
+$ echo $?
+0
+```
+
+Two facts follow, and both are load-bearing.
+`--force` was never required to return a clean worktree, so its only effect was to discard changes the pool would otherwise have preserved - which matters exactly in the window cleanup cannot check, because the agent is alive until the return kills it.
+And an aborted return exits `0` while leaving the slot held, so the outcome must be verified rather than trusted: a genuine return cleans and resets the worktree, so a still-dirty tree afterwards proves the return did not happen.
+
 ## Containment, proved from both ends
 
 `tests/fm-worktree-pool-collision.test.sh` drives the real `bin/fm-spawn.sh` and `bin/fm-teardown.sh` against a fake terminal and a real git worktree.
@@ -36,6 +55,8 @@ ok - teardown refuses to return a slot a live task record still claims
 ok - teardown proceeds when the other claim is provably gone
 ok - --force overrides the live-claim refusal
 ok - a real leased pool slot outlives its agent and is freed only by return
+ok - the captain-authorized forced return still discards and returns
+ok - an aborted pool return is reported as a failure, not a phantom success
 ```
 
 Liveness is deliberately asymmetric.
