@@ -53,9 +53,19 @@
 #   FM_TEST_SUMMARY_FAMILY family=<name> count=<n> duration_ms=<n> failed=<n>
 #   FM_TEST_SLOWEST rank=<k> script=<path> duration_ms=<n>
 #
-# Exit status is non-zero if any selected script exits non-zero or a configured
-# --fail-on-gate-skip token appears. Other gate skips (first meaningful line
-# matching ^skip:) remain successful and are counted as skipped_gate.
+# Exit status is non-zero if any selected script exits non-zero, a configured
+# --fail-on-gate-skip token appears, or a script whose family declares
+# expected_gate_skip=none gate-skips anyway. A gate skip (first meaningful line
+# matching ^skip:) in a family that DOES expect one remains successful and is
+# counted as skipped_gate.
+#
+# expected_gate_skip=none is this script's own claim that the named script has
+# no gate and therefore always executes. Enforcing that claim is what stops the
+# coverage guard's "every test file is scheduled" from quietly meaning "and some
+# of them never ran": the guard can prove a file was SCHEDULED, only this can
+# prove it EXECUTED. A script caught here is either misclassified (move it into
+# the family whose gate it actually has) or missing a dependency the lane must
+# install.
 #
 # Family labels, the changed-file map, and production portable-shard composition
 # live in this script only (one owner). The proven-isolated candidate set remains
@@ -1592,7 +1602,10 @@ record_script_result() {
   if [ "$rc" -eq 0 ] && detect_gate_skip "$out"; then
     gate_skip=true
     SKIPPED_GATE=$((SKIPPED_GATE + 1))
-    [ "$expected" = "none" ] && rc=1
+    if [ "$expected" = none ]; then
+      log "unexpected gate skip in $script: family=$family declares expected_gate_skip=none"
+      rc=1
+    fi
   fi
 
   printf 'FM_TEST_END %s %s exit=%s duration_ms=%s gate_skip=%s\n' \

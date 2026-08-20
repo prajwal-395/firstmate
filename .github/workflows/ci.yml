@@ -67,7 +67,13 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent
+          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
+          # drives a real Pi TUI and scrapes its rendered pane, so the version it
+          # runs against has to be one this repo has actually verified. That file
+          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
+          # deliberate change that re-verifies against the new release, exactly
+          # like the Herdr pin in the Herdr lane.
+          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
           tasks-axi --version
           tsc --version
       - name: Run portable parallel shard 1
@@ -105,7 +111,13 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent
+          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
+          # drives a real Pi TUI and scrapes its rendered pane, so the version it
+          # runs against has to be one this repo has actually verified. That file
+          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
+          # deliberate change that re-verifies against the new release, exactly
+          # like the Herdr pin in the Herdr lane.
+          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
           tasks-axi --version
           tsc --version
       - name: Run portable parallel shard 2
@@ -165,7 +177,13 @@ jobs:
       - name: Install tasks-axi for backlog-handoff delegation
         run: |
           set -eu
-          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent
+          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
+          # drives a real Pi TUI and scrapes its rendered pane, so the version it
+          # runs against has to be one this repo has actually verified. That file
+          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
+          # deliberate change that re-verifies against the new release, exactly
+          # like the Herdr pin in the Herdr lane.
+          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
           tasks-axi --version
           tsc --version
       - name: Run portable serial shard ${{ matrix.shard }}
