@@ -46,11 +46,10 @@ LAB=$(fm_herdr_lab_name progress-probe) || exit 1
 CHECKED=0
 FAILED=0
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-progress-live.XXXXXX")
-PROBE_STATE=$(mktemp -d "${TMPDIR:-/tmp}/fm-progress-state.XXXXXX")
 
 cleanup() {
   fm_herdr_lab_teardown "$LAB" >/dev/null 2>&1 || true
-  rm -rf "$WORKDIR" "$PROBE_STATE"
+  rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
 
@@ -93,12 +92,15 @@ make_pane() {  # <label> -> pane id
 
 harness_version() { "$1" --version 2>/dev/null | head -1 || printf 'version-unknown'; }
 
-# measure <target> <key> - the CPU rate the probe reads over SPAN, in percent of
-# one core, through the same subtree resolution supervision uses. Prints
+# measure <target> - the CPU rate the probe reads over SPAN, in percent of one
+# core, through the same subtree resolution supervision uses. Prints
 # "<pct> <reading>"; returns 1 if the pane could not be measured at all.
+#
+# Samples directly rather than through fm_progress_probe: this guard is asking
+# what a harness's two states MEASURE, and taking both readings itself keeps the
+# span exactly SPAN instead of whatever a stored baseline happens to be.
 measure() {
-  local target=$1 key=$2 pids sample base now delta span
-  rm -f "$PROBE_STATE/.progress-$key"
+  local target=$1 pids base now delta span
   pids=$(fm_backend_agent_root_pids herdr "$target" 2>/dev/null) || return 1
   [ -n "$pids" ] || return 1
   # shellcheck disable=SC2086 # one pid per line, deliberately split into args
@@ -114,7 +116,7 @@ measure() {
 
 check_harness_progress() {  # <name> <launch-command-line>
   local name=$1 launch=$2 pane target version i=0 trusted=0
-  local idle_reading idle_pct busy_reading busy_pct key
+  local idle_reading idle_pct busy_reading busy_pct
   version=$(harness_version "$name")
   pane=$(make_pane "pp-$name") || {
     FAILED=1
@@ -122,7 +124,6 @@ check_harness_progress() {  # <name> <launch-command-line>
     return
   }
   target="$LAB:$pane"
-  key=$(printf '%s' "$target" | tr ':/.' '___')
   fm_herdr_lab_cli "$LAB" pane send-text "$pane" "$launch" >/dev/null || true
   sleep 0.5
   fm_herdr_lab_cli "$LAB" pane send-keys "$pane" enter >/dev/null || true
@@ -145,7 +146,7 @@ check_harness_progress() {  # <name> <launch-command-line>
 
   # Direction 1: idle at an empty composer - the shape a session-limited worker
   # is stuck in - must read BELOW the threshold, or it can never be surfaced.
-  if ! idle_reading=$(measure "$target" "$key"); then
+  if ! idle_reading=$(measure "$target"); then
     FAILED=1
     printf 'not ok - %s (%s): an idle pane could not be measured at all; the stall alarm has no signal on this harness\n' \
       "$name" "$version" >&2
@@ -174,7 +175,7 @@ check_harness_progress() {  # <name> <launch-command-line>
       "$name" "$version" >&2
     return
   fi
-  if ! busy_reading=$(measure "$target" "$key"); then
+  if ! busy_reading=$(measure "$target"); then
     FAILED=1
     printf 'not ok - %s (%s): a working pane could not be measured at all\n' "$name" "$version" >&2
     return

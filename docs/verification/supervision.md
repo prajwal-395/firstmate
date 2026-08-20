@@ -227,16 +227,17 @@ Its subtree membership changes every time it spawns or reaps one, and every samp
 Claude also runs `caffeinate -i -t 300` inside its own foreground group while a turn is in flight; its exit after a turn ends is a genuine membership change that rolls the baseline forward once, which delays a stopped-worker verdict by at most one span rather than defeating it.
 
 Where each harness's idle and mid-turn states fall against the threshold is a vendor fact a release can change - a TUI that repaints a clock while idle is all it would take - so it is guarded live rather than assumed.
-Run on 2026-08-20 against every installed harness:
+Run twice on 2026-08-20 against every installed harness, because a single run of a timing measurement overstates its own precision:
 
 | Harness | Version | Idle at an empty composer | Mid-turn |
 | --- | --- | --- | --- |
-| agy | 1.1.16 | 1% of a core (0.59s over 45s) | 123% (55.42s over 45s) |
-| Claude | 2.1.228 (Claude Code) | 0% of a core (0.31s over 45s) | 5% (2.30s over 45s) |
+| agy | 1.1.16 | 0-1% of a core (0.27s, 0.59s over 45s) | 123-138% (55.42s, 62.22s over 45s) |
+| Claude | 2.1.228 (Claude Code) | 0-1% of a core (0.31s, 0.46s over 45s) | 4-5% (2.30s, 2.09s over 45s) |
 
 Codex, OpenCode, Pi, Grok, Kimi, muse, and Cursor were not installed on that host and are reported unverified by the guard rather than passed over.
-Claude is the tighter of the two measured: its mid-turn 5% is the smallest working margin above the 2% threshold, while agy's idle 1% is the smallest stopped margin below it.
-Both hold, and the guard is the tripwire if a release moves either.
+Claude is much the tighter of the two: its mid-turn 4-5% is only about twice the 2% threshold, and its idle reached 1% on the second run, so its whole separation is roughly 4x rather than the order of magnitude the production-span readings above show.
+That is the cost of the short guard span and is the conservative direction for a pass - a 45s window is noisier than the 180s and 600s production uses, so a harness that separates here separates there.
+It is also the reason the relationship is guarded rather than assumed: Claude is the harness a release could most plausibly move across the line.
 
 ```sh
 FM_PROGRESS_PROBE_LIVE=1 tests/fm-progress-probe-live-e2e.test.sh
