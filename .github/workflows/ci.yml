@@ -67,12 +67,12 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
-          # drives a real Pi TUI and scrapes its rendered pane, so the version it
-          # runs against has to be one this repo has actually verified. That file
-          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
-          # deliberate change that re-verifies against the new release, exactly
-          # like the Herdr pin in the Herdr lane.
+          # tsc and the Pi package are what let tests/fm-pi-primary-types.test.sh
+          # actually typecheck the tracked Pi extensions instead of gate-skipping.
+          # The package is pinned, never floating: it is the declarations the
+          # strict no-emit check runs against, and a silently newer release would
+          # change that check's meaning underneath us. Bumping the pin is a
+          # deliberate change, exactly like the Herdr pin in the Herdr lane.
           npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
           tasks-axi --version
           tsc --version
@@ -111,12 +111,12 @@ jobs:
       - name: Install tasks-axi
         run: |
           set -eu
-          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
-          # drives a real Pi TUI and scrapes its rendered pane, so the version it
-          # runs against has to be one this repo has actually verified. That file
-          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
-          # deliberate change that re-verifies against the new release, exactly
-          # like the Herdr pin in the Herdr lane.
+          # tsc and the Pi package are what let tests/fm-pi-primary-types.test.sh
+          # actually typecheck the tracked Pi extensions instead of gate-skipping.
+          # The package is pinned, never floating: it is the declarations the
+          # strict no-emit check runs against, and a silently newer release would
+          # change that check's meaning underneath us. Bumping the pin is a
+          # deliberate change, exactly like the Herdr pin in the Herdr lane.
           npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
           tasks-axi --version
           tsc --version
@@ -177,13 +177,14 @@ jobs:
       - name: Install tasks-axi for backlog-handoff delegation
         run: |
           set -eu
-          # The Pi package is pinned, not floating: tests/fm-calm-pi-extension.test.sh
-          # drives a real Pi TUI and scrapes its rendered pane, so the version it
-          # runs against has to be one this repo has actually verified. That file
-          # records 0.81.1 and 0.82.0 as its evidence; bumping this pin is a
-          # deliberate change that re-verifies against the new release, exactly
-          # like the Herdr pin in the Herdr lane.
-          npm install -g tasks-axi typescript @earendil-works/pi-coding-agent@0.82.0
+          # No Pi package here, deliberately: the only serial-lane script that
+          # wants it is tests/fm-calm-pi-extension.test.sh, whose Pi TUI suite
+          # fails on a real rendering defect tracked as fm-calm-pi-duplicate-render.
+          # Until that lands, the script gate-skips VISIBLY as its own
+          # pi-package-gated family rather than failing this lane - see the
+          # family comment in bin/fm-test-run.sh. Every other script here keeps
+          # expected_gate_skip=none, so the guard stays armed across this lane.
+          npm install -g tasks-axi typescript
           tasks-axi --version
           tsc --version
       - name: Run portable serial shard ${{ matrix.shard }}

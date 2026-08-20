@@ -362,6 +362,54 @@ SH
   pass "a gate skip fails the run under expected_gate_skip=none and still passes in a gated family"
 }
 
+test_pi_package_gate_is_declared_and_traceable() {
+  # fm-calm-pi-extension.test.sh is deliberately gated until
+  # fm-calm-pi-duplicate-render lands. A gate is only acceptable while it stays
+  # HONEST, so pin the three properties that make it so: it is a declared gate
+  # rather than a silent skip, it still covers exactly one script, and it names
+  # the work that retires it. When that follow-up lands, this test is what
+  # fails and points at the branch to delete.
+  local tmp gated out
+  grep -q 'fm-calm-pi-duplicate-render' "$RUNNER" \
+    || fail "the pi-package gate must name the follow-up that retires it"
+  grep -q 'fm-calm-pi-duplicate-render' "$ROOT/.github/workflows/ci.yml" \
+    || fail "the serial lane's omitted Pi package must name the same follow-up"
+
+  "$RUNNER" --list-families | grep -qx 'pi-package-gated' \
+    || fail "pi-package-gated must be a known family"
+
+  # Exactly one member: the gate must never grow into a bucket that quiets
+  # other scripts.
+  local members
+  members=$("$RUNNER" --list --family pi-package-gated)
+  [ "$members" = tests/fm-calm-pi-extension.test.sh ] \
+    || fail "pi-package-gated must hold exactly the calm Pi script, got: $members"
+
+  # The skip is DECLARED in the run output, not silent: the BEGIN marker names
+  # the expected class and the END marker records gate_skip=true, so a reader or
+  # a tool can tell this script did not execute.
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-pi-gate.XXXXXX")
+  gated="$tmp/fm-calm-pi-extension.test.sh"
+  out="$tmp/out.txt"
+  cat >"$gated" <<'SH'
+#!/usr/bin/env bash
+echo "skip: installed @earendil-works/pi-coding-agent package not found"
+exit 0
+SH
+  chmod +x "$gated"
+  "$RUNNER" "$gated" >"$out" 2>"$tmp/err.txt" \
+    || { rm -rf "$tmp"; fail "the declared Pi package gate must not fail the run"; }
+  grep -q 'expected_gate_skip=optional-pi-package' "$out" \
+    || { rm -rf "$tmp"; fail "BEGIN must declare the gate: $(grep '^FM_TEST_BEGIN' "$out")"; }
+  grep -Eq '^FM_TEST_END .+ exit=0 duration_ms=[0-9]+ gate_skip=true$' "$out" \
+    || { rm -rf "$tmp"; fail "END must record a visible gate skip: $(grep '^FM_TEST_END' "$out")"; }
+  grep -q 'FM_TEST_SUMMARY_FAMILY family=pi-package-gated' "$out" \
+    || { rm -rf "$tmp"; fail "the family summary must name the gate: $(grep FM_TEST_SUMMARY "$out")"; }
+
+  rm -rf "$tmp"
+  pass "the Pi package gate is declared in the run output, single-member, and names fm-calm-pi-duplicate-render"
+}
+
 test_fail_on_gate_skip_token() {
   local tmp skip_f out rc
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-fail-skip.XXXXXX")
@@ -822,6 +870,7 @@ test_timing_markers_and_json
 test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_unexpected_gate_skip_fails_the_run
+test_pi_package_gate_is_declared_and_traceable
 test_fail_on_gate_skip_token
 test_exclude_family
 test_portable_shard_union_and_coverage_guard
