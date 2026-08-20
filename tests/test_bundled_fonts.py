@@ -25,6 +25,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from library.tools.render_fonts import ACCEPTED_SYSTEM_FONTS, primary_family
 from library.tools.subtitle_style import SUBTITLE_STYLES
 
 REMOTION_SRC = os.path.join(PROJECT_ROOT, "remotion-subtitles", "src")
@@ -32,18 +33,11 @@ FONT_DIR = os.path.join(PROJECT_ROOT, "remotion-subtitles", "public", "fonts")
 FONT_FILE = os.path.join(FONT_DIR, "Montserrat-Variable.ttf")
 LICENCE_FILE = os.path.join(FONT_DIR, "OFL-Montserrat.txt")
 
-# Fonts a template may name that this repo does NOT bundle. Each is a
-# system font, so its exact shape depends on the render machine. Adding to
-# this list is a decision to accept that; adding a font to
-# `public/fonts/` and loading it in `src/fonts.ts` is the alternative.
-ACCEPTED_SYSTEM_FONTS = {
-    "Helvetica": (
-        "default_brand.yaml names it. Present on macOS, absent on most "
-        "Linux render hosts, where Chromium will substitute. Accepted "
-        "because default_brand is the fallback template rather than a "
-        "shipped look, but it is not deterministic."
-    ),
-}
+# ACCEPTED_SYSTEM_FONTS used to be defined here, privately, which meant
+# the ENGINE could not consult the list it is judged against: a template
+# was checked at CI time and a project declaration was checked nowhere.
+# It now lives in library/tools/render_fonts.py, where
+# `timed_text_overlay._validate_font` reads the same entries.
 
 
 def _src_files():
@@ -178,10 +172,17 @@ def test_a_missing_font_is_a_loud_failure():
         "default sans is invisible in the output")
 
 
-def test_both_rendered_compositions_load_the_font():
-    """The pipeline renders exactly two compositions; both draw text."""
+def test_every_rendered_composition_loads_the_font():
+    """The pipeline renders three compositions; all three draw text.
+
+    `TimedTextOverlay` was the third and loaded nothing at all: it set
+    `fontFamily` as CSS and no face was ever registered, so every card
+    rendered in Chromium's fallback sans. That is a valid picture of the
+    right size, which is exactly the failure this file exists to end.
+    """
     for rel in ("compositions/SubtitleOverlay/index.tsx",
-                "compositions/MotionGraphics/index.tsx"):
+                "compositions/MotionGraphics/index.tsx",
+                "compositions/TimedTextOverlay/index.tsx"):
         with open(os.path.join(REMOTION_SRC, rel), encoding="utf-8") as f:
             src = f.read()
         assert "loadBundledFonts" in src, f"{rel} does not load the font"
@@ -216,8 +217,7 @@ def _font_names(node, path=""):
 
 # CSS font stacks name fallbacks after the first family; only the first is
 # the font anyone chose, and it is the one that must be deliverable.
-def _primary_family(declared: str) -> str:
-    return declared.split(",")[0].strip().strip("'\"")
+_primary_family = primary_family
 
 
 def test_templates_name_bundled_or_explicitly_accepted_fonts():

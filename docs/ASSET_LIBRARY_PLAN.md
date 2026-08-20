@@ -190,6 +190,47 @@ must clear the bars states its own `y`. Recorded here rather than in a
 constant, because the reader works and this is a limit on where a moment
 can be placed, not a capability that renders nothing.
 
+**The first declared asset states its own `y`, and it was enough**
+(2026-08-20, the second item in the build order). Through the 4th Wall's
+Night card is the asset the paragraph above was waiting for, and it did
+not need picture-area enumeration: the band is measurable off the render
+the pipeline actually produces. Project 001, `Pipeline_Edit.mp4`,
+1080x1920, 16:9 landscape source, per-row on frames at t=2.0s, 9.0s and
+40.0s:
+
+| rows | what is there |
+| --- | --- |
+| 0..655 | letterbox bar |
+| **656..1263** | **picture** |
+| 1264..1919 | letterbox bar, with burnt-in captions at ~1699..1765 |
+
+So `y` in 0.35..0.65 is over picture whether the episode's source
+letterboxes like 001's or fills the frame like a vertical Night, and
+clear of the captions either way. The Night card states 0.545 and 0.605.
+Whether that band should become an enumeration is still open, and now has
+exactly one asset's worth of evidence rather than none - a second series
+whose card needs the top of the picture would be the case that justifies
+it.
+
+**And a card is declared by the PROJECT.** A moment's text is copy the
+viewer reads, so section 3's rule puts it with the project - but until
+2026-08-20 the only place a declaration could be written was a brand
+template, because a line of copy has no file to point a `source:` at.
+`timed_text_overlay.resolve_declaration` closes that: a project's
+`project.yaml` may carry `effect.timed_text_overlay`, and it replaces the
+template's whole slot. Without it Q1 and Q3 were mutually unsatisfiable
+for timed text - the artwork had to live in the project and could only be
+read from the engine.
+
+**The typeface rule became mechanical.** Section 5's first property was
+prose. `library/tools/render_fonts.py` is now the enumeration: bundled,
+accepted as a system font, or carried by the project as a `font_file`
+that `prep_remotion` stages out of `<project>/brand_assets/`. Anything
+else raises. This is what makes the captain's decision 3 (per-series
+typefaces live per project) shippable rather than merely stated -
+`TimedTextOverlay` named a family in CSS and loaded no font at all, so
+every card it rendered was already in Chromium's fallback sans.
+
 **Project assets each series owes** (from the captain's planning docs):
 an intro card design, a display typeface, a caption typeface, and where
 the series shows numbers a data typeface, plus a palette. Locked so far:

@@ -646,3 +646,143 @@ def test_default_font_family():
         }
     })
     assert result["fontFamily"] == "Helvetica"
+
+
+# ─────────────────────────────────────────────────────────
+# Where a declaration may live: the project wins
+# ─────────────────────────────────────────────────────────
+
+def _write_project(tmp_path, body: str) -> str:
+    (tmp_path / "project.yaml").write_text(body, encoding="utf-8")
+    return str(tmp_path)
+
+
+PROJECT_CARD = """
+name: Night 1
+effect:
+  timed_text_overlay:
+    font_family: Helvetica
+    moments:
+      - text: "Night 1"
+        color: "#D4A34A"
+        block: hook
+        anchor: end
+        duration_seconds: 2.0
+"""
+
+
+def test_a_project_declaration_beats_the_templates(tmp_path):
+    """Series artwork belongs to the project, not to the engine.
+
+    `docs/ASSET_LIBRARY_PLAN.md` section 3, ratified 2026-08-20: a brand
+    template sets parameters and may not carry copy the viewer reads.
+    Until this route existed the only place a card could be written was a
+    template, which is the corner the removed end card died in.
+    """
+    from library.tools.timed_text_overlay import resolve_declaration
+
+    template_effect = {
+        "sfx_density": "sparse",
+        "timed_text_overlay": {"moments": [
+            {"text": "FROM THE TEMPLATE", "color": "#FFFFFF",
+             "start_frame": 0, "duration_frames": 30}]},
+    }
+    project = _write_project(tmp_path, PROJECT_CARD)
+
+    resolved = resolve_declaration(template_effect, project)
+    texts = [m["text"] for m in resolved["timed_text_overlay"]["moments"]]
+    assert texts == ["Night 1"], "the project's card must win outright"
+    # The rest of the effect slots are untouched: this replaces one slot,
+    # not the template.
+    assert resolved["sfx_density"] == "sparse"
+    # And the template's own dict is not mutated under it.
+    assert template_effect["timed_text_overlay"]["moments"][0]["text"] == (
+        "FROM THE TEMPLATE")
+
+
+def test_a_project_that_declares_nothing_leaves_the_template_alone(tmp_path):
+    from library.tools.timed_text_overlay import resolve_declaration
+
+    template_effect = {"timed_text_overlay": {"moments": [
+        {"text": "KEEP ME", "color": "#FFFFFF",
+         "start_frame": 0, "duration_frames": 30}]}}
+    project = _write_project(tmp_path, "name: No Card\n")
+    assert resolve_declaration(template_effect, project) == template_effect
+
+    # No project.yaml at all, and no project folder at all.
+    assert resolve_declaration(template_effect, str(tmp_path / "nope")) == (
+        template_effect)
+    assert resolve_declaration(template_effect, "") == template_effect
+
+
+@pytest.mark.parametrize("body,needle", [
+    ("effect: not-a-mapping\n", "not a mapping"),
+    ("effect:\n  timed_text_overlay: [1, 2]\n", "not a declaration"),
+])
+def test_a_malformed_project_declaration_raises(tmp_path, body, needle):
+    """A dropped declaration is a card the editor believes shipped."""
+    from library.tools.timed_text_overlay import (
+        TimedTextDeclarationError,
+        resolve_declaration,
+    )
+    with pytest.raises(TimedTextDeclarationError) as raised:
+        resolve_declaration({}, _write_project(tmp_path, body))
+    assert needle in str(raised.value)
+
+
+# ─────────────────────────────────────────────────────────
+# The typeface must be one that really draws the glyphs
+# ─────────────────────────────────────────────────────────
+
+def test_an_unbundled_family_without_a_file_raises():
+    """The silent failure: Chromium substitutes and the frames look fine.
+
+    A per-series typeface is not bundled and must not be - it lives with
+    its project - so the declaration names the staged file. See
+    library/tools/render_fonts.py.
+    """
+    from library.tools.timed_text_overlay import (
+        TimedTextDeclarationError,
+        plan_timed_text_segments,
+    )
+    declaration = {"timed_text_overlay": {
+        "font_family": "Nanum Pen Script",
+        "moments": [{"text": "Night 1", "color": "#D4A34A",
+                     "start_frame": 0, "duration_frames": 30}],
+    }}
+    with pytest.raises(TimedTextDeclarationError) as raised:
+        plan_timed_text_segments(declaration)
+    assert "Nanum Pen Script" in str(raised.value)
+
+
+def test_a_project_font_reaches_the_props_as_a_static_path():
+    """`prep_remotion` stages brand_assets/ into public/brand/."""
+    from library.tools.timed_text_overlay import plan_timed_text_segments
+
+    declaration = {"timed_text_overlay": {
+        "font_family": "Nanum Pen Script",
+        "font_file": "NanumPenScript-Regular.ttf",
+        "moments": [{"text": "Night 1", "color": "#D4A34A",
+                     "start_frame": 0, "duration_frames": 30}],
+    }}
+    props = plan_timed_text_segments(declaration)[0]["props"]
+    assert props["fontFamily"] == "Nanum Pen Script"
+    assert props["fontFile"] == "brand/NanumPenScript-Regular.ttf"
+
+
+def test_a_bundled_or_accepted_family_needs_no_file():
+    from library.tools.render_fonts import (
+        ACCEPTED_SYSTEM_FONTS,
+        BUNDLED_FONT_FAMILY,
+    )
+    from library.tools.timed_text_overlay import plan_timed_text_segments
+
+    for family in [BUNDLED_FONT_FAMILY, *ACCEPTED_SYSTEM_FONTS]:
+        declaration = {"timed_text_overlay": {
+            "font_family": family,
+            "moments": [{"text": "x", "color": "#FFFFFF",
+                         "start_frame": 0, "duration_frames": 30}],
+        }}
+        props = plan_timed_text_segments(declaration)[0]["props"]
+        assert props["fontFamily"] == family
+        assert "fontFile" not in props

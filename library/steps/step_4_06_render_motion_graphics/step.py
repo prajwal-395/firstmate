@@ -176,15 +176,21 @@ def main():
     if bookends_rendered:
         print(f"Bookends ready: {len(bookends_rendered)}", file=sys.stderr)
 
-    # Timed text moments the brand template declares. A template that
-    # declares none renders none - the opt-in shape of every effect slot.
-    # The spine is what a moment is timed FROM, and what bounds a moment
-    # given in absolute frames; see library/tools/timed_text_overlay.py.
+    # Timed text moments. Declare none and render none - the opt-in shape
+    # of every effect slot. The spine is what a moment is timed FROM, and
+    # what bounds a moment given in absolute frames; see
+    # library/tools/timed_text_overlay.py.
+    #
+    # The PROJECT's own `effect.timed_text_overlay` wins over the brand
+    # template's, because a card is series artwork and artwork is a
+    # project asset (docs/ASSET_LIBRARY_PLAN.md section 3, ratified
+    # 2026-08-20). resolve_declaration is where that precedence lives.
     structure = audio_spine.get("structure", [])
     try:
+        from library.tools.timed_text_overlay import resolve_declaration
         from library.tools.timed_text_render import render_timed_text_segments
         timed_text_segments = render_timed_text_segments(
-            data.get("brand_effect", {}),
+            resolve_declaration(data.get("brand_effect", {}), project_folder),
             REMOTION_DIR,
             os.path.join(output_dir, TIMED_TEXT_RENDER_DIRNAME),
             fps=fps, width=width, height=height,

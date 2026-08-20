@@ -2,6 +2,8 @@
 import React from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 
+import { loadBundledFonts, loadProjectFont } from "../../fonts";
+
 /**
  * Opacity of one moment at a frame inside its own span.
  *
@@ -59,6 +61,14 @@ export type TextMoment = {
 export type TimedTextOverlayProps = {
   moments: TextMoment[];
   fontFamily: string;
+  /**
+   * `staticFile()` path of the font file `fontFamily` is drawn from, when
+   * the PROJECT carries its own typeface (`brand/<file>`, staged there by
+   * prep_remotion). Absent means the family is one this repository
+   * bundles or has accepted as a system font - see
+   * library/tools/render_fonts.py.
+   */
+  fontFile?: string;
   fps: number;
   width: number;
   height: number;
@@ -70,10 +80,20 @@ export const timedTextOverlaySchema = {} as any;
 export const TimedTextOverlay: React.FC<TimedTextOverlayProps> = ({
   moments,
   fontFamily,
+  fontFile,
   width,
   height,
 }) => {
   const frame = useCurrentFrame();
+
+  // BLOCKING, and throwing on a miss. Until this existed the composition
+  // named a family and loaded nothing, so every card rendered in
+  // Chromium's fallback sans - a valid picture of the right size, which
+  // is the failure mode `src/fonts.ts` exists to end (P3.3).
+  loadBundledFonts();
+  if (fontFile) {
+    loadProjectFont(fontFamily, fontFile);
+  }
 
   return (
     <AbsoluteFill
@@ -115,6 +135,15 @@ export const TimedTextOverlay: React.FC<TimedTextOverlayProps> = ({
               left: x * width,
               top: y * height,
               transform: "translate(-50%, -50%)",
+              // An absolutely positioned box with only `left` set is
+              // available (containerWidth - left) px wide, so a moment at
+              // x=0.5 wrapped at HALF the frame: "Through the 4th Wall"
+              // broke onto two lines at 52px in a 1080px frame, with the
+              // second line landing 60px lower than the declaration said.
+              // Size the box to its content instead, and let the frame -
+              // not the anchor point - be the only thing that can wrap it.
+              width: "max-content",
+              maxWidth: width,
               fontSize,
               fontWeight: fontWeight ?? 400,
               color,

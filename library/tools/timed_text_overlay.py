@@ -1,25 +1,29 @@
-"""Timed text moments: one enumeration, declared per template, read by 4.06.
+"""Timed text moments: one enumeration, declared per project, read by 4.06.
 
-A brand template declares ``effect.timed_text_overlay`` and gets N text
-moments composited over the finished picture - an episode number, a
-chapter title, a date stamp. A template that declares nothing gets
-nothing, the same per-template opt-in shape as ``effect.motion_accents``
-(P3.1/Q3) and ``content.bookends`` (Q7, 2026-08-16).
+A declaration gets N text moments composited over the finished picture -
+an episode number, a chapter title, a date stamp. Declare nothing and get
+nothing, the same opt-in shape as ``effect.motion_accents`` (P3.1/Q3) and
+``content.bookends`` (Q7, 2026-08-16).
+
+Two places may declare it, and the PROJECT wins - see
+:func:`resolve_declaration` for why a card belongs to the project and not
+to the engine's brand template.
 
 What a declaration looks like::
 
     effect:
       timed_text_overlay:
-        font_family: Montserrat
+        font_family: "Nanum Pen Script"          # the project's typeface
+        font_file: "NanumPenScript-Regular.ttf"  # in <project>/brand_assets/
         moments:
-          - text: "EPISODE 001"
+          - text: "Night 1"
             color: "#D4A34A"
             font_size: 64
-            block: 1                # spine block position
-            anchor: start           # or `end`; default `start`
-            offset_seconds: 0.5
+            block: hook             # spine block position ("hook" or an int)
+            anchor: end             # or `start`; default `start`
+            offset_seconds: 0.15
             duration_seconds: 2.0
-            y: 0.35
+            y: 0.545
 
 A moment is timed from the SPINE - ``docs/ASSET_LIBRARY_PLAN.md``
 section 5, "no absolute frames, no assumed total" - so re-cutting the
@@ -32,7 +36,19 @@ no longer existed, and nothing checked.
 Geometry is normalised against the whole delivery frame, NOT the picture
 area inside any letterbox bars a landscape source produces.  There is no
 picture-area enumeration to resolve against yet, so a declaration that
-must clear the bars states its own ``y``.
+must clear the bars states its own ``y``.  Measured on the only finished
+render on disk - project 001, 1080x1920, a 16:9 landscape source - the
+picture occupies rows **656..1263** and the burnt-in captions rows
+~1699..1765, so ``y`` in ``0.35..0.65`` is over picture in both the
+letterboxed and the full-bleed case.  ``tests/test_night_card_delivery.py``
+asserts a real card's ink against those rows.
+
+The typeface must be one that will really draw the glyphs:
+``library/tools/render_fonts.py`` says which, and a family that is
+neither bundled nor accepted as a system font must name the ``font_file``
+the project carries.  ``TimedTextOverlay`` blocks the render on that face
+and throws if it cannot load it, because a substituted font is a valid
+picture of the right size that nothing downstream can tell apart.
 
 How a declaration reaches the picture, in order - this chain IS the
 capability, and until 2026-08-20 it stopped at step 1:
@@ -71,7 +87,14 @@ a moment; artwork belongs to the project.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
+
+from library.tools.render_fonts import (
+    font_is_deliverable,
+    primary_family,
+    static_font_path,
+)
 
 # The composition these props drive, registered in
 # remotion-subtitles/src/Root.tsx.
@@ -125,7 +148,7 @@ def generate_timed_text_overlay_props(
         for m in raw_moments
     ]
 
-    return {
+    props = {
         "moments": moments,
         "fontFamily": declaration.get("font_family", "Helvetica"),
         "fps": fps,
@@ -133,6 +156,15 @@ def generate_timed_text_overlay_props(
         "height": height,
         "durationInFrames": duration_in_frames,
     }
+    # The exact file the family is to be drawn from, when the project
+    # carries its own typeface. `TimedTextOverlay` blocks the render on
+    # this face and throws if it cannot load it, which is what stops a
+    # per-series typeface substituting silently - see
+    # library/tools/render_fonts.py.
+    font_file = declaration.get("font_file")
+    if font_file:
+        props["fontFile"] = static_font_path(str(font_file))
+    return props
 
 
 def _resolve_moment(moment: dict, index: int, spine_structure: list | None,
@@ -225,6 +257,47 @@ def _resolve_moment(moment: dict, index: int, spine_structure: list | None,
     resolved["start_frame"] = int(round(start * fps))
     resolved["duration_frames"] = max(1, int(round(duration_seconds * fps)))
     return resolved
+
+
+def _validate_font(declaration: dict) -> None:
+    """A declared family must really be the one that draws the glyphs.
+
+    `docs/ASSET_LIBRARY_PLAN.md` section 5, property 1: "Its typeface is
+    bundled, with the licence recorded. An unbundled family renders on
+    the machine that added it and substitutes silently everywhere else."
+    A per-series typeface is not bundled and must not be - it lives with
+    its project - so the declaration names the staged FILE and the
+    composition loads that file or throws.
+
+    The failure this refuses is silent: Chromium substitutes, the frames
+    are valid pictures of the right size, and the card ships in the wrong
+    typeface with nothing to notice.
+    """
+    family = declaration.get("font_family")
+    if family is None:
+        return
+    if not isinstance(family, str) or not family.strip():
+        raise TimedTextDeclarationError(
+            f"effect.timed_text_overlay has font_family={family!r}; a "
+            f"family is a non-empty CSS font name")
+
+    font_file = declaration.get("font_file")
+    if font_file is not None and (
+            not isinstance(font_file, str) or not font_file.strip()):
+        raise TimedTextDeclarationError(
+            f"effect.timed_text_overlay has font_file={font_file!r}; a "
+            f"font file is a filename staged into Remotion's public/brand/")
+
+    if not font_is_deliverable(family, font_file):
+        raise TimedTextDeclarationError(
+            f"effect.timed_text_overlay names font_family={family!r}, "
+            f"which this repository does not bundle and has not accepted "
+            f"as a system font. A per-series typeface lives with its "
+            f"project: put the file in <project>/brand_assets/ and name "
+            f"it with `font_file`, or the render substitutes Chromium's "
+            f"fallback sans and nothing downstream can tell. See "
+            f"library/tools/render_fonts.py. Primary family read as "
+            f"{primary_family(family)!r}.")
 
 
 def _validate_moment(moment: dict, index: int,
@@ -327,6 +400,8 @@ def plan_timed_text_segments(
             f"effect.timed_text_overlay.moments must be a list, got "
             f"{type(declaration['moments']).__name__}")
 
+    _validate_font(declaration)
+
     timeline_frames = None
     if spine_structure:
         timeline_end = max(
@@ -354,6 +429,10 @@ def plan_timed_text_segments(
         else:
             clusters.append([moment])
 
+    font_props = {"fontFamily": props["fontFamily"]}
+    if "fontFile" in props:
+        font_props["fontFile"] = props["fontFile"]
+
     segments = []
     for index, cluster in enumerate(clusters):
         start_frame = cluster[0]["startFrame"]
@@ -370,7 +449,7 @@ def plan_timed_text_segments(
                     {**m, "startFrame": m["startFrame"] - start_frame}
                     for m in cluster
                 ],
-                "fontFamily": props["fontFamily"],
+                **font_props,
                 "fps": fps,
                 "width": width,
                 "height": height,
@@ -383,3 +462,87 @@ def plan_timed_text_segments(
 def _cluster_end(cluster: list[dict]) -> int:
     """Last frame + 1 of the whole cluster, which may not be its last moment."""
     return max(m["startFrame"] + m["durationFrames"] for m in cluster)
+
+
+# ─────────────────────────────────────────────────────────
+# Where the declaration comes from
+# ─────────────────────────────────────────────────────────
+
+def resolve_declaration(brand_effect: dict[str, Any] | None,
+                        project_folder: str | None) -> dict[str, Any]:
+    """The effect dict 4.06 plans from: the PROJECT's card wins.
+
+    A timed text moment is copy the viewer reads on screen, and
+    `docs/ASSET_LIBRARY_PLAN.md` section 3 - ratified 2026-08-20 - says
+    that is ARTWORK: "A brand template may name general components and
+    set per-series parameters ... It may not contain artwork - copy the
+    viewer reads on screen ... Artwork is a project asset and is declared
+    by reference, never inlined."
+
+    The bookend route already honours that: `content.bookends` names a
+    `source:` and the .tsx lives with the project. Timed text had no such
+    route, because a line of copy has no file to point at - so the ONLY
+    place a card could be written was a brand template, which is the
+    corner the 4th Wall end card died in. This is the missing half: a
+    project declares its own `effect.timed_text_overlay` in its
+    `project.yaml`, and the engine stays series-neutral.
+
+    Precedence is project over template, which is the rule
+    `delivery_format_name` already uses for the same reason - a project
+    may differ from its series without forking the series' template.
+    The whole slot is replaced rather than merged key by key: half a card
+    from each of two sources is a card nobody designed.
+
+        # <project>/project.yaml
+        effect:
+          timed_text_overlay:
+            font_family: "Nanum Pen Script"
+            font_file: "NanumPenScript-Regular.ttf"
+            moments: [...]
+
+    A `project.yaml` that declares nothing leaves the template's slot
+    exactly as it was, so this is invisible to every existing project.
+    A malformed one raises here rather than at render time, because a
+    declaration that renders nothing is indistinguishable from no
+    declaration at all.
+    """
+    effect = dict(brand_effect or {})
+    declaration = _project_declaration(project_folder)
+    if declaration is None:
+        return effect
+    effect["timed_text_overlay"] = declaration
+    return effect
+
+
+def _project_declaration(project_folder: str | None) -> dict | None:
+    """`effect.timed_text_overlay` out of a project.yaml, or None."""
+    if not project_folder:
+        return None
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return None
+
+    import yaml
+
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    if not isinstance(config, dict):
+        raise TimedTextDeclarationError(
+            f"{project_yaml} does not parse as a mapping")
+
+    effect = config.get("effect")
+    if effect is None:
+        return None
+    if not isinstance(effect, dict):
+        raise TimedTextDeclarationError(
+            f"{project_yaml} has an `effect:` block that is not a mapping, "
+            f"got {type(effect).__name__}")
+
+    declaration = effect.get("timed_text_overlay")
+    if declaration is None:
+        return None
+    if not isinstance(declaration, dict):
+        raise TimedTextDeclarationError(
+            f"{project_yaml} declares effect.timed_text_overlay as "
+            f"{type(declaration).__name__}, which is not a declaration")
+    return declaration

@@ -688,9 +688,39 @@ and `resolve_build_timeline` places them on **V6**. `NO_READER` is gone.
 the real path and asserts the declared colours are in the declared rows
 at the declared frames - the delivery half, without which "a reader
 exists" is the same empty claim `smart_reframe` made for months.
-Geometry is still normalised against the whole delivery frame, not the
-picture area inside letterbox bars; there is no picture-area enumeration
-to resolve against.
+
+**A card is declared by the PROJECT, and the project wins.** A timed text
+moment is copy the viewer reads, so it is ARTWORK and belongs with the
+project (section 3 of the plan). The bookend route already had a
+project-side declaration - `content.bookends` names a `source:` - and
+timed text had none, because a line of copy has no file to point at.
+`timed_text_overlay.resolve_declaration` is the missing half: a project's
+`project.yaml` may carry its own `effect.timed_text_overlay` and it
+replaces the brand template's whole slot, the same project-over-template
+precedence `delivery_format_name` uses. Step 4.06 calls it. The worked
+example is `tests/fixtures/night_card_project/project.yaml` - Through the
+4th Wall's Night card, the second item in the captain's ratified build
+order.
+
+**The card states its own `y`, because geometry is still normalised
+against the whole delivery frame** and not the picture area inside
+letterbox bars; there is no picture-area enumeration to resolve against.
+Measured on the only finished render on disk - project 001,
+`Pipeline_Edit.mp4`, 1080x1920, 16:9 landscape source - the picture
+occupies rows **656..1263** and the burnt-in captions rows ~1699..1765, so
+`y` in 0.35..0.65 is over picture whether the source letterboxes or fills.
+`tests/test_night_card_delivery.py` renders the real card at the real
+delivery format and asserts its ink lands in that band; put the removed
+end card's `y: 0.15` back and it fails at rows 260-327.
+
+**A declared typeface must be one that really draws the glyphs.** One
+enumeration, `library/tools/render_fonts.py` - bundled, accepted as a
+system font, or carried by the project as a `font_file` staged out of
+`<project>/brand_assets/` by `prep_remotion`. Anything else raises,
+because Chromium substitutes its fallback sans and the frames are still
+valid pictures of the right size. `TimedTextOverlay` loaded NO font at
+all until 2026-08-20 while naming a family in CSS, so every card it
+rendered was already in the wrong face.
 
 ## Maintaining this file
 

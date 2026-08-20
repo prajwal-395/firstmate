@@ -208,6 +208,17 @@ declared rows at the declared frames and absent outside them. That last
 test is the difference between this entry and the one it replaces: the
 previous "CLOSED" rested on the slot existing.
 
+The slot now has a declared asset (2026-08-20, the second item in the
+build order): Through the 4th Wall's Night card, in
+`tests/fixtures/night_card_project/project.yaml`, anchored to the END of
+the hook block so it lands after the cold open in an edit of any length.
+It is declared by the PROJECT rather than by a brand template -
+`timed_text_overlay.resolve_declaration`, because the copy is artwork and
+artwork belongs with the project - and `tests/test_night_card_delivery.py`
+renders it at the real 1080x1920 delivery format and asserts its ink
+falls inside the picture band, rows 656..1263, that the pipeline actually
+produces.
+
 **6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
 `plan_sfx` was not reading the real grid either; the key it asked for has
 never existed. Original text:~~ `step_2_06_music_analysis` runs

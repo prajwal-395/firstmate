@@ -76,3 +76,55 @@ export const loadBundledFonts = (): Promise<void> => {
 
   return loaded;
 };
+
+/**
+ * Load a font the PROJECT carries, blocking the render on it.
+ *
+ * Per-series typefaces live with the project that owns the series and
+ * never in this repository (captain's ruling, 2026-08-20), so the file
+ * arrives at render time: `remotion_brand_linker.prep_remotion` copies
+ * `<project>/brand_assets/*` into `public/brand/`, and the declaration
+ * names it with `font_file`.
+ *
+ * It throws on a miss for the same reason `loadBundledFonts` does, and
+ * the reason is sharper here: nobody has ever seen this face rendered by
+ * this pipeline, so a silent substitution looks exactly like the card
+ * working. See library/tools/render_fonts.py.
+ */
+const projectFonts = new Map<string, Promise<void>>();
+
+export const loadProjectFont = (
+  family: string,
+  file: string,
+): Promise<void> => {
+  const key = `${family}|${file}`;
+  const existing = projectFonts.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const handle = delayRender(`Loading project font ${family} from ${file}`);
+
+  const loading = (async () => {
+    const face = new FontFace(family, `url(${staticFile(file)})`);
+    await face.load();
+    document.fonts.add(face);
+    await document.fonts.ready;
+  })()
+    .catch((err) => {
+      throw new Error(
+        `Failed to load project font ${family} from ${file}: ` +
+          `${err instanceof Error ? err.message : String(err)}. ` +
+          `A per-series typeface is staged from <project>/brand_assets/ ` +
+          `into public/brand/ by prep_remotion; without it the card ` +
+          `renders in Chromium's fallback sans and nothing downstream ` +
+          `can tell.`,
+      );
+    })
+    .finally(() => {
+      continueRender(handle);
+    });
+
+  projectFonts.set(key, loading);
+  return loading;
+};
