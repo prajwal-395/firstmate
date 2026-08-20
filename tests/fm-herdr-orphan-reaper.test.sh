@@ -140,6 +140,15 @@ if [ "$1" = "-p" ] && [ "$2" = "99999" ]; then
   echo "Fri Jan  1 00:00:00 2000"
   exit 0
 fi
+if [ "$1" = "-o" ] && [ "$2" = "comm=" ] && [ "$3" = "-p" ]; then
+  if [ "$4" = "99999" ]; then exit 1; fi
+  echo "claude"
+  exit 0
+fi
+if [ "$1" = "-o" ] && [ "$2" = "args=" ] && [ "$3" = "-p" ]; then
+  echo "claude"
+  exit 0
+fi
 exec /bin/ps "$@"
 SH
   chmod +x "$fb/ps"
@@ -563,4 +572,24 @@ assert_contains "$out" "no task records" "wrong-home: should mention no task rec
 [ ! -f "$HERDR_STATE/closed-panes.log" ] || fail "wrong-home: close call was issued (closed-panes.log exists)"
 pass "self-check refuses when fm-* panes exist but state/ has no task records"
 
+
+# --- Test 17: --close refuses with a STALE session lock ----------------------
+PATH="$SAVE_PATH"
+setup_test "stale-lock"
+seed_workspace "wA" "firstmate"
+seed_tab "wA" "wA:t1" "fm-orphan-stale-lock"
+seed_pane "wA:p1" "wA:t1" "wA"
+seed_process_info "wA:p1" 99999
+# Seed a STALE lock file. 99999 is our mocked dead PID.
+printf '99999\n' > "$TDIR/home/state/.lock"
+# Seed a meta so the self-check does not interfere.
+seed_meta "some-task" "wA:pOther"
+
+out=$("$ROOT/bin/fm-herdr-orphan-reaper.sh" --close 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] || fail "stale-lock close: expected exit 0, got $rc"
+assert_contains "$out" "refusing --close" "stale-lock: should mention refusing"
+# The critical assertion: no close call was issued.
+[ ! -f "$HERDR_STATE/closed-panes.log" ] || fail "stale-lock: close call was issued (closed-panes.log exists)"
+pass "--close refuses with a STALE session lock"
 echo "all tests passed"

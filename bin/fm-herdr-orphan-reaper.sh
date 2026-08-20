@@ -48,6 +48,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-backend.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 MODE=report
 case "${1:-}" in
@@ -68,20 +70,17 @@ fi
 # Gate: --close requires this session to hold the home's session lock.
 # AGENTS.md section 3 requires MUTATING bootstrap sweeps to run only when
 # the session holds the lock from step 1.
-# The lock file is state/.lock containing the harness PID.
 if [ "$MODE" = close ]; then
   FM_SESSION_LOCK="$STATE/.lock"
   if [ ! -f "$FM_SESSION_LOCK" ] || [ -L "$FM_SESSION_LOCK" ]; then
     echo "HERDR_ORPHAN_REAPER: refusing --close without session lock (no lock file)" >&2
     exit 0
   fi
-  FM_SESSION_LOCK_PID=$(cat "$FM_SESSION_LOCK" 2>/dev/null) || FM_SESSION_LOCK_PID=
-  if [ -z "$FM_SESSION_LOCK_PID" ]; then
-    echo "HERDR_ORPHAN_REAPER: refusing --close without session lock (unreadable lock)" >&2
+  if ! fm_session_lock_owned_by_self "$STATE"; then
+    echo "HERDR_ORPHAN_REAPER: refusing --close without session lock (stale lock, or not lock owner)" >&2
     exit 0
   fi
 fi
-
 # Source the herdr adapter.
 fm_backend_source herdr || {
   echo "HERDR_ORPHAN_REAPER: error sourcing herdr adapter" >&2
