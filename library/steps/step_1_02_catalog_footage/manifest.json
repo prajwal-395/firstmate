@@ -28,6 +28,16 @@
         "name": "total_clips",
         "type": "int",
         "description": "State output: total_clips"
+      },
+      {
+        "name": "project_fps",
+        "type": "number",
+        "description": "Modal frame rate of the source footage - the pipeline's timebase."
+      },
+      {
+        "name": "source_resolution",
+        "type": "array",
+        "description": "Modal SOURCE resolution. Describes the footage; NOT the render target. The delivery format comes from library/tools/delivery_format.py."
       }
     ],
     "preconditions": [

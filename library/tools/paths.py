@@ -37,7 +37,22 @@ def _load_dotenv(env_path: Path) -> None:
     """
     if not env_path.is_file():
         return
-    with open(env_path) as f:
+    # encoding="utf-8", not the locale default.
+    #
+    # `open()` with no encoding decodes with locale.getpreferredencoding(),
+    # which is ASCII inside the Python that Resolve's Fusion subprocess
+    # runs. The shipped .env carries box-drawing characters in its section
+    # headers, so on project 001 this line raised
+    #   UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2
+    # at import of library.tools.paths, which killed
+    # apply_fusion_comps before it drew anything. The render still
+    # produced a file: every planned Fusion effect was simply absent, and
+    # the only reason anyone knows is that verify_fusion_comps reported
+    # "expected 7 clips carrying a Fusion comp, got 0".
+    #
+    # AGENTS.md records this hazard for subprocess text decoding. It is
+    # the same hazard for every file read: name the encoding.
+    with open(env_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):

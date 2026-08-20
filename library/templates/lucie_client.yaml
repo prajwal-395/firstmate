@@ -22,6 +22,8 @@
 # Nothing here edits them: they are the client's brand, and props carry
 # the copy so the file never has to be touched to change a line of it.
 series_id: lucie_client
+# library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   # Lucie's brand colours: deep navy ground, amber accent, near-white text.
   color_palette: ["#FFAA4D", "#F5F5F5", "#253746"]

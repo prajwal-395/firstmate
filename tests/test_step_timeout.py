@@ -1,0 +1,91 @@
+"""A step subprocess must not be killed at somebody's estimate.
+
+Every step ran under a hardcoded `timeout=600`. That is the same number
+the DAG carries as `semantic_analysis`'s `estimated_duration_seconds` - an
+estimate used as a deadline. On project 001 (17 clips, 13.5 minutes of
+footage) the vision pass needs 45 to 90 minutes; it was killed four clips
+in and then RETRIED, because `_is_transient` matches "timed out". The
+same ceiling sits under `temporal_index`, `render_subtitles` and `render`,
+all of which exceed ten minutes on real footage. That is why no project on
+disk has ever had a completed run.
+
+The remaining timeout exists to break a wedge, not to enforce an estimate.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from library.processes.edit_video import run_pipeline  # noqa: E402
+
+
+def test_the_default_ceiling_is_hours_not_minutes():
+    assert run_pipeline.step_timeout_seconds() >= 3600, (
+        "a step ceiling under an hour kills the vision pass on any real "
+        "project's footage"
+    )
+
+
+def test_no_step_runner_hardcodes_a_timeout():
+    """The literal is gone from the module, not just from one call site."""
+    src = (REPO_ROOT / "library" / "processes" / "edit_video"
+           / "run_pipeline.py").read_text()
+    assert "timeout=600" not in src, (
+        "run_pipeline.py still hardcodes a 600s subprocess timeout"
+    )
+
+
+def test_the_ceiling_is_overridable(monkeypatch):
+    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "12")
+    assert run_pipeline.step_timeout_seconds() == 12
+
+
+def test_zero_means_no_ceiling_at_all(monkeypatch):
+    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "0")
+    assert run_pipeline.step_timeout_seconds() is None
+
+
+def test_a_nonsense_ceiling_raises_rather_than_defaulting(monkeypatch):
+    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "soon")
+    with pytest.raises(ValueError):
+        run_pipeline.step_timeout_seconds()
+
+
+def test_a_step_that_outlives_the_ceiling_still_times_out(tmp_path, monkeypatch):
+    """The ceiling is real - it is generous, not absent."""
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(30)\n")
+    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "1")
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_pipeline.run_deterministic_step(str(script), {})
+
+
+def test_stderr_is_streamed_and_still_reaches_the_error(tmp_path, capsys):
+    """A 90-minute step held behind capture_output looks like a wedge."""
+    script = tmp_path / "loud.py"
+    script.write_text(
+        "import sys\n"
+        "print('working on it', file=sys.stderr, flush=True)\n"
+        "sys.exit(3)\n"
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        run_pipeline.run_deterministic_step(str(script), {})
+    assert "working on it" in str(excinfo.value)
+    assert "working on it" in capsys.readouterr().err
+
+
+def test_a_steps_json_result_survives_the_streaming(tmp_path):
+    script = tmp_path / "ok.py"
+    script.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "print('chatter', file=sys.stderr)\n"
+        "json.dump({'echo': payload['x']}, sys.stdout)\n"
+    )
+    assert run_pipeline.run_deterministic_step(str(script), {"x": 7}) == {"echo": 7}

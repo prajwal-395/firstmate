@@ -1,4 +1,8 @@
 series_id: interview_professional
+# Still shortform: this template is the talking-head cut of a
+# vertical series, not a 16:9 long-form interview.
+# library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   energy_profile: moderate
   # No pacing block - see docs/PIPELINE_PLAN.md P4.2.

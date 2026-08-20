@@ -1,4 +1,10 @@
 series_id: "default_series"
+# The frame this series ships in (captain's ruling, 2026-08-19).
+# Declared explicitly even though it IS the default, because this is
+# the template a project with no template of its own falls back to -
+# and a project 001 that quietly shipped 1920x1080 is exactly what
+# the ruling exists to stop. See library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   # A real NEUTRAL palette, not a placeholder. This template is the
   # fallback a project gets when project.yaml names no brand template, so

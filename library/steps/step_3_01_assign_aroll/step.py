@@ -11,10 +11,16 @@ Input:  { "audio_spine": {...}, "clip_catalog": [...] }
 Output: { "a_roll_assignments": [...], "hook_assignment": {...} }
 """
 import json
+import os
 import sys
 import uuid
 
-# Target output specs (from style spec)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+
+# Fallback output specs, used only by callers that import the helpers
+# directly. The step itself resolves the delivery format per project.
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 TARGET_FRAME_RATE = 30.0
@@ -181,8 +187,10 @@ def main():
     clip_catalog = input_data["clip_catalog"]
     
     target_fps = input_data.get("project_fps", 30.0)
-    target_width = input_data.get("project_resolution", [1080, 1920])[0]
-    target_height = input_data.get("project_resolution", [1080, 1920])[1]
+    # The frame the product ships in, not the frame the footage arrived
+    # in. See library/tools/delivery_format.py.
+    target_width, target_height = resolve_delivery_format(
+        input_data.get("project_folder"))
 
     try:
         result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps)

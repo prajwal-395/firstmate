@@ -8,6 +8,9 @@
 #   - The closing line uses "Night X", never "Day 1" or "Episode X".
 #   - The "1 / 100" counter is DROPPED (no basis in the series docs).
 series_id: fourth_wall
+# A <=60s vertical monologue - see the series planning docs.
+# library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   energy_profile: calm
   color_palette: ["#D4A34A", "#00BFFF", "#FFFFFF", "#111111"]

@@ -42,6 +42,10 @@ import sys
 
 from generate_motion_props import generate_motion_props
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))
+from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+
 
 def main():
     import sys
@@ -90,8 +94,11 @@ def main():
 
     # Generate per-block props
     fps = data.get("project_fps", 30)
-    width = data.get("project_resolution", [1080, 1920])[0]
-    height = data.get("project_resolution", [1080, 1920])[1]
+    # The overlay is rendered AT THE DELIVERY FORMAT, so it composites
+    # 1:1 onto the timeline. Reading a source-derived resolution here is
+    # what put a vertical overlay on a landscape timeline as a lighter
+    # band down the middle. See library/tools/delivery_format.py.
+    width, height = resolve_delivery_format(project_folder)
     # Bookends first: an intro / outro / end card the brand template
     # declared reaches the spine in step 2.05, and has to be a file before
     # compile_manifest can put it on V1. A template that declares none -

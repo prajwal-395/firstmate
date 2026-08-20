@@ -4,16 +4,54 @@ matplotlib
 pyyaml>=6.0
 
 # Analysis subsystem
-whisperx>=3.0
+#
+# BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a preference: on 3.14
+# there is no set of these packages in which transcription works, and the
+# failure is silent. Measured 2026-08-17, on project 001's real footage.
+#
+# The chain, so nobody re-derives it:
+#   - 3.14 has no wheel for the ctranslate2 whisperx 3.2.0 pins, so an env
+#     built there installs faster-whisper 1.2.1 instead of the 1.0.0
+#     whisperx 3.2.0 requires. 1.2.x added `multilingual` and `hotwords`
+#     to TranscriptionOptions, so every transcribe call raised
+#       TypeError: TranscriptionOptions.__init__() missing 2 required
+#       positional arguments: 'multilingual' and 'hotwords'
+#   - step_1_04 catches that per clip and carries on. All 17 clips of 001
+#     reported "0 regions, 0.0s speech, 0 words" and the run continued.
+#     No transcript means no speech selection, no spine and no subtitles,
+#     which is the entire edit - reported as success.
+#   - Going forward on 3.14 does not help either: newer whisperx needs
+#     torchaudio >= 2.9 via torch, and pyannote.audio still calls
+#     `torchaudio.list_audio_backends()` and imports `AudioMetaData`, both
+#     removed by then. Shimming one surfaces the next.
+#
+# On 3.12 the resolver finds a coherent set on its own, with a MATCHED
+# torch/torchaudio pair, which is the thing that was never true on 3.14:
+#   whisperx 3.8.6, faster-whisper 1.2.1, ctranslate2 4.8.1,
+#   torch 2.8.0, torchaudio 2.8.0, pyannote.audio 4.0.7
+# Verified by transcribing 001 footage, not by importing the module.
+whisperx>=3.8,<4
 librosa>=0.10
 numpy>=1.24
 scipy>=1.10
-torch>=2.0
-torchaudio>=2.0,<2.1.0
+# Left to whisperx to pin: torch and torchaudio must match each other, and
+# hand-pinning them is how the 3.14 environment ended up with torch 2.13
+# beside torchaudio 2.11 and a pyannote that worked with neither.
+torch>=2.8
+torchaudio>=2.8
 # Pinned below 5: OpenCV 5 dropped Haar cascades entirely (no
 # cv2.CascadeClassifier, no XML in cv2.data.haarcascades), and the
 # face-presence and subject-position signals in step_1_04 need them.
 opencv-python>=4.8,<5
+# The headless build has to be held below 5 as well, and this is not
+# belt-and-braces. easyocr/sam2 pull `opencv-python-headless`, which
+# provides the SAME `cv2` module: installing it alongside a correct
+# opencv-python 4.x gave `import cv2` -> 5.0.0 with
+# `hasattr(cv2, "CascadeClassifier")` False, while the 17 cascade XMLs
+# sat there in cv2.data.haarcascades looking fine. The <5 pin above
+# constrains the package nobody imports and the shadow wins. Measured
+# 2026-08-17 while rebuilding this environment.
+opencv-python-headless>=4.8,<5
 easyocr>=1.7
 Pillow>=9.0
 sam2>=1.0.0

@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import subprocess
+import threading
 import time
 import argparse
 from pathlib import Path
@@ -43,7 +44,17 @@ def _is_transient_error(e: Exception) -> bool:
     return any(x in msg for x in ["network", "rate limit", "timeout", "timed out", "503", "429", "connection", "socket", "500", "502", "too many requests"])
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
+# Two entries, and both are load-bearing. `library/tools` is what makes the
+# bare `from model_lifecycle import ...` below work; `library` is what makes
+# the three `from tools.paths import ...` sites further down resolve. Without
+# the second, every one of those raised ImportError into an `except
+# ImportError: pass` and the shared asset libraries were never injected -
+# PIPELINE_SFX_LIBRARY and PIPELINE_MUSIC_LIBRARY reached no run, and step
+# 0.01 failed any project whose state did not already carry a path.
+# tests/test_runner_library_paths.py asserts both imports work.
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_LIBRARY_DIR / "tools"))
+sys.path.insert(0, str(_LIBRARY_DIR))
 from model_lifecycle import unload_all
 
 
@@ -53,6 +64,11 @@ PILOT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 LIBRARY_ROOT = PILOT_ROOT / "library"
 STEPS_ROOT = LIBRARY_ROOT / "steps"
 DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
+
+# Values that belong to the RUN rather than to any upstream step, injected
+# into state by load_pipeline_state.  A step gets one only by declaring it
+# in its own manifest's interface.inputs - see gather_step_inputs.
+PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief")
 
 
 # ── DAG Loader ──────────────────────────────────────────────────────
@@ -227,19 +243,53 @@ def load_pipeline_state(project_dir: str) -> dict:
     
     # Inject shared library paths from environment (via paths.py).
     # Priority: existing state value > env var > manifest default.
-    # This replaces hardcoded paths with the centralized paths module.
-    try:
-        from tools.paths import sfx_library_path, music_library_path
-        if "sfx_library" not in state:
-            sfx = sfx_library_path()
-            if sfx:
-                state["sfx_library"] = sfx
-        if "music_library" not in state:
-            music = music_library_path()
-            if music:
-                state["music_library"] = music
-    except ImportError:
-        pass
+    #
+    # Not wrapped in `except ImportError: pass` any more. It was, and the
+    # import was broken, so the swallow is the whole reason this went
+    # unnoticed: a fresh project got no sfx_library at all and step 0.01
+    # failed with "No sfx_library path provided" while the environment had
+    # a perfectly good library in PIPELINE_SFX_LIBRARY.
+    from tools.paths import sfx_library_path, music_library_path
+    if "sfx_library" not in state:
+        sfx = sfx_library_path()
+        if sfx:
+            state["sfx_library"] = sfx
+    if "music_library" not in state:
+        music = music_library_path()
+        if music:
+            state["music_library"] = music
+
+    # The captain's creative direction, declared per project.
+    #
+    # Seven handoffs tell the LLM to "read it in full before making any
+    # creative decisions" and none could ever be given one: the loader in
+    # gather_step_inputs gates on the step manifest declaring the input,
+    # no manifest declared it, the key was in no whitelist, and the
+    # process manifest had no entry to fall back to. Three independent
+    # breaks, so writing `creative_brief` into a project.yaml did nothing
+    # at all, silently. See docs/RUN_001_END_TO_END.md section 5.
+    #
+    # Read here rather than in step 1.01 because it belongs to the run,
+    # not to the scan: steps in phases 2, 3 and 4 need it and none of them
+    # is downstream of scan's project_config. Absolute paths are kept as
+    # given, so a brief may live in a read-only planning tree outside the
+    # project and is never copied in.
+    if "creative_brief" not in state:
+        project_yaml = os.path.join(project_dir, "project.yaml")
+        if os.path.exists(project_yaml):
+            try:
+                import yaml
+                with open(project_yaml, "r", encoding="utf-8") as f:
+                    y = yaml.safe_load(f) or {}
+                brief = (y.get("creative_brief")
+                         or (y.get("pipeline") or {}).get("creative_brief")
+                         or "")
+                if brief:
+                    state["creative_brief"] = brief
+            except Exception as e:
+                import sys
+                print(f"Warning: failed to read creative_brief from "
+                      f"project.yaml: {e}", file=sys.stderr)
 
     # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
@@ -334,12 +384,23 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         if w_key in state:
             inputs[w_key] = state[w_key]
 
+    # Process-level inputs (sfx_library, music_library) reach a step only if
+    # that step's OWN manifest declares it needs them.  An entry node has no
+    # incoming edges, so a data_mapping cannot route anything to it:
+    # `validate_sfx_library` is an entry node whose step.py exits 1 on a
+    # missing `sfx_library`, and its manifest declared `inputs: []`, so the
+    # step could never receive the one value it requires.  Declaring the
+    # input is what asks for it; nothing is broadcast to steps that did not.
+    if manifest:
+        declared = {inp.get("name") for inp in
+                    manifest.get("interface", {}).get("inputs", [])}
+        for g_key in PROCESS_LEVEL_INPUTS:
+            if g_key in declared and g_key in state and g_key not in inputs:
+                inputs[g_key] = state[g_key]
+
     if manifest and manifest.get("state", {}).get("reads"):
         import sys
         print(f"Warning: Step '{node_id}' manifest contains deprecated 'state.reads'. Use DAG data_mapping instead.", file=sys.stderr)
-
-    # Note: any other keys previously fetched from global state (like project_fps, project_resolution, sfx_library)
-    # must now be explicitly mapped via DAG edges.
 
     # Process brand template and creative brief if they are in inputs (either via DAG or whitelist)
     if manifest:
@@ -363,25 +424,39 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 import sys
                 print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
 
-        # Inject creative brief markdown content when the step declares it
+        # Inject creative brief markdown content when the step declares it.
+        #
+        # A declared brief that cannot be read RAISES. It used to warn and
+        # leave `inputs["creative_brief"]` holding the path string, which
+        # would then be pasted into the prompt as if it were the brief -
+        # the step would report success having read a filename. A brief
+        # the captain asked for and the pipeline could not open is a
+        # contract violation, not a degraded mode.
         if "creative_brief" in step_inputs:
             brief_path = inputs.get("creative_brief", "")
             if brief_path:
+                project_folder = inputs.get("project_folder", "")
+                if not os.path.isabs(brief_path) and project_folder:
+                    brief_path = os.path.join(project_folder, brief_path)
                 try:
-                    project_folder = inputs.get("project_folder", "")
-                    if not os.path.isabs(brief_path) and project_folder:
-                        brief_path = os.path.join(project_folder, brief_path)
-                    if os.path.exists(brief_path):
-                        with open(brief_path, "r", encoding="utf-8") as bf:
-                            inputs["creative_brief"] = bf.read()
-                except Exception as e:
-                    import sys
-                    print(f"Warning: failed to load creative brief: {e}", file=sys.stderr)
+                    with open(brief_path, "r", encoding="utf-8") as bf:
+                        content = bf.read()
+                except OSError as e:
+                    raise RuntimeError(
+                        f"Step '{node_id}' declares creative_brief and the "
+                        f"project points at {brief_path!r}, which cannot be "
+                        f"read: {e}"
+                    ) from e
+                if not content.strip():
+                    raise RuntimeError(
+                        f"Step '{node_id}' declares creative_brief and the "
+                        f"project points at {brief_path!r}, which is empty."
+                    )
+                inputs["creative_brief"] = content
 
     if step_type == "llm_only" and manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
-        saved_res = inputs.get("project_resolution")
         saved_brand_template = inputs.get("brand_template")
         saved_creative_brief = inputs.get("creative_brief")
         
@@ -391,8 +466,6 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         inputs["project_folder"] = saved_project_folder
         if saved_fps is not None:
             inputs["project_fps"] = saved_fps
-        if saved_res is not None:
-            inputs["project_resolution"] = saved_res
         if saved_brand_template is not None:
             inputs["brand_template"] = saved_brand_template
         if saved_creative_brief is not None:
@@ -403,29 +476,133 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
 
 # ── Step Execution ──────────────────────────────────────────────────
 
+# Every step subprocess used to be killed at a hardcoded 600 seconds, which
+# is the same number the DAG carries as `semantic_analysis`'s
+# `estimated_duration_seconds`. An estimate is a PLANNING number; using it
+# as a deadline means a step that takes longer than someone once guessed is
+# killed rather than reported slow. On project 001 - 17 clips, 13.5 minutes
+# of footage - the vision pass needs 45 to 90 minutes and was killed four
+# clips in, then RETRIED, because `_is_transient` treats "timed out" as
+# transient. `temporal_index`, `render_subtitles` and `render` are all in
+# the same range on real footage. That is why no project on disk has ever
+# had a completed run.
+#
+# The timeout that remains exists to break a WEDGE, not to enforce an
+# estimate, so it is generous, single, and documented. Override with
+# PIPELINE_STEP_TIMEOUT_SECONDS; a value of 0 or less means no timeout.
+STEP_TIMEOUT_ENV = "PIPELINE_STEP_TIMEOUT_SECONDS"
+DEFAULT_STEP_TIMEOUT_SECONDS = 4 * 60 * 60
+
+
+def step_timeout_seconds():
+    """Seconds before a step subprocess is killed, or None for no limit."""
+    raw = os.environ.get(STEP_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return DEFAULT_STEP_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(
+            f"{STEP_TIMEOUT_ENV}={raw!r} is not a number of seconds")
+    return value if value > 0 else None
+
+
+def _run_step_subprocess(argv: list, inputs: dict, label: str):
+    """Run a step, streaming its stderr as it arrives.
+
+    stdout is the step's JSON result and is captured. stderr is its log,
+    and it is echoed line by line rather than held until the step exits -
+    a 90-minute vision pass under `capture_output=True` is indistinguishable
+    from a wedged one, which is exactly the state this runner was in.
+    """
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+        bufsize=1,
+    )
+
+    # Both pipes get their own reader, and stdin is written by a third.
+    #
+    # This used to echo stderr from a thread while `communicate()` ran on
+    # the same Popen, and `communicate()` reads BOTH pipes. Two readers on
+    # one pipe is a race the selector cannot win: it reports stderr
+    # readable, the pump has already taken the bytes, and the main thread
+    # blocks forever in read() - so nothing ever drains STDOUT. The step
+    # then blocks in write() as soon as its result exceeds the 64KB pipe
+    # buffer, and neither side can move.
+    #
+    # Measured on this run: semantic_analysis finished all 17 clips,
+    # printed "Collected 17 clip profiles", and sat there. `sample` showed
+    # the child in _Py_write_impl -> write() and BOTH parent threads in
+    # read(). It is the whole step's output that overflows, so this hits
+    # any step whose JSON is larger than a page or two - which is most of
+    # the analysis phase, on any project big enough to matter.
+    #
+    # Do not "simplify" this back to communicate(). Streaming stderr and
+    # communicate() cannot both own that pipe.
+    captured_out = []
+    captured_err = []
+
+    def _pump_err():
+        for line in proc.stderr:
+            captured_err.append(line)
+            print(f"     | {line.rstrip()}", file=sys.stderr, flush=True)
+
+    def _pump_out():
+        for chunk in iter(lambda: proc.stdout.read(65536), ""):
+            captured_out.append(chunk)
+
+    def _feed():
+        try:
+            proc.stdin.write(json.dumps(inputs))
+            proc.stdin.close()
+        except (BrokenPipeError, ValueError):
+            pass
+
+    readers = [
+        threading.Thread(target=_pump_err, daemon=True),
+        threading.Thread(target=_pump_out, daemon=True),
+        threading.Thread(target=_feed, daemon=True),
+    ]
+    for t in readers:
+        t.start()
+
+    try:
+        proc.wait(timeout=step_timeout_seconds())
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        for t in readers:
+            t.join(timeout=5)
+        raise
+    # The pipes can still hold buffered data after the child exits; join
+    # the readers before reporting, or a fast step loses its own output.
+    for t in readers:
+        t.join(timeout=30)
+    return proc.returncode, "".join(captured_out), "".join(captured_err)
+
+
 def run_deterministic_step(entry: str, inputs: dict) -> dict:
     """Run a deterministic step via subprocess (stdin JSON → stdout JSON)."""
-    result = subprocess.run(
-        [sys.executable, entry],
-        input=json.dumps(inputs),
-        capture_output=True,
-        text=True, encoding="utf-8", errors="replace",
-        timeout=600,
-    )
-    
-    if result.returncode != 0:
+    code, stdout, stderr = _run_step_subprocess(
+        [sys.executable, entry], inputs, os.path.basename(entry))
+
+    if code != 0:
         raise RuntimeError(
-            f"Step failed (exit {result.returncode}):\n"
-            f"  stderr: {result.stderr}"
+            f"Step failed (exit {code}):\n"
+            f"  stderr: {stderr}"
         )
-    
+
     try:
-        return json.loads(result.stdout)
+        return json.loads(stdout)
     except json.JSONDecodeError:
         raise RuntimeError(
             f"Step produced invalid JSON:\n"
-            f"  stdout: {result.stdout[:500]}\n"
-            f"  stderr: {result.stderr[:500]}"
+            f"  stdout: {stdout[:500]}\n"
+            f"  stderr: {stderr[:500]}"
         )
 
 
@@ -479,7 +656,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     if manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
-        saved_res = inputs.get("project_resolution")
         saved_brand_template = inputs.get("brand_template", "default_brand")
         saved_creative_brief = inputs.get("creative_brief")
         
@@ -489,8 +665,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         inputs["project_folder"] = saved_project_folder
         if saved_fps is not None:
             inputs["project_fps"] = saved_fps
-        if saved_res is not None:
-            inputs["project_resolution"] = saved_res
         if saved_brand_template is not None:
             inputs["brand_template"] = saved_brand_template
         if saved_creative_brief is not None:
@@ -647,12 +821,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             if parsed_result is None:
                 raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
 
-        if node_id == "speech_sequence":
-            mock_data = json.load(open("/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_data.json.bak2_migrated"))["step_outputs"]["speech_sequence"]
-            # To simulate the LLM raw output, we just return the mock data.
-            # post_bridge.py will enrich it again and trigger the re-anchor!
-            return mock_data
-
         if full_auto == "api":
             llm_config = {}
             if manifest and "llm_config" in manifest:
@@ -757,25 +925,20 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
 
 def run_subprocess(script_path: Path, inputs: dict) -> dict:
     """Run a Python script via subprocess with JSON stdin/stdout."""
-    result = subprocess.run(
-        [sys.executable, str(script_path)],
-        input=json.dumps(inputs),
-        capture_output=True,
-        text=True, encoding="utf-8", errors="replace",
-        timeout=600,
-    )
-    if result.returncode != 0:
+    code, stdout, stderr = _run_step_subprocess(
+        [sys.executable, str(script_path)], inputs, script_path.name)
+    if code != 0:
         raise RuntimeError(
-            f"Script {script_path.name} failed (exit {result.returncode}):\n"
-            f"  stderr: {result.stderr}"
+            f"Script {script_path.name} failed (exit {code}):\n"
+            f"  stderr: {stderr}"
         )
     try:
-        return json.loads(result.stdout)
+        return json.loads(stdout)
     except json.JSONDecodeError:
         raise RuntimeError(
             f"Script {script_path.name} produced invalid JSON:\n"
-            f"  stdout: {result.stdout[:500]}\n"
-            f"  stderr: {result.stderr[:500]}"
+            f"  stdout: {stdout[:500]}\n"
+            f"  stderr: {stderr[:500]}"
         )
 
 @step_timer(step_id_kwarg="node_id")

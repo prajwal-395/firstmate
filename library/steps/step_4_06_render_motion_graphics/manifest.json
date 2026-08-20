@@ -35,6 +35,12 @@
         "type": "object",
         "required": true,
         "description": "VFX plan from step 4.03 with effect entries"
+      },
+      {
+        "name": "project_fps",
+        "type": "number",
+        "required": true,
+        "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
       }
     ],
     "outputs": [

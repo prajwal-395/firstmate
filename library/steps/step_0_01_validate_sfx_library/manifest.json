@@ -5,7 +5,13 @@
   "description": "Pre-flight check: verifies the SFX library FAISS index exists and is searchable. Does NOT re-run the SFX profiling pipeline \u2014 that's a one-time setup. Fails with a clear message if the index is missing or corrupt.",
   "level": "step",
   "interface": {
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "sfx_library",
+        "type": "string",
+        "description": "Absolute path to the SFX library. Process-level input, resolved from PIPELINE_SFX_LIBRARY. step.py exits 1 without it, so declaring it here is what makes this entry node runnable at all."
+      }
+    ],
     "outputs": [
       {
         "name": "sfx_library_status",

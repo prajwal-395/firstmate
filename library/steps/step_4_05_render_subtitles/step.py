@@ -45,12 +45,20 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from generate_remotion_props import generate_subtitle_props_per_block
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.step_stdout import claim_stdout, emit
+from library.tools.delivery_format import resolve_delivery_format
+
 
 def main():
-    import sys
+    # First, before any dependency can grab it: vision_model printed
+    # its model-loading line into the middle of this step's result.
+    # See library/tools/step_stdout.py.
+    claim_stdout()
     data = json.loads(sys.stdin.read())
     subtitle_plan = data.get("subtitle_plan", {})
     audio_spine = data.get("audio_spine", {})
@@ -64,12 +72,12 @@ def main():
     if not os.path.isdir(REMOTION_DIR):
         print(f"ERROR: Remotion project not found at {REMOTION_DIR}",
               file=sys.stderr)
-        json.dump({
+        emit({
             "subtitle_overlay": {
                 "available": False,
                 "error": "Remotion project not found at remotion-subtitles/"
             }
-        }, sys.stdout, indent=2)
+        })
         sys.exit(1)
 
     # Prep Remotion: link brand assets (logos, fonts) into Remotion's
@@ -95,19 +103,22 @@ def main():
 
     # Generate per-block props
     fps = data.get("project_fps", 30)
-    width = data.get("project_resolution", [1080, 1920])[0]
-    height = data.get("project_resolution", [1080, 1920])[1]
+    # The overlay is rendered AT THE DELIVERY FORMAT, so it composites
+    # 1:1 onto the timeline. Reading a source-derived resolution here is
+    # what put a vertical overlay on a landscape timeline as a lighter
+    # band down the middle. See library/tools/delivery_format.py.
+    width, height = resolve_delivery_format(project_folder)
     props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps, width=width, height=height, audio_spine=audio_spine)
 
     if not props_list:
         print("WARNING: No subtitle blocks to render", file=sys.stderr)
-        json.dump({
+        emit({
             "subtitle_overlay": {
                 "available": False,
                 "segments": [],
                 "reason": "No subtitle entries found in subtitle plan"
             }
-        }, sys.stdout, indent=2)
+        })
         return
 
     print(f"Rendering {len(props_list)} subtitle segments...",
@@ -192,27 +203,27 @@ def main():
             error_msg = f"Subtitle QA Validation Failed: {str(e)}"
             print(f"ERROR: {error_msg}", file=sys.stderr)
             # Don't fail the step if it's just QA that failed, unless it's a critical error
-            json.dump({
+            emit({
                 "subtitle_overlay": {
                     "available": False,
                     "error": error_msg
                 }
-            }, sys.stdout, indent=2)
+            })
             sys.exit(1)
 
     failure_rate = (len(props_list) - len(segments)) / len(props_list) if len(props_list) > 0 else 0
     if failure_rate > 0.1:
         error_msg = f"More than 10% of subtitle renders failed ({len(props_list) - len(segments)} out of {len(props_list)})."
         print(f"ERROR: {error_msg}", file=sys.stderr)
-        json.dump({
+        emit({
             "subtitle_overlay": {
                 "available": False,
                 "error": error_msg
             }
-        }, sys.stdout, indent=2)
+        })
         sys.exit(1)
 
-    json.dump({
+    emit({
         "subtitle_overlay": {
             "available": len(segments) > 0,
             "segments": segments,
@@ -221,7 +232,7 @@ def main():
             "fps": fps,
             "total_segments": len(segments),
         }
-    }, sys.stdout, indent=2)
+    })
 
 
 if __name__ == "__main__":

@@ -51,7 +51,8 @@ from tools.semantic_index import build_semantic_lookup
 from tools.subject_framing import subject_center_x, subject_centers_by_clip
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
-from tools.brand_registry import load_brand_template
+from tools.brand_registry import resolve_project_template
+from tools.delivery_format import resolve_delivery_format
 
 # Wording that means the camera was not locked off. Read from the vision
 # analysis's own stability verdict and motion prose, which is where both
@@ -482,13 +483,42 @@ def _video_coverage_gaps(manifest: dict) -> list:
     gaps = []
     cursor, cursor_s = 0, 0.0
     for start, end, start_s, end_s in spans:
-        if start - cursor >= COVERAGE_TOLERANCE_FRAMES:
+        if _is_real_gap(start - cursor, start_s - cursor_s, fps):
             gaps.append((cursor_s, start_s))
         if end > cursor:
             cursor, cursor_s = end, end_s
-    if total_frames - cursor >= COVERAGE_TOLERANCE_FRAMES:
+    if _is_real_gap(total_frames - cursor, duration - cursor_s, fps):
         gaps.append((cursor_s, duration))
     return gaps
+
+
+def _is_real_gap(frame_gap: int, second_gap: float, fps: float) -> bool:
+    """A hole counts only if it is a frame wide in BOTH clocks.
+
+    Frames alone are not enough, and seconds alone are not either.
+
+    Seconds alone turn float noise between abutting clips into findings,
+    which is why this check moved to frames in the first place. But the
+    frame numbers of two abutting clips are rounded INDEPENDENTLY, so an
+    abutment can straddle a frame boundary and read as a one-frame hole:
+    on project 001, clips meeting at 43.646s and 43.650s rounded to
+    frames 1309 and 1310 and failed the build with "1 uncovered range
+    totalling 0.004s". Four milliseconds is an eighth of a frame at
+    30fps; it cannot render as black, and it stopped a render one step
+    from the end.
+
+    Requiring both clocks keeps the real case - the 6.4s hole this
+    assertion exists for is 192 frames and 6.4 seconds, and fails either
+    way - while a sub-frame abutment passes, as it must.
+    """
+    if frame_gap < COVERAGE_TOLERANCE_FRAMES:
+        return False
+    # The epsilon is for the threshold itself, not for the tolerance: a
+    # hole of exactly one frame computes as 0.03333333333333297 against a
+    # bound of 0.03333333333333333 and would be missed by float noise.
+    # It is six orders of magnitude below the artefact being excluded.
+    frame_seconds = COVERAGE_TOLERANCE_FRAMES / max(fps, 1.0)
+    return second_gap >= frame_seconds - 1e-6
 
 
 def _spine_block_entry(block: dict) -> dict:
@@ -854,7 +884,14 @@ def compile_manifest(out_dir: str) -> dict:
     # Build clip_id → source_file lookup from catalog
     catalog_data = load(out_dir, "catalog.json") or load(out_dir, "step_1_02.json")
     fps = catalog_data.get("project_fps", spine.get("frame_rate", 30.0))
-    proj_res = catalog_data.get("project_resolution", [1080, 1920])
+    # THE RENDER TARGET. It comes from the product - the brand template,
+    # with a per-project override - and never from the footage. The
+    # catalog's `source_resolution` describes the source and is used for
+    # conform decisions only. Captain's ruling, 2026-08-19; see
+    # library/tools/delivery_format.py for what reading the source here
+    # cost.
+    _project_root = os.path.dirname(out_dir) if out_dir != "." else "."
+    proj_res = resolve_delivery_format(_project_root)
     
     if not catalog_data.get("clip_catalog"):
         raise ValueError(
@@ -968,17 +1005,14 @@ def compile_manifest(out_dir: str) -> dict:
     _template_framing_intent = None
     try:
         import yaml as _yaml
-        _project_root = os.path.dirname(out_dir) if out_dir != "." else "."
         _project_yaml = os.path.join(_project_root, "project.yaml")
+        _tmpl_name = "default_brand"
         if os.path.exists(_project_yaml):
             with open(_project_yaml) as _f:
                 _proj_cfg = _yaml.safe_load(_f) or {}
-            _tmpl_name = _proj_cfg.get("pipeline", {}).get("brand_template", "default_brand")
-        else:
-            _tmpl_name = "default_brand"
-        _tmpl_dir = os.path.join(os.path.dirname(__file__), "..", "..", "templates")
-        _tmpl_path = os.path.join(_tmpl_dir, f"{_tmpl_name}.yaml")
-        _tmpl = load_brand_template(_tmpl_path)
+            _tmpl_name = (_proj_cfg.get("pipeline") or {}).get(
+                "brand_template", "default_brand")
+        _tmpl = resolve_project_template(_tmpl_name)
         _template_framing_intent = getattr(_tmpl.style, "framing_intent", None)
     except Exception:
         pass  # template framing is a bias, not a requirement

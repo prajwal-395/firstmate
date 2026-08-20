@@ -17,6 +17,12 @@
         "type": "array",
         "required": true,
         "description": "State input: clip_catalog"
+      },
+      {
+        "name": "project_fps",
+        "type": "number",
+        "required": true,
+        "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
       }
     ],
     "outputs": [

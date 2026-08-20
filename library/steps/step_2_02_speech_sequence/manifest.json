@@ -23,6 +23,12 @@
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
+      },
+      {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none."
       }
     ],
     "outputs": [

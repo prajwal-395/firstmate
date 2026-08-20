@@ -55,7 +55,7 @@ def test_a_fenced_verdict_parses():
 def test_an_unfenced_verdict_parses():
     v = parse_verdict(REAL_CLEAN, frame=30)
     assert not v.parse_error
-    assert v.clean
+    assert not v.findings
 
 
 def test_prose_is_recorded_as_a_parse_failure_not_swallowed():
@@ -130,7 +130,46 @@ def test_findings_only_fire_on_the_bad_frames():
     letterbox, cut, clean = _real_verdicts()
     assert any(f.dimension == "black_bars" for f in letterbox.findings)
     assert any(f.dimension == "main_subject_fully_visible" for f in cut.findings)
-    assert clean.clean, "the correct frame must produce no findings"
+    assert not clean.findings, "the correct frame must produce no findings"
+
+
+def test_the_calibration_set_never_answered_text_legible():
+    """Recorded, because it is stronger than the variance argument.
+
+    `docs/PIPELINE_PLAN.md` keeps `text_legible` as "an unverified
+    dimension awaiting a real sample". The three captured calibration
+    replies are worse than unverified: the model did not answer that
+    question AT ALL on any of them. Before `unanswered` existed the
+    parser skipped the absent key and all three frames still reported
+    clean, so the gap was invisible.
+    """
+    for verdict in _real_verdicts():
+        assert "text_legible" in verdict.unanswered
+        assert "text_legible" not in verdict.answers
+
+
+def test_an_unanswered_dimension_does_not_read_as_clean():
+    """The vacuous-gate guard.
+
+    Measured on real footage: asked about a letterboxed frame the model
+    replied `main__subject_fully_visible` - two underscores. The dimension
+    silently vanished from the verdict and the frame read clean.
+    """
+    garbled = ('{"black_bars": "top_and_bottom", '
+               '"main__subject_fully_visible": true, '
+               '"text_legible": true, "what_is_wrong": "bars"}')
+    v = parse_verdict(garbled, frame=0)
+    assert not v.parse_error
+    assert "main_subject_fully_visible" in v.unanswered
+    assert not v.clean, "a question the model did not answer is not a pass"
+
+
+def test_summarise_reports_unanswered_dimensions_separately():
+    garbled = parse_verdict('{"black_bars": "none"}', frame=0)
+    summary = summarise([garbled])
+    assert summary["unanswered_dimensions"]["main_subject_fully_visible"] == 1
+    assert summary["unanswered_dimensions"]["text_legible"] == 1
+    assert summary["frames_clean"] == 0
 
 
 def test_a_finding_carries_the_why():

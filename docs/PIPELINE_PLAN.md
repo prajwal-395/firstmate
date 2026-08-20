@@ -45,7 +45,8 @@ manifest says.
 
 | Stage | Reader | Notes |
 | --- | --- | --- |
-| 1.02 catalog (fps, resolution, rotation) | `compile_manifest/step.py:654-711`, `resolve_build_timeline.py:482-512` | Drives timebase and conform. Real. |
+| delivery format (brand template / project override) | `compile_manifest/step.py` -> `manifest.project.resolution` -> `resolve_build_timeline.py:399` | THE RENDER TARGET. `library/tools/delivery_format.py`, default vertical 1080x1920. Captain's ruling 2026-08-19. Also drives the overlay render size (4.05/4.06), the planners' target frame (3.01/3.02) and the 6.02 resolution gate. |
+| 1.02 catalog (fps, `source_resolution`, rotation) | `compile_manifest/step.py:654-711`, `resolve_build_timeline.py:482-512` | Drives timebase and conform. Real. `source_resolution` DESCRIBES the footage and is never a render target - as `project_resolution` it was, and shipped a landscape master. |
 | 2.02 speech sequence, 2.05 spine | `compile_manifest/step.py:860-920` -> V1 clips | The cut list. This is the load-bearing half of the pipeline and it works. |
 | 3.01 A-roll assignment | `resolve_build_timeline.py:651-728` | Placed on V1 with linked A1 audio. |
 | 3.02 B-roll | `resolve_build_timeline.py:747-785` | Placed on V2, video only. |
@@ -411,6 +412,19 @@ only piece of the five left standing.
   pushes toward fill follows the subject instead of centring blindly.
   Whether the default should ever move is a separate question and is not
   settled here.
+
+- **P1.3 The framing mechanism was a no-op until 2026-08-19.** Both items
+  above were unreachable on the one project that needed them. The render
+  target came from the modal SOURCE resolution, so on project 001 -
+  landscape footage - target equalled source, `_conform_fields` returned
+  "no conform needed" for every clip, and neither letterbox nor fill could
+  be seen. The delivery format now comes from the brand template
+  (`library/tools/delivery_format.py`), and the first vertical render
+  makes Q1 judgeable for the first time: all 13 clips letterbox, and
+  gemma-4-12b reports `black_bars: top_and_bottom` on 6 of 8 sampled
+  frames. That is the ruled default doing what it was ruled to do -
+  whether it is the RIGHT default is the captain's open question, now
+  with a render behind it. See `docs/RUN_001_END_TO_END.md` section 14.
 
 ### Phase 2: audio. (OUT OF SCOPE)
 

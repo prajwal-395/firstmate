@@ -1,0 +1,283 @@
+"""The captain's creative brief has to arrive in the prompt, not just exist.
+
+Seven handoffs carry a paragraph telling the LLM to "read it in full
+before making any creative decisions", and for the whole life of the
+project not one step ever received one. It was broken in three
+independent places at once - the loader gated on a manifest declaration
+nobody had written, the key was in no whitelist so it could not reach
+`inputs` anyway, and the process manifest had no entry to fall back on -
+so writing `creative_brief:` into a `project.yaml` did nothing at all,
+silently. See docs/RUN_001_END_TO_END.md section 5.
+
+That is why these tests assert the CONTENT of the file lands in the text
+handed to the model. A test that the key exists, or that the path is
+carried, would have passed throughout the entire period the feature did
+not work: the old code left the *path string* in `inputs["creative_brief"]`
+whenever the file could not be read, so a step could "have a brief" that
+was a filename.
+"""
+
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from library.processes.edit_video.run_pipeline import (  # noqa: E402
+    PROCESS_LEVEL_INPUTS,
+    gather_step_inputs,
+    present_llm_step,
+)
+
+STEPS_ROOT = REPO_ROOT / "library" / "steps"
+
+BRIEF_TEXT = (
+    "# Through the 4th Wall\n\n"
+    "Minimal cuts. Let moments breathe.\n"
+    "SENTINEL_BRIEF_MARKER_9f3a\n"
+)
+
+
+def _manifest(step_dir: Path) -> dict:
+    return json.loads((step_dir / "manifest.json").read_text())
+
+
+def _declared_inputs(step_dir: Path) -> set:
+    iface = _manifest(step_dir).get("interface", {})
+    return {i.get("name") for i in iface.get("inputs", []) if isinstance(i, dict)}
+
+
+def _steps_documenting_the_brief():
+    """Every step whose handoff.md tells the model to read a brief."""
+    found = []
+    for handoff in sorted(STEPS_ROOT.glob("*/handoff.md")):
+        if "creative_brief" in handoff.read_text():
+            found.append(handoff.parent)
+    return found
+
+
+def test_the_brief_is_documented_by_the_steps_we_think_it_is():
+    """Pins the set, so a new consumer cannot appear unnoticed."""
+    names = {d.name for d in _steps_documenting_the_brief()}
+    assert names == {
+        "step_2_01_creative_direction",
+        "step_2_02_speech_sequence",
+        "step_2_04_music_selection",
+        "step_3_02_select_broll",
+        "step_4_02_plan_transitions",
+        "step_4_03_plan_vfx",
+        "step_4_04_plan_sfx",
+    }, names
+
+
+@pytest.mark.parametrize(
+    "step_dir", _steps_documenting_the_brief(), ids=lambda d: d.name
+)
+def test_a_step_that_documents_the_brief_declares_it(step_dir):
+    """Documenting it is not asking for it.
+
+    The runner injects a process-level input only into steps that declare
+    it. A handoff that instructs the model to read a brief while the
+    manifest stays silent is the exact shape of the original bug.
+    """
+    assert "creative_brief" in _declared_inputs(step_dir), (
+        f"{step_dir.name}/handoff.md tells the LLM to read the creative "
+        f"brief, but its manifest does not declare the input, so the "
+        f"runner will never supply one."
+    )
+
+
+def test_creative_brief_is_a_process_level_input():
+    assert "creative_brief" in PROCESS_LEVEL_INPUTS
+
+
+# An edgeless DAG: these tests are about the process-level input
+# mechanism, not about data_mapping routing, and a real node would demand
+# its whole upstream be present in state first.
+EDGELESS_DAG = {"nodes": [], "edges": []}
+
+
+def _gather(node_id, state, manifest):
+    return gather_step_inputs(node_id, EDGELESS_DAG, state, manifest=manifest)
+
+
+DECLARING_MANIFEST = {
+    "interface": {"inputs": [{"name": "creative_brief", "required": False}]}
+}
+SILENT_MANIFEST = {"interface": {"inputs": [{"name": "clip_catalog"}]}}
+
+
+def test_declared_brief_arrives_as_content_not_as_a_path(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
+
+    inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
+
+    assert inputs["creative_brief"] == BRIEF_TEXT
+    assert str(brief) not in inputs["creative_brief"]
+
+
+def test_a_relative_brief_resolves_against_the_project(tmp_path):
+    (tmp_path / "brief.md").write_text(BRIEF_TEXT, encoding="utf-8")
+    state = {"project_folder": str(tmp_path), "creative_brief": "brief.md"}
+
+    inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
+
+    assert inputs["creative_brief"] == BRIEF_TEXT
+
+
+def test_an_absolute_brief_is_taken_as_given(tmp_path):
+    """A brief may live in a read-only planning tree and is never copied."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    brief = outside / "branding.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    state = {"project_folder": str(project), "creative_brief": str(brief)}
+
+    inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
+
+    assert inputs["creative_brief"] == BRIEF_TEXT
+
+
+def test_a_step_that_does_not_declare_it_is_not_given_one(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
+
+    inputs = _gather("plan_vfx", state, SILENT_MANIFEST)
+
+    assert "creative_brief" not in inputs
+
+
+def test_a_missing_brief_raises_rather_than_passing_the_path(tmp_path):
+    """The regression that made the old code look like it worked."""
+    state = {
+        "project_folder": str(tmp_path),
+        "creative_brief": str(tmp_path / "does_not_exist.md"),
+    }
+
+    with pytest.raises(RuntimeError, match="cannot be read"):
+        _gather("plan_vfx", state, DECLARING_MANIFEST)
+
+
+def test_an_empty_brief_raises(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text("   \n", encoding="utf-8")
+    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
+
+    with pytest.raises(RuntimeError, match="empty"):
+        _gather("plan_vfx", state, DECLARING_MANIFEST)
+
+
+def test_no_brief_declared_leaves_the_step_untouched(tmp_path):
+    """A project without a brief must still run."""
+    inputs = _gather("plan_vfx", {"project_folder": str(tmp_path)},
+                     DECLARING_MANIFEST)
+    assert not inputs.get("creative_brief")
+
+
+def _answer_when_asked(project: Path, node_id: str, answer: dict):
+    """Stand in for the agent on the other end of the agy file handshake.
+
+    The response cannot simply be pre-placed: `present_llm_step` deletes
+    any existing response file before it writes the request, precisely so
+    a stale answer cannot be mistaken for a fresh one.
+    """
+    req = project / "pipeline_output" / "llm_requests" / f"{node_id}.json"
+    res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
+
+    def run():
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            if req.exists():
+                res.parent.mkdir(parents=True, exist_ok=True)
+                res.write_text(json.dumps(answer), encoding="utf-8")
+                return
+            time.sleep(0.05)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
+def test_the_brief_reaches_the_text_handed_to_the_model(tmp_path):
+    """The end-to-end assertion: the words are in the request.
+
+    Everything above proves the brief reaches `inputs`. This proves it
+    survives context projection and serialisation and lands in the file
+    the LLM is actually given - which is the only claim the seven
+    handoffs make.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    prompt_path = tmp_path / "handoff.md"
+    prompt_path.write_text("Do the creative work.\n", encoding="utf-8")
+
+    _answer_when_asked(project, "plan_vfx",
+                       {"vfx_plan": [{"clip_id": "clip_001",
+                                      "effect": "punch_in"}]})
+
+    inputs = {
+        "project_folder": str(project),
+        "creative_brief": BRIEF_TEXT,
+        "timed_spine": {"blocks": []},
+    }
+    manifest = {
+        "interface": {"inputs": [{"name": "creative_brief"}],
+                      "outputs": [{"name": "vfx_plan"}]},
+        "context_fields": ["timed_spine"],
+    }
+
+    present_llm_step(str(prompt_path), inputs, "plan_vfx",
+                     manifest=manifest, full_auto="agy", llm_timeout=30)
+
+    request = json.loads(
+        (project / "pipeline_output" / "llm_requests" / "plan_vfx.json").read_text()
+    )
+    haystack = request["prompt"] + request["context"]
+    assert "SENTINEL_BRIEF_MARKER_9f3a" in haystack, (
+        "the brief did not reach the text the model is given"
+    )
+    assert "Minimal cuts" in haystack
+
+
+def test_context_field_projection_does_not_drop_the_brief(tmp_path):
+    """`context_fields` deletes every key it does not name.
+
+    The brief is not a context field - it is restored around the
+    projection - so a step declaring narrow `context_fields` must still
+    get it. This is the mechanism that would silently undo the fix.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    prompt_path = tmp_path / "handoff.md"
+    prompt_path.write_text("Plan the sound effects.\n", encoding="utf-8")
+
+    _answer_when_asked(project, "plan_sfx",
+                       {"sfx_plan": [{"timeline_in": 0.0,
+                                      "timeline_out": 0.5}]})
+
+    present_llm_step(
+        str(prompt_path),
+        {"project_folder": str(project), "creative_brief": BRIEF_TEXT,
+         "dropped_key": "should not survive", "timed_spine": {}},
+        "plan_sfx",
+        manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                "outputs": [{"name": "sfx_plan"}]},
+                  "context_fields": ["timed_spine"]},
+        full_auto="agy", llm_timeout=30,
+    )
+
+    request = json.loads(
+        (project / "pipeline_output" / "llm_requests" / "plan_sfx.json").read_text()
+    )
+    assert "SENTINEL_BRIEF_MARKER_9f3a" in request["context"]
+    assert "should not survive" not in request["context"]

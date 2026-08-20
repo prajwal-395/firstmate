@@ -1,4 +1,6 @@
 series_id: shortform_energetic
+# Reels / Shorts / TikTok. See library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   energy_profile: high
   framing_intent: 1.0  # always fill - no black bars for punchy content

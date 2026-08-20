@@ -1,3 +1,4 @@
+import sys
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -32,11 +33,14 @@ class VisionModel:
         if self._model is None:
             if load is None:
                 raise ImportError("mlx_vlm is not installed.")
-            print(f"Loading {MODEL_ID}...")
+            # stderr, not stdout: a step's stdout is its JSON result, and
+            # this line landed in the middle of one. See
+            # library/tools/step_stdout.py.
+            print(f"Loading {MODEL_ID}...", file=sys.stderr)
             t0 = time.time()
             self._model, self._proc = load(MODEL_ID)
             self._load_time = time.time() - t0
-            print(f"Model loaded in {self._load_time:.1f}s")
+            print(f"Model loaded in {self._load_time:.1f}s", file=sys.stderr)
 
     def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600) -> str:
         """Analyze a single image."""

@@ -51,7 +51,15 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from model_lifecycle import load_model, unload_model
+
+
+# This step's stdout is its JSON result, so nothing else may write to
+# it - whisperx attaches a stdout log handler and silently corrupted a
+# completed 17-clip index. The guard and the full story live in
+# library/tools/step_stdout.py; `main()` calls _claim_stdout() first.
+from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -1884,6 +1892,10 @@ def main():
         cat step_1_01.json | python step.py --output-dir ./pipeline_output
         python step.py --manifest step_1_01.json --output-dir ./pipeline_output
     """
+    # First, before any dependency can grab it. See "The stdout
+    # contract" above.
+    _claim_stdout()
+
     parser = argparse.ArgumentParser(
         description="Step 1.04: Build Temporal Event Index"
     )
@@ -1917,10 +1929,10 @@ def main():
 
     raw_files = input_data.get("raw_footage_files")
     if not raw_files:
-        print(json.dumps({
+        _emit({
             "error": "Missing required input: raw_footage_files",
             "step": "1.04_temporal_index",
-        }))
+        })
         sys.exit(1)
 
     # Optional: filter to single clip
@@ -1993,14 +2005,14 @@ def main():
                 file=sys.stderr,
             )
             # Output directly for DAG compatibility
-            json.dump({
+            _emit({
                 "temporal_event_indices": cached_summaries,
                 "full_indices": cached_indices,
                 "total_indexed": len(cached_indices),
                 "total_failed": 0,
                 "index_dir": cache_dir,
                 "source": "cache",
-            }, sys.stdout, indent=2)
+            })
             return
         else:
             print(
@@ -2027,7 +2039,7 @@ def main():
     )
 
     # Output directly for DAG compatibility
-    json.dump(result, sys.stdout, indent=2)
+    _emit(result)
 
 
 if __name__ == "__main__":

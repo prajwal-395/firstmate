@@ -15,10 +15,18 @@ def get_asset_bank_dir(project_folder: str) -> str:
     return os.path.join(project_folder, "assets", "fusion_presets")
 
 
-def clip_asset_key(label: str, effects: dict, clip_dur) -> str:
-    """Bank key identifying exactly the comp these inputs generate."""
+def clip_asset_key(label: str, effects: dict, clip_dur,
+                   source_res=None) -> str:
+    """Bank key identifying exactly the comp these inputs generate.
+
+    `source_res` is part of the key because the comp's Background nodes
+    are built at that size: two clips with identical effects and duration
+    but different source frames generate different bytes, and replaying
+    one for the other reintroduces the wrong-sized rectangle.
+    """
     fingerprint = json.dumps(
-        {"effects": effects, "clip_dur": clip_dur},
+        {"effects": effects, "clip_dur": clip_dur,
+         "source_res": list(source_res) if source_res else None},
         sort_keys=True, default=str,
     )
     digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:12]

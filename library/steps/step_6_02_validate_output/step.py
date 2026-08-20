@@ -117,6 +117,11 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
         qa_results = run_full_render_qa(
             video_path, expected_duration,
             declared_black_beats=_declared_black_beats(assembly_manifest),
+            # The delivery format the manifest was compiled at. These two
+            # were computed above and then never passed, so the gate
+            # judged every render against a hardcoded 1080x1920/30fps.
+            expected_resolution=expected_resolution,
+            expected_fps=expected_fps,
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)

@@ -26,6 +26,15 @@ from library.tools.spine_contract import (
 )
 
 
+# A word end counts as landing on a beat within this many seconds.
+BEAT_COINCIDENCE_TOLERANCE = 0.05
+
+# How far back from the end of a block's speech a beat-coincident word end
+# may be taken. About one short word: the point is to nudge a cut onto the
+# music, not to choose a different place to cut. See resolve_cut_point.
+MAX_WORD_END_BACKTRACK = 0.35
+
+
 def snap_to_beat(
     cut_time: float,
     beat_grid: list,
@@ -84,17 +93,36 @@ def resolve_cut_point(
             # Don't exceed the block's timeline_end
             cut_time = min(last_word_end, tl_end)
 
-            # Check for word-end + beat coincidence (the ideal cut)
+            # Check for word-end + beat coincidence (the ideal cut).
+            #
+            # Only word ends NEAR the end of the block are candidates,
+            # and the latest one wins. This loop used to scan the whole
+            # block from its FIRST word and take whichever word end
+            # happened to land on a beat, which is a relocation, not a
+            # snap: on project 001 the cut planned for the end of the
+            # 2.4s hook was placed at 0.196s - the end of its first word
+            # - and the cut at 18.37s moved to 11.33s, dropping seven
+            # seconds of speech. compile_manifest then failed with
+            # "Transition trans_001 at 0.196s does not sit at the end of
+            # any V1 clip", which is the only reason it was caught: the
+            # record said `snap_delta_seconds: 0.0` throughout, because
+            # the delta is only measured on the snap_to_beat path.
+            #
+            # A beat coincidence is a sub-word adjustment to a cut that
+            # is already at the end of the speech. It must never be able
+            # to move the cut somewhere else in the block.
             word_beat_coincidence = False
             if beat_grid:
-                for we in block_word_ends_tl:
-                    for beat in beat_grid:
-                        if abs(we - beat) < 0.05:
-                            # A word end lands on a beat — use it
-                            cut_time = min(we, tl_end)
-                            word_beat_coincidence = True
-                            break
-                    if word_beat_coincidence:
+                candidates = sorted(
+                    (we for we in block_word_ends_tl
+                     if 0 <= cut_time - we <= MAX_WORD_END_BACKTRACK),
+                    reverse=True,
+                )
+                for we in candidates:
+                    if any(abs(we - beat) < BEAT_COINCIDENCE_TOLERANCE
+                           for beat in beat_grid):
+                        cut_time = min(we, tl_end)
+                        word_beat_coincidence = True
                         break
 
             # If no coincidence, still beat-snap the word-end cut
@@ -280,6 +308,13 @@ def resolve_transitions(
             "duration_frames": dur_frames,
             "beat_aligned": beat_aligned,
             "snap_delta_seconds": snap_delta,
+            # How far the resolved cut ended up from the block boundary
+            # the plan named. `snap_delta_seconds` only measures the
+            # snap_to_beat path, so a cut relocated by word-end matching
+            # recorded 0.0 while having moved 2.2 seconds. Always
+            # recorded, so a relocation is visible in the manifest
+            # without re-deriving it.
+            "displacement_seconds": round(cut_time - original_tl, 3),
             "placement_method": cut_info["method"],
             "word_beat_coincidence": cut_info["word_beat_coincidence"],
             "rationale": trans.get("rationale", ""),

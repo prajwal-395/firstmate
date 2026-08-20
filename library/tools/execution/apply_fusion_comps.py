@@ -22,6 +22,34 @@ from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
 
 
+def _source_resolution(mpi):
+    """(width, height) of the frame Fusion composites over, or None.
+
+    Read off the MediaPoolItem rather than assumed, and judged by what
+    Resolve returns: `GetClipProperty("Resolution")` gives "1920x1080".
+    None means "could not tell", and the comp builder then falls back to
+    its documented default rather than inventing a size.
+
+    Rotation is deliberately NOT applied. Resolve reports the STORED
+    frame, and Fusion's MediaIn delivers the stored frame - the display
+    orientation is applied downstream, on the timeline. Swapping the axes
+    here would put the band back on exactly the clips that do not have
+    it.
+    """
+    if not mpi:
+        return None
+    raw = mpi.GetClipProperty("Resolution")
+    if not raw or "x" not in str(raw):
+        return None
+    try:
+        width, height = (int(part) for part in str(raw).split("x", 1))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return (width, height)
+
+
 def apply_fusion_comps(manifest, project_folder):
     resolve = dvr.scriptapp("Resolve")
     if not resolve:
@@ -253,6 +281,11 @@ def apply_fusion_comps(manifest, project_folder):
                 continue
             frames_prop = mpi.GetClipProperty('Frames')
             clip_dur = int(frames_prop) if frames_prop else tl_clip.GetDuration()
+            # The frame FUSION sees, which is the source clip's own, not
+            # the delivery format. Every Background node the comp builds
+            # is a solid image merged over MediaIn, so the wrong size
+            # paints a hard-edged rectangle in the middle of the picture.
+            source_res = _source_resolution(mpi)
 
             has_zoom = any(k in effects for k in ZOOM_KEYS)
             normalize_effects(effects, has_zoom)
@@ -265,7 +298,8 @@ def apply_fusion_comps(manifest, project_folder):
             # and not the positional label alone (which is stable across
             # runs, so a re-cut of the same block position would replay
             # the previous run's duration). Same key means same bytes.
-            asset_key = clip_asset_key(label, effects, clip_dur)
+            asset_key = clip_asset_key(label, effects, clip_dur,
+                                       source_res=source_res)
             custom_asset = get_custom_asset(project_folder, asset_key)
             if custom_asset:
                 for cn in (tl_clip.GetFusionCompNameList() or []):
@@ -276,7 +310,7 @@ def apply_fusion_comps(manifest, project_folder):
                 continue
 
             # 3. Generate custom .comp via composable engine
-            comp_content = build_effect_comp(effects, clip_dur)
+            comp_content = build_effect_comp(effects, clip_dur, source_res)
 
             save_custom_asset(project_folder, asset_key, comp_content)
             

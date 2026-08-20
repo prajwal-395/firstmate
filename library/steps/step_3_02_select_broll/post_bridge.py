@@ -29,6 +29,7 @@ import os
 import sys
 
 from library.tools.semantic_index import build_semantic_lookup, describe_clip
+from library.tools.delivery_format import resolve_delivery_format
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -709,8 +710,10 @@ def main():
     temporal_indices = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     timed_spine = data.get("timed_spine", {})
     
-    target_width = data.get("project_resolution", [1080, 1920])[0]
-    target_height = data.get("project_resolution", [1080, 1920])[1]
+    # The frame the product ships in, not the frame the footage arrived
+    # in. See library/tools/delivery_format.py.
+    target_width, target_height = resolve_delivery_format(
+        data.get("project_folder"))
 
     interjections = data.get("b_roll_interjections", [])
 

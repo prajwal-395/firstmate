@@ -1,4 +1,8 @@
 series_id: cinematic_narrative
+# Vertical, with framing_intent 0.0 below - the letterbox bars are
+# the look, not an accident of the source frame.
+# library/tools/delivery_format.py.
+delivery_format: vertical_1080x1920
 style:
   energy_profile: calm
   framing_intent: 0.0  # full letterbox - cinematic bars are part of the look

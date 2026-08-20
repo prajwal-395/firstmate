@@ -17,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "Subtitle groups with timestamps, text, and styling from step 4.01"
+      },
+      {
+        "name": "project_fps",
+        "type": "number",
+        "required": true,
+        "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
       }
     ],
     "outputs": [

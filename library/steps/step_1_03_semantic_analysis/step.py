@@ -8,27 +8,51 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
 
-def _rename_profile(analysis_dir, clip_basename, clip_id, suffix):
-    """Rename a freshly written profile from file stem to catalog clip_id.
+# Per-clip ceiling for the vision analyser. It was 600s, which is under
+# what a long clip needs: measured on this machine, a 3.6s clip costs 86s
+# (five model calls, most of it fixed overhead) and the per-window passes
+# scale with duration, so project 001's 188s clip is well past ten
+# minutes. A clip that overruns is SKIPPED, not fatal, so a tight ceiling
+# silently drops the longest - and therefore usually the most important -
+# footage from the analysis. This one exists to break a wedge.
+CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S", 3600))
 
-    `os.rename` overwrites its destination.  A catalog entry with no
-    clip_id used to produce `clip_profile_.json` and silently destroy
-    whatever already sat there, and any clip_id collision would do the
-    same to another clip's analysis.  Neither is worth a re-analysis, so
-    both refuse instead.
+
+# Profiles are keyed by the media file's STEM, and that is deliberate.
+#
+# `vision_pipeline_v3` writes `clip_profile_<stem>_v3.json` and skips a
+# clip whose file is already there, so the stem is the analyser's own
+# cache key. `semantic_index.build_semantic_lookup` joins those documents
+# to the catalog's synthetic `clip_XXX` ids by file path, so nothing
+# downstream needs the file renamed.
+#
+# A `_rename_profile` helper used to rename each fresh profile from the
+# stem to the catalog clip_id. It never once fired against v3 output: it
+# looked for `clip_profile_<stem>.json` and `clip_profile_<stem>_video_only.json`
+# while the analyser writes `clip_profile_<stem>_v3.json`. Meanwhile the
+# "already analysed?" check below compared catalog clip_ids (`clip_001`)
+# against the stems on disk (`IMG_1806_v3`) and therefore never matched,
+# so EVERY clip was re-analysed on EVERY run - 45 to 90 minutes of vision
+# on project 001, thrown away and redone each time. Had the rename ever
+# worked it would have broken the analyser's own cache instead. Removed
+# rather than repaired: the stem is the key, in both places.
+
+
+def _profile_stems(analysis_dir):
+    """File stems that already have a profile in `analysis_dir`.
+
+    Tolerates the two suffixes the analyser has used (`_v3`, and none) and
+    ignores the partial `_video_only` documents.
     """
-    if not clip_id:
-        return
-    old = os.path.join(analysis_dir, f"clip_profile_{clip_basename}{suffix}.json")
-    new = os.path.join(analysis_dir, f"clip_profile_{clip_id}{suffix}.json")
-    if not os.path.exists(old) or old == new:
-        return
-    if os.path.exists(new):
-        print(f"  ⚠ Not renaming {os.path.basename(old)} to "
-              f"{os.path.basename(new)}: that profile already exists",
-              file=sys.stderr)
-        return
-    os.rename(old, new)
+    stems = set()
+    for path in glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json')):
+        name = os.path.basename(path)[len('clip_profile_'):-len('.json')]
+        if not name or name.endswith('_video_only'):
+            continue
+        if name.endswith('_v3'):
+            name = name[:-len('_v3')]
+        stems.add(name)
+    return stems
 
 
 def _require_keys(obj, keys, context):
@@ -62,15 +86,10 @@ def main():
         print(f"    Expected: library/tools/analysis/vision_pipeline_v3.py", file=sys.stderr)
         sys.exit(1)
     
-    # Check which clips already have profiles
-    existing_profiles = set()
-    for f in glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json')):
-        # Extract clip name: clip_profile_IMG_1806.json → IMG_1806
-        basename = os.path.basename(f)
-        clip_name = basename.replace('clip_profile_', '').replace('.json', '')
-        if '_video_only' not in clip_name:
-            existing_profiles.add(clip_name)
-    
+    # Which clips already have a profile, keyed by file stem - the same key
+    # the analyser caches on. See the note above _profile_stems.
+    existing_profiles = _profile_stems(analysis_dir)
+
     # Find clips that need analysis
     all_clips = []
     missing_clips = []
@@ -81,34 +100,31 @@ def main():
         else:
             fpath = file_info
             clip_id = os.path.splitext(os.path.basename(fpath))[0]
-            
+
         all_clips.append(fpath)
-        if clip_id not in existing_profiles:
+        stem = os.path.splitext(os.path.basename(fpath))[0]
+        if stem not in existing_profiles:
             missing_clips.append({"path": fpath, "clip_id": clip_id})
-    
+
     print(f"Semantic Analysis: {len(all_clips)} total clips, {len(existing_profiles)} already analyzed, {len(missing_clips)} remaining", file=sys.stderr)
     
     # Only run vision pipeline on missing clips
     if missing_clips:
         print(f"Running vision pipeline on {len(missing_clips)} new clips...", file=sys.stderr)
         
-        # Run on each missing clip individually
-        for clip in missing_clips:
+        # Run on each missing clip individually. Each writes its own profile
+        # before the next starts, so an interrupted run resumes where it
+        # stopped instead of starting over.
+        for n, clip in enumerate(missing_clips, 1):
             clip_path = clip["path"]
-            clip_id = clip["clip_id"]
-            clip_basename = os.path.splitext(os.path.basename(clip_path))[0]
-            print(f"  Analyzing: {os.path.basename(clip_path)}", file=sys.stderr)
+            print(f"  [{n}/{len(missing_clips)}] Analyzing: "
+                  f"{os.path.basename(clip_path)}", file=sys.stderr)
             try:
                 subprocess.run(
                     [sys.executable, VISION_PIPELINE, '--clip', clip_path, '--output-dir', analysis_dir],
                     check=True,
-                    timeout=600,  # 10 min max per clip
+                    timeout=CLIP_ANALYSIS_TIMEOUT_S,
                 )
-                # Rename the output to use clip_id instead of clip_basename to prevent collisions
-                _rename_profile(analysis_dir, clip_basename, clip_id, "")
-                _rename_profile(analysis_dir, clip_basename, clip_id, "_video_only")
-
-
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
             except subprocess.CalledProcessError as e:

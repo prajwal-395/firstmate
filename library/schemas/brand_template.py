@@ -2,6 +2,12 @@ import json
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional
 
+
+def _delivery_format_names() -> List[str]:
+    """Enumerated delivery formats, imported late to keep this module leaf-level."""
+    from library.tools.delivery_format import format_names
+    return format_names()
+
 @dataclass
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
@@ -49,6 +55,13 @@ class ContentSlots:
 @dataclass
 class BrandTemplate:
     series_id: str
+    # The frame the PRODUCT ships in (captain's ruling, 2026-08-19). A
+    # name from library/tools/delivery_format.DELIVERY_FORMATS; empty
+    # means "declares nothing" and yields the vertical default. It sits
+    # at the top level rather than inside style/effect/content because it
+    # is none of those - it is what the series delivers, and every one of
+    # the three slot groups is read as creative direction.
+    delivery_format: str = ""
     style: StyleSlots = field(default_factory=StyleSlots)
     effect: EffectSlots = field(default_factory=EffectSlots)
     content: ContentSlots = field(default_factory=ContentSlots)
@@ -59,7 +72,9 @@ class BrandTemplate:
         style = StyleSlots(**data.get("style", {}))
         effect = EffectSlots(**data.get("effect", {}))
         content = ContentSlots(**data.get("content", {}))
-        return cls(series_id=series_id, style=style, effect=effect, content=content)
+        return cls(series_id=series_id,
+                   delivery_format=data.get("delivery_format", "") or "",
+                   style=style, effect=effect, content=content)
 
     @staticmethod
     def get_json_schema() -> Dict[str, Any]:
@@ -67,6 +82,11 @@ class BrandTemplate:
             "type": "object",
             "properties": {
                 "series_id": {"type": "string"},
+                "delivery_format": {
+                    "type": "string",
+                    "enum": _delivery_format_names(),
+                    "description": "The frame this series ships in. Omit for the vertical default. See library/tools/delivery_format.py."
+                },
                 "style": {
                     "type": "object",
                     "properties": {

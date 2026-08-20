@@ -385,22 +385,38 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
     return extracted
 
 def run_full_render_qa(video_path: str, expected_duration: float = None, target_lufs: float = -14.0,
-                       declared_black_beats: Optional[List] = None) -> List[RenderQAResult]:
+                       declared_black_beats: Optional[List] = None,
+                       expected_resolution: Optional[List[int]] = None,
+                       expected_fps: Optional[float] = None) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
     `spine_contract.declared_black_beat_ranges` returns them, so the
     black-frame check judges the render by the same ruling
     `compile_manifest` judged the manifest by.
+
+    `expected_resolution` is THE DELIVERY FORMAT, taken from the
+    manifest the render was built from. The resolution gate used to
+    compare against a hardcoded 1080x1920 while step 6.02 computed the
+    manifest's value and dropped it on the floor. That default happened
+    to be right, so the gate correctly failed project 001's landscape
+    master - but a series that legitimately declares
+    `horizontal_1920x1080` would have failed its own correct render. A
+    gate has to check what was asked for, not what is usual.
     """
     results = []
+
+    width, height = (expected_resolution or [1080, 1920])[:2]
 
     results.append(measure_lufs(video_path, target_lufs=target_lufs))
     results.append(detect_black_frames(video_path, declared_beats=declared_black_beats))
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))
-    results.append(verify_resolution(video_path))
-    results.append(verify_framerate(video_path))
+    results.append(verify_resolution(video_path, expected_width=width,
+                                     expected_height=height))
+    results.append(verify_framerate(video_path)
+                   if expected_fps is None else
+                   verify_framerate(video_path, expected_fps=expected_fps))
     
     if expected_duration is not None:
         results.append(verify_duration(video_path, expected_duration))

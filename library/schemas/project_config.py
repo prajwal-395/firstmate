@@ -52,6 +52,11 @@ class SourceConfig:
 class PipelineConfig:
     """Pipeline-specific configuration for this project."""
     brand_template: str = "default_brand"  # reference to library/templates/
+    # Per-project override of the frame the product ships in. Empty means
+    # "take the brand template's", which in turn defaults to vertical.
+    # A name from library/tools/delivery_format.DELIVERY_FORMATS; an
+    # unknown one raises rather than quietly reverting to the default.
+    delivery_format: str = ""
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
@@ -135,6 +140,14 @@ class ProjectConfig:
             ProjectStatus(self.status) if isinstance(self.status, str) else self.status
         except ValueError:
             errors.append(f"Invalid status: {self.status}")
+        if self.pipeline.delivery_format:
+            from library.tools.delivery_format import DELIVERY_FORMATS
+            if self.pipeline.delivery_format not in DELIVERY_FORMATS:
+                errors.append(
+                    f"Invalid pipeline.delivery_format: "
+                    f"{self.pipeline.delivery_format} must be one of "
+                    f"{sorted(DELIVERY_FORMATS)}"
+                )
         return errors
 
 @dataclass
@@ -168,6 +181,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
 
     pipeline = PipelineConfig(
         brand_template=pipeline_data.get("brand_template", "default_brand"),
+        delivery_format=pipeline_data.get("delivery_format", "") or "",
         creative_brief=pipeline_data.get("creative_brief", ""),
         sfx_library=pipeline_data.get("sfx_library", ""),
         music_library=pipeline_data.get("music_library", ""),
@@ -217,6 +231,7 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         },
         "pipeline": {
             "brand_template": config.pipeline.brand_template,
+            "delivery_format": config.pipeline.delivery_format,
             "creative_brief": config.pipeline.creative_brief,
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,

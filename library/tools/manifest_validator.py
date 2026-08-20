@@ -18,6 +18,16 @@ import jsonschema
 # Two clips whose ranges differ by less than this are the same position.
 POSITION_EPSILON = 0.001
 
+# Timeline overlap is judged against a FRAME, not against POSITION_EPSILON.
+#
+# Clip boundaries are computed independently in seconds and land on
+# slightly different floats where clips abut: project 001 produced
+# `in=8.38 < prev_out=8.382000000000001` and failed the build. Two
+# milliseconds is a sixteenth of a frame at 30fps - there is no such
+# thing as an overlap the renderer could show. A real collision, which
+# is what this check exists for, is frames or seconds wide.
+DEFAULT_FRAME_RATE = 30.0
+
 # A clip shorter than this is invisible - most often the fingerprint of a
 # key-mapping bug that zeroed its in/out points.
 MIN_CLIP_DURATION_S = 0.02
@@ -58,6 +68,8 @@ def _validate_structure(manifest: dict) -> list[str]:
         errors.append(f"Schema file not found at {schema_path}")
 
     tracks = manifest.get("tracks", {})
+    fps = manifest.get("project", {}).get("frame_rate") or DEFAULT_FRAME_RATE
+    overlap_tolerance = 1.0 / max(float(fps), 1.0)
 
     def check_clip(clip, track_name, index, prev_clip):
         # 2. Source file existence
@@ -76,7 +88,7 @@ def _validate_structure(manifest: dict) -> list[str]:
         # A-roll collision, and V2 was never checked.
         if track_name in NON_OVERLAPPING_TRACKS and prev_clip:
             prev_out = prev_clip.get("timeline_out", 0)
-            if prev_out - timeline_in > POSITION_EPSILON:
+            if prev_out - timeline_in > overlap_tolerance:
                 errors.append(
                     f"Track {track_name} clip {index} "
                     f"({clip.get('label', '?')}): overlaps the previous clip "

@@ -160,17 +160,29 @@ class Finding:
 
 @dataclass
 class FrameVerdict:
-    """One frame's verdict. Observation only - nothing here fails a render."""
+    """One frame's verdict. Observation only - nothing here fails a render.
+
+    `unanswered` is the list of dimensions the model did not return a
+    usable key for. It exists because the alternative was silence: the
+    parser used to `continue` past an absent key, so a dimension the model
+    garbled simply produced no finding and the frame read CLEAN. Measured
+    on a real frame, the model answered `main__subject_fully_visible` -
+    two underscores - and that dimension vanished from the verdict without
+    a word. A gate that reports "nothing wrong" when it did not get an
+    answer is the vacuous-gate pattern this project keeps removing.
+    """
 
     frame: int
     raw: str = ""
     answers: Dict[str, Any] = field(default_factory=dict)
     findings: List[Finding] = field(default_factory=list)
     parse_error: str = ""
+    unanswered: List[str] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
-        return not self.findings and not self.parse_error
+        return (not self.findings and not self.parse_error
+                and not self.unanswered)
 
 
 def parse_verdict(raw: str, frame: int = 0,
@@ -205,6 +217,7 @@ def parse_verdict(raw: str, frame: int = 0,
     verdict.answers = data
     for dim in dims:
         if dim.key not in data:
+            verdict.unanswered.append(dim.key)
             continue
         value = data[dim.key]
         if dim.is_finding(value):
@@ -229,18 +242,30 @@ def dimension_variance(verdicts: List[FrameVerdict]) -> Dict[str, int]:
 
 
 def summarise(verdicts: List[FrameVerdict]) -> Dict[str, Any]:
-    """A render's perceptual observation, in one comparable dict."""
+    """A render's perceptual observation, in one comparable dict.
+
+    `unanswered` is reported per dimension rather than folded into the
+    frame count, because "the model skipped this question on 4 of 6
+    frames" and "the model said the frames were fine" have to be
+    distinguishable at a glance. They were not: an unanswered dimension
+    used to count as clean.
+    """
     findings = [
         {"frame": v.frame, "dimension": f.dimension,
          "value": f.value, "detail": f.detail}
         for v in verdicts for f in v.findings
     ]
+    unanswered: Dict[str, int] = {}
+    for v in verdicts:
+        for key in v.unanswered:
+            unanswered[key] = unanswered.get(key, 0) + 1
     return {
         "model": MODEL_ID,
         "observation_only": True,
         "frames_examined": len(verdicts),
         "frames_clean": sum(1 for v in verdicts if v.clean),
         "parse_failures": sum(1 for v in verdicts if v.parse_error),
+        "unanswered_dimensions": dict(sorted(unanswered.items())),
         "findings": findings,
         "dimension_variance": dimension_variance(verdicts),
     }

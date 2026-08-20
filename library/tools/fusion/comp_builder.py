@@ -34,7 +34,11 @@ def normalize_effects(effects, has_zoom):
     return effects
 
 
-def build_effect_comp(effects: dict, clip_dur: int) -> str:
+DEFAULT_SOURCE_RES = (1080, 1920)
+
+
+def build_effect_comp(effects: dict, clip_dur: int,
+                      source_res: tuple = None) -> str:
     """Turn one clip's effect parameters into a serialized Fusion comp.
 
     This function IS the contract between the planners and the picture:
@@ -43,8 +47,29 @@ def build_effect_comp(effects: dict, clip_dur: int) -> str:
     Three of the five advertised VFX types failed exactly that way
     (`zoom_percent`, `intensity_px`, `scale_factor` had no reader), which
     is why it is a plain function with a test rather than a loop body.
+
+    ``source_res`` is the size of the image FUSION SEES - the source
+    clip's own frame, not the delivery format. Every Background node this
+    builds (the vignette, the fade, both transition halves) is a solid
+    image merged over ``MediaIn``, so a Background smaller than the
+    source paints a hard-edged rectangle in the middle of the picture and
+    leaves the rest ungraded.
+
+    That is not hypothetical. It defaulted to 1080x1920 while project
+    001's A-roll is 1920x1080, and the render carried a 1080-wide
+    full-height dark band down the centre of every graded clip -
+    measurable as a 15-level step at source columns 419 and 1499, and
+    what the phase-1 judgement called a "band down the middle". Nothing
+    warned, because a Background node of the wrong size is a perfectly
+    valid comp.
+
+    `CompEngine.from_params` already carried a `source_res` for exactly
+    this reason, with a comment explaining it - but the renderer calls
+    THIS function, which did not. A correct mechanism on a path nothing
+    executes is the failure mode this pipeline keeps re-finding.
     """
-    engine = CompEngine(clip_dur=clip_dur)
+    res = tuple(source_res) if source_res else DEFAULT_SOURCE_RES
+    engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
 
     if any(k in effects for k in ZOOM_KEYS):
         engine.add(fx.zoom(
@@ -100,20 +125,26 @@ def build_effect_comp(effects: dict, clip_dur: int) -> str:
             height=effects.get('vignette_height', 1.0),
             soft=effects.get('vignette_soft', 0.35),
             blend=effects.get('vignette_blend', 0.25),
-            color=effects.get('vignette_color', (0.0, 0.0, 0.0))
+            color=effects.get('vignette_color', (0.0, 0.0, 0.0)),
+            res=res,
         ))
 
     fade_in = effects.get('fade_in_frames', 0)
     fade_out = effects.get('fade_out_frames', 0)
     if fade_in > 0 or fade_out > 0:
-        engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out))
+        engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out,
+                           res=res))
 
     tail_trans = effects.get('tail_transition')
     if tail_trans:
-        engine.add(fx.transition_tail(clip_dur, tail_trans, effects.get('tail_transition_frames', 7)))
+        engine.add(fx.transition_tail(
+            clip_dur, tail_trans,
+            effects.get('tail_transition_frames', 7), res=res))
 
     head_trans = effects.get('head_transition')
     if head_trans:
-        engine.add(fx.transition_head(clip_dur, head_trans, effects.get('head_transition_frames', 7)))
+        engine.add(fx.transition_head(
+            clip_dur, head_trans,
+            effects.get('head_transition_frames', 7), res=res))
 
     return engine.serialize()

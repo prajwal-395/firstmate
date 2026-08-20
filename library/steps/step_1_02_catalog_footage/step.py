@@ -244,7 +244,14 @@ def catalog_footage(raw_footage_files: list) -> dict:
     for i, entry in enumerate(entries):
         entry["source_order"] = i + 1
 
-    # --- Derive project fps and resolution ---
+    # --- Derive project fps and the SOURCE resolution ---
+    # `source_resolution` DESCRIBES THE FOOTAGE. It is not the render
+    # target and must never be used as one (captain's ruling,
+    # 2026-08-19). It was called `project_resolution` and it was handed
+    # straight to Resolve as the timeline size, which shipped project 001
+    # as a 1920x1080 master with the vertical overlays banded down the
+    # middle. The render target comes from
+    # library/tools/delivery_format.py.
     fps_counts = {}
     res_counts = {}
     for entry in entries:
@@ -258,7 +265,7 @@ def catalog_footage(raw_footage_files: list) -> dict:
             res_counts[res] = res_counts.get(res, 0) + 1
             
     project_fps = max(fps_counts, key=fps_counts.get) if fps_counts else 30.0
-    project_res = list(max(res_counts, key=res_counts.get)) if res_counts else [1080, 1920]
+    source_res = list(max(res_counts, key=res_counts.get)) if res_counts else [1080, 1920]
 
     # --- Verification ---
     # No null values for critical fields
@@ -281,7 +288,7 @@ def catalog_footage(raw_footage_files: list) -> dict:
         "total_clips": len(entries),
         "skipped_files": skipped,
         "project_fps": project_fps,
-        "project_resolution": project_res,
+        "source_resolution": source_res,
     }
 
 

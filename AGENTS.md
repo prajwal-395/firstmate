@@ -404,6 +404,30 @@ only loop body and reported the Fusion pass healthy whatever the timeline
 held. A gate that cannot fail is worse than no gate, because it reads as
 coverage; if you cannot make it read real state, delete it.
 
+**The delivery format is a property of the PRODUCT.** One enumeration,
+`library/tools/delivery_format.py`: a brand template declares
+`delivery_format`, a project may override it with
+`pipeline.delivery_format`, the default is vertical 1080x1920, and an
+unknown name raises. The catalog's `source_resolution` DESCRIBES the
+footage and is never a render target - it was, under the name
+`project_resolution`, and project 001 shipped a 1920x1080 master with the
+framing mechanism idle (target == source means nothing to fit) and the
+vertical overlays banded down the middle. Every consumer calls
+`resolve_delivery_format(project_folder)`; nothing carries the value as a
+key, because `project_resolution` was mapped by no DAG edge at all and
+every `.get(..., [1080, 1920])` in the tree silently read its own
+fallback. `project_fps` had the identical hole and now has edges.
+
+**A Fusion comp composites over the SOURCE frame, not the delivery
+frame.** Every Background node `build_effect_comp` draws - vignette,
+fade, both transition halves - is a solid image merged over `MediaIn`, so
+it must be the source clip's own size (read off the MediaPoolItem's
+`Resolution`; do NOT swap for rotation, Fusion gets the stored frame).
+Sized to the delivery format instead, it paints a hard-edged rectangle in
+the middle of the picture and no warning fires, because a wrong-sized
+Background is a valid comp. `CompEngine.from_params` had the fix and the
+comment; the renderer calls `build_effect_comp`, which did not.
+
 **One vision schema, two views.** `vision_pipeline_v3.py` emits
 `scene[]/camera[]/actions[]/objects[]/assessment{}`; consumers historically
 read `analysis.*`/`blocks`. `library/tools/vision_schema_adapter.py` derives

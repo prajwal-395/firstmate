@@ -307,7 +307,8 @@
       "from": "catalog",
       "to": "assign_aroll",
       "data_mapping": {
-        "clip_catalog": "clip_catalog"
+        "clip_catalog": "clip_catalog",
+        "project_fps": "project_fps"
       }
     },
     {
@@ -850,6 +851,27 @@
       "to": "audio_mix",
       "data_mapping": {
         "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "plan_sfx",
+      "data_mapping": {
+        "project_fps": "project_fps"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "render_subtitles",
+      "data_mapping": {
+        "project_fps": "project_fps"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "render_motion_graphics",
+      "data_mapping": {
+        "project_fps": "project_fps"
       }
     }
   ],
