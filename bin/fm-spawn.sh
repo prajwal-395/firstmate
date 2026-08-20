@@ -1931,29 +1931,11 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
-  # Wrong-remote backstop: after the cause fix above resets HEAD to the tracked
-  # upstream, verify that no OTHER remote's default branch is an ancestor of HEAD.
-  # If it is, the worktree was built on the wrong remote despite the reset.
-  # This catches a regression in the cause fix itself without false-positiving on
-  # normal in-flight branches (which are always behind the tracked tip).
-  # Skip when the tracked remote IS origin - there is no forbidden remote.
-  if [ "$tracked_remote" != origin ]; then
-    local origin_default origin_ref
-    origin_default=$(git -C "$worktree" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
-    origin_default="${origin_default#origin/}"
-    if [ -z "$origin_default" ]; then
-      for origin_default in main master; do
-        git -C "$worktree" show-ref --verify --quiet "refs/remotes/origin/$origin_default" 2>/dev/null && break
-        origin_default=""
-      done
-    fi
-    if [ -n "$origin_default" ]; then
-      origin_ref="origin/$origin_default"
-      if git -C "$worktree" merge-base --is-ancestor "$origin_ref" HEAD 2>/dev/null; then
-        echo "error: pooled worktree '$worktree' has HEAD descended from '$origin_ref' instead of tracked '$target'; base is on the wrong remote - refusing to launch" >&2
-        return 1
-      fi
-    fi
+  # Wrong-remote backstop: a positive ancestry assertion that refuses on divergence.
+  # The assertion sits AFTER the refresh, so it is a post-condition and cannot false-positive.
+  if ! git -C "$worktree" merge-base --is-ancestor "$target" HEAD 2>/dev/null; then
+    echo "error: pooled worktree '$worktree' has HEAD diverged from tracked '$target'; base is on the wrong remote - refusing to launch" >&2
+    return 1
   fi
 }
 
