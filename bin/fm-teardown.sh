@@ -2540,7 +2540,15 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
-  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
+  # A scout worktree is declared scratch: validate_worktree_teardown_safety
+  # exempts it from the uncommitted-work refusal by design, and its deliverable
+  # is the report outside the worktree. Forcing its return therefore discards
+  # nothing the fleet meant to keep, and NOT forcing it would strand every
+  # ordinary scout cleanup on the debris a scout is expected to leave behind.
+  # A ship worktree holds the work itself, so it follows captain authority.
+  worktree_return_policy=captain
+  [ "$KIND" != scout ] || worktree_return_policy=always-force
+  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" "$worktree_return_policy" || {
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }

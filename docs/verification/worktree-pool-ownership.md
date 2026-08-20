@@ -38,6 +38,7 @@ $ echo $?
 
 Two facts follow, and both are load-bearing.
 `--force` was never required to return a clean worktree, so its only effect was to discard changes the pool would otherwise have preserved - which matters exactly in the window cleanup cannot check, because the agent is alive until the return kills it.
+A scout worktree and a secondmate home keep the forced return, passed explicitly: the scout is declared scratch and already exempt from the uncommitted-work refusal, and a home's local material is gitignored rather than uncommitted work.
 And an aborted return exits `0` while leaving the slot held, so the outcome must be verified rather than trusted: a genuine return cleans and resets the worktree, so a still-dirty tree afterwards proves the return did not happen.
 
 ## Containment, proved from both ends
@@ -57,6 +58,7 @@ ok - --force overrides the live-claim refusal
 ok - a real leased pool slot outlives its agent and is freed only by return
 ok - the captain-authorized forced return still discards and returns
 ok - an aborted pool return is reported as a failure, not a phantom success
+ok - a declared-scratch scout worktree is still returned with force
 ```
 
 Liveness is deliberately asymmetric.

@@ -437,7 +437,39 @@ test_unforced_return_refuses_rather_than_reporting_a_phantom_return() {
 
 test_real_treehouse_lease_outlives_the_agent
 pass 'a real leased pool slot outlives its agent and is freed only by return'
+# A scout worktree is declared scratch and its deliverable is the report outside
+# the worktree, so its return stays forced. Without this, every ordinary scout
+# cleanup would strand on exactly the debris a scout is expected to leave.
+test_scout_return_stays_forced() {
+  local rec out status
+  rec=$(make_case return-scout 'pool-scout-task')
+  read_case "$rec"
+  fm_write_meta "$HOME_DIR/state/pool-scout-task.meta" \
+    "window=firstmate:fm-pool-scout-task" "worktree=$POOL_DIR" "project=$PROJECT_DIR" \
+    "backend=tmux" "kind=scout"
+  FM_FAKE_WINDOWS="fm-pool-scout-task"
+  mkdir -p "$HOME_DIR/data/pool-scout-task"
+  printf 'findings\n' > "$HOME_DIR/data/pool-scout-task/report.md"
+  printf 'scratch debris a scout is expected to leave\n' > "$POOL_DIR/debris.txt"
+  # Satisfy the separate unresolved-decision completion gate so this test
+  # exercises the return policy rather than that gate.
+  FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    "$ROOT/bin/fm-decision-hold.sh" complete 'pool-scout-task' --none >/dev/null 2>&1 \
+    || fail "could not clear the unresolved-decision gate for the scout fixture"
+
+  set +e
+  out=$(run_teardown 'pool-scout-task')
+  status=$?
+  set -e
+  expect_code 0 "$status" "an ordinary scout cleanup was stranded on its own scratch: $out"
+  assert_grep 'return --force' "$TREEHOUSE_LOG" "the scout return was not forced"
+  printf '# scout return: '; grep -F 'return' "$TREEHOUSE_LOG" | head -1
+}
+
 test_unforced_return_preserves_uncommitted_work
 pass 'the captain-authorized forced return still discards and returns'
 test_unforced_return_refuses_rather_than_reporting_a_phantom_return
 pass 'an aborted pool return is reported as a failure, not a phantom success'
+test_scout_return_stays_forced
+pass 'a declared-scratch scout worktree is still returned with force'
