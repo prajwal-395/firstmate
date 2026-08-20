@@ -17,10 +17,13 @@
 #
 # Safety refusals (each returns a skip with a reason):
 #   - Pane is claimed by a state/<id>.meta in this home.
-#   - Pane has a live agent (agent_status is working or blocked).
+#   - Pane has a registered agent of ANY status (done is not gone).
+#   - Agent status is unreadable (CLI failure is not evidence of absence).
 #   - Pane is outside this home's workspace.
 #   - Pane's tab label does not match fm-<id>.
 #   - Backend is not herdr.
+#   - --close requested without the session lock.
+#   - Workspace holds fm-* panes but state/ has no task records (wrong home).
 #
 # Usage:
 #   bin/fm-herdr-orphan-reaper.sh [--report|--close]
@@ -60,6 +63,23 @@ esac
 BACKEND=$(fm_backend_name 2>/dev/null) || BACKEND=
 if [ "$BACKEND" != herdr ]; then
   exit 0
+fi
+
+# Gate: --close requires this session to hold the home's session lock.
+# AGENTS.md section 3 requires MUTATING bootstrap sweeps to run only when
+# the session holds the lock from step 1.
+# The lock file is state/.lock containing the harness PID.
+if [ "$MODE" = close ]; then
+  FM_SESSION_LOCK="$STATE/.lock"
+  if [ ! -f "$FM_SESSION_LOCK" ] || [ -L "$FM_SESSION_LOCK" ]; then
+    echo "HERDR_ORPHAN_REAPER: refusing --close without session lock (no lock file)" >&2
+    exit 0
+  fi
+  FM_SESSION_LOCK_PID=$(cat "$FM_SESSION_LOCK" 2>/dev/null) || FM_SESSION_LOCK_PID=
+  if [ -z "$FM_SESSION_LOCK_PID" ]; then
+    echo "HERDR_ORPHAN_REAPER: refusing --close without session lock (unreadable lock)" >&2
+    exit 0
+  fi
 fi
 
 # Source the herdr adapter.
@@ -136,6 +156,26 @@ orphan_count=0
 closed_count=0
 refused_count=0
 
+# Self-check (recommendation 4): refuse to close when the workspace holds
+# fm-* panes but state/ holds no task records at all.
+# That combination means the reaper resolved the wrong home or is reading
+# an empty state directory, and every pane it can see belongs to someone else.
+if [ "$MODE" = close ]; then
+  fm_tab_count=$(printf '%s' "$TABS_JSON" | jq '[.result.tabs[]? | select(.label | startswith("fm-"))] | length' 2>/dev/null) || fm_tab_count=0
+  meta_count=0
+  if [ -d "$STATE" ]; then
+    for _meta in "$STATE"/*.meta; do
+      [ -f "$_meta" ] || continue
+      meta_count=$((meta_count + 1))
+      break
+    done
+  fi
+  if [ "$fm_tab_count" -gt 0 ] && [ "$meta_count" -eq 0 ]; then
+    echo "HERDR_ORPHAN_REAPER: refusing --close: workspace has $fm_tab_count fm-* pane(s) but state/ has no task records (wrong home or empty state)" >&2
+    exit 0
+  fi
+fi
+
 while IFS=$'\t' read -r tab_id label; do
   [ -n "$tab_id" ] || continue
   [ -n "$label" ] || continue
@@ -158,15 +198,24 @@ while IFS=$'\t' read -r tab_id label; do
     continue
   fi
 
-  # Safety check 2: does this pane have a live agent?
-  agent_status=$(fm_backend_herdr_agent_status_raw "$SESSION" "$pane_id")
-  case "$agent_status" in
-    working|blocked)
-      echo "HERDR_ORPHAN_REAPER: SKIP $pane_id (tab $label) - live agent (status: $agent_status)"
-      refused_count=$((refused_count + 1))
-      continue
-      ;;
-  esac
+  # Safety check 2: can we read the agent status at all?
+  # An unreadable status must refuse, not proceed as if no agent is present.
+  # A failed CLI read is not evidence of absence - it could be a transient
+  # socket error, a killed server, or a permission problem.
+  if ! agent_status=$(fm_backend_herdr_agent_status_raw_strict "$SESSION" "$pane_id"); then
+    echo "HERDR_ORPHAN_REAPER: SKIP $pane_id (tab $label) - agent status unreadable (CLI failure)"
+    refused_count=$((refused_count + 1))
+    continue
+  fi
+
+  # Safety check 2b: a registered agent of ANY status is live.
+  # Done is not gone; the task still owns its pane until cleanup.
+  # Only an empty status (no registered agent at all) may proceed.
+  if [ -n "$agent_status" ]; then
+    echo "HERDR_ORPHAN_REAPER: SKIP $pane_id (tab $label) - live agent (status: $agent_status)"
+    refused_count=$((refused_count + 1))
+    continue
+  fi
 
   # Safety check 3: is this pane too young?
   # The live-agent guard loses a startup race: between a pane being created and its agent
