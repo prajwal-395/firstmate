@@ -717,6 +717,33 @@ parse_orca_worktree_result() {
   fi
 }
 
+# --- pool-slot leasing -------------------------------------------------------
+#
+# See bin/fm-worktree-claim-lib.sh for why a crewmate worktree must be owned for
+# the life of the task rather than the life of the agent.
+SPAWN_LEASE_PATH=
+SPAWN_LEASE_CD=
+
+# Report, but never RETURN, a lease this spawn took and could not hand to a
+# task. `treehouse return` terminates every process running in the worktree,
+# and by the time a spawn aborts the pane has already been moved there, so
+# returning would kill the endpoint the abort cleanup still has to close - and
+# with concurrent spawns it can reach a sibling's processes too.
+#
+# Leaving the slot leased is the fail-closed choice: a leased slot can never be
+# handed to another task, so nothing can collide with it, and an operator can
+# release it deliberately with the command named below. A leaked lease is
+# recoverable; killing a live pane is not.
+spawn_release_pool_lease() {
+  [ -n "$SPAWN_LEASE_PATH" ] || return 0
+  echo "warning: task $ID did not launch, so pool slot '$SPAWN_LEASE_PATH' is still leased to it and cannot be handed to another task. Release it once nothing is running there: treehouse return --force '$SPAWN_LEASE_PATH'" >&2
+  SPAWN_LEASE_PATH=
+  SPAWN_LEASE_CD=
+}
+
+# Acquire a durably leased pool worktree for this task and set
+# SPAWN_LEASE_PATH and the quoted form the pane is moved with.
+
 spawn_abort_cleanup() {
   local status=$?
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
@@ -1890,32 +1917,11 @@ validate_spawn_worktree() {  # <source> <inspect-target>
   fi
 }
 
-# --- pool-slot leasing -------------------------------------------------------
-#
-# See bin/fm-worktree-claim-lib.sh for why a crewmate worktree must be owned for
-# the life of the task rather than the life of the agent.
-SPAWN_LEASE_PATH=
-SPAWN_LEASE_CD=
-
-# Report, but never RETURN, a lease this spawn took and could not hand to a
-# task. `treehouse return` terminates every process running in the worktree,
-# and by the time a spawn aborts the pane has already been moved there, so
-# returning would kill the endpoint the abort cleanup still has to close - and
-# with concurrent spawns it can reach a sibling's processes too.
-#
-# Leaving the slot leased is the fail-closed choice: a leased slot can never be
-# handed to another task, so nothing can collide with it, and an operator can
-# release it deliberately with the command named below. A leaked lease is
-# recoverable; killing a live pane is not.
-spawn_release_pool_lease() {
-  [ -n "$SPAWN_LEASE_PATH" ] || return 0
-  echo "warning: task $ID did not launch, so pool slot '$SPAWN_LEASE_PATH' is still leased to it and cannot be handed to another task. Release it once nothing is running there: treehouse return --force '$SPAWN_LEASE_PATH'" >&2
-  SPAWN_LEASE_PATH=
-  SPAWN_LEASE_CD=
-}
-
 # Acquire a durably leased pool worktree for this task and set
-# SPAWN_LEASE_PATH and the quoted form the pane is moved with.
+# SPAWN_LEASE_PATH plus the quoted form the pane is moved with. See
+# bin/fm-worktree-claim-lib.sh for why the slot is owned for the life of the
+# task; spawn_release_pool_lease, defined near the abort cleanup that calls it,
+# owns what happens when the task never launches.
 spawn_lease_pool_worktree() {
   local path claimant
   if ! path=$( cd "$PROJ_ABS" && treehouse get --lease --lease-holder "fm-$ID" 2>/dev/null ); then
