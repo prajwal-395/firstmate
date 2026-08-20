@@ -38,16 +38,72 @@ BUSY_EVENT="$ROOT/bin/fm-busy-event.sh"
 command -v script >/dev/null 2>&1 || { echo "skip: script(1) not found, so no pty fixture is available"; exit 0; }
 
 TMP_ROOT=$(fm_test_tmproot fm-watch-progress-tests)
-PTY_PIDS=()
 
-cleanup_ptys() {
-  local p
-  for p in "${PTY_PIDS[@]:-}"; do
-    [ -n "$p" ] || continue
-    kill "$p" 2>/dev/null || true
-  done
+# Fixture registration goes through a FILE, never an array.
+#
+# Every fixture here is started as `tty=$(pty_run ...)`, and a command
+# substitution forks a subshell: an array append inside pty_run dies with that
+# subshell and never reaches this shell, so a teardown reading in-process state
+# reads an empty list and kills nothing. That is not a hypothetical - it is why
+# this suite leaked every fixture it ever started. tests/lib.sh hit the same wall
+# with fm_test_tmproot and solved it the same way; see its comment above
+# FM_TEST_CLEANUP_REGISTRY.
+FIXTURE_REGISTRY="$TMP_ROOT/.fixtures"
+: > "$FIXTURE_REGISTRY"
+
+# A fixture here is a CPU burner, so leaking one is not litter - it pegs a core
+# for everything that runs afterwards, and the thing that runs afterwards is a
+# suite whose whole subject is whether a pane is accumulating CPU. A leaked
+# burner therefore corrupts exactly the measurement this file exists to pin, and
+# it does it to every later test on the machine too. Two independent guarantees,
+# because they fail for different reasons:
+#
+#   1. Teardown kills the pty's whole FOREGROUND PROCESS GROUP, not the `script`
+#      wrapper's pid. `script` runs the fixture inside a pty in its own session,
+#      so killing the wrapper leaves the spinning bash behind with nothing left
+#      to reap it. The pgid == tpgid anchor used here is the same kernel fact
+#      bin/fm-backend.sh resolves a pane's pids from, so teardown reaches
+#      precisely the processes the subject measures.
+#   2. Every burner carries its own deadline and exits unaided. A run killed hard
+#      enough to skip its traps - a CI step timeout, a SIGKILL, a developer's
+#      ctrl-C at the wrong moment - still cannot leave a core pegged.
+#
+# BURNER is that bounded spin: hot enough to be measurable, self-limiting, and it
+# forks NOTHING. A fixture that spawned children would change its own subtree
+# composition and hand the probe its second positive signal, which is not the one
+# case (a) pins - the CPU rate is.
+FIXTURE_MAX_SECS=${FIXTURE_MAX_SECS:-120}
+# shellcheck disable=SC2016 # deliberately unexpanded: $SECONDS and $end are the
+# fixture bash's own, evaluated inside the pty, not this shell's.
+BURNER='end=$((SECONDS + '"$FIXTURE_MAX_SECS"')); while [ "$SECONDS" -lt "$end" ]; do :; done'
+
+# cleanup_fixtures: end every pty fixture started so far, completely. Called at
+# the END OF EVERY CASE as well as on exit, so no case ever runs while the
+# previous case's burner is still pegging a core.
+cleanup_fixtures() {
+  local p tty victim
+  [ -f "$FIXTURE_REGISTRY" ] || return 0
+  while IFS='	' read -r p tty; do
+    if [ -n "${tty:-}" ]; then
+      for victim in $(LC_ALL=C ps -t "$tty" -o pid= 2>/dev/null); do
+        [ -n "$victim" ] || continue
+        kill -9 "$victim" 2>/dev/null || true
+      done
+    fi
+    [ -n "${p:-}" ] || continue
+    kill -9 "$p" 2>/dev/null || true
+    wait "$p" 2>/dev/null || true
+  done < "$FIXTURE_REGISTRY"
+  : > "$FIXTURE_REGISTRY"
 }
-trap cleanup_ptys EXIT
+
+# Chained, never replaced: tests/lib.sh arms fm_test_cleanup on these same
+# signals to remove the registered fixture directories. A bare `trap ... EXIT`
+# here silently drops that, which is why this suite used to leave its fixture
+# roots behind as well as its processes.
+trap 'cleanup_fixtures; fm_test_cleanup' EXIT
+trap 'cleanup_fixtures; fm_test_cleanup; exit 130' INT
+trap 'cleanup_fixtures; fm_test_cleanup; exit 143' TERM
 
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
 
@@ -71,7 +127,7 @@ wait_for_log() {
 # device path. The command reports its own tty from inside, which is the only
 # way to learn the device `script` allocated.
 pty_run() {
-  local name=$1 command=$2 ttyfile pid i=0
+  local name=$1 command=$2 ttyfile pid tty i=0
   ttyfile="$TMP_ROOT/$name.tty"
   rm -f "$ttyfile"
   if [ "$(uname)" = Darwin ]; then
@@ -80,9 +136,17 @@ pty_run() {
     script -q -c "bash -c \"tty > '$ttyfile'; $command\"" /dev/null >/dev/null 2>&1 &
   fi
   pid=$!
-  PTY_PIDS+=("$pid")
+  # Registered BEFORE the tty is known, so a fixture that never reports one is
+  # still reachable by pid; the tty is appended as a second record the moment it
+  # resolves, and teardown tolerates either shape.
+  printf '%s\t\n' "$pid" >> "$FIXTURE_REGISTRY"
   while [ "$i" -lt 150 ]; do
-    [ -s "$ttyfile" ] && { tr -d '[:space:]' < "$ttyfile"; return 0; }
+    if [ -s "$ttyfile" ]; then
+      tty=$(tr -d '[:space:]' < "$ttyfile")
+      printf '%s\t%s\n' "$pid" "$tty" >> "$FIXTURE_REGISTRY"
+      printf '%s' "$tty"
+      return 0
+    fi
     kill -0 "$pid" 2>/dev/null || return 1
     sleep 0.1
     i=$((i + 1))
@@ -148,7 +212,7 @@ run_watch() {
 test_measured_progress_declines_the_wedge_escalation() {
   local dir state fakebin out window key tty pid
   window="test:fm-burner"
-  tty=$(pty_run burner 'while :; do :; done') || fail "could not start the working pty fixture"
+  tty=$(pty_run burner "$BURNER") || fail "could not start the working pty fixture"
   dir=$(make_case working-pane burner "$window" "$tty" 'working: running the suite')
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -172,6 +236,7 @@ test_measured_progress_declines_the_wedge_escalation() {
   [ -s "$state/.progress-$key" ] || fail "no measurement was taken, so the absorb proves nothing"
   grep -q 'cpu +' "$state/.watch-triage.log" \
     || fail "the absorb did not record the reading it was made from: $(cat "$state/.watch-triage.log" 2>/dev/null)"
+  cleanup_fixtures
   pass "a silent pane whose process subtree is accumulating CPU is not wedge-escalated"
 }
 
@@ -199,13 +264,14 @@ test_busy_pane_doing_nothing_is_surfaced() {
   grep -F "stalled" "$out" >/dev/null || fail "the wake did not carry the reading that justified it: $(cat "$out")"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the stall wake failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the stall wake was not queued"
+  cleanup_fixtures
   pass "a worker whose harness still claims a turn in flight, while its subtree does nothing, is surfaced"
 }
 
 test_busy_pane_that_is_working_raises_no_stall() {
   local dir state fakebin out window tty pid
   window="test:fm-busywork"
-  tty=$(pty_run busywork 'while :; do :; done') || fail "could not start the busy working pty fixture"
+  tty=$(pty_run busywork "$BURNER") || fail "could not start the busy working pty fixture"
   dir=$(make_case busy-working busywork "$window" "$tty" 'working: long turn under way')
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
   "$BUSY_EVENT" arm "$state" busywork >/dev/null || fail "could not arm the busy record"
@@ -221,6 +287,7 @@ test_busy_pane_that_is_working_raises_no_stall() {
   [ -s "$state/.progress-$(printf '%s' "$window" | tr ':/.' '___')" ] \
     || fail "no measurement was taken, so the silence proves nothing"
   [ ! -s "$state/.wake-queue" ] || fail "a busy, measurably working pane enqueued a stall wake"
+  cleanup_fixtures
   pass "the new stall alarm needs measured non-progress, so a busy pane that is really working never raises it"
 }
 
@@ -229,7 +296,7 @@ test_busy_pane_that_is_working_raises_no_stall() {
 test_unmeasurable_pane_keeps_the_previous_behavior() {
   local dir state fakebin out window key tty pid
   window="test:fm-nopid"
-  tty=$(pty_run nopid 'while :; do :; done') || fail "could not start the unmeasurable pty fixture"
+  tty=$(pty_run nopid "$BURNER") || fail "could not start the unmeasurable pty fixture"
   dir=$(make_case no-pid-source nopid "$window" "$tty" 'working: no measurement available')
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -248,6 +315,7 @@ test_unmeasurable_pane_keeps_the_previous_behavior() {
   grep -F "no-pid-source" "$out" >/dev/null \
     || fail "the escalation did not disclose that nothing could be measured: $(cat "$out")"
   [ ! -e "$state/.progress-$key" ] || fail "a backend with no pid source must record no baseline"
+  cleanup_fixtures
   pass "a pane with no pid source measures nothing and keeps the pre-existing escalation, disclosing why"
 }
 
