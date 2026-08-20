@@ -52,6 +52,11 @@
 # back onto the very rung the descent was protecting. Every step below is
 # therefore guarded, and every guard refuses rather than guesses:
 #
+#   0. `/model` is submitted with exactly ONE Enter, and every refusal from that
+#      point on closes any modal and clears the composer. The shared submit
+#      helper retries an unconfirmed Enter, which is right for a prompt and
+#      wrong for a command that opens a modal: the retry lands INSIDE the picker
+#      and commits whatever row is highlighted.
 #   1. Nothing is sent to a worker that is not PROVABLY idle. Busy state comes
 #      from agy's own lifecycle hooks (bin/fm-busy-lib.sh), not from rendered
 #      text. A busy worker is left alone and retried on the next evaluation.
@@ -90,6 +95,49 @@
 # spending the very reserve the descent protects, which needs its own decision.
 # Descending is the safety half and lands first.
 #
+# DOES THIS GENERALISE TO OTHER PROVIDERS? The shape does; nothing else here
+# does, and the difference matters because the same failure has now happened on
+# a second provider. Two Claude workers were stopped mid-task by a session limit
+# on 2026-08-20; neither signalled, both panes simply went quiet, and the captain
+# found them by looking rather than by any alarm.
+#
+# The evaluation below is three separable steps, and only the first is already
+# provider-neutral:
+#
+#   1. Enumerate live workers from their durable records. Reads state/*.meta and
+#      filters by harness; nothing about it is agy-specific.
+#   2. Read each worker's remaining budget ON ITS OWN PROVIDER.
+#   3. Compare against a declared floor, and act.
+#
+# Step 2 is where agy is unusually easy: it answers for its own account, for
+# free, in one call. A Claude worker has no equivalent this can poll, and the
+# fleet's general quota source (quota-axi) is a separate tool with its own shape
+# and freshness that models account and product windows rather than what is left
+# of a running session's window.
+#
+# Step 3 does not exist for Claude at all. The rungs and the reserved quarter are
+# the captain's stated policy for agy MODELS. There is no declared ordering or
+# floor for Claude models, and a floor nobody has declared cannot be enforced.
+#
+# The resource is also not the same kind of thing. A session limit stops the
+# whole session whatever model is selected, so descending to a cheaper Claude
+# model may buy nothing; whether those models draw on separate windows has to be
+# established before any of this would be worth building. And the action would
+# need its own verified switch: Claude has a /model command, but whether it can
+# be driven into a running pane with the conversation intact is unproven, which
+# is exactly the assumption this file's own live guard exists to stop anyone
+# making for agy.
+#
+# So this stays agy-scoped, deliberately. The more valuable provider-neutral fix
+# is a different one and belongs to supervision, not to quota: a worker stopped
+# by ITS provider should be loud. bin/fm-watch.sh exempts a pane from staleness
+# while its semantic busy record says busy, for up to FM_BUSY_TURN_MAX_SECS (an
+# hour by default) - so a provider that cuts a turn off WITHOUT the harness
+# firing its turn-end hook leaves the record stuck at busy and the worker reads
+# as legitimately working for that entire hour. That mechanism is a hypothesis
+# about the 2026-08-20 Claude stalls, not a measured cause, and it wants its own
+# reproduction before anything is changed on the strength of it.
+
 # THE OVERRIDE. FM_AGY_LADDER_OVERRIDE is the launch gate's deliberate escape
 # and it is honoured here too: a worker launched past the ladder on the
 # captain's explicit request is not dragged off its model behind their back.
@@ -362,17 +410,25 @@ fm_agy_descent_capture() {  # <backend> <target> <label>
   fm_backend_capture "$1" "$2" "$FM_AGY_DESCENT_CAPTURE_LINES" "${3:-}" 2>/dev/null
 }
 
-# fm_agy_descent_escape: abandon a picker without selecting anything, then prove
-# it closed. Used on every refusal after `/model` was submitted, so a walk that
-# cannot be completed never leaves a live worker parked in a modal.
+# fm_agy_descent_escape: abandon the switch without selecting anything, then
+# prove nothing is left behind. Used on EVERY refusal from the moment `/model`
+# is typed, including the path where the picker never appeared - if it opened a
+# moment after the wait gave up, a live worker would otherwise be parked in a
+# modal nobody is going to close.
+#
+# Two things are undone, not one. Escape closes the picker; C-u clears the
+# composer, because a `/model` that was typed but never submitted would
+# otherwise sit there and prefix whatever the supervisor sends next.
 fm_agy_descent_escape() {  # <backend> <target> <label>
   local i text
-  fm_backend_send_key "$1" "$2" Escape "${3:-}" >/dev/null 2>&1 || true
   for i in 1 2 3 4 5; do
+    fm_backend_send_key "$1" "$2" Escape "${3:-}" >/dev/null 2>&1 || true
     sleep 1
     text=$(fm_agy_descent_capture "$1" "$2" "${3:-}")
-    fm_agy_descent_is_picker "$text" || return 0
-    fm_backend_send_key "$1" "$2" Escape "${3:-}" >/dev/null 2>&1 || true
+    if ! fm_agy_descent_is_picker "$text"; then
+      fm_backend_send_key "$1" "$2" C-u "${3:-}" >/dev/null 2>&1 || true
+      return 0
+    fi
   done
   return 1
 }
@@ -387,14 +443,21 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
   local backend=$1 target=$2 label=$3 want=$4
   local verdict text plan key count effort i waited selected rows
 
-  verdict=$(fm_backend_send_text_submit "$backend" "$target" '/model' 2 1 2 "$label" 2>&1) || {
-    printf 'the model command could not be delivered to the worker (%s)' "${verdict:-no detail}"
-    return 1
-  }
-  [ -z "$verdict" ] || {
-    printf 'the model command was not confirmed as delivered (%s)' "$verdict"
-    return 1
-  }
+  # EXACTLY ONE Enter. The shared submit helper takes a retry count and, when it
+  # cannot confirm a submission, presses Enter again - which is right for an
+  # ordinary prompt and dangerous here, because `/model` opens a modal: the
+  # first Enter opens the picker, the composer then reads as gone rather than as
+  # submitted, and the RETRY lands inside the picker and commits whatever row
+  # was highlighted. Observed exactly that against agy 1.1.16, where the retry
+  # re-selected the very rung the descent was trying to leave. A retry count of
+  # 1 is one attempt and no retry.
+  #
+  # Nothing here treats the helper's verdict as the confirmation, either. Its
+  # verdicts describe a composer that submitted a turn, and `/model` does not
+  # start one, so "pending" is its ordinary answer for a perfectly delivered
+  # command. The picker guard below is the confirmation.
+  verdict=$(fm_backend_send_text_submit "$backend" "$target" '/model' 1 1 2 "$label" 2>&1) \
+    || verdict=send-failed
 
   # GUARD: not one navigation key is sent until agy has positively drawn the
   # picker. Without this, a version that renamed or removed /model would take
@@ -407,7 +470,10 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
     waited=$((waited + 2))
   done
   if ! fm_agy_descent_is_picker "$text"; then
-    printf 'the model picker did not open within %ss, so no keys were sent' "$FM_AGY_DESCENT_PICKER_WAIT"
+    fm_agy_descent_escape "$backend" "$target" "$label" \
+      || { printf 'the model picker did not open within %ss (delivery reported %s) and the worker could not be returned to a clean composer' "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"; return 1; }
+    printf 'the model picker did not open within %ss (delivery reported %s), so no keys were sent' \
+      "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"
     return 1
   fi
 
@@ -476,6 +542,7 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
     text=$(fm_agy_descent_capture "$backend" "$target" "$label")
     fm_agy_descent_confirms "$text" "$want" && return 0
   done
+  fm_agy_descent_escape "$backend" "$target" "$label" || true
   printf 'the worker did not confirm it is running on %s within %ss' "$want" "$FM_AGY_DESCENT_CONFIRM_WAIT"
   return 1
 }

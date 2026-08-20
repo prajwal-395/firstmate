@@ -72,14 +72,30 @@ FAKE_ROWS=(
 
 fake_selection() { cat "$FAKE_DIR/selection" 2>/dev/null || true; }
 fake_settled() { cat "$FAKE_DIR/settled" 2>/dev/null || true; }
+fake_phase() { cat "$FAKE_DIR/phase" 2>/dev/null || true; }
 
-# fake_picker_open <state-dir> <initially-selected-row>
-fake_picker_open() {
+# fake_worker_start <state-dir> <model-row-the-worker-is-running>
+# The worker begins at its composer, exactly as a live one does; the picker only
+# exists once something opens it.
+fake_worker_start() {
   FAKE_DIR="$1/.fake-picker"
   mkdir -p "$FAKE_DIR"
   printf '%s' "$2" > "$FAKE_DIR/selection"
   : > "$FAKE_DIR/settled"
+  printf 'composer' > "$FAKE_DIR/phase"
   FAKE_MODE=picker
+}
+
+# fake_enter: the modal transition that made this worth simulating. An Enter at
+# the composer OPENS the picker; an Enter once it is open COMMITS the
+# highlighted row. That is why the submitted `/model` must carry exactly one
+# Enter: a second one selects a model nobody chose.
+fake_enter() {
+  if [ "$(fake_phase)" = composer ]; then
+    printf 'picker' > "$FAKE_DIR/phase"
+  else
+    fake_display "$(fake_selection)" > "$FAKE_DIR/settled"
+  fi
 }
 
 # fake_display: what a row is called once selected. A Gemini family row takes
@@ -127,10 +143,21 @@ fake_move() {  # <direction>
   done
 }
 
+fake_render_composer() {
+  printf '> do the thing\n\n  working on it\n\n>\n%s | ctx: 2.1%% | quota: 50%% (3h 0m)\n' \
+    "$(fake_display "$(fake_selection)")"
+}
+
 fm_backend_capture() {
   case "$FAKE_MODE" in
     picker)
-      if [ -n "$(fake_settled)" ]; then fake_render_settled; else fake_render_picker; fi
+      if [ -n "$(fake_settled)" ]; then
+        fake_render_settled
+      elif [ "$(fake_phase)" = picker ]; then
+        fake_render_picker
+      else
+        fake_render_composer
+      fi
       ;;
     *) printf '%s' "$FAKE_PANE" ;;
   esac
@@ -140,13 +167,26 @@ fm_backend_send_key() {
   [ "$FAKE_MODE" = picker ] || return 0
   case "$3" in
     Up|Down) fake_move "$3" ;;
-    Enter) fake_display "$(fake_selection)" > "$FAKE_DIR/settled" ;;
-    Escape) printf '(escaped)' > "$FAKE_DIR/settled" ;;
+    Enter) fake_enter ;;
+    Escape) printf 'composer' > "$FAKE_DIR/phase" ;;
   esac
   return 0
 }
 
-fm_backend_send_text_submit() { return 0; }
+# The shared submit helper types once and then presses Enter up to <retries>
+# times, so the retry count is not a tuning knob here - it is how many Enters
+# reach the worker. Modelling that faithfully is what makes the one-Enter rule
+# testable at all.
+fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> ...
+  local i=0
+  [ "$FAKE_MODE" = picker ] || return 0
+  while [ "$i" -lt "$4" ]; do
+    fake_enter
+    i=$((i + 1))
+  done
+  printf 'pending'
+  return 0
+}
 fm_busy_classify_meta() { printf '%s' "$FAKE_BUSY"; }
 fm_meta_get() {
   [ -f "$1" ] || return 0
@@ -652,7 +692,7 @@ test_a_crossed_floor_moves_the_worker_and_records_it() {
   record "$state" "$RUNG2" 94.6 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
-  fake_picker_open "$state" 'Claude Opus 4.6 (Thinking)'
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "descended runner" "a worker below its floor must be moved"
@@ -690,7 +730,7 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
   # longer matches the parsed walk behaves. The counted moves are sent and the
   # selection stays put.
   FAKE_STICKY=1
-  fake_picker_open "$state" 'Claude Opus 4.6 (Thinking)' 
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)' 
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "refused adrift" "a walk that missed its target must refuse"
@@ -698,10 +738,12 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
     "the refusal must name what it found and what it wanted"
   assert_not_contains "$out" "descended" "nothing may be committed after a missed walk"
 
-  # The critical property: Enter was never pressed, so no model was selected at
-  # all. Escape was, which is what leaves the worker out of the modal.
-  [ "$(fake_settled)" = '(escaped)' ] \
-    || fail "a missed walk must escape the picker without selecting; got '$(fake_settled)'"
+  # The critical property: nothing was ever committed, and the worker is back at
+  # its composer rather than parked in a modal nobody will close.
+  [ -z "$(fake_settled)" ] \
+    || fail "a missed walk must commit nothing; it selected '$(fake_settled)'"
+  [ "$(fake_phase)" = composer ] \
+    || fail "a missed walk must leave the worker out of the picker; phase is '$(fake_phase)'"
 
   # And the durable record is untouched, so the worker is still described by it.
   [ "$(fm_meta_get "$state/adrift.meta" model)" = "$RUNG1" ] \
@@ -709,6 +751,30 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
   FAKE_MODE=static
   FAKE_STICKY=0
   pass "fm_agy_descent_tick: a walk that does not land on the target selects nothing and escalates"
+}
+
+test_the_model_command_carries_exactly_one_enter() {
+  local state out
+  state=$(fresh_state tick-one-enter)
+  meta "$state" single "$RUNG1"
+  record "$state" "$RUNG1" 0.0 '3h 41m'
+  record "$state" "$RUNG2" 94.6 '3h 37m'
+  FAKE_STICKY=0
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
+
+  # The simulated worker opens its picker on the first Enter and COMMITS on the
+  # second, which is what a live agy does. If the model command were submitted
+  # with a retry, that retry would land inside the picker and select the row the
+  # worker is already on - the exact rung the descent exists to leave. Observed
+  # against agy 1.1.16 before the retry count was pinned to one.
+  out=$(fm_agy_descent_tick "$state" "$NOW")
+  assert_contains "$out" "descended single" "the descent must still complete"
+  [ "$(fake_settled)" = "$RUNG2" ] \
+    || fail "an extra Enter committed the wrong model: settled on '$(fake_settled)', not $RUNG2"
+  [ "$(fm_meta_get "$state/single.meta" model)" = "$RUNG2" ] \
+    || fail "the durable record must name the model that was actually selected"
+  FAKE_MODE=static
+  pass "fm_agy_descent_switch: the model command carries exactly one Enter, so no retry commits a selection"
 }
 
 # --- 7. The watcher actually calls it ---------------------------------------
@@ -751,4 +817,5 @@ test_the_evaluation_is_rate_limited
 test_the_evaluation_can_be_turned_off
 test_a_crossed_floor_moves_the_worker_and_records_it
 test_a_walk_that_does_not_land_on_the_target_commits_nothing
+test_the_model_command_carries_exactly_one_enter
 test_the_watcher_runs_the_evaluation
