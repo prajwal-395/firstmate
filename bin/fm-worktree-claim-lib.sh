@@ -16,7 +16,7 @@
 # Two things close that gap, and they are deliberately independent:
 #
 #   1. fm-spawn.sh now leases every crewmate worktree for the life of the task
-#      (bin/fm-spawn.sh, `treehouse get --lease` plus `treehouse enter`), and
+#      (bin/fm-spawn.sh, `treehouse get --lease` plus a `cd` into it), and
 #      cleanup releases it. That is the structural fix: the pool itself stops
 #      offering an owned slot, with no firstmate check in the loop.
 #   2. The helpers below are the containment. They answer the ownership

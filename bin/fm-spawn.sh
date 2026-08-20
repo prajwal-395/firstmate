@@ -3,11 +3,10 @@
 # secondmate in its isolated firstmate home.
 #
 # A crewmate's pool worktree is LEASED for the life of the task, not the life of
-# the agent: this script runs `treehouse get --lease` itself and then sends the
-# pane into that exact slot with `treehouse enter <slot>`. A bare `treehouse
-# get` reserves nothing, so the pool treated the slot as free as soon as no
-# process was running in it and handed a live task's directory to the next
-# spawn. bin/fm-worktree-claim-lib.sh owns that rationale and the containment
+# the agent: this script runs `treehouse get --lease` itself and then moves the
+# pane into that exact slot with a plain `cd`. A bare `treehouse get` reserves
+# nothing, so the pool treated the slot as free as soon as no process was
+# running in it and handed a live task's directory to the next spawn. bin/fm-worktree-claim-lib.sh owns that rationale and the containment
 # check that refuses a slot another live task still claims; fm-teardown.sh's
 # existing `treehouse return` is the release point.
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
@@ -2503,8 +2502,8 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # awaited decision, or a finished-but-not-cleaned-up run all hand this task's
   # directory to the next spawn. --lease records a durable reservation that
   # survives the agent, and cleanup's existing `treehouse return` releases it.
-  # The pane still gets its own subshell in the worktree, via `treehouse enter`,
-  # so the settle detection below is unchanged.
+  # The pane is then moved into that slot, so the settle detection below is
+  # unchanged.
   spawn_lease_pool_worktree || exit 1
   # Move the pane with a plain `cd`, not `treehouse enter`. The lease is already
   # held, and enter exists only to drop a shell into a slot without touching
@@ -2557,7 +2556,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     exit 1
   fi
 
-  validate_spawn_worktree "treehouse enter" "$T"
+  validate_spawn_worktree "the move into the leased worktree" "$T"
   spawn_require_settled_lease_match
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then

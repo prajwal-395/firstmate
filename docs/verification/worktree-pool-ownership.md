@@ -13,13 +13,15 @@ treehouse classifies a slot as free when no durable lease reserves it and no pro
 `treehouse prune --help` states the same rule in its own words: a worktree is reclaimable only when "no owner reservation or running process is using it".
 Firstmate task records are not part of that decision, so a crewmate worktree taken with a bare `treehouse get` was held only for as long as its agent process lived.
 
-Three vendor facts are load-bearing and are pinned by the self-skipping real-treehouse assertion in `tests/fm-worktree-pool-collision.test.sh`, which builds its own pool inside the test temp root (`root = "./"`) and never touches an operator's pool:
+Two vendor facts are load-bearing and are pinned by the self-skipping real-treehouse assertion in `tests/fm-worktree-pool-collision.test.sh`, which builds its own pool inside the test temp root (`root = "./"`) and never touches an operator's pool:
 
 - a leased slot is not handed out by a later `treehouse get` even with zero processes inside it;
-- `treehouse enter <slot> --print-path` resolves the slot name that `fm-spawn` derives from the leased path;
 - `treehouse return` releases the lease, so the existing cleanup call is a sufficient release point.
 
 That assertion prints `skip - treehouse not found; pool lease semantics unverified here` where the binary is absent, and never reports a pass for a check it did not run.
+
+The pane is moved into the leased slot with a plain `cd`, not `treehouse enter`.
+`enter` runs its own subshell, and a subshell that exits ends the pane it ran in, taking the worker's endpoint with it; the lease is already held by then, so `enter` offers nothing a `cd` does not.
 
 ## The pool return is forced only under the captain's authority
 

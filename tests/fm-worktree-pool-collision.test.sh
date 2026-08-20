@@ -338,7 +338,7 @@ test_force_overrides_the_live_claim_refusal() {
 # Both are vendor behavior, so they are proved against the real binary rather
 # than assumed. Self-skips where treehouse is absent (CI has no pool).
 test_real_treehouse_lease_outlives_the_agent() {
-  local dir repo first second slot
+  local dir repo first second
   if ! command -v treehouse >/dev/null 2>&1; then
     printf 'skip - treehouse not found; pool lease semantics unverified here\n'
     return 0
@@ -364,11 +364,6 @@ test_real_treehouse_lease_outlives_the_agent() {
     || fail "real treehouse could not lease a second worktree"
   [ "$second" != "$first" ] \
     || fail "treehouse handed out a LEASED slot with no process inside it"
-
-  # The slot name fm-spawn derives from the path is the one `enter` accepts.
-  slot=$(basename "$(dirname "$first")")
-  [ "$( cd "$repo" && treehouse enter "$slot" --print-path 2>/dev/null )" = "$first" ] \
-    || fail "treehouse enter <slot> did not resolve the leased worktree"
 
   # Cleanup's existing `treehouse return` is the release point.
   ( cd "$repo" && treehouse return --force "$first" ) >/dev/null 2>&1 \
