@@ -193,19 +193,62 @@ class TimelineView(BaseModel):
 # ── Pipeline Control ───────────────────────────────────────────────
 
 class PipelineRunRequest(BaseModel):
-    """Request to start/resume/rerun pipeline."""
+    """Request to start/resume/rerun pipeline.
+
+    ``full_auto`` defaults to ``"agy"`` and ``review_mode`` to False,
+    because that is how the pipeline is actually driven.  The old default
+    of ``review_mode=True`` turned one Start press into 26 stops.
+    """
     from_step: Optional[str] = None
     single_step: Optional[str] = None
-    review_mode: bool = True
+    full_auto: Optional[str] = "agy"   # agy | api | mock | None (manual LLM)
+    auto_mode: bool = False            # --auto: complete hybrids from the bridge
+    review_mode: bool = False          # --review: opt in, never forced
+    llm_timeout: Optional[int] = None
+
+
+class PipelineStepRequest(BaseModel):
+    """Request to advance the pipeline by exactly one step.
+
+    ``step_id`` is optional: left unset the server resolves the first
+    step in topological order the project has not completed, which is
+    what "advance one step" means.  Setting it is how a reviewer steers
+    to a specific step instead.
+    """
+    step_id: Optional[str] = None
+    full_auto: Optional[str] = "agy"
+    auto_mode: bool = False
+    review_mode: bool = False
+    llm_timeout: Optional[int] = None
+
+
+class PipelinePauseRequest(BaseModel):
+    """Request to engage the handbrake."""
+    reason: str = ""
 
 
 class PipelineStatus(BaseModel):
-    """Current pipeline execution status."""
+    """Current pipeline execution status.
+
+    Everything here is read back off disk from what the runner itself
+    wrote.  Nothing is inferred from the fact that a launch request
+    returned 200.
+    """
     is_running: bool = False
     current_step: Optional[str] = None
+    current_step_name: Optional[str] = None
     completed_steps: List[str] = Field(default_factory=list)
     pending_gates: List[str] = Field(default_factory=list)
     failed_steps: List[str] = Field(default_factory=list)
+    hold_requested: bool = False
+    hold_requested_at: Optional[str] = None
+    held_before_step: Optional[str] = None
+    last_completed_step: Optional[str] = None
+    next_step: Optional[str] = None
+    run_state: str = "idle"            # idle | running | held | gate_pending | success | failed | partial
+    mode: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
 
 
 # ── Project Models ─────────────────────────────────────────────────

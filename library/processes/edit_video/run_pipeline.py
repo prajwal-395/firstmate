@@ -30,6 +30,7 @@ import re
 import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
+from library.tools import run_control
 
 logger = logging.getLogger(__name__)
 
@@ -1177,10 +1178,36 @@ def run_pipeline(
     failed = []
     awaiting_llm = []
     paused_at_gate = None
+    held_before_step = None
+
+    run_mode = run_control.describe_mode(
+        full_auto=full_auto, auto_mode=auto_mode, review_mode=review_mode,
+        resume_mode=resume_mode, single_step=single_step, from_step=from_step,
+    )
+    run_control.begin_run_status(project_dir, run_mode, steps_to_run,
+                                 argv=sys.argv[1:])
+    print(f"  Mode: {run_mode}", file=sys.stderr)
 
     current_phase = None
     
     for node_id in steps_to_run:
+        # The handbrake.  Checked here, at the boundary between steps, so
+        # the step that was in flight when the captain pressed Pause has
+        # already written its output and its state.  Stopping mid-step
+        # would leave pipeline_data.json describing a step that only half
+        # happened, and nothing downstream could tell.
+        hold = run_control.hold_requested(project_dir)
+        if hold:
+            requested_by = hold.get("requested_by") or "unknown"
+            print(f"\n  \u270b Handbrake engaged by {requested_by} - holding "
+                  f"before {node_id}", file=sys.stderr)
+            held_before_step = node_id
+            run_control.write_run_status(
+                project_dir, status="held", current_step=None,
+                held_before_step=node_id, hold=hold,
+            )
+            break
+
         # Extract phase from node_id (e.g. 'step_1_01_scan' -> '1')
         parts = node_id.split('_')
         phase = parts[1] if len(parts) > 1 else None
@@ -1224,6 +1251,11 @@ def run_pipeline(
             completed.append(node_id)
             continue
         
+        run_control.write_run_status(
+            project_dir, current_step=node_id,
+            current_step_name=node["name"],
+            current_step_started_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        )
         print(f"\n  ▶  Step: {node_id} ({node['name']})", file=sys.stderr)
         print(f"     Type: {impl['type']} | Dir: {step_dir}", file=sys.stderr)
         
@@ -1412,9 +1444,17 @@ def run_pipeline(
 
                 completed.append(node_id)
                 paused_at_gate = node_id
+                run_control.write_run_status(
+                    project_dir, status="gate_pending", current_step=None,
+                    last_completed_step=node_id, paused_at_gate=node_id,
+                )
                 break
 
             completed.append(node_id)
+            run_control.write_run_status(
+                project_dir, current_step=None,
+                last_completed_step=node_id,
+            )
 
                 
         except Exception as e:
@@ -1444,7 +1484,9 @@ def run_pipeline(
     # on purpose.  Those runs are incomplete, not broken, and must not
     # report the same status as a run whose steps blew up.
     partial_invocation = (
-        list(steps_to_run) != list(order) or paused_at_gate is not None
+        list(steps_to_run) != list(order)
+        or paused_at_gate is not None
+        or held_before_step is not None
     )
 
     if outstanding_failures or failed:
@@ -1468,6 +1510,9 @@ def run_pipeline(
     print(f"  Never completed: {len(never_run)} steps", file=sys.stderr)
     if paused_at_gate:
         print(f"  Paused at review gate: {paused_at_gate}", file=sys.stderr)
+    if held_before_step:
+        print(f"  Held by handbrake before: {held_before_step}",
+              file=sys.stderr)
 
     if completed:
         print(f"  ✓ {', '.join(completed)}", file=sys.stderr)
@@ -1496,8 +1541,23 @@ def run_pipeline(
         "never_completed": never_run,
         "partial_invocation": partial_invocation,
         "paused_at_gate": paused_at_gate,
+        "held_before_step": held_before_step,
+        "run_mode": run_mode,
         "state_file": os.path.join(project_dir, "pipeline_data.json"),
     }
+    # The run's own account of how it ended.  `held` is not overwritten:
+    # the dashboard distinguishes "the captain stopped it" from "it ran
+    # out of steps", and only the former should offer Resume as the
+    # obvious next press.
+    run_control.write_run_status(
+        project_dir,
+        status="held" if held_before_step else status.lower(),
+        current_step=None,
+        finished_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        summary_status=status,
+        held_before_step=held_before_step,
+        paused_at_gate=paused_at_gate,
+    )
     json.dump(summary, sys.stdout, indent=2)
     return summary
 

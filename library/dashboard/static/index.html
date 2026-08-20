@@ -77,14 +77,36 @@
             <header id="topbar">
                 <div id="breadcrumb" class="breadcrumb">Pipeline Overview</div>
                 <div class="topbar-actions">
-                    <button id="pipeline-start-btn" class="btn btn-primary" onclick="startPipeline()">&#9654; Start</button>
-                    <button id="pipeline-resume-btn" class="btn btn-primary" onclick="resumePipeline()">&#9654; Resume</button>
-                    <button id="pipeline-pause-btn" class="btn btn-reject" onclick="pausePipeline()">&#10074;&#10074; Pause</button>
+                    <label class="run-opt" title="LLM backend for hybrid and LLM-only steps. 'agy' is the file handoff an agent answers; 'manual' pauses the run for a human.">
+                        Mode
+                        <select id="run-mode-select" class="run-select">
+                            <option value="agy" selected>full-auto agy</option>
+                            <option value="api">full-auto api</option>
+                            <option value="mock">full-auto mock</option>
+                            <option value="">manual LLM</option>
+                        </select>
+                    </label>
+                    <label class="run-opt" title="Off by default. On, the run stops at every step for review - 26 stops, not one run.">
+                        <input type="checkbox" id="run-review-check"> Review gates
+                    </label>
+                    <button id="pipeline-start-btn" class="btn btn-primary" onclick="startPipeline()" title="Launch the full DAG in the selected mode">&#9654; Start</button>
+                    <button id="pipeline-step-btn" class="btn btn-primary" onclick="stepPipeline()" title="Advance exactly one step - the next one the project has not completed">&#8677;| Step</button>
+                    <button id="pipeline-pause-btn" class="btn btn-reject" onclick="pausePipeline()" title="Handbrake: hold after the current step finishes. Does not interrupt a step mid-flight.">&#10074;&#10074; Handbrake</button>
+                    <button id="pipeline-resume-btn" class="btn btn-approve" onclick="resumePipeline()" title="Release the handbrake (or a review gate) and carry on">&#9654; Resume</button>
                     <button id="refresh-btn" class="btn btn-ghost" onclick="refreshData()">
                         &#8635; Refresh
                     </button>
                 </div>
             </header>
+
+            <!-- Run status strip: everything here is read back off what the
+                 runner itself wrote, never inferred from a 200 response. -->
+            <div id="run-status-bar" class="run-status-bar">
+                <span class="run-state-dot" id="run-state-dot"></span>
+                <span id="run-state-label" class="run-state-label">idle</span>
+                <span id="run-state-detail" class="run-state-detail"></span>
+                <span id="run-state-mode" class="run-state-mode"></span>
+            </div>
 
             <!-- Content views (one visible at a time) -->
             <div id="view-pipeline" class="view active">

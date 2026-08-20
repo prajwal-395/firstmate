@@ -295,6 +295,81 @@ body {
     background: var(--color-revise-hover);
 }
 
+/* ── Run Control ──────────────────────────────────────────────── */
+
+.run-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.run-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+}
+
+.btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.run-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 20px;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.run-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-pending);
+    flex-shrink: 0;
+}
+
+.run-state-dot.running {
+    background: var(--color-running);
+    animation: run-pulse 1.4s ease-in-out infinite;
+}
+
+.run-state-dot.held { background: var(--color-gate-pending); }
+.run-state-dot.gate_pending { background: var(--color-gate-pending); }
+.run-state-dot.success { background: var(--color-completed); }
+.run-state-dot.failed { background: var(--color-failed); }
+
+@keyframes run-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.run-state-label {
+    color: var(--text-primary);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.run-state-detail { color: var(--text-secondary); }
+
+.run-state-mode {
+    margin-left: auto;
+    color: var(--text-muted);
+}
+
 /* ── Pipeline Grid ────────────────────────────────────────────── */
 
 .pipeline-grid {

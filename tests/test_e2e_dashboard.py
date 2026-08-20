@@ -291,19 +291,32 @@ def test_api_messages(client, temp_project):
     assert response.json()[0]["id"] == "msg_123"
 
 
-# ── Pause button returns honest response ────────────────────────────
+# ── The handbrake is a real route now ───────────────────────────────
 
-def test_pause_endpoint_not_404(client, temp_project):
-    """POST /api/pipeline/pause used to return 404 because the route did
-    not exist.  It should either work or be honestly unavailable - but
-    never a 404 that the UI silently swallows as an error alert.
+def test_pause_engages_the_handbrake(client, temp_project):
+    """POST /api/pipeline/pause used to 404: the route did not exist and
+    the button faked an alert.  Stage 2 (run control) made it real.
 
-    Since full run control is stage 2 (out of scope), we made the button
-    show an honest message client-side.  The route itself may or may not
-    exist; what matters is the UI does not call a 404.
+    What it must do is engage the handbrake - write the hold file the
+    runner reads between steps - and say plainly what that will achieve,
+    including when nothing is running.
     """
-    # This test documents the current state: the route does not exist,
-    # and the JS pausePipeline() no longer calls it.
+    from library.tools import run_control
+
     response = client.post("/api/pipeline/pause")
-    # 404 or 405 is expected since the route does not exist server-side
-    assert response.status_code in (404, 405)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "hold_requested"
+    assert run_control.hold_path(temp_project).exists()
+    assert run_control.hold_requested(temp_project) is not None
+    # Nothing is running in this fixture, and the response says so rather
+    # than implying it stopped something.
+    assert body["was_running"] is False
+    assert "armed" in body["effect"]
+
+    # And it can be taken off again without launching anything.
+    response = client.delete("/api/pipeline/pause")
+    assert response.status_code == 200
+    assert response.json()["released"] is True
+    assert not run_control.hold_path(temp_project).exists()

@@ -34,7 +34,9 @@ from library.dashboard.models import (
     ClipInfo,
     GateActionRequest,
     GateStatus,
+    PipelinePauseRequest,
     PipelineRunRequest,
+    PipelineStepRequest,
     PipelineStatus,
     ProjectInfo,
     ReviewNoteRequest,
@@ -67,6 +69,7 @@ from library.tools.step_exporter import (
     list_exported_steps,
 )
 from library.tools.thumbnail_extractor import get_thumbnail_url
+from library.tools import run_control
 
 
 # ── App Setup ───────────────────────────────────────────────────────
@@ -988,50 +991,263 @@ async def get_timeline():
 
 
 # ── Pipeline Control ──────────────────────────────────────────────
+#
+# Four controls, and each one has to be true rather than merely present:
+# Start, the handbrake (Pause), Resume, and Step.  The file protocol they
+# speak lives in library/tools/run_control.py so the runner in another
+# process cannot disagree with this one about a name.
+#
+# Start launches `--full-auto agy` and does NOT force `--review`.  Review
+# gates are a separate, opt-in press: forcing them turns a 26-step run
+# into 26 stops, which is not what running the pipeline means.
+#
+# Step reuses `run_pipeline.py --step <id>`, which already exists and is
+# already proven.  The only new thing here is resolving *which* step -
+# the first in topological order the project has not completed - so the
+# press advances exactly one.
+
+RUNNER = REPO_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"
+
+# How long to wait after spawning before believing a launch worked.  A
+# runner that dies on an import error dies well inside this, and the
+# alternative is a green "started" over a process that never existed.
+_LAUNCH_SETTLE_S = 0.6
+
 
 def _is_pipeline_running(project_dir: str) -> bool:
-    pid_file = os.path.join(project_dir, "pipeline.pid")
-    if os.path.exists(pid_file):
-        with open(pid_file) as f:
-            pid_str = f.read().strip()
-        if pid_str.isdigit():
-            pid = int(pid_str)
-            try:
-                os.kill(pid, 0)
-                return True
-            except OSError:
-                try:
-                    os.remove(pid_file)
-                except OSError:
-                    pass
-    return False
+    return run_control.is_running(project_dir)
+
+
+def _run_log_path(project_dir: str) -> Path:
+    log_dir = Path(project_dir) / "pipeline_output" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"run_{time.strftime('%Y%m%d_%H%M%S')}.log"
+
+
+def _step_order() -> List[str]:
+    """The DAG in execution order."""
+    sys.path.insert(0, str(REPO_ROOT / "library" / "processes" / "edit_video"))
+    try:
+        from library.processes.edit_video.run_pipeline import topological_sort
+        return topological_sort(_load_dag())
+    except Exception:
+        return [n["id"] for n in _load_dag().get("nodes", [])]
+
+
+def _resolve_next_step(project_dir: str) -> Optional[str]:
+    state = _load_pipeline_state(project_dir)
+    return run_control.next_runnable_step(
+        _step_order(), state.get("steps_completed", {}))
+
+
+async def _launch(project_dir: str, extra_args: List[str]) -> Dict[str, Any]:
+    """Spawn the runner and report what actually happened.
+
+    Two things here are load-bearing.  The interpreter is `sys.executable`
+    - the dashboard is started from the pipeline's own .venv, and a bare
+    `python3` is a different interpreter without the ML dependencies, so
+    every run launched that way died on an import before touching a step.
+    And the child's output goes to a file rather than DEVNULL, because a
+    control whose failures are discarded reports success over nothing.
+    """
+    log_path = _run_log_path(project_dir)
+    cmd = [sys.executable, str(RUNNER), "--project", project_dir] + extra_args
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    env.setdefault("PYTHONUNBUFFERED", "1")
+
+    log_file = open(log_path, "w", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd, cwd=str(REPO_ROOT), env=env,
+        stdout=log_file, stderr=subprocess.STDOUT,
+    )
+
+    await asyncio.sleep(_LAUNCH_SETTLE_S)
+    returncode = proc.poll()
+    if returncode is not None and returncode != 0:
+        try:
+            tail = "\n".join(
+                log_path.read_text(encoding="utf-8", errors="replace")
+                .splitlines()[-25:])
+        except OSError:
+            tail = "(no log)"
+        raise HTTPException(
+            500,
+            f"Runner exited immediately with code {returncode}.\n"
+            f"Command: {' '.join(cmd)}\n{tail}",
+        )
+
+    return {
+        "pid": proc.pid,
+        "command": cmd,
+        "log_file": str(log_path),
+        "exited_immediately": returncode is not None,
+        "returncode": returncode,
+    }
+
 
 @app.post("/api/pipeline/run")
 async def pipeline_run(request: PipelineRunRequest):
+    """Start a run.  Defaults to `--full-auto agy`, review gates off."""
     project_dir = _get_project_dir()
     if _is_pipeline_running(project_dir):
         raise HTTPException(400, "Pipeline is already running")
-        
-    cmd = ["python3", str(REPO_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"), "--project", project_dir]
+
+    # Starting means going.  A handbrake left engaged from a previous
+    # hold would stop this run before its first step.
+    released = run_control.release_hold(project_dir)
+
+    args: List[str] = []
     if request.from_step:
-        cmd.extend(["--from", request.from_step])
+        args.extend(["--from", request.from_step])
     if request.single_step:
-        cmd.extend(["--step", request.single_step])
+        args.extend(["--step", request.single_step])
+    if request.full_auto:
+        args.extend(["--full-auto", request.full_auto])
+    if request.auto_mode:
+        args.append("--auto")
     if request.review_mode:
-        cmd.append("--review")
-        
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"status": "started"}
+        args.append("--review")
+    if request.llm_timeout:
+        args.extend(["--llm-timeout", str(request.llm_timeout)])
+
+    launched = await _launch(project_dir, args)
+    return {
+        "status": "started",
+        "mode": run_control.describe_mode(
+            full_auto=request.full_auto, auto_mode=request.auto_mode,
+            review_mode=request.review_mode, from_step=request.from_step,
+            single_step=request.single_step,
+        ),
+        "hold_released": released,
+        **launched,
+    }
+
+
+@app.post("/api/pipeline/pause")
+async def pipeline_pause(request: Optional[PipelinePauseRequest] = None):
+    """Engage the handbrake: hold after the current step finishes.
+
+    This does not kill anything.  The step in flight writes its output
+    and its state, and the runner stops at the next step boundary, so
+    what is on disk is always a real boundary the next run can start
+    from.
+    """
+    project_dir = _get_project_dir()
+    reason = (request.reason if request else "") or ""
+    record = run_control.request_hold(project_dir, requested_by="dashboard",
+                                      reason=reason)
+    status = run_control.read_run_status(project_dir)
+    running = _is_pipeline_running(project_dir)
+    return {
+        "status": "hold_requested",
+        "was_running": running,
+        # Said plainly: with no run up, this arms the handbrake for the
+        # next one rather than doing nothing.
+        "effect": ("will hold after the current step completes" if running
+                   else "armed; the next run will hold before its first step"),
+        "holding_after_step": status.get("current_step"),
+        "hold": record,
+    }
+
+
+@app.delete("/api/pipeline/pause")
+async def pipeline_release_hold():
+    """Disengage the handbrake without launching anything."""
+    project_dir = _get_project_dir()
+    released = run_control.release_hold(project_dir)
+    return {"status": "hold_released" if released else "no_hold_engaged",
+            "released": released}
+
 
 @app.post("/api/pipeline/resume")
-async def pipeline_resume():
+async def pipeline_resume(request: Optional[PipelineRunRequest] = None):
+    """Resume after a handbrake hold or a review gate.
+
+    `--resume` covers both: it walks the DAG, skips what is complete,
+    applies any gate feedback on the way past, and picks up at the first
+    step that has not run.
+    """
     project_dir = _get_project_dir()
     if _is_pipeline_running(project_dir):
         raise HTTPException(400, "Pipeline is already running")
-        
-    cmd = ["python3", str(REPO_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"), "--project", project_dir, "--resume"]
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"status": "resumed"}
+
+    released = run_control.release_hold(project_dir)
+
+    req = request or PipelineRunRequest()
+    args = ["--resume"]
+    if req.full_auto:
+        args.extend(["--full-auto", req.full_auto])
+    if req.auto_mode:
+        args.append("--auto")
+    if req.review_mode:
+        args.append("--review")
+    if req.llm_timeout:
+        args.extend(["--llm-timeout", str(req.llm_timeout)])
+
+    launched = await _launch(project_dir, args)
+    return {
+        "status": "resumed",
+        "mode": run_control.describe_mode(
+            full_auto=req.full_auto, auto_mode=req.auto_mode,
+            review_mode=req.review_mode, resume_mode=True,
+        ),
+        "hold_released": released,
+        "next_step": _resolve_next_step(project_dir),
+        **launched,
+    }
+
+
+@app.post("/api/pipeline/step")
+async def pipeline_step(request: Optional[PipelineStepRequest] = None):
+    """Advance exactly one step.
+
+    Nothing new in the runner backs this: it is `--step <id>`, which
+    already runs precisely one node and stops.  All this endpoint adds is
+    picking the id - the first step in topological order the project has
+    not completed - unless the caller names one to steer to.
+    """
+    project_dir = _get_project_dir()
+    if _is_pipeline_running(project_dir):
+        raise HTTPException(400, "Pipeline is already running")
+
+    req = request or PipelineStepRequest()
+    step_id = req.step_id or _resolve_next_step(project_dir)
+    if not step_id:
+        raise HTTPException(400, "Every step in the DAG is already complete")
+    if step_id not in {n["id"] for n in _load_dag().get("nodes", [])}:
+        raise HTTPException(404, f"Unknown step '{step_id}'")
+
+    # One step is one step.  A hold left engaged would stop it before it
+    # started, so release it - and re-engage it after, so that a stray
+    # Resume press does not turn a single-step session into a full run.
+    run_control.release_hold(project_dir)
+
+    args = ["--step", step_id]
+    if req.full_auto:
+        args.extend(["--full-auto", req.full_auto])
+    if req.auto_mode:
+        args.append("--auto")
+    if req.review_mode:
+        args.append("--review")
+    if req.llm_timeout:
+        args.extend(["--llm-timeout", str(req.llm_timeout)])
+
+    launched = await _launch(project_dir, args)
+    return {
+        "status": "stepping",
+        "step_id": step_id,
+        "step_name": next(
+            (n["name"] for n in _load_dag().get("nodes", [])
+             if n["id"] == step_id), step_id),
+        "mode": run_control.describe_mode(
+            full_auto=req.full_auto, auto_mode=req.auto_mode,
+            review_mode=req.review_mode, single_step=step_id,
+        ),
+        **launched,
+    }
+
 
 @app.get("/api/pipeline/status")
 async def pipeline_status():
@@ -1039,16 +1255,33 @@ async def pipeline_status():
     project_dir = _get_project_dir()
     state = _load_pipeline_state(project_dir)
     pending = list_pending_gates(project_dir)
+    run_status = run_control.read_run_status(project_dir)
+    hold = run_control.hold_requested(project_dir)
+    is_running = _is_pipeline_running(project_dir)
+
+    # `current_step` is what the runner last said it was working on, and
+    # only counts while a process is actually alive.  A stale field from
+    # a killed run reading as "running" is exactly the sort of report
+    # this dashboard has been punished for before.
+    current_step = run_status.get("current_step") if is_running else None
 
     return PipelineStatus(
-        is_running=_is_pipeline_running(project_dir),
+        is_running=is_running,
+        current_step=current_step,
+        current_step_name=run_status.get("current_step_name") if current_step else None,
         completed_steps=list(state.get("steps_completed", {}).keys()),
         pending_gates=pending,
         failed_steps=state.get("failed_steps", []),
+        hold_requested=hold is not None,
+        hold_requested_at=(hold or {}).get("requested_at"),
+        held_before_step=run_status.get("held_before_step"),
+        last_completed_step=run_status.get("last_completed_step"),
+        next_step=_resolve_next_step(project_dir),
+        run_state=run_status.get("status", "idle"),
+        mode=run_status.get("mode"),
+        started_at=run_status.get("started_at"),
+        finished_at=run_status.get("finished_at"),
     )
-
-
-
 
 
 # ── Thumbnails ────────────────────────────────────────────────────

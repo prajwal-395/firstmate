@@ -26,7 +26,11 @@ async function api(path, options = {}) {
     if (!response.ok) {
         const text = await response.text();
         console.error(`API error ${response.status}: ${text}`);
-        throw new Error(`API error ${response.status}`);
+        // Carry the server's own words up to the caller. Swallowing them
+        // is how a launch that died on an import error read as "started".
+        let detail = text;
+        try { detail = JSON.parse(text).detail ?? text; } catch (e) { /* plain text */ }
+        throw new Error(`API error ${response.status}: ${detail}`);
     }
     return response.json();
 }
@@ -324,43 +328,155 @@ function markdownToHtml(md) {
 }
 
 // ── Pipeline Controls ──────────────────────────────────────────
+//
+// Four controls, and every one of them reports what the server actually
+// did rather than what the button is called.  A launch that returned 500
+// says so; a handbrake that was armed with nothing running says that too.
 
 let pipelinePollInterval = null;
+let lastRunStatus = null;
+
+/** The launch options the reviewer has selected in the topbar. */
+function runOptions() {
+    const mode = document.getElementById('run-mode-select')?.value ?? 'agy';
+    const review = document.getElementById('run-review-check')?.checked ?? false;
+    return {
+        full_auto: mode || null,   // '' means manual LLM handoff
+        review_mode: review,
+    };
+}
+
+function announce(text) {
+    const detail = document.getElementById('run-state-detail');
+    if (detail) detail.textContent = text;
+}
 
 async function startPipeline() {
     try {
-        await apiPost('/pipeline/run', {});
+        const res = await apiPost('/pipeline/run', runOptions());
+        announce(`started pid ${res.pid} - ${res.mode}`);
         startPolling();
     } catch (err) {
         alert(err.message);
+    } finally {
+        await refreshRunStatus();
+    }
+}
+
+async function stepPipeline() {
+    try {
+        const res = await apiPost('/pipeline/step', runOptions());
+        announce(`stepping ${res.step_id} (${res.step_name}) - pid ${res.pid}`);
+        startPolling();
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        await refreshRunStatus();
+    }
+}
+
+async function pausePipeline() {
+    // The handbrake. It does not kill the run: the step in flight finishes
+    // and writes its state, and the runner stops at the next boundary.
+    try {
+        const res = await apiPost('/pipeline/pause', { reason: 'dashboard handbrake' });
+        announce(res.effect + (res.holding_after_step
+            ? ` (after ${res.holding_after_step})` : ''));
+        startPolling();
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        await refreshRunStatus();
     }
 }
 
 async function resumePipeline() {
     try {
-        await apiPost('/pipeline/resume', {});
+        const res = await apiPost('/pipeline/resume', runOptions());
+        announce(`resumed at ${res.next_step || 'next pending step'} - pid ${res.pid}`);
         startPolling();
     } catch (err) {
         alert(err.message);
+    } finally {
+        await refreshRunStatus();
     }
 }
 
-async function pausePipeline() {
-    // Pause is not yet implemented (stage 2 - run control).
-    // Surface an honest message instead of calling a non-existent route.
-    alert('Pipeline pause is not yet available. Use Ctrl+C in the terminal to stop a running pipeline.');
+/** Paint the run status strip from what the runner wrote to disk. */
+function renderRunStatus(status) {
+    lastRunStatus = status;
+
+    let state = status.run_state || 'idle';
+    if (status.is_running) state = 'running';
+    if (status.hold_requested && status.is_running) state = 'holding';
+
+    const dot = document.getElementById('run-state-dot');
+    const label = document.getElementById('run-state-label');
+    const detail = document.getElementById('run-state-detail');
+    const mode = document.getElementById('run-state-mode');
+    if (!dot || !label) return;
+
+    dot.className = 'run-state-dot ' +
+        (state === 'holding' ? 'running' : state);
+    label.textContent = state;
+
+    const bits = [];
+    if (status.is_running && status.current_step) {
+        bits.push(`running ${status.current_step}` +
+            (status.current_step_name ? ` (${status.current_step_name})` : ''));
+    }
+    if (status.hold_requested) {
+        bits.push(status.is_running
+            ? 'handbrake engaged - will hold after this step'
+            : `handbrake engaged since ${status.hold_requested_at || 'unknown'}`);
+    }
+    if (status.held_before_step && !status.is_running) {
+        bits.push(`held before ${status.held_before_step}`);
+    }
+    if (status.last_completed_step) {
+        bits.push(`last done ${status.last_completed_step}`);
+    }
+    if (status.next_step) bits.push(`next ${status.next_step}`);
+    if (status.pending_gates?.length) {
+        bits.push(`gates pending: ${status.pending_gates.join(', ')}`);
+    }
+    detail.textContent = bits.join('  ·  ');
+    mode.textContent = status.mode || '';
+
+    // A control that cannot do anything should not look pressable.
+    const busy = status.is_running;
+    const setDisabled = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = v;
+    };
+    setDisabled('pipeline-start-btn', busy);
+    setDisabled('pipeline-step-btn', busy);
+    setDisabled('pipeline-resume-btn', busy);
+    setDisabled('pipeline-pause-btn', !busy && status.hold_requested);
+}
+
+async function refreshRunStatus() {
+    try {
+        const status = await api('/pipeline/status');
+        renderRunStatus(status);
+        return status;
+    } catch (err) {
+        console.error('run status unavailable', err);
+        return null;
+    }
 }
 
 function startPolling() {
-    if (!pipelinePollInterval) {
-        pipelinePollInterval = setInterval(async () => {
-            const status = await api('/pipeline/status');
-            await refreshData();
-            if (!status.is_running) {
-                stopPolling();
-            }
-        }, 5000);
-    }
+    if (pipelinePollInterval) return;
+    pipelinePollInterval = setInterval(async () => {
+        const status = await refreshRunStatus();
+        await refreshData();
+        // Keep polling while a hold is engaged: the run is still moving
+        // towards its stopping point and the strip should show it land.
+        if (status && !status.is_running && !status.hold_requested) {
+            stopPolling();
+        }
+    }, 2000);
 }
 
 function stopPolling() {
@@ -387,4 +503,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadProjectsList();
     await refreshData();
     navigate('pipeline');
+    const status = await refreshRunStatus();
+    // A run started from the terminal is still a run: pick it up.
+    if (status && (status.is_running || status.hold_requested)) startPolling();
 });

@@ -106,6 +106,31 @@ records the view it was written on. Whether the review surface should be per
 RUN or per PROJECT is NOT decided - the captain has not ruled on it. Keep both
 possible: per-run is a filter over this store, not a migration.
 
+### Run control (captain's ruling, 2026-08-17: runs are driven from the page)
+Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child
+process. Start uses `--full-auto agy` and does NOT pass `--review` -
+review gates are an opt-in tick box, because forcing them turns one press
+into 26 stops. Step is `--step <id>` with the id resolved server-side to
+the first topologically-unrun step, so it reuses the runner rather than
+adding single-step machinery.
+
+The handbrake is a file, not a signal. `library/tools/run_control.py` owns
+the whole vocabulary - `pipeline.hold`, `pipeline.pid`, `pipeline_run.json`
+at the project root - and both processes speak only through it. The runner
+reads the hold at the TOP OF EACH STEP, so the step in flight finishes and
+writes its state first; what lands on disk is always a real step boundary.
+Killing mid-step would leave `pipeline_data.json` describing a step that
+half happened. `pipeline_run.json` is the runner's own account of itself
+(mode, current step, how it ended) and nothing else may write it - the
+dashboard reports run state from that file, never from the fact that a
+launch request returned 200.
+
+Launches use `sys.executable`, not a bare `python3`: the dashboard runs
+from the pipeline's `.venv` and a PATH interpreter has none of the ML
+dependencies. Child output goes to `pipeline_output/logs/run_*.log`, and
+`/api/pipeline/run` waits briefly and fails the request if the runner
+already died. Tests: `tests/test_dashboard_run_control.py`.
+
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
 These constraints are hard-won knowledge and must be followed exactly when scripting DaVinci Resolve.
