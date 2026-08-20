@@ -1,9 +1,8 @@
 # The asset library: what is GENERAL, what is PROJECT
 
-**Status: PROPOSED. Awaits the captain's ratification.**
-This document is not authority to build the assets it describes. It exists
-because the captain asked for a distinction to be settled before anything
-is made:
+**Status: RATIFIED, 2026-08-20.** The captain ratified the three-question
+test in section 3 as written on 2026-08-20. Failing any one question is
+sufficient to stop an asset - the questions are not scored together.
 
 > "the end card honestly is something that we should just remove
 > (technically its one of those things that should be a template asset
@@ -14,8 +13,8 @@ is made:
 > - captain, 2026-08-17
 
 The removal shipped with this document. What follows is the test that
-would have kept that asset out, the roster of what a ratified version of
-it implies, and the questions only the captain can answer.
+keeps stranded assets out, the roster of what the ratified rule implies,
+and the decisions the captain settled on 2026-08-20.
 
 ---
 
@@ -53,7 +52,7 @@ fails in the project folder rather than in `library/`.
 
 ## 2. How the 4th Wall end card scores, and why any one question stops it
 
-The asset: `effect.timed_text_overlay` in `library/templates/fourth_wall.yaml`,
+The asset: `effect.timed_text_overlay` formerly in `library/templates/fourth_wall.yaml`
 three timed text moments plus the `FourthWallOverlay` composition
 registered in the engine's `Root.tsx`. Lifted out of a previous manual
 trial run of the series (`compositions/FourthWallOverlay.tsx`, still in
@@ -139,15 +138,15 @@ per-series configuration that lives in the engine, so on Q1 it is
 series-specific by definition. That is fine and should stay - but it is
 exactly where the end card hid, so the boundary needs a rule:
 
-> **Proposed rule.** A brand template may name general components and set
-> per-series **parameters**: a `house_look` name, a palette, a font name,
-> durations, densities, a `caption_case`, a `delivery_format`. It may not
-> contain **artwork** - copy the viewer reads on screen, or coordinates
-> and frame numbers that describe one finished episode. Artwork is a
-> project asset and is declared by reference, never inlined.
+> **Rule (ratified 2026-08-20).** A brand template may name general
+> components and set per-series **parameters**: a `house_look` name, a
+> palette, a font name, durations, densities, a `caption_case`, a
+> `delivery_format`. It may not contain **artwork** - copy the viewer
+> reads on screen, or coordinates and frame numbers that describe one
+> finished episode. Artwork is a project asset and is declared by
+> reference, never inlined.
 
-That single sentence is what the end card violated, and it is the thing I
-would most like the captain to ratify or amend.
+That single sentence is what the end card violated.
 
 ---
 
@@ -228,29 +227,26 @@ document is not the place to make one.
 
 ---
 
-## 7. What the captain needs to decide
+## 7. Captain's decisions, 2026-08-20
 
-1. **Ratify or amend the artwork/parameter rule** in section 3. It is the
-   whole plan; everything else follows from it.
-2. **`fourth_wall.yaml` itself.** With the overlay gone it is a
-   parameters-only series template, which the rule allows - but no
-   project points at it, and authoring a `through_the_4th_wall` template
-   was explicitly *not* authorised on 2026-08-17. Keep it as the
-   parameter carrier for when 001 or another episode is pointed at the
-   series, or delete it and let the series template arrive with the
-   authorisation?
-3. **Where per-series typefaces are bundled.** Up to three faces across
-   eight series. All in the engine with a licence file each - simple,
-   deterministic, and it puts every series' identity in the shared repo -
-   or per project, which keeps the engine neutral but means each project
-   folder must carry fonts and licences and `bookend_render.py` must
-   stage them.
-4. **Build order.** The reader for timed text unblocks all eight series
-   at once and is engine work with no taste in it. The intro cards are
-   eight separate design jobs. My recommendation is the reader first, one
-   series' intro card second as the proof, and the remaining seven only
-   after the captain has seen that one in a finished render - but the
-   order is theirs.
+1. **Artwork/parameter rule: RATIFIED AS WRITTEN.** The three-question test
+   in section 3 is the standing bar for every new asset. Failing any one
+   question is sufficient to stop an asset - the questions are not scored
+   together. The rule in section 3 is now authority, not a proposal.
+2. **`fourth_wall.yaml`: DELETED.** With the overlay gone it was a
+   parameters-only series template no project points at, and authoring a
+   `through_the_4th_wall` template was explicitly not authorised on
+   2026-08-17. The captain chose deletion over keeping it as a parameter
+   carrier: the series template arrives later, whole, with their
+   authorisation.
+3. **Per-series typefaces: PER PROJECT, not in the engine.** Font files and
+   their licences belong with the project that owns the series; the engine
+   stays series-neutral. Accepted cost: each project folder carries its
+   own fonts and licences, and `bookend_render.py` must stage them.
+4. **Build order.** The reader for timed text first, then ONE series' intro
+   card as the proof, and the remaining seven only after the captain has seen
+   that card in a finished render. The two follow-up tasks for this
+   (`vep-timed-text-reader` and `vep-intro-card-proof`) already exist.
 
 ---
 

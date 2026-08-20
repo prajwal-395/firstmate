@@ -195,7 +195,7 @@ def _font_names(node, path=""):
     """Yield (dotted path, family) for every font-ish key in a template.
 
     Walks the whole document rather than one known location.  It used to
-    read `style.typography.font` alone, and `fourth_wall.yaml` shipped
+    read `style.typography.font` alone, and the now-deleted `fourth_wall.yaml` shipped
     `effect.timed_text_overlay.font_family: "\'Nanum Pen Script\', cursive"`
     straight past it - an unbundled Google font, in the one test whose
     job is to stop exactly that.  A guard that inspects one key is a

@@ -186,11 +186,12 @@ but nothing in `library/steps/` ever imported
 `fourth_wall.yaml` declared reached no frame of any render and no run
 said so. Registered-but-unrendered simply moved from the component to
 the slot. The captain removed the declaration on quality grounds on
-2026-08-20; the slot, the generator and the component stay, with the
-missing reader recorded as
+2026-08-20, and `fourth_wall.yaml` itself was deleted (captain's ruling:
+the series template arrives later with authorisation); the slot, the
+generator and the component stay, with the missing reader recorded as
 `library.tools.timed_text_overlay.NO_READER` and held empty by
 `tests/test_timed_text_overlay.py` until the route in
-`docs/ASSET_LIBRARY_PLAN.md` is ratified and built.
+`docs/ASSET_LIBRARY_PLAN.md` (ratified 2026-08-20) is built.
 
 **6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
 `plan_sfx` was not reading the real grid either; the key it asked for has

@@ -42,18 +42,20 @@ from typing import Any
 # and nothing else - so those three moments reached no frame of any
 # render, and nobody could tell from the run summary.
 #
-# The captain removed that declaration on 2026-08-20 on quality grounds
-# (see library/templates/fourth_wall.yaml).  Rather than leave the empty
-# slot open for the next asset to fall into, `tests/test_timed_text_overlay.py`
-# asserts no template declares it while this record stands.  Wiring a
-# reader means deleting this constant in the same commit as the step that
-# calls the generator, and asserting the moments reach the picture - the
-# rule `tests/test_vfx_delivery.py` applies to renderer knobs.
+# The captain removed that declaration on 2026-08-20 on quality grounds,
+# and `fourth_wall.yaml` itself was deleted on 2026-08-20 (captain's
+# ruling: the series template arrives later, whole, with authorisation).
+# Rather than leave the empty slot open for the next asset to fall into,
+# `tests/test_timed_text_overlay.py` asserts no template declares it
+# while this record stands.  Wiring a reader means deleting this constant
+# in the same commit as the step that calls the generator, and asserting
+# the moments reach the picture - the rule `tests/test_vfx_delivery.py`
+# applies to renderer knobs.
 NO_READER = (
     "effect.timed_text_overlay has no pipeline reader: no step imports "
     "generate_timed_text_overlay_props, so a declaration renders nothing "
-    "and warns about nothing. The route is proposed in "
-    "docs/ASSET_LIBRARY_PLAN.md and awaits the captain's ratification. "
+    "and warns about nothing. The route is described in "
+    "docs/ASSET_LIBRARY_PLAN.md (ratified 2026-08-20). "
     "Do not declare this slot in a brand template until a step reads it."
 )
 

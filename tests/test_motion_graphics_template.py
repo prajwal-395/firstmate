@@ -251,7 +251,6 @@ EXPECTED_DECLARATIONS = {
     "interview_professional": {"motion_accents": True, "motion_progress_bar": False},
     "cinematic_narrative": {},
     "default_brand": {},
-    "fourth_wall": {},
     # A client's brand arrives as its own cards (content.bookends), not as
     # the engine's corner accents.
     "lucie_client": {},

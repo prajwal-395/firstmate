@@ -228,7 +228,6 @@ _TEMPLATE_DIR = os.path.join(
 EXPECTED_CAPTION_CASE = {
     "cinematic_narrative": "lowercase",
     "default_brand": "lowercase",
-    "fourth_wall": "lowercase",
     "interview_professional": "lowercase",
     "lucie_client": "as_written",
     "shortform_energetic": "lowercase",

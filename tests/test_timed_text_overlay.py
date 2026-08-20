@@ -7,7 +7,7 @@ intro cards and episode text.
 
 What does NOT survive is the one asset that declared it.  The 4th Wall
 night card and closing "end card" ritual were lifted verbatim out of a
-previous manual trial run and checked into `fourth_wall.yaml` as series
+previous manual trial run and checked into the now-deleted `fourth_wall.yaml` as series
 DEFAULTS - absolute frame numbers baked to that run's 60.000s timeline,
 normalised y positions authored against a full-bleed vertical frame, and
 an unbundled typeface.  Captain, 2026-08-20: "it was something made in a
@@ -284,12 +284,6 @@ def test_schema_omitted_is_none():
     assert tmpl.effect.timed_text_overlay is None
 
 
-def test_fourth_wall_template_still_loads_via_schema():
-    """The shipped fourth_wall.yaml loads, minus the removed overlay."""
-    from library.schemas.brand_template import BrandTemplate
-    tmpl = BrandTemplate.from_dict(_template("fourth_wall"))
-    assert tmpl.series_id == "fourth_wall"
-    assert tmpl.effect.timed_text_overlay is None
 
 
 # ─────────────────────────────────────────────────────────

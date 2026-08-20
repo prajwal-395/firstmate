@@ -647,9 +647,9 @@ client's asset, it never edits one.
 
 ## 14. General assets vs project assets
 
-`docs/ASSET_LIBRARY_PLAN.md` is the standing test, proposed 2026-08-20 and
-awaiting the captain's ratification. Three questions, and an asset must
-pass all three to live in the engine: **substitution** (does it survive
+`docs/ASSET_LIBRARY_PLAN.md` is the standing test, ratified 2026-08-20.
+Three questions, and an asset must pass all three to live in the engine -
+failing any one is sufficient to stop it: **substitution** (does it survive
 being handed another series' content, or does it encode one series' copy,
 palette or typeface?), **timing and geometry** (is it anchored to a spine
 block and to the picture the delivery format actually produces, or to
@@ -660,12 +660,19 @@ decides where it lives; two and three decide whether it is finished.
 The case that motivated it: the 4th Wall end card failed all three and was
 removed on the captain's ruling. It was one previous trial run's finished
 artwork - series copy, absolute frame numbers from a 60.000s cut, an
-unbundled typeface - filed in `library/templates/fourth_wall.yaml` as
-series defaults, where no step ever read it. **A brand template may set
-per-series PARAMETERS and may not contain ARTWORK**: no on-screen copy, no
-coordinates or frames describing one finished episode. Artwork is a
-project asset, declared by reference through `content.bookends` and staged
-verbatim (section 13).
+unbundled typeface - filed in the now-deleted `library/templates/fourth_wall.yaml`
+as series defaults, where no step ever read it. The template itself was
+deleted on 2026-08-20 (captain's ruling: the series template arrives later,
+whole, with authorisation). **A brand template may set per-series PARAMETERS
+and may not contain ARTWORK**: no on-screen copy, no coordinates or frames
+describing one finished episode. Artwork is a project asset, declared by
+reference through `content.bookends` and staged verbatim (section 13).
+
+**Per-series typefaces live per project, not in the engine** (captain's
+ruling, 2026-08-20). Font files and their licences belong with the project
+that owns the series; the engine stays series-neutral. Accepted cost: each
+project folder carries its own fonts and licences, and `bookend_render.py`
+must stage them.
 
 `effect.timed_text_overlay` still has no reader; that is recorded as
 `library.tools.timed_text_overlay.NO_READER` and the slot is held empty by

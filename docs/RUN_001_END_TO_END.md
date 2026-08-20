@@ -1257,9 +1257,11 @@ above, it is not seeing them at all.
 
 Project 001 declares no brief and no template by design, so this render
 remains the unaided baseline for the with-and-without comparison.
-`library/templates/fourth_wall.yaml` exists on main and now declares its
+~~`library/templates/fourth_wall.yaml` exists on main and now declares its
 delivery format like every other. Running 001 under it is a one-line
-change to `project.yaml` whenever the captain wants the comparison.
+change to `project.yaml` whenever the captain wants the comparison.~~
+**Superseded:** `fourth_wall.yaml` was deleted on 2026-08-20 (captain's
+ruling: the series template arrives later, whole, with authorisation).
 
 ---
 
