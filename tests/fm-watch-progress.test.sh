@@ -17,6 +17,11 @@
 #   (c) A backend that cannot report a pane pid measures nothing and behaves
 #       exactly as it did before, in both directions - no new alarm, no new
 #       silence - and says so in the wake it raises.
+#   (d) The wedge timer and the progress baseline start in the SAME poll, so a
+#       host slow enough to spend a whole wedge window inside one poll cycle
+#       cannot escalate a working pane on the absence of a reading. This is (a)
+#       again with the measurement never taken rather than ignored, and it is the
+#       hole that made this file intermittent on contended runners.
 #
 # The pane surface is the same hermetic tmux fake the rest of the watcher tests
 # use, because the rendered tail is NOT the subject here. The subject is the
@@ -240,6 +245,49 @@ test_measured_progress_declines_the_wedge_escalation() {
   pass "a silent pane whose process subtree is accumulating CPU is not wedge-escalated"
 }
 
+# The wedge timer and the progress baseline have to be taken in the same poll.
+# When only the timer started, the first probe on the next poll had no baseline to
+# compare against, so the earliest verdict that could exist was "unknown
+# baseline-recorded" - the absence of a measurement - and a pane whose next poll
+# landed after the timer had already expired was escalated on a reading nobody
+# took. At FM_POLL=15 inside a 240s timer that gap never decided anything, which
+# is why it shipped; on a contended runner with a tight cadence it decided
+# everything, and this file went intermittent.
+#
+# So the cadence here is deliberately SLOWER than the whole wedge window: one poll
+# cycle outlives the timer, which is exactly what contention does to case (a).
+# That makes the previously-racy window the default condition of this test instead
+# of something a slow host has to stumble into, and the verdict still has to come
+# from a real reading - the same 'cpu +' evidence (a) demands - not from silence.
+test_a_poll_slower_than_the_wedge_window_measures_before_it_escalates() {
+  local dir state fakebin out window key tty pid
+  window="test:fm-slowpoll"
+  tty=$(pty_run slowpoll "$BURNER") || fail "could not start the working pty fixture"
+  dir=$(make_case slow-poll slowpoll "$window" "$tty" 'working: running the suite')
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · suite running'
+  # 4s between polls against a 3s wedge window: the timer is always already
+  # expired by the time the poll after it runs.
+  run_watch "$state" "$fakebin" "$out" FM_STALE_ESCALATE_SECS=3 FM_POLL=4
+  pid=$!
+  wait_for_log "$state/.watch-triage.log" 'measured progress' "$pid" 400 \
+    || { reap "$pid"; fail "a poll cycle longer than the wedge window escalated a working pane: $(cat "$out")"; }
+  # One more full poll past the absorb, so this is not a single lucky cycle.
+  sleep 6
+  if ! kill -0 "$pid" 2>/dev/null; then
+    fail "a poll cycle longer than the wedge window escalated a working pane: $(cat "$out")"
+  fi
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a measurably working pane printed a wake reason: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a measurably working pane enqueued a wedge wake"
+  [ -s "$state/.progress-$key" ] || fail "no measurement was taken, so the absorb proves nothing"
+  grep -q 'cpu +' "$state/.watch-triage.log" \
+    || fail "the absorb did not record the reading it was made from: $(cat "$state/.watch-triage.log" 2>/dev/null)"
+  cleanup_fixtures
+  pass "a wedge window that expires inside one poll cycle still measures before it escalates"
+}
+
 # --- (b) the missed stall: busy on paper, doing nothing in fact --------------
 
 test_busy_pane_doing_nothing_is_surfaced() {
@@ -320,6 +368,7 @@ test_unmeasurable_pane_keeps_the_previous_behavior() {
 }
 
 test_measured_progress_declines_the_wedge_escalation
+test_a_poll_slower_than_the_wedge_window_measures_before_it_escalates
 test_busy_pane_doing_nothing_is_surfaced
 test_busy_pane_that_is_working_raises_no_stall
 test_unmeasurable_pane_keeps_the_previous_behavior
