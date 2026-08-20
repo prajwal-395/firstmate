@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
 """
-Step 2.4: Music Selection — Bridge
+Step 2.4: Music Selection - Pre-bridge
 
-Pre-computes music context for the LLM handoff.
+Catalogues the music that is actually available and hands the whole list
+to the LLM. It picks NOTHING.
 
-Workflow:
-  1. Check for local music files in project_folder/music/
-  2. If no local music, search YouTube based on creative_direction mood
-  3. Download the best match
-  4. Return the track info as bridge output
+That is the change. This bridge used to select by sorting: it globbed
+`project_folder/music/`, took `sorted(...)[0]`, and returned it as the
+step's `music_selection`. On project 001 the alphabetically-first file is
+a 3914-second "Inspirational Motivational Music Video", scoring a piece
+whose creative direction says it must not be scored as triumphant - and
+because the bridge supplied the step's only declared output, the LLM was
+handed an empty output schema and was never asked. `PIPELINE_MUSIC_LIBRARY`
+was never opened at all.
 
-The bridge output feeds into handoff.md where the LLM identifies
-specific splices, evaluates mood alignment, and produces the full
-music_selection document.
+Captain's ruling 2026-08-20: fix the schema, consult the library, and keep
+outside-the-library selection allowed. So this bridge lists every local
+candidate from both the shared library and the project's own music folder,
+measures each one, and states the target duration the choice has to serve.
+The verdict happens in post_bridge.py, through
+`library/tools/music_selection_contract.py`.
 
 Input:  { "creative_direction": {...}, "project_folder": "..." }
-Output: {
-    "music_selection": {
-        "audio_path": "...",
-        "title": "...",
-        "source_url": "...",
-        "duration_seconds": 120.0,
-        "bpm": 120,
-        "key": "C"
-    }
-}
+Output: { "music_candidates": {
+            "target_duration_seconds": 60.0,
+            "max_track_duration_seconds": 600.0,
+            "searched": [{ "source", "directory", "exists", "count" }],
+            "candidates": [{ "title", "audio_path", "duration_seconds",
+                             "source", "duration_ok", "duration_note" }],
+        } }
 """
 import json
 import os
@@ -37,22 +41,18 @@ STEP_DIR = Path(__file__).resolve().parent
 if str(STEP_DIR) not in sys.path:
     sys.path.insert(0, str(STEP_DIR))
 
+REPO_ROOT = STEP_DIR.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-def _find_local_music(project_folder: str) -> list:
-    """Scan project_folder/music/ for existing audio files."""
-    music_dir = os.path.join(project_folder, "music")
-    if not os.path.isdir(music_dir):
-        return []
+from library.tools.music_selection_contract import (  # noqa: E402
+    AUDIO_EXTENSIONS,
+    DURATION_SLACK_SECONDS,
+    catalogue_sources,
+    max_track_duration_seconds,
+)
 
-    audio_exts = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
-    found = []
-    for entry in os.listdir(music_dir):
-        ext = os.path.splitext(entry)[1].lower()
-        if ext in audio_exts:
-            full_path = os.path.join(music_dir, entry)
-            if os.path.isfile(full_path) and os.path.getsize(full_path) > 0:
-                found.append(full_path)
-    return sorted(found)
+DEFAULT_TARGET_DURATION_SECONDS = 60.0
 
 
 def _get_audio_duration(audio_path: str) -> float:
@@ -65,7 +65,8 @@ def _get_audio_duration(audio_path: str) -> float:
                 "-show_format",
                 audio_path,
             ],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60,
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
@@ -75,84 +76,121 @@ def _get_audio_duration(audio_path: str) -> float:
     return 0.0
 
 
-def run(inputs: dict) -> dict:
-    creative_direction = inputs.get("creative_direction", {})
-    mood = creative_direction.get("target_mood", "motivational")
-    energy = creative_direction.get("target_energy", "medium")
+def _target_duration(inputs: dict) -> float:
+    """How long the finished piece is meant to run.
 
-    project_folder = inputs.get("project_folder", "./")
-    output_dir = os.path.join(project_folder, "music")
+    Read off the project's own `project.yaml`, the same way
+    `resolve_delivery_format` reads the delivery format - a value threaded
+    through the DAG is a value that gets renamed and defaulted away, and
+    2.04 runs before the spine exists so there is no measured duration to
+    read yet.
+    """
+    declared = inputs.get("target_duration_seconds")
+    if isinstance(declared, (int, float)) and declared > 0:
+        return float(declared)
 
-    # 1. Check for local music files first
-    local_files = _find_local_music(project_folder)
-    if local_files:
-        audio_path = local_files[0]
-        duration = _get_audio_duration(audio_path)
+    project_folder = inputs.get("project_folder", "")
+    project_yaml = os.path.join(project_folder or "", "project.yaml")
+    if os.path.exists(project_yaml):
+        try:
+            import yaml
+            with open(project_yaml, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            value = cfg.get("target_duration_seconds")
+            if isinstance(value, (int, float)) and value > 0:
+                return float(value)
+        except Exception as exc:
+            print(
+                f"  WARNING: could not read target_duration_seconds from "
+                f"{project_yaml}: {exc}",
+                file=sys.stderr,
+            )
+
+    return DEFAULT_TARGET_DURATION_SECONDS
+
+
+def catalogue_music(project_folder: str, target_duration: float) -> dict:
+    """Every local track, from every source, measured and labelled."""
+    ceiling = max_track_duration_seconds(target_duration)
+    searched = []
+    candidates = []
+
+    for source, directory in catalogue_sources(project_folder).items():
+        exists = bool(directory) and os.path.isdir(directory)
+        found = 0
+        if exists:
+            for entry in sorted(os.listdir(directory)):
+                if os.path.splitext(entry)[1].lower() not in AUDIO_EXTENSIONS:
+                    continue
+                full_path = os.path.join(directory, entry)
+                if not os.path.isfile(full_path):
+                    continue
+                if os.path.getsize(full_path) <= 0:
+                    continue
+
+                duration = _get_audio_duration(full_path)
+                if duration > ceiling:
+                    note = (
+                        f"TOO LONG: {duration / 60:.1f} min for a "
+                        f"{target_duration:.0f}s edit - this is a "
+                        f"compilation, not a track"
+                    )
+                    ok = False
+                elif duration + DURATION_SLACK_SECONDS < target_duration:
+                    note = (
+                        f"TOO SHORT: {duration:.1f}s cannot cover a "
+                        f"{target_duration:.0f}s edit"
+                    )
+                    ok = False
+                else:
+                    note = ""
+                    ok = True
+
+                candidates.append({
+                    "title": os.path.splitext(entry)[0],
+                    "audio_path": full_path,
+                    "duration_seconds": round(duration, 3),
+                    "source": source,
+                    "duration_ok": ok,
+                    "duration_note": note,
+                })
+                found += 1
+
+        searched.append({
+            "source": source,
+            "directory": directory,
+            "exists": exists,
+            "count": found,
+        })
         print(
-            f"  Found local music: {os.path.basename(audio_path)} "
-            f"({duration:.1f}s)",
+            f"  {source}: {found} track(s) in {directory}"
+            f"{'' if exists else ' (directory does not exist)'}",
             file=sys.stderr,
         )
-        return {
-            "music_selection": {
-                "audio_path": audio_path,
-                "title": os.path.splitext(os.path.basename(audio_path))[0],
-                "source_url": "",
-                "duration_seconds": duration,
-                "bpm": None,
-                "key": None,
-                "source": "local",
-            }
-        }
 
-    # 2. No local music - search YouTube
+    return {
+        "target_duration_seconds": round(target_duration, 3),
+        "max_track_duration_seconds": round(ceiling, 3),
+        "searched": searched,
+        "candidates": candidates,
+    }
+
+
+def run(inputs: dict) -> dict:
+    project_folder = inputs.get("project_folder", "") or "./"
+    target_duration = _target_duration(inputs)
+    catalogue = catalogue_music(project_folder, target_duration)
+
+    usable = [c for c in catalogue["candidates"] if c["duration_ok"]]
     print(
-        f"  No local music found, searching YouTube for: "
-        f"{mood} {energy}",
+        f"  {len(catalogue['candidates'])} local track(s) catalogued, "
+        f"{len(usable)} within duration sanity for a "
+        f"{target_duration:.0f}s edit. Selecting from them - or from "
+        f"outside - is the LLM's call.",
         file=sys.stderr,
     )
 
-    try:
-        from search_youtube import search_youtube
-        from download_track import download_audio
-
-        query = f"{mood} {energy} background music no copyright"
-        search_results = search_youtube(query, max_results=3)
-
-        if not search_results.get("results"):
-            raise ValueError("YouTube search returned no results")
-
-        best_match = search_results["results"][0]
-        url = best_match["url"]
-        print(
-            f"  Selected: {best_match.get('title', 'unknown')} ({url})",
-            file=sys.stderr,
-        )
-
-        track_info = download_audio(url, output_dir)
-        track_info["source"] = "youtube"
-        return {
-            "music_selection": track_info
-        }
-
-    except Exception as e:
-        # 3. Fallback only if BOTH local check and YouTube fail
-        print(
-            f"  WARNING: Music selection failed: {e}",
-            file=sys.stderr,
-        )
-        return {
-            "music_selection": {
-                "audio_path": "",
-                "title": f"Fallback track for {mood}",
-                "source_url": "",
-                "duration_seconds": 0,
-                "bpm": None,
-                "key": None,
-                "error": str(e),
-                "source": "fallback",
-            }
-        }
+    return {"music_candidates": catalogue}
 
 
 def main():

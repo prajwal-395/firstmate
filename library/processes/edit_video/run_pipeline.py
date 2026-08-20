@@ -1363,11 +1363,25 @@ def run_pipeline(
                     for key in ("source_file", "path") if c.get(key)
                 }
                 
+                def looks_like_a_path(value: str) -> bool:
+                    """Whether a `source` value is naming a FILE at all.
+
+                    `source` is not only a clip path: music_selection uses
+                    it for which catalogue a track came from - "library",
+                    "project", "external" - and this check reported all
+                    three as unrecognised footage. A warning that fires on
+                    correct output is noise, and noise is how a real one
+                    gets scrolled past.
+                    """
+                    return "/" in value or "\\" in value or bool(
+                        os.path.splitext(value)[1])
+
                 def extract_refs(obj, ids, paths):
                     if isinstance(obj, dict):
                         for k, v in obj.items():
                             if k == "clip_id" and isinstance(v, str): ids.add(v)
-                            elif k in ("source", "source_path", "clip") and isinstance(v, str): paths.add(v)
+                            elif k in ("source", "source_path", "clip") and isinstance(v, str):
+                                if looks_like_a_path(v): paths.add(v)
                             else: extract_refs(v, ids, paths)
                     elif isinstance(obj, list):
                         for item in obj: extract_refs(item, ids, paths)

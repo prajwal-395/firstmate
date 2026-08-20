@@ -482,6 +482,44 @@ project to test it.** Any clip whose id is not already a
 run. Exercise the collection half with an analysis dir of copied profiles
 and `raw_footage_files: []`.
 
+**There are NO creative floors, and there must not be again.** A B-roll
+minimum and an SFX minimum both existed; the captain removed them outright
+on 2026-08-20, declining warnings, a reconciled range and per-template
+minimums by name. The creative direction decides how many cutaways and how
+many sounds a piece gets, and the accepted consequence is that a thin edit
+is no longer caught mechanically. A floor in the PROMPT pads just as
+effectively as one in the bridge - "you MUST plan exactly 5-15" is what put
+two cutaways and one sound into the shipped edit with rationales that said
+so - and `tests/test_no_creative_floors.py` fails on either. What stays is
+`_assert_sfx_distributed`, which catches a collapse (every SFX on one
+frame), not a sparse plan.
+
+**A hybrid step's LLM gets an EMPTY schema when the bridge supplies the
+step's only output.** `present_llm_step` builds the injected schema from
+`interface.outputs` minus anything the bridge already produced, so
+`music_selection` asked its model for nothing at all and got `{}` back for
+months. Declare `interface.llm_outputs` on any step whose bridge emits a
+key the step also declares as an output. Music selection is now one
+enumeration, `library/tools/music_selection_contract.py`: the bridge
+catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` and
+picks nothing; the post-bridge judges source, catalogue membership,
+duration plausibility and a justification naming the registers the
+creative direction forbids. Choosing from OUTSIDE the library is
+legitimate and stays allowed.
+
+**Judge a vision-model gate by what it actually reads - in both
+directions.** The rule that killed `smart_reframe` and
+`verify_fusion_comps` has a mirror: a gate that FAILS correct output is no
+more coverage than one that cannot fail. `subtitle_qa` sampled two fixed
+instants of a transparent overlay, which on an ordinary caption pause are
+blank; gemma-4-12b passed those blanks on one run and failed them on the
+next, then failed four demonstrably clean caption frames three times out
+of three with invented defects ("cut off by the bottom edge" of type with
+150 clear rows beneath it). Its mechanical half - ink exists, ink is
+inside the frame, ink is bottom-positioned - now decides, and the model's
+typography opinion is recorded rather than enforced. If you add a
+model-judged gate, give it a deterministic half that can carry the verdict.
+
 ## 11. Third-Party Asset Licenses
 
 **No third-party look assets ship.** The repository previously carried one

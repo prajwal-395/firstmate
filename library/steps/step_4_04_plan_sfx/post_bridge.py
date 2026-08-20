@@ -515,9 +515,14 @@ def main():
         print(json.dumps({"error": f"The SFX library has no sound for {unplayable}. Choose from: {sorted(available)}", "step": "4.04_bridge"}))
         sys.exit(1)
 
-    if len(creative) < 3 or len(creative) > 15:
-        print(json.dumps({"error": f"Planned {len(creative)} SFX, but you MUST plan between 5 and 10 SFX.", "step": "4.04_bridge"}))
-        sys.exit(1)
+    # There is NO minimum SFX count. How many sound effects a piece gets is
+    # a creative decision, not a quota. Captain's ruling 2026-08-20 - the
+    # 5-10 requirement is removed outright, not reconciled and not
+    # downgraded to a warning, with the accepted consequence that a thin
+    # sound design is no longer caught mechanically. Do not reintroduce an
+    # equivalent check. Guarded by tests/test_no_creative_floors.py.
+    # `_assert_sfx_distributed` stays: it catches a COLLAPSE (every SFX on
+    # one frame), which is a broken plan, not a sparse one.
 
     result = resolve_sfx(creative, spine, temporal, music, fps, cd, prosody, eng, brand_audio)
     

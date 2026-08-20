@@ -63,6 +63,12 @@
     ],
     "outputs": [
       {
+        "name": "available_sfx_types",
+        "type": "array",
+        "required": true,
+        "description": "Bridge output: the sound types the SFX library can actually play. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field on every run - a warning that fires on correct output."
+      },
+      {
         "name": "sfx_candidates_toon",
         "type": "string",
         "description": "State output: sfx_candidates_toon"
@@ -90,7 +96,7 @@
         "name": "sfx_creative",
         "type": "list",
         "required": true,
-        "description": "5-10 SFX at DISTINCT positions. Each: spine_block_position, sfx_type (whoosh|swish|bass_impact|riser|click|tick|reverse_cymbal|swell), volume_level, rationale"
+        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_type (whoosh|swish|bass_impact|riser|click|tick|reverse_cymbal|swell), volume_level, rationale"
       }
     ]
   },

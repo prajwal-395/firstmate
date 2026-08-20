@@ -722,11 +722,15 @@ def main():
         temporal_indices, timed_spine,
         target_resolution=(target_width, target_height),
     )
-        
-    total_broll = len(result.get("b_roll_assignments", [])) + len(interjections)
-    if total_broll < 5 or total_broll > 20:
-        print(json.dumps({"error": f"Only {total_broll} B-roll clips selected. You MUST select 5-15 B-roll clips for a 60-second video.", "step": "3.02_bridge"}))
-        sys.exit(1)
+
+    # There is NO minimum B-roll count. The creative direction decides how
+    # many cutaways a piece gets; nothing is padded to satisfy a number.
+    # Captain's ruling 2026-08-20 - the floor that rejected fewer than 5
+    # clips (while its message said 5-15 and its check said 5-20) is
+    # removed outright, not reconciled and not downgraded to a warning.
+    # The accepted consequence: a thin edit is no longer caught
+    # mechanically. Do not reintroduce an equivalent check here or
+    # elsewhere. Guarded by tests/test_no_creative_floors.py.
 
     json.dump(result, sys.stdout, indent=2)
 

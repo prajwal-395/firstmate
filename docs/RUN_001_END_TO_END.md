@@ -1278,3 +1278,216 @@ skipped.
 The creative half is section 17 and waits on the captain. The render is
 now one whose remaining complaints are all decisions somebody chose,
 which is the first time that has been true.
+
+---
+
+## 19. The captain's four rulings, implemented and rendered
+
+Rulings of 2026-08-20. Two required code, two required restraint.
+
+### 19.1 Framing (Q1) - keep the letterbox. Nothing built.
+
+`style.framing_intent` is untouched at its letterbox default, no per-clip
+spine override was added, and `subject_framing` stays built and idle.
+**The judge still reports `black_bars: top_and_bottom` on every A-roll
+frame and that is the ruled behaviour, not a defect** - see 19.5, where
+the count is stated with the bars named as ruled.
+
+### 19.2 The two creative floors - removed entirely
+
+`step_3_02_select_broll/post_bridge.py` rejected any plan under 5 B-roll
+clips (message saying 5-15, check saying 5-20); `plan_sfx`'s post-bridge
+rejected anything outside its own 3-15 while telling the model 5-10. Both
+are gone outright - not reconciled, not per-template, not downgraded to a
+warning, all three of which the captain declined.
+
+**The prompts went with them.** A handoff that says "you MUST plan exactly
+5-15 B-roll insertions" pads the edit exactly as effectively as a bridge
+that rejects a sparse one, and it is where the shipped rationales came
+from. `select_broll/handoff.md`, `plan_sfx/handoff.md` and both manifests
+now say there is no required number.
+
+`_assert_sfx_distributed` stays: it catches every SFX landing on one
+frame, which is a collapse, not a sparse plan.
+
+Re-planned, and confirmed from the compiled manifest:
+
+| | phase 2 | phase 3 |
+| --- | --- | --- |
+| V2 B-roll clips | 5 | **3** |
+| A3 SFX | 5 | **4** |
+| rationales citing a floor | **2** | **0** |
+
+The two that went were `clip_006` over block 6 ("ADDED TO SATISFY A HARD
+FLOOR, not because the edit wants it") and `clip_014` over block 9
+("ADDED TO SATISFY THE SAME HARD FLOOR"), plus the `tick` SFX ("Kept only
+because step 4.04's post-bridge rejects fewer than five SFX"). Every
+remaining cutaway now sits on a block with no A-roll under it - the three
+non-speech blocks - which is what the creative direction asks for: "the
+B-roll is incidental documentary texture, not illustration, and should
+stay sparse; the piece is a person talking."
+
+Guard: `tests/test_no_creative_floors.py`, verified failing against the
+parent revision on both halves - the bridge checks and the prompts.
+
+### 19.3 Music - the hybrid the captain actually asked for
+
+"fix schema and let LLM choose from both library or outside."
+
+**The schema was empty, and the reason is worth keeping.**
+`present_llm_step` builds the injected schema from `interface.outputs`
+minus anything the bridge already supplied. The bridge supplied
+`music_selection` - the step's only declared output - so the subtraction
+left nothing and the model was asked for nothing. The banked response
+from the previous run is three bytes: `{}`.
+
+**The bridge did not select, it sorted.** `sorted(project_folder/music/*)[0]`.
+`PIPELINE_MUSIC_LIBRARY` was never opened.
+
+Now the bridge catalogues both sources, measures each track and picks
+none; `library/tools/music_selection_contract.py` is the verdict.
+On project 001 it finds 7 tracks and flags 3:
+
+```
+library: 1 track(s) in .../assets i used .../music
+project: 6 track(s) in .../001/music
+7 local track(s) catalogued, 4 within duration sanity for a 60s edit.
+
+Inspirational Motivational Music Video ... 3914.7s  TOO LONG: 65.2 min for a 60s edit
+Uplifting Office Music MIX ...            11386.9s  TOO LONG: 189.8 min for a 60s edit
+dummy                                         1.0s  TOO SHORT: cannot cover a 60s edit
+```
+
+**What it chose:** `Sickick- _Infected_ _Instrumental_.wav`, source
+`project`, 198.6s, from a catalogue of 7. The library's single holding is
+the same composition in its VOCAL cut, rejected because a lyric vocal
+competes with a piece that is one person talking for 55 seconds; the
+instrumental is the same musical decision without that cost. The
+`_background music_ rise - uplifting piano _inspiring _ beautiful_ _ _
+motivation` candidate is within duration sanity and was rejected on the
+direction alone - its own filename names four forbidden registers. Going
+outside the library was weighed and recorded as not taken, with the one
+honest mark against the choice written down: Infected is a commercial
+release, not royalty-free, which is a clearance question for the captain.
+
+`forbidden_registers` for this piece came back as `["triumphant",
+"motivational", "inspirational", "uplifting", "self-pitying"]`, each with
+its own answer. The shipped failure now fails two independent ways - on
+duration, and on a title naming a register the model itself recorded as
+off limits.
+
+`music_analysis` measured the new track: **BPM 89.1, 274 beats, 69
+downbeats** - a real beat grid, where the previous one was measured off a
+65-minute compilation.
+
+### 19.4 The defocus transitions - closed, untouched
+
+`plan_transitions`' creative output was supplied verbatim from the
+previous run, so all three defocus tails are bit-identical. The soft
+handheld B-roll at 3.43s is also untouched: the captain declined the
+option that bundled it, and the judge still says "extremely blurry and
+low in resolution" of that frame. Checked against the ruling's own cheap
+test before writing this down - 3.43s is inside `broll_1` (2.40-5.40s)
+and not inside any tail (2.07-2.40, 18.05-18.38, 33.05-33.38).
+
+### 19.5 The judge, against the phase-2 baseline
+
+Same model, same eight timestamps, same grounded prompt. The phase-2
+export was re-judged in the SAME session as a control, so the comparison
+is not against a quoted table.
+
+| | phase 2 (control) | phase 3 |
+| --- | --- | --- |
+| frames examined | 8 | 8 |
+| parse failures / unanswered | 0 / 0 | 0 / 0 |
+| frames clean | 0 | 0 |
+| **aspect-ratio mentions** | **0 of 8** | **0 of 8** |
+| `black_bars: top_and_bottom` | 6 of 8 | **7 of 8** |
+| `main_subject_fully_visible: true` | 8 of 8 | 8 of 8 |
+| `text_legible: true` | 8 of 8 | 8 of 8 |
+
+The control reproduced the documented baseline exactly, including which
+two frames answered `none`.
+
+**The bars are ruled, and the count moved for a reason that is not
+framing.** Exactly one timestamp changed, 37.72s, and it changed because
+of 19.2:
+
+```
+   37.72s  phase2 = none            phase3 = top_and_bottom
+```
+
+At 37.72s phase 2 was showing `broll_9` - `IMG_1819`, one of the two
+cutaways that existed only to clear the B-roll floor, and portrait, so it
+filled the frame. With the floor gone that cutaway is gone, and 37.72s is
+now A-roll `speech_9` on landscape `IMG_1822`. So 7 of 8 sampled frames
+are A-roll where 6 were, and every A-roll frame letterboxes exactly as
+Q1 ruled. Nothing about the framing mechanism changed.
+
+`text_legible` scored a variance of 1 for the **fifth** consecutive
+sample. On `perceptual_qa`'s own rule that is a dimension that ranks
+nothing; moving it to `DROPPED_DIMENSIONS` changes what the gate measures
+and remains the captain's call.
+
+### 19.6 Where the run ends, and what it still fails on
+
+**25 of 26 steps complete.** The one failure is `validate`, and it is the
+same class phase 2 ended on:
+
+```
+Validation failed: 1 issue(s) found
+  - [audio_levels] LUFS: -17.47, True Peak: 1.85
+```
+
+Audio is out of scope by the captain's ruling of 2026-08-15, so this is
+reported rather than fixed - but the NUMBERS moved and the reason is
+ruling 19.3: phase 2 measured LUFS -20.96 / True Peak -1.06 off the
+"Inspirational Motivational" bed, and Infected is a hotter master. **True
+peak is now above 0 dBTP**, which is inter-sample clipping, and it is a
+direct consequence of the track the fixed selection chose. It needs a mix
+pass, which is out of scope, so it is recorded here for the captain
+rather than acted on.
+
+Export read off the file: `1080x1920`, `30/1`, `54.869333s`, h264 +
+aac 48kHz stereo - the same frame and the same duration as phase 2, which
+is why the eight timestamps compare directly.
+
+`render`'s own `full_sweep` station reports `gap_before_clip_1: 90`,
+`clip_3: 75`, `clip_6: 74`, byte-identical to phase 2. Those are the
+three non-speech blocks carrying B-roll on V2; the station measures V1
+contiguity only. Removing the two padding cutaways changed none of these
+numbers, because both sat OVER speech blocks and never filled a V1 gap.
+
+### 19.7 A gate found reading fiction, on the way through
+
+`render_subtitles` blocked this render twice, and neither time was about
+the subtitles.
+
+`library/tools/qa/subtitle_qa.py` sampled two fixed instants - 0.5s and
+1.5s into the first segment - and handed them to gemma-4-12b. A subtitle
+overlay is transparent between captions, and on `sub_block_10` both land
+in an ordinary pause: the first caption is the single word "i", ending
+0.70s in, and the next arrives at 1.58s. Measured alpha: 1080 non-zero
+pixels at 0.5s, **zero** at 1.5s.
+
+The same model had PASSED that same file on the phase-2 run. So the gate
+was a coin toss on a blank image in both directions.
+
+Frames are now chosen by measuring the overlay's own alpha channel. That
+exposed the second half: shown frames that demonstrably DO carry captions,
+the model failed them with fabricated defects - "the text is cut off by
+the bottom edge" on a caption whose alpha bbox is `(288, 1694, 776, 1770)`
+in a 1080x1920 frame, 150 clear rows below the type, and "the letters are
+overlapping and distorted" of a clean line of Montserrat. Three runs out
+of three.
+
+So the gate was split along the line CLAUDE.md already draws. The half
+that reads real state decides: ink must exist somewhere, and what is
+drawn must sit inside the frame with a margin and in the lower half.
+`check_caption_geometry` checks the exact complaint the model kept
+inventing, deterministically. The model's typography opinion is recorded
+in the step output for a human and blocks nothing.
+
+Guard: `tests/test_subtitle_qa_sampling.py`, which builds real overlays
+with ffmpeg and asserts both directions - a gap is not sampled, and an
+overlay that draws nothing anywhere still fails hard.

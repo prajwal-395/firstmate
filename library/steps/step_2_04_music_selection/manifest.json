@@ -17,19 +17,35 @@
         "type": "string",
         "required": false,
         "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none."
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "The project directory. The bridge reads target_duration_seconds off its project.yaml and scans its music/ folder."
       }
     ],
     "outputs": [
       {
+        "name": "music_candidates",
+        "type": "object",
+        "description": "Bridge output: every locally-held track from PIPELINE_MUSIC_LIBRARY and the project's music/ folder, measured, with the target duration the choice must serve. The bridge picks none of them."
+      },
+      {
         "name": "music_selection",
         "type": "object",
-        "description": "State output: music_selection",
+        "description": "State output: music_selection - the chosen track, its source, and its justification against the creative direction.",
         "expected_schema": {
-          "overall_mood": "string",
-          "overall_energy": "string",
-          "search_queries_used": "list",
+          "title": "string",
+          "source": "string",
+          "audio_path": "string",
+          "source_url": "string",
+          "duration_seconds": "number",
+          "bpm": "number",
+          "key": "string",
+          "direction_justification": "object",
           "candidates_evaluated": "list",
-          "tracks": "list"
+          "splices": "list"
         }
       }
     ],
@@ -38,6 +54,14 @@
     ],
     "postconditions": [
       "'music_selection' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "The track you choose and why it is right for THIS piece. Keys: title (string, the track's name); source (string, exactly one of 'library' (PIPELINE_MUSIC_LIBRARY), 'project' (the project's own music/ folder) or 'external' (a track held nowhere locally)); audio_path (string, REQUIRED and copied verbatim from the chosen candidate when source is 'library' or 'project'; empty when 'external'); source_url (string, REQUIRED when source is 'external'); duration_seconds (number, the track's real length - it must be at least as long as the edit and no longer than music_candidates.max_track_duration_seconds); bpm (number or null); key (string or null); direction_justification (object with: direction_mood (string, quote the creative direction's target mood you are scoring against); why_it_fits (string); forbidden_registers (list of strings - the registers the creative direction says the piece must NOT be scored in); why_not_forbidden (object mapping each forbidden register to a sentence saying why this track does not do it)); candidates_evaluated (list of objects: title, source, verdict, reason - what you considered and why you rejected it); splices (list of objects: intended_use, source_in, source_out - sections of the track to use)."
+      }
     ]
   },
   "classification": {
@@ -57,7 +81,7 @@
   "implementation": {
     "default": {
       "runtime": "llm",
-      "entry_point": "handoff.md"
+      "entry_point": "bridge.py"
     },
     "variants": {},
     "test_entry_point": ""
@@ -69,6 +93,7 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
-    "creative_direction"
+    "creative_direction",
+    "music_candidates"
   ]
 }

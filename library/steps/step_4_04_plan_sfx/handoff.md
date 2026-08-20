@@ -46,7 +46,10 @@ Select and place sound effects at appropriate moments in the timeline.
 | `reverse_cymbal` / `swell` | Between major sections |
 
 ### Rules:
-- **Less is more** — but you MUST plan EXACTLY 5-10 SFX for a 30-60 second video. An empty list is a failure.
+- **Less is more.** There is no required number of SFX. Place a sound where
+  a moment earns one and nowhere else. Do NOT add an effect to reach a
+  count, and never write a rationale that justifies a sound by how many
+  there are.
 - Volume: "subtle" or "low" for most; "medium" only for emphasis
 - Never louder than speech or music
 - Don't fight the music (avoid loud SFX during prominent music)
@@ -77,8 +80,8 @@ sound design preferences as natural language. Read it for:
 - Moments that deserve special sonic emphasis
 
 Let the brief guide how many effects you place and their character. If no
-creative brief is provided, follow the default 5-10 SFX guideline scaled
-to the creative direction's energy.
+creative brief is provided, let the creative direction's energy and the
+moments in the spine decide the density - there is no default count.
 
 ---
 
@@ -88,7 +91,7 @@ to the creative direction's energy.
 
 ## Evaluation Criteria
 
-1. SFX count ≤ 10 for a 30-60s video
+1. Every SFX earns its place - none exists to reach a count
 2. Every creative transition has at most one SFX
 3. SFX timing aligns with events they accompany
 4. Volume levels appropriate — mostly "subtle" or "low"
