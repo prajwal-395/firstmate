@@ -73,6 +73,39 @@ Rejected gates halt the pipeline entirely.
 Revised gates apply the reviewer's modifications directly to the step output in `pipeline_data.json`.
 The dashboard also captures annotations and feedback as structured data for agent communication.
 
+### The review return channel
+
+The dashboard's second job is the captain's review loop, and it has exactly
+two properties (ruling 2026-08-17 on `.lavish/video-gui-findings.html`:
+EXTEND THIS DASHBOARD, never author a fresh per-run review page).
+
+**A note is anchored to a specific element, and the anchor is computed in the
+browser.** `computeAnchor` in
+`library/dashboard/static/components/review-channel.js` measures a CSS path
+plus the element's tag and visible text; `resolveAnchor` walks it back to a
+live element after a view re-renders, path first and tag+text second. The
+server stores what the browser measured and never computes one - a note whose
+`anchor.selector` is empty is REJECTED rather than degraded to a page comment,
+because a page comment is the thing this channel exists not to be.
+
+**One send carries the whole queue and wakes an agent, which replies onto the
+same surface.** `library/dashboard/review_channel.py` is the store and the
+agent side; `/api/review/*` in `server.py` is the browser's half. The agent
+parks on `wait_for_batch` (or `GET /api/review/poll`) and is released the
+moment the reviewer sends. A reply always lands on NOTES - named ones, or
+every note in the batch - so the answer appears under the note that prompted
+it and beside the element it is about. A batch stays pending until all of its
+notes are answered.
+
+    python3 -m library.dashboard.review_channel poll  --project <dir>
+    python3 -m library.dashboard.review_channel reply --project <dir> \
+        --batch <id> [--note <id>] --text "what you did"
+
+Notes live per project in `pipeline_output/review/channel.json` and each
+records the view it was written on. Whether the review surface should be per
+RUN or per PROJECT is NOT decided - the captain has not ruled on it. Keep both
+possible: per-run is a filter over this store, not a migration.
+
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
 These constraints are hard-won knowledge and must be followed exactly when scripting DaVinci Resolve.

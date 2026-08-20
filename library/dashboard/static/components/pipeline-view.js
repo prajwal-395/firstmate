@@ -100,7 +100,7 @@ function renderStepCard(step) {
     }
 
     return `
-        <div class="step-card ${statusClass}" onclick="openStep('${step.id}')">
+        <div class="step-card ${statusClass}" data-step-id="${step.id}" onclick="openStep('${step.id}')">
             <div class="step-status-icon ${iconClass}">${statusIcon}</div>
             <div class="step-info">
                 <div class="step-name">${escapeHtml(step.name)}</div>

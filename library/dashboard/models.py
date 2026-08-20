@@ -222,3 +222,40 @@ class ProjectInfo(BaseModel):
     steps_completed: int = 0
     total_steps: int = 0
     project_root: str = ""
+
+
+# ── Review Return Channel ──────────────────────────────────────────
+
+class ReviewAnchor(BaseModel):
+    """Where on screen a note is attached. Computed in the BROWSER.
+
+    `selector` is the CSS path the browser measured for the element; it is
+    what lets the note find its element again after the view re-renders.
+    `tag`/`text` are the fallback identity when the path no longer matches.
+    See library/dashboard/review_channel.py.
+    """
+    selector: str
+    tag: str = ""
+    text: str = ""               # Visible text of the anchored element
+    label: str = ""              # Human label for the note list
+    view: str = ""               # Dashboard view the note was written on
+    step_id: str = ""
+
+
+class ReviewNoteRequest(BaseModel):
+    """A note the reviewer queues against one element."""
+    text: str
+    anchor: ReviewAnchor
+
+
+class ReviewSendRequest(BaseModel):
+    """Send the queued notes as one batch. Empty note_ids means all of them."""
+    note_ids: List[str] = Field(default_factory=list)
+
+
+class ReviewReplyRequest(BaseModel):
+    """An agent's reply, landing on the notes it answers."""
+    batch_id: str
+    text: str
+    note_ids: List[str] = Field(default_factory=list)
+    author: str = "agent"

@@ -1221,3 +1221,321 @@ body {
     border-radius: 10px;
     margin-left: auto;
 }
+
+/* ── Review Return Channel ─────────────────────────────────────── */
+/* Anchored notes, the queue-and-send panel, and the agent's reply drawn
+   beside the element it answers. See components/review-channel.js. */
+
+#review-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    pointer-events: none;
+}
+
+/* The element under the cursor while annotating. */
+.review-hover-box {
+    position: fixed;
+    border: 2px solid var(--accent-purple);
+    border-radius: 4px;
+    background: rgba(188, 140, 255, 0.10);
+    pointer-events: none;
+    transition: all 60ms linear;
+}
+
+.review-hover-box.hidden {
+    display: none;
+}
+
+/* A note's own element, outlined so the anchor is visible at rest. */
+.review-anchor-box {
+    position: fixed;
+    border: 1px dashed var(--color-gate-pending);
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+.review-anchor-box.review-anchor-answered {
+    border-color: var(--color-completed);
+}
+
+.review-pin {
+    position: fixed;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--bg-primary);
+    background: var(--color-gate-pending);
+    color: #101418;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.review-pin-queued { background: var(--accent-purple); color: #101418; }
+.review-pin-sent { background: var(--color-gate-pending); }
+.review-pin-answered { background: var(--color-completed); color: #04140a; }
+
+/* The reply, next to the anchor it answers. */
+.review-anchor-reply {
+    position: fixed;
+    width: 280px;
+    max-height: 140px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--color-completed);
+    border-radius: 6px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.45;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    pointer-events: auto;
+}
+
+.review-anchor-reply-author {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--color-completed);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+body.review-annotating #main-content,
+body.review-annotating #sidebar {
+    cursor: crosshair;
+}
+
+/* ── Note card ─────────────────────────────────────────────────── */
+
+.review-card {
+    position: fixed;
+    z-index: 1000;
+    width: 320px;
+    padding: 12px;
+    border: 1px solid var(--border-accent);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.review-card-heading {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.review-card-target {
+    margin: 4px 0 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-card textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    resize: vertical;
+}
+
+.review-card-hint {
+    margin: 6px 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.review-card-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* ── Panel ─────────────────────────────────────────────────────── */
+
+.review-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 950;
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-primary);
+}
+
+.review-panel.hidden {
+    display: none;
+}
+
+/* The panel takes width rather than covering the dashboard: a note is written
+   against what is on screen, so the screen has to stay readable next to it. */
+body.review-panel-open #app {
+    width: calc(100vw - 340px);
+}
+
+.review-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--topbar-height);
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.review-panel-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.review-queue,
+.review-thread {
+    padding: 12px 16px;
+    overflow-y: auto;
+}
+
+.review-queue {
+    flex: 0 0 auto;
+    max-height: 45%;
+}
+
+.review-thread {
+    flex: 1 1 auto;
+    border-top: 1px solid var(--border-primary);
+}
+
+.review-send-row {
+    padding: 0 16px 12px;
+}
+
+.review-send-row .btn {
+    width: 100%;
+    justify-content: center;
+}
+
+.review-empty,
+.review-waiting {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.review-waiting {
+    margin-bottom: 10px;
+    color: var(--color-gate-pending);
+}
+
+.review-note {
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid var(--border-primary);
+    border-left: 3px solid var(--accent-purple);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+}
+
+.review-note-sent { border-left-color: var(--color-gate-pending); }
+.review-note-answered { border-left-color: var(--color-completed); }
+
+.review-note-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.review-pin-number {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bg-active);
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.review-note-anchor {
+    flex: 1 1 auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-note-remove {
+    padding: 0 4px;
+    font-size: 11px;
+}
+
+.review-note-where {
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.review-note-text {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+}
+
+.review-note-status {
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.review-reply {
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    background: var(--bg-surface);
+    border-left: 2px solid var(--color-completed);
+}
+
+.review-reply-author {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-completed);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.review-reply-text {
+    margin-top: 3px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+}

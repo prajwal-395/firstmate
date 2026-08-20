@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+from library.dashboard import review_channel
 from library.dashboard.models import (
     Annotation,
     AnnotationBatch,
@@ -36,6 +37,9 @@ from library.dashboard.models import (
     PipelineRunRequest,
     PipelineStatus,
     ProjectInfo,
+    ReviewNoteRequest,
+    ReviewReplyRequest,
+    ReviewSendRequest,
     StepDetail,
     StepSummary,
     StepStatus,
@@ -93,6 +97,9 @@ def _get_project_dir() -> str:
 
 # Global event for long-polling
 message_response_event = asyncio.Event()
+
+# Fires when the reviewer sends a batch of anchored notes, waking /api/review/poll
+review_batch_event = asyncio.Event()
 
 # ── Message Helpers ─────────────────────────────────────────────────
 
@@ -662,6 +669,100 @@ async def delete_annotation(step_id: str, ann_idx: int):
         existing.pop(ann_idx)
         _save_annotations(project_dir, step_id, existing)
     return {"status": "ok", "count": len(existing)}
+
+
+# ── Review Return Channel ─────────────────────────────────────────
+#
+# Two properties, both adopted from the captain's Lavish review pages
+# (ruling 2026-08-17: extend this dashboard, do not author a per-run page):
+# a note anchored to a specific element, and one batched send that wakes an
+# agent which replies onto this same surface. The store and the agent-side
+# CLI live in library/dashboard/review_channel.py; these routes are the
+# browser's half plus an HTTP wake-up for an agent that prefers the network.
+
+@app.get("/api/review/notes")
+async def review_notes(view: str = "", status: str = ""):
+    """Every note, newest last, with the replies threaded onto each one."""
+    project_dir = _get_project_dir()
+    return review_channel.list_notes(project_dir, view=view, status=status)
+
+
+@app.post("/api/review/notes")
+async def review_queue_note(request: ReviewNoteRequest):
+    """Queue one anchored note. Queued notes are invisible to agents until sent."""
+    project_dir = _get_project_dir()
+    try:
+        return review_channel.queue_note(
+            project_dir, request.text, request.anchor.model_dump()
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/review/notes/{note_id}")
+async def review_delete_note(note_id: str):
+    """Drop a note that has not been sent yet."""
+    project_dir = _get_project_dir()
+    try:
+        removed = review_channel.delete_note(project_dir, note_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    if not removed:
+        raise HTTPException(404, "Note not found")
+    return {"status": "ok"}
+
+
+@app.post("/api/review/send")
+async def review_send(request: ReviewSendRequest):
+    """Send the queued notes as ONE batch and wake whoever is polling."""
+    project_dir = _get_project_dir()
+    batch = review_channel.send_queued(project_dir, request.note_ids or None)
+    if batch is None:
+        raise HTTPException(400, "Nothing queued to send")
+    review_batch_event.set()
+    review_batch_event.clear()
+    return batch
+
+
+@app.get("/api/review/poll")
+async def review_poll(timeout: float = 300):
+    """Agent wake-up: block until a batch is waiting, then hand it over.
+
+    Returns the batch with its notes and their anchors, or
+    ``{"status": "timeout"}`` when nothing arrived inside `timeout` seconds.
+    """
+    project_dir = _get_project_dir()
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        batch = review_channel.pending_batch(project_dir)
+        if batch:
+            review_channel.mark_delivered(project_dir, batch["id"])
+            return batch
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {"status": "timeout"}
+        try:
+            await asyncio.wait_for(review_batch_event.wait(), timeout=min(remaining, 5.0))
+        except asyncio.TimeoutError:
+            pass
+
+
+@app.post("/api/review/reply")
+async def review_reply(request: ReviewReplyRequest):
+    """Agent replies onto the same surface, next to the anchors it answers."""
+    project_dir = _get_project_dir()
+    try:
+        return review_channel.add_reply(
+            project_dir,
+            request.batch_id,
+            request.text,
+            note_ids=request.note_ids or None,
+            author=request.author,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 # ── Transcript Endpoint ───────────────────────────────────────────
