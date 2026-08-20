@@ -20,7 +20,7 @@ async function renderFootageLibrary() {
                 <div class="empty-state">
                     <div class="empty-state-icon">&#127909;</div>
                     <div class="empty-state-text">
-                        No clips cataloged yet. Run Phase 1 (catalog footage) to see clips here.
+                        No clips cataloged yet. Run preflight (catalog footage) to see clips here.
                     </div>
                 </div>
             `;

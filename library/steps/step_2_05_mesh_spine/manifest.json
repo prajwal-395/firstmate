@@ -74,6 +74,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "hybrid",
     "archetype": "data_transformation",
     "idempotent": false

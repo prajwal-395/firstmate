@@ -21,7 +21,7 @@ proposal below cites the section it implements.
 | Footage | 17 clips, 13.5 min, all 1920x1080; 7 carry `rotation=-90` (display portrait), 10 are true landscape |
 | Every talking-head clip | true landscape - so framing is this project's central problem, not a detail |
 | Baseline export | `exports/Pipeline_Edit.mp4`, 59.4s, 1080x1920 @30, rendered 2026-08-15 at an older head |
-| Caches | vision profiles, transcription index, `pipeline_output/` and `pipeline_data.json` moved to `_archive_2026-08-17_pre_rerun/` so vision and transcription really execute |
+| Caches | vision profiles, transcription index, `pipeline_output/` and `pipeline_data.json` moved to `_archive_2026-08-17_pre_rerun/` so vision and transcription really execute. **Do not do this again** - it is what made the transcription cost forty minutes twice, and there is now a supported way: `--rerun edit` resets the creative work and is structurally incapable of discarding enrichment. See AGENTS.md section 3 and `library/tools/step_ledger.py` |
 | Test suite | 1031 passed, 7 skipped on system `python3` (12.5s) |
 | Interpreter | the run uses the worktree `.venv` (whisperx, librosa, cv2, mlx_vlm); the bare system `python3` has no whisperx, so `--project` must be invoked with the venv's python |
 

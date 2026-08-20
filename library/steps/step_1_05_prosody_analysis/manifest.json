@@ -35,9 +35,13 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "data_transformation",
-    "idempotent": true
+    "idempotent": true,
+    "per_clip_artifacts": [
+      "pipeline_output/prosody/{clip_id}_prosody.json"
+    ]
   },
   "dependencies": [
     "step_1_04_temporal_index"

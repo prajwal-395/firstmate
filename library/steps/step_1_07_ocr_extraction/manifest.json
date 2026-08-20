@@ -21,9 +21,13 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "extraction",
-    "idempotent": true
+    "idempotent": true,
+    "per_clip_artifacts": [
+      "raw/analysis/ocr/{clip_id}/ocr_result.json"
+    ]
   },
   "dependencies": [
     "step_1_01_ingest_raw"

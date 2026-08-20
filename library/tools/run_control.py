@@ -192,7 +192,8 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
 def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
                   review_mode: bool = False, resume_mode: bool = False,
                   single_step: Optional[str] = None,
-                  from_step: Optional[str] = None) -> str:
+                  from_step: Optional[str] = None,
+                  rerun: Optional[List[str]] = None) -> str:
     """A one-line human description of how this run was launched.
 
     The dashboard prints this back so the captain can see that Start
@@ -212,6 +213,8 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
     if auto_mode:
         parts.append("bridge-auto")
     parts.append("review gates on" if review_mode else "review gates off")
+    if rerun:
+        parts.append("re-running " + " + ".join(rerun))
     return ", ".join(parts)
 
 

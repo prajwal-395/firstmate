@@ -1,0 +1,232 @@
+"""The project's source footage, and the identity of each clip.
+
+Two jobs, both of which used to be spread around:
+
+**Enumeration.**  ``enumerate_footage`` is the one place that knows which
+extensions count as footage and how a ``clip_id`` is assigned - sorted by
+absolute path, ``clip_001`` upward.  Step 1.01 calls it, and so does the
+runner's identity check.  The rule has to live in one place because the
+two ends must agree: the runner decides whether ``clip_007``'s cached
+analysis is still about the same file, and it can only do that if it
+numbers clips exactly the way the scan did.
+
+**Identity.**  ``fingerprint`` is the file's size plus a digest of its
+first and last mebibyte.  Two things it is deliberately NOT:
+
+*Not a whole-file hash.*  Reading seventeen multi-gigabyte camera files
+on every run is sustained local IO for a question that two mebibytes
+answer.  Two mebibytes per clip is milliseconds; the whole file is
+minutes.
+
+*Not mtime.*  mtime is the obvious cheap answer and it is the wrong one,
+because the two ways of being wrong here are not symmetric.  A false
+NEGATIVE - stale analysis surviving one more run - costs the operator one
+``--rerun <step>:<clip_id>``.  A false POSITIVE destroys forty minutes of
+WhisperX.  And mtime moves for reasons that have nothing to do with the
+content: a restore, a ``cp`` without ``-p``, a sync client, a backup tool
+walking the tree.  Content does not.
+
+The residual blind spot, stated rather than hidden: a file edited only in
+its middle, to exactly the same length, reads as unchanged.  For camera
+footage that does not happen, and when it does the fix is one explicit
+``--rerun``.
+
+The identity check exists so that "preflight is skipped once done" is
+SAFE rather than merely fast.  See ``library/tools/step_ledger.py`` for
+the ledger it guards.
+"""
+
+import hashlib
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+# The extensions the pipeline treats as raw footage.  Step 1.01 imports
+# this rather than carrying its own copy.
+SUPPORTED_VIDEO_EXTENSIONS = {
+    ".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v", ".webm",
+}
+
+# How much of each end of a file the digest covers.  Big enough that two
+# takes cannot collide on it, small enough that seventeen clips cost
+# milliseconds.
+DIGEST_WINDOW_BYTES = 1024 * 1024
+
+
+def fingerprint(path: str) -> Dict[str, object]:
+    """Cheap identity of one media file: its size, and both of its ends.
+
+    Raises OSError if the file is gone - callers that treat a missing
+    file as "removed" catch it themselves.
+    """
+    size = os.path.getsize(path)
+    digest = hashlib.sha256()
+    digest.update(str(size).encode("ascii"))
+    with open(path, "rb") as f:
+        digest.update(f.read(DIGEST_WINDOW_BYTES))
+        if size > DIGEST_WINDOW_BYTES:
+            f.seek(max(size - DIGEST_WINDOW_BYTES, DIGEST_WINDOW_BYTES))
+            digest.update(f.read(DIGEST_WINDOW_BYTES))
+    return {"size_bytes": size, "content_digest": digest.hexdigest()}
+
+
+def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
+    """Every video file under ``<project_folder>/raw``, with clip ids.
+
+    Returns ``(raw_footage_files, skipped_files)``.  Entries carry
+    ``path`` (absolute), ``filename``, ``extension``, ``size_bytes`` and
+    ``clip_id``.  Clip ids are assigned centrally, sorted by absolute
+    path, so that steps running in parallel cannot desync on them.
+
+    Note the consequence, which the identity check is built to absorb:
+    adding a file that sorts early RENUMBERS every clip after it.  A
+    per-clip artifact named ``clip_002.json`` then describes different
+    footage than it did, which is why the recorded fingerprint carries
+    the path and not only the size.
+    """
+    raw_dir = os.path.join(project_folder, "raw")
+    if not os.path.isdir(raw_dir):
+        raise FileNotFoundError(
+            f"Missing 'raw' subdirectory in project folder: {project_folder}"
+        )
+
+    files: List[dict] = []
+    skipped: List[dict] = []
+
+    for root, _dirs, names in os.walk(raw_dir):
+        for fname in sorted(names):
+            filepath = os.path.join(root, fname)
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in SUPPORTED_VIDEO_EXTENSIONS:
+                continue
+            if not os.access(filepath, os.R_OK):
+                skipped.append({"path": filepath,
+                                "reason": "permission denied"})
+                continue
+            size = os.path.getsize(filepath)
+            if size == 0:
+                skipped.append({"path": filepath,
+                                "reason": "zero-byte file (likely corrupt)"})
+                continue
+            files.append({
+                "path": os.path.abspath(filepath),
+                "filename": fname,
+                "extension": ext,
+                "size_bytes": size,
+            })
+
+    files.sort(key=lambda entry: entry["path"])
+    for i, entry in enumerate(files):
+        entry["clip_id"] = f"clip_{i + 1:03d}"
+
+    return files, skipped
+
+
+def fingerprints_for(raw_footage_files: List[dict]) -> Dict[str, dict]:
+    """``{clip_id: {path, size_bytes, content_digest}}`` for a footage list.
+
+    A file that has vanished since it was enumerated is simply absent
+    from the result, which reads downstream as "removed".
+    """
+    out: Dict[str, dict] = {}
+    for i, entry in enumerate(raw_footage_files):
+        if isinstance(entry, dict):
+            path = entry.get("path", "")
+            clip_id = entry.get("clip_id") or f"clip_{i + 1:03d}"
+        else:
+            path = str(entry)
+            clip_id = f"clip_{i + 1:03d}"
+        if not path:
+            continue
+        try:
+            fp = fingerprint(path)
+        except OSError:
+            continue
+        out[clip_id] = {"path": os.path.abspath(path), **fp}
+    return out
+
+
+@dataclass
+class SourceDelta:
+    """What changed between the footage preflight saw and the footage now."""
+
+    added: List[str] = field(default_factory=list)     # clip ids new here
+    removed: List[str] = field(default_factory=list)   # clip ids gone
+    changed: List[str] = field(default_factory=list)   # same id, other file
+
+    @property
+    def stale_clip_ids(self) -> List[str]:
+        """Clip ids whose cached per-clip analysis can no longer be trusted.
+
+        ``added`` is included: under the sorted-path numbering an "added"
+        id may be a REUSED id that now points at different footage, and a
+        genuinely new clip has no artifact to delete anyway.
+        """
+        return sorted(set(self.added) | set(self.removed) | set(self.changed))
+
+    @property
+    def footage_changed(self) -> bool:
+        return bool(self.added or self.removed or self.changed)
+
+    def describe(self) -> str:
+        parts = []
+        if self.added:
+            parts.append(f"added {', '.join(sorted(self.added))}")
+        if self.removed:
+            parts.append(f"removed {', '.join(sorted(self.removed))}")
+        if self.changed:
+            parts.append(f"replaced {', '.join(sorted(self.changed))}")
+        return "; ".join(parts) or "unchanged"
+
+
+def compare(recorded: Dict[str, dict], current: Dict[str, dict]) -> SourceDelta:
+    """Compare a recorded footage fingerprint against the footage on disk.
+
+    A clip is ``changed`` when its id survives but the file behind it does
+    not: a different path, a different size, or different content at
+    either end.  All three are treated identically because all three mean
+    the cached analysis describes something else.
+
+    A record written before the digest existed carries no
+    ``content_digest``.  It is compared on what it does have, so gaining
+    the digest does not read as a project-wide footage change.
+    """
+    recorded = recorded or {}
+    current = current or {}
+    delta = SourceDelta()
+
+    for clip_id in current:
+        if clip_id not in recorded:
+            delta.added.append(clip_id)
+    for clip_id in recorded:
+        if clip_id not in current:
+            delta.removed.append(clip_id)
+
+    for clip_id, now in current.items():
+        was = recorded.get(clip_id)
+        if not was:
+            continue
+        same = (
+            os.path.abspath(str(was.get("path", "")))
+            == os.path.abspath(str(now.get("path", "")))
+            and was.get("size_bytes") == now.get("size_bytes")
+            and (was.get("content_digest") is None
+                 or was["content_digest"] == now.get("content_digest"))
+        )
+        if not same:
+            delta.changed.append(clip_id)
+
+    return delta
+
+
+def stem_for(clip_id: str, fingerprints: Dict[str, dict]) -> str:
+    """The media file stem behind a clip id.
+
+    Step 1.03 caches vision profiles under the file STEM, not the clip
+    id (see the note above ``_profile_stems`` in that step), so
+    invalidating one clip's profile needs the translation.
+    """
+    entry = fingerprints.get(clip_id) or {}
+    path = entry.get("path", "")
+    return Path(path).stem if path else ""

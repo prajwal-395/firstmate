@@ -65,6 +65,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "nondeterministic",
     "archetype": "evaluation_judgment",
     "idempotent": false

@@ -43,6 +43,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "deterministic",
     "archetype": "direct_action",
     "idempotent": true

@@ -11,7 +11,7 @@ Generated from [dag.json](file:///Users/prajwal/Documents/content_stuff/video_ed
 
 ---
 
-## Phase 1 — Ingest & Analysis
+## Preflight — Ingest & Analysis
 
 ### `step_1_01` — Scan Project
 - **Writes**: `raw_footage_files`, `project_folder`

@@ -43,6 +43,11 @@
         "name": "total_indexed",
         "type": "int",
         "description": "State output: total_indexed"
+      },
+      {
+        "name": "total_reused",
+        "type": "int",
+        "description": "Clips whose per-clip index was reused from disk rather than re-transcribed."
       }
     ],
     "preconditions": [
@@ -54,9 +59,14 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "data_transformation",
-    "idempotent": true
+    "idempotent": true,
+    "per_clip_artifacts": [
+      "pipeline_output/temporal_index/{clip_id}.json",
+      "pipeline_output/audio_cache/{clip_id}.wav"
+    ]
   },
   "dependencies": [
     "step_1_01_scan_project"

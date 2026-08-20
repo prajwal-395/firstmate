@@ -34,7 +34,8 @@ Archetype: Data Transformation
 Idempotent: Yes (same input → same output)
 
 Input:  { "raw_footage_files": [{ path, filename, ... }] }
-Output: Per-clip JSON files in <output_dir>/temporal_index/<clip_id>.json
+Output: Per-clip JSON files in <project>/pipeline_output/temporal_index/<clip_id>.json
+        A clip whose file is already there is reused, not re-transcribed.
 
 Requires:
     - ffmpeg on PATH
@@ -1717,6 +1718,32 @@ def index_clip(
     }
 
 
+def _load_cached_index(index_path: str):
+    """An existing per-clip index, or None if there is nothing usable.
+
+    A truncated or corrupt file reads as "no cache" and is recomputed - a
+    half-written index is worse than none, because every downstream
+    creative decision is made against it.
+    """
+    if not os.path.isfile(index_path) or os.path.getsize(index_path) == 0:
+        return None
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            index = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"  WARNING: unreadable index {index_path} ({e}); re-indexing",
+              file=sys.stderr)
+        return None
+    required = ("scene_boundaries", "speech_regions", "energy_curve",
+                "audio_events", "motion_energy")
+    missing = [k for k in required if k not in index]
+    if missing:
+        print(f"  WARNING: index {index_path} is missing {missing}; "
+              f"re-indexing", file=sys.stderr)
+        return None
+    return index
+
+
 def build_temporal_index(
     raw_footage_files: list,
     output_dir: str,
@@ -1726,6 +1753,17 @@ def build_temporal_index(
     Build temporal event index for all clips.
 
     Produces one JSON file per clip in <output_dir>/temporal_index/.
+
+    A clip whose index is already there is REUSED, not re-transcribed.
+    That per-clip file is the cache; the ledger in pipeline_data.json is
+    only bookkeeping over it.  Two consequences worth stating:
+
+      * A run that died on clip 12 of 17 costs five clips on the retry,
+        not seventeen.  This step used to re-index every clip every time,
+        and project 001 paid for the same forty minutes of WhisperX twice.
+      * Whoever deletes the file decides what gets recomputed.  The runner
+        deletes exactly the clips whose source footage changed, and
+        exactly the clip named by `--rerun temporal_index:clip_007`.
     """
     index_dir = os.path.join(output_dir, "temporal_index")
     # Resolve to absolute path so downstream steps can find the
@@ -1735,6 +1773,7 @@ def build_temporal_index(
 
     results = []
     full_indices = []
+    reused = 0
     total = len(raw_footage_files)
 
     for i, file_info in enumerate(raw_footage_files):
@@ -1756,15 +1795,21 @@ def build_temporal_index(
             print(f"  WARNING: file not found, skipping", file=sys.stderr)
             continue
 
-        try:
-            index = index_clip(
-                filepath, clip_id, output_dir, whisper_model_size
-            )
+        index_path = os.path.join(index_dir, f"{clip_id}.json")
 
-            # Write per-clip JSON
-            index_path = os.path.join(index_dir, f"{clip_id}.json")
-            with open(index_path, "w", encoding="utf-8") as f:
-                json.dump(index, f, indent=2)
+        try:
+            index = _load_cached_index(index_path)
+            if index is not None:
+                reused += 1
+                print(f"  reusing {os.path.basename(index_path)}",
+                      file=sys.stderr)
+            else:
+                index = index_clip(
+                    filepath, clip_id, output_dir, whisper_model_size
+                )
+                # Write per-clip JSON
+                with open(index_path, "w", encoding="utf-8") as f:
+                    json.dump(index, f, indent=2)
 
             # Keep full index for downstream steps that need speech_regions
             full_indices.append(index)
@@ -1805,6 +1850,7 @@ def build_temporal_index(
         "full_indices": full_indices,
         "total_indexed": sum(1 for r in results if "error" not in r),
         "total_failed": sum(1 for r in results if "error" in r),
+        "total_reused": reused,
         "index_dir": index_dir,
     }
 
@@ -1944,94 +1990,39 @@ def main():
             print(f"clip_id {args.clip_id} out of range", file=sys.stderr)
             sys.exit(1)
 
-    # ── Cache-aware execution ──
-    # Check if temporal indices already exist in raw/analysis/temporal_index/
-    # (from a previous run). If so, load them instead of re-running WhisperX.
+    # ── Where the index lives ──
+    #
+    # With the project, next to prosody's profiles - NOT in the runner's
+    # current working directory, which is what `--output-dir`'s default of
+    # "./pipeline_output" meant in practice.  Project 001's state recorded
+    # its 17-clip index at
+    #   /Users/.../.treehouse/video_editing_pilot-.../3/video_editing_pilot/pipeline_output/temporal_index
+    # - inside a DISPOSABLE git worktree.  Forty minutes of WhisperX,
+    # banked somewhere the project can never find it again, which is how
+    # it came to be paid for twice.
+    #
+    # There was also a "cache-aware execution" block here that looked for
+    # <project>/raw/analysis/temporal_index/ - a directory this step has
+    # never written to - and required a hit on ALL clips before it would
+    # use any of them.  It could not fire, and it read as coverage for the
+    # reuse that is now in build_temporal_index, per clip.
     project_folder = input_data.get("project_folder", "")
-    cache_dir = ""
+    output_dir = args.output_dir
     if project_folder:
-        cache_dir = os.path.abspath(
-            os.path.join(project_folder, "raw", "analysis", "temporal_index")
-        )
-    elif raw_files:
-        first_path = raw_files[0] if isinstance(raw_files[0], str) else raw_files[0].get("path", "")
-        if first_path:
-            path_parts = Path(first_path).parts
-            if 'raw' in path_parts:
-                raw_dir = str(Path(*path_parts[:path_parts.index('raw')+1]))
-            else:
-                raw_dir = os.path.dirname(first_path)
-            cache_dir = os.path.abspath(
-                os.path.join(raw_dir, "analysis", "temporal_index")
-            )
+        output_dir = os.path.join(project_folder, "pipeline_output")
 
-    if cache_dir and os.path.isdir(cache_dir):
-        # Load existing indices
-        cached_indices = []
-        cached_summaries = []
-        for i, file_info in enumerate(raw_files):
-            clip_id = file_info.get("clip_id", f"clip_{i + 1:03d}") if isinstance(file_info, dict) else f"clip_{i + 1:03d}"
-            index_path = os.path.join(cache_dir, f"{clip_id}.json")
-            if os.path.isfile(index_path):
-                with open(index_path, "r", encoding="utf-8") as f:
-                    idx = json.load(f)
-                cached_indices.append(idx)
-                cached_summaries.append({
-                    "clip_id": clip_id,
-                    "index_path": index_path,
-                    "scenes": idx.get("scene_boundaries", []),
-                    "speech_regions": idx.get("speech_regions", []),
-                    "speech_duration": round(
-                        sum(r["end"] - r["start"]
-                            for r in idx.get("speech_regions", [])),
-                        2,
-                    ),
-                    "total_words": sum(
-                        len(r.get("words", []))
-                        for r in idx.get("speech_regions", [])
-                    ),
-                    "energy_peaks": len(idx.get("energy_curve", {}).get("peak_times", [])),
-                    "audio_events": len(idx.get("audio_events", [])),
-                    "high_motion_count": len(idx.get("motion_energy", {}).get("high_motion_times", [])),
-                })
-
-        if len(cached_indices) == len(raw_files):
-            print(
-                f"\n{'=' * 50}\n"
-                f"Temporal Event Index — Loaded from cache\n"
-                f"  Cached: {len(cached_indices)} clips\n"
-                f"  Dir:    {cache_dir}\n"
-                f"{'=' * 50}",
-                file=sys.stderr,
-            )
-            # Output directly for DAG compatibility
-            _emit({
-                "temporal_event_indices": cached_summaries,
-                "full_indices": cached_indices,
-                "total_indexed": len(cached_indices),
-                "total_failed": 0,
-                "index_dir": cache_dir,
-                "source": "cache",
-            })
-            return
-        else:
-            print(
-                f"  Cache has {len(cached_indices)}/{len(raw_files)} clips, "
-                f"re-running full index",
-                file=sys.stderr,
-            )
-
-    # ── Fresh run ──
+    # ── Index, reusing whatever is already on disk ──
     result = build_temporal_index(
-        raw_files, args.output_dir, args.whisper_model
+        raw_files, output_dir, args.whisper_model
     )
-    result["source"] = "fresh"
+    result["source"] = "cache" if result["total_reused"] == len(raw_files) else "fresh"
 
     # Summary
     print(
         f"\n{'=' * 50}\n"
         f"Temporal Event Index Complete\n"
         f"  Indexed: {result['total_indexed']} clips\n"
+        f"  Reused:  {result['total_reused']} clips\n"
         f"  Failed:  {result['total_failed']} clips\n"
         f"  Output:  {result['index_dir']}\n"
         f"{'=' * 50}",

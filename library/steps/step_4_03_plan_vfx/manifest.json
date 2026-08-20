@@ -84,6 +84,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "hybrid",
     "archetype": "content_generation",
     "idempotent": false

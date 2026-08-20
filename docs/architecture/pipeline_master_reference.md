@@ -391,7 +391,7 @@ runs the DAG end to end and ends in an exported file (see the README for the
 CLI). The manual sequence below predates it and is kept only for running a
 single layer by hand:
 
-### Phase 1 — Analysis (automated, local)
+### Preflight — Analysis (automated, local)
 ```bash
 # 1. Transcribe all clips
 cd video_testing && python3 run_pipeline.py --skip-resolve --skip-import

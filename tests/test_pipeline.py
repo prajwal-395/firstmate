@@ -2,7 +2,7 @@
 """
 Pipeline Test Orchestrator — Phase 2-6 Re-run
 
-Uses existing Phase 1 outputs from 001 test project.
+Uses existing preflight outputs from 001 test project.
 Strategy: save updated step outputs to the pipeline_output dir with
 versioned names, then call each step's actual interface.
 
@@ -84,16 +84,16 @@ import pytest
 @pytest.mark.skipif(not os.path.exists(os.path.join(OUTPUT_DIR, "step_2_01.json")), reason='Pipeline output files missing')
 def test_pipeline_run():
     # ══════════════════════════════════════════════════════════════════════
-    # PHASE 1: Verify existing outputs
+    # PREFLIGHT: Verify existing outputs
     # ══════════════════════════════════════════════════════════════════════
     
-    banner("PHASE 1", "Loading existing analysis outputs")
+    banner("PREFLIGHT", "Loading existing analysis outputs")
     
     pipeline_data = load_json(os.path.join(PROJECT_DIR, "pipeline_data.json"))
     clip_catalog = pipeline_data.get("catalog", {}).get("clip_catalog", [])
     print(f"  Clip catalog: {len(clip_catalog)} clips")
     
-    # Verify Phase 1 files exist
+    # Verify preflight files exist
     for f in ["step_1_01.json", "step_1_02.json", "step_1_03.json"]:
         path = os.path.join(OUTPUT_DIR, f)
         exists = os.path.exists(path)

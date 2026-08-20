@@ -20,10 +20,13 @@ Output: {
 import json
 import os
 import sys
+from pathlib import Path
 
-SUPPORTED_VIDEO_EXTENSIONS = {
-    ".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v", ".webm"
-}
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.footage_identity import (
+    SUPPORTED_VIDEO_EXTENSIONS,
+    enumerate_footage,
+)
 
 
 def scan_project_folder(project_folder: str) -> dict:
@@ -45,52 +48,16 @@ def scan_project_folder(project_folder: str) -> dict:
             f"Cannot read project folder: {project_folder}"
         )
 
-    raw_footage_files = []
-    skipped_files = []
-    
-    raw_dir = os.path.join(project_folder, "raw")
-    if not os.path.exists(raw_dir) or not os.path.isdir(raw_dir):
-        raise FileNotFoundError(f"Missing 'raw' subdirectory in project folder: {project_folder}")
+    # Enumeration and clip_id assignment live in
+    # library/tools/footage_identity.py, because the runner's
+    # source-identity check has to number clips exactly the way this scan
+    # does or it cannot tell whether clip_007's cached analysis is still
+    # about the same file.
+    raw_footage_files, skipped_files = enumerate_footage(project_folder)
 
-    for root, _dirs, files in os.walk(raw_dir):
-        for fname in sorted(files):  # sorted for deterministic output order
-            filepath = os.path.join(root, fname)
-            ext = os.path.splitext(fname)[1].lower()
-
-            if ext not in SUPPORTED_VIDEO_EXTENSIONS:
-                continue
-
-            # Check individual file accessibility
-            if not os.access(filepath, os.R_OK):
-                skipped_files.append({
-                    "path": filepath,
-                    "reason": "permission denied"
-                })
-                print(
-                    f"WARNING: Skipping file (permission denied): {filepath}",
-                    file=sys.stderr,
-                )
-                continue
-
-            # Check for zero-byte files (likely corrupt)
-            size = os.path.getsize(filepath)
-            if size == 0:
-                skipped_files.append({
-                    "path": filepath,
-                    "reason": "zero-byte file (likely corrupt)"
-                })
-                print(
-                    f"WARNING: Skipping zero-byte file: {filepath}",
-                    file=sys.stderr,
-                )
-                continue
-
-            raw_footage_files.append({
-                "path": os.path.abspath(filepath),
-                "filename": fname,
-                "extension": ext,
-                "size_bytes": size,
-            })
+    for entry in skipped_files:
+        print(f"WARNING: Skipping file ({entry['reason']}): {entry['path']}",
+              file=sys.stderr)
 
     # --- Verification: at least one video file found ---
     if not raw_footage_files:
@@ -103,11 +70,6 @@ def scan_project_folder(project_folder: str) -> dict:
     for entry in raw_footage_files:
         assert os.path.isfile(entry["path"]), \
             f"Invalid file path: {entry['path']}"
-
-    # --- CRITICAL: Assign clip_id centrally to prevent parallel step desync ---
-    raw_footage_files = sorted(raw_footage_files, key=lambda x: x["path"])
-    for i, entry in enumerate(raw_footage_files):
-        entry["clip_id"] = f"clip_{i + 1:03d}"
 
     project_yaml_path = os.path.join(project_folder, "project.yaml")
     project_config = {

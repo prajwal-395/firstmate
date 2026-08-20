@@ -6,8 +6,13 @@
  */
 
 const PHASES = [
-    { id: '0', label: 'Phase 0 - Setup', steps: ['scan'] },
-    { id: '1', label: 'Phase 1 - Ingest & Analysis', steps: ['catalog', 'semantic_analysis', 'temporal_index', 'prosody_analysis'] },
+    // The pipeline's own analysis stage is the PREFLIGHT stage, never
+    // "phase 1" - docs/PIPELINE_PLAN.md uses Phase 0/1/2 for the
+    // quality-work programme and the two collided. `scan` belongs here
+    // too: it enumerates the footage, and it is what the preflight
+    // ledger records. See library/tools/step_ledger.py.
+    { id: '0', label: 'Setup', steps: ['validate_sfx_library'] },
+    { id: 'preflight', label: 'Preflight - Ingest & Analysis', steps: ['scan', 'catalog', 'semantic_analysis', 'temporal_index', 'prosody_analysis'] },
     { id: '2', label: 'Phase 2 - Creative Planning', steps: ['creative_direction', 'speech_sequence', 'music_selection', 'music_analysis', 'mesh_spine'] },
     { id: '3', label: 'Phase 3 - Assembly', steps: ['assign_aroll', 'select_broll', 'review_rough_cut'] },
     { id: '4', label: 'Phase 4 - Post-Production', steps: ['plan_subtitles', 'plan_transitions', 'plan_vfx', 'plan_sfx', 'render_subtitles', 'render_motion_graphics'] },

@@ -222,6 +222,8 @@ def cmd_run(args):
         cmd.append("--review")
     if args.resume:
         cmd.append("--resume")
+    for target in getattr(args, "rerun", None) or []:
+        cmd.extend(["--rerun", target])
     if getattr(args, "full_auto", None):
         cmd.extend(["--full-auto", args.full_auto])
     if getattr(args, "llm_timeout", None):
@@ -389,6 +391,12 @@ def main():
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
     p_run.add_argument("--review", action="store_true",
                        help="Enable review gates for dashboard inspection")
+    p_run.add_argument(
+        "--rerun", action="append", metavar="TARGET", default=[],
+        help="Redo finished work. Repeatable. TARGET is a stage "
+             "(preflight|edit), a step (temporal_index), or one clip of one "
+             "step (temporal_index:clip_007). Preflight work is skipped once "
+             "done, so this is how you ask for it again")
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
     p_run.add_argument("--full-auto", choices=["agy", "api"],

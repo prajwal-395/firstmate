@@ -2,7 +2,7 @@
   "id": "step_0_01_validate_sfx_library",
   "name": "Validate SFX Library",
   "version": "1.0.0",
-  "description": "Pre-flight check: verifies the SFX library FAISS index exists and is searchable. Does NOT re-run the SFX profiling pipeline \u2014 that's a one-time setup. Fails with a clear message if the index is missing or corrupt.",
+  "description": "Startup check: verifies the SFX library FAISS index exists and is searchable. Does NOT re-run the SFX profiling pipeline \u2014 that's a one-time setup. Fails with a clear message if the index is missing or corrupt.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -28,6 +28,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "deterministic",
     "archetype": "validation",
     "idempotent": true

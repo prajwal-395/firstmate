@@ -34,9 +34,15 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "evaluation_judgment",
-    "idempotent": false
+    "idempotent": false,
+    "per_clip_artifacts": [
+      "raw/analysis/clip_profile_{stem}.json",
+      "raw/analysis/clip_profile_{stem}_v3.json",
+      "raw/analysis/clip_profile_{stem}_video_only.json"
+    ]
   },
   "dependencies": [
     "step_1_02_catalog_footage"

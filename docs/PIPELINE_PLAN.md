@@ -12,6 +12,19 @@ quality edits programmatically**. Footage in one end, an edit out the other
 that someone would be happy to publish. Not a green DAG. Not a full
 `step_outputs` map.
 
+## "Phase" in this document
+
+Phase 0/1/2/3/4 below are stages of the QUALITY-WORK PROGRAMME - honesty,
+framing, audio, colour, rhythm. They are not the pipeline's own step
+phases, and the two used to collide on "Phase 1".
+
+They no longer do. The pipeline's analysis stage - steps 1.01 to 1.07, the
+work that turns footage into transcripts, vision profiles and prosody - is
+now the **preflight** stage, named as such in every step manifest
+(`classification.stage`), in the runner, in the dashboard and in the
+`--rerun` flag. See `library/tools/step_ledger.py`. Where this document
+says "phase 1" it means framing, and nothing else.
+
 ## How to read this
 
 Every claim below about whether something reaches the screen cites the

@@ -28,6 +28,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "deterministic",
     "archetype": "data_transformation",
     "idempotent": true

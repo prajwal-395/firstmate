@@ -29,9 +29,13 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "data_processing",
-    "idempotent": true
+    "idempotent": true,
+    "per_clip_artifacts": [
+      "pipeline_output/segmentation_data/{clip_id}_segmentation.json"
+    ]
   },
   "dependencies": [
     "step_1_02_catalog_footage"

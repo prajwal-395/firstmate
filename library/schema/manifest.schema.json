@@ -86,8 +86,13 @@
     },
     "classification": {
       "type": "object",
-      "required": ["determinism", "archetype", "idempotent"],
+      "required": ["stage", "determinism", "archetype", "idempotent"],
       "properties": {
+        "stage": {
+          "type": "string",
+          "enum": ["preflight", "edit"],
+          "description": "Which ledger records this step's completion. 'preflight' enriches this project's source footage and survives an edit reset; 'edit' sits downstream of a creative decision and is discarded by one. See library/tools/step_ledger.py."
+        },
         "determinism": {
           "type": "string",
           "enum": ["deterministic", "nondeterministic"],
@@ -109,6 +114,11 @@
         "idempotent": {
           "type": "boolean",
           "description": "Whether re-executing with the same inputs is safe (produces the same result without side effects)."
+        },
+        "per_clip_artifacts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Project-relative paths, one per clip, that this step writes and reuses when already present. May contain {clip_id} and {stem}. Declaring them is what makes --rerun <step>:<clip_id> possible."
         }
       },
       "additionalProperties": false

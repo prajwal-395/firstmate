@@ -81,6 +81,7 @@
     ]
   },
   "classification": {
+    "stage": "edit",
     "determinism": "hybrid",
     "archetype": "evaluation_judgment",
     "idempotent": true

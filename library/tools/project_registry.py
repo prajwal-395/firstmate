@@ -328,7 +328,11 @@ def project_status(slug: str, root: Path = None) -> dict:
         with open(config.pipeline_data_path) as f:
             pipeline_state = json.load(f)
 
-    steps_completed = list(pipeline_state.get("steps_completed", {}).keys())
+    # Both ledgers, merged for display. The split is real in the state
+    # file - see library/tools/step_ledger.py - but a project listing
+    # wants the whole picture.
+    from library.tools import step_ledger
+    steps_completed = list(step_ledger.all_completed(pipeline_state).keys())
 
     # Check exports
     exports = []

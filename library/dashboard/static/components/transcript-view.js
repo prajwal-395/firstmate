@@ -19,7 +19,7 @@ async function renderTranscriptView() {
                 <div class="empty-state">
                     <div class="empty-state-icon">&#128196;</div>
                     <div class="empty-state-text">
-                        No transcript available yet. Run Phase 1 (temporal index) to generate transcripts.
+                        No transcript available yet. Run preflight (temporal index) to generate transcripts.
                     </div>
                 </div>
             `;

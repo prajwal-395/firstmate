@@ -46,6 +46,7 @@
     ]
   },
   "classification": {
+    "stage": "preflight",
     "determinism": "deterministic",
     "archetype": "information_retrieval",
     "idempotent": true

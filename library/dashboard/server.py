@@ -70,6 +70,7 @@ from library.tools.step_exporter import (
 )
 from library.tools.thumbnail_extractor import get_thumbnail_url
 from library.tools import run_control
+from library.tools import step_ledger
 
 
 # ── App Setup ───────────────────────────────────────────────────────
@@ -271,7 +272,7 @@ async def get_projects():
     # 1. Add registered
     for config in registered:
         state = _load_pipeline_state(str(config.project_root))
-        completed = state.get("steps_completed", {})
+        completed = step_ledger.all_completed(state)
         projects.append(ProjectInfo(
             slug=config.slug,
             name=config.name,
@@ -295,7 +296,7 @@ async def get_projects():
             if str(entry) not in registered_paths:
                 if (entry / "pipeline_data.json").exists() or (entry / "project.yaml").exists():
                     state = _load_pipeline_state(str(entry))
-                    completed = state.get("steps_completed", {})
+                    completed = step_ledger.all_completed(state)
                     projects.append(ProjectInfo(
                         slug=entry.name,
                         name=entry.name,
@@ -316,7 +317,7 @@ async def get_projects():
                 if str(sub_entry) not in registered_paths:
                     if (sub_entry / "pipeline_data.json").exists() or (sub_entry / "project.yaml").exists():
                         state = _load_pipeline_state(str(sub_entry))
-                        completed = state.get("steps_completed", {})
+                        completed = step_ledger.all_completed(state)
                         projects.append(ProjectInfo(
                             slug=sub_entry.name,
                             name=sub_entry.name,
@@ -356,7 +357,7 @@ async def get_project():
             if f.lower().endswith((".mov", ".mp4", ".avi", ".mkv"))
         ])
 
-    completed = state.get("steps_completed", {})
+    completed = step_ledger.all_completed(state)
     return ProjectInfo(
         slug=config.get("slug", _project_slug or os.path.basename(project_dir)),
         name=config.get("name", os.path.basename(project_dir)),
@@ -381,7 +382,7 @@ async def list_steps():
     dag = _load_dag()
     gate_statuses = get_all_gate_statuses(project_dir)
 
-    completed = state.get("steps_completed", {})
+    completed = step_ledger.all_completed(state)
     outputs = state.get("step_outputs", {})
 
     steps = []
@@ -433,7 +434,7 @@ async def get_step_detail(step_id: str):
     if not node:
         raise HTTPException(404, f"Step '{step_id}' not found in DAG")
 
-    completed = state.get("steps_completed", {})
+    completed = step_ledger.all_completed(state)
     outputs = state.get("step_outputs", {})
     output = outputs.get(step_id, {})
 
@@ -1037,7 +1038,7 @@ def _step_order() -> List[str]:
 def _resolve_next_step(project_dir: str) -> Optional[str]:
     state = _load_pipeline_state(project_dir)
     return run_control.next_runnable_step(
-        _step_order(), state.get("steps_completed", {}))
+        _step_order(), step_ledger.all_completed(state))
 
 
 async def _launch(project_dir: str, extra_args: List[str]) -> Dict[str, Any]:
@@ -1269,7 +1270,7 @@ async def pipeline_status():
         is_running=is_running,
         current_step=current_step,
         current_step_name=run_status.get("current_step_name") if current_step else None,
-        completed_steps=list(state.get("steps_completed", {}).keys()),
+        completed_steps=list(step_ledger.all_completed(state).keys()),
         pending_gates=pending,
         failed_steps=state.get("failed_steps", []),
         hold_requested=hold is not None,

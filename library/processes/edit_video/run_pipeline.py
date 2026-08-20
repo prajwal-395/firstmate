@@ -31,6 +31,7 @@ import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import run_control
+from library.tools import footage_identity, step_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,20 @@ def get_step_dir(dag_node: dict) -> Path:
     return LIBRARY_ROOT / step_ref
 
 
+def _phase_of(dag_node: dict) -> str:
+    """The pipeline phase digit a DAG node belongs to, from its step_ref.
+
+    `steps/step_1_04_temporal_index` -> "1".  Read off the step_ref and
+    not the node id, which is a short name like `temporal_index` and
+    carries no phase at all.
+    """
+    name = Path(dag_node.get("step_ref", "")).name
+    parts = name.split("_")
+    if len(parts) > 1 and parts[0] == "step" and parts[1].isdigit():
+        return parts[1]
+    return ""
+
+
 def get_step_implementation(step_dir: Path) -> dict:
     """Determine what type of implementation a step has."""
     has_step_py = (step_dir / "step.py").exists()
@@ -236,7 +251,9 @@ def load_pipeline_state(project_dir: str) -> dict:
         state = {
             "pipeline_version": "1.0",
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "steps_completed": {},
+            # Two ledgers, two lifetimes. See library/tools/step_ledger.py.
+            step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {},
+            step_ledger.LEDGER_KEY[step_ledger.EDIT]: {},
             "step_outputs": {},
         }
     # Always inject project_folder from CLI
@@ -318,7 +335,10 @@ def _record_step_failure(state: dict, node_id: str, message: str) -> None:
     if node_id not in failed:
         failed.append(node_id)
     state.setdefault("step_errors", {})[node_id] = message
-    state.get("steps_completed", {}).pop(node_id, None)
+    # The ledger entry goes; the per-clip artifacts on disk stay. A
+    # transcription that died on clip 12 of 17 keeps the eleven indices it
+    # wrote, so the re-run pays for the remainder and not the lot.
+    step_ledger.forget(state, node_id)
 
 
 def _clear_step_failure(state: dict, node_id: str) -> None:
@@ -335,6 +355,231 @@ def save_pipeline_state(project_dir: str, state: dict):
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
+
+
+# ── The preflight / edit split ──────────────────────────────────────
+#
+# Three mechanisms, and only three:
+#
+#   1. Every step manifest declares classification.stage, so which side a
+#      step is on is DECLARED rather than hardcoded here.
+#   2. --rerun is the only supported way to redo finished work. Before it
+#      existed, --from merely trimmed the plan and the skip-if-finished
+#      check fired anyway, so the only route was to move
+#      pipeline_data.json aside - which is how project 001 paid for forty
+#      minutes of WhisperX twice.
+#   3. A source-identity check invalidates a clip's cached analysis when
+#      the footage behind it is replaced. That is what makes "preflight is
+#      skipped once done" safe and not merely fast.
+#
+# Deliberately NOT here: a caching framework or a content-addressed
+# artifact store. The artifacts are already per clip on disk.
+
+
+def _load_step_manifest(step_dir: Path) -> dict:
+    """A step's manifest, read straight off disk.
+
+    Deliberately not routed through `get_step_implementation`: the stage
+    is a property of the step as it exists in the repository, and reading
+    it here keeps the split honest even where the implementation lookup
+    is stubbed.
+    """
+    manifest_path = step_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise step_ledger.LedgerError(
+            f"Step directory {step_dir} has no manifest.json, so it declares "
+            f"no stage. Every step must declare one of "
+            f"{list(step_ledger.STAGES)}."
+        )
+    with open(manifest_path) as f:
+        return json.load(f)
+
+
+def _manifest_map(nodes: dict) -> dict:
+    return {node_id: _load_step_manifest(get_step_dir(node))
+            for node_id, node in nodes.items()}
+
+
+def _stage_map(manifests: dict) -> dict:
+    """{node_id: stage} for every node in the DAG, read from its manifest."""
+    return {node_id: step_ledger.stage_of(manifest, node_id)
+            for node_id, manifest in manifests.items()}
+
+
+def _delete_clip_artifacts(project_dir: str, manifest: dict, clip_id: str,
+                           fingerprint_sets: list) -> list:
+    """Delete one clip's declared artifacts. Returns the paths removed.
+
+    ``fingerprint_sets`` are the footage records to translate the clip id
+    into a file stem with - both the recorded one and the current one,
+    because a renumbered clip id points at a different stem in each.
+    """
+    patterns = step_ledger.per_clip_artifacts(manifest)
+    if not patterns:
+        return []
+    stems = {""}
+    for fps in fingerprint_sets:
+        stem = footage_identity.stem_for(clip_id, fps or {})
+        if stem:
+            stems.add(stem)
+    removed = []
+    for stem in stems:
+        for path in step_ledger.artifact_paths(project_dir, patterns,
+                                               clip_id, stem):
+            if "{" in path:  # a pattern needing a stem we could not resolve
+                continue
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    removed.append(path)
+                except OSError as e:
+                    print(f"     ⚠ could not remove {path}: {e}",
+                          file=sys.stderr)
+    return removed
+
+
+def apply_rerun_requests(project_dir: str, state: dict, targets: list,
+                         stage_by_node: dict, manifests: dict) -> list:
+    """Honour every --rerun target. The operator's word beats the ledger.
+
+    A target that names nothing raises, because a typo that silently
+    re-runs nothing is how an operator concludes the flag does not work.
+    """
+    if not targets:
+        return []
+
+    current = {}
+    try:
+        files, _skipped = footage_identity.enumerate_footage(project_dir)
+        current = footage_identity.fingerprints_for(files)
+    except (OSError, FileNotFoundError):
+        pass
+    recorded = state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {})
+
+    applied = []
+    for raw in targets:
+        kind, value = step_ledger.parse_rerun_target(raw, stage_by_node)
+
+        if kind == "stage":
+            cleared = step_ledger.reset_stage(state, value, stage_by_node)
+            applied.append(f"stage {value}: cleared {len(cleared)} steps")
+            continue
+
+        if kind == "step":
+            step_id = value
+            step_ledger.forget(state, step_id)
+            state.get("step_outputs", {}).pop(step_id, None)
+            _clear_step_failure(state, step_id)
+            # "Re-run the step" has to mean recompute. A per-clip step
+            # reuses whatever is still on disk, so leaving the artifacts
+            # in place would make the request a no-op.
+            removed = []
+            for clip_id in sorted(set(current) | set(recorded)):
+                removed += _delete_clip_artifacts(
+                    project_dir, manifests.get(step_id, {}), clip_id,
+                    [recorded, current])
+            applied.append(
+                f"step {step_id}: ledger cleared"
+                + (f", {len(removed)} artifacts removed" if removed else ""))
+            continue
+
+        step_id, _, clip_id = value.partition(":")
+        manifest = manifests.get(step_id, {})
+        if not step_ledger.per_clip_artifacts(manifest):
+            raise step_ledger.LedgerError(
+                f"--rerun {raw!r}: step '{step_id}' declares no "
+                f"per_clip_artifacts, so it has no per-clip granularity to "
+                f"re-run. Use --rerun {step_id} to re-run the whole step."
+            )
+        if current and clip_id not in current and clip_id not in recorded:
+            raise step_ledger.LedgerError(
+                f"--rerun {raw!r}: this project has no clip {clip_id!r}. "
+                f"Known: {', '.join(sorted(current)) or '(none)'}"
+            )
+        removed = _delete_clip_artifacts(project_dir, manifest, clip_id,
+                                         [recorded, current])
+        # The step's own output has to be re-emitted, so its ledger entry
+        # goes too. Every OTHER clip's artifact survives, so the re-run
+        # recomputes exactly this one.
+        step_ledger.forget(state, step_id)
+        _clear_step_failure(state, step_id)
+        applied.append(
+            f"clip {clip_id} of {step_id}: {len(removed)} artifacts removed")
+
+    return applied
+
+
+def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
+                          manifests: dict):
+    """Invalidate cached preflight work whose source footage has changed.
+
+    Identity is size plus mtime per file - see
+    ``library/tools/footage_identity.py`` for why it is not a content
+    hash. The comparison is against the footage the preflight stage last
+    saw, recorded in ``source_fingerprints``.
+
+    On a project that has never carried that record, the current footage
+    is ADOPTED without invalidating anything: an existing ledger is the
+    operator's claim and there is no evidence against it. The check earns
+    its keep from the second run onward.
+    """
+    try:
+        files, _skipped = footage_identity.enumerate_footage(project_dir)
+    except (OSError, FileNotFoundError):
+        # No raw/ yet, or unreadable. `scan` will fail with a real message.
+        return None
+
+    current = footage_identity.fingerprints_for(files)
+    recorded = state.get(step_ledger.SOURCE_FINGERPRINTS_KEY)
+    if not recorded:
+        state[step_ledger.SOURCE_FINGERPRINTS_KEY] = current
+        return None
+
+    if recorded and not current:
+        # Every clip gone at once is far more likely an unmounted volume
+        # or a mistyped project path than a deliberate emptying, and the
+        # invalidation it would trigger is total.  Refuse, loudly.
+        print("  ⚠ The raw footage directory enumerates to nothing while "
+              f"{len(recorded)} clips are on record. Refusing to invalidate "
+              "the preflight work - check the footage is where it should be. "
+              "Use --rerun preflight if the project really has been emptied.",
+              file=sys.stderr)
+        return None
+
+    delta = footage_identity.compare(recorded, current)
+    if not delta.footage_changed:
+        return delta
+
+    print(f"  ⚠ Source footage changed ({delta.describe()}) - "
+          f"invalidating the preflight work that depended on it",
+          file=sys.stderr)
+
+    stale = delta.stale_clip_ids
+    for node_id, stage in sorted(stage_by_node.items()):
+        if stage != step_ledger.PREFLIGHT:
+            continue
+        manifest = manifests.get(node_id, {})
+        patterns = step_ledger.per_clip_artifacts(manifest)
+        if not patterns:
+            # Whole-step preflight work - the scan and the catalog. Both
+            # describe the footage SET, and the set moved.
+            if step_ledger.is_completed(state, node_id):
+                step_ledger.forget(state, node_id)
+                print(f"     - {node_id}: re-runs (describes the whole set)",
+                      file=sys.stderr)
+            continue
+        removed = []
+        for clip_id in stale:
+            removed += _delete_clip_artifacts(project_dir, manifest, clip_id,
+                                              [recorded, current])
+        if removed or step_ledger.is_completed(state, node_id):
+            step_ledger.forget(state, node_id)
+            print(f"     - {node_id}: re-runs for "
+                  f"{', '.join(stale) or 'no clips'} "
+                  f"({len(removed)} artifacts removed)", file=sys.stderr)
+
+    state[step_ledger.SOURCE_FINGERPRINTS_KEY] = current
+    return delta
 
 
 def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None, step_type: str = "unknown") -> dict:
@@ -1118,16 +1363,42 @@ def run_pipeline(
     resume_mode: bool = False,
     full_auto: str = None,
     llm_timeout: int = 300,
+    rerun: list = None,
 ):
     """Execute the pipeline DAG."""
     # Initialize logger
     get_logger(project_dir)
-    
+
     dag = load_dag()
     state = load_pipeline_state(project_dir)
     order = topological_sort(dag)
     nodes = {n["id"]: n for n in dag["nodes"]}
-    
+
+    # The split ledger. Stages are declared per step; a project written
+    # before the split is folded into the two ledgers once, here.
+    manifests = _manifest_map(nodes)
+    stage_by_node = _stage_map(manifests)
+    migrated = step_ledger.migrate_legacy(state, stage_by_node)
+    if migrated:
+        print(f"  Migrated {len(migrated)} steps from the single "
+              f"'steps_completed' ledger into preflight/edit",
+              file=sys.stderr)
+
+    # --rerun deletes artifacts and clears ledger entries, so a dry run
+    # reports the request rather than performing it.
+    if rerun and dry_run:
+        for raw in rerun:
+            kind, value = step_ledger.parse_rerun_target(raw, stage_by_node)
+            print(f"  ↻ would re-run ({kind}): {value}", file=sys.stderr)
+    elif rerun:
+        for line in apply_rerun_requests(project_dir, state, rerun,
+                                         stage_by_node, manifests):
+            print(f"  ↻ re-run requested - {line}", file=sys.stderr)
+
+    if not dry_run:
+        apply_source_identity(project_dir, state, stage_by_node, manifests)
+        save_pipeline_state(project_dir, state)
+
     print(f"\n{'═'*60}", file=sys.stderr)
     print(f"  Pipeline: edit_video", file=sys.stderr)
     print(f"  Project: {project_dir}", file=sys.stderr)
@@ -1166,9 +1437,10 @@ def run_pipeline(
     if dry_run:
         for node_id in steps_to_run:
             impl = get_step_implementation(get_step_dir(nodes[node_id]))
-            done = node_id in state.get("steps_completed", {})
+            done = step_ledger.is_completed(state, node_id)
+            stage = stage_by_node[node_id]
             print(f"    {'[done] ' if done else '       '}{node_id} "
-                  f"({impl['type']})", file=sys.stderr)
+                  f"({impl['type']}, {stage})", file=sys.stderr)
         summary = {"status": "DRY_RUN", "steps_to_run": steps_to_run}
         json.dump(summary, sys.stdout, indent=2)
         return summary
@@ -1183,6 +1455,7 @@ def run_pipeline(
     run_mode = run_control.describe_mode(
         full_auto=full_auto, auto_mode=auto_mode, review_mode=review_mode,
         resume_mode=resume_mode, single_step=single_step, from_step=from_step,
+        rerun=rerun,
     )
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
                                  argv=sys.argv[1:])
@@ -1208,21 +1481,36 @@ def run_pipeline(
             )
             break
 
-        # Extract phase from node_id (e.g. 'step_1_01_scan' -> '1')
-        parts = node_id.split('_')
-        phase = parts[1] if len(parts) > 1 else None
+        node = nodes[node_id]
+
+        # Free the loaded ML models when the run crosses a phase boundary.
+        #
+        # This read the phase off the DAG NODE ID, which is `scan`, not
+        # `step_1_01_scan_project`: `"scan".split("_")` is one element, so
+        # `phase` was None for every node in the DAG and `unload_all()`
+        # never once fired.  The step_ref is where the phase actually
+        # lives.  It matters most at the boundary this refactor names -
+        # preflight holds WhisperX, wav2vec2 and the vision model, and the
+        # edit stage needs none of them.
+        phase = _phase_of(node)
         if phase and current_phase and phase != current_phase:
-            print(f"\n  [Phase Transition] {current_phase} -> {phase}. Freeing VRAM...", file=sys.stderr)
+            print(f"\n  [Phase Transition] {current_phase} -> {phase}. "
+                  f"Freeing VRAM...", file=sys.stderr)
             unload_all()
         if phase:
             current_phase = phase
-            
-        node = nodes[node_id]
+
+
         step_dir = get_step_dir(node)
         impl = get_step_implementation(step_dir)
         
-        # Check if already completed
-        if node_id in state.get("steps_completed", {}):
+        # Check if already completed.  A finished preflight step is
+        # skipped by default and stays skipped until either the
+        # source-identity check or an explicit --rerun says otherwise -
+        # that is the captain's ruling of "same command, preflight
+        # auto-skipped once done", and it is why there is no separate
+        # preflight command.
+        if step_ledger.is_completed(state, node_id):
             if resume_mode:
                 from library.tools.review_gate import load_gate_feedback, apply_feedback_to_output
                 feedback = load_gate_feedback(project_dir, node_id)
@@ -1426,12 +1714,13 @@ def run_pipeline(
 
             state.setdefault("step_outputs", {})[node_id] = output
             _clear_step_failure(state, node_id)
-            state.setdefault("steps_completed", {})[node_id] = {
+            entry = {
                 "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "elapsed_s": round(elapsed, 1),
             }
             if auto_mode and impl["type"] == "hybrid":
-                state["steps_completed"][node_id]["note"] = "auto-completed via bridge (context only)"
+                entry["note"] = "auto-completed via bridge (context only)"
+            step_ledger.record(state, stage_by_node[node_id], node_id, entry)
             save_pipeline_state(project_dir, state)
             
             if node_id == "mesh_spine":
@@ -1491,7 +1780,7 @@ def run_pipeline(
     outstanding_failures = sorted(set(state.get("failed_steps", [])))
     never_run = [
         node_id for node_id in order
-        if node_id not in state.get("steps_completed", {})
+        if not step_ledger.is_completed(state, node_id)
         and node_id not in awaiting_llm
     ]
     # `--step`, `--from` and a review-gate pause all leave DAG steps unrun
@@ -1522,6 +1811,15 @@ def run_pipeline(
     print(f"  Outstanding failures (all runs): "
           f"{len(outstanding_failures)}", file=sys.stderr)
     print(f"  Never completed: {len(never_run)} steps", file=sys.stderr)
+    stage_totals = {stage: sum(1 for s in stage_by_node.values() if s == stage)
+                    for stage in step_ledger.STAGES}
+    stage_done = {
+        stage: len(state.get(step_ledger.LEDGER_KEY[stage], {}))
+        for stage in step_ledger.STAGES
+    }
+    print("  Ledgers:      " + ", ".join(
+        f"{stage} {stage_done[stage]}/{stage_totals[stage]}"
+        for stage in step_ledger.STAGES), file=sys.stderr)
     if paused_at_gate:
         print(f"  Paused at review gate: {paused_at_gate}", file=sys.stderr)
     if held_before_step:
@@ -1548,7 +1846,8 @@ def run_pipeline(
     summary = {
         "status": status,
         "completed": completed,
-        "completed_steps": len(state.get("steps_completed", {})),
+        "completed_steps": len(step_ledger.all_completed(state)),
+        "stage_completed": stage_done,
         "awaiting_llm": awaiting_llm,
         "failed": failed,
         "outstanding_failures": outstanding_failures,
@@ -1623,6 +1922,13 @@ def main():
                        help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
     parser.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
+    parser.add_argument(
+        "--rerun", action="append", metavar="TARGET", default=[],
+        help="Redo finished work. Repeatable. TARGET is a stage "
+             "(preflight|edit), a step (temporal_index), or one clip of "
+             "one step (temporal_index:clip_007). This is the only "
+             "supported way to re-run a completed step; --from only "
+             "trims the plan.")
     parser.add_argument("--full-auto", choices=["agy", "api", "mock"], help="Run full pipeline autonomously using specified LLM backend")
     parser.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agy backend")
@@ -1648,6 +1954,7 @@ def main():
         resume_mode=args.resume,
         full_auto=args.full_auto,
         llm_timeout=args.llm_timeout,
+        rerun=args.rerun,
     )
     # A failed run must look failed to whatever invoked us. Printing
     # "Status: FAILED" and exiting 0 is how a hollow timeline shipped as a

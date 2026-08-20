@@ -34,7 +34,8 @@ The repository is structured to separate the pipeline engine from project data.
 
 The pipeline is defined as a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`.
 Execution order is resolved via topological sort.
-The DAG groups 26 atomic steps into distinct phases: 0 for setup, 1 for analysis, 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
+The DAG groups 26 atomic steps into distinct phases: 0 for setup, PREFLIGHT for analysis (the step ids still read `step_1_0X_*`), 2 for planning, 3 for assembly, 4 for post-production, 5 for finishing/QA, and 6 for rendering.
+Call that stage preflight and never "phase 1" - `docs/PIPELINE_PLAN.md` uses Phase 0/1/2 for the quality-work programme, and the two names collided.
 `library/steps/` holds 28 step definitions; `object_segmentation` (1.06) and `ocr_extraction` (1.07) exist but are not wired into the DAG.
 
 Run the pipeline using the project manager CLI: `python3 manage_project.py run <slug>`.
@@ -44,6 +45,7 @@ Use `--auto` to auto-complete hybrid steps using bridge output instead of pausin
 Use `--review` to enable review gates that pause the pipeline for human inspection on the dashboard.
 Use `--resume` to continue the pipeline after a review gate is approved or revised.
 Use `--dry-run` to print the execution plan without running steps.
+Use `--rerun <target>` to redo finished work; it is repeatable and it is the ONLY supported way to re-run a completed step.
 
 Steps come in three implementation types based on their contents.
 Deterministic steps have a `step.py` and run automatically using JSON stdin/stdout.
@@ -51,8 +53,61 @@ Hybrid steps have a `bridge.py` that pre-computes context and a `handoff.md` pro
 LLM-only steps have only a `handoff.md` prompt and require an LLM to generate the output from upstream context.
 
 Pipeline state is stored in `pipeline_data.json` at the root of each project directory.
-The state file tracks completed steps and stores all JSON outputs under `step_outputs`.
+The state file tracks completed steps in TWO ledgers - see the next section - and stores all JSON outputs under `step_outputs`.
 Inspect `pipeline_data.json` to debug data flow or verify upstream step results.
+
+### Preflight and edit: two ledgers, two lifetimes
+
+One enumeration, `library/tools/step_ledger.py`. Every step manifest
+declares `classification.stage`, and an undeclared or unknown stage
+raises rather than defaulting.
+
+**preflight** is enrichment of THIS PROJECT'S SOURCE FOOTAGE - scan,
+catalog, vision, transcription, prosody, segmentation, OCR - recorded in
+`preflight_completed`. **edit** is everything downstream of a creative
+decision, recorded in `edit_completed`. `validate_sfx_library` (0.01) is
+edit: it validates a SHARED library, not this project's footage.
+`music_analysis` (2.06) is edit: it enriches a CHOSEN asset, and the
+choice is the thing an edit reset discards.
+
+The two keys are separate, so `--rerun edit` is structurally incapable of
+discarding enrichment - it never names the other ledger. Before this,
+one flat `steps_completed` covered all 28 steps with one lifetime, `--from`
+only trimmed the plan while the skip-if-finished check fired anyway, and
+the only way to redo creative work was to move `pipeline_data.json` aside.
+That move is what made project 001 pay for forty minutes of WhisperX twice
+(`docs/RUN_001_END_TO_END.md`).
+
+    manage_project.py run <slug> --rerun edit                     # reset the edit run
+    manage_project.py run <slug> --rerun temporal_index           # one step
+    manage_project.py run <slug> --rerun temporal_index:clip_007  # one clip of one step
+
+Per-clip granularity works because the artifacts are already per clip on
+disk and each step declares where its own live, in
+`classification.per_clip_artifacts`. The runner deletes exactly those
+files; the step's own "already on disk?" check recomputes exactly that
+clip. A step that declares none is re-run whole. Add a per-clip artifact
+and you must declare it, or nothing can invalidate it.
+
+**Preflight is skipped once done, and that is safe because identity is
+checked.** `library/tools/footage_identity.py` fingerprints each clip by
+size plus a digest of its first and last mebibyte - not a whole-file hash
+(gigabytes of IO per run) and NOT mtime (a `cp` without `-p` or a backup
+tool would destroy forty minutes of WhisperX). It compares against
+`source_fingerprints` in the state file, and replaced, removed or
+renumbered footage invalidates exactly its own cached analysis. Clip ids
+are assigned by sorted path, so ADDING a file renumbers everything after
+it; that is why the fingerprint carries the path too.
+
+Deliberately NOT built: a caching framework or a content-addressed
+artifact store. One declared field, one split ledger, one re-run flag,
+one identity check.
+
+**The per-clip index lives with the PROJECT.** Step 1.04 wrote it to
+`--output-dir`'s default of `./pipeline_output`, which is the runner's
+CWD: project 001's state recorded its 17-clip index inside a disposable
+git worktree. It now resolves from `project_folder`, and reuses any
+per-clip file already there instead of re-transcribing it.
 
 The run summary reports `SUCCESS` only when the whole DAG is complete and
 `failed_steps` is empty in the project ledger - not just the steps this

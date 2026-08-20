@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from library.processes.edit_video.run_pipeline import run_pipeline, load_pipeline_state
 from library.tools.review_gate import save_gate_feedback, get_gate_status
+from library.tools import step_ledger
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "e2e_pipeline_data.json"
 
@@ -91,7 +92,10 @@ def test_e2e_pipeline_run(mock_present_llm, mock_subprocess, mock_deterministic,
             assert "mesh_spine" in summary2["completed"]
             
             state2 = load_pipeline_state(str(temp_project))
-            assert "mesh_spine" in state2["steps_completed"]
+            # mesh_spine is an edit-stage step, so its completion lands in
+            # the edit ledger. See library/tools/step_ledger.py.
+            assert "mesh_spine" in state2[step_ledger.LEDGER_KEY[step_ledger.EDIT]]
+            assert "mesh_spine" in step_ledger.all_completed(state2)
             assert state2["step_outputs"]["mesh_spine"] == {"mock_deterministic_output": True}
 
 @patch("library.processes.edit_video.run_pipeline.run_deterministic_step")
