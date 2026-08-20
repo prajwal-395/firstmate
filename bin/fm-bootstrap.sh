@@ -809,6 +809,13 @@ treehouse_supports_lease() {
   treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
 }
 
+# Crewmate spawns lease their pool slot and then send the pane into it with
+# `treehouse enter <slot>` (bin/fm-spawn.sh), so `enter` is now as load-bearing
+# as `--lease` and is gated beside it rather than discovered at spawn time.
+treehouse_supports_enter() {
+  treehouse enter --help >/dev/null 2>&1
+}
+
 # Shared semantic-version floor for the tool gates below. A version string that
 # cannot be parsed into exactly one major.minor.patch triple is incompatible,
 # never assumed current, so a development or vendored build cannot pass a floor
@@ -1168,7 +1175,8 @@ detect_local_tools() {
   # backend actually requires treehouse (every backend except orca, which owns its
   # own worktrees); an orca home must not be told to upgrade a provider it never uses.
   if fm_backend_list_contains "$TOOLS" treehouse \
-    && command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
+    && command -v treehouse >/dev/null 2>&1 \
+    && { ! treehouse_supports_lease || ! treehouse_supports_enter; }; then
     echo "MISSING: treehouse (install: $(install_cmd treehouse))"
   fi
   if command -v no-mistakes >/dev/null 2>&1 && ! tool_version_at_least no-mistakes "$NO_MISTAKES_MIN"; then

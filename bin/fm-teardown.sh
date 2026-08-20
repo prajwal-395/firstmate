@@ -5,7 +5,10 @@
 # tasks, then print a backlog-refresh reminder for ship and scout teardowns
 # (a secondmate teardown prints none, since secondmates are not backlog items).
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
-# hard-resets/removes the worktree and kills its processes. Work has landed when it is
+# hard-resets/removes the worktree and kills its processes. Also REFUSES when
+# another LIVE task's metadata still claims the same worktree: returning the
+# slot would reset that task's copy and delete the branch checked out in it.
+# bin/fm-worktree-claim-lib.sh owns that ownership contract. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
 # upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
 # normal ship task whose commits are not so reachable - when its PR is merged and
@@ -148,6 +151,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-worktree-claim-lib.sh
+. "$SCRIPT_DIR/fm-worktree-claim-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
@@ -2376,24 +2381,49 @@ fi
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
-# Worktree collision guard: when another task's metadata claims the same
-# worktree, skip the CWD-based process reaper to avoid killing a sibling
-# task's agent. Multiple tasks sharing a project directory is a supported
-# pattern (e.g. an anchor task alongside projected workers), so teardown
-# itself must proceed - only the CWD reap is unsafe.
+# Worktree collision guard: another task's metadata claims the same worktree.
+#
+# Two different dangers live here, and the original guard only handled the
+# first. Skipping the CWD reap protects a sibling's PROCESSES; it does nothing
+# about the destructive steps further down, which reset the shared directory,
+# delete whatever branch is checked out in it, and hand the slot back to the
+# pool. A cleanup that warned "also claims worktree ... protecting sibling" and
+# then printed "Worktree returned to pool" a moment later destroyed exactly the
+# work the warning named.
+#
+# So the response is split by what the other record actually is:
+#   - ANY other claimant (live or not) still suppresses the CWD reap, because
+#     killing by directory cannot tell whose process it found. Multiple tasks
+#     sharing a project directory is a supported pattern (e.g. an anchor task
+#     alongside projected workers), so this alone never blocks cleanup.
+#   - A LIVE claimant additionally refuses the whole cleanup, because every
+#     destructive step below would take that task's copy with it. Like every
+#     other unlanded-work refusal in this script, --force is the captain's
+#     explicit discard authority and overrides it.
 _td_wt_collision=0
+_td_wt_live_claimant=
 if [ "$KIND" != secondmate ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+  _td_wt_real=$(fm_worktree_claim_realpath "$WT")
   for _td_other_meta in "$STATE"/*.meta; do
     [ -f "$_td_other_meta" ] || continue
     _td_other_id=$(basename "$_td_other_meta" .meta)
     [ "$_td_other_id" != "$ID" ] || continue
     _td_other_wt=$(fm_meta_get "$_td_other_meta" worktree)
-    if [ -n "$_td_other_wt" ] && [ "$_td_other_wt" = "$WT" ]; then
-      echo "warning: task $_td_other_id also claims worktree $WT; skipping CWD-based process reap to protect sibling" >&2
-      _td_wt_collision=1
-      break
+    [ -n "$_td_other_wt" ] || continue
+    [ "$(fm_worktree_claim_realpath "$_td_other_wt")" = "$_td_wt_real" ] || continue
+    echo "warning: task $_td_other_id also claims worktree $WT; skipping CWD-based process reap to protect sibling" >&2
+    _td_wt_collision=1
+    if [ -z "$_td_wt_live_claimant" ] \
+      && [ "$(fm_worktree_claim_liveness "$_td_other_meta")" = live ]; then
+      _td_wt_live_claimant=$_td_other_id
     fi
   done
+fi
+if [ -n "$_td_wt_live_claimant" ] && [ "$FORCE" != "--force" ]; then
+  echo "REFUSED: live task $_td_wt_live_claimant still claims worktree $WT." >&2
+  echo "Returning it to the pool would reset that copy, delete the branch checked out in it, and end that task's run." >&2
+  echo "Clean up $_td_wt_live_claimant first, or use --force after explicit approval to discard its work." >&2
+  exit 1
 fi
 if [ "$KIND" != secondmate ]; then
   conclude_task_no_mistakes_run "$WT"
