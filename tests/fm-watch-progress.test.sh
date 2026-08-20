@@ -128,17 +128,46 @@ wait_for_log() {
   return 1
 }
 
+# pty_foreground_pids <tty> - the pids in <tty>'s foreground process group.
+# Returns 1 when the pty has none, which is what a dead or never-started fixture
+# looks like. Deliberately the same pgid == tpgid kernel anchor the subject
+# resolves a pane's pids from, so "this fixture is measurable" means measurable
+# BY THE THING UNDER TEST, not merely alive by some other definition.
+pty_foreground_pids() {  # <tty>
+  local tty=$1 out
+  [ -n "$tty" ] || return 1
+  out=$(LC_ALL=C ps -t "$tty" -o pid=,pgid=,tpgid= 2>/dev/null) || return 1
+  out=$(printf '%s\n' "$out" | awk '$2 == $3 && $1 != "" { print $1 }')
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
+
 # pty_run <name> <command> - run <command> on its own pty and echo that pty's
 # device path. The command reports its own tty from inside, which is the only
 # way to learn the device `script` allocated.
+#
+# <command> is delivered as a FILE, never as an interpolated command string.
+# macOS `script` takes the fixture as argv and passes it through untouched, but
+# Linux `script -c` takes a STRING and hands it to a shell that re-parses it, so
+# a fixture containing a quote or a `$` means two different things on the two
+# platforms - and the platform that mangles it is the one CI runs. That is not
+# hypothetical: a fixture whose loop guard re-split there became `[ 0 -lt ]`,
+# which is false, so the burner exited the instant it started and the pane the
+# suite believed was working had no foreground process group at all. A file has
+# no second parse on either platform.
 pty_run() {
-  local name=$1 command=$2 ttyfile pid tty i=0
+  local name=$1 command=$2 ttyfile fixture pid tty i=0
   ttyfile="$TMP_ROOT/$name.tty"
+  fixture="$TMP_ROOT/$name.fixture.sh"
   rm -f "$ttyfile"
+  cat > "$fixture" <<EOF
+tty > '$ttyfile'
+$command
+EOF
   if [ "$(uname)" = Darwin ]; then
-    script -q /dev/null bash -c "tty > '$ttyfile'; $command" >/dev/null 2>&1 &
+    script -q /dev/null bash "$fixture" >/dev/null 2>&1 &
   else
-    script -q -c "bash -c \"tty > '$ttyfile'; $command\"" /dev/null >/dev/null 2>&1 &
+    script -q -c "bash $fixture" /dev/null >/dev/null 2>&1 &
   fi
   pid=$!
   # Registered BEFORE the tty is known, so a fixture that never reports one is
@@ -149,6 +178,14 @@ pty_run() {
     if [ -s "$ttyfile" ]; then
       tty=$(tr -d '[:space:]' < "$ttyfile")
       printf '%s\t%s\n' "$pid" "$tty" >> "$FIXTURE_REGISTRY"
+      # Measurable now AND still measurable a moment later. One reading cannot
+      # tell a running fixture from one that is about to exit, and a fixture that
+      # dies on the second reading is exactly the failure this file must never
+      # again report as "the watcher escalated a working pane": a dead fixture is
+      # a broken test, not a broken detector, and it has to say so in those words.
+      pty_foreground_pids "$tty" >/dev/null || return 1
+      sleep 0.5
+      pty_foreground_pids "$tty" >/dev/null || return 1
       printf '%s' "$tty"
       return 0
     fi
