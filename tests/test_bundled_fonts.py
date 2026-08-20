@@ -191,6 +191,35 @@ def test_both_rendered_compositions_load_the_font():
 # Templates must not name a font nobody bundles
 # ─────────────────────────────────────────────────────────
 
+def _font_names(node, path=""):
+    """Yield (dotted path, family) for every font-ish key in a template.
+
+    Walks the whole document rather than one known location.  It used to
+    read `style.typography.font` alone, and `fourth_wall.yaml` shipped
+    `effect.timed_text_overlay.font_family: "\'Nanum Pen Script\', cursive"`
+    straight past it - an unbundled Google font, in the one test whose
+    job is to stop exactly that.  A guard that inspects one key is a
+    guard against one key.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else key
+            if key in ("font", "font_family", "fontFamily") and isinstance(
+                    value, str) and value.strip():
+                yield here, value
+            else:
+                yield from _font_names(value, here)
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from _font_names(value, f"{path}[{i}]")
+
+
+# CSS font stacks name fallbacks after the first family; only the first is
+# the font anyone chose, and it is the one that must be deliverable.
+def _primary_family(declared: str) -> str:
+    return declared.split(",")[0].strip().strip("'\"")
+
+
 def test_templates_name_bundled_or_explicitly_accepted_fonts():
     """A new unbundled font must not arrive silently.
 
@@ -206,11 +235,33 @@ def test_templates_name_bundled_or_explicitly_accepted_fonts():
             continue
         with open(os.path.join(template_dir, name), encoding="utf-8") as f:
             tmpl = yaml.safe_load(f) or {}
-        font = ((tmpl.get("style") or {}).get("typography") or {}).get("font")
-        if font and font not in bundled and font not in ACCEPTED_SYSTEM_FONTS:
-            unknown.append((name, font))
+        for where, declared in _font_names(tmpl):
+            font = _primary_family(declared)
+            if font not in bundled and font not in ACCEPTED_SYSTEM_FONTS:
+                unknown.append((name, where, font))
     assert not unknown, (
         f"templates name fonts that are neither bundled nor accepted as "
         f"system fonts: {unknown}. Bundle it in public/fonts/ and load it "
         f"in src/fonts.ts, or add it to ACCEPTED_SYSTEM_FONTS with the "
         f"reason it is allowed to be non-deterministic.")
+
+
+def test_the_font_walk_sees_more_than_style_typography():
+    """The walk must find a font wherever a template puts one.
+
+    Regression cover for the hole above: this is the exact declaration
+    that slipped through, and it is not under `style.typography`.
+    """
+    found = dict(_font_names({
+        "style": {"typography": {"font": "Montserrat"}},
+        "effect": {"timed_text_overlay": {
+            "font_family": "'Nanum Pen Script', cursive",
+            "moments": [{"font_family": "Archivo Black"}],
+        }},
+    }))
+    assert found == {
+        "style.typography.font": "Montserrat",
+        "effect.timed_text_overlay.font_family": "'Nanum Pen Script', cursive",
+        "effect.timed_text_overlay.moments[0].font_family": "Archivo Black",
+    }
+    assert _primary_family("'Nanum Pen Script', cursive") == "Nanum Pen Script"

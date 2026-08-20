@@ -16,11 +16,6 @@ import {
   timedTextOverlaySchema,
   type TimedTextOverlayProps,
 } from "./compositions/TimedTextOverlay";
-import {
-  FourthWallOverlay,
-  fourthWallOverlaySchema,
-  type FourthWallOverlayProps,
-} from "./compositions/FourthWallOverlay";
 
 /**
  * Dynamic metadata calculation for SubtitleOverlay — sets duration, fps,
@@ -40,16 +35,6 @@ const calculateSubtitleMetadata: CalculateMetadataFunction<SubtitleOverlayProps>
  * Dynamic metadata calculation for MotionGraphics.
  */
 const calculateMotionMetadata: CalculateMetadataFunction<MotionGraphicsProps> =
-  async ({ props }) => {
-    return {
-      durationInFrames: props.durationInFrames,
-      fps: props.fps,
-      width: props.width,
-      height: props.height,
-    };
-  };
-
-const calculateFourthWallMetadata: CalculateMetadataFunction<FourthWallOverlayProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -183,67 +168,6 @@ export const RemotionRoot: React.FC = () => {
           durationInFrames: 150,
         }}
         calculateMetadata={calculateMotionMetadata}
-      />
-      <Composition
-        id="FourthWallOverlay"
-        component={FourthWallOverlay}
-        schema={fourthWallOverlaySchema}
-        durationInFrames={1800}
-        fps={30}
-        width={1080}
-        height={1920}
-        defaultProps={{
-          moments: [
-            {
-              text: "Night 1 — Through the 4th Wall",
-              color: "#D4A34A",
-              fontSize: 48,
-              startFrame: 162,
-              durationFrames: 60,
-              x: 0.5,
-              y: 0.15,
-              fadeInFrames: 10,
-              fadeOutFrames: 10,
-              fontWeight: 400,
-              textAlign: "center" as const,
-              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
-            },
-            {
-              text: "It's 2:16.",
-              color: "#00BFFF",
-              fontSize: 42,
-              startFrame: 1725,
-              durationFrames: 75,
-              x: 0.5,
-              y: 0.5,
-              fadeInFrames: 8,
-              fadeOutFrames: 8,
-              fontWeight: 400,
-              textAlign: "center" as const,
-              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
-            },
-            {
-              text: "Night 1. Attack the day tomorrow.",
-              color: "#D4A34A",
-              fontSize: 42,
-              startFrame: 1770,
-              durationFrames: 30,
-              x: 0.5,
-              y: 0.6,
-              fadeInFrames: 8,
-              fadeOutFrames: 8,
-              fontWeight: 400,
-              textAlign: "center" as const,
-              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
-            },
-          ],
-          fontFamily: "'Nanum Pen Script', cursive",
-          fps: 30,
-          width: 1080,
-          height: 1920,
-          durationInFrames: 1800,
-        }}
-        calculateMetadata={calculateFourthWallMetadata}
       />
       <Composition
         id="TimedTextOverlay"

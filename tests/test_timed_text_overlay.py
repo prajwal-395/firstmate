@@ -1,18 +1,30 @@
-"""Q7: TimedTextOverlay - general timed text overlay component.
+"""TimedTextOverlay - the general timed-text component, and the empty slot.
 
-Verifies:
-- The prop generator renders deterministically (same input -> identical JSON).
-- A template that declares timed_text_overlay gets rendered props.
-- A template that omits timed_text_overlay gets None (no overlay).
-- The 4th Wall template carries the corrected copy (Night X, no counter).
-- The schema loads the new slot without error.
-- Every moment in the output satisfies the TimedTextOverlay contract.
+The component and its prop generator survive: the captain confirmed on
+2026-08-20 that N timed text moments with per-item colour, size, start
+frame and fade IS a general engine component, and all eight series want
+intro cards and episode text.
 
-The component itself (remotion-subtitles/src/compositions/TimedTextOverlay)
-renders in Remotion; these tests cover the prop-generation contract that the
-Remotion component consumes. The deterministic check is JSON equality on the
-prop generator's output, which is the same technique
-test_motion_graphics_template uses for its prop assertions.
+What does NOT survive is the one asset that declared it.  The 4th Wall
+night card and closing "end card" ritual were lifted verbatim out of a
+previous manual trial run and checked into `fourth_wall.yaml` as series
+DEFAULTS - absolute frame numbers baked to that run's 60.000s timeline,
+normalised y positions authored against a full-bleed vertical frame, and
+an unbundled typeface.  Captain, 2026-08-20: "it was something made in a
+previous trial run and is a pretty shoddy asset, so lets just get rid of
+it".
+
+So these tests now cover three things:
+
+- the prop-generation contract, unchanged, for whoever wires the reader;
+- that the removed asset is really gone, engine-side as well as template-side;
+- that the empty slot stays empty while it has no reader
+  (`library.tools.timed_text_overlay.NO_READER`), because a declaration
+  that renders nothing and warns about nothing is how the last one
+  survived four months.
+
+See docs/ASSET_LIBRARY_PLAN.md for the general-vs-project test this
+enforces the mechanical half of.
 """
 import glob
 import json
@@ -25,14 +37,27 @@ import yaml
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from library.tools.timed_text_overlay import generate_timed_text_overlay_props
+from library.tools.timed_text_overlay import (
+    NO_READER,
+    generate_timed_text_overlay_props,
+)
 
 TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
+ROOT_TSX = os.path.join(
+    PROJECT_ROOT, "remotion-subtitles", "src", "Root.tsx")
 
 
 def _template(name: str) -> dict:
     with open(os.path.join(TEMPLATE_DIR, f"{name}.yaml"), encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _all_templates() -> dict[str, dict]:
+    out = {}
+    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
+        with open(path, encoding="utf-8") as f:
+            out[os.path.basename(path)[:-5]] = yaml.safe_load(f) or {}
+    return out
 
 
 # ─────────────────────────────────────────────────────────
@@ -41,27 +66,27 @@ def _template(name: str) -> dict:
 
 SAMPLE_DECLARATION = {
     "timed_text_overlay": {
-        "font_family": "'Nanum Pen Script', cursive",
+        "font_family": "Montserrat",
         "moments": [
             {
-                "text": "Night 1 — Through the 4th Wall",
+                "text": "First moment",
                 "color": "#D4A34A",
                 "font_size": 48,
-                "start_frame": 162,
+                "start_frame": 30,
                 "duration_frames": 60,
                 "x": 0.5,
-                "y": 0.15,
+                "y": 0.5,
                 "fade_in_frames": 10,
                 "fade_out_frames": 10,
             },
             {
-                "text": "It's 2:16.",
+                "text": "Second moment",
                 "color": "#00BFFF",
                 "font_size": 42,
-                "start_frame": 1725,
+                "start_frame": 120,
                 "duration_frames": 75,
                 "x": 0.5,
-                "y": 0.5,
+                "y": 0.6,
                 "fade_in_frames": 8,
                 "fade_out_frames": 8,
             },
@@ -85,27 +110,6 @@ def test_deterministic_across_multiple_runs():
         assert json.dumps(
             generate_timed_text_overlay_props(SAMPLE_DECLARATION),
             sort_keys=True) == baseline
-
-
-# ─────────────────────────────────────────────────────────
-# Template declaration reaches the render
-# ─────────────────────────────────────────────────────────
-
-def test_declared_template_produces_props():
-    """A template that declares timed_text_overlay gets rendered props."""
-    tmpl = _template("fourth_wall")
-    effect = tmpl.get("effect", {})
-    result = generate_timed_text_overlay_props(effect)
-    assert result is not None, "fourth_wall template should produce overlay props"
-    assert len(result["moments"]) > 0
-    assert result["fontFamily"] == "'Nanum Pen Script', cursive"
-
-
-def test_declared_template_moments_count():
-    """The 4th Wall overlay has exactly 3 moments (night card + 2 closing lines)."""
-    tmpl = _template("fourth_wall")
-    result = generate_timed_text_overlay_props(tmpl.get("effect", {}))
-    assert len(result["moments"]) == 3
 
 
 def test_props_match_remotion_schema():
@@ -133,16 +137,13 @@ def test_moments_have_required_fields():
 # Undeclared template renders no overlay
 # ─────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("name", [
-    "default_brand", "shortform_energetic",
-    "cinematic_narrative", "interview_professional",
-])
-def test_undeclared_template_produces_nothing(name):
-    """A template that omits timed_text_overlay gets None - no overlay."""
-    tmpl = _template(name)
-    effect = tmpl.get("effect", {})
-    result = generate_timed_text_overlay_props(effect)
-    assert result is None, f"{name} should not produce an overlay"
+@pytest.mark.parametrize("name", sorted(_all_templates()))
+def test_no_template_produces_an_overlay(name):
+    """No shipped template declares the slot - see NO_READER."""
+    result = generate_timed_text_overlay_props(
+        _template(name).get("effect", {}))
+    assert result is None, (
+        f"{name} declares effect.timed_text_overlay. {NO_READER}")
 
 
 def test_empty_effect_dict_produces_nothing():
@@ -164,36 +165,95 @@ def test_none_declaration_produces_nothing():
 
 
 # ─────────────────────────────────────────────────────────
-# Corrected 4th Wall copy
+# The removed 4th Wall asset stays removed
 # ─────────────────────────────────────────────────────────
 
-def test_corrected_copy_uses_night_not_day():
-    """The 4th Wall series uses 'Night X', never 'Day 1' or 'Day X'."""
-    tmpl = _template("fourth_wall")
-    result = generate_timed_text_overlay_props(tmpl.get("effect", {}))
-    all_text = " ".join(m["text"] for m in result["moments"])
-    assert "Day 1" not in all_text, "Series spec requires 'Night X', not 'Day 1'"
-    assert "Night" in all_text
+def test_no_template_declares_the_slot_while_it_has_no_reader():
+    """The slot may not be declared until a step reads it.
+
+    The 4th Wall asset survived four months of audits precisely because a
+    declaration with no reader is indistinguishable from no declaration
+    at all: the run summary says SUCCESS either way.  Wire the reader
+    first, delete `NO_READER` in that commit, then declare.
+    """
+    declaring = [
+        name for name, tmpl in _all_templates().items()
+        if (tmpl.get("effect") or {}).get("timed_text_overlay")
+    ]
+    assert declaring == [], f"{declaring} declare the slot. {NO_READER}"
 
 
-def test_corrected_copy_has_no_counter():
-    """The '1 / 100' counter is dropped - no basis in the series docs."""
-    tmpl = _template("fourth_wall")
-    result = generate_timed_text_overlay_props(tmpl.get("effect", {}))
-    all_text = " ".join(m["text"] for m in result["moments"])
-    assert "1 / 100" not in all_text, "Counter was dropped per series spec"
-    assert "/ 100" not in all_text
+def test_the_slot_really_has_no_reader():
+    """`NO_READER` must describe the tree, not a stale memory of it.
+
+    If someone wires a step to `generate_timed_text_overlay_props`, this
+    fails and points them at the record to delete.
+    """
+    importers = []
+    for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "library")):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            if os.path.samefile(
+                    path,
+                    os.path.join(PROJECT_ROOT, "library", "tools",
+                                 "timed_text_overlay.py")):
+                continue
+            with open(path, encoding="utf-8") as f:
+                if "generate_timed_text_overlay_props" in f.read():
+                    importers.append(os.path.relpath(path, PROJECT_ROOT))
+    assert importers == [], (
+        f"{importers} now read the slot, so it has a reader. Delete "
+        f"NO_READER from library/tools/timed_text_overlay.py and this "
+        f"test, and assert the moments reach the picture instead.")
 
 
-def test_no_day_1_or_counter_in_root_tsx():
-    """Root.tsx default props must not contain the old placeholder copy."""
-    root_path = os.path.join(PROJECT_ROOT, "remotion-subtitles", "src", "Root.tsx")
-    with open(root_path, encoding="utf-8") as f:
+def test_fourth_wall_trial_run_asset_is_gone_from_the_engine():
+    """No series-specific overlay artwork left in the engine repo."""
+    offenders = []
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        dirs[:] = [d for d in dirs if d not in {
+            ".git", "node_modules", "__pycache__", ".venv", ".pytest_cache",
+            "pipeline_output", "docs", "tests"}]
+        for name in files:
+            if not name.endswith((".tsx", ".ts", ".yaml", ".yml")):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                src = f.read()
+            # The asset's own artwork and identity. Not the typeface -
+            # Nanum Pen Script is the series' locked display face and may
+            # return legitimately; whether it is deliverable is
+            # tests/test_bundled_fonts.py's question, not this one.
+            for needle in ("FourthWallOverlay", "Attack the day tomorrow",
+                           "It's 2:16.", "1 / 100"):
+                if needle in src:
+                    offenders.append(
+                        (os.path.relpath(path, PROJECT_ROOT), needle))
+    assert offenders == [], (
+        f"the removed 4th Wall trial-run asset is back: {offenders}")
+
+
+def test_root_tsx_registers_only_general_compositions():
+    """Root.tsx is the ENGINE's composition registry.
+
+    A composition named after one series belongs with that series'
+    project, not here - that is what `content.bookends` + `source:` is
+    for (library/tools/bookends.py).  `FourthWallOverlay` was registered
+    here; it is gone.
+    """
+    with open(ROOT_TSX, encoding="utf-8") as f:
         src = f.read()
-    # "Day 1" was the old closing line; the spec says "Night X"
-    assert "Day 1" not in src, "Root.tsx still contains 'Day 1'"
-    # "1 / 100" was the old counter; it was dropped
-    assert "1 / 100" not in src, "Root.tsx still contains '1 / 100'"
+    ids = set(
+        line.split('id="', 1)[1].split('"', 1)[0]
+        for line in src.splitlines() if 'id="' in line
+    )
+    assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay"}, (
+        f"Root.tsx registers {sorted(ids)}. A composition named after one "
+        f"series is a project asset - declare it with content.bookends "
+        f"and a project-owned `source:` instead.")
 
 
 # ─────────────────────────────────────────────────────────
@@ -207,14 +267,14 @@ def test_schema_loads_timed_text_overlay():
         "series_id": "test",
         "effect": {
             "timed_text_overlay": {
-                "font_family": "Helvetica",
+                "font_family": "Montserrat",
                 "moments": [{"text": "test", "color": "#fff",
                              "start_frame": 0, "duration_frames": 30}],
             }
         }
     })
     assert tmpl.effect.timed_text_overlay is not None
-    assert tmpl.effect.timed_text_overlay["font_family"] == "Helvetica"
+    assert tmpl.effect.timed_text_overlay["font_family"] == "Montserrat"
 
 
 def test_schema_omitted_is_none():
@@ -224,37 +284,12 @@ def test_schema_omitted_is_none():
     assert tmpl.effect.timed_text_overlay is None
 
 
-def test_fourth_wall_template_loads_via_schema():
-    """The shipped fourth_wall.yaml loads into BrandTemplate without error."""
+def test_fourth_wall_template_still_loads_via_schema():
+    """The shipped fourth_wall.yaml loads, minus the removed overlay."""
     from library.schemas.brand_template import BrandTemplate
-    raw = _template("fourth_wall")
-    tmpl = BrandTemplate.from_dict(raw)
+    tmpl = BrandTemplate.from_dict(_template("fourth_wall"))
     assert tmpl.series_id == "fourth_wall"
-    assert tmpl.effect.timed_text_overlay is not None
-    assert len(tmpl.effect.timed_text_overlay["moments"]) == 3
-
-
-# ─────────────────────────────────────────────────────────
-# Template accounting (like test_motion_graphics_template)
-# ─────────────────────────────────────────────────────────
-
-# Only fourth_wall declares a timed_text_overlay.
-EXPECTED_OVERLAY_TEMPLATES = {"fourth_wall"}
-
-
-def test_only_expected_templates_declare_overlay():
-    """A new template declaring timed_text_overlay should be a decision."""
-    on_disk = set()
-    for path in glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml")):
-        name = os.path.basename(path)[:-5]
-        with open(path, encoding="utf-8") as f:
-            tmpl = yaml.safe_load(f) or {}
-        effect = tmpl.get("effect", {})
-        if effect.get("timed_text_overlay"):
-            on_disk.add(name)
-    assert on_disk == EXPECTED_OVERLAY_TEMPLATES, (
-        "a template was added or removed with timed_text_overlay "
-        "without updating the expected set")
+    assert tmpl.effect.timed_text_overlay is None
 
 
 # ─────────────────────────────────────────────────────────

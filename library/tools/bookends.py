@@ -3,9 +3,10 @@
 Captain's ruling Q7 (2026-08-16): "wire them up, but only on some videos".
 So this is a general mechanism with nothing by default.  A brand template
 that declares no ``content.bookends`` gets no intro, no outro and no end
-card - the same opt-in shape as ``effect.motion_accents`` (P3.1) and
-``effect.timed_text_overlay`` (Q7, see
-``library/tools/timed_text_overlay.py``).
+card - the same opt-in shape as ``effect.motion_accents`` (P3.1).
+``effect.timed_text_overlay`` was meant to be a third; it has no reader
+yet and no template may declare it - see
+``library.tools.timed_text_overlay.NO_READER``.
 
 What a declaration looks like::
 

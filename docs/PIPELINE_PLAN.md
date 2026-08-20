@@ -157,13 +157,27 @@ separate call.
 
 **5. Three of five Remotion compositions.** ~~`Root.tsx` registers
 `SubtitleOverlay`, `MotionGraphics`, `LucieEndCard`, `LucieLogoAnimation`
-and `FourthWallOverlay`, and the pipeline renders two.~~ **CLOSED** by
-Q7 in two moves. `FourthWallOverlay` became `TimedTextOverlay` in #119, a
-template-declared overlay. The two `Lucie*` registrations pointed at stub
-components that rendered a transparent frame and were deleted; the real
-implementations live with the client's project, and reach a timeline
-through `content.bookends` - see `library/tools/bookends.py`. The end card
-now has a route, and it is the manifest.
+and `FourthWallOverlay`, and the pipeline renders two.~~ **PARTLY CLOSED**
+by Q7, and this entry overstated it. The two `Lucie*` registrations
+pointed at stub components that rendered a transparent frame and were
+deleted; the real implementations live with the client's project and
+reach a timeline through `content.bookends` - see
+`library/tools/bookends.py`. That half is closed: the end card has a
+route, and it is the manifest.
+
+The `FourthWallOverlay` half was **not**. #119 generalised the component
+into `TimedTextOverlay` and added an `effect.timed_text_overlay` template
+slot, and this entry recorded it as a "template-declared overlay" -
+but nothing in `library/steps/` ever imported
+`generate_timed_text_overlay_props`, so the three moments
+`fourth_wall.yaml` declared reached no frame of any render and no run
+said so. Registered-but-unrendered simply moved from the component to
+the slot. The captain removed the declaration on quality grounds on
+2026-08-20; the slot, the generator and the component stay, with the
+missing reader recorded as
+`library.tools.timed_text_overlay.NO_READER` and held empty by
+`tests/test_timed_text_overlay.py` until the route in
+`docs/ASSET_LIBRARY_PLAN.md` is ratified and built.
 
 **6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
 `plan_sfx` was not reading the real grid either; the key it asked for has
@@ -1046,7 +1060,7 @@ that claims more. In rough order of how much noise removal saves:
 | ~~`apply_fusion_comps.py:328-336` (`zoom_pulse`)~~ | **DELETED** in #103. |
 | ~~`resolve_build_timeline.py:590-649` (J/L cut offsets)~~ | **DELETED** in #103, under the ruling that put audio out of scope. Q2 is moot with it. |
 | ~~`content.intro_template`, `content.outro_template` in `default_brand.yaml`~~ | **DELETED** under Q7, from the template and from `ContentSlots`. `content.bookends` replaced them: it names a card, a duration and its props, and `compile_manifest` reads it. |
-| ~~`LucieEndCard`, `LucieLogoAnimation`, `FourthWallOverlay`~~ | **RESOLVED** under Q7, each differently. `FourthWallOverlay` was generalised into `TimedTextOverlay` (#119). The two `Lucie*` entries in this repo were transparent stubs that rendered a byte-identical empty frame - deleted, with their `Root.tsx` registrations. The real implementations are the client's, live with the client's project, and are declared by `lucie_client.yaml` through `content.bookends`; `bookend_render.py` stages and renders them **verbatim**, so the engine never edits a client's asset. |
+| ~~`LucieEndCard`, `LucieLogoAnimation`, `FourthWallOverlay`~~ | **RESOLVED**, each differently. The two `Lucie*` entries in this repo were transparent stubs that rendered a byte-identical empty frame - deleted, with their `Root.tsx` registrations. The real implementations are the client's, live with the client's project, and are declared by `lucie_client.yaml` through `content.bookends`; `bookend_render.py` stages and renders them **verbatim**, so the engine never edits a client's asset. `FourthWallOverlay` took two more moves: generalised into `TimedTextOverlay` (#119), whose template slot then turned out to have no reader, and the series-specific registration plus the trial-run copy it carried deleted on 2026-08-20 - see section 5 and `docs/ASSET_LIBRARY_PLAN.md`. |
 | ~~`smart_reframe` in the manifest~~ | **DELETED**, having been unverifiable rather than unverified. Its wrapper guarded on `hasattr(clip, 'SmartReframe')`, which is True for every name on a Resolve proxy including invented ones; its only caller handed it a Timeline, which exposes no such method, discarded the return value and printed "✓ Applied Smart Reframe" whatever happened; and its test asserted that a mock returning True made the wrapper return True. Framing is delivered per clip by `_apply_conform`, which a working Smart Reframe would have fought. Reason recorded at the top of `library/tools/neural_engine.py`, beside the Magic Mask withdrawal. |
 
 Not on this list, deliberately: `apply_native_transitions.py`, which AGENTS.md
