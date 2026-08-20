@@ -256,10 +256,10 @@ test_spawn_leases_the_slot_for_the_life_of_the_task() {
     "spawn did not durably lease the pool slot"
   # firstmate takes the lease itself; the pane is then sent into that exact slot,
   # so the agent still works inside a treehouse subshell in the leased worktree.
-  assert_grep 'treehouse enter 3' "$SEND_LOG" \
-    "the pane was not sent into the leased pool slot"
+  assert_grep "cd '$POOL_DIR'" "$SEND_LOG" \
+    "the pane was not moved into the leased worktree"
   printf '# treehouse calls: '; tr '\n' '|' < "$TREEHOUSE_LOG"; printf '\n'
-  printf '# pane instruction: '; grep -F 'treehouse enter' "$SEND_LOG" | head -1
+  printf '# pane instruction: '; grep -F 'cd ' "$SEND_LOG" | head -1
 }
 
 # --- containment 2: teardown ------------------------------------------------

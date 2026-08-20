@@ -207,24 +207,12 @@ set -u
   done
   printf '\n'
 } >> "$TREEHOUSE_CALL_LOG"
-if [ -d "$POST_CREATE_ABORT_CONTROL" ] && [ "${1:-}" = get ]; then
-  # fm-spawn leases the slot itself before sending the pane into it, so the
-  # armed abort has to let the LEASE succeed and still strand the pane outside
-  # a worktree. Hand back the control directory (a real directory that is not a
-  # git worktree) and let the herdr stub above keep faking the pane's
-  # foreground_cwd, so validate_spawn_worktree stays the armed failure point.
-  printf '%s\n' "$POST_CREATE_ABORT_CONTROL"
-  exit 0
-fi
-# The armed lease above is not a real pool slot, so its release must never be
-# handed to the real pool. Scope this to that exact path: every other return,
-# including the suite's own teardowns, must still reach the real binary or the
-# run would leak leased worktrees.
-if [ "${1:-}" = return ]; then
-  for arg in "$@"; do
-    case "$arg" in "$POST_CREATE_ABORT_CONTROL"|"$POST_CREATE_ABORT_CONTROL"/*) exit 0 ;; esac
-  done
-fi
+# No pool faking here. The armed abort is driven entirely by the herdr stub
+# above, which reports a non-worktree foreground_cwd for these panes, so the
+# spawn still fails at the worktree validation. Letting the real pool answer
+# keeps the pane's `treehouse enter` a genuine subshell that stays alive to be
+# closed by the abort cleanup this sequence checks - and fm-spawn now releases
+# the slot it leased on that abort, so the real acquisition leaks nothing.
 exec "$REAL_TREEHOUSE" "$@"
 SH
 

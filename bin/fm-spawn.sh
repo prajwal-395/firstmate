@@ -811,6 +811,11 @@ spawn_abort_cleanup() {
     CONFIG_INHERIT_LOCK_HELD=0
     fm_lock_release "$CONFIG_INHERIT_LOCK" || true
   fi
+  # Last, after the endpoint above has been closed: returning the slot
+  # terminates whatever is running inside it, so doing it earlier would kill the
+  # pane this cleanup still had to close. A successful spawn clears the lease
+  # first, because the task then owns it until its cleanup returns it.
+  spawn_release_pool_lease
   return "$status"
 }
 trap spawn_abort_cleanup EXIT
@@ -1881,10 +1886,6 @@ validate_spawn_worktree() {  # <source> <inspect-target>
     wt_top_real=
   fi
   if [ -z "$wt_real" ] || [ -z "$wt_top_real" ] || [ "$wt_real" != "$wt_top_real" ] || [ "$wt_real" = "$proj_real" ]; then
-    # No agent has been launched yet, so a lease taken by THIS spawn is holding
-    # an empty slot; release it rather than leaking it out of the pool. The
-    # helper still refuses to return a slot another live task claims.
-    spawn_release_pool_lease
     echo "error: $source did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect target $inspect_target" >&2
     exit 1
   fi
@@ -1895,32 +1896,29 @@ validate_spawn_worktree() {  # <source> <inspect-target>
 # See bin/fm-worktree-claim-lib.sh for why a crewmate worktree must be owned for
 # the life of the task rather than the life of the agent.
 SPAWN_LEASE_PATH=
-SPAWN_LEASE_SLOT=
+SPAWN_LEASE_CD=
 
-# Release a lease this spawn took, but only while the slot is still ours: if
-# another live task's record claims it, the slot holds that task's work and
-# `treehouse return` would reset it. Leaking a lease is recoverable; returning
-# a slot someone else owns is the data loss this whole change exists to stop.
+# Report, but never RETURN, a lease this spawn took and could not hand to a
+# task. `treehouse return` terminates every process running in the worktree,
+# and by the time a spawn aborts the pane has already been moved there, so
+# returning would kill the endpoint the abort cleanup still has to close - and
+# with concurrent spawns it can reach a sibling's processes too.
+#
+# Leaving the slot leased is the fail-closed choice: a leased slot can never be
+# handed to another task, so nothing can collide with it, and an operator can
+# release it deliberately with the command named below. A leaked lease is
+# recoverable; killing a live pane is not.
 spawn_release_pool_lease() {
-  local claimant
   [ -n "$SPAWN_LEASE_PATH" ] || return 0
-  if claimant=$(fm_worktree_live_claimant "$STATE" "$ID" "$SPAWN_LEASE_PATH"); then
-    echo "warning: leaving the lease on '$SPAWN_LEASE_PATH' in place; task $claimant still claims that worktree and returning it would reset that task's copy" >&2
-    SPAWN_LEASE_PATH=
-    SPAWN_LEASE_SLOT=
-    return 0
-  fi
-  ( cd "$PROJ_ABS" && treehouse return --force "$SPAWN_LEASE_PATH" ) >/dev/null 2>&1 \
-    || echo "warning: could not release the pool lease on '$SPAWN_LEASE_PATH'; release it with: treehouse return --force '$SPAWN_LEASE_PATH'" >&2
+  echo "warning: task $ID did not launch, so pool slot '$SPAWN_LEASE_PATH' is still leased to it and cannot be handed to another task. Release it once nothing is running there: treehouse return --force '$SPAWN_LEASE_PATH'" >&2
   SPAWN_LEASE_PATH=
-  SPAWN_LEASE_SLOT=
+  SPAWN_LEASE_CD=
 }
 
 # Acquire a durably leased pool worktree for this task and set
-# SPAWN_LEASE_PATH/SPAWN_LEASE_SLOT. The slot name is the pool directory that
-# contains the checkout, which is exactly the name `treehouse enter` takes.
+# SPAWN_LEASE_PATH and the quoted form the pane is moved with.
 spawn_lease_pool_worktree() {
-  local path slot claimant
+  local path claimant
   if ! path=$( cd "$PROJ_ABS" && treehouse get --lease --lease-holder "fm-$ID" 2>/dev/null ); then
     echo "error: could not lease a pool worktree for task $ID; refusing to launch on an unowned slot" >&2
     return 1
@@ -1930,13 +1928,14 @@ spawn_lease_pool_worktree() {
     echo "error: treehouse get --lease did not report a usable worktree for task $ID" >&2
     return 1
   fi
-  slot=$(basename "$(dirname "$path")")
-  if [ -z "$slot" ] || [ "$slot" = / ] || [ "$slot" = . ]; then
-    echo "error: could not derive the pool slot name from leased worktree '$path'" >&2
-    return 1
-  fi
+  case "$path" in
+    *"'"*)
+      echo "error: leased worktree path '$path' contains a quote; refusing to send an unsafe directory change" >&2
+      return 1
+      ;;
+  esac
   SPAWN_LEASE_PATH=$path
-  SPAWN_LEASE_SLOT=$slot
+  SPAWN_LEASE_CD="'$path'"
   # Containment, independent of the lease: a slot handed to us that a live task
   # record still claims was never really free. That happens when the other
   # task's worktree predates leasing, or its lease was released by hand. Refuse
@@ -1945,7 +1944,7 @@ spawn_lease_pool_worktree() {
     echo "error: the pool offered worktree '$SPAWN_LEASE_PATH' for task $ID, but live task $claimant still claims it; refusing to allocate an occupied slot" >&2
     echo "Reconcile task $claimant first (clean it up, or move it off that worktree); the lease taken here is left in place so the pool cannot hand the slot out again." >&2
     SPAWN_LEASE_PATH=
-    SPAWN_LEASE_SLOT=
+    SPAWN_LEASE_CD=
     return 1
   fi
   return 0
@@ -1960,7 +1959,6 @@ spawn_require_settled_lease_match() {
   leased=$(fm_worktree_claim_realpath "$SPAWN_LEASE_PATH")
   [ "$settled" = "$leased" ] && return 0
   echo "error: task $ID settled in '$WT', not the worktree it leased ('$SPAWN_LEASE_PATH'); refusing to launch outside the slot this task owns" >&2
-  spawn_release_pool_lease
   exit 1
 }
 
@@ -2508,7 +2506,12 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # The pane still gets its own subshell in the worktree, via `treehouse enter`,
   # so the settle detection below is unchanged.
   spawn_lease_pool_worktree || exit 1
-  spawn_send_text_line "$WT_TARGET" "treehouse enter $SPAWN_LEASE_SLOT"
+  # Move the pane with a plain `cd`, not `treehouse enter`. The lease is already
+  # held, and enter exists only to drop a shell into a slot without touching
+  # pool state - which is what cd does here anyway. enter also runs its own
+  # subshell, and a subshell that exits ends the pane it was run in, taking the
+  # worker's endpoint with it.
+  spawn_send_text_line "$WT_TARGET" "cd $SPAWN_LEASE_CD"
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -2550,8 +2553,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     sleep 1
   done
   if [ -z "$WT" ]; then
-    spawn_release_pool_lease
-    echo "error: treehouse enter did not reach the leased worktree within 60s; inspect window $T" >&2
+    echo "error: could not reach the leased worktree within 60s; inspect window $T" >&2
     exit 1
   fi
 
@@ -2559,7 +2561,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_require_settled_lease_match
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
-  freshen_spawn_worktree_base "$WT" || { spawn_release_pool_lease; exit 1; }
+  freshen_spawn_worktree_base "$WT" || exit 1
 fi
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
@@ -3261,4 +3263,7 @@ fi
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
+# The task now owns the leased slot; its cleanup is what returns it.
+SPAWN_LEASE_PATH=
+SPAWN_LEASE_CD=
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"
