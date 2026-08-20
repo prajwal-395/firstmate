@@ -145,7 +145,8 @@ run_spawn() {  # <id> [args...]
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
-    FM_FAKE_PANE_PATH="$POOL_DIR" FM_FAKE_LEASE_PATH="$POOL_DIR" \
+    FM_FAKE_PANE_PATH="${FM_FAKE_PANE_PATH_OVERRIDE:-$POOL_DIR}" \
+    FM_FAKE_LEASE_PATH="$POOL_DIR" \
     FM_FAKE_WINDOWS="${FM_FAKE_WINDOWS:-}" \
     FM_TREEHOUSE_LOG="$TREEHOUSE_LOG" FM_TMUX_SEND_LOG="$SEND_LOG" \
     PATH="$FAKEBIN_DIR:$PATH" \
@@ -435,6 +436,29 @@ test_unforced_return_refuses_rather_than_reporting_a_phantom_return() {
   printf '%s\n' "$out" | grep -F 'declined to return' | head -1
 }
 
+# Leasing must not move where a spawn aborts when the pane ends up somewhere
+# that is not a worktree. The Herdr presentation E2E arms exactly this case to
+# exercise post-create cleanup ordering, and it keys off this failure, so the
+# abort has to stay at the worktree validation rather than moving earlier.
+test_pane_outside_a_worktree_still_aborts_at_worktree_validation() {
+  local rec out status stray
+  rec=$(make_case pane-not-a-worktree 'pool-stray-task')
+  read_case "$rec"
+  # The lease succeeds and hands back a real directory; the pane settles
+  # somewhere else entirely, which is not a git worktree at all.
+  stray="$CASE_DIR/not-a-worktree"
+  mkdir -p "$stray"
+
+  set +e
+  out=$(FM_FAKE_PANE_PATH_OVERRIDE="$stray" run_spawn 'pool-stray-task' --mode direct-PR --yolo off)
+  status=$?
+  set -e
+  expect_code 1 "$status" "a pane outside any worktree was accepted"
+  assert_contains "$out" 'did not yield an isolated worktree' \
+    "the abort moved off the worktree validation that the Herdr E2E arms"
+  printf '%s\n' "$out" | grep -F 'did not yield an isolated worktree' | head -1
+}
+
 test_real_treehouse_lease_outlives_the_agent
 pass 'a real leased pool slot outlives its agent and is freed only by return'
 # A scout worktree is declared scratch and its deliverable is the report outside
@@ -473,3 +497,6 @@ test_unforced_return_refuses_rather_than_reporting_a_phantom_return
 pass 'an aborted pool return is reported as a failure, not a phantom success'
 test_scout_return_stays_forced
 pass 'a declared-scratch scout worktree is still returned with force'
+
+test_pane_outside_a_worktree_still_aborts_at_worktree_validation
+pass 'a pane outside any worktree still aborts at the worktree validation'
