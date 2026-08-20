@@ -1545,6 +1545,13 @@ def compile_manifest(out_dir: str) -> dict:
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
             "motion_graphics_overlay", {}),
+        # Timed text moments the brand template declared, already
+        # rendered by 4.06. Carried here so the segments are inside
+        # manifest validation and the renderer can place them on V6 -
+        # the slot spent four months with no reader at all, which is
+        # what library/tools/timed_text_overlay.py is about.
+        "timed_text_overlay": motion_graphics_overlay_data.get(
+            "timed_text_overlay", {}),
     }
 
     _apply_manifest_qa_checks(manifest)
@@ -1604,6 +1611,15 @@ def compile_manifest(out_dir: str) -> dict:
     for seg in mg_overlay.get("segments", []):
         if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
             logger.warning(f"MG overlay missing on disk: {seg['overlay_path']}")
+
+    timed_text = manifest.get("timed_text_overlay", {})
+    for seg in timed_text.get("segments", []):
+        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
+            raise ValueError(
+                f"timed text overlay declared but missing on disk: "
+                f"{seg['overlay_path']}. Nothing downstream notices a "
+                f"missing overlay - the picture underneath is intact - so "
+                f"this is the only gate that can.")
 
     errors = validate_manifest(manifest)
     if errors:

@@ -9,6 +9,18 @@ with alpha channel using Remotion.
 Each spine block gets its own rendered overlay clip, which the Resolve
 builder places at the correct timeline position on V4.
 
+This step is also where the OTHER two Remotion-rendered things a brand
+template may declare become files, because they need the same prepped
+Remotion project and both have to exist before compile_manifest can
+reference them:
+
+* composition-mode bookends (``content.bookends``, V1) - see
+  ``library/tools/bookend_render.py``;
+* timed text moments (``effect.timed_text_overlay``, V6) - see
+  ``library/tools/timed_text_overlay.py``.  A template that declares no
+  moments renders none, and says so in the output rather than emitting
+  ``available: false``, which the runner reads as a failed step.
+
 Classification: Deterministic / Direct Action
 Idempotent: Yes (same inputs -> same rendered overlays)
 
@@ -32,6 +44,19 @@ Output: {
         "format": "ProRes 4444",
         "has_alpha": true,
         "fps": 30
+    },
+    "timed_text_overlay": {
+        "declared": bool,
+        "available": bool,     # only when declared
+        "segments": [
+            {
+                "overlay_path": str,
+                "timeline_start": float,
+                "timeline_end": float,
+                "total_frames": int,
+                "moment_count": int
+            }
+        ]
     }
 }
 """
@@ -45,6 +70,34 @@ from generate_motion_props import generate_motion_props
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+from library.tools.timed_text_render import (  # noqa: E402
+    TIMED_TEXT_RENDER_DIRNAME,
+)
+
+
+def _timed_text_output(segments: list, fps: int) -> dict:
+    """The step's timed_text_overlay output for the segments it rendered.
+
+    An undeclared slot carries NO `available` key on purpose:
+    `check_output_is_real` in run_pipeline treats `available: false`
+    anywhere in a step's output as a failed run, and "this template
+    declares no timed text" is the normal case, not a failure.
+    """
+    if not segments:
+        return {
+            "declared": False,
+            "segments": [],
+            "reason": "brand template declares no effect.timed_text_overlay",
+        }
+    return {
+        "declared": True,
+        "available": True,
+        "segments": segments,
+        "format": "ProRes 4444",
+        "has_alpha": True,
+        "fps": fps,
+        "total_segments": len(segments),
+    }
 
 
 def main():
@@ -123,6 +176,33 @@ def main():
     if bookends_rendered:
         print(f"Bookends ready: {len(bookends_rendered)}", file=sys.stderr)
 
+    # Timed text moments the brand template declares. A template that
+    # declares none renders none - the opt-in shape of every effect slot.
+    # The spine is what a moment is timed FROM, and what bounds a moment
+    # given in absolute frames; see library/tools/timed_text_overlay.py.
+    structure = audio_spine.get("structure", [])
+    try:
+        from library.tools.timed_text_render import render_timed_text_segments
+        timed_text_segments = render_timed_text_segments(
+            data.get("brand_effect", {}),
+            REMOTION_DIR,
+            os.path.join(output_dir, TIMED_TEXT_RENDER_DIRNAME),
+            fps=fps, width=width, height=height,
+            spine_structure=structure,
+        )
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        json.dump({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": f"timed text render failed: {e}",
+            }
+        }, sys.stdout, indent=2)
+        sys.exit(1)
+
+    timed_text_overlay = _timed_text_output(timed_text_segments, fps)
+
     props_list = generate_motion_props(
         enhancement_spec, creative_direction, audio_spine,
         fps=fps, width=width, height=height,
@@ -140,7 +220,8 @@ def main():
                 "available": False,
                 "segments": [],
                 "reason": "No motion graphics blocks found in audio spine"
-            }
+            },
+            "timed_text_overlay": timed_text_overlay,
         }, sys.stdout, indent=2)
         return
 
@@ -227,7 +308,8 @@ def main():
             "has_alpha": True,
             "fps": fps,
             "total_segments": len(segments),
-        }
+        },
+        "timed_text_overlay": timed_text_overlay,
     }, sys.stdout, indent=2)
 
 

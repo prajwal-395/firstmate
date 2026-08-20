@@ -178,20 +178,35 @@ reach a timeline through `content.bookends` - see
 `library/tools/bookends.py`. That half is closed: the end card has a
 route, and it is the manifest.
 
-The `FourthWallOverlay` half was **not**. #119 generalised the component
-into `TimedTextOverlay` and added an `effect.timed_text_overlay` template
-slot, and this entry recorded it as a "template-declared overlay" -
-but nothing in `library/steps/` ever imported
-`generate_timed_text_overlay_props`, so the three moments
+The `FourthWallOverlay` half was **not**, and is **now CLOSED for real**.
+#119 generalised the component into `TimedTextOverlay` and added an
+`effect.timed_text_overlay` template slot, and this entry recorded it as
+a "template-declared overlay" - but nothing in `library/steps/` ever
+imported `generate_timed_text_overlay_props`, so the three moments
 `fourth_wall.yaml` declared reached no frame of any render and no run
 said so. Registered-but-unrendered simply moved from the component to
 the slot. The captain removed the declaration on quality grounds on
-2026-08-20, and `fourth_wall.yaml` itself was deleted (captain's ruling:
-the series template arrives later with authorisation); the slot, the
-generator and the component stay, with the missing reader recorded as
-`library.tools.timed_text_overlay.NO_READER` and held empty by
-`tests/test_timed_text_overlay.py` until the route in
-`docs/ASSET_LIBRARY_PLAN.md` (ratified 2026-08-20) is built.
+2026-08-20, `fourth_wall.yaml` itself was deleted (the series template
+arrives later, whole, with authorisation), and the reader was authorised
+as the first item in the ratified build order.
+
+The route now exists, end to end: `plan_timed_text_segments`
+(`library/tools/timed_text_overlay.py`) groups the declared moments into
+non-overlapping segments and rebases their frames; `timed_text_render.py`
+renders one ProRes 4444 alpha file per segment inside step 4.06;
+`compile_manifest` carries them as the top-level `timed_text_overlay`
+manifest key; `resolve_build_timeline` places them on **V6** and records
+a QA failure for any declared segment that did not land. A moment is
+timed from the spine, which is what `docs/ASSET_LIBRARY_PLAN.md`
+(ratified 2026-08-20) section 5 requires.
+
+`NO_READER` is deleted, and the guard that held the slot empty is
+replaced by `tests/test_timed_text_overlay.py::test_a_pipeline_step_reads_the_slot`
+plus `tests/test_timed_text_delivery.py`, which renders a fixture segment
+through the real path and asserts the declared colours are in the
+declared rows at the declared frames and absent outside them. That last
+test is the difference between this entry and the one it replaces: the
+previous "CLOSED" rested on the slot existing.
 
 **6. Beat alignment uses a synthetic grid.** ~~**CLOSED** by P4.1 - and
 `plan_sfx` was not reading the real grid either; the key it asked for has

@@ -1,11 +1,11 @@
-"""TimedTextOverlay - the general timed-text component, and the empty slot.
+"""TimedTextOverlay - the general timed-text component, and its reader.
 
 The component and its prop generator survive: the captain confirmed on
 2026-08-20 that N timed text moments with per-item colour, size, start
 frame and fade IS a general engine component, and all eight series want
 intro cards and episode text.
 
-What does NOT survive is the one asset that declared it.  The 4th Wall
+What did NOT survive is the one asset that declared it.  The 4th Wall
 night card and closing "end card" ritual were lifted verbatim out of a
 previous manual trial run and checked into the now-deleted `fourth_wall.yaml` as series
 DEFAULTS - absolute frame numbers baked to that run's 60.000s timeline,
@@ -14,18 +14,26 @@ an unbundled typeface.  Captain, 2026-08-20: "it was something made in a
 previous trial run and is a pretty shoddy asset, so lets just get rid of
 it".
 
-So these tests now cover three things:
+And what did not EXIST until now is a reader.  #119 shipped the schema
+field, the generator and the Remotion composition, `docs/PIPELINE_PLAN.md`
+recorded the gap as closed, and no step in `library/steps/` ever imported
+the generator - so three declared moments reached no frame of any render
+and every run still reported SUCCESS.  `library.tools.timed_text_overlay`
+held the slot shut with a `NO_READER` constant until the step that reads
+it landed; both are gone together, which was the condition.
 
-- the prop-generation contract, unchanged, for whoever wires the reader;
-- that the removed asset is really gone, engine-side as well as template-side;
-- that the empty slot stays empty while it has no reader
-  (`library.tools.timed_text_overlay.NO_READER`), because a declaration
-  that renders nothing and warns about nothing is how the last one
-  survived four months.
+So these tests cover four things:
+
+- the prop-generation contract, unchanged;
+- the segment plan the reader places - clustering, rebasing, bounds;
+- that a reader really exists, the inverse of the guard that retired here;
+- that a declared moment reaches actual PIXELS, through the real render
+  path, at fixture scale (`test_timed_text_delivery.py`).
 
 See docs/ASSET_LIBRARY_PLAN.md for the general-vs-project test this
 enforces the mechanical half of.
 """
+import ast
 import glob
 import json
 import os
@@ -38,8 +46,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.timed_text_overlay import (
-    NO_READER,
+    TimedTextDeclarationError,
     generate_timed_text_overlay_props,
+    plan_timed_text_segments,
 )
 
 TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
@@ -58,6 +67,21 @@ def _all_templates() -> dict[str, dict]:
         with open(path, encoding="utf-8") as f:
             out[os.path.basename(path)[:-5]] = yaml.safe_load(f) or {}
     return out
+
+
+def _moment(**overrides) -> dict:
+    moment = {
+        "text": "Moment",
+        "color": "#FFFFFF",
+        "start_frame": 30,
+        "duration_frames": 30,
+    }
+    moment.update(overrides)
+    return moment
+
+
+def _declaration(*moments, **declaration) -> dict:
+    return {"timed_text_overlay": {"moments": list(moments), **declaration}}
 
 
 # ─────────────────────────────────────────────────────────
@@ -138,12 +162,17 @@ def test_moments_have_required_fields():
 # ─────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("name", sorted(_all_templates()))
-def test_no_template_produces_an_overlay(name):
-    """No shipped template declares the slot - see NO_READER."""
-    result = generate_timed_text_overlay_props(
-        _template(name).get("effect", {}))
-    assert result is None, (
-        f"{name} declares effect.timed_text_overlay. {NO_READER}")
+def test_an_undeclared_template_plans_no_segments(name):
+    """A template that declares nothing gets nothing - the opt-in shape.
+
+    Templates MAY now declare the slot; this asserts the default, which
+    is that omitting it costs nothing and renders nothing.
+    """
+    effect = _template(name).get("effect", {})
+    if effect.get("timed_text_overlay"):
+        pytest.skip(f"{name} declares the slot; covered by its own tests")
+    assert generate_timed_text_overlay_props(effect) is None
+    assert plan_timed_text_segments(effect) == []
 
 
 def test_empty_effect_dict_produces_nothing():
@@ -165,31 +194,18 @@ def test_none_declaration_produces_nothing():
 
 
 # ─────────────────────────────────────────────────────────
-# The removed 4th Wall asset stays removed
+# The slot has a reader (this replaces the guard that held it shut)
 # ─────────────────────────────────────────────────────────
 
-def test_no_template_declares_the_slot_while_it_has_no_reader():
-    """The slot may not be declared until a step reads it.
+def test_a_pipeline_step_reads_the_slot():
+    """The inverse of the retired `NO_READER` guard.
 
-    The 4th Wall asset survived four months of audits precisely because a
-    declaration with no reader is indistinguishable from no declaration
-    at all: the run summary says SUCCESS either way.  Wire the reader
-    first, delete `NO_READER` in that commit, then declare.
+    That guard asserted NOTHING under library/ imported the generator,
+    because a declaration with no reader is indistinguishable from no
+    declaration at all: the run summary says SUCCESS either way.  Now the
+    reader has to exist, or the slot has quietly gone inert again.
     """
-    declaring = [
-        name for name, tmpl in _all_templates().items()
-        if (tmpl.get("effect") or {}).get("timed_text_overlay")
-    ]
-    assert declaring == [], f"{declaring} declare the slot. {NO_READER}"
-
-
-def test_the_slot_really_has_no_reader():
-    """`NO_READER` must describe the tree, not a stale memory of it.
-
-    If someone wires a step to `generate_timed_text_overlay_props`, this
-    fails and points them at the record to delete.
-    """
-    importers = []
+    readers = []
     for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "library")):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         for name in files:
@@ -202,13 +218,52 @@ def test_the_slot_really_has_no_reader():
                                  "timed_text_overlay.py")):
                 continue
             with open(path, encoding="utf-8") as f:
-                if "generate_timed_text_overlay_props" in f.read():
-                    importers.append(os.path.relpath(path, PROJECT_ROOT))
-    assert importers == [], (
-        f"{importers} now read the slot, so it has a reader. Delete "
-        f"NO_READER from library/tools/timed_text_overlay.py and this "
-        f"test, and assert the moments reach the picture instead.")
+                src = f.read()
+            if ("generate_timed_text_overlay_props" in src
+                    or "plan_timed_text_segments" in src
+                    or "render_timed_text_segments" in src):
+                readers.append(os.path.relpath(path, PROJECT_ROOT))
+    assert "library/steps/step_4_06_render_motion_graphics/step.py" in readers, (
+        f"no pipeline step reads effect.timed_text_overlay; readers found: "
+        f"{readers}. A declared moment would render nothing and warn about "
+        f"nothing - the exact defect this slot spent four months in.")
 
+
+def test_no_reader_record_is_gone():
+    """`NO_READER` retired with the reader, and must not come back.
+
+    It said "do not declare this slot until a step reads it". A step
+    does. Leaving the record in place would tell the next agent to keep
+    the working capability switched off.
+    """
+    source = open(
+        os.path.join(PROJECT_ROOT, "library", "tools",
+                     "timed_text_overlay.py"), encoding="utf-8").read()
+    tree = ast.parse(source)
+    names = {
+        target.id
+        for node in tree.body if isinstance(node, ast.Assign)
+        for target in node.targets if isinstance(target, ast.Name)
+    }
+    assert "NO_READER" not in names, (
+        "library/tools/timed_text_overlay.py still declares NO_READER, "
+        "but step 4.06 reads the slot.")
+
+
+def test_the_manifest_carries_the_segments():
+    """compile_manifest must emit the key, or the renderer never sees it."""
+    compile_step = os.path.join(
+        PROJECT_ROOT, "library", "steps", "step_5_04_compile_manifest",
+        "step.py")
+    with open(compile_step, encoding="utf-8") as f:
+        assert '"timed_text_overlay"' in f.read(), (
+            "compile_manifest does not emit timed_text_overlay, so 4.06's "
+            "rendered segments stop at pipeline_data.json")
+
+
+# ─────────────────────────────────────────────────────────
+# The removed 4th Wall asset stays removed
+# ─────────────────────────────────────────────────────────
 
 def test_fourth_wall_trial_run_asset_is_gone_from_the_engine():
     """No series-specific overlay artwork left in the engine repo."""
@@ -254,6 +309,264 @@ def test_root_tsx_registers_only_general_compositions():
         f"Root.tsx registers {sorted(ids)}. A composition named after one "
         f"series is a project asset - declare it with content.bookends "
         f"and a project-owned `source:` instead.")
+
+
+# ─────────────────────────────────────────────────────────
+# Segment planning: what the reader actually places
+# ─────────────────────────────────────────────────────────
+
+def test_moments_far_apart_become_separate_segments():
+    """Frames between two moments carry nothing, so nothing renders them."""
+    segments = plan_timed_text_segments(_declaration(
+        _moment(start_frame=30, duration_frames=30),
+        _moment(start_frame=300, duration_frames=60),
+    ))
+    assert len(segments) == 2
+    assert [s["timeline_start"] for s in segments] == [1.0, 10.0]
+    assert [s["timeline_end"] for s in segments] == [2.0, 12.0]
+    assert [s["total_frames"] for s in segments] == [30, 60]
+
+
+def test_overlapping_moments_share_one_segment():
+    """Two clips cannot occupy the same frames of V6; Remotion composites."""
+    segments = plan_timed_text_segments(_declaration(
+        _moment(start_frame=30, duration_frames=30),
+        _moment(start_frame=45, duration_frames=30),
+    ))
+    assert len(segments) == 1
+    assert segments[0]["moment_count"] == 2
+    assert segments[0]["total_frames"] == 45
+    assert segments[0]["timeline_start"] == 1.0
+    assert segments[0]["timeline_end"] == 2.5
+
+
+def test_touching_moments_share_one_segment():
+    """A moment starting on the frame the previous one ends is contiguous."""
+    segments = plan_timed_text_segments(_declaration(
+        _moment(start_frame=30, duration_frames=30),
+        _moment(start_frame=60, duration_frames=30),
+    ))
+    assert len(segments) == 1
+    assert segments[0]["total_frames"] == 60
+
+
+def test_planned_segments_never_overlap():
+    """The property that lets every segment share one video track."""
+    segments = plan_timed_text_segments(_declaration(
+        _moment(start_frame=300, duration_frames=60),
+        _moment(start_frame=30, duration_frames=30),
+        _moment(start_frame=100, duration_frames=30),
+    ))
+    for prev, curr in zip(segments, segments[1:]):
+        assert curr["timeline_start"] >= prev["timeline_end"]
+
+
+def test_moment_frames_are_rebased_against_their_segment():
+    """The rendered file starts at frame 0; the timeline knows the offset.
+
+    Leaving the declaration's timeline frames in the props would render a
+    segment whose text appears `start_frame` frames after the clip
+    begins - i.e. never, because the clip is only as long as the moment.
+    """
+    segments = plan_timed_text_segments(_declaration(
+        _moment(start_frame=90, duration_frames=30, text="A"),
+        _moment(start_frame=105, duration_frames=30, text="B"),
+    ))
+    assert len(segments) == 1
+    props = segments[0]["props"]
+    assert [m["startFrame"] for m in props["moments"]] == [0, 15]
+    assert props["durationInFrames"] == 45
+    assert segments[0]["timeline_start"] == 3.0
+
+
+def test_segment_props_carry_the_fixture_geometry():
+    segments = plan_timed_text_segments(
+        _declaration(_moment(), font_family="Montserrat"),
+        fps=30, width=320, height=568)
+    props = segments[0]["props"]
+    assert (props["width"], props["height"], props["fps"]) == (320, 568, 30)
+    assert props["fontFamily"] == "Montserrat"
+
+
+def test_a_moment_past_the_end_of_the_edit_is_rejected():
+    """The 4th Wall card's actual defect: frames from a different cut."""
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration(_moment(start_frame=1800, duration_frames=60)),
+            spine_structure=_SPINE)
+    assert "reaches no picture" in str(exc.value)
+
+
+def test_timeline_bound_is_optional():
+    """A caller that does not know the edit's length still gets a plan."""
+    segments = plan_timed_text_segments(
+        _declaration(_moment(start_frame=1800, duration_frames=60)))
+    assert len(segments) == 1
+
+
+# ─────────────────────────────────────────────────────────
+# Timing from the spine
+# ─────────────────────────────────────────────────────────
+# docs/ASSET_LIBRARY_PLAN.md section 5: "It is timed from the spine. No
+# absolute frames, no assumed total." The 4th Wall card's frame numbers
+# were baked to a 60.000s cut that no longer existed.
+
+_SPINE = [
+    {"position": 0, "block_type": "hook",
+     "timeline_start": 0.0, "timeline_end": 4.0},
+    {"position": 1, "block_type": "speech",
+     "timeline_start": 4.0, "timeline_end": 12.0},
+    {"position": 2, "block_type": "speech",
+     "timeline_start": 12.0, "timeline_end": 20.0},
+]
+
+
+def test_a_moment_anchors_to_a_spine_block():
+    segments = plan_timed_text_segments(
+        _declaration({
+            "text": "EPISODE 001", "color": "#fff",
+            "block": 1, "duration_seconds": 2.0,
+        }),
+        spine_structure=_SPINE)
+    assert len(segments) == 1
+    assert segments[0]["timeline_start"] == 4.0
+    assert segments[0]["total_frames"] == 60
+
+
+def test_an_anchored_moment_takes_an_offset():
+    segments = plan_timed_text_segments(
+        _declaration({
+            "text": "EPISODE 001", "color": "#fff",
+            "block": 2, "offset_seconds": 0.5, "duration_seconds": 1.0,
+        }),
+        spine_structure=_SPINE)
+    assert segments[0]["timeline_start"] == 12.5
+
+
+def test_a_moment_may_anchor_to_the_end_of_its_block():
+    segments = plan_timed_text_segments(
+        _declaration({
+            "text": "OUT", "color": "#fff", "block": 0,
+            "anchor": "end", "offset_seconds": -1.0, "duration_seconds": 1.0,
+        }),
+        spine_structure=_SPINE)
+    assert segments[0]["timeline_start"] == 3.0
+    assert segments[0]["timeline_end"] == 4.0
+
+
+def test_an_anchored_moment_moves_when_the_edit_is_recut():
+    """The whole point of anchoring: no frame number survives a re-cut."""
+    declaration = _declaration({
+        "text": "EPISODE 001", "color": "#fff",
+        "block": 2, "duration_seconds": 1.0,
+    })
+    recut = [dict(b) for b in _SPINE]
+    recut[1]["timeline_end"] = 9.0
+    recut[2].update({"timeline_start": 9.0, "timeline_end": 17.0})
+    before = plan_timed_text_segments(declaration, spine_structure=_SPINE)
+    after = plan_timed_text_segments(declaration, spine_structure=recut)
+    assert before[0]["timeline_start"] == 12.0
+    assert after[0]["timeline_start"] == 9.0
+
+
+def test_anchoring_to_a_block_that_is_not_in_the_edit_raises():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff",
+                          "block": 99, "duration_seconds": 1.0}),
+            spine_structure=_SPINE)
+    assert "which is not in" in str(exc.value)
+    assert "[0, 1, 2]" in str(exc.value)
+
+
+def test_anchoring_with_no_spine_raises():
+    """Silently falling back to frame 0 would put the card in the wrong place."""
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff",
+                          "block": 1, "duration_seconds": 1.0}))
+    assert "no spine was supplied" in " ".join(str(exc.value).split())
+
+
+def test_declaring_both_timings_raises():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff", "block": 1,
+                          "duration_seconds": 1.0, "start_frame": 30}),
+            spine_structure=_SPINE)
+    assert "not both" in str(exc.value)
+
+
+def test_declaring_neither_timing_raises():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff"}))
+    assert "neither way" in str(exc.value)
+
+
+def test_an_anchored_moment_needs_a_duration_in_seconds():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff", "block": 1}),
+            spine_structure=_SPINE)
+    assert "duration_seconds" in str(exc.value)
+
+
+def test_an_offset_before_the_first_frame_raises():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff", "block": 0,
+                          "offset_seconds": -2.0, "duration_seconds": 1.0}),
+            spine_structure=_SPINE)
+    assert "before" in str(exc.value)
+
+
+def test_an_unknown_anchor_raises():
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(
+            _declaration({"text": "X", "color": "#fff", "block": 1,
+                          "anchor": "middle", "duration_seconds": 1.0}),
+            spine_structure=_SPINE)
+    assert "anchor" in str(exc.value)
+
+
+@pytest.mark.parametrize("bad,needle", [
+    ({"text": ""}, "empty text"),
+    ({"color": None}, "missing"),
+    ({"start_frame": -5}, "non-negative integers"),
+    ({"duration_frames": 0}, "appears in no frame"),
+    ({"duration_frames": 1.5}, "appears in no frame"),
+    ({"fade_in_frames": -1}, "non-negative"),
+    ({"fade_in_frames": 20, "fade_out_frames": 20}, "full opacity"),
+    ({"y": 1.4}, "outside the frame"),
+    ({"x": "left"}, "between 0 and 1"),
+])
+def test_a_malformed_moment_raises(bad, needle):
+    """Malformed raises; it is never dropped.
+
+    A dropped declaration is a card the editor believes shipped - the
+    same rule bookends follow (library/tools/bookends.py).
+    """
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(_declaration(_moment(**bad)))
+    assert needle in str(exc.value)
+
+
+def test_zero_fades_are_legal():
+    """They crashed the composition; they are a legitimate declaration.
+
+    `interpolate` needs a strictly increasing input range, so a moment
+    with no fade produced [0,0,30,30] and threw, killing the render for
+    every moment in the segment. See momentOpacity in the composition.
+    """
+    segments = plan_timed_text_segments(_declaration(
+        _moment(fade_in_frames=0, fade_out_frames=0)))
+    assert segments[0]["props"]["moments"][0]["fadeInFrames"] == 0
+
+
+def test_a_non_mapping_declaration_raises():
+    with pytest.raises(TimedTextDeclarationError):
+        plan_timed_text_segments({"timed_text_overlay": {"moments": "nope"}})
 
 
 # ─────────────────────────────────────────────────────────

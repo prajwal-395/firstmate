@@ -674,9 +674,23 @@ that owns the series; the engine stays series-neutral. Accepted cost: each
 project folder carries its own fonts and licences, and `bookend_render.py`
 must stage them.
 
-`effect.timed_text_overlay` still has no reader; that is recorded as
-`library.tools.timed_text_overlay.NO_READER` and the slot is held empty by
-`tests/test_timed_text_overlay.py` until one exists. Do not declare it.
+`effect.timed_text_overlay` now HAS a reader, which is what makes a
+timed-text declaration legal at all (question three). One enumeration,
+`library/tools/timed_text_overlay.py`: a moment is timed from the SPINE
+(`block` + `anchor` + `offset_seconds` + `duration_seconds`), absolute
+`start_frame` stays available and is bounded by the spine's real length,
+and a malformed declaration raises. Moments whose spans touch are grouped
+into one rendered segment, because two clips cannot share frames of a
+track; `timed_text_render.py` renders each inside step 4.06,
+`compile_manifest` carries them as the `timed_text_overlay` manifest key,
+and `resolve_build_timeline` places them on **V6**. `NO_READER` is gone.
+`tests/test_timed_text_delivery.py` renders a 24-frame fixture through
+the real path and asserts the declared colours are in the declared rows
+at the declared frames - the delivery half, without which "a reader
+exists" is the same empty claim `smart_reframe` made for months.
+Geometry is still normalised against the whole delivery frame, not the
+picture area inside letterbox bars; there is no picture-area enumeration
+to resolve against.
 
 ## Maintaining this file
 

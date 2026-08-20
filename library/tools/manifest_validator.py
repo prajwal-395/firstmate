@@ -298,7 +298,8 @@ def _check_broll_differs_from_aroll(manifest: dict) -> list[str]:
 def _check_overlay_segments_do_not_overlap(manifest: dict) -> list[str]:
     """Overlay clips share a track, so overlapping segments hide each other."""
     errors = []
-    for key in ("subtitle_overlay", "motion_graphics_overlay"):
+    for key in ("subtitle_overlay", "motion_graphics_overlay",
+                "timed_text_overlay"):
         segments = sorted(
             _overlay_segments(manifest, key),
             key=lambda s: s.get("timeline_start", 0),

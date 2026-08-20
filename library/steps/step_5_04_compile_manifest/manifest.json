@@ -67,6 +67,12 @@
         "description": "State input: motion_graphics_overlay from step 4.06"
       },
       {
+        "name": "timed_text_overlay",
+        "type": "object",
+        "required": false,
+        "description": "State input: timed_text_overlay from step 4.06 - the rendered segments for the brand template's declared text moments, placed on V6. See library/tools/timed_text_overlay.py."
+      },
+      {
         "name": "music_selection",
         "type": "object",
         "required": true,

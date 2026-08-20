@@ -98,3 +98,4 @@ class ResolveManifest(BaseModel):
     audio_mix: Dict[str, Any] = Field(default_factory=dict)
     subtitle_overlay: Dict[str, Any] = Field(default_factory=dict)
     motion_graphics_overlay: Dict[str, Any] = Field(default_factory=dict)
+    timed_text_overlay: Dict[str, Any] = Field(default_factory=dict)

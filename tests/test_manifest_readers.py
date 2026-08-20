@@ -103,6 +103,12 @@ EXPECTED_READERS = {
         (RENDERER, "build_timeline",
          "Places the rendered Remotion motion-graphics segments on V4."),
     ],
+    "timed_text_overlay": [
+        (RENDERER, "build_timeline",
+         "Places the rendered Remotion timed-text segments on V6, so each "
+         "moment the brand template declared is burned over the picture for "
+         "the frames it declared."),
+    ],
 }
 
 def get_manifest_keys():

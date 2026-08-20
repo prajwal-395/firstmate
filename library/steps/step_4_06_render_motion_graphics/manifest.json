@@ -16,7 +16,7 @@
         "name": "brand_effect",
         "type": "object",
         "required": false,
-        "description": "Brand template effect slots (injected by pipeline runner). motion_accents and motion_progress_bar control whether the corner accents and the progress bar are drawn."
+        "description": "Brand template effect slots (injected by pipeline runner). motion_accents and motion_progress_bar control whether the corner accents and the progress bar are drawn; timed_text_overlay declares the text moments rendered for V6."
       },
       {
         "name": "brand_style",
@@ -48,6 +48,11 @@
         "name": "motion_graphics_overlay",
         "type": "object",
         "description": "Per-segment overlay paths and metadata for Resolve placement"
+      },
+      {
+        "name": "timed_text_overlay",
+        "type": "object",
+        "description": "Rendered timed text segments for the brand template's effect.timed_text_overlay declaration, or declared:false when the template declares none. See library/tools/timed_text_overlay.py."
       }
     ],
     "preconditions": [
@@ -58,7 +63,8 @@
       "Node.js and npx are available"
     ],
     "postconditions": [
-      "'motion_graphics_overlay' is written to state with segment overlay paths"
+      "'motion_graphics_overlay' is written to state with segment overlay paths",
+      "'timed_text_overlay' is written to state: one rendered segment per cluster of declared moments, or declared:false"
     ]
   },
   "classification": {

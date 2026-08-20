@@ -101,6 +101,10 @@ reached no frame of any render, and every run still reported SUCCESS.
 `docs/PIPELINE_PLAN.md` section 5 recorded the gap as CLOSED on the
 strength of the slot existing; this PR corrects that entry.
 
+**Q3 is answered as of 2026-08-20**, the first item in the captain's
+ratified build order: step 4.06 renders the declared moments and
+`resolve_build_timeline` places them on V6. See section 4.
+
 **Three failures out of three, and each one alone is sufficient.** Q1
 would have routed the artwork to `video_projects/4th-wall/` and it would
 have reached the timeline the way the Lucie cards do - declared with
@@ -157,26 +161,34 @@ four house looks (`house_look.py`), the transition vocabulary, the
 delivery-format enumeration, the bookend mechanism, subtitle styling,
 `SubtitleOverlay` and `MotionGraphics`, and Montserrat with its OFL text.
 
-**General mechanism that is NOT real yet:** the timed-text overlay.
-`TimedTextOverlay` exists and is correct; `generate_timed_text_overlay_props`
-exists and is deterministic; `effect.timed_text_overlay` exists in the
-schema. There is no reader, so the capability is a promise. The gap is
-recorded as `library.tools.timed_text_overlay.NO_READER` and the slot is
-held empty by `tests/test_timed_text_overlay.py` until it is built. All
-eight series need this - intro cards and episode text overlays are Parts
-2 and 3 of the captain's Series Identifier System - so it is the highest-
-value general asset outstanding.
+**The timed-text overlay is now real** (2026-08-20, the first item in the
+captain's ratified build order). It was the highest-value general asset
+outstanding - all eight series need it, intro cards and episode text
+being Parts 2 and 3 of the captain's Series Identifier System - and it
+was the case that motivated Q3, because `TimedTextOverlay`, the prop
+generator and the schema field all existed with nothing reading them.
 
-**A sketch of the missing reader, for costing only - not a design to
-approve here.** Step 4.06 already renders per-spine-block overlay clips
-and already renders composition-mode bookends, so it is the natural
-caller. Two things have to change in the declaration for Q2 to pass: a
-moment must anchor to a **spine block plus an offset**, not an absolute
-frame, and its position must resolve against the **picture area the
-delivery format actually produces**, not the raw frame. Then
-`compile_manifest` emits the rendered clip as a V2 overlay segment like
-every other overlay, and a `tests/test_vfx_delivery.py`-style assertion
-proves the moments draw.
+**What was built, against the sketch this section used to carry.** Step
+4.06 is the caller, as sketched. A moment anchors to a **spine block plus
+an offset** (`block` / `anchor` / `offset_seconds` / `duration_seconds`),
+so Q2's timing half passes and a re-cut moves the moment with its block;
+absolute `start_frame` survives for a caller that means a timeline
+position and is bounded by the spine's real length, which is the check
+the 4th Wall card's numbers would have failed. Moments whose spans touch
+are grouped into ONE rendered segment, because two clips cannot share
+frames of a track. `compile_manifest` carries them as the top-level
+`timed_text_overlay` key and `resolve_build_timeline` places them on
+**V6** - not V2, which the sketch guessed at and which already carries
+additive picture overlays.
+
+**Q2's geometry half is NOT closed.** Positions are still normalised
+against the whole delivery frame, not the picture area inside the
+letterbox bars a landscape source produces. There is no picture-area
+enumeration to resolve against, and inventing one to serve a slot with no
+declared asset yet would be machinery ahead of a need. A declaration that
+must clear the bars states its own `y`. Recorded here rather than in a
+constant, because the reader works and this is a limit on where a moment
+can be placed, not a capability that renders nothing.
 
 **Project assets each series owes** (from the captain's planning docs):
 an intro card design, a display typeface, a caption typeface, and where
@@ -259,6 +271,9 @@ Mechanical only, all of it the captain's ruling of 2026-08-17:
   registration and baked default props.
 - The missing reader is recorded rather than left silent
   (`timed_text_overlay.NO_READER`), and the empty slot is held empty.
+  **Superseded 2026-08-20**: the reader was built, `NO_READER` deleted in
+  the same commit, and the empty-slot guard replaced by a reader
+  assertion plus `tests/test_timed_text_delivery.py`. See section 4.
 - `tests/test_bundled_fonts.py` now walks the whole template for fonts,
   so the declaration that slipped past it would not slip past it again.
 - `docs/PIPELINE_PLAN.md` section 5's "CLOSED" claim is corrected.

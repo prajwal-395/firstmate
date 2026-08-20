@@ -416,6 +416,10 @@ def build_timeline(
     # Legacy fallback: single subtitle_overlay_path / motion_graphics_path.
     sub_overlay_info = manifest.get('subtitle_overlay', {})
     mg_overlay_info = manifest.get('motion_graphics_overlay', {})
+    # Timed text moments the brand template declared (V6). Rendered by
+    # 4.06; see library/tools/timed_text_overlay.py. A template that
+    # declares none carries `declared: false` and no segments.
+    tt_overlay_info = manifest.get('timed_text_overlay', {})
 
     if sub_overlay_info.get('available') is False:
         sub_overlay_info = {}
@@ -427,6 +431,7 @@ def build_timeline(
 
     sub_segments = sub_overlay_info.get('segments', [])
     mg_segments = mg_overlay_info.get('segments', [])
+    tt_segments = tt_overlay_info.get('segments', [])
 
     # Legacy fallback: single overlay file
     if not sub_segments and subtitle_overlay_path and os.path.exists(subtitle_overlay_path):
@@ -549,6 +554,7 @@ def build_timeline(
     total_imported += _import_to_folder("Audio", [c.get('source_file', '') for c in a2_clips + a3_clips])
     total_imported += _import_to_folder("Subtitles", [s.get('overlay_path', '') for s in sub_segments])
     total_imported += _import_to_folder("MotionGraphics", [s.get('overlay_path', '') for s in mg_segments])
+    total_imported += _import_to_folder("TimedText", [s.get('overlay_path', '') for s in tt_segments])
     
     if total_imported > 0:
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)
@@ -605,7 +611,7 @@ def build_timeline(
 
     for c in v1_clips + v2_clips + a2_clips + a3_clips:
         _recompute_frames(c)
-    for s in sub_segments + mg_segments:
+    for s in sub_segments + mg_segments + tt_segments:
         _recompute_frames(s)
         if 'source_in_frame' not in s:
             s['total_frames'] = round(
@@ -638,6 +644,7 @@ def build_timeline(
     has_v2 = bool(v2_clips)
     has_subtitles = bool(sub_segments)
     has_mg = bool(mg_segments)
+    has_timed_text = bool(tt_segments)
     generator_overlays = manifest.get('generator_overlays', [])
     has_generators = bool(generator_overlays)
 
@@ -656,6 +663,8 @@ def build_timeline(
         target_video_tracks = max(target_video_tracks, 4)
     if has_generators:
         target_video_tracks = max(target_video_tracks, 5)
+    if has_timed_text:
+        target_video_tracks = max(target_video_tracks, 6)
 
     while timeline.GetTrackCount("video") < target_video_tracks:
         timeline.AddTrack("video")
@@ -1037,6 +1046,68 @@ def build_timeline(
                 )
 
         results["tracks"]["V5"] = v5_count
+
+    # ══════════════════════════════════════════════════════════
+    # PLACE V6: Timed Text Overlay Segments (Remotion)
+    # ══════════════════════════════════════════════════════════
+    # The moments a brand template declared in effect.timed_text_overlay,
+    # rendered by 4.06 into one ProRes 4444 alpha file per cluster of
+    # moments whose spans touch. Timeline frames throughout - the segment
+    # already knows where it goes, so there is no block offset to apply.
+    if has_timed_text:
+        print(f"\n-- V6 Timed Text: {len(tt_segments)} segments --",
+              file=sys.stderr)
+        v6_count = 0
+        for ti, seg in enumerate(tt_segments):
+            seg_path = seg.get('overlay_path', '')
+            seg_basename = os.path.basename(seg_path)
+            pool_item = _find_pool_clip(seg_path)
+            if not pool_item:
+                results["warnings"].append(f"V6[{ti}] {seg_basename} not in pool")
+                print(f"  X [{ti}] {seg_basename} not in media pool",
+                      file=sys.stderr)
+                continue
+
+            # Ensure ProRes 4444 alpha channel is recognized
+            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+
+            seg_frames = seg.get('total_frames', round(
+                (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
+            tl_in_frame = round(seg.get('timeline_start', 0) * fps)
+
+            result = media_pool.AppendToTimeline([{
+                "mediaPoolItem": pool_item,
+                "startFrame": 0,
+                "endFrame": seg_frames,
+                "trackIndex": 6,
+                "recordFrame": tl_in_frame,
+                "mediaType": 1,  # video-only placement on V6
+            }])
+            if result:
+                v6_count += 1
+                print(f"  V [{ti}] {seg_basename} on V6 "
+                      f"({seg_frames}f @ TL {tl_in_frame})", file=sys.stderr)
+            else:
+                print(f"  X [{ti}] {seg_basename}: placement failed",
+                      file=sys.stderr)
+                results["warnings"].append(
+                    f"V6[{ti}] placement failed: {seg_basename}")
+
+        results["tracks"]["V6"] = v6_count
+        if v6_count != len(tt_segments):
+            # A declared moment that did not land is invisible everywhere
+            # downstream: the picture underneath is intact, so render QA
+            # sees nothing wrong. Say it here or nobody says it.
+            results["qa_failures"].append({
+                "station": "timed_text",
+                "check": "declared_segments_placed",
+                "expected": f"{len(tt_segments)} segments on V6",
+                "actual": f"{v6_count} placed",
+                "detail": (
+                    f"QA [timed_text] Failed declared_segments_placed: "
+                    f"{v6_count}/{len(tt_segments)} declared timed text "
+                    f"segments reached V6"),
+            })
 
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
