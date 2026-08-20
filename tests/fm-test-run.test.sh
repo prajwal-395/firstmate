@@ -286,7 +286,7 @@ SH
 test_gate_skip_accounting() {
   local tmp skip_f out json
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-skip.XXXXXX")
-  skip_f="$tmp/skip.test.sh"
+  skip_f="$tmp/fm-backend-herdr-smoke.test.sh"
   out="$tmp/out.txt"
   json="$tmp/timing.json"
   cat >"$skip_f" <<'SH'

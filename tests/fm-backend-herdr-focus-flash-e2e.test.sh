@@ -247,7 +247,7 @@ C_CHILD_STABLE=0
 while [ "$C_CHILD_ATTEMPT" -lt 100 ]; do
   C_SHELL_PID=$(lab pane process-info --pane "$C_DOOMED_PANE" 2>/dev/null \
     | jq -r '.result.process_info.shell_pid // empty' 2>/dev/null) || C_SHELL_PID=
-  if [ -n "$C_SHELL_PID" ] && ps -axo ppid=,comm= | awk -v parent="$C_SHELL_PID" '
+  if [ -n "$C_SHELL_PID" ] && ps -eo ppid=,comm= | awk -v parent="$C_SHELL_PID" '
     $1 == parent {
       command = $2
       sub(/^.*\//, "", command)
