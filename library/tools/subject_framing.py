@@ -24,10 +24,12 @@ conversion stays at the one site that does the geometry.
 
 **Silence is a real answer.** No detections, too few detections, a subject
 already near the centre, or the OpenCV-less fallback all return None,
-which means "no pan" - the framing a project gets today. A fabricated
-centre would be worse than none, because it reads as a measurement.
+which means "no pan" - the crop window stays in the middle of the source.
+A fabricated centre would be worse than none, because it reads as a
+measurement.
 """
 
+import os
 from typing import List, Optional, Sequence
 
 # A clip needs a few detections before its median means anything. At 5Hz
@@ -140,20 +142,46 @@ def subject_centers_by_clip(
     by clip id in some runs and by file stem in others - the same split
     `semantic_index` exists to bridge. Both spellings are returned so the
     caller can look up either without a `.get()` fallback chain.
+
+    **The shape step 1.04 really emits is a LIST.** Its return value is
+    ``{"temporal_event_indices": [...], "full_indices": [...], ...}``,
+    where `full_indices` carries the whole per-clip index - `face_presence`
+    included - as a list of dicts each naming its own `clip_id`. This
+    function used to read only a mapping (`indices`, or the top level
+    keyed by clip), so on every real run it matched nothing and returned
+    `{}`: the pan was never computed, and a `framing_intent` of 1.0 would
+    have been the blind centre crop the whole mechanism exists to avoid.
+    Its tests all fed it invented mappings, so it passed. Same class as
+    every other key-name mismatch in this pipeline: nothing raised.
     """
     out = {}
     if not temporal_index:
         return out
 
-    indices = temporal_index.get("indices")
-    if not isinstance(indices, dict):
-        indices = temporal_index
-
-    for key, entry in indices.items():
+    def _record(key, entry):
         if not isinstance(entry, dict):
-            continue
+            return
         face = entry.get("face_presence")
-        if isinstance(face, dict):
+        if isinstance(face, dict) and key:
             out[key] = face
+
+    for listing in ("full_indices", "indices", "temporal_event_indices"):
+        entries = temporal_index.get(listing)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    _record(entry.get("clip_id"), entry)
+                    src = entry.get("source_file") or entry.get("path")
+                    if src:
+                        stem = os.path.splitext(os.path.basename(src))[0]
+                        _record(stem, entry)
+        elif isinstance(entries, dict):
+            for key, entry in entries.items():
+                _record(key, entry)
+
+    # A bare mapping of clip_id -> index, which is how the tests and some
+    # older exports spell it.
+    for key, entry in temporal_index.items():
+        _record(key, entry)
 
     return out

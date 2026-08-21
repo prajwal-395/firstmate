@@ -154,6 +154,39 @@ class TestSubjectCentersByClip:
         assert subject_centers_by_clip({}) == {}
         assert subject_centers_by_clip(None) == {}
 
+    def test_reads_the_shape_step_1_04_actually_emits(self):
+        """`full_indices` is a LIST, and it is the only shape a real run
+        produces (library/steps/step_1_04_temporal_index/step.py).
+
+        Every test above this one feeds an invented mapping, so this
+        function returned `{}` on every real project while passing its
+        whole suite - and with no face track there is no pan, which makes
+        a fill a blind centre crop.
+        """
+        idx = {
+            "temporal_event_indices": [
+                {"clip_id": "clip_011", "index_path": "/tmp/clip_011.json"},
+            ],
+            "full_indices": [
+                {"clip_id": "clip_011",
+                 "source_file": "/footage/IMG_1816.MOV",
+                 "face_presence": face_track([0.3] * 10)},
+            ],
+            "total_indexed": 1,
+            "index_dir": "/tmp",
+        }
+        got = subject_centers_by_clip(idx)
+        assert "clip_011" in got
+        # Keyed by file stem too, because the temporal index and the
+        # catalog disagree about which is the id - the same split
+        # semantic_index bridges.
+        assert "IMG_1816" in got
+        assert subject_center_x(got["clip_011"], 0.0, 2.0) == pytest.approx(0.3)
+
+    def test_list_entries_without_face_presence_are_skipped(self):
+        idx = {"full_indices": [{"clip_id": "clip_001"}, "not a dict"]}
+        assert subject_centers_by_clip(idx) == {}
+
 
 # ─────────────────────────────────────────────────────────
 # 2. Position -> pixel pan, in _conform_fields
@@ -223,26 +256,33 @@ class TestSubjectDrivesThePan:
         assert 0 < half["framing_pan_x"] < full["framing_pan_x"]
 
 
-class TestSubjectFramingChangesNoDefault:
-    """The captain's Q1 answer: letterbox stays the default.
+class TestSubjectFramingRespectsTheDeclaration:
+    """Subject tracking moves the crop window; it never overrides the
+    declared framing.
 
-    Subject tracking must bite only where a template or a spine block has
-    already pushed a clip toward fill.
+    This class used to assert "letterbox stays the default" and that an
+    unset intent ignored the subject entirely. Both were true and both
+    were the defect: the default letterboxed every talking-head clip, so
+    the tracking never ran anywhere. The default is fill now
+    (library/tools/framing_intent.py) and a project that wants bars
+    declares 0.0 - which these first two cases still prove works.
     """
 
     def test_letterbox_intent_ignores_the_subject(self):
         got = conform(framing_intent=0.0, subject_center_x=0.30)
         assert got == {"needs_conform": False}
 
-    def test_unset_intent_ignores_the_subject_entirely(self):
-        """No framing_intent means the legacy heuristic, untouched."""
+    def test_unset_intent_tracks_the_subject(self):
+        """No declaration means the default, and the default fills - so
+        the pan runs rather than sitting idle."""
         with_subject = conform(framing_intent=None, subject_center_x=0.30)
         without = conform(framing_intent=None)
-        assert with_subject == without
-        assert "framing_pan_x" not in with_subject
+        assert with_subject["needs_conform"] is True
+        assert with_subject["framing_pan_x"] > 0
+        assert "framing_pan_x" not in without
 
     def test_no_subject_means_no_pan_key_at_all(self):
-        """A clip the detector could not locate renders as it does today."""
+        """A clip the detector could not locate crops from the centre."""
         got = conform(framing_intent=1.0, subject_center_x=None)
         assert "framing_pan_x" not in got
         assert got["fill_zoom"] == FULL_ZOOM

@@ -57,6 +57,10 @@ class PipelineConfig:
     # A name from library/tools/delivery_format.DELIVERY_FORMATS; an
     # unknown one raises rather than quietly reverting to the default.
     delivery_format: str = ""
+    # Per-project override of how much of that frame the picture fills:
+    # 0.0 letterbox, 1.0 fill. None means "take the brand template's",
+    # which in turn defaults to fill. See library/tools/framing_intent.py.
+    framing_intent: Optional[float] = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
@@ -148,6 +152,13 @@ class ProjectConfig:
                     f"{self.pipeline.delivery_format} must be one of "
                     f"{sorted(DELIVERY_FORMATS)}"
                 )
+        if self.pipeline.framing_intent is not None:
+            from library.tools.framing_intent import validate_framing_intent
+            try:
+                validate_framing_intent(self.pipeline.framing_intent,
+                                        "pipeline.framing_intent")
+            except (TypeError, ValueError) as exc:
+                errors.append(str(exc))
         return errors
 
 @dataclass
@@ -182,6 +193,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
     pipeline = PipelineConfig(
         brand_template=pipeline_data.get("brand_template", "default_brand"),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
+        framing_intent=pipeline_data.get("framing_intent"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         sfx_library=pipeline_data.get("sfx_library", ""),
         music_library=pipeline_data.get("music_library", ""),
@@ -232,6 +244,11 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         "pipeline": {
             "brand_template": config.pipeline.brand_template,
             "delivery_format": config.pipeline.delivery_format,
+            # Only when declared: `framing_intent: null` in every
+            # project.yaml would read as a decision nobody made, and 0.0
+            # and "unset" are different answers here.
+            **({} if config.pipeline.framing_intent is None
+               else {"framing_intent": config.pipeline.framing_intent}),
             "creative_brief": config.pipeline.creative_brief,
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,

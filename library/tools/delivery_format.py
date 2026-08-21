@@ -35,7 +35,6 @@ enumeration and an unknown name RAISES.  A silent fallback is exactly how
 a landscape master ships again.  Adding a format means adding a row.
 """
 
-import os
 from typing import Dict, List, Optional, Tuple
 
 # name -> (width, height).  Names are self-describing on purpose: the value
@@ -82,20 +81,13 @@ def resolve_format_name(name: str) -> Tuple[int, int]:
 
 
 def _project_pipeline_block(project_folder: Optional[str]) -> dict:
-    """The `pipeline:` mapping of a project's project.yaml, or {}."""
-    if not project_folder:
-        return {}
-    project_yaml = os.path.join(project_folder, "project.yaml")
-    if not os.path.exists(project_yaml):
-        return {}
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover - PyYAML is a hard dependency
-        return {}
-    with open(project_yaml, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-    block = cfg.get("pipeline") or {}
-    return block if isinstance(block, dict) else {}
+    """The `pipeline:` mapping of a project's project.yaml, or {}.
+
+    One parse, in library/tools/brand_registry.py - this module, that one
+    and framing_intent all read the same block.
+    """
+    from library.tools.brand_registry import project_pipeline_block
+    return project_pipeline_block(project_folder)
 
 
 def delivery_format_name(project_folder: Optional[str] = None,

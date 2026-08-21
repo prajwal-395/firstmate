@@ -147,29 +147,36 @@ class TestCompileManifest(unittest.TestCase):
 
 
 
-    def test_conform_fields_letterbox_fallback_on_primary_subject(self):
+    def test_conform_fields_fill_by_default_and_letterbox_only_on_request(self):
+        """Vision data no longer decides the framing; the declaration does.
+
+        This test used to assert the opposite - that a visible primary
+        subject forced letterbox - which is the rule that put project
+        001's A-roll into 608 of 1920 rows on every clip. The subject is
+        protected by the pan now (library/tools/subject_framing.py), not
+        by refusing to crop. See library/tools/framing_intent.py.
+        """
         from library.steps.step_5_04_compile_manifest.step import _conform_fields
-        from tests.test_vision_schema_adapter import V3_PROFILE
-        
+
         # A horizontal 4K source (3840x2160) going into a vertical 1080x1920 timeline.
         # This gives a massive fit_scale (~0.28) and fill_scale (~0.88), forcing a crop.
         clip_meta = {"clip_1": {"width": 3840, "height": 2160}}
         proj_res = [1080, 1920]
-        
-        # 1. No semantic_doc: defaults to cropping
-        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=None, source_in=0.0, source_out=1.0)
+
+        # 1. Nothing declared: fill.
+        res = _conform_fields(clip_meta, "clip_1", proj_res)
         self.assertTrue(res["needs_conform"])
-        
-        # 2. V3_PROFILE where subject is visible: falls back to letterbox
-        # V3_PROFILE has primary_subject_visible: [[0, 29.8]]
-        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=V3_PROFILE, source_in=10.0, source_out=12.0)
+
+        # 2. A subject on screen the whole time no longer letterboxes; it
+        #    moves the crop window instead.
+        res = _conform_fields(clip_meta, "clip_1", proj_res, subject_center_x=0.30)
+        self.assertTrue(res["needs_conform"])
+        self.assertGreater(res["framing_pan_x"], 0)
+
+        # 3. Letterbox is still available, and only by declaring it.
+        res = _conform_fields(clip_meta, "clip_1", proj_res, framing_intent=0.0)
         self.assertFalse(res["needs_conform"])
-        
-        # 3. V3_PROFILE where clip source range is completely outside subject visibility: still crops
-        # Actually V3_PROFILE has subject visible 0 to 29.8, let's test a range past it.
-        res = _conform_fields(clip_meta, "clip_1", proj_res, semantic_doc=V3_PROFILE, source_in=50.0, source_out=55.0)
-        self.assertTrue(res["needs_conform"])
-        
+
 
 
 if __name__ == '__main__':

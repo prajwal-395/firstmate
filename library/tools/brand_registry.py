@@ -82,6 +82,27 @@ def resolve_project_template(template_name: str = "",
     )
 
 
+def project_pipeline_block(project_folder: Optional[str]) -> dict:
+    """The ``pipeline:`` mapping of a project's project.yaml, or ``{}``.
+
+    Every project-level pipeline declaration - the brand template name,
+    the delivery format override, the framing intent - is read from here,
+    so the parse lives once.  It was written out twice before this and
+    the copies could disagree about what "declares nothing" means.
+    """
+    if not project_folder:
+        return {}
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return {}
+    if yaml is None:
+        raise ImportError("PyYAML is required to read project.yaml.")
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    block = cfg.get("pipeline") or {}
+    return block if isinstance(block, dict) else {}
+
+
 def project_template_name(project_folder: str) -> str:
     """The brand template NAME a project declares in its project.yaml.
 
@@ -99,19 +120,7 @@ def project_template_name(project_folder: str) -> str:
     Returns "" when the project declares none, which
     :func:`resolve_project_template` turns into `default_brand` on disk.
     """
-    if not project_folder:
-        return ""
-    project_yaml = os.path.join(project_folder, "project.yaml")
-    if not os.path.exists(project_yaml):
-        return ""
-    if yaml is None:
-        raise ImportError("PyYAML is required to read project.yaml.")
-    with open(project_yaml, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-    block = cfg.get("pipeline") or {}
-    if not isinstance(block, dict):
-        return ""
-    return (block.get("brand_template") or "").strip()
+    return (project_pipeline_block(project_folder).get("brand_template") or "").strip()
 
 
 def _looks_like_path(reference: str) -> bool:

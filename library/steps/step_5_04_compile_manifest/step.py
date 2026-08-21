@@ -51,7 +51,8 @@ from tools.semantic_index import build_semantic_lookup
 from tools.subject_framing import subject_center_x, subject_centers_by_clip
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
-from tools.brand_registry import resolve_project_template
+from tools.brand_registry import project_template_name, resolve_project_template
+from tools.framing_intent import DEFAULT_FRAMING_INTENT, resolve_framing_intent
 from tools.delivery_format import resolve_delivery_format
 
 # Wording that means the camera was not locked off. Read from the vision
@@ -722,13 +723,17 @@ def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     return dropped
 
 
-def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict = None, source_in: float = 0.0, source_out: float = 0.0, framing_intent: float = None, framing_pan_x: float = None, subject_center_x: float = None) -> dict:
+def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: float = None, framing_pan_x: float = None, subject_center_x: float = None) -> dict:
     """Scale factor needed to fill the output frame, if any.
 
     ``framing_intent`` is a normalised scalar spanning the continuum from
     full letterbox (0.0) through partial punch-in to complete fill (1.0).
-    When *None* (unset), the legacy subject-visibility heuristic runs, so
-    existing projects render identically.
+    *None* means nothing declared one, which resolves to
+    ``framing_intent.DEFAULT_FRAMING_INTENT`` - see that module for why
+    the default is fill and what the inverted heuristic it replaced did to
+    project 001.  Callers that resolve the intent themselves (compile_manifest
+    does, through ``framing_intent.resolve_framing_intent``) always pass a
+    number.
 
     ``framing_pan_x`` is a normalised horizontal pan (-1.0 to 1.0) that
     shifts the crop window within the zoomed source.  0 = centred (default).
@@ -777,74 +782,44 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, semantic_doc: dict =
 
     max_zoom = round(fill_scale / fit_scale, 4)
 
-    # ── Resolve framing_intent ──
-    # Priority: explicit per-clip value > template bias (caller merges
-    # before calling) > auto (legacy heuristic).
-    if framing_intent is not None:
-        intent = max(0.0, min(1.0, framing_intent))
-        if intent == 0.0:
-            return {"needs_conform": False}
-        zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
-        result = {
-            "needs_conform": True,
-            "source_width": width,
-            "source_height": height,
-            "fill_zoom": zoom,
-        }
-        # Pan: convert normalised (-1..1) to pixel offset.
-        zoomed_w = width * fit_scale * zoom
-        max_pan_px = (zoomed_w - target_w) / 2.0
-
-        pan_norm = None
-        if framing_pan_x is not None and framing_pan_x != 0.0:
-            pan_norm = max(-1.0, min(1.0, framing_pan_x))
-        elif subject_center_x is not None and max_pan_px > 0:
-            # Move the crop window so the subject sits in its middle. A
-            # subject left of centre needs the window to travel left,
-            # which means the PICTURE travels right - a positive Pan.
-            delta_src_px = (0.5 - float(subject_center_x)) * width
-            delta_disp_px = delta_src_px * fit_scale * zoom
-            pan_norm = max(-1.0, min(1.0, delta_disp_px / max_pan_px))
-            # Clamped to the edge means the subject cannot be centred at
-            # this zoom; the crop still moves as far toward them as it can.
-            if pan_norm == 0.0:
-                pan_norm = None
-
-        if pan_norm is not None:
-            result["framing_pan_x"] = round(pan_norm * max_pan_px, 2)
-        return result
-
-    # ── Legacy auto-decision (framing_intent not set) ──
-    # Decide whether to letterbox or crop based on primary subject visibility.
-    # If the primary subject is visible during this clip's source range, a
-    # center crop might cut them off, so we prefer letterbox.
-    subject_visible = False
-    if semantic_doc:
-        ranges = []
-        assessment = semantic_doc.get("assessment", {})
-        if "primary_subject_visible" in assessment:
-            ranges.extend(assessment["primary_subject_visible"])
-        for obj in semantic_doc.get("objects", []):
-            if isinstance(obj, dict) and obj.get("role") == "primary_subject":
-                ranges.extend(obj.get("appearances", []))
-        
-        for r in ranges:
-            if isinstance(r, (list, tuple)) and len(r) >= 2:
-                # Overlap check
-                if r[0] - 0.1 <= source_out and r[1] + 0.1 >= source_in:
-                    subject_visible = True
-                    break
-
-    if subject_visible:
-        # Prefer letterbox over losing the subject
+    # ── Apply framing_intent ──
+    # There is no second branch.  The one this replaced ran whenever
+    # nothing declared an intent and letterboxed any clip whose primary
+    # subject was visible - which on a talking head is every clip, so
+    # project 001 shipped its A-roll in a 608-row strip of a 1920-row
+    # frame.  See library/tools/framing_intent.py.
+    intent = DEFAULT_FRAMING_INTENT if framing_intent is None else max(0.0, min(1.0, framing_intent))
+    if intent == 0.0:
         return {"needs_conform": False}
-
-    return {
+    zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
+    result = {
         "needs_conform": True,
         "source_width": width,
         "source_height": height,
-        "fill_zoom": max_zoom,
+        "fill_zoom": zoom,
     }
+    # Pan: convert normalised (-1..1) to pixel offset.
+    zoomed_w = width * fit_scale * zoom
+    max_pan_px = (zoomed_w - target_w) / 2.0
+
+    pan_norm = None
+    if framing_pan_x is not None and framing_pan_x != 0.0:
+        pan_norm = max(-1.0, min(1.0, framing_pan_x))
+    elif subject_center_x is not None and max_pan_px > 0:
+        # Move the crop window so the subject sits in its middle. A
+        # subject left of centre needs the window to travel left,
+        # which means the PICTURE travels right - a positive Pan.
+        delta_src_px = (0.5 - float(subject_center_x)) * width
+        delta_disp_px = delta_src_px * fit_scale * zoom
+        pan_norm = max(-1.0, min(1.0, delta_disp_px / max_pan_px))
+        # Clamped to the edge means the subject cannot be centred at
+        # this zoom; the crop still moves as far toward them as it can.
+        if pan_norm == 0.0:
+            pan_norm = None
+
+    if pan_norm is not None:
+        result["framing_pan_x"] = round(pan_norm * max_pan_px, 2)
+    return result
 
 
 def compile_manifest(out_dir: str) -> dict:
@@ -997,38 +972,28 @@ def compile_manifest(out_dir: str) -> dict:
     if hook_assignment and "spine_block_position" in hook_assignment:
         a_roll_dict[hook_assignment["spine_block_position"]] = hook_assignment
 
-    # ── Framing intent: template fallback ──
-    # Load the brand template's default framing_intent so it can bias clips
-    # that don't carry an explicit per-clip value. The template file is a
-    # static config in the repo, not a pipeline step output, so this reads
-    # it directly rather than threading a DAG edge.
-    _template_framing_intent = None
-    try:
-        # One join, in library/tools/brand_registry.py. This had its own
-        # copy of "read project.yaml, take pipeline.brand_template", which
-        # is the read run_pipeline.load_pipeline_state was missing entirely.
-        from library.tools.brand_registry import project_template_name
-        _tmpl = resolve_project_template(project_template_name(_project_root))
-        _template_framing_intent = getattr(_tmpl.style, "framing_intent", None)
-    except Exception:
-        pass  # template framing is a bias, not a requirement
+    # ── Framing intent ──
+    # One enumeration, library/tools/framing_intent.py: spine block >
+    # project.yaml pipeline.framing_intent > brand template
+    # style.framing_intent > the default (fill). The template file and the
+    # project.yaml are static config, not pipeline step outputs, so this
+    # reads them directly rather than threading a DAG edge - the same
+    # reasoning delivery_format uses.
+    #
+    # This is NOT wrapped in a try/except any more. It used to be, and a
+    # malformed template silently degraded to "no framing at all"; a
+    # framing declaration that is dropped is a frame the editor believes
+    # shipped.
+    _template = resolve_project_template(project_template_name(_project_root))
 
     def _resolve_framing(block_or_clip):
-        """Return (framing_intent, framing_pan_x) for a clip.
-
-        Priority: explicit per-clip value on the spine block > template
-        default > None (auto). The spine block carries these as optional
-        keys, like intentional_black_beat.
-        """
-        fi = block_or_clip.get("framing_intent")
-        if fi is None:
-            fi = _template_framing_intent
+        """Return (framing_intent, framing_pan_x) for a clip."""
+        fi = resolve_framing_intent(
+            block_intent=block_or_clip.get("framing_intent"),
+            project_folder=_project_root,
+            template=_template,
+        )
         pan = block_or_clip.get("framing_pan_x")
-        if fi is not None:
-            try:
-                fi = float(fi)
-            except (TypeError, ValueError):
-                fi = None
         if pan is not None:
             try:
                 pan = float(pan)
@@ -1131,7 +1096,11 @@ def compile_manifest(out_dir: str) -> dict:
                         "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
                     }
                     convert_clip_to_frames(clip, fps)
-                    clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res, semantic_lookup.get(get_clip_id(seg)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp, subject_center_x=_resolve_subject_center(get_clip_id(seg), clip.get("source_in", 0.0), clip.get("source_out", 0.0))))
+                    clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res,
+                        framing_intent=_fi, framing_pan_x=_fp,
+                        subject_center_x=_resolve_subject_center(
+                            get_clip_id(seg), clip.get("source_in", 0.0),
+                            clip.get("source_out", 0.0))))
                     v1_clips.append(clip)
                     compute_neural_directives(get_clip_id(seg), clip)
                     current_tl_in += dur
@@ -1149,7 +1118,11 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res, semantic_lookup.get(get_clip_id(assignment)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp, subject_center_x=_resolve_subject_center(get_clip_id(assignment), clip.get("source_in", 0.0), clip.get("source_out", 0.0))))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res,
+                    framing_intent=_fi, framing_pan_x=_fp,
+                    subject_center_x=_resolve_subject_center(
+                        get_clip_id(assignment), clip.get("source_in", 0.0),
+                        clip.get("source_out", 0.0))))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(assignment), clip)
             else:
@@ -1166,7 +1139,11 @@ def compile_manifest(out_dir: str) -> dict:
                 }
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
-                clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res, semantic_lookup.get(get_clip_id(block)), clip.get("source_in", 0.0), clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp, subject_center_x=_resolve_subject_center(get_clip_id(block), clip.get("source_in", 0.0), clip.get("source_out", 0.0))))
+                clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res,
+                    framing_intent=_fi, framing_pan_x=_fp,
+                    subject_center_x=_resolve_subject_center(
+                        get_clip_id(block), clip.get("source_in", 0.0),
+                        clip.get("source_out", 0.0))))
                 v1_clips.append(clip)
                 compute_neural_directives(get_clip_id(block), clip)
 
@@ -1193,7 +1170,11 @@ def compile_manifest(out_dir: str) -> dict:
         }
         convert_clip_to_frames(v2_clip, fps)
         _fi, _fp = _resolve_framing(broll)
-        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res, semantic_lookup.get(get_clip_id(broll)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp, subject_center_x=_resolve_subject_center(get_clip_id(broll), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0))))
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res,
+            framing_intent=_fi, framing_pan_x=_fp,
+            subject_center_x=_resolve_subject_center(
+                get_clip_id(broll), v2_clip.get("source_in", 0.0),
+                v2_clip.get("source_out", 0.0))))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "assignment"
         compute_neural_directives(get_clip_id(broll), v2_clip)
@@ -1211,7 +1192,11 @@ def compile_manifest(out_dir: str) -> dict:
         }
         convert_clip_to_frames(v2_clip, fps)
         _fi, _fp = _resolve_framing(interj)
-        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res, semantic_lookup.get(get_clip_id(assigned)), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0), framing_intent=_fi, framing_pan_x=_fp, subject_center_x=_resolve_subject_center(get_clip_id(assigned), v2_clip.get("source_in", 0.0), v2_clip.get("source_out", 0.0))))
+        v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res,
+            framing_intent=_fi, framing_pan_x=_fp,
+            subject_center_x=_resolve_subject_center(
+                get_clip_id(assigned), v2_clip.get("source_in", 0.0),
+                v2_clip.get("source_out", 0.0))))
         v2_clips.append(v2_clip)
         v2_kinds[v2_clip["label"]] = "interjection"
         compute_neural_directives(get_clip_id(assigned), v2_clip)

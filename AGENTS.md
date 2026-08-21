@@ -493,6 +493,29 @@ footage cannot support an answer, and None means "frame centred" - do not
 replace it with a fabricated 0.5. Face detection needs Haar cascades, so
 `opencv-python` is pinned `<5`; OpenCV 5 removed them.
 
+The join into that track is `subject_centers_by_clip`, and read step 1.04's
+REAL output shape before touching it: `{"temporal_event_indices": [...],
+"full_indices": [...]}` - a LIST of per-clip dicts, not a mapping. It read
+only a mapping for the life of P1.2, so it returned `{}` on every real
+project while its tests, which all fed invented mappings, passed.
+
+**The frame FILLS by default, and there is no heuristic.** One
+enumeration, `library/tools/framing_intent.py`: 0.0 letterboxes, 1.0 fills,
+and the number comes from the spine block > the project's
+`pipeline.framing_intent` > the template's `style.framing_intent` >
+`DEFAULT_FRAMING_INTENT` (1.0). A malformed declaration raises.
+`_conform_fields` has ONE branch. It used to have a second one that ran
+whenever nothing declared an intent, and its rule was *letterbox if the
+primary subject is visible during this clip's range* - which on a talking
+head is every clip, so project 001 shipped its A-roll in rows 656..1263 of
+1920 with 61.6% of every frame below luma 12, and the whole
+`framing_intent`/`subject_center_x` mechanism in the other branch never
+executed anywhere. The thing it protected - a blind centre crop beheading
+a speaker - is protected by the pan now, not by refusing to crop. This
+reverses the letterbox-default half of Q1 (2026-08-16); the tracking half
+stands. A series that wants bars declares 0.0, and
+`cinematic_narrative.yaml` does. `tests/test_framing_intent.py`.
+
 **A reader that reports success is not proof either.** The harder version
 of the above: `smart_reframe` had a reader, the reader ran, and it printed
 "✓ Applied Smart Reframe" on every run for months. It guarded on

@@ -81,12 +81,15 @@ now tracks the subject.** `compile_manifest/step.py:_conform_fields` accepts
 normalised) and `subject_center_x` (0.0-1.0 across the source width).
 `resolve_build_timeline.py:_apply_conform` sets `ZoomX`/`ZoomY` and Resolve's
 `Pan`/`Tilt` - ~~`PanX`/`PanY`~~, which Resolve does not have and which
-therefore moved nothing for the life of P1.1. When `framing_intent` is unset
-(None), the legacy subject-visibility heuristic runs so existing projects
-render identically. Brand templates can bias the default via
-`style.framing_intent`. Spine blocks can override per clip, and an explicit
-per-clip pan outranks the measurement. Tests:
-`tests/test_framing_parameter.py`, `tests/test_subject_framing.py`.
+therefore moved nothing for the life of P1.1. ~~When `framing_intent` is
+unset (None), the legacy subject-visibility heuristic runs so existing
+projects render identically.~~ That heuristic is DELETED (P1.4);
+`_conform_fields` has one branch, and where the number comes from is one
+enumeration, `library/tools/framing_intent.py`: spine block > project.yaml
+`pipeline.framing_intent` > brand template `style.framing_intent` > fill.
+An explicit per-clip pan still outranks the measurement. Tests:
+`tests/test_framing_intent.py`, `tests/test_framing_parameter.py`,
+`tests/test_subject_framing.py`.
 
 **Per-clip SFX levels do not reach the mix.** This table listed 4.04 under
 Rendered on the strength of `resolve_build_timeline.py:1087-1096` calling
@@ -278,18 +281,15 @@ while the picture never changed.
 
 What a viewer would actually notice, ordered by how loud it is.
 
-**Landscape A-roll renders letterboxed.** Section 1 under Partial. In a
-vertical feed this is the single most obvious amateur tell there is: a
-postage-stamp strip of video with black above and below. It is not a bug in
-the sense of an accident; `compile_manifest/step.py` chooses it
-deliberately as the safer of two bad options, because the alternative on
-offer is a dead-centre crop that can behead the speaker. ~~The real answer
-is a subject-aware crop offset, and the vision pass already measures where
-the subject is.~~ The subject-aware crop offset is built (P1.2) - but the
-vision pass does NOT measure where the subject is, and never did; see P1.2
-for what does. The captain has ruled that letterbox remains the DEFAULT,
-so this is still what most A-roll looks like; the crop is now safe for any
-clip a template or spine block pushes toward fill.
+~~**Landscape A-roll renders letterboxed.**~~ **FIXED, P1.4.** In a
+vertical feed this was the single most obvious amateur tell there is: a
+postage-stamp strip of video with black above and below. It was not an
+accident; `compile_manifest/step.py` chose it deliberately as the safer of
+two bad options, because the alternative on offer was a dead-centre crop
+that can behead the speaker. That alternative is no longer the one on
+offer - the crop window follows the subject (P1.2), so filling the frame
+and keeping the speaker in it are not in tension any more. The default is
+fill; see P1.4.
 
 **The music is as loud as the voice.** No ducking, no automation, no
 limiter. Everything the mix step designed comes out as timeline markers. On
@@ -465,7 +465,7 @@ only piece of the five left standing.
   the tracking gets built regardless, so a clip a template or spine block
   pushes toward fill follows the subject instead of centring blindly.
   Whether the default should ever move is a separate question and is not
-  settled here.
+  settled here. **It is settled now - see P1.4, which moves it.**
 
 - **P1.3 The framing mechanism was a no-op until 2026-08-19.** Both items
   above were unreachable on the one project that needed them. The render
@@ -479,6 +479,50 @@ only piece of the five left standing.
   frames. That is the ruled default doing what it was ruled to do -
   whether it is the RIGHT default is the captain's open question, now
   with a render behind it. See `docs/RUN_001_END_TO_END.md` section 14.
+
+- **P1.4 The default is fill, and the heuristic that made it letterbox is
+  deleted.** The render P1.3 unlocked answered Q1. Measured on
+  `exports/Pipeline_Edit.mp4`: the A-roll picture occupied rows 656..1263,
+  608 of 1920 rows (31.7% of the frame height), with **61.6% of all pixels
+  below luma 12** averaged over 55 samples - and because the three B-roll
+  cutaways are portrait-shot and DID fill, the video flipped between
+  full-bleed and a thin strip three times.
+
+  The named cause was not "letterbox is the default". It was that the
+  default was a HEURISTIC and the heuristic was inverted: with no
+  declaration, `_conform_fields` ran a legacy branch whose rule was *if the
+  primary subject is visible during this clip's source range, a centre crop
+  might cut them off, so prefer letterbox*. On a selfie monologue the
+  subject is visible in every clip, so every clip letterboxed, always - and
+  the whole `framing_intent` + `subject_center_x` mechanism, which lives in
+  the OTHER branch, never executed on any project. No shipped template
+  reached it either.
+
+  What changed:
+  * The legacy branch is gone. `_conform_fields` has one branch.
+  * One enumeration, `library/tools/framing_intent.py`, owns where a
+    clip's number comes from: spine block > project.yaml
+    `pipeline.framing_intent` > template `style.framing_intent` >
+    `DEFAULT_FRAMING_INTENT` (= 1.0, fill). The project level is new; it
+    is the same project-over-template precedence `delivery_format_name`
+    uses, and it is what keeps "this project wants bars" expressible
+    without forking a template.
+  * A malformed declaration raises instead of degrading to "no framing".
+  * `subject_framing.subject_centers_by_clip` reads the shape step 1.04
+    actually emits (`full_indices`, a LIST). It read only a mapping
+    before, so it returned `{}` on every real run: the pan was never
+    computed, and P1.2 was dead in delivery as well as unreachable. Its
+    tests all fed it invented mappings, so it passed.
+
+  Proven on 001's banked state without re-rendering: all 8 A-roll clips go
+  `needs_conform: false` -> `true` at zoom 3.1605, picture rows 656..1263
+  -> 0..1919 (31.7% -> 100% of frame height), 5 of 8 carrying a
+  subject-derived pan; the 3 without are clips whose face track is either
+  inside the centre deadband or too sparse to reduce, which is
+  `subject_framing` declining to answer rather than failing. Frames cut
+  from the source at the manifest's exact crop rect confirm the speaker is
+  framed on all 8. B-roll is unaffected: it is portrait, so its aspect
+  already matches and `_conform_fields` returns early.
 
 ### Phase 2: audio. (OUT OF SCOPE)
 

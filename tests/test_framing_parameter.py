@@ -293,41 +293,59 @@ class TestClipOverridesTemplate:
 
 
 # ─────────────────────────────────────────────────────────
-# 4. Unset case reproduces today's output
+# 4. Unset means the default, and the default is fill
 # ─────────────────────────────────────────────────────────
 
-class TestUnsetPreservesLegacy:
-    """When framing_intent is None (unset), _conform_fields must behave
-    identically to the pre-change code: the subject-visibility heuristic
-    decides, and no Pan is produced."""
+class TestUnsetIsTheDefault:
+    """`framing_intent=None` means "nothing declared one", which resolves
+    to framing_intent.DEFAULT_FRAMING_INTENT.
 
-    def test_unset_no_semantic_fills(self):
-        """Without semantic data and no framing_intent, landscape clips
-        should be filled (the legacy fallback when subject is not
-        visible)."""
+    It used to mean "run the legacy subject-visibility heuristic", whose
+    rule was *letterbox whenever the primary subject is visible* - so on a
+    talking head every clip letterboxed and project 001 shipped its A-roll
+    in 608 of 1920 rows. The heuristic is deleted; `_conform_fields` has
+    one branch now."""
+
+    def test_unset_fills(self):
         result = _conform_fields(
             LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            semantic_doc=None,
             framing_intent=None,
         )
         assert result["needs_conform"] is True
         assert result["fill_zoom"] == EXPECTED_FULL_FILL_ZOOM
         assert "framing_pan_x" not in result
 
-    def test_unset_subject_visible_letterboxes(self):
-        """With semantic data showing subject visibility and no
-        framing_intent, the clip should letterbox to preserve the
-        subject."""
-        semantic = {
-            "assessment": {"primary_subject_visible": [[0.0, 5.0]]},
-        }
-        result = _conform_fields(
+    def test_unset_matches_the_declared_default(self):
+        from library.tools.framing_intent import DEFAULT_FRAMING_INTENT
+        unset = _conform_fields(
             LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            semantic_doc=semantic,
-            source_in=1.0, source_out=3.0,
             framing_intent=None,
         )
-        assert result.get("needs_conform") is False
+        declared = _conform_fields(
+            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
+            framing_intent=DEFAULT_FRAMING_INTENT,
+        )
+        assert unset == declared
+
+    def test_a_visible_subject_no_longer_forces_letterbox(self):
+        """The exact case that letterboxed all eight of 001's A-roll
+        clips: a landscape talking head with the subject on screen for the
+        whole range. Only an explicit 0.0 letterboxes now."""
+        filled = _conform_fields(
+            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
+            framing_intent=None, subject_center_x=0.42,
+        )
+        assert filled["needs_conform"] is True
+        assert filled["fill_zoom"] == EXPECTED_FULL_FILL_ZOOM
+        # ...and the crop window follows the subject rather than sitting
+        # dead centre, which is what the old rule was guarding against.
+        assert filled["framing_pan_x"] > 0
+
+        letterboxed = _conform_fields(
+            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
+            framing_intent=0.0, subject_center_x=0.42,
+        )
+        assert letterboxed == {"needs_conform": False}
 
     def test_unset_matching_aspect_no_conform(self):
         """A clip whose aspect ratio matches the target should never
