@@ -1,19 +1,33 @@
 """
 Composable Effect Blocks (Layer 2).
 
-Each function creates an EffectBlock — a self-contained chunk of Fusion
+Each function creates an EffectBlock - a self-contained chunk of Fusion
 nodes with defined input/output attachment points. The CompEngine chains
 these together into complete compositions.
 
-CRITICAL: All ``clip_dur`` parameters must be the SOURCE clip's total
-frame count, NOT the timeline clip's trimmed duration. Fusion compositions
-operate on the full source media range.
+CRITICAL - two frame concepts that must not be confused:
+
+  ``clip_dur``   The SOURCE clip's total frame count. This sets the comp's
+                 frame RANGE (GlobalIn/GlobalOut, MediaIn extent).  Fusion
+                 compositions operate on the full source media range, so
+                 this must always be the whole clip, not the trimmed
+                 timeline duration.
+
+  ``source_in`` / ``source_out``
+                 The first and last SOURCE FRAME that the timeline
+                 actually plays.  All animated keyframes (zoom ramp,
+                 transitions, fade, vignette) must land INSIDE this
+                 window.  When omitted they default to
+                 ``0`` / ``clip_dur - 1`` (the whole clip), which is
+                 correct only when the placed segment uses the entire
+                 source.  A clip whose source_in is not zero will have
+                 its keyframes placed outside the played window if these
+                 are not supplied - which is the defect this parameter
+                 was added to fix.
 
 Usage:
-    block = fx.zoom(clip_dur=90, start=1.0, mid=1.04, end=1.03)
-    # block.nodes → [FusionNode("Transform1", ...), BezierSpline("Transform1Size", ...)]
-    # block.input_name → "Transform1"  (wire upstream here)
-    # block.output_name → "Transform1"  (this feeds downstream)
+    block = fx.zoom(clip_dur=5657, source_in=25, source_out=97,
+                    start=1.0, mid=1.015, end=1.03)
 """
 
 from __future__ import annotations
@@ -97,11 +111,17 @@ class fx:
         end: float = 1.0,
         pan_start: Optional[tuple] = None,
         pan_end: Optional[tuple] = None,
+        source_in: Optional[int] = None,
+        source_out: Optional[int] = None,
     ) -> EffectBlock:
         """Animated Ken Burns zoom with optional pan offset.
 
         Creates a Transform node with BezierSpline-animated Size
         (3-point: start -> mid -> end) and optional static Center offset.
+
+        ``source_in`` / ``source_out`` are the first and last source
+        frames the timeline plays.  Keyframes are placed within this
+        window.  When omitted the whole source (0..clip_dur-1) is used.
 
         NOTE: pan_start is accepted for forward-compatibility but animated
         Center drift is not currently implemented. Fusion's animated Point
@@ -124,9 +144,12 @@ class fx:
         tf.set_attr("CtrlWZoom", False)
 
         if has_anim:
-            last_frame = clip_dur - 1
-            mid_frame = clip_dur // 2
-            third = clip_dur // 3
+            # Keyframes within the PLAYED window, not the full source.
+            first = source_in if source_in is not None else 0
+            last = source_out if source_out is not None else clip_dur - 1
+            seg_dur = last - first
+            mid_frame = first + seg_dur // 2
+            third = seg_dur // 3
 
             spline_name = f"{tf_name}Size"
             spline = BezierSpline(spline_name)
@@ -134,13 +157,13 @@ class fx:
             rh0 = start + (mid - start) * 0.33
             lh_end = end + (mid - end) * 0.33
 
-            spline.add_key(0, start, rh=(third, round(rh0, 4)))
+            spline.add_key(first, start, rh=(first + third, round(rh0, 4)))
             spline.add_key(
                 mid_frame, mid,
                 lh=(mid_frame - third, mid),
                 rh=(mid_frame + third, mid),
             )
-            spline.add_key(last_frame, end, lh=(last_frame - third, round(lh_end, 4)))
+            spline.add_key(last, end, lh=(last - third, round(lh_end, 4)))
 
             tf.set_input("Size", spline)
             nodes.append(spline)
@@ -301,6 +324,8 @@ class fx:
         fade_in: int = 0,
         fade_out: int = 0,
         res: tuple = (1080, 1920),
+        source_in: Optional[int] = None,
+        source_out: Optional[int] = None,
     ) -> EffectBlock:
         """Opacity animation via Merge with BezierSpline blend.
 
@@ -309,32 +334,35 @@ class fx:
         if fade_in <= 0 and fade_out <= 0:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
-        last_frame = clip_dur - 1
+        first = source_in if source_in is not None else 0
+        last = source_out if source_out is not None else clip_dur - 1
         bg_name = _next_name("Background")
         mg_name = _next_name("Merge")
         sp_name = f"{mg_name}Blend"
 
-        # Build keyframes
+        # Build keyframes within the played window
         spline = BezierSpline(sp_name, color=(194, 171, 49))
         if fade_in > 0:
-            spline.add_key(0, 0.0, rh=(fade_in // 2, 0.5))
-            spline.add_key(fade_in, 1.0, lh=(fade_in // 2, 1.0))
+            spline.add_key(first, 0.0, rh=(first + fade_in // 2, 0.5))
+            spline.add_key(first + fade_in, 1.0, lh=(first + fade_in // 2, 1.0))
         else:
-            spline.add_key(0, 1.0)
+            spline.add_key(first, 1.0)
 
         if fade_out > 0:
-            fade_start = last_frame - fade_out
+            fade_start = last - fade_out
             spline.add_key(
                 fade_start, 1.0,
                 rh=(fade_start + fade_out // 2, 1.0),
             )
             spline.add_key(
-                last_frame, 0.0,
-                lh=(last_frame - fade_out // 2, 0.5),
+                last, 0.0,
+                lh=(last - fade_out // 2, 0.5),
             )
 
+        # GlobalOut covers the full source so the Background exists for
+        # the entire comp frame range.
         bg = FusionNode(bg_name, "Background")
-        bg.set_input("GlobalOut", last_frame)
+        bg.set_input("GlobalOut", clip_dur - 1)
         bg.set_input("Width", res[0])
         bg.set_input("Height", res[1])
         bg.pos = (495, 82)
@@ -359,12 +387,15 @@ class fx:
         dur_frames: int = 7,
         *,
         res: tuple = (1080, 1920),
+        source_out: Optional[int] = None,
     ) -> EffectBlock:
         """Transition at end of clip (outgoing).
 
-        Only affects the last dur_frames frames — neutral before that.
+        Only affects the last dur_frames of the PLAYED segment - neutral
+        before that.  ``source_out`` is the last played source frame;
+        when omitted, ``clip_dur - 1`` is used (the whole source).
         """
-        last_frame = clip_dur - 1
+        last_frame = source_out if source_out is not None else clip_dur - 1
         start_f = last_frame - dur_frames
 
         if ttype == "fade_to_black":
@@ -392,32 +423,37 @@ class fx:
         dur_frames: int = 7,
         *,
         res: tuple = (1080, 1920),
+        source_in: Optional[int] = None,
+        source_out: Optional[int] = None,
     ) -> EffectBlock:
         """Transition at start of clip (incoming).
 
-        Only affects the first dur_frames frames — neutral after that.
+        Only affects the first dur_frames of the PLAYED segment - neutral
+        after that.  ``source_in`` / ``source_out`` bound the played
+        window; when omitted, ``0`` / ``clip_dur - 1`` are used.
         """
-        last_frame = clip_dur - 1
+        first = source_in if source_in is not None else 0
+        last_played = source_out if source_out is not None else clip_dur - 1
 
         if ttype == "fade_to_black":
             return fx._fade_transition(
-                clip_dur, 0, dur_frames, 0.0, 1.0, res, "Head",
-                hold_end=last_frame,
+                clip_dur, first, first + dur_frames, 0.0, 1.0, res, "Head",
+                hold_end=last_played,
             )
         elif ttype == "zoom_blur":
             return fx._zoom_blur_transition(
-                clip_dur, 0, dur_frames, suffix="Head",
-                hold_end=last_frame,
+                clip_dur, first, first + dur_frames, suffix="Head",
+                hold_end=last_played,
             )
         elif ttype == "defocus":
             return fx._defocus_transition(
-                clip_dur, 0, dur_frames, suffix="Head",
-                hold_end=last_frame,
+                clip_dur, first, first + dur_frames, suffix="Head",
+                hold_end=last_played,
             )
         elif ttype == "flash":
             return fx._flash_transition(
-                clip_dur, 0, dur_frames, suffix="Head",
-                hold_end=last_frame,
+                clip_dur, first, first + dur_frames, suffix="Head",
+                hold_end=last_played,
             )
         raise ValueError(_unknown_transition_message(ttype))
 
@@ -436,11 +472,10 @@ class fx:
         LIN = {"Linear": True}
         spline = BezierSpline(sp_name, color=(255, 100, 100))
         if suffix == "Tail":
-            spline.add_key(0, 1.0, flags=LIN)
             spline.add_key(start_f, 1.0, flags=LIN)
             spline.add_key(end_f, 0.0, flags=LIN)
         else:
-            spline.add_key(0, 0.0, flags=LIN)
+            spline.add_key(start_f, 0.0, flags=LIN)
             spline.add_key(end_f, 1.0, flags=LIN)
             if hold_end is not None:
                 spline.add_key(hold_end, 1.0, flags=LIN)

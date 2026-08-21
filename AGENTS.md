@@ -256,13 +256,17 @@ Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
 Always use `Blend` instead of `BlendClone` for Merge opacity.
 Always include `GlobalOut` on Background nodes matching the clip duration.
 Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
-Always use the SOURCE clip frame count for `clip_dur`, not `clip.GetDuration()`.
+Always use the SOURCE clip frame count for `clip_dur` (comp frame range), not `clip.GetDuration()`.
 Use `int(mpi.GetClipProperty('Frames'))` for source frame counts.
+`clip_dur` sets the comp's frame RANGE (GlobalIn/GlobalOut). Keyframes for motion and transitions must land
+within the PLAYED window (`source_in_frame..source_out_frame`), not across the full source - a segment from
+frames 25-97 of a 5657-frame clip must have its zoom ramp between 25 and 97, not between 0 and 5656.
 
 ### Fusion .comp Frame Mapping
 Fusion compositions operate on the source clip's full frame range, not the timeline's trimmed duration.
 A clip with 513 source frames placed as 410 frames on the timeline has a Fusion frame range of 0-512.
-Using timeline duration for keyframes causes transitions to fire early and hold for the remaining frames.
+Keyframes must be placed within the PLAYED segment (source_in..source_out in source frame numbers).
+Using `0..clip_dur` for keyframes when source_in is not zero makes all motion land outside the frames that play.
 
 ### Default Transition Values
 Brightness Flash uses `Brightness = 0.67`, `Saturation = 1.83`, and animates `Blend` 0-1 with Sine easing.

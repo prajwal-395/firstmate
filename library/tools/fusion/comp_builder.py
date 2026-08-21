@@ -31,6 +31,10 @@ def normalize_effects(effects, has_zoom):
         effects.setdefault('zoom_mid', 1.0)
         effects.setdefault('zoom_end', 1.0)
         effects.setdefault('vignette', False)
+    elif has_zoom:
+        start = effects.get('zoom_start', 1.0)
+        end = effects.get('zoom_end', 1.0)
+        effects.setdefault('zoom_mid', round((start + end) / 2.0, 4))
     return effects
 
 
@@ -55,21 +59,18 @@ def build_effect_comp(effects: dict, clip_dur: int,
     source paints a hard-edged rectangle in the middle of the picture and
     leaves the rest ungraded.
 
-    That is not hypothetical. It defaulted to 1080x1920 while project
-    001's A-roll is 1920x1080, and the render carried a 1080-wide
-    full-height dark band down the centre of every graded clip -
-    measurable as a 15-level step at source columns 419 and 1499, and
-    what the phase-1 judgement called a "band down the middle". Nothing
-    warned, because a Background node of the wrong size is a perfectly
-    valid comp.
-
-    `CompEngine.from_params` already carried a `source_res` for exactly
-    this reason, with a comment explaining it - but the renderer calls
-    THIS function, which did not. A correct mechanism on a path nothing
-    executes is the failure mode this pipeline keeps re-finding.
+    ``source_in_frame`` / ``source_out_frame`` in the *effects* dict
+    bound the segment the timeline actually plays.  All animated
+    keyframes land inside this window.  When absent they default to
+    ``0`` / ``clip_dur - 1`` (the whole source), which is correct only
+    when the placed segment uses the entire source clip.
     """
     res = tuple(source_res) if source_res else DEFAULT_SOURCE_RES
     engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
+
+    # The played segment within the source.  None means "whole source".
+    src_in = effects.get('source_in_frame')
+    src_out = effects.get('source_out_frame')
 
     if any(k in effects for k in ZOOM_KEYS):
         engine.add(fx.zoom(
@@ -78,7 +79,9 @@ def build_effect_comp(effects: dict, clip_dur: int,
             mid=effects.get('zoom_mid', 1.0),
             end=effects.get('zoom_end', 1.0),
             pan_start=effects.get('pan_start'),
-            pan_end=effects.get('pan_end')
+            pan_end=effects.get('pan_end'),
+            source_in=src_in,
+            source_out=src_out,
         ))
 
     if 'grade_gain' in effects or 'grade_contrast' in effects or 'grade_saturation' in effects:
@@ -133,18 +136,21 @@ def build_effect_comp(effects: dict, clip_dur: int,
     fade_out = effects.get('fade_out_frames', 0)
     if fade_in > 0 or fade_out > 0:
         engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out,
-                           res=res))
+                           res=res, source_in=src_in, source_out=src_out))
 
     tail_trans = effects.get('tail_transition')
     if tail_trans:
         engine.add(fx.transition_tail(
             clip_dur, tail_trans,
-            effects.get('tail_transition_frames', 7), res=res))
+            effects.get('tail_transition_frames', 7), res=res,
+            source_out=src_out))
 
     head_trans = effects.get('head_transition')
     if head_trans:
         engine.add(fx.transition_head(
             clip_dur, head_trans,
-            effects.get('head_transition_frames', 7), res=res))
+            effects.get('head_transition_frames', 7), res=res,
+            source_in=src_in, source_out=src_out))
 
     return engine.serialize()
+

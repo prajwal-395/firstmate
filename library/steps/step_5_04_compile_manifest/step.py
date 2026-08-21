@@ -339,6 +339,7 @@ def _assert_planner_output_preserved(
     sfx_planned: int,
     vfx_planned: int,
     broll_dropped_by_overlap: list,
+    vfx_collisions: list = (),
 ) -> None:
     """Fail when compilation silently loses what the planners produced.
 
@@ -371,10 +372,11 @@ def _assert_planner_output_preserved(
             f"SFX: {sfx_planned} planned but {a3_count} reached A3"
         )
 
-    fusion_count = len(manifest["fusion_effects"]["per_clip"])
-    if vfx_planned and fusion_count == 0:
+    if vfx_collisions:
         problems.append(
-            f"VFX: {vfx_planned} planned but zero Fusion comps were built"
+            f"VFX: {len(vfx_collisions)} collision(s) - two VFX landed on "
+            f"the same clip, overwriting the first: "
+            + "; ".join(vfx_collisions)
         )
 
     if problems:
@@ -659,11 +661,36 @@ def _assert_timeline_fully_covered(manifest: dict) -> None:
 
 
 def _v1_label_at(v1_clips: list, timeline_time: float):
-    """Label of the V1 clip covering a timeline position, or None."""
+    """Label of the V1 clip covering a timeline position, or None.
+
+    When timeline_time is near a clip boundary, the clip that STARTS
+    closest to it wins over the one that ends near it.  This prevents a
+    float-precision near-miss (e.g. VFX at 8.38s landing on the clip
+    ending at 8.382000000000001s instead of the one starting at 8.382s)
+    from stealing a VFX assignment.
+    """
+    # Tolerance: a VFX start is placed by the planner from rounded
+    # timeline positions, so up to ~5ms drift is normal.
+    BOUNDARY_TOL = 0.005
+
+    # First: find the clip whose interior clearly contains the point,
+    # with a safety margin on the upper bound.
     for clip in v1_clips:
-        if clip["timeline_in"] - 1e-6 <= timeline_time < clip["timeline_out"]:
+        if (clip["timeline_in"] <= timeline_time
+                and timeline_time < clip["timeline_out"] - BOUNDARY_TOL):
             return clip["label"]
-    return None
+
+    # If no interior match, the point is near a cut. Find the clip
+    # whose timeline_in is closest - the point belongs to the clip
+    # that starts there, not the one that ends there.
+    best_label = None
+    best_dist = BOUNDARY_TOL
+    for clip in v1_clips:
+        dist = abs(clip["timeline_in"] - timeline_time)
+        if dist < best_dist:
+            best_dist = dist
+            best_label = clip["label"]
+    return best_label
 
 
 def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
@@ -1347,11 +1374,19 @@ def compile_manifest(out_dir: str) -> dict:
     # and the whole polish layer silently vanished.
     per_clip_effects = {}
     unplaced_vfx = []
+    vfx_assigned_labels = set()
+    vfx_collisions = []
     for v in vfx:
         label = _v1_label_at(v1_clips, v["timeline_start"])
         if label is None:
             unplaced_vfx.append(v)
             continue
+        if label in vfx_assigned_labels:
+            vfx_collisions.append(
+                f"{v.get('effect_type', '?')}@{v['timeline_start']}s "
+                f"collided on {label}"
+            )
+        vfx_assigned_labels.add(label)
         effect = per_clip_effects.setdefault(label, {})
         effect["_preset"] = v.get("preset", v.get("fusion_preset")) or v["effect_type"]
         effect.update(v.get("params", {}))
@@ -1558,6 +1593,7 @@ def compile_manifest(out_dir: str) -> dict:
         sfx_planned=len(sfx_list),
         vfx_planned=len(vfx),
         broll_dropped_by_overlap=broll_dropped_by_overlap,
+        vfx_collisions=vfx_collisions,
     )
 
     # Print summary

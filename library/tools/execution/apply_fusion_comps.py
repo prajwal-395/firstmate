@@ -287,6 +287,18 @@ def apply_fusion_comps(manifest, project_folder):
             # paints a hard-edged rectangle in the middle of the picture.
             source_res = _source_resolution(mpi)
 
+            # The played segment within the source clip.  The manifest
+            # carries source_in/source_out in seconds; convert to frames
+            # using the source clip's native FPS so the comp builder
+            # places keyframes inside the window the timeline plays.
+            src_in_sec = clip_spec.get('source_in', 0.0)
+            src_out_sec = clip_spec.get('source_out', 0.0)
+            if src_in_sec or src_out_sec:
+                src_fps_str = mpi.GetClipProperty('FPS')
+                src_fps = float(src_fps_str) if src_fps_str else fps
+                effects['source_in_frame'] = round(src_in_sec * src_fps)
+                effects['source_out_frame'] = round(src_out_sec * src_fps)
+
             has_zoom = any(k in effects for k in ZOOM_KEYS)
             normalize_effects(effects, has_zoom)
 
