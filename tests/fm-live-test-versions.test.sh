@@ -226,7 +226,6 @@ boot_out=$(
   FM_CONFIG_OVERRIDE="$t8/config" \
   FM_PROJECTS_OVERRIDE="$t8/projects" \
   FM_DATA_OVERRIDE="$t8/data" \
-  FM_BOOTSTRAP_DETECT_ONLY=1 \
   FM_BOOTSTRAP_NETWORK=skip \
   "$BOOTSTRAP" 2>&1
 )
@@ -243,7 +242,6 @@ boot_out=$(
   FM_CONFIG_OVERRIDE="$t8/config" \
   FM_PROJECTS_OVERRIDE="$t8/projects" \
   FM_DATA_OVERRIDE="$t8/data" \
-  FM_BOOTSTRAP_DETECT_ONLY=1 \
   FM_BOOTSTRAP_NETWORK=skip \
   FM_FAKE_AGY_VERSION=9.9.9 \
   "$BOOTSTRAP" 2>&1
@@ -265,7 +263,6 @@ boot_out=$(
   FM_CONFIG_OVERRIDE="$t8/config" \
   FM_PROJECTS_OVERRIDE="$t8/projects" \
   FM_DATA_OVERRIDE="$t8/data" \
-  FM_BOOTSTRAP_DETECT_ONLY=1 \
   FM_BOOTSTRAP_NETWORK=skip \
   FM_FAKE_AGY_VERSION=9.9.9 \
   "$BOOTSTRAP" 2>&1
