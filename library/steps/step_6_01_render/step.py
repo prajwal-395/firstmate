@@ -104,7 +104,7 @@ def run(inputs: dict) -> dict:
         output_payload = {
             "render_output": {
                 "timeline_name": result.get("timeline_name"),
-                "status": "success",
+                "status": "success" if result.get("success", True) else "failed",
                 "success": result.get("success", True),
                 "errors": result.get("errors", []),
                 "tracks": result.get("tracks", {}),

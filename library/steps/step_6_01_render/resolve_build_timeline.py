@@ -1516,13 +1516,7 @@ def build_timeline(
     all_passed = True
     if run_full_timeline_qa:
         final_report = run_full_timeline_qa(timeline, project, manifest)
-        qa_reports.append(final_report)
-        all_passed = final_report.passed
-        for check in final_report.checks:
-            status = "✓" if check.passed else "✗"
-            print(f"    {status} {check.name} — expected: {check.expected}, actual: {check.actual}", file=sys.stderr)
-            if not check.passed and check.severity == "error":
-                results["warnings"].append(f"Final QA Failed {check.name}: {check.actual}")
+        _run_qa(final_report)
     else:
         # A verification layer that is absent must not read like a passing
         # one. Name the module and the reason, and put it on the record as

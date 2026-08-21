@@ -165,3 +165,20 @@ def test_verify_fusion_comps_will_not_pass_without_labels():
     report = verify_fusion_comps(timeline, None, FUSION_EFFECTS)
     assert not report.passed
     assert any(c.name == "fusion_comps_unverifiable" for c in report.checks)
+
+def test_gap_detection_ignores_covered_gaps():
+    # Gap between 30 and 32 on V1, but covered by V2 B-roll (25 to 35)
+    item1 = MockTimelineItem(start=0, end=30)
+    item2 = MockTimelineItem(start=32, end=60)
+    
+    broll = MockTimelineItem(start=25, end=35)
+    
+    timeline = MockTimeline(items=[], by_track={1: [item1, item2], 2: [broll]})
+    
+    # Needs a mock that handles both tracks properly for GetItemListInTrack
+    # which we configured with by_track
+    report = run_full_timeline_qa(timeline, None, {"project": {"frame_rate": 30, "duration_seconds": 2.0}})
+    
+    # Gap check should not fail now
+    assert report.passed, "Gap should be ignored if covered by V2"
+    assert not any("gap_before" in c.name for c in report.checks)

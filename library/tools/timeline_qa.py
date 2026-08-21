@@ -294,8 +294,21 @@ def run_full_timeline_qa(timeline, project, manifest) -> QAReport:
         if prev_end is not None:
             # Gap detection: gaps > 1 frame
             if start - prev_end > 1:
-                report.checks.append(QACheck(name=f"gap_before_clip_{i}", passed=False, expected="<=1", actual=start-prev_end))
-                report.passed = False
+                gap_start = prev_end
+                gap_end = start
+                
+                # Check if gap is covered by V2 items
+                v2_items = timeline.GetItemListInTrack("video", 2) or []
+                gap_covered = False
+                for v2 in v2_items:
+                    # Allow 1 frame tolerance
+                    if v2.GetStart() <= gap_start + 1 and v2.GetEnd() >= gap_end - 1:
+                        gap_covered = True
+                        break
+                
+                if not gap_covered:
+                    report.checks.append(QACheck(name=f"gap_before_clip_{i}", passed=False, expected="<=1", actual=start-prev_end))
+                    report.passed = False
             # Overlap detection: check no two V1 items share frames
             if start < prev_end:
                 report.checks.append(QACheck(name=f"overlap_before_clip_{i}", passed=False, expected=">=0", actual=start-prev_end))

@@ -512,3 +512,43 @@ def test_no_generators_does_not_create_v5(mock_resolve, sample_manifest):
         items = call[0][0]
         for item in items:
             assert item.get("trackIndex") != 5, "V5 should not be used without generators"
+
+def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_manifest, capsys):
+    """Test that a QA failure prints the loud banner but leaves success unchanged."""
+    media_pool = mock_resolve['media_pool']
+    root_folder = mock_resolve['root_folder']
+    
+    pool_item = MagicMock()
+    root_folder.GetClipList.return_value = [pool_item]
+    
+    def get_clip_prop(prop):
+        if prop == "File Path":
+            return "test_v1.mov"
+        return ""
+    pool_item.GetClipProperty.side_effect = get_clip_prop
+    
+    placed_item = MagicMock()
+    placed_item.GetDuration.return_value = 60
+    placed_item.GetStart.return_value = 0
+    media_pool.AppendToTimeline.return_value = [placed_item]
+    
+    # Mock the full_timeline_qa to return a failure
+    from library.tools.timeline_qa import QAReport, QACheck
+    
+    report = QAReport(station="full_sweep", passed=False)
+    report.checks.append(QACheck(name="mock_loud_check", passed=False, expected="foo", actual="bar"))
+    
+    with patch('os.path.exists', return_value=True), \
+         patch('resolve_build_timeline.run_full_timeline_qa', return_value=report):
+        result = build_timeline(sample_manifest)
+        
+    assert result["success"] is True, "QA failures should NOT be fatal yet."
+    assert len(result["qa_failures"]) == 1
+    assert result["qa_failures"][0]["check"] == "mock_loud_check"
+    
+    # Check that the loud banner actually printed to stderr
+    # Since we can't easily capture sys.stderr inside the function if it uses file=sys.stderr directly,
+    # wait, capsys can capture it.
+    captured = capsys.readouterr()
+    assert "QA CHECK FAILURE(S)" in captured.err
+    assert "mock_loud_check" in captured.err
