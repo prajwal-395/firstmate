@@ -101,8 +101,10 @@ cmd_check() {
   if [ ! -f "$baseline" ]; then
     # First run: record the baseline. No diagnostic - the fleet has no prior
     # expectation to compare against.
-    mkdir -p "$state_dir" 2>/dev/null || true
-    printf '%s\n' "$current" > "$baseline"
+    if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
+      mkdir -p "$state_dir" 2>/dev/null || true
+      printf '%s\n' "$current" > "$baseline"
+    fi
     return 0
   fi
 
@@ -131,7 +133,9 @@ cmd_check() {
     echo "LIVE_TEST_VERSIONS_CHANGED: $changed_tools"
     # Update the baseline so the next session does not re-trigger for the
     # same versions. The agent sees this diagnostic once and runs the nine.
-    printf '%s\n' "$current" > "$baseline"
+    if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
+      printf '%s\n' "$current" > "$baseline"
+    fi
   fi
 }
 
