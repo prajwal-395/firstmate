@@ -82,6 +82,82 @@ def resolve_project_template(template_name: str = "",
     )
 
 
+def project_template_name(project_folder: str) -> str:
+    """The brand template NAME a project declares in its project.yaml.
+
+    `pipeline.brand_template` is the only place a project says which brand
+    it renders under, and for the whole life of the pipeline NOTHING read
+    it into the run.  `state["brand_template"]` was populated from exactly
+    one source - a `default` on the process manifest's input, which has
+    none - so `gather_step_inputs` called `load_brand_template("")` on
+    every step of every project and handed back the in-code
+    `_get_default_template()`.  A project naming `lucie_client`, or any
+    other template, silently rendered with none of its effect slots and
+    the run reported SUCCESS.  Same shape as the timed-text slot with no
+    reader (section 14 of CLAUDE.md): a declaration nothing reads.
+
+    Returns "" when the project declares none, which
+    :func:`resolve_project_template` turns into `default_brand` on disk.
+    """
+    if not project_folder:
+        return ""
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return ""
+    if yaml is None:
+        raise ImportError("PyYAML is required to read project.yaml.")
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    block = cfg.get("pipeline") or {}
+    if not isinstance(block, dict):
+        return ""
+    return (block.get("brand_template") or "").strip()
+
+
+def _looks_like_path(reference: str) -> bool:
+    return (os.sep in reference
+            or reference.lower().endswith((".yaml", ".yml", ".json")))
+
+
+def resolve_template_reference(reference: str = "",
+                               templates_dir: Optional[str] = None
+                               ) -> BrandTemplate:
+    """The BrandTemplate for either a template NAME or a template PATH.
+
+    Two callers spell the same thing differently and both are legitimate:
+    a project.yaml declares a NAME (`cinematic_narrative`), while the
+    process manifest's `brand_template` input is documented as a PATH so a
+    template may live outside `library/templates/`.  The two are told
+    apart structurally - a separator or a yaml/json extension means path -
+    rather than by "does it exist", so a mistyped path raises as a
+    mistyped path instead of being retried as a template name.
+
+    Either form MISSING raises.  Falling back to the in-code default is
+    how a project renders under a brand nobody chose.
+    """
+    ref = (reference or "").strip()
+    if ref and _looks_like_path(ref):
+        if not os.path.exists(ref):
+            raise FileNotFoundError(
+                f"Brand template path {ref!r} does not exist."
+            )
+        return load_brand_template(ref)
+    return resolve_project_template(ref, templates_dir=templates_dir)
+
+
+def reference_template_name(reference: str = "") -> str:
+    """The bare template NAME for either form of reference.
+
+    `TemplateLoader` (library/tools/template_loader.py) resolves by name
+    against its own templates dir, so it needs the name half of whatever
+    the run is carrying.
+    """
+    ref = (reference or "").strip()
+    if ref and _looks_like_path(ref):
+        return os.path.splitext(os.path.basename(ref))[0]
+    return ref or DEFAULT_TEMPLATE_NAME
+
+
 def query_slots(template: BrandTemplate, category: str) -> dict:
     if category == "style":
         return asdict(template.style)

@@ -31,7 +31,8 @@
         "name": "brand_template",
         "type": "string",
         "required": false,
-        "description": "Absolute path to the brand template YAML/JSON file"
+        "description": "Brand template the project renders under: the NAME a project.yaml pipeline.brand_template declares (resolved against library/templates/), or an absolute path to a template YAML/JSON file. Populated from project.yaml by load_pipeline_state.",
+        "default": ""
       }
     ],
     "outputs": [

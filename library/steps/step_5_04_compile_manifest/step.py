@@ -1004,15 +1004,11 @@ def compile_manifest(out_dir: str) -> dict:
     # it directly rather than threading a DAG edge.
     _template_framing_intent = None
     try:
-        import yaml as _yaml
-        _project_yaml = os.path.join(_project_root, "project.yaml")
-        _tmpl_name = "default_brand"
-        if os.path.exists(_project_yaml):
-            with open(_project_yaml) as _f:
-                _proj_cfg = _yaml.safe_load(_f) or {}
-            _tmpl_name = (_proj_cfg.get("pipeline") or {}).get(
-                "brand_template", "default_brand")
-        _tmpl = resolve_project_template(_tmpl_name)
+        # One join, in library/tools/brand_registry.py. This had its own
+        # copy of "read project.yaml, take pipeline.brand_template", which
+        # is the read run_pipeline.load_pipeline_state was missing entirely.
+        from library.tools.brand_registry import project_template_name
+        _tmpl = resolve_project_template(project_template_name(_project_root))
         _template_framing_intent = getattr(_tmpl.style, "framing_intent", None)
     except Exception:
         pass  # template framing is a bias, not a requirement

@@ -309,6 +309,23 @@ def load_pipeline_state(project_dir: str) -> dict:
                 print(f"Warning: failed to read creative_brief from "
                       f"project.yaml: {e}", file=sys.stderr)
 
+    # The brand this project renders under, declared per project.
+    #
+    # Read here for the same reason creative_brief is: it belongs to the
+    # RUN, not to any one step, and no DAG edge routes it.  Nothing
+    # populated this key at all before - see project_template_name() in
+    # library/tools/brand_registry.py for what that cost.
+    #
+    # Stored as the NAME the project declared, not a path.  An empty
+    # declaration is left OUT of state so a project that names no template
+    # keeps resolving through the same empty-reference path as before, and
+    # `resolve_template_reference("")` sends that to default_brand on disk.
+    if "brand_template" not in state:
+        from library.tools.brand_registry import project_template_name
+        declared = project_template_name(project_dir)
+        if declared:
+            state["brand_template"] = declared
+
     # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
     if manifest_path.exists():
@@ -625,8 +642,16 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 # No explicit mapping - merge all outputs
                 inputs.update(source_outputs)
 
-    # Add a small explicit whitelist for globals that aren't DAG-routable
-    for w_key in ["project_folder", "brand_template", "project_config"]:
+    # Add a small explicit whitelist for globals that aren't DAG-routable.
+    #
+    # brand_template is NOT on it. `state["brand_template"]` holds the
+    # REFERENCE the project declared (a name, or a path); the one reader
+    # that declares this input - step_5_01_color_grade - does
+    # `brand_template.get("style", {})` and needs the resolved TEMPLATE.
+    # Broadcasting the string under the same key would hand that step a
+    # str and crash it, so the brand block below injects the resolved
+    # template to the steps that asked for it and nothing else.
+    for w_key in ["project_folder", "project_config"]:
         if w_key in state:
             inputs[w_key] = state[w_key]
 
@@ -648,27 +673,37 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         import sys
         print(f"Warning: Step '{node_id}' manifest contains deprecated 'state.reads'. Use DAG data_mapping instead.", file=sys.stderr)
 
-    # Process brand template and creative brief if they are in inputs (either via DAG or whitelist)
+    # Resolve the project's brand template for the steps that declare it.
     if manifest:
         step_inputs = [inp.get("name") for inp in manifest.get("interface", {}).get("inputs", [])]
-        brand_template_path = inputs.get("brand_template")
-        
-        if brand_template_path or any(x in step_inputs for x in ["brand_style", "brand_effect", "brand_content"]):
-            try:
-                import sys
-                if str(LIBRARY_ROOT.parent) not in sys.path:
-                    sys.path.append(str(LIBRARY_ROOT.parent))
-                from library.tools.brand_registry import load_brand_template, query_slots
-                bt = load_brand_template(brand_template_path if brand_template_path else "")
-                if "brand_style" in step_inputs:
-                    inputs["brand_style"] = query_slots(bt, "style")
-                if "brand_effect" in step_inputs:
-                    inputs["brand_effect"] = query_slots(bt, "effect")
-                if "brand_content" in step_inputs:
-                    inputs["brand_content"] = query_slots(bt, "content")
-            except Exception as e:
-                import sys
-                print(f"Warning: failed to load brand template: {e}", file=sys.stderr)
+        # Read the reference off STATE, not off inputs: it is a run-level
+        # global with no DAG edge, and reading it back out of `inputs`
+        # only worked while something put it there.  Nothing did.
+        brand_reference = state.get("brand_template", "")
+        wants = [x for x in ("brand_template", "brand_style", "brand_effect",
+                             "brand_content") if x in step_inputs]
+
+        if wants:
+            import sys
+            if str(LIBRARY_ROOT.parent) not in sys.path:
+                sys.path.append(str(LIBRARY_ROOT.parent))
+            from dataclasses import asdict
+            from library.tools.brand_registry import (
+                resolve_template_reference, query_slots)
+            # A declared template that cannot be resolved RAISES.  This was
+            # `except Exception: print("Warning: ...")`, which is the swallow
+            # half of the same defect: even once the name reached here, a
+            # typo would have printed one line into a log and rendered the
+            # in-code default anyway.
+            bt = resolve_template_reference(brand_reference)
+            if "brand_template" in step_inputs:
+                inputs["brand_template"] = asdict(bt)
+            if "brand_style" in step_inputs:
+                inputs["brand_style"] = query_slots(bt, "style")
+            if "brand_effect" in step_inputs:
+                inputs["brand_effect"] = query_slots(bt, "effect")
+            if "brand_content" in step_inputs:
+                inputs["brand_content"] = query_slots(bt, "content")
 
         # Inject creative brief markdown content when the step declares it.
         #
@@ -902,7 +937,10 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     if manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
-        saved_brand_template = inputs.get("brand_template", "default_brand")
+        # None, not "default_brand": a project that declares no template
+        # must stay declaring none through projection, or the restore below
+        # invents a declaration the project never made.
+        saved_brand_template = inputs.get("brand_template")
         saved_creative_brief = inputs.get("creative_brief")
         
         from library.tools.context_projector import project_fields
@@ -941,7 +979,17 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         prompt = f.read()
         
     project_folder = inputs.get("project_folder", "")
-    brand_template = inputs.get("brand_template", "default_brand")
+    # TemplateLoader resolves by NAME against library/templates/.  Ask the
+    # PROJECT for the name rather than fishing it out of `inputs`, for the
+    # same reason delivery_format is a function of the project: a value in
+    # flight can be renamed, defaulted and lost, and this one was - the
+    # read here was `inputs.get("brand_template", "default_brand")` and the
+    # key was never set, so every project's LLM brand constraints came from
+    # default_brand.yaml whatever its project.yaml declared.
+    from library.tools.brand_registry import (
+        DEFAULT_TEMPLATE_NAME, project_template_name, reference_template_name)
+    brand_template = (reference_template_name(project_template_name(project_folder))
+                      if project_folder else DEFAULT_TEMPLATE_NAME)
     from library.tools.template_loader import TemplateLoader
     
     loader_instance = TemplateLoader(project_folder)

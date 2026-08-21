@@ -460,6 +460,27 @@ are in the MUSIC file's clock and are used as timeline times, which holds
 only while music is placed at `source_in` 0; `compile_manifest` asserts
 that.
 
+**A project's brand template reaches the run through `state["brand_template"]`,
+and for a long time nothing put it there.** `pipeline.brand_template` in a
+project.yaml was read by `delivery_format` and by nothing else in the run:
+`load_pipeline_state` populated the key only from the process manifest's
+`default`, which has none, so `gather_step_inputs` resolved the in-code
+`_get_default_template()` for every step of every project. A project naming
+`cinematic_narrative` got vfx_intensity 0.0 instead of 0.3, the full
+transition vocabulary instead of its four, no `subtitle_style` and no house
+look at all - silently, with the run reporting SUCCESS. Three helpers in
+`library/tools/brand_registry.py` are now the whole vocabulary:
+`project_template_name` (the declaration, off project.yaml),
+`resolve_template_reference` (a NAME or a PATH to a BrandTemplate, raising on
+either missing) and `reference_template_name` (the name half, for
+`TemplateLoader`). The key is spelled THREE ways in this tree and they are
+not interchangeable: `state["brand_template"]` is the REFERENCE string,
+`inputs["brand_template"]` is the RESOLVED TEMPLATE DICT and only reaches a
+step whose manifest declares it (step 5.01 does `brand_template.get("style")`),
+and `inputs["brand_style"|"brand_effect"|"brand_content"]` are the slot dicts.
+Nothing is broadcast; a step gets brand data because its manifest asked.
+`tests/test_brand_template_load.py`.
+
 **Subject position comes from `face_center_x`, not from the vision pass.**
 `vision_pipeline_v3` measures shot size, identity and time ranges - never
 a position - and `object_segmentation`/`ocr_extraction` produce boxes but
