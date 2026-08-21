@@ -93,12 +93,13 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
      ${outlineW}px  ${outlineW}px 0 ${outlineCol},
      0    ${outlineW}px 0 ${outlineCol},
     -${outlineW}px  ${outlineW}px 0 ${outlineCol},
-    -${outlineW}px  0   0 ${outlineCol}
+    -${outlineW}px  0   0 ${outlineCol},
+    0 10px 20px rgba(0,0,0,0.8)
   `;
   
-  let bottomStyle = "128px";
+  let bottomStyle = "200px";
   if (pos === "top") bottomStyle = "auto";
-  const topStyle = pos === "top" ? "128px" : "auto";
+  const topStyle = pos === "top" ? "200px" : "auto";
   const centerStyle = pos === "center" ? "50%" : undefined;
   const transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
 

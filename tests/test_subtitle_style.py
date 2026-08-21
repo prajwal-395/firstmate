@@ -88,9 +88,9 @@ def test_every_style_records_where_it_came_from():
 def test_style_shapes_are_sane():
     for name, style in SUBTITLE_STYLES.items():
         assert style.name == name
-        assert 20 <= style.font_size <= 140, name
+        assert 20 <= style.font_size <= 250, name
         assert 100 <= style.font_weight <= 900, name
-        assert 0 <= style.outline_width <= 12, name
+        assert 0 <= style.outline_width <= 24, name
         assert style.position in VALID_POSITIONS, name
 
 

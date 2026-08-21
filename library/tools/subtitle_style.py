@@ -42,12 +42,12 @@ from library.tools.brand_palette import roles_from_palette
 # The look every project rendered before this module existed. Preserved
 # exactly so `default_subtitles` is a no-op rather than a surprise.
 LEGACY_FONT_FAMILY = "Montserrat"
-LEGACY_FONT_SIZE = 58
+LEGACY_FONT_SIZE = 160
 LEGACY_FONT_WEIGHT = 800
 LEGACY_FONT_COLOR = "#FFFFFF"
 LEGACY_ACCENT_COLOR = "#FBF0B8"
 LEGACY_OUTLINE_COLOR = "#000000"
-LEGACY_OUTLINE_WIDTH = 4
+LEGACY_OUTLINE_WIDTH = 12
 
 VALID_POSITIONS = ("bottom", "center", "top")
 
@@ -132,9 +132,9 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
     # survive a busy frame.
     "bold_large": SubtitleStyle(
         name="bold_large",
-        font_size=72,
+        font_size=192,
         font_weight=900,
-        outline_width=6,
+        outline_width=18,
         derived_from=(
             "shortform_energetic.yaml: energy_profile high, vfx_intensity "
             "0.8, dense SFX. Larger and heavier than the legacy look, with a "
@@ -146,9 +146,9 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
     # filmic grade. Captions stay out of the way of the picture.
     "minimal": SubtitleStyle(
         name="minimal",
-        font_size=44,
+        font_size=120,
         font_weight=600,
-        outline_width=2,
+        outline_width=6,
         derived_from=(
             "cinematic_narrative.yaml: framing_intent 0.0, moderate SFX, the "
             "warm_filmic look. Smaller, lighter and barely outlined, because "
@@ -159,9 +159,9 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
     # unobtrusive - the words matter, the styling should not.
     "clean_standard": SubtitleStyle(
         name="clean_standard",
-        font_size=52,
+        font_size=144,
         font_weight=700,
-        outline_width=3,
+        outline_width=9,
         derived_from=(
             "interview_professional.yaml: sparse SFX, the muted_editorial "
             "look. Between the other two on every axis: legible over talking "

@@ -102,3 +102,47 @@ def test_subtitle_sync_logic():
     assert results[1] == (4, 197 - 18) # 179
     
     print("Test passed!")
+
+def test_subtitle_cascade_no_drop():
+    from library.steps.step_4_01_plan_subtitles.step import generate_subtitles
+    
+    audio_spine = {
+        "structure": [
+            {
+                "position": 1,
+                "block_type": "speech",
+                "timeline_start": 20.87,
+                "timeline_end": 24.41,
+                "source_start": 63.135,
+                "source_end": 66.675, 
+                "content": {"text": "and so my very, very small announcement is that i just want to post every single day."},
+                "word_timestamps": [
+                    {"word": "and", "source_start": 63.0, "source_end": 63.1},
+                    {"word": "so", "source_start": 63.1, "source_end": 63.2},
+                    {"word": "my", "source_start": 63.2, "source_end": 63.3},
+                    {"word": "very,", "source_start": 63.3, "source_end": 63.4},
+                    {"word": "very", "source_start": 63.4, "source_end": 63.5},
+                    {"word": "small", "source_start": 63.5, "source_end": 63.6},
+                    {"word": "announcement", "source_start": 63.6, "source_end": 64.0},
+                    {"word": "is", "source_start": 64.0, "source_end": 64.1},
+                    {"word": "that", "source_start": 64.1, "source_end": 64.2},
+                    {"word": "i", "source_start": 64.2, "source_end": 64.3},
+                    {"word": "just", "source_start": 64.3, "source_end": 64.4},
+                    {"word": "want", "source_start": 64.4, "source_end": 64.5},
+                    {"word": "to", "source_start": 64.5, "source_end": 65.0},
+                    {"word": "post", "source_start": 65.0, "source_end": 65.5},
+                    {"word": "every", "source_start": 65.5, "source_end": 66.0},
+                    {"word": "single", "source_start": 66.395, "source_end": 66.535},
+                    {"word": "day.", "source_start": 66.595, "source_end": 66.675},
+                ]
+            }
+        ]
+    }
+    
+    result = generate_subtitles(audio_spine, caption_case="lowercase", brand_effect={}, brand_style={})
+    entries = result["subtitle_plan"]["subtitle_entries"]
+    
+    # Assert that all words made it through the cascade and clamping logic
+    # Previous behaviour truncated "single day."
+    texts = [e["text"] for e in entries]
+    assert "single day." in texts, f"Missing 'single day.' in {texts}"

@@ -483,35 +483,14 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 pos, (float("-inf"), float("inf"))
             )
 
-            max_passes = 10
-            for _pass in range(max_passes):
-                changed = False
-                for entry in group:
-                    dur = entry["timeline_end"] - entry["timeline_start"]
-                    if dur < MIN_DISPLAY_DURATION:
-                        entry["timeline_end"] = round(
-                            entry["timeline_start"] + MIN_DISPLAY_DURATION, 3
-                        )
-                        changed = True
-
-                # Prevent overlap between consecutive entries IN THIS BLOCK
-                for i in range(len(group) - 1):
-                    curr = group[i]
-                    nxt = group[i + 1]
-                    if nxt["timeline_start"] < curr["timeline_end"]:
-                        nxt["timeline_start"] = round(
-                            curr["timeline_end"], 3
-                        )
-                        changed = True
-                        if nxt["timeline_end"] <= nxt["timeline_start"]:
-                            nxt["timeline_end"] = round(
-                                nxt["timeline_start"]
-                                + MIN_DISPLAY_DURATION,
-                                3,
-                            )
-
-                if not changed:
-                    break
+            for i in range(len(group)):
+                curr = group[i]
+                nxt = group[i + 1] if i + 1 < len(group) else None
+                max_end = nxt["timeline_start"] if nxt else block_end
+                dur = curr["timeline_end"] - curr["timeline_start"]
+                if dur < MIN_DISPLAY_DURATION:
+                    desired_end = curr["timeline_start"] + MIN_DISPLAY_DURATION
+                    curr["timeline_end"] = round(min(desired_end, max_end), 3)
 
             # Clamp EVERY subtitle in the block to the block's range.
             # The min-duration cascade above can push more than one
