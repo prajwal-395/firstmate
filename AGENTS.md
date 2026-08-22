@@ -233,12 +233,29 @@ no cross dissolve or wipe on this route.
 ### Resolve API facts that cost a debugging cycle each
 `hasattr` is **always True** on Resolve's scripting proxies, including
 invented names - guard on return values, never on `hasattr`.
-`TimelineItem.Stabilize()` works. `CreateMagicMask` returns False for
+`TimelineItem.Stabilize()` works, and is the most expensive call in a
+build - see below. `CreateMagicMask` returns False for
 every mode, so it is withdrawn. Super Scale is a **MediaPoolItem**
 property taking an **int**, with the companion keys
 `SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after
 Super); setting it on a TimelineItem or passing `"2"` silently returns
 False.
+
+### Stabilization is the memory ceiling, and it runs last
+`neural_engine_directives` is applied AFTER every clip, comp, overlay and
+SFX is placed, so a build that dies inside it loses ALL of them. Eight
+`Stabilize()` calls on project 001 took Resolve to **87.4 GB** resident
+and macOS jetsam killed it (`largestProcess: "Resolve"` in
+`/Library/Logs/DiagnosticReports/JetsamEvent-*.ips`); the project
+database kept only the flush from before the pass, so the music, every
+SFX and all eight Fusion comps were gone.
+
+It changes picture steadiness and nothing else - never structure, timing,
+framing, grade, captions or sound. For a timeline meant to be scrubbed
+rather than shipped, pop `neural_engine_directives` off the **in-memory**
+manifest before `build_timeline` and leave the file on disk carrying it.
+Treat it as the memory ceiling of the whole pipeline and do not run other
+heavy jobs beside it.
 
 ### Fusion .comp Files - NEVER DO THESE
 Never use `ApplyMode` in a Merge node because it crashes Resolve with a SIGSEGV.
@@ -299,6 +316,27 @@ Add A2 and subsequent tracks afterward, and place music or SFX with `mediaType: 
 Render single frames via the Deliver page to verify effects look correct.
 A frame file size under 2KB indicates a broken or black frame.
 A frame file size between 30-150KB indicates real video content.
+
+### Reading what a killed build left, without relaunching Resolve
+Resolve is the captain's application and a crashed build is not licence
+to start it. What reached disk is readable on its own.
+`~/Library/Preferences/Blackmagic Design/DaVinci Resolve/dblist.conf`
+names the active database, and each project under it is plain SQLite at
+`<db>/Resolve Projects/Users/guest/Projects/<folder>/<name>/Project.db`.
+**Copy it before opening; never open it in place.**
+
+The join is `Sm2Timeline` -> `Sm2Sequence.Sm2Timeline_id` ->
+`Sm2SequenceContainer.Sm2Sequence_id` ->
+`Sm2TiTrack.Sm2SequenceContainer_id` -> `Sm2TiItem_Sm2TiTrack`, in which
+**`DbOwner` is the TRACK and `DbAssociate` is the ITEM** - the reverse of
+what the column names suggest. `Sm2TiCompositionTable` holds the Fusion
+comps.
+
+It shows only what was FLUSHED, which is exactly what makes it useful:
+the gap between it and the manifest is where the build died. It cannot
+answer everything - conform geometry (`Pan`/`Tilt`/`Zoom`) sits in a
+binary `FieldsBlob`, so proving the picture band still needs Resolve
+running.
 
 ### Marker and timeline item API patterns
 Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()` for managing timeline markers and items.
