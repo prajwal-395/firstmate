@@ -233,7 +233,8 @@ test_probe_records_a_baseline_then_matures_it() {
   out=$(fm_progress_probe "$state" "$key" 180 "$burner")
   [ "${out%% *}" = unknown ] || fail "the first probe has nothing to compare and must be unknown, got '$out'"
   [ -s "$state/.progress-$key" ] || fail "the first probe must record a baseline to measure the next span from"
-  local base_cpu=$(printf '%s' "$(cat "$state/.progress-$key")" | cut -d' ' -f3)
+  local base_cpu
+  base_cpu=$(printf '%s' "$(cat "$state/.progress-$key")" | cut -d' ' -f3)
   sleep 2
   out=$(fm_progress_probe "$state" "$key" 1 "$burner")
   [ "${out%% *}" = progressing ] || fail "a spinning process must read progressing on the next probe, got '$out'"
