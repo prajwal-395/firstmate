@@ -238,7 +238,7 @@ test_probe_records_a_baseline_then_matures_it() {
   out=$(fm_progress_probe "$state" "$key" 1 "$burner")
   [ "${out%% *}" = progressing ] || fail "a spinning process must read progressing on the next probe, got '$out'"
   saved=$(cat "$state/.progress-$key")
-  [ "$(printf '%s' "$saved" | cut -d' ' -f3)" -gt 100 ] \
+  [ "$(printf '%s' "$saved" | cut -d' ' -f3)" -gt "$base_cpu" ] \
     || fail "a progressing verdict must roll the baseline forward to the reading that proved it"
   pass "fm_progress_probe: records a baseline, then rolls it forward on measured progress"
 }
