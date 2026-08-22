@@ -78,6 +78,40 @@ def main():
                 if e.get("path") and os.path.exists(e["path"])]
     types = available_sfx_types(entries)
 
+    # Compute and cache transient offsets
+    index_updated = False
+    for entry in playable:
+        if "transient_offset_sec" not in entry:
+            try:
+                import librosa
+                import numpy as np
+                y, sr = librosa.load(entry["path"], sr=None)
+                peak = np.max(np.abs(y))
+                if peak == 0:
+                    entry["transient_offset_sec"] = None
+                else:
+                    thresh = peak * (10 ** (-6 / 20))
+                    above = np.where(np.abs(y) > thresh)[0]
+                    prop = len(above) / len(y) if len(y) > 0 else 0
+                    if prop >= 0.1:
+                        entry["transient_offset_sec"] = None
+                    else:
+                        peak_time = float(np.argmax(np.abs(y)) / sr)
+                        entry["transient_offset_sec"] = round(peak_time, 3)
+            except Exception as e:
+                print(f"Warning: could not analyze transient for {entry['path']}: {e}", file=sys.stderr)
+                entry["transient_offset_sec"] = "unknown"
+            index_updated = True
+
+    if index_updated:
+        index_path = os.path.join(sfx_library, "sfx_index.json")
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, "w") as f:
+                    json.dump(entries, f, indent=2)
+            except Exception as e:
+                print(f"Warning: could not update sfx_index.json with transients: {e}", file=sys.stderr)
+
     status = {
         "valid": bool(playable) and bool(types),
         "sfx_library_path": sfx_library,

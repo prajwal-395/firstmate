@@ -1303,7 +1303,7 @@ def compile_manifest(out_dir: str) -> dict:
             )
         vol_db = sfx_entry.get("volume_db", -14)
 
-        source_file, lib_dur = match_sfx_file(sfx_type, sfx_index)
+        source_file, lib_dur, trans_offset = match_sfx_file(sfx_type, sfx_index)
 
         tl_end_sec = sfx_entry.get("timeline_out",
                                    sfx_entry.get("timeline_end"))
@@ -1311,9 +1311,13 @@ def compile_manifest(out_dir: str) -> dict:
             tl_end_sec = tl_start_sec + (lib_dur if lib_dur else sfx_entry.get("duration_seconds", 0.5))
 
         if source_file and os.path.exists(source_file):
+            src_in = 0.0
+            if trans_offset is not None and trans_offset != "unknown":
+                src_in = float(trans_offset)
+
             a3_clips.append({
                 "source_file": source_file,
-                "source_in": 0.0,
+                "source_in": src_in,
                 "timeline_in": round(tl_start_sec, 3),
                 "timeline_out": round(tl_end_sec, 3),
                 "timeline_in_frame": seconds_to_frame(tl_start_sec, fps),

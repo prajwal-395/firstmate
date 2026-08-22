@@ -87,9 +87,10 @@ def match_sfx_file(sfx_type: str, index_entries: list):
         path = best_entry.get("path", "")
         duration = (best_entry.get("technical", {})
                     .get("basic", {}).get("duration", 0.5))
-        return path, duration
+        transient = best_entry.get("transient_offset_sec", None)
+        return path, duration, transient
 
-    return None, None
+    return None, None, None
 
 
 def available_sfx_types(index_entries: list = None) -> list:
@@ -98,7 +99,7 @@ def available_sfx_types(index_entries: list = None) -> list:
         index_entries = load_sfx_index()
     available = []
     for sfx_type in sorted(TYPE_KEYWORDS):
-        path, _ = match_sfx_file(sfx_type, index_entries)
+        path, _, _ = match_sfx_file(sfx_type, index_entries)
         if path and os.path.exists(path):
             available.append(sfx_type)
     return available
