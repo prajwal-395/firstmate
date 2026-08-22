@@ -25,10 +25,22 @@ style:
   # The channel's neutral state: warm-leaning, rich, no series accent.
   # See library/tools/house_look.py.
   house_look: pmk_default
+  # Agrees with `default_subtitles` in library/tools/subtitle_style.py
+  # rather than fighting it. A template's typography legitimately
+  # overrides the named style's shape - that is what a brand template is
+  # for - so a value left here that disagrees SILENTLY wins.
+  #
+  # This block said Helvetica/42/bold, and no frame was ever rendered
+  # from it: before the template load was wired up (#131) it reached no
+  # step at all. 42 was sized for the layout where the picture sat in a
+  # 608-row band with black above and below, which #133 removed; against
+  # a full 1920 it is 2.2% of frame height, SMALLER than the 3% it was
+  # meant to replace. Montserrat/160/800 is what #135 authored for
+  # `default_subtitles` and what every build has actually rendered.
   typography:
-    font: "Helvetica"
-    size: 42
-    weight: "bold"
+    font: "Montserrat"
+    size: 160
+    weight: 800
   # No pacing block. It used to declare min_cuts_per_minute /
   # max_cuts_per_minute - a third spelling of a key nothing read.
   # See docs/PIPELINE_PLAN.md P4.2.
