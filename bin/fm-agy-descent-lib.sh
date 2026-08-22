@@ -187,8 +187,14 @@ fi
 # against bin/fm-spawn.sh's relaunch publication. Both drivers already load this
 # library before this one, so the guarded source below fires only when this file
 # is loaded on its own.
+#
+# Source analysis stops here. That library is a canonical lint root in its own
+# right, so following it from this file adds no uncovered line - and it would be
+# re-expanded inside every root that loads this one, including bin/fm-watch.sh,
+# whose graph is already the most expensive one the bounded CI lint worker has
+# to hold.
+# shellcheck source=/dev/null
 if ! declare -f fm_lock_try_acquire >/dev/null 2>&1; then
-  # shellcheck source=bin/fm-wake-lib.sh
   . "$_FM_AGY_DESCENT_LIB_DIR/fm-wake-lib.sh"
 fi
 
@@ -1178,10 +1184,15 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
 # home it was asked about.
 fm_agy_descent_turn_end() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} line status=0
-  # Deliberate dynamic scope: fm_wake_append reads these from the environment it
-  # was loaded into, and this binds them to the home under evaluation.
+  # Deliberate dynamic scope: fm_wake_append resolves these from the environment
+  # it was loaded into, and binding them here is what makes this function publish
+  # for the home it was ASKED about rather than for whichever home the ambient
+  # environment happens to name.
+  # shellcheck disable=SC2034 # Read by fm_wake_append under bash's dynamic scope.
   local STATE=$state_dir
+  # shellcheck disable=SC2034 # Read by fm_wake_append under bash's dynamic scope.
   local FM_WAKE_QUEUE="$state_dir/.wake-queue"
+  # shellcheck disable=SC2034 # Read by fm_wake_append under bash's dynamic scope.
   local FM_WAKE_QUEUE_LOCK="$state_dir/.wake-queue.lock"
 
   declare -f fm_wake_append >/dev/null 2>&1 || return 1

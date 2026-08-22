@@ -192,6 +192,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_PREPARE="${FM_FAKE_TRACE_PREPARE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_AGY_QUOTA_POLL="${FM_AGY_QUOTA_POLL:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -461,6 +462,25 @@ test_relaunch_resumes_on_the_model_the_ladder_moved_the_worker_to() {
     > "$dir/home/state/rl40.meta.tmp"
   mv "$dir/home/state/rl40.meta.tmp" "$dir/home/state/rl40.meta"
 
+  # An agy launch resolves its executable and validates the model against the
+  # account catalogue, so a stub answers both without a network call - CI has no
+  # agy, and a case that turned on whether one is installed would prove nothing.
+  cat > "$dir/fakebin/agy" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = models ]; then
+  printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
+  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/agy"
+  # The relaunch is a LAUNCH on rung 2, so it faces the ladder gate, which
+  # refuses a descent it cannot prove. These readings are what prove it, and the
+  # live poll stays off so the verdict comes from them rather than from whatever
+  # the host account says today.
+  fm_agy_quota_observe "$reserved | ctx: 3.0% | quota: 0.0% (3h 41m)" "$dir/home/state"
+  fm_agy_quota_observe "$moved | ctx: 3.0% | quota: 94.6% (3h 37m)" "$dir/home/state"
+
   # The ladder moves the running worker off the captain's reserved rung and
   # writes that down, exactly as bin/fm-agy-descent-lib.sh does after a confirmed
   # in-session switch.
@@ -473,7 +493,7 @@ $(cat "$dir/home/state/rl40.meta")"
   # The worker then crashes and is relaunched. It must come back on the model it
   # was actually running, not on the rung the ladder took it off.
   printf 'agy' > "$dir/fake/becomes"
-  out=$(run_control "$dir" rl40 relaunch --note "recovered after a stall"); rc=$?
+  out=$(FM_AGY_QUOTA_POLL=off run_control "$dir" rl40 relaunch --note "recovered after a stall"); rc=$?
   expect_code 0 "$rc" "the relaunch should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" rl40 model)" = "$moved" ] \
     || fail "the republished record must still name the model the ladder moved the worker to"

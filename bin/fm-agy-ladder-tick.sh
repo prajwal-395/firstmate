@@ -51,15 +51,19 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 [ -d "$STATE" ] || exit 0
 
-# shellcheck source=bin/fm-wake-lib.sh
+# The same libraries bin/fm-watch.sh loads before the evaluation, in the same
+# order. Source analysis stops at each of them: every one is a canonical lint
+# root already, so following them from here adds no uncovered line and only
+# duplicates the largest source graphs this repo has inside one more root.
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# shellcheck source=bin/fm-backend.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-backend.sh"
-# shellcheck source=bin/fm-busy-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-busy-lib.sh"
-# shellcheck source=bin/fm-agy-quota-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-agy-quota-lib.sh"
-# shellcheck source=bin/fm-agy-descent-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-agy-descent-lib.sh"
 
 fm_agy_descent_turn_end "$STATE"
