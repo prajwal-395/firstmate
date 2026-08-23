@@ -83,13 +83,25 @@ def test_qa_failures_are_not_fatal_yet():
         "and needs the measurement first: how often would a station have "
         "failed across real runs? Making it fatal without that number is "
         "the mirror image of the defect it fixes.")
-    assert "all_passed" in line and "errors" in line
+    assert "errors" in line, (
+        "results['success'] must still depend on results['errors']"
+    )
+    # success must NOT consult qa_reports, verification_passed, or
+    # all_passed - that is the step-two gate.
+    assert "qa_reports" not in line and "verification_passed" not in line, (
+        "success has been coupled to QA station outcomes. That is step TWO."
+    )
 
 
 def test_the_build_still_reports_success_separately_from_qa():
     """Being loud is not the same as being fatal, and both must hold."""
     src = _source()
-    assert 'results["verification_passed"] = all_passed' in src
+    assert 'results["verification_passed"] = verification_passed' in src
+    # The verdict must be derived via the pure helper, not hardcoded.
+    assert 'derive_verification_verdict(qa_reports)' in src, (
+        "verification_passed must be derived via derive_verification_verdict, "
+        "not hardcoded True"
+    )
 
 
 def test_the_render_step_forwards_qa_failures_to_the_ledger():

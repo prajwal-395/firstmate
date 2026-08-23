@@ -31,6 +31,12 @@ import subprocess
 import sys
 from typing import Optional
 
+from build_verification import (
+    derive_verification_verdict,
+    detect_non_v1_fusion_drops,
+    format_fusion_drop_error,
+)
+
 # Add tools AND the repository root to the path. The repo root matters:
 # this module is normally run as a SCRIPT (`resolve_build_timeline.py
 # <manifest>`), so sys.path[0] is this directory and not the repo, and
@@ -1281,6 +1287,21 @@ def build_timeline(
     else:
         results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
+    # ── Detect planned Fusion effects that the subprocess cannot reach ──
+    # The logic lives in build_verification.detect_non_v1_fusion_drops so
+    # it can be tested with plain data objects, without Resolve.
+    fusion_effects = manifest.get("fusion_effects", {})
+    per_clip_fx = fusion_effects.get("per_clip", {})
+    if per_clip_fx:
+        v2_label_set = set(v2_placed_labels) if 'v2_placed_labels' in locals() else set()
+        v1_label_set = set(v1_placed_labels)
+
+        dropped = detect_non_v1_fusion_drops(per_clip_fx, v1_label_set, v2_label_set)
+        if dropped:
+            msg = format_fusion_drop_error(dropped)
+            results["errors"].append(msg)
+            print(f"  ✗ {msg}", file=sys.stderr)
+
     if verify_fusion_comps:
         # verify_fusion_comps reads per_clip - that is fusion_effects, not
         # the flat vfx LIST, which has no .get(). per_clip is keyed by clip
@@ -1513,7 +1534,6 @@ def build_timeline(
     print(f"\n── Verification ──", file=sys.stderr)
     resolve.OpenPage("edit")
 
-    all_passed = True
     if run_full_timeline_qa:
         final_report = run_full_timeline_qa(timeline, project, manifest)
         _run_qa(final_report)
@@ -1605,8 +1625,17 @@ def build_timeline(
     for rep in qa_reports:
         print(f"  Station {rep.station}: {'Passed' if rep.passed else 'Failed'}", file=sys.stderr)
 
-    results["success"] = all_passed and not results["errors"]
-    results["verification_passed"] = all_passed
+    # Derive the verification verdict from the station outcomes it collects.
+    # The logic lives in build_verification.derive_verification_verdict so
+    # it can be tested with plain data objects, without Resolve.
+    #
+    # verification_passed reflects whether QA stations passed.
+    # success is deliberately NOT gated on QA stations - that is step two
+    # of the captain's ruling (see test_qa_failures_are_not_fatal_yet).
+    verification_passed = derive_verification_verdict(qa_reports)
+
+    results["success"] = not results["errors"]
+    results["verification_passed"] = verification_passed
 
     status_emoji = "✓" if results["success"] else "✗"
     print(f"\n{status_emoji} Build {'succeeded' if results['success'] else 'FAILED'}", file=sys.stderr)
