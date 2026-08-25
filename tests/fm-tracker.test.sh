@@ -532,4 +532,49 @@ expect_code_out 0 "$?" "$out" "an unarmed poll must exit cleanly"
 assert_no_grep 'api' "$FAKE_GH_LOG" "an unarmed poll must make no request"
 pass "a poll with no armed watch makes no request and prints nothing"
 
+# ===========================================================================
+# Stock Bash 3.2
+#
+# The poll runs as a watcher check on whatever bash the machine has, and stock
+# macOS Bash is 3.2. CI's stock-bash job only PARSES the shell inventory, and a
+# bash-4-only construct parses fine there while failing at runtime - which for
+# this script meant writing no cursor and still exiting 0, indistinguishable
+# from an inbox where nothing happened. A wake that silently never fires is the
+# worst failure this script has, so it is exercised here rather than parsed.
+stock_bash=''
+for candidate in /bin/bash /usr/bin/bash; do
+  [ -x "$candidate" ] || continue
+  case "$("$candidate" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)" in
+    3.*) stock_bash=$candidate; break ;;
+  esac
+done
+
+if [ -z "$stock_bash" ]; then
+  printf 'note: no Bash 3.x on this machine; stock-Bash case not exercised\n'
+else
+  HOME_D=$(make_home d)
+  reset_gh
+  run_tracker "$HOME_D" watch --task stock o/r >/dev/null 2>&1 \
+    || fail "could not arm the stock-bash fixture"
+  rm -f "$FAKE_GH_DIR"/http.*
+  printf '1\n' > "$FAKE_GH_DIR/http.seq"
+  http_response 1 '200 OK' 'X-Poll-Interval: 60
+' '[]'
+  http_response 2 '200 OK' '' '[]'
+  out=$(PATH="$HOME_D/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_D" \
+    FM_STATE_OVERRIDE="$HOME_D/state" FAKE_GH_DIR="$FAKE_GH_DIR" FAKE_GH_LOG="$FAKE_GH_LOG" \
+    "$stock_bash" "$NOTIFY" --task stock 2>&1)
+  rc=$?
+  expect_code_out 0 "$rc" "$out" "the poll must run under $stock_bash"
+  assert_not_contains "$out" "invalid option" "the poll must use no Bash 4 builtin option"
+  assert_not_contains "$out" "unbound variable" "the poll must not trip set -u under Bash 3.2"
+  # Exiting 0 is not enough: it must actually have recorded position, or it
+  # would be failing silently in exactly the way that looks like success.
+  assert_present "$HOME_D/state/stock.tracker-cursor" \
+    "the poll must record its cursor under Bash 3.2, not just exit 0"
+  assert_grep 'seeded=1' "$HOME_D/state/stock.tracker-cursor" \
+    "the cursor written under Bash 3.2 must be complete"
+  pass "the wake poll runs correctly under stock Bash 3.x, not merely parses"
+fi
+
 printf '\nall fm-tracker cases passed\n'

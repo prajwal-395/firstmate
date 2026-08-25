@@ -93,36 +93,62 @@ REPO_CSV=$(printf '%s,' "${REPOS[@]}")
 # silently, so arming a watch never wakes firstmate on history.
 # ---------------------------------------------------------------------------
 
-declare -A CUR=()
-if [ -f "$CURSOR" ] && [ ! -L "$CURSOR" ]; then
-  cursor_first=
-  IFS= read -r cursor_first < "$CURSOR" 2>/dev/null || cursor_first=
-  if [ "$cursor_first" = "$FM_TRACKER_CURSOR_MAGIC" ]; then
-    while IFS= read -r cursor_line; do
-      case $cursor_line in
-        *=*) CUR[${cursor_line%%=*}]=${cursor_line#*=} ;;
-      esac
-    done < "$CURSOR"
-  fi
-fi
-SEEDING=0
-[ -n "${CUR[seeded]:-}" ] || SEEDING=1
+# Held as newline-separated key=value text rather than an associative array:
+# stock macOS Bash is 3.2, which has no `declare -A`, and this poll must degrade
+# into a quiet cycle rather than into a silent permanent failure there. On 3.2
+# the array form failed, wrote no cursor, and still exited 0 - indistinguishable
+# from an inbox where nothing happened, so the wake would simply never fire.
+CUR_DATA=''
 
-cur_get() { printf '%s' "${CUR[$1]:-}"; }
-cur_set() { CUR[$1]=$2; }
+cur_load() {
+  local first=''
+  [ -f "$CURSOR" ] && [ ! -L "$CURSOR" ] || return 0
+  IFS= read -r first < "$CURSOR" 2>/dev/null || return 0
+  [ "$first" = "$FM_TRACKER_CURSOR_MAGIC" ] || return 0
+  CUR_DATA=$(sed 1d "$CURSOR" 2>/dev/null)
+}
+
+cur_get() {  # <key>
+  local key=$1 line
+  while IFS= read -r line; do
+    case $line in
+      "$key="*) printf '%s' "${line#*=}"; return 0 ;;
+    esac
+  done <<EOF
+$CUR_DATA
+EOF
+  printf ''
+}
+
+cur_set() {  # <key> <value>
+  local key=$1 value=$2 line out=''
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case $line in
+      "$key="*) continue ;;
+    esac
+    out="$out$line
+"
+  done <<EOF
+$CUR_DATA
+EOF
+  CUR_DATA="$out$key=$value"
+}
 
 save_cursor() {
-  local tmp key
+  local tmp
   tmp=$(mktemp "$STATE/.fm-tracker-cursor.XXXXXX" 2>/dev/null) || return 0
   {
     printf '%s\n' "$FM_TRACKER_CURSOR_MAGIC"
-    for key in "${!CUR[@]}"; do
-      printf '%s=%s\n' "$key" "${CUR[$key]}"
-    done
+    printf '%s\n' "$CUR_DATA"
   } > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 0; }
   chmod 0600 "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 0; }
   mv -f -- "$tmp" "$CURSOR" 2>/dev/null || rm -f -- "$tmp"
 }
+
+cur_load
+SEEDING=0
+[ -n "$(cur_get seeded)" ] || SEEDING=1
 
 # ---------------------------------------------------------------------------
 # One conditional request
