@@ -21,12 +21,15 @@ Input:  {
 Output: { "subtitle_entries": [...], "total_subtitles": int }
 """
 import json
+import math
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+from library.tools.render_fonts import measurable_font_path
+from library.tools.safe_area import resolve_safe_area
 from library.tools.subtitle_style import resolve_subtitle_style
 
 # ── Minimum display duration (seconds) ──
@@ -59,44 +62,161 @@ def apply_caption_case(text: str, mode: str) -> str:
     return text.lower()
 
 
-# ── Font-agnostic visual-fit measurement ──
-# Used to check whether subtitle text fits on screen at a given
-# font. Falls back to character-count heuristic if PIL/Pillow
-# is not installed or the font file can't be loaded.
+# ── Caption fitting, measured in pixels ──
+#
+# This measurement existed before this change and had never once run. It
+# was switched on by `audio_spine["subtitle_style"]["font_path"]`, and no
+# producer anywhere in the tree wrote `subtitle_style` into the spine, so
+# `fits_fn` was None on every run of the pipeline's life and grouping fell
+# back to a literal `max_chars = 18`. That literal was correct for the
+# 58px caption default it was written against; at the 160px style this
+# same step now resolves from the brand template, an 18-character group is
+# 1663px wide in a 1080px frame.
+#
+# The style is resolved HERE now, from the brand template, exactly as it
+# is for the props at the end of the step - there is no spine key to
+# forget to write. The width it must fit inside comes from
+# `library/tools/safe_area.py`, which is the same enumeration the render
+# side positions against; if the safe area lived only on the render side
+# the captions would be lifted clear of the platform's UI and still be
+# clipped left and right.
+
+# Layout constants read off the composition that draws the caption.
+# Changing one here without changing it there measures a caption nobody
+# renders.
+WORD_GAP_EM = 0.24        # AnimatedWord.tsx: marginRight "0.24em"
+EMPHASIS_SCALE = 1.14     # AnimatedWord.tsx: EMPHASIS_SCALE
+
+# Mean advance of Montserrat's lowercase alphabet plus space, at weight
+# 800, measured off the bundled file at 100px: 0.6048em. Used ONLY when
+# no font file can be opened (an accepted system face has no path this
+# side of the render - see library/tools/render_fonts.py). It is a
+# per-character estimate and it is still measured in pixels, which the
+# character count it replaces was not.
+MEAN_ADVANCE_EM = 0.60
 
 _font_cache = {}
 
 
-def _load_font(font_path, font_size):
-    """Load a TrueType font, caching for reuse. Returns None if unavailable."""
-    key = (font_path, font_size)
+def _load_font(font_path, font_size, font_weight=None):
+    """Load a TrueType font, caching for reuse. Returns None if unavailable.
+
+    A variable font must have its weight axis SET. The bundled Montserrat
+    covers 100-900 and its default instance is 100, so measuring without
+    this reports the width of Thin while the render draws ExtraBold.
+    """
+    key = (font_path, font_size, font_weight)
     if key not in _font_cache:
         try:
             from PIL import ImageFont
-            _font_cache[key] = ImageFont.truetype(font_path, font_size)
+            font = ImageFont.truetype(font_path, font_size)
+            if font_weight:
+                try:
+                    font.set_variation_by_axes([float(font_weight)])
+                except (OSError, AttributeError, ValueError):
+                    # A static face has no axes to set; its own weight is
+                    # whatever the file is.
+                    pass
+            _font_cache[key] = font
         except (OSError, ImportError):
             _font_cache[key] = None
     return _font_cache[key]
 
 
-def text_fits_on_screen(text, font_path, font_size, canvas_width,
-                        max_width_ratio=0.9):
-    """Check if text fits within max_width_ratio of canvas at the given font.
+class CaptionFitter:
+    """How wide a caption really draws, and whether it fits.
 
-    Falls back to character-count heuristic (max 18 chars) if the font
-    can't be loaded or PIL is not installed.
-
-    Args:
-        text: The subtitle text to measure.
-        font_path: Path to .ttf / .otf font file (any font works).
-        font_size: Font size in points.
-        canvas_width: Output video width in pixels.
-        max_width_ratio: Maximum fraction of canvas width to use.
+    One instance per resolved caption style. ``usable_width`` is the ink
+    budget: the safe area's centred usable width less the outline, which
+    a text shadow paints outside the glyph box on both sides.
     """
-    font = _load_font(font_path, font_size)
-    if font is None:
-        return len(text) <= 18  # fallback heuristic
-    return font.getlength(text) <= canvas_width * max_width_ratio
+
+    def __init__(self, font_path, font_size, font_weight, usable_width,
+                 outline_width=0, emphasis_words=None):
+        self.font_path = font_path
+        self.font_size = int(font_size)
+        self.font_weight = font_weight
+        self.outline_width = int(outline_width or 0)
+        self.usable_width = float(usable_width) - 2 * self.outline_width
+        self.font = _load_font(font_path, self.font_size, font_weight) \
+            if font_path else None
+        self.measured = self.font is not None
+
+    def word_width(self, word: str) -> float:
+        """Rendered width of one word, in pixels."""
+        if self.font is not None:
+            return self.font.getlength(word)
+        return len(word) * MEAN_ADVANCE_EM * self.font_size
+
+    def text_width(self, text: str) -> float:
+        """Rendered width of a whole caption laid out on ONE line.
+
+        Words are inline-blocks with a 0.24em right margin, so the gaps
+        are part of the measurement rather than a space glyph.
+        """
+        words = text.split()
+        if not words:
+            return 0.0
+        gap = WORD_GAP_EM * self.font_size
+        return (sum(self.word_width(w) for w in words)
+                + gap * (len(words) - 1))
+
+    def fits(self, text: str) -> bool:
+        """Whether the caption fits the usable width on one line."""
+        return self.text_width(text) <= self.usable_width
+
+    def widest_word_width(self, text: str) -> float:
+        """The widest single word, which is what cannot be wrapped away.
+
+        The caption box wraps, so a group that is too wide becomes two
+        lines. A single WORD wider than the box is an unbreakable inline
+        block and is clipped at both frame edges instead - which is
+        exactly what happened to "announcement" at 160px.
+        """
+        words = text.split()
+        return max((self.word_width(w) for w in words), default=0.0)
+
+    def fit_scale(self, text: str, emphasis_words=None) -> float:
+        """How far this caption must shrink for its widest word to fit.
+
+        1.0 when nothing needs shrinking. Below 1.0 the render draws THIS
+        card smaller; it does not change the style's font size, which is
+        an open captain decision this step has no business making.
+        """
+        widest = self.widest_word_width(text)
+        if emphasis_words:
+            emphasised = {_normalise_word(e) for e in emphasis_words}
+            for word in text.split():
+                if _normalise_word(word) in emphasised:
+                    widest = max(widest, self.word_width(word) * EMPHASIS_SCALE)
+        if widest <= 0 or widest <= self.usable_width:
+            return 1.0
+        return math.floor(self.usable_width / widest * 1000) / 1000.0
+
+
+def _normalise_word(word: str) -> str:
+    """Lower-cased, punctuation-stripped, matching AnimatedWord's rule."""
+    return re.sub(r"^[^\w']+|[^\w']+$", "", word.lower())
+
+
+def build_caption_fitter(style: dict, safe_area, project_folder="") -> CaptionFitter:
+    """The fitter for one resolved caption style.
+
+    `style` is what `library/tools/subtitle_style.resolve_subtitle_style`
+    returns, so the face measured here is the face the render loads.
+    """
+    font_path = measurable_font_path(
+        style.get("fontFamily", ""),
+        style.get("fontFile"),
+        project_folder or None,
+    )
+    return CaptionFitter(
+        font_path=font_path,
+        font_size=style.get("fontSize", 160),
+        font_weight=style.get("fontWeight", 800),
+        usable_width=safe_area.centered_usable_width,
+        outline_width=style.get("outlineWidth", 0),
+    )
 
 
 def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
@@ -136,22 +256,30 @@ def split_into_groups(
     fits_fn=None,
     min_words: int = 1,
     max_words: int = 6,
-    max_chars: int = 18,
     max_gap: float = 1.0,
 ) -> list:
     """
     Split a list of {word, start, end} dicts into display groups.
-    Respects sentence boundaries, character/visual limits, and forces
-    breaks on large inter-word gaps.
+    Respects sentence boundaries, the visual fit, and forces breaks on
+    large inter-word gaps.
 
     Args:
-        fits_fn: Optional callable(text) -> bool. If provided, used
-                 instead of max_chars to determine if text fits on
-                 screen. Enables font-aware visual-fit grouping.
-        max_chars: Fallback character limit if fits_fn is not provided.
+        fits_fn: callable(text) -> bool, deciding whether the text fits
+                 the usable width at the resolved caption style. It is
+                 REQUIRED. It used to be optional with a `max_chars = 18`
+                 fallback, and because nothing ever supplied it, that
+                 literal is what grouped every caption the pipeline has
+                 ever made - a character count with no relation to
+                 pixels. `build_caption_fitter` makes one; there is no
+                 longer a way to group blind.
 
     Returns groups with precise start/end times from word-level timestamps.
     """
+    if fits_fn is None:
+        raise ValueError(
+            "split_into_groups needs a fits_fn to know how wide a caption "
+            "draws. Build one with build_caption_fitter(style, safe_area); "
+            "see library/tools/safe_area.py for the width it fits inside.")
     if not words_with_times:
         return []
 
@@ -185,13 +313,10 @@ def split_into_groups(
             if gap > max_gap:
                 flush()
 
-        # Visual-fit / character limit: flush before adding if it wouldn't fit
+        # Visual fit: flush before adding if the card would not fit
         if current_words:
             would_be = current_text() + " " + wt["word"]
-            if fits_fn is not None:
-                if not fits_fn(would_be):
-                    flush()
-            elif len(would_be) > max_chars:
+            if not fits_fn(would_be):
                 flush()
 
         current_words.append(wt)
@@ -210,6 +335,38 @@ def split_into_groups(
         flush()
 
     return groups
+
+
+def _merge_target(group: list, entry: dict, kept: list):
+    """The card an unviewable card's words join: the next, else the previous.
+
+    Forward first, because a card clamped to nothing is almost always at
+    the head of a block, and its words are the START of the sentence the
+    next card continues.
+    """
+    index = group.index(entry)
+    for later in group[index + 1:]:
+        if later.get("timeline_end", 0) - later.get("timeline_start", 0) \
+                >= MIN_VISIBLE_DURATION:
+            return later
+    return kept[-1] if kept else None
+
+
+def _merge_entry(entry: dict, target: dict) -> None:
+    """Fold `entry`'s words into `target`, in spoken order."""
+    before = target["timeline_start"] >= entry["timeline_start"]
+    if before:
+        target["text"] = f"{entry['text']} {target['text']}".strip()
+        target["words"] = entry.get("words", []) + target.get("words", [])
+        target["timeline_start"] = min(
+            target["timeline_start"], entry["timeline_start"])
+    else:
+        target["text"] = f"{target['text']} {entry['text']}".strip()
+        target["words"] = target.get("words", []) + entry.get("words", [])
+        target["timeline_end"] = max(
+            target["timeline_end"], entry["timeline_end"])
+    target["word_count"] = len(target["text"].split())
+    target["emphasis_words"] = identify_emphasis_words(target["text"])
 
 
 def identify_emphasis_words(text: str) -> list:
@@ -274,7 +431,8 @@ def _words_in_source_window(
 
 def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        brand_effect: dict = None,
-                       brand_style: dict = None) -> dict:
+                       brand_style: dict = None,
+                       project_folder: str = "") -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
@@ -286,24 +444,32 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         caption_case: "lowercase" (default) or "as_written". Controls
             whether subtitle text is lowercased or left as the source
             transcript produced it.
+        project_folder: Resolves the delivery format, and through it the
+            safe area the captions are grouped and positioned against.
     """
     structure = audio_spine.get("structure", [])
 
     subtitle_entries = []
     sub_counter = 0
 
-    # ── Build font-aware fits_fn ──
-    # If the spine carries a subtitle style spec with a font path,
-    # construct a visual-fit function. Otherwise fall back to max_chars.
-    style = audio_spine.get("subtitle_style", {})
-    font_path = style.get("font_path")
-    font_size = style.get("font_size", 48)
-    canvas_width = style.get("canvas_width", 1080)
-
-    fits_fn = None
-    if font_path:
-        fits_fn = lambda text: text_fits_on_screen(
-            text, font_path, font_size, canvas_width)
+    # ── The caption look, and the width it has to fit inside ──
+    # Resolved once, at the top, and used for BOTH the grouping below and
+    # the props at the bottom. It used to be resolved only at the bottom,
+    # while the grouper looked for a `subtitle_style` key on the spine
+    # that no producer wrote - so the measurement was dead and every
+    # caption was grouped by a character count.
+    style = resolve_subtitle_style(brand_effect, brand_style, project_folder)
+    safe_area = resolve_safe_area(project_folder or None)
+    fitter = build_caption_fitter(style, safe_area, project_folder)
+    if not fitter.measured:
+        print(
+            f"WARNING: captions in {style.get('fontFamily')!r} cannot be "
+            f"measured - no font file this side of the render (see "
+            f"library/tools/render_fonts.py). Falling back to a "
+            f"{MEAN_ADVANCE_EM}em mean-advance estimate.",
+            file=sys.stderr,
+        )
+    fits_fn = fitter.fits
 
     for block in structure:
         block_type = block["block_type"]
@@ -503,20 +669,65 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 entry["timeline_end"] = round(
                     min(entry["timeline_end"], block_end), 3)
 
-            kept = [
-                e for e in group
-                if e["timeline_end"] - e["timeline_start"] >= MIN_VISIBLE_DURATION
-            ]
-            dropped = [e for e in group if e not in kept]
-            for e in dropped:
-                print(
-                    f"WARNING: dropped subtitle {e.get('id', '?')} "
-                    f"({e.get('text', '')!r}) - clamping it to block {pos} "
-                    f"left no visible duration",
-                    file=sys.stderr,
-                )
-                subtitle_entries.remove(e)
+            # A card clamped to nothing used to be DELETED, and its words
+            # with it. That was survivable while grouping was blind and
+            # cards were long; measured grouping makes short cards, and a
+            # short card at a block boundary is exactly the one that
+            # clamps to zero - so the deletion started eating whole words
+            # ("and so" off the head of a block). Merge it into its
+            # neighbour instead: the same duration, the same reading, and
+            # every spoken word still on screen.
+            kept = []
+            for entry in group:
+                visible = (entry["timeline_end"] - entry["timeline_start"]
+                           >= MIN_VISIBLE_DURATION)
+                if visible:
+                    kept.append(entry)
+                    continue
+                target = _merge_target(group, entry, kept)
+                if target is None:
+                    print(
+                        f"WARNING: dropped subtitle {entry.get('id', '?')} "
+                        f"({entry.get('text', '')!r}) - clamping it to block "
+                        f"{pos} left no visible duration, and it is the "
+                        f"block's only card",
+                        file=sys.stderr,
+                    )
+                    subtitle_entries.remove(entry)
+                    continue
+                _merge_entry(entry, target)
+                subtitle_entries.remove(entry)
             block_groups[pos] = kept
+
+    # ── Fit the cards a group split cannot fix ──
+    # Grouping stops a caption being too WIDE, because a group can be
+    # split. It cannot stop a single WORD being too wide: an inline block
+    # does not wrap, so the frame clips it at both edges. "announcement"
+    # at Montserrat 800/160px is 1303px in an 840px usable width, and
+    # that is the card the audit photographed running off both sides of
+    # the frame.
+    #
+    # The card shrinks; the STYLE does not. What size captions should be
+    # is an open captain decision and this step has no business making
+    # it - the job here is to make whatever size is chosen fit the frame.
+    # A scale below 1.0 is worth reading as a signal that the chosen size
+    # is too large for the footage's vocabulary, which is why it is
+    # reported rather than applied quietly.
+    shrunk = []
+    for sub in subtitle_entries:
+        scale = fitter.fit_scale(sub["text"], sub.get("emphasis_words"))
+        sub["fit_scale"] = scale
+        if scale < 1.0:
+            shrunk.append((sub["id"], sub["text"], scale))
+    if shrunk:
+        print(
+            f"NOTE: {len(shrunk)} of {len(subtitle_entries)} caption cards "
+            f"carry a word wider than the {fitter.usable_width:.0f}px usable "
+            f"width at {style['fontSize']}px and are drawn smaller: "
+            + ", ".join(f"{i} {t!r} x{s}" for i, t, s in shrunk[:5])
+            + ("..." if len(shrunk) > 5 else ""),
+            file=sys.stderr,
+        )
 
     # --- Verification ---
 
@@ -557,14 +768,12 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # C4 fix: Wrap output under subtitle_plan key to match manifest contract.
     # Manifest declares output as 'subtitle_plan', and DAG edge
     # plan_subtitles -> render_subtitles maps subtitle_plan -> subtitle_plan.
-    # The caption LOOK, resolved from the brand template. Emitted here so
-    # step 4.05 has something to serialise into the Remotion props: the
-    # props generator used to supply a hardcoded Montserrat/58px default
-    # because this key never existed, and every template's typography,
-    # palette and subtitle_style reached nothing. See
-    # library/tools/subtitle_style.py.
-    style = resolve_subtitle_style(brand_effect, brand_style)
-
+    # `style` is the one resolved at the top of this function - the same
+    # object the grouping above measured against. Emitted here so step
+    # 4.05 has something to serialise into the Remotion props: the props
+    # generator used to supply a hardcoded Montserrat/58px default because
+    # this key never existed, and every template's typography, palette and
+    # subtitle_style reached nothing. See library/tools/subtitle_style.py.
     return {
         "subtitle_plan": {
             "subtitle_entries": subtitle_entries,
@@ -594,7 +803,8 @@ def main():
     try:
         result = generate_subtitles(
             audio_spine, caption_case=caption_case,
-            brand_effect=brand_effect, brand_style=brand_style)
+            brand_effect=brand_effect, brand_style=brand_style,
+            project_folder=input_data.get("project_folder", ""))
     except (ValueError, AssertionError) as e:
         print(json.dumps({
             "error": str(e),

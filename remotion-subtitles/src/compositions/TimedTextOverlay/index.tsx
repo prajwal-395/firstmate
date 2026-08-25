@@ -72,6 +72,14 @@ export type TimedTextOverlayProps = {
   fps: number;
   width: number;
   height: number;
+  /**
+   * The platform's keep-clear insets in pixels, from
+   * library/tools/safe_area.py via timed_text_overlay.py. A card wraps
+   * against these, not against the frame: the outer 90-320px of the
+   * frame belongs to the platform's own caption, handle, audio bar and
+   * interaction rail.
+   */
+  safeArea: { top: number; right: number; bottom: number; left: number };
   durationInFrames: number;
 };
 
@@ -83,8 +91,20 @@ export const TimedTextOverlay: React.FC<TimedTextOverlayProps> = ({
   fontFile,
   width,
   height,
+  safeArea,
 }) => {
   const frame = useCurrentFrame();
+
+  // No default. The insets come from library/tools/safe_area.py, and
+  // inventing one here is precisely the "three more hardcoded margins"
+  // the captain's ruling of 2026-08-25 forbade.
+  if (!safeArea) {
+    throw new Error(
+      "TimedTextOverlay props carry no safeArea. " +
+        "library/tools/timed_text_overlay.py resolves it from " +
+        "library/tools/safe_area.py. Refusing to substitute a margin.",
+    );
+  }
 
   // BLOCKING, and throwing on a miss. Until this existed the composition
   // named a family and loaded nothing, so every card rendered in
@@ -140,10 +160,20 @@ export const TimedTextOverlay: React.FC<TimedTextOverlayProps> = ({
               // x=0.5 wrapped at HALF the frame: "Through the 4th Wall"
               // broke onto two lines at 52px in a 1080px frame, with the
               // second line landing 60px lower than the declaration said.
-              // Size the box to its content instead, and let the frame -
-              // not the anchor point - be the only thing that can wrap it.
+              // Size the box to its content instead, and let the SAFE
+              // AREA - not the anchor point, and not the raw frame - be
+              // the only thing that can wrap it. A box centred on `x`
+              // grows equally both ways, so it reaches the nearer safe
+              // edge first and can only be twice that distance wide.
               width: "max-content",
-              maxWidth: width,
+              maxWidth: Math.max(
+                0,
+                2 *
+                  Math.min(
+                    x * width - safeArea.left,
+                    width - safeArea.right - x * width,
+                  ),
+              ),
               fontSize,
               fontWeight: fontWeight ?? 400,
               color,

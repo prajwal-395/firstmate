@@ -16,6 +16,13 @@ import {
   timedTextOverlaySchema,
   type TimedTextOverlayProps,
 } from "./compositions/TimedTextOverlay";
+// The studio has no pipeline behind it, so its preview defaults need the
+// safe area written down somewhere TypeScript can import. This file is
+// GENERATED from library/tools/safe_area.py by
+// scripts/generate_safe_area_defaults.py, so the studio previews the same
+// insets a render gets rather than a second hand-written margin - which
+// is what the captain's ruling of 2026-08-25 forbade more of.
+import { CAPTION_MAX_WIDTH, SAFE_AREA } from "./safeArea.generated";
 
 /**
  * Dynamic metadata calculation for SubtitleOverlay — sets duration, fps,
@@ -142,6 +149,10 @@ export const RemotionRoot: React.FC = () => {
           width: 1080,
           height: 1920,
           durationInFrames: 150,
+          style: {
+            safeArea: SAFE_AREA,
+            captionMaxWidth: CAPTION_MAX_WIDTH,
+          },
         }}
         calculateMetadata={calculateSubtitleMetadata}
       />
@@ -165,6 +176,7 @@ export const RemotionRoot: React.FC = () => {
           fps: 30,
           width: 1080,
           height: 1920,
+          safeArea: SAFE_AREA,
           durationInFrames: 150,
         }}
         calculateMetadata={calculateMotionMetadata}
@@ -183,6 +195,7 @@ export const RemotionRoot: React.FC = () => {
           fps: 30,
           width: 1080,
           height: 1920,
+          safeArea: SAFE_AREA,
           durationInFrames: 1800,
         }}
         calculateMetadata={calculateTimedTextMetadata}

@@ -90,6 +90,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from library.tools.safe_area import resolve_safe_area
 from library.tools.render_fonts import (
     font_is_deliverable,
     primary_family,
@@ -115,6 +116,7 @@ def generate_timed_text_overlay_props(
     width: int = 1080,
     height: int = 1920,
     duration_in_frames: int = 1800,
+    safe_area=None,
 ) -> dict[str, Any] | None:
     """Convert a template's ``timed_text_overlay`` declaration to Remotion props.
 
@@ -148,12 +150,18 @@ def generate_timed_text_overlay_props(
         for m in raw_moments
     ]
 
+    safe_area = safe_area or resolve_safe_area(width=width, height=height)
     props = {
         "moments": moments,
         "fontFamily": declaration.get("font_family", "Helvetica"),
         "fps": fps,
         "width": width,
         "height": height,
+        # A card is centred on its own (x, y) and wraps against the frame.
+        # The frame is the wrong bound: the outer 90-320px of it belongs
+        # to the platform's interface. `TimedTextOverlay` wraps against
+        # these insets instead. See library/tools/safe_area.py.
+        "safeArea": safe_area.as_props(),
         "durationInFrames": duration_in_frames,
     }
     # The exact file the family is to be drawn from, when the project
@@ -301,7 +309,8 @@ def _validate_font(declaration: dict) -> None:
 
 
 def _validate_moment(moment: dict, index: int,
-                     timeline_frames: int | None) -> None:
+                     timeline_frames: int | None,
+                     safe_area=None) -> None:
     """Everything about one moment that would render a wrong picture."""
     label = f"timed_text_overlay moment {index}"
 
@@ -355,6 +364,30 @@ def _validate_moment(moment: dict, index: int,
                 f"{label} has {axis}={value}, which is outside the frame; "
                 f"positions are normalised 0-1")
 
+    # Inside the frame is not enough. The outer band of the frame is the
+    # platform's own interface - its caption, its handle, its audio bar,
+    # its like/comment/share rail - and a card under it is a card the
+    # viewer never reads. Until `library/tools/safe_area.py` existed
+    # there was nothing to resolve this against, which is why the module
+    # docstring said the geometry was normalised against the whole frame.
+    if safe_area is not None:
+        x = float(moment.get("x", 0.5))
+        y = float(moment.get("y", 0.5))
+        if not safe_area.contains_normalised(x, y):
+            raise TimedTextDeclarationError(
+                f"{label} is centred at x={x}, y={y} - pixel "
+                f"({round(x * safe_area.width)}, "
+                f"{round(y * safe_area.height)}) of a "
+                f"{safe_area.width}x{safe_area.height} frame - which is "
+                f"inside the platform's own interface. The safe area is "
+                f"{safe_area.left}px in from the left, {safe_area.right}px "
+                f"from the right, {safe_area.top}px from the top and "
+                f"{safe_area.bottom}px from the bottom "
+                f"(profile {safe_area.profile!r}). One master serves "
+                f"Reels, TikTok and Shorts and obeys the strictest of "
+                f"them - captain's ruling, 2026-08-25. See "
+                f"library/tools/safe_area.py.")
+
     if timeline_frames is not None and start + duration > timeline_frames:
         raise TimedTextDeclarationError(
             f"{label} runs to frame {start + duration} but the edit is "
@@ -369,6 +402,7 @@ def plan_timed_text_segments(
     width: int = 1080,
     height: int = 1920,
     spine_structure: list | None = None,
+    project_folder: str | None = None,
 ) -> list[dict[str, Any]]:
     """Group a declaration's moments into renderable, placeable segments.
 
@@ -408,17 +442,19 @@ def plan_timed_text_segments(
             (b.get("timeline_end", 0) for b in spine_structure), default=0)
         timeline_frames = int(round(timeline_end * fps))
 
+    safe_area = resolve_safe_area(project_folder, width=width, height=height)
+
     resolved = []
     for index, moment in enumerate(declaration["moments"]):
         moment = _resolve_moment(moment, index, spine_structure, fps)
-        _validate_moment(moment, index, timeline_frames)
+        _validate_moment(moment, index, timeline_frames, safe_area)
         resolved.append(moment)
 
     # Only now, with every moment known well-formed, is it safe to build
     # props: the generator indexes required keys directly by design.
     props = generate_timed_text_overlay_props(
         {"timed_text_overlay": {**declaration, "moments": resolved}},
-        fps=fps, width=width, height=height)
+        fps=fps, width=width, height=height, safe_area=safe_area)
 
     ordered = sorted(props["moments"], key=lambda m: m["startFrame"])
 
@@ -453,6 +489,7 @@ def plan_timed_text_segments(
                 "fps": fps,
                 "width": width,
                 "height": height,
+                "safeArea": props["safeArea"],
                 "durationInFrames": total_frames,
             },
         })

@@ -142,7 +142,18 @@ def test_subtitle_cascade_no_drop():
     result = generate_subtitles(audio_spine, caption_case="lowercase", brand_effect={}, brand_style={})
     entries = result["subtitle_plan"]["subtitle_entries"]
     
-    # Assert that all words made it through the cascade and clamping logic
-    # Previous behaviour truncated "single day."
+    # Assert that all words made it through the cascade and clamping logic.
+    # Previous behaviour truncated the tail of the block ("single day.").
+    #
+    # This asserts the WORDS survive, not which card each lands on. It used
+    # to assert the literal card "single day.", which was the grouping a
+    # `max_chars = 18` fallback produced; captions are grouped by measured
+    # width now (library/tools/safe_area.py, and step 4.01's CaptionFitter),
+    # so at the resolved style those two words are two cards. The
+    # invariant the test is named for is that nothing is dropped.
     texts = [e["text"] for e in entries]
-    assert "single day." in texts, f"Missing 'single day.' in {texts}"
+    spoken = " ".join(w["word"] for w in audio_spine["structure"][0]
+                      ["word_timestamps"]).lower()
+    assert " ".join(texts) == spoken, (
+        f"words lost or reordered.\n  got: {texts}\n  want: {spoken}")
+    assert "single" in texts and "day." in texts, texts

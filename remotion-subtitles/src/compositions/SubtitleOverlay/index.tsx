@@ -20,6 +20,16 @@ export type SubtitleBlock = {
   endFrame: number;
   emphasisWords?: string[];
   words?: WordTiming[];
+  /**
+   * How far THIS card shrinks so its widest word fits the safe area.
+   * 1.0 (or absent) for almost every card. A single word wider than the
+   * usable width is an unbreakable inline block that the frame clips at
+   * both edges - "announcement" at 160px is 1303px in an 840px box -
+   * and this is what stops that. Planned by step 4.01's CaptionFitter
+   * against library/tools/safe_area.py; it never changes the style's
+   * font size, only this one card's.
+   */
+  fitScale?: number;
 };
 
 export type SubtitleStyle = {
@@ -36,6 +46,22 @@ export type SubtitleStyle = {
    * 800 below, so a template asking for "bold" got 800 regardless.
    */
   fontWeight?: number;
+  /**
+   * The platform's keep-clear insets in pixels, from
+   * library/tools/safe_area.py via subtitle_style.SubtitleStyle.resolve.
+   * `position` names the edge; this says how far from it. The distance
+   * used to be a literal `200px`, which is 10.4% of a 1920-row frame and
+   * inside the band TikTok paints its own caption and audio bar over.
+   */
+  safeArea?: { top: number; right: number; bottom: number; left: number };
+  /**
+   * The widest a caption box may be, from the same enumeration. A caption
+   * is centred, so it runs into the nearer edge first and can only be
+   * twice that distance wide. This used to be `maxWidth: 90%`, which a
+   * long word overflows without any of the wrapping the percentage
+   * implies.
+   */
+  captionMaxWidth?: number;
 };
 
 export type SubtitleOverlayProps = {
@@ -79,11 +105,26 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   const frame = useCurrentFrame();
 
   const fontFam = style?.fontFamily || "Montserrat";
-  const fSize = style?.fontSize ? `${style.fontSize}px` : "58px";
+  const baseFontSize = style?.fontSize ?? 58;
+  const fSize = `${baseFontSize}px`;
   const outlineCol = style?.outlineColor || "#000000";
   const outlineW = style?.outlineWidth || 4;
   const fWeight = style?.fontWeight || 800;
   const pos = style?.position || "bottom";
+  // No default. The insets come from library/tools/safe_area.py through
+  // step 4.01's style, and inventing one here is precisely the "three
+  // more hardcoded margins" the captain's ruling of 2026-08-25 forbade.
+  const safeArea = style?.safeArea;
+  const maxWidthPx = style?.captionMaxWidth;
+  if (!safeArea || !maxWidthPx) {
+    throw new Error(
+      "SubtitleOverlay props carry no safeArea/captionMaxWidth. Step 4.01 " +
+        "resolves both from library/tools/safe_area.py via " +
+        "library/tools/subtitle_style.py. Refusing to substitute a margin: " +
+        "a caption placed by a literal is a caption under the platform's " +
+        "own UI with nothing to notice.",
+    );
+  }
 
   const shadow = `
     -${outlineW}px -${outlineW}px 0 ${outlineCol},
@@ -97,9 +138,9 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
     0 10px 20px rgba(0,0,0,0.8)
   `;
   
-  let bottomStyle = "200px";
+  let bottomStyle = `${safeArea.bottom}px`;
   if (pos === "top") bottomStyle = "auto";
-  const topStyle = pos === "top" ? "200px" : "auto";
+  const topStyle = pos === "top" ? `${safeArea.top}px` : "auto";
   const centerStyle = pos === "center" ? "50%" : undefined;
   const transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
 
@@ -133,13 +174,21 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
                 justifyContent: "center",
                 alignItems: "center",
                 fontFamily: fontFam,
-                fontSize: fSize,
                 fontWeight: fWeight,
                 lineHeight: "1.2",
                 textAlign: "center",
                 textShadow: shadow,
-                maxWidth: "90%",
-                padding: "24px 48px",
+                // The safe area bounds the box, and the horizontal
+                // padding is exactly the outline the text shadow paints
+                // outside the glyph box - so the INK, not just the type,
+                // stays inside the usable width.
+                maxWidth: `${maxWidthPx}px`,
+                boxSizing: "border-box",
+                padding: `24px ${outlineW}px`,
+                fontSize:
+                  sub.fitScale && sub.fitScale < 1
+                    ? `${Math.round(baseFontSize * sub.fitScale)}px`
+                    : fSize,
               }}
             >
               {hasWords

@@ -48,6 +48,7 @@ def render_timed_text_segments(
     width: int = 1080,
     height: int = 1920,
     spine_structure: list | None = None,
+    project_folder: str | None = None,
     stream=sys.stderr,
 ) -> list[dict]:
     """Render every segment the declaration implies; ``[]`` if undeclared.
@@ -59,7 +60,7 @@ def render_timed_text_segments(
     """
     segments = plan_timed_text_segments(
         template_effect, fps=fps, width=width, height=height,
-        spine_structure=spine_structure,
+        spine_structure=spine_structure, project_folder=project_folder,
     )
     if not segments:
         return []

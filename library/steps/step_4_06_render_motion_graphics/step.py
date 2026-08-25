@@ -194,7 +194,7 @@ def main():
             REMOTION_DIR,
             os.path.join(output_dir, TIMED_TEXT_RENDER_DIRNAME),
             fps=fps, width=width, height=height,
-            spine_structure=structure,
+            spine_structure=structure, project_folder=project_folder,
         )
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -217,6 +217,7 @@ def main():
         # the corner accents and progress bar are drawn at all (P3.1).
         brand_style=data.get("brand_style", {}),
         brand_effect=data.get("brand_effect", {}),
+        project_folder=project_folder,
     )
 
     if not props_list:

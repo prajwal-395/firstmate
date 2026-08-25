@@ -34,10 +34,11 @@ Adding a style means adding it here and naming it from a template;
 same contract `transition_vocabulary` and `house_look` hold.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from library.tools.brand_palette import roles_from_palette
+from library.tools.safe_area import SafeAreaInsets, resolve_safe_area
 
 # The look every project rendered before this module existed. Preserved
 # exactly so `default_subtitles` is a no-op rather than a surprise.
@@ -78,14 +79,24 @@ class SubtitleStyle:
         self,
         typography: Optional[Dict[str, Any]] = None,
         color_palette: Optional[List[str]] = None,
+        safe_area: Optional[SafeAreaInsets] = None,
     ) -> Dict[str, Any]:
         """The concrete props `SubtitleOverlay` reads.
 
         Every key here has a reader in
         `remotion-subtitles/src/compositions/SubtitleOverlay/`. Do not add
         one without adding the reader in the same commit.
+
+        `safe_area` is what turns `position` into a real distance. The
+        overlay used to put a bottom caption at a literal `bottom: 200px`
+        - 10.4% of a 1920-row frame, inside the band the platform paints
+        its own caption and audio bar over. The inset now comes from
+        `library/tools/safe_area.py`, and `captionMaxWidth` comes from
+        the same place so the caption is bounded left and right as well
+        as below. See that module for where the numbers come from.
         """
         typography = typography or {}
+        safe_area = safe_area or resolve_safe_area()
         family = typography.get("font") or self.font_family
         size = _coerce_int(typography.get("size"), self.font_size)
         weight = _coerce_weight(typography.get("weight"), self.font_weight)
@@ -108,6 +119,12 @@ class SubtitleStyle:
             "outlineColor": outline_color,
             "outlineWidth": self.outline_width,
             "position": self.position,
+            # The four platform insets in pixels, for the overlay to
+            # position against whichever edge `position` names.
+            "safeArea": safe_area.as_props(),
+            # A caption box is CENTRED, so it runs into the nearer edge
+            # first and can only be twice that distance wide.
+            "captionMaxWidth": safe_area.centered_usable_width,
         }
 
 
@@ -199,6 +216,7 @@ def get_subtitle_style(name: str) -> SubtitleStyle:
 def resolve_subtitle_style(
     brand_effect: Optional[Dict[str, Any]] = None,
     brand_style: Optional[Dict[str, Any]] = None,
+    project_folder: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Template slots in, Remotion props out.
 
@@ -206,6 +224,9 @@ def resolve_subtitle_style(
     and `brand_style.color_palette` supply the brand specifics. A template
     that names no style gets the legacy look, because a project with no
     brand template at all must keep rendering.
+
+    `project_folder` resolves the delivery format, and through it the safe
+    area the captions must sit inside.
     """
     brand_effect = brand_effect or {}
     brand_style = brand_style or {}
@@ -215,6 +236,7 @@ def resolve_subtitle_style(
     return style.resolve(
         typography=brand_style.get("typography"),
         color_palette=brand_style.get("color_palette"),
+        safe_area=resolve_safe_area(project_folder),
     )
 
 

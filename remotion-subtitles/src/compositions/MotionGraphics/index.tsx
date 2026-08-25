@@ -19,6 +19,15 @@ export type MotionGraphicsProps = {
   fps: number;
   width: number;
   height: number;
+  /**
+   * The platform's keep-clear insets in pixels, from
+   * library/tools/safe_area.py via generate_motion_props. Every element
+   * this composition draws is decoration at an edge, so every one of
+   * them is positioned from here. The corner accents used to sit at a
+   * literal 60px on all four sides - 5.6% of a 1080px width, inside the
+   * like/comment/share rail.
+   */
+  safeArea: { top: number; right: number; bottom: number; left: number };
   durationInFrames: number;
 };
 
@@ -34,9 +43,22 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
   timelineProgressStart,
   timelineProgressEnd,
   fps,
+  safeArea,
   durationInFrames,
 }) => {
   const frame = useCurrentFrame();
+
+  // No default. The insets come from library/tools/safe_area.py, and
+  // inventing one here is precisely the "three more hardcoded margins"
+  // the captain's ruling of 2026-08-25 forbade.
+  if (!safeArea) {
+    throw new Error(
+      "MotionGraphics props carry no safeArea. generate_motion_props " +
+        "resolves it from library/tools/safe_area.py. Refusing to " +
+        "substitute a margin: an accent drawn by a literal sits under " +
+        "the platform's own interface with nothing to notice.",
+    );
+  }
 
   // Upper third animation: fade in early, stay, fade out
   const upperThirdOpacity = interpolate(
@@ -71,8 +93,8 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
         <div
           style={{
             position: "absolute",
-            top: 150,
-            left: 100,
+            top: safeArea.top,
+            left: safeArea.left,
             opacity: upperThirdOpacity,
             transform: `translateY(${interpolate(upperThirdSlide, [0, 1], [-30, 0])}px)`,
             display: "flex",
@@ -112,8 +134,8 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
           <div
             style={{
               position: "absolute",
-              top: 60,
-              left: 60,
+              top: safeArea.top,
+              left: safeArea.left,
               width: 80,
               height: 80,
               borderTop: `6px solid ${accentColor}`,
@@ -124,8 +146,8 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
           <div
             style={{
               position: "absolute",
-              top: 60,
-              right: 60,
+              top: safeArea.top,
+              right: safeArea.right,
               width: 80,
               height: 80,
               borderTop: `6px solid ${accentColor}`,
@@ -136,8 +158,8 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
           <div
             style={{
               position: "absolute",
-              bottom: 60,
-              left: 60,
+              bottom: safeArea.bottom,
+              left: safeArea.left,
               width: 80,
               height: 80,
               borderBottom: `6px solid ${accentColor}`,
@@ -148,8 +170,8 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
           <div
             style={{
               position: "absolute",
-              bottom: 60,
-              right: 60,
+              bottom: safeArea.bottom,
+              right: safeArea.right,
               width: 80,
               height: 80,
               borderBottom: `6px solid ${accentColor}`,

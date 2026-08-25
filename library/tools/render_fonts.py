@@ -34,6 +34,8 @@ raises rather than substitutes.
 """
 from __future__ import annotations
 
+import os
+
 # The one family this repository ships. Kept equal to `fonts.ts`'s
 # BUNDLED_FONT_FAMILY and to subtitle_style.LEGACY_FONT_FAMILY;
 # tests/test_bundled_fonts.py fails if they drift.
@@ -85,3 +87,66 @@ def static_font_path(font_file: str) -> str:
     if "/" in font_file:
         return font_file
     return f"{PROJECT_FONT_DIR}/{font_file}"
+
+
+# Where the bundled family's file lives, relative to the repository root.
+# `remotion-subtitles/public/fonts/` is served to the render by
+# `staticFile()`; the same file is what a Python-side measurement must
+# open, because measuring in one face and drawing in another is the
+# webfont race again with an extra step.
+BUNDLED_FONT_FILE = "remotion-subtitles/public/fonts/Montserrat-Variable.ttf"
+
+# Where a project keeps its own typefaces before `prep_remotion` stages
+# them into Remotion's `public/brand/`. Step 4.01 measures captions long
+# before 4.05 stages anything, so this is the copy it can open.
+PROJECT_FONT_SOURCE_DIR = "brand_assets"
+
+
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def measurable_font_path(declared: str,
+                         font_file: str | None = None,
+                         project_folder: str | None = None) -> str | None:
+    """An openable font FILE for the family a render will draw in, or None.
+
+    This is the measurement half of :func:`font_is_deliverable`. A caller
+    that needs to know how wide a string will be on screen - the caption
+    fitter in step 4.01 - has to open the same face the render loads, and
+    only two of the three legitimate routes have a file this side of the
+    render:
+
+    **Bundled** resolves to :data:`BUNDLED_FONT_FILE`.
+
+    **Carried by the project** resolves under the project's
+    ``brand_assets/``, which is where the declaration's ``font_file``
+    comes from and where it still is at planning time.
+
+    **Accepted as a system font** resolves to None. A system face has no
+    path this module can promise - that is the whole reason accepting one
+    is recorded as a deliberate decision in
+    :data:`ACCEPTED_SYSTEM_FONTS` rather than being a default. The caller
+    must say what it does without a measurement; it must not quietly
+    measure some other face.
+    """
+    if font_file:
+        name = str(font_file).strip().lstrip("/")
+        if os.path.isabs(font_file) and os.path.exists(font_file):
+            return font_file
+        if project_folder:
+            candidate = os.path.join(
+                project_folder, PROJECT_FONT_SOURCE_DIR, os.path.basename(name))
+            if os.path.exists(candidate):
+                return candidate
+        staged = os.path.join(
+            _repo_root(), "remotion-subtitles", "public",
+            static_font_path(name))
+        if os.path.exists(staged):
+            return staged
+        return None
+
+    if primary_family(declared) == BUNDLED_FONT_FAMILY:
+        path = os.path.join(_repo_root(), BUNDLED_FONT_FILE)
+        return path if os.path.exists(path) else None
+    return None

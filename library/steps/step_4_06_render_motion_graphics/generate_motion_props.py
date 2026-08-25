@@ -17,6 +17,7 @@ from library.tools.brand_palette import (
     accent_color as brand_accent_color,
     roles_from_palette,
 )
+from library.tools.safe_area import resolve_safe_area
 
 # The cyan every video carried until P3.1. It is not any shipped
 # template's colour and it is NO LONGER A FALLBACK - it exists only so
@@ -69,6 +70,7 @@ def generate_motion_props(
     height: int = 1920,
     brand_style: dict = None,
     brand_effect: dict = None,
+    project_folder: str = "",
 ) -> list[dict]:
     """Generate MotionGraphics props for each spine block.
 
@@ -76,11 +78,21 @@ def generate_motion_props(
     - title, subtitle, accentColor, show flags
     - timelineProgressStart/End for global progress bar
     - durationInFrames, fps, width, height
+    - safeArea, the platform's keep-clear insets in pixels
     - block_position, timeline_start, timeline_end (metadata for placement)
+
+    `project_folder` resolves the delivery format, and through it the
+    safe area. The corner accents used to be drawn 60px from every edge -
+    5.6% of a 1080px width, well inside the like/comment/share rail - by
+    two literals in `MotionGraphics/index.tsx`. See
+    `library/tools/safe_area.py`.
     """
     structure = audio_spine.get("structure", [])
     if not structure:
         return []
+
+    safe_area = resolve_safe_area(
+        project_folder or None, width=width, height=height).as_props()
 
     # Extract style from creative direction
     visual_style = creative_direction.get("visual_style", {})
@@ -199,6 +211,7 @@ def generate_motion_props(
             "fps": fps,
             "width": width,
             "height": height,
+            "safeArea": safe_area,
             "durationInFrames": total_frames,
             # Metadata for placement (not consumed by Remotion)
             "_block_position": block_position,

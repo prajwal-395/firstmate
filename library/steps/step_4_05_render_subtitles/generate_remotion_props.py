@@ -151,6 +151,12 @@ def generate_subtitle_props_per_block(
                 "endFrame": end_frame,
                 "emphasisWords": emphasis_words,
                 "words": word_timings,
+                # How far THIS card shrinks so its widest word fits the
+                # safe area. 1.0 for almost every card; below 1.0 only
+                # when a single unbreakable word is wider than the usable
+                # width, which the frame would otherwise clip at both
+                # edges. Planned in step 4.01 - see its CaptionFitter.
+                "fitScale": entry.get('fit_scale', 1.0),
             })
 
         props = {

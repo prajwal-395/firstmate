@@ -680,6 +680,34 @@ inside the frame, ink is bottom-positioned - now decides, and the model's
 typography opinion is recorded rather than enforced. If you add a
 model-judged gate, give it a deterministic half that can carry the verdict.
 
+**Overlay geometry comes from `library/tools/safe_area.py`, and captions
+are grouped by measured pixels.** One enumeration, keyed by delivery
+format, insets stored as FRACTIONS so a 4K vertical or a small test frame
+needs no second row; an unknown format raises. The vertical profile is the
+published short-form map (top 120, bottom 320, right 120, left 90 at
+1080x1920) - captain's ruling of 2026-08-25: one master serves Reels,
+TikTok and Shorts and obeys the strictest of them. Four consumers read it:
+`subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth`
+props), `generate_motion_props`, `timed_text_overlay` (which now refuses a
+card centred in the platform's UI band) and `plan_subtitles`' grouper -
+the fourth is why it is one change: a safe area only on the render side
+lifts the captions clear of the UI and leaves them clipped left and right.
+
+`plan_subtitles.text_fits_on_screen` measured real glyph widths and had
+NEVER RUN: it was switched on by `audio_spine["subtitle_style"]
+["font_path"]`, which no producer ever wrote, so grouping fell back to
+`max_chars = 18` - correct for a 58px caption, and 1663px of ink in a
+1080px frame at the 160px style templates resolve today. The style is
+resolved at the top of `generate_subtitles` now and there is no blind
+path; `split_into_groups` raises without a `fits_fn`. Measuring a VARIABLE
+font requires setting its weight axis - Montserrat-Variable defaults to
+Thin. A group split cannot fix one over-wide word, so such a card carries
+`fit_scale` and the render draws THAT CARD smaller; the style's font size
+is untouched, because caption size is an open captain decision. The
+Remotion studio's `defaultProps` get the insets from
+`src/safeArea.generated.ts`, projected out of the enumeration by
+`scripts/generate_safe_area_defaults.py`. `tests/test_caption_safe_area.py`.
+
 ## 11. Third-Party Asset Licenses
 
 **No third-party look assets ship.** The repository previously carried one
