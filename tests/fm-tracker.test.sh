@@ -544,6 +544,7 @@ pass "a poll with no armed watch makes no request and prints nothing"
 stock_bash=''
 for candidate in /bin/bash /usr/bin/bash; do
   [ -x "$candidate" ] || continue
+  # shellcheck disable=SC2016 # $BASH_VERSION must expand in the CHILD shell.
   case "$("$candidate" -c 'printf %s "$BASH_VERSION"' 2>/dev/null)" in
     3.*) stock_bash=$candidate; break ;;
   esac
