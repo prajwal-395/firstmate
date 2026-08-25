@@ -765,7 +765,7 @@ refuse_populated_projectless_home() {
     clones+=("$(basename "$project_path")")
   done
   if [ -f "$home/data/projects.md" ]; then
-    registry_entries=$(awk '$1 == "-" && $2 != "" {
+    registry_entries=$(awk '/^-[ \t]/ && $2 != "" {
       num = split($2, names, ",");
       for(i=1; i<=num; i++) print names[i];
     }' "$home/data/projects.md") || {
