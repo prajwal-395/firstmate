@@ -1256,6 +1256,11 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  if [ -x "$FM_ROOT/bin/fm-project-registry-validate.sh" ]; then
+    out=$("$FM_ROOT/bin/fm-project-registry-validate.sh" "$DATA/projects.md" 2>&1) || {
+      printf '%s\n' "$out"
+    }
+  fi
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

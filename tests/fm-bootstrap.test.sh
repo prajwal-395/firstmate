@@ -1227,6 +1227,58 @@ run_browser_leak_bootstrap() {  # <case-dir> <fakebin>
     "$ROOT/bin/fm-bootstrap.sh"
 }
 
+test_project_registry_validation() {
+  local case_dir fakebin out
+  case_dir="$TMP_ROOT/project-registry"
+  mkdir -p "$case_dir/home/data" "$case_dir/home/state"
+  fakebin=$(make_fake_toolchain "$case_dir")
+
+  # A registry with entries, prose, and annotations - no status lines.
+  cat > "$case_dir/home/data/projects.md" <<'EOF'
+# Projects
+<!-- comment -->
+
+Standing delivery posture is direct-PR fleet-wide.
+**The captain ruled on 2024-01-14.**
+
+- foo [direct-PR] - A project (added 2024-01-01)
+- foo,bar [no-mistakes +yolo] - A project (added 2024-01-01)
+  **Purpose, set by the captain.** Both a daily channel and a capability.
+- baz [local-only] - Another project (added 2024-01-01)
+EOF
+
+  set +e
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh")
+  set -e
+  if printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY:'; then
+    fail "Valid registry should not produce output, got: $out"
+  fi
+
+  # A registry with status-protocol lines appended.
+  cat > "$case_dir/home/data/projects.md" <<'EOF'
+# Projects
+- foo [direct-PR] - A project (added 2024-01-01)
+done: PR pushed
+working: setting up
+blocked [key=some-key]: stuck on CI
+EOF
+
+  set +e
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh")
+  set -e
+  if ! printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY: status-protocol line at line 3'; then
+    fail "Status-protocol line not detected at line 3, got: $out"
+  fi
+  if ! printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY: status-protocol line at line 4'; then
+    fail "Status-protocol line not detected at line 4, got: $out"
+  fi
+  if ! printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY: status-protocol line at line 5'; then
+    fail "Status-protocol line not detected at line 5, got: $out"
+  fi
+
+  pass "bootstrap detects status-protocol lines in data/projects.md"
+}
+
 test_session_start_reports_a_leaked_browser_stack() {
   local case_dir fakebin pid out
   case_dir="$TMP_ROOT/browser-leak"
@@ -1306,6 +1358,7 @@ test_network_phases_record_per_step_elapsed_times
 test_tasks_axi_verdict_handoff_is_consumed_once
 test_crew_dispatch_active_rules_are_verbose_bootstrap_info
 test_crew_dispatch_validation
+test_project_registry_validation
 test_session_start_reports_a_leaked_browser_stack
 test_session_start_is_silent_while_the_browser_owner_lives
 test_session_start_is_silent_with_no_browser_stack_at_all
