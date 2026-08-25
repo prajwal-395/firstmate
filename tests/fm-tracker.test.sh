@@ -418,9 +418,12 @@ expect_code_out 0 "$?" "$out" "arming a fresh watch must succeed"
 assert_present "$HOME_B/state/mine.check.sh" "arming must publish the check"
 assert_present "$HOME_B/state/mine.tracker-watch" "arming must publish the sidecar"
 assert_present "$HOME_B/state/mine.check-trust" "arming must register the check"
-mode=$(stat -f %Lp "$HOME_B/state/mine.check.sh" 2>/dev/null || stat -c %a "$HOME_B/state/mine.check.sh")
+# bin/fm-pr-lib.sh owns the cross-platform stat forms. Rolling them here with a
+# `stat -f ... || stat -c ...` fallback is wrong on Linux, where `stat -f`
+# succeeds as "filesystem status" and the fallback never runs.
+mode=$(bash -c '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_mode "$2"' _ "$ROOT" "$HOME_B/state/mine.check.sh")
 [ "$mode" = 700 ] || fail "the check must be mode 0700, got $mode"
-links=$(stat -f %l "$HOME_B/state/mine.check.sh" 2>/dev/null || stat -c %h "$HOME_B/state/mine.check.sh")
+links=$(bash -c '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_link_count "$2"' _ "$ROOT" "$HOME_B/state/mine.check.sh")
 [ "$links" = 1 ] || fail "the check must be a single-link file, got $links links"
 pass "watch publishes a registered, single-link, mode-0700 check"
 
