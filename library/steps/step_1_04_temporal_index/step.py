@@ -1146,6 +1146,102 @@ def _load_face_cascade():
     return cascade
 
 
+# The shortest side of the frames the cascade actually sees. Sampling was
+# `scale=320:180`, a literal landscape shape applied to every clip: a
+# rotated iPhone clip is 1080x1920 after ffmpeg's autorotate, so it was
+# squashed ~5.3x horizontally before the frontal cascade ever saw it. On
+# project 001 that split the index exactly along the `rotation` field -
+# 1,886 detections over 3,578 landscape samples, 1 over 461 rotated ones -
+# and `subject_center_x` was therefore None for every portrait clip.
+#
+# Why 480, measured on 001's own footage (OpenCV 4.14, cascade parameters
+# unchanged):
+#   * It preserves aspect, which is the defect. Nothing else here does.
+#   * It bounds the SHORT side, so portrait costs the same as landscape
+#     (480x854 vs 854x480). Bounding the height instead - the shape the
+#     audit reproduced with - charges a vertical channel 4x and a
+#     horizontal one 12.6x for the same answer.
+#   * On 001's A-roll re-framed into a vertical frame, detection goes
+#     0.1% -> 35.9% of samples; over 001's ten landscape clips it goes
+#     52.7% -> 69.8%. The whole 17-clip face pass costs 2.4x more
+#     (38.8s -> 93.3s), against a step whose WhisperX pass is minutes.
+#   * Larger keeps buying recall, but the Haar cascade's false positives
+#     grow faster. Over 001's seven face-free B-roll clips - scored the
+#     way `subject_framing` scores, plausibility bounds applied - the
+#     whole-clip false-positive rate is 22.1% at 480 and 32.3% at 600,
+#     and 0.34 is the ratio `subject_framing.MIN_DETECTION_RATIO` treats
+#     as a real track. Past 480 the crop starts being aimed by trees.
+FACE_SAMPLE_SHORT_SIDE = 480
+
+
+def face_sample_dimensions(
+    video_path: str,
+    short_side: int = FACE_SAMPLE_SHORT_SIDE,
+) -> tuple:
+    """The (width, height) to sample this clip at, preserving its aspect.
+
+    Reads the DISPLAY shape - the stored frame with any rotation side data
+    applied - because that is what ffmpeg's autorotate hands the filter
+    chain. Never upscales past the source: a 640x360 clip carries no more
+    detail at 854x480 and the cascade would just cost more.
+
+    Raises rather than falling back to a fixed shape. A silent landscape
+    default is the bug this function exists to remove, and a clip whose
+    geometry cannot be read is a clip ffmpeg is about to fail on anyway.
+    """
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams", "-select_streams", "v:0",
+            video_path,
+        ],
+        capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=30, check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"ffprobe could not read {video_path}")
+
+    streams = json.loads(result.stdout).get("streams") or []
+    if not streams:
+        raise ValueError(f"no video stream in {video_path}")
+    stream = streams[0]
+
+    width = int(stream.get("width") or 0)
+    height = int(stream.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"no frame size for {video_path}")
+
+    # Same rotation reading as step_1_02_catalog_footage: side data first,
+    # the legacy `rotate` tag second.
+    rotation = 0
+    for side_data in stream.get("side_data_list") or []:
+        if "rotation" in side_data:
+            rotation = int(side_data["rotation"])
+            break
+    if rotation == 0:
+        try:
+            rotation = int(stream.get("tags", {}).get("rotate", 0))
+        except (TypeError, ValueError):
+            rotation = 0
+    if abs(rotation) in (90, 270):
+        width, height = height, width
+
+    target = min(short_side, min(width, height))
+    if width <= height:
+        out_w, out_h = float(target), target * height / float(width)
+    else:
+        out_h, out_w = float(target), target * width / float(height)
+
+    # Even dimensions - several ffmpeg filters and codecs require them.
+    # Rounded to the nearest even value from the exact ratio, so the
+    # sampled aspect stays within a fraction of a percent of the source's.
+    def _even(value):
+        return max(2, int(value / 2.0 + 0.5) * 2)
+
+    return _even(out_w), _even(out_h)
+
+
 def compute_face_presence(
     video_path: str,
     sample_rate_hz: int = 5,
@@ -1165,6 +1261,11 @@ def compute_face_presence(
     none of which is a position, and the two steps that do produce real
     bounding boxes (`object_segmentation`, `ocr_extraction`) are not wired
     into the DAG.
+
+    Frames are sampled at the clip's OWN aspect ratio - see
+    `face_sample_dimensions`. They were sampled at a fixed 320x180, which
+    squashed every portrait clip by ~5.3x before the cascade saw it and
+    made `face_center_x` None for all of them.
 
     Falls back to a simple brightness-variance heuristic (faces tend to
     introduce structured mid-frequency variation) if OpenCV is
@@ -1189,12 +1290,15 @@ def compute_face_presence(
     try:
         import numpy as np
 
-        # Extract frames at sample rate
+        # Extract frames at sample rate, at the clip's OWN aspect. The
+        # cascade is trained on undistorted faces; a squashed frame moves
+        # every face out of the shape it can match.
         fps = sample_rate_hz
+        sample_w, sample_h = face_sample_dimensions(video_path)
         result = subprocess.run(
             [
                 "ffmpeg", "-i", video_path,
-                "-vf", f"fps={fps},scale=320:180",
+                "-vf", f"fps={fps},scale={sample_w}:{sample_h}",
                 "-f", "rawvideo", "-pix_fmt", "rgb24",
                 "-v", "quiet",
                 "-",
@@ -1211,7 +1315,7 @@ def compute_face_presence(
                 "face_absent_times": [],
             }
 
-        frame_size = 320 * 180 * 3  # RGB
+        frame_size = sample_w * sample_h * 3  # RGB
         raw = np.frombuffer(result.stdout, dtype=np.uint8)
         n_frames = len(raw) // frame_size
 
@@ -1224,7 +1328,8 @@ def compute_face_presence(
                 "face_absent_times": [],
             }
 
-        frames = raw[:n_frames * frame_size].reshape(n_frames, 180, 320, 3)
+        frames = raw[:n_frames * frame_size].reshape(
+            n_frames, sample_h, sample_w, 3)
         face_values = []
         face_center_x = []
 
@@ -1243,12 +1348,14 @@ def compute_face_presence(
                     largest = max(faces, key=lambda f: f[2] * f[3])
                     fx, _fy, fw, fh = largest
                     max_area = fw * fh
-                    frame_area = 320 * 180
+                    frame_area = sample_w * sample_h
                     presence = min(1.0, max_area / (frame_area * 0.15))
                     face_values.append(round(float(presence), 2))
-                    # Frames were scaled to 320 wide; normalise so the value
-                    # is independent of that and of the source resolution.
-                    face_center_x.append(round(float(fx + fw / 2.0) / 320.0, 4))
+                    # Normalise against the width actually sampled, which
+                    # now varies per clip, so the value stays independent of
+                    # both the sample size and the source resolution.
+                    face_center_x.append(
+                        round(float(fx + fw / 2.0) / sample_w, 4))
                 else:
                     face_values.append(0.0)
                     face_center_x.append(None)

@@ -541,6 +541,25 @@ REAL output shape before touching it: `{"temporal_event_indices": [...],
 only a mapping for the life of P1.2, so it returned `{}` on every real
 project while its tests, which all fed invented mappings, passed.
 
+**Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
+`compute_face_presence` extracted at `scale=320:180`, so a rotated iPhone
+clip - 1080x1920 after ffmpeg's autorotate - reached the frontal cascade
+squashed ~5.3x horizontally. On project 001 that split the index exactly
+along `rotation`: 1,886 detections over 3,578 landscape samples, 1 over 461
+rotated ones, and `subject_center_x` was None for every portrait clip.
+`face_sample_dimensions` now reads the DISPLAY shape (rotation side data
+applied, because autorotate runs before the filter chain) and bounds the
+SHORT side to `FACE_SAMPLE_SHORT_SIDE`; it raises rather than falling back
+to a shape. Anything derived from the sample size - `frame_area`, the
+`face_center_x` divisor - must read that size, not a literal.
+Size is a trade, and 480 is where it was measured: bigger keeps buying
+recall AND false positives, and 0.34 is where `subject_framing` starts
+believing a track. Note what the fix does NOT fix - the cascade fires on
+trees and dashboards, and on 001's face-free B-roll a 3s window crosses
+0.34 at every size above 240. The squash was suppressing those by
+suppressing everything. `tests/test_face_sample_aspect.py` pins the aspect, not
+a detection count, which would rot with the OpenCV build.
+
 **The frame FILLS by default, and there is no heuristic.** One
 enumeration, `library/tools/framing_intent.py`: 0.0 letterboxes, 1.0 fills,
 and the number comes from the spine block > the project's
