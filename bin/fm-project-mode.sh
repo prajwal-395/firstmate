@@ -60,7 +60,7 @@ fi
 # awk emits "<mode> <yolo>" (one line) or "NOT_FOUND: name1 name2 ..." if the project is absent.
 parsed=$(awk -v n="$NAME" '
   BEGIN { found=0; total_names=0 }
-  /^-[ \t]/ && $2!="" {
+  /^-[ \t]/ && ($3 ~ /^\[/ || $0 ~ /\(added [0-9]{4}-[0-9]{2}-[0-9]{2}\)/) {
     num = split($2, names, ",");
     for (i=1; i<=num; i++) {
       all_names[++total_names] = names[i]
