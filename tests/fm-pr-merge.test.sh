@@ -13,6 +13,7 @@
 #   (d2) the recorded path keeps pr=, pr_head=, and the armed poll intact
 #   (d3) both paths issue the identical gh-axi merge command
 #   (d4) a symlink occupying the meta path is still refused as tampering
+#   (d5) a failing fm-pr-check.sh still aborts the merge for a recorded task
 #   (e) PR URL is parsed to number + --repo for gh-axi (defaults to --squash)
 #   (f) malformed PR URL fails fast without calling gh-axi
 #   (g) explicit merge method is not overridden by the default --squash
@@ -267,6 +268,38 @@ test_unrecorded_pr_merge_command_is_identical_to_recorded() {
   pass "fm-pr-merge issues the same gh-axi merge command with and without a task record"
 }
 
+# The recorded path merges only after fm-pr-check.sh succeeds. A hardlinked meta
+# is one thing fm-pr-check.sh refuses, and that refusal must still stop the merge
+# rather than fall through to the unrecorded path.
+test_pr_check_failure_aborts_the_merge() {
+  local case_dir rc
+  case_dir=$(make_case check-fails)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  : > "$case_dir/gh-axi.log"
+  ln "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.meta.hardlink"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/51 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "check-fails: fm-pr-merge should abort when fm-pr-check.sh refuses"
+  assert_grep 'error: task metadata is unavailable' "$case_dir/stderr" \
+    "check-fails: the refusal from fm-pr-check.sh was not surfaced"
+  assert_no_grep 'notice: no runtime record' "$case_dir/stderr" \
+    "check-fails: a refused recording fell through to the unrecorded path"
+  # fm-pr-check.sh's own non-zero exit is what stops the merge. The later
+  # `pr=` grep is a second line of defence, not the one that must fire: a
+  # future partial write could satisfy it while the recording still failed.
+  assert_no_grep 'PR metadata recording failed' "$case_dir/stderr" \
+    "check-fails: the merge continued past fm-pr-check.sh's refusal and only the pr= grep stopped it"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "check-fails: gh-axi pr merge ran despite a refused recording"
+  pass "fm-pr-merge aborts the merge when fm-pr-check.sh refuses a recorded task"
+}
+
 # An absent record is an orphan PR; a symlink sitting on the metadata path is a
 # tampering signal, and keeps the original refusal.
 test_symlinked_meta_refuses_before_merge() {
@@ -425,6 +458,7 @@ test_unrecorded_pr_merges_and_states_lost_verification
 test_recorded_pr_keeps_every_guarantee
 test_unrecorded_pr_merge_command_is_identical_to_recorded
 test_symlinked_meta_refuses_before_merge
+test_pr_check_failure_aborts_the_merge
 test_malformed_url_refuses_before_merge
 test_rejects_unsafe_url_segments_before_recording
 test_repo_override_args_refuse_before_recording
