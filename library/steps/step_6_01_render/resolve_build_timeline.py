@@ -33,7 +33,7 @@ from typing import Optional
 
 from build_verification import (
     derive_verification_verdict,
-    detect_non_v1_fusion_drops,
+    detect_unreachable_fusion_effects,
     format_fusion_drop_error,
 )
 
@@ -1288,15 +1288,19 @@ def build_timeline(
         results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
     # ── Detect planned Fusion effects that the subprocess cannot reach ──
-    # The logic lives in build_verification.detect_non_v1_fusion_drops so
-    # it can be tested with plain data objects, without Resolve.
+    # The logic lives in build_verification.detect_unreachable_fusion_effects
+    # so it can be tested with plain data objects, without Resolve. The
+    # tracks it is handed are the tracks the Fusion pass walks; see
+    # library/tools/execution/fusion_tracks.FUSION_COMP_TRACKS.
     fusion_effects = manifest.get("fusion_effects", {})
     per_clip_fx = fusion_effects.get("per_clip", {})
     if per_clip_fx:
-        v2_label_set = set(v2_placed_labels) if 'v2_placed_labels' in locals() else set()
-        v1_label_set = set(v1_placed_labels)
+        placed_by_track = {
+            1: set(v1_placed_labels),
+            2: set(v2_placed_labels) if 'v2_placed_labels' in locals() else set(),
+        }
 
-        dropped = detect_non_v1_fusion_drops(per_clip_fx, v1_label_set, v2_label_set)
+        dropped = detect_unreachable_fusion_effects(per_clip_fx, placed_by_track)
         if dropped:
             msg = format_fusion_drop_error(dropped)
             results["errors"].append(msg)

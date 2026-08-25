@@ -7,6 +7,18 @@
   "interface": {
     "inputs": [
       {
+        "name": "a_roll_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: a_roll_assignments (timeline fallback when the spine is absent)"
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": false,
+        "description": "State input: audio_spine - the timeline the duration gate measures"
+      },
+      {
         "name": "color_grade_spec",
         "type": "object",
         "required": true,
@@ -73,6 +85,8 @@
   },
   "dependencies": [
     "step_2_01_creative_direction",
+    "step_2_05_mesh_spine",
+    "step_3_01_assign_aroll",
     "step_2_02_speech_sequence",
     "step_4_02_plan_transitions",
     "step_4_03_plan_vfx",

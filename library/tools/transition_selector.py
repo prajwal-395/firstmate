@@ -1,5 +1,6 @@
 import sys
 
+from library.tools.energy_reading import HIGH_ENERGY_WORDS, is_high_energy
 from library.tools.transition_vocabulary import (
     CUT_TYPES,
     PLANNABLE_TYPES,
@@ -8,10 +9,10 @@ from library.tools.transition_vocabulary import (
     withdrawal_reason,
 )
 
-# Words a free-text `target_energy` may use. creative_direction writes
-# prose ("building", "start observational -> build to a peak"), never a
-# tidy enum, so a high-energy read is a substring test rather than `==`.
-_HIGH_ENERGY_WORDS = ("high", "frantic", "intense", "peak", "explosive", "energetic")
+# The energy vocabulary lives in ONE module, because two readers of the
+# same field used to disagree about "building" and only one of them acted.
+# See library/tools/energy_reading.py.
+_HIGH_ENERGY_WORDS = HIGH_ENERGY_WORDS
 
 # Scene-change defaults, most to least energetic. Every entry is drawable.
 _SCENE_CHANGE_HIGH = "flash"
@@ -34,11 +35,7 @@ def _resolve_duration_ms(raw, default: int = 500) -> int:
 
 
 def _is_high_energy(creative_direction: dict) -> bool:
-    # `energy`/`mood` never existed on creative_direction; the real keys
-    # are `target_energy`/`target_mood`, which is why the energy-driven
-    # branch here was unreachable for the whole life of the step.
-    energy = str(creative_direction.get("target_energy", "")).lower()
-    return any(word in energy for word in _HIGH_ENERGY_WORDS)
+    return is_high_energy(creative_direction)
 
 
 def select_transition(

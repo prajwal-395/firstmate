@@ -462,6 +462,17 @@ differs from the step's outputs (e.g. mesh_spine's LLM writes `structure`;
 the post-bridge computes `audio_spine`/`timed_spine`). Without it the QA
 loop demands post-bridge outputs from the LLM and every attempt "fails".
 
+**Per-clip Fusion comps reach V1 AND V2.** One enumeration,
+`library/tools/execution/fusion_tracks.py`. `compile_manifest` merges the
+house look onto both, and the pass that draws it read `tracks['V1']`
+alone, so 001's three cutaways played at a different contrast with no
+grain and no vignette beside the A-roll. Transitions stay on V1 -
+`after_clip` indexes the V1 clip LIST, so replaying it elsewhere draws a
+transition at an unrelated cut. The drop detection in
+`build_verification` now asks whether a label was PLACED, not whether it
+is on V1. `tests/test_house_look_reaches_broll.py` drives the real pass against
+a fake Resolve.
+
 **A capability is only real where the renderer reads it.** The renderer
 dispatches on parameter NAMES
 (`library/tools/execution/apply_fusion_comps.build_effect_comp`), so a
@@ -501,6 +512,26 @@ a synthetic grid is offset from the music by the whole lead-in. The times
 are in the MUSIC file's clock and are used as timeline times, which holds
 only while music is placed at `source_in` 0; `compile_manifest` asserts
 that.
+
+**`target_energy` has ONE reading, and "building" is not "high".**
+`library/tools/energy_reading.py`. Two readers used to bucket the same
+free-text field differently and only one acted: `transition_selector` did
+not match "building" (correct), while `creative_cohesion.map_energy`
+substring-matched it to "high" and cut three 500ms defocus transitions to
+333ms - on a direction whose own rationale chose "building" OVER "high"
+because high "would fight the source". "Building" names a TRAJECTORY, not
+a level. `WITHDRAWN_HIGH_WORDS` records why "dynamic" and "fast" are out
+too: widening the high bucket decides which transitions get drawn on every
+project using the word, so it is a decision, not drift.
+
+**The timeline's length comes from the spine, never from a passage's
+`end_time`.** `library/tools/timeline_duration.measure_timeline_duration`:
+max `timeline_end` over the spine, falling back to `a_roll_assignments`.
+`speech_sequence`'s `end_time` is a SOURCE timestamp, and reading it as
+the duration made `creative_cohesion` report 001's 54.77s timeline as
+"40.1s ... below the minimum target zone" one step after
+`review_rough_cut` had measured it correctly. 0.0 means "no evidence" -
+say so rather than warn about a length nothing measured.
 
 **A project's brand template reaches the run through `state["brand_template"]`,
 and for a long time nothing put it there.** `pipeline.brand_template` in a
@@ -588,6 +619,29 @@ reaches QA stations: `timeline_qa.verify_fusion_comps` had `pass` as its
 only loop body and reported the Fusion pass healthy whatever the timeline
 held. A gate that cannot fail is worse than no gate, because it reads as
 coverage; if you cannot make it read real state, delete it.
+`creative_cohesion`'s engagement check is the same shape - it tested
+`isinstance(engagement, (int, float))` on the DICT `engagement_scorer`
+emits, so it read every real passage as unscored; read
+`engagement["composite"]`.
+
+**A file on disk is not a measurement.** `speech_advanced_pipeline` wrote
+`{"method": null, "error": "parselmouth not installed"}` to
+`<clip>_prosody.json` like any other result, so step 1.05 counted
+seventeen files as seventeen profiles, reported `available: true` in 0.1s,
+and 4.2 KB of identical error records went into the creative-direction
+prompt - and the files CACHED, so the next run skipped the clips. It now
+raises `ProsodyUnavailable` and writes nothing; the step rejects a hollow
+profile and reports `available: false`, which `check_output_is_real` reads
+as a failed step. `praat-parselmouth` is in `requirements.txt` (CI filters
+it: no cp314 wheel). Judge a step by what it MEASURED.
+
+**An overlay that draws nothing is not rendered.** Step 4.06 ran Remotion
+eight times on project 001 for 53.8 MB of ProRes 4444 in which no pixel is
+ever opaque, and placed all eight on V4 - so `render.json` said "V4: 8".
+`generate_motion_props.props_draw_ink` is the predicate; keep it in step
+with the MotionGraphics composition, and note the output carries NO
+`available` key when nothing draws, because `available: false` anywhere
+fails the run.
 
 **The delivery format is a property of the PRODUCT.** One enumeration,
 `library/tools/delivery_format.py`: a brand template declares
@@ -650,9 +704,17 @@ many sounds a piece gets, and the accepted consequence is that a thin edit
 is no longer caught mechanically. A floor in the PROMPT pads just as
 effectively as one in the bridge - "you MUST plan exactly 5-15" is what put
 two cutaways and one sound into the shipped edit with rationales that said
-so - and `tests/test_no_creative_floors.py` fails on either. What stays is
-`_assert_sfx_distributed`, which catches a collapse (every SFX on one
-frame), not a sparse plan.
+so - and `tests/test_no_creative_floors.py` fails on either. The ruling is
+about floors, not about the two steps it was written about: that test now
+guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`), which is
+how `plan_vfx`'s "at least 3-7 VFX items" plus "every talking head clip
+MUST have at least a slow zoom" (001: eight effects on eight clips, one
+each, alternating) and `speech_sequence`'s "strictly select exactly 10-15"
+survived it for five days. Add a planning step, add it there. A COVERAGE
+requirement is not a floor - "every non-speech block MUST have B-roll"
+stays, because an uncovered block fails `_assert_timeline_fully_covered`.
+What also stays is `_assert_sfx_distributed`, which catches a collapse
+(every SFX on one frame), not a sparse plan.
 
 **A hybrid step's LLM gets an EMPTY schema when the bridge supplies the
 step's only output.** `present_llm_step` builds the injected schema from

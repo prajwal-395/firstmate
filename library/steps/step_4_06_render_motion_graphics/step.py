@@ -65,7 +65,7 @@ import os
 import subprocess
 import sys
 
-from generate_motion_props import generate_motion_props
+from generate_motion_props import generate_motion_props, props_draw_ink
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
@@ -97,6 +97,23 @@ def _timed_text_output(segments: list, fps: int) -> dict:
         "has_alpha": True,
         "fps": fps,
         "total_segments": len(segments),
+    }
+
+
+def _nothing_to_draw_output(reason: str) -> dict:
+    """The motion_graphics_overlay output when no segment would draw.
+
+    Shaped like `_timed_text_output`'s undeclared case and for the same
+    reason: no `available` key at all. `check_output_is_real` in
+    run_pipeline reads `available: false` anywhere in a step's output as
+    a failed run, and "this template declares no motion graphics" is the
+    normal case for every template that has not opted in.
+    """
+    return {
+        "declared": False,
+        "segments": [],
+        "total_segments": 0,
+        "reason": reason,
     }
 
 
@@ -223,14 +240,39 @@ def main():
     if not props_list:
         print("WARNING: No motion graphics blocks to render", file=sys.stderr)
         json.dump({
-            "motion_graphics_overlay": {
-                "available": False,
-                "segments": [],
-                "reason": "No motion graphics blocks found in audio spine"
-            },
+            "motion_graphics_overlay": _nothing_to_draw_output(
+                "No motion graphics blocks found in audio spine"),
             "timed_text_overlay": timed_text_overlay,
         }, sys.stdout, indent=2)
         return
+
+    # Skip the render when the RESOLVED props would draw nothing. Not a
+    # capability change: a template that declares accents, a progress bar
+    # or a title still renders exactly as before. What stops is the
+    # fully-transparent render - eight ProRes 4444 files on project 001
+    # in which no pixel is ever opaque, placed on V4 and counted as
+    # motion graphics delivered. See `props_draw_ink`.
+    drawable = [p for p in props_list if props_draw_ink(p)]
+    if not drawable:
+        print(f"No motion graphics to draw: all {len(props_list)} resolved "
+              f"props have no upper-third text, no accents and no progress "
+              f"bar. Skipping the render.", file=sys.stderr)
+        json.dump({
+            "motion_graphics_overlay": _nothing_to_draw_output(
+                f"all {len(props_list)} resolved motion graphics props draw "
+                f"nothing: the brand template declares neither "
+                f"effect.motion_accents nor effect.motion_progress_bar, and "
+                f"the creative direction supplies no title or subtitle"),
+            "timed_text_overlay": timed_text_overlay,
+        }, sys.stdout, indent=2)
+        return
+
+    skipped = len(props_list) - len(drawable)
+    if skipped:
+        print(f"Skipping {skipped} motion graphics segment(s) that would "
+              f"draw nothing", file=sys.stderr)
+
+    props_list = drawable
 
     print(f"Rendering {len(props_list)} motion graphics segments...",
           file=sys.stderr)

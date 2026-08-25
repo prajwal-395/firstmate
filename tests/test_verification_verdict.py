@@ -32,7 +32,7 @@ if _STEP_DIR not in sys.path:
 
 from build_verification import (
     derive_verification_verdict,
-    detect_non_v1_fusion_drops,
+    detect_unreachable_fusion_effects,
     format_fusion_drop_error,
 )
 
@@ -91,7 +91,7 @@ class TestDeriveVerificationVerdict:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# DEFECT 2 - BEHAVIORAL TESTS: detect_non_v1_fusion_drops
+# DEFECT 2 - BEHAVIORAL TESTS: detect_unreachable_fusion_effects
 # ═══════════════════════════════════════════════════════════════════
 
 # Representative pmk_default Fusion look parameters
@@ -110,12 +110,20 @@ _PMK_LOOK = {
 }
 
 
-class TestDetectNonV1FusionDrops:
-    """The function that makes the B-roll Fusion drop impossible to miss."""
+class TestDetectUnreachableFusionEffects:
+    """The function that makes a dropped Fusion effect impossible to miss.
 
-    def test_broll_on_v2_is_detected(self):
-        """broll_1, broll_4, broll_8 are on V2 but have per_clip effects.
-        The function must return all three as dropped."""
+    V2 used to be unreachable by construction, because the Fusion pass
+    read `tracks['V1']` alone, and this class asserted that every B-roll
+    label was a permanent drop. That gap is closed - the pass walks both
+    tracks now (`library/tools/execution/fusion_tracks.py`) - so a placed
+    B-roll label is a normal hit, and what this function still catches is
+    the real question: was the label placed at all?
+    """
+
+    def test_placed_broll_on_v2_is_not_dropped(self):
+        """broll_1, broll_4 and broll_8 carry the merged look and are on
+        V2, which the Fusion pass now reaches."""
         per_clip = {
             "a_roll_0": _PMK_LOOK,
             "a_roll_1": _PMK_LOOK,
@@ -123,57 +131,50 @@ class TestDetectNonV1FusionDrops:
             "broll_4": _PMK_LOOK,
             "broll_8": _PMK_LOOK,
         }
-        v1_labels = {"a_roll_0", "a_roll_1"}
-        v2_labels = {"broll_1", "broll_4", "broll_8"}
-
-        dropped = detect_non_v1_fusion_drops(per_clip, v1_labels, v2_labels)
-        assert len(dropped) == 3
-        dropped_labels = {d["label"] for d in dropped}
-        assert dropped_labels == {"broll_1", "broll_4", "broll_8"}
-
-        # Each dropped entry must carry the track and the full parameters
-        for d in dropped:
-            assert d["track"] == "V2"
-            assert d["params"] == _PMK_LOOK
-            assert d["label"] in d["detail"]
-
-    def test_all_on_v1_returns_empty(self):
-        """When every per_clip label is on V1, nothing is dropped."""
-        per_clip = {
-            "a_roll_0": _PMK_LOOK,
-            "a_roll_1": _PMK_LOOK,
+        placed = {
+            1: {"a_roll_0", "a_roll_1"},
+            2: {"broll_1", "broll_4", "broll_8"},
         }
-        v1_labels = {"a_roll_0", "a_roll_1"}
-        v2_labels = set()
 
-        dropped = detect_non_v1_fusion_drops(per_clip, v1_labels, v2_labels)
-        assert dropped == []
+        assert detect_unreachable_fusion_effects(per_clip, placed) == []
+
+    def test_a_broll_label_that_was_never_placed_is_detected(self):
+        """The gate must still be able to fire."""
+        per_clip = {"a_roll_0": _PMK_LOOK, "broll_9": _PMK_LOOK}
+        placed = {1: {"a_roll_0"}, 2: {"broll_1"}}
+
+        dropped = detect_unreachable_fusion_effects(per_clip, placed)
+        assert len(dropped) == 1
+        assert dropped[0]["label"] == "broll_9"
+        assert dropped[0]["track"] == "unplaced"
+        assert dropped[0]["params"] == _PMK_LOOK
+        assert dropped[0]["label"] in dropped[0]["detail"]
+
+    def test_all_placed_returns_empty(self):
+        per_clip = {"a_roll_0": _PMK_LOOK, "a_roll_1": _PMK_LOOK}
+        placed = {1: {"a_roll_0", "a_roll_1"}, 2: set()}
+
+        assert detect_unreachable_fusion_effects(per_clip, placed) == []
 
     def test_empty_per_clip_returns_empty(self):
-        dropped = detect_non_v1_fusion_drops({}, {"a_roll_0"}, set())
-        assert dropped == []
+        assert detect_unreachable_fusion_effects({}, {1: {"a_roll_0"}}) == []
 
-    def test_unplaced_label_is_detected(self):
-        """A label not on any track is also dropped (manifest mismatch)."""
-        per_clip = {"a_roll_0": _PMK_LOOK, "phantom": _PMK_LOOK}
-        v1_labels = {"a_roll_0"}
-        v2_labels = set()
-
-        dropped = detect_non_v1_fusion_drops(per_clip, v1_labels, v2_labels)
-        assert len(dropped) == 1
-        assert dropped[0]["label"] == "phantom"
-        assert dropped[0]["track"] == "unknown track"
+    def test_no_tracks_at_all_drops_everything(self):
+        """A build that placed nothing must not read as a clean run."""
+        dropped = detect_unreachable_fusion_effects(
+            {"a_roll_0": _PMK_LOOK}, {})
+        assert [d["label"] for d in dropped] == ["a_roll_0"]
 
     def test_format_error_message_names_clips_and_params(self):
         """The error message must be actionable: clip labels and parameters."""
-        per_clip = {"broll_1": {"glow_gain": 0.12, "film_grain": True}}
-        dropped = detect_non_v1_fusion_drops(per_clip, set(), {"broll_1"})
+        per_clip = {"phantom": {"glow_gain": 0.12, "film_grain": True}}
+        dropped = detect_unreachable_fusion_effects(
+            per_clip, {1: set(), 2: set()})
 
         msg = format_fusion_drop_error(dropped)
-        assert "broll_1" in msg
-        assert "V2" in msg
+        assert "phantom" in msg
         assert "glow_gain" in msg
-        assert "non-V1 clip(s)" in msg
+        assert "cannot reach" in msg
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -199,9 +200,9 @@ class TestRendererCallsExtractedFunctions:
         src = _source()
         assert "derive_verification_verdict(qa_reports)" in src
 
-    def test_renderer_calls_detect_non_v1_fusion_drops(self):
+    def test_renderer_calls_detect_unreachable_fusion_effects(self):
         src = _source()
-        assert "detect_non_v1_fusion_drops(" in src
+        assert "detect_unreachable_fusion_effects(" in src
 
     def test_renderer_calls_format_fusion_drop_error(self):
         src = _source()

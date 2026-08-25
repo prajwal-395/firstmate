@@ -26,8 +26,9 @@ jobs:
         python -m pip install --upgrade pip
         # httpx2 backs starlette.testclient, which the dashboard API tests import
         pip install pytest ruff httpx2
-        # Filter out GPU and heavy ML deps for CI
-        grep -vE 'torch|sam2|whisperx' requirements.txt > ci_requirements.txt
+        # Filter out GPU and heavy ML deps for CI, plus praat-parselmouth,
+        # which publishes no cp314 wheel (the pipeline env is 3.12).
+        grep -vE 'torch|sam2|whisperx|parselmouth' requirements.txt > ci_requirements.txt
         pip install -r ci_requirements.txt
         
     - name: Run Pytest

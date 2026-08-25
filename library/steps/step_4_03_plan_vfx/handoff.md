@@ -50,11 +50,19 @@ You can also use any of the built-in Fusion clip effects listed below by providi
 **Not available as clip effects:** Generator presets (particles, backgrounds, shaders, standalone text, and standalone lens flares) produce content from nothing and have no image input. They cannot be used as clip effects. However, you CAN select them as overlay effects - the post-bridge will automatically route generator presets to the overlay track (V5) where they are composited over the picture. To use a generator, include it in your VFX plan with its exact snake_case name as the `effect_type`. Examples: `fireworks`, `snow`, `embers`, `bubbles`, `matrix`, `rain`.
 
 ### Rules:
-- You MUST plan at least 3-7 VFX items across the video. An empty list is a failure.
+- How many effects the video gets is a creative decision, not a quota. Plan
+  the effects the piece needs and no others; an empty list is a legitimate
+  answer for a piece that wants stillness. (Captain's ruling of 2026-08-20,
+  `decision-creative-floors.md`: there are no creative floors. A floor in
+  this prompt pads the edit exactly as effectively as one in the bridge -
+  the range this section used to demand, together with a per-clip zoom
+  requirement, is what put one zoom on each of exactly eight clips,
+  alternating direction, into the shipped project 001.)
 - Use only the type names above or an exact built-in effect name. Anything
   else is dropped, not approximated.
-- Every A-roll talking head clip >3 seconds MUST have at least `slow_zoom_in`
-  or `slow_zoom_out`
+- A static talking-head shot held for a long time is where `slow_zoom_in` /
+  `slow_zoom_out` earns its place - use it where it helps and leave it off
+  where it does not.
 - Screen shake: sparingly — max 2-3 per video
 - Zoom emphasis: only for genuinely important moments
 - Animation timing: 100-200ms for micro-animations, never >500ms
@@ -97,7 +105,8 @@ to the creative direction's energy profile.
 
 ## Evaluation Criteria
 
-1. Every talking head clip >3s has at least slow_zoom
+1. Every effect earns its place - it is there because the moment wants it,
+   not to satisfy a count
 2. Screen shake used ≤3 times
 3. Parameters within style spec ranges
 4. No effect changes clip in/out points or timeline position

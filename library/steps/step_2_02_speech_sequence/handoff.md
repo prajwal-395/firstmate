@@ -145,7 +145,7 @@ downstream mesh_spine step will coordinate speech and music timing.
 
 | Parameter | Value |
 |-----------|-------|
-| Target body passages | 10-15 (strictly select exactly 10-15 of the strongest passages) |
+| Target body passages | However many the duration limit above and the creative direction call for. There is no count to hit. |
 | Target total duration| Should serve the creative direction; if project_config sets a target, respect it |
 | Hook duration target | 1-3 seconds (per style spec) |
 | Default sequence order | Chronological source_order |

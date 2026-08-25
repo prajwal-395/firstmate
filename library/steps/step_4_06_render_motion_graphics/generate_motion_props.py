@@ -41,6 +41,37 @@ class MissingAccentColor(ValueError):
     """
 
 
+def props_draw_ink(props: dict) -> bool:
+    """Would Remotion put a single pixel on this frame?
+
+    The MotionGraphics composition draws exactly three things and each
+    one is behind its own flag: the upper third (which is nothing but
+    `title` and `subtitle`, so it draws nothing when both are empty), the
+    corner accents, and the progress bar. Every other pixel of the frame
+    is transparent by construction - the clip is ProRes 4444 with alpha
+    and no background.
+
+    A template that declares no accents and no progress bar, on a
+    `creative_direction` that carries no title (its schema has no
+    `title`, `subtitle`, `series_name` or `episode_label` at all), leaves
+    every flag off and every string empty. Project 001 rendered eight
+    such segments: 53.8 MB of ProRes in which `max(alpha)` is 0 on every
+    frame of every file, placed on V4 so `render.json` reported
+    "V4: 8" - which reads as motion graphics delivered.
+
+    This predicate must stay in step with
+    `remotion-subtitles/src/compositions/MotionGraphics/index.tsx`: a new
+    element drawn there needs its flag adding here, or the step will skip
+    a render that would have drawn it.
+    """
+    if props.get("showAccents") or props.get("showProgress"):
+        return True
+    if props.get("showUpperThird"):
+        return bool(str(props.get("title") or "").strip()
+                    or str(props.get("subtitle") or "").strip())
+    return False
+
+
 def _as_bool(value, default: bool) -> bool:
     """Template flags arrive from YAML, so accept what YAML produces.
 

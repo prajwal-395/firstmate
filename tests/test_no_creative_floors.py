@@ -13,9 +13,26 @@ rejection OR as a warning - and if the prompts start demanding a count
 again, because a prompt-level quota pads the edit just as effectively as
 a bridge-level one. That is what put two B-roll cuts and one sound effect
 into the shipped project 001 with rationales that said so.
+
+The ruling is about creative floors, not about B-roll and SFX
+specifically, and two prompt-level quotas survived it because this file
+only guarded the two steps the ruling was WRITTEN about:
+
+* `step_4_03_plan_vfx/handoff.md` demanded at least three to seven VFX
+  items and a slow zoom on every talking-head clip over three seconds.
+  001 produced exactly eight effects on exactly eight clips, one each,
+  alternating direction.
+* `step_2_02_speech_sequence/handoff.md` demanded "strictly select
+  exactly 10-15" body passages, contradicting the 75%-of-target-duration
+  rule in the same file. The model obeyed the duration and produced 7 -
+  it was right, and the prompt was wrong.
+
+Both are gone, and every creative-planning prompt is now under the guard
+rather than the two that were named on the day.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,8 +40,16 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-BROLL = REPO / "library" / "steps" / "step_3_02_select_broll"
-SFX = REPO / "library" / "steps" / "step_4_04_plan_sfx"
+STEPS = REPO / "library" / "steps"
+BROLL = STEPS / "step_3_02_select_broll"
+SFX = STEPS / "step_4_04_plan_sfx"
+VFX = STEPS / "step_4_03_plan_vfx"
+SPEECH = STEPS / "step_2_02_speech_sequence"
+
+# Every step whose prompt asks a model HOW MANY of something to plan.
+# Add a creative-planning step here when you add one; the ruling is about
+# floors, not about the two steps it was written about.
+CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH)
 
 
 def _run_bridge(script: Path, payload: dict):
@@ -53,27 +78,66 @@ QUOTA_PHRASES = [
     "exactly 5-10 sfx",
     "5-15 b-roll",
     "default 5-10 sfx",
+    # The two that survived the ruling until 2026-08-25.
+    "must plan at least",
+    "strictly select exactly",
+    "an empty list is a failure",
+]
+
+# A quota does not have to be phrased as one. "at least N", "N-M items"
+# and "every clip MUST have" all set a floor, so the guard also refuses a
+# bare numeric range next to a plural noun and a per-clip MUST.
+QUOTA_PATTERNS = [
+    # "at least 3", "at least three"
+    r"at least\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+    # "3-7 VFX items", "10-15 passages"
+    r"\b\d+\s*-\s*\d+\s+(?:vfx|sfx|b-roll|passages|items|effects|cutaways|sounds)\b",
+    # "every talking head clip >3s MUST have at least a slow zoom".
+    # Deliberately narrower than a bare "every ... must have": select_broll
+    # says every non-speech block must have B-roll, and that is a COVERAGE
+    # requirement, not a floor - an uncovered block is a black hole that
+    # compile_manifest._assert_timeline_fully_covered fails on.
+    r"every\b[^.\n]{0,80}\bmust\s+have\s+at\s+least\b",
 ]
 
 
 @pytest.mark.parametrize(
     "path",
-    [
-        BROLL / "handoff.md",
-        BROLL / "manifest.json",
-        SFX / "handoff.md",
-        SFX / "manifest.json",
-    ],
+    [step / name
+     for step in CREATIVE_PLANNING_STEPS
+     for name in ("handoff.md", "manifest.json")],
     ids=lambda p: f"{p.parent.name}/{p.name}",
 )
 def test_prompt_surfaces_demand_no_count(path):
+    if not path.exists():
+        pytest.skip(f"{path.name} does not exist for this step")
     text = path.read_text(encoding="utf-8").lower()
     hits = [phrase for phrase in QUOTA_PHRASES if phrase in text]
+    hits += [m.group(0) for pattern in QUOTA_PATTERNS
+             for m in re.finditer(pattern, text)]
     assert not hits, (
-        f"{path.relative_to(REPO)} demands a B-roll/SFX count again "
-        f"({hits}). The floors were removed by ruling; a prompt-level "
-        f"quota reintroduces the padding they caused."
+        f"{path.relative_to(REPO)} demands a count again ({hits}). The "
+        f"floors were removed by ruling; a prompt-level quota "
+        f"reintroduces exactly the padding they caused."
     )
+
+
+def test_the_guard_can_actually_fire():
+    """A gate that cannot fail reads as coverage. These are the literal
+    lines removed on 2026-08-25."""
+    removed = [
+        "you must plan at least 3-7 vfx items across the video. an empty "
+        "list is a failure.",
+        "target body passages | 10-15 (strictly select exactly 10-15 of "
+        "the strongest passages)",
+        "every a-roll talking head clip >3 seconds must have at least "
+        "`slow_zoom_in` or `slow_zoom_out`",
+    ]
+    for line in removed:
+        hits = [p for p in QUOTA_PHRASES if p in line]
+        hits += [m.group(0) for pattern in QUOTA_PATTERNS
+                 for m in re.finditer(pattern, line)]
+        assert hits, f"the guard does not catch {line!r}"
 
 
 # ── The bridges must not reject a sparse plan ─────────────────────────

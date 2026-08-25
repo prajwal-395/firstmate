@@ -22,6 +22,32 @@ import sys
 import glob
 
 
+def profile_defect(profile: dict) -> str:
+    """Why this prosody profile measures nothing, or "" if it does.
+
+    A profile is a FILE ON DISK, and the failure path used to write one
+    like any other result: `{"prosody": {"method": null, "error":
+    "parselmouth not installed"}}`. Counting files is therefore not the
+    same as counting measurements, and the difference is the whole of
+    this defect. `speech_advanced_pipeline` no longer writes these, so
+    this reads the ones a previous run already left behind - and it is
+    also the check that keeps any future "soft failure" record from
+    passing as data.
+    """
+    if not isinstance(profile, dict):
+        return "not a JSON object"
+    prosody = profile.get("prosody")
+    if not isinstance(prosody, dict):
+        return "no prosody block"
+    if prosody.get("error"):
+        return str(prosody["error"])
+    if not prosody.get("method"):
+        return "no analysis method recorded"
+    if not prosody.get("pitch_stats") and not prosody.get("intensity_contour_50ms"):
+        return "neither pitch nor intensity was measured"
+    return ""
+
+
 def main():
     data = json.loads(sys.stdin.read())
     raw_footage_files = data.get("raw_footage_files", [])
@@ -132,6 +158,7 @@ def main():
           f"{len(existing)} cached, {len(missing)} to analyze",
           file=sys.stderr)
 
+    pipeline_failures = []
     if missing:
         # Write input JSON for the pipeline
         input_data = {
@@ -150,40 +177,101 @@ def main():
                 text=True, encoding="utf-8", errors="replace",
                 timeout=600,  # 10 min max
             )
-            if result.returncode != 0:
-                print(f"Prosody pipeline warning: {result.stderr[:300]}",
-                      file=sys.stderr)
+            # The pipeline reports per-clip failures on stdout and exits
+            # non-zero. Read them: they carry the REASON, and a generic
+            # "no profiles were produced" is exactly the uninformative
+            # note this defect was made of.
+            try:
+                pipeline_failures = (
+                    json.loads(result.stdout).get("failures", []) or [])
+            except (json.JSONDecodeError, AttributeError):
+                pipeline_failures = []
+            if result.returncode != 0 and not pipeline_failures:
+                pipeline_failures = [{
+                    "clip_id": None,
+                    "error": (f"prosody pipeline exited {result.returncode}: "
+                              f"{result.stderr.strip()[-300:]}"),
+                }]
+            for failure in pipeline_failures:
+                print(f"Prosody failed on {failure.get('clip_id')}: "
+                      f"{failure.get('error')}", file=sys.stderr)
         except subprocess.TimeoutExpired:
+            pipeline_failures = [{"clip_id": None,
+                                  "error": "prosody analysis timed out"}]
             print("Prosody analysis timed out", file=sys.stderr)
         except Exception as e:
+            pipeline_failures = [{"clip_id": None,
+                                  "error": f"prosody analysis error: {e}"}]
             print(f"Prosody analysis error: {e}", file=sys.stderr)
 
     # Collect all prosody profiles
     profiles = {}
+    hollow = {}
     for f in sorted(glob.glob(os.path.join(output_dir, "*_prosody.json"))):
         clip_id = os.path.basename(f).replace("_prosody.json", "")
         try:
             with open(f) as fp:
-                profiles[clip_id] = json.load(fp)
+                profile = json.load(fp)
         except (json.JSONDecodeError, IOError):
-            pass
+            continue
+        problem = profile_defect(profile)
+        if problem:
+            hollow[clip_id] = problem
+        else:
+            profiles[clip_id] = profile
 
     print(f"Collected {len(profiles)} prosody profiles", file=sys.stderr)
+    if hollow:
+        print(f"Rejected {len(hollow)} profiles that measured nothing",
+              file=sys.stderr)
 
     # `available` describes whether there is prosody data to use, not
-    # whether the step reached its last line. Reporting available=true
-    # alongside an empty profiles dict is how a failed prosody run looked
-    # identical to a successful one.
-    json.dump({
-        "prosody_analysis": {
-            "available": bool(profiles),
-            "profiles": profiles,
-            "total_clips": len(profiles),
-            "error": (
-                None if profiles else
+    # whether the step reached its last line, and NOT whether a file
+    # landed on disk. Project 001 collected seventeen files that each
+    # said `{"method": null, "error": "parselmouth not installed"}`,
+    # counted them as seventeen profiles, reported available=true in 0.1
+    # seconds - and 4.2 KB of those identical error records were
+    # serialised into the creative-direction prompt as if they were
+    # measurements. `available: false` here is read by
+    # run_pipeline.check_output_is_real as a failed step, which is the
+    # point: a step that cannot do its job must not report success.
+    for failure in pipeline_failures:
+        hollow.setdefault(str(failure.get("clip_id")),
+                          str(failure.get("error")))
+
+    error = None
+    if not profiles:
+        if hollow:
+            error = (
+                f"Prosody measured nothing on any of {len(hollow)} clip(s). "
+                + "; ".join(f"{cid}: {why}"
+                            for cid, why in sorted(hollow.items())[:3])
+                + ("; ..." if len(hollow) > 3 else "")
+            )
+        else:
+            error = (
                 f"Prosody pipeline produced no *_prosody.json profiles in "
                 f"{output_dir}"
-            ),
+            )
+    elif hollow:
+        error = (
+            f"Prosody measured nothing on {len(hollow)} of "
+            f"{len(hollow) + len(profiles)} clip(s): "
+            + ", ".join(sorted(hollow))
+        )
+
+    if error:
+        print(f"ERROR: {error}", file=sys.stderr)
+
+    json.dump({
+        "prosody_analysis": {
+            # A partial pass is a failure too: the consumers read a
+            # per-clip mapping and a missing clip reads as silence.
+            "available": bool(profiles) and not hollow,
+            "profiles": profiles,
+            "total_clips": len(profiles),
+            "unmeasured_clips": sorted(hollow),
+            "error": error,
         }
     }, sys.stdout, indent=2)
 

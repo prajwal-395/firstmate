@@ -40,6 +40,19 @@ import numpy as np
 from pathlib import Path
 
 
+class ProsodyUnavailable(RuntimeError):
+    """No prosody could be measured for this clip.
+
+    Raised rather than returned as `{"method": None, "error": ...}`. That
+    dict was written to `<clip>_prosody.json` like any other result, so
+    step 1.05 collected seventeen of them, counted seventeen profiles and
+    reported `available: true` in 0.1 seconds - and 4.2 KB of identical
+    "parselmouth not installed" records were serialised into the
+    creative-direction prompt. A file on disk also caches: the next run
+    saw the clip as already analysed and skipped it.
+    """
+
+
 def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     """Extract prosodic features using Praat via parselmouth.
 
@@ -173,14 +186,18 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
               file=sys.stderr)
         return result
 
-    except ImportError:
-        print("  parselmouth not available", file=sys.stderr)
-        return {"method": None, "error": "parselmouth not installed"}
+    except ImportError as exc:
+        raise ProsodyUnavailable(
+            "praat-parselmouth is not installed, so no prosodic feature can "
+            "be measured. It is declared in requirements.txt and in step "
+            f"1.05's manifest preconditions: pip install praat-parselmouth "
+            f"({exc})"
+        ) from exc
     except Exception as e:
         print(f"  ERROR: prosody analysis failed: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        return {"method": None, "error": str(e)}
+        raise ProsodyUnavailable(f"prosody analysis failed: {e}") from e
 
 
 # ── Main ────────────────────────────────────────────────────────────
@@ -209,6 +226,10 @@ def analyze_speech_advanced(
 
     start_time = time.time()
 
+    # Raises ProsodyUnavailable rather than returning an error record.
+    # Nothing is written for a clip that could not be analysed: a profile
+    # file IS the cache, so writing one would make the failure permanent
+    # as well as silent.
     results = {
         "clip_id": clip_id,
         "audio_file": audio_path,
@@ -260,15 +281,24 @@ def main():
         output_dir = data.get("output_dir")
 
         results = []
+        failures = []
         for af in audio_files:
-            result = analyze_speech_advanced(
-                af["path"],
-                output_dir=output_dir,
-                clip_id=af.get("clip_id"),
-            )
-            results.append(result)
+            try:
+                results.append(analyze_speech_advanced(
+                    af["path"],
+                    output_dir=output_dir,
+                    clip_id=af.get("clip_id"),
+                ))
+            except ProsodyUnavailable as exc:
+                failures.append({"clip_id": af.get("clip_id"),
+                                 "error": str(exc)})
+                print(f"  ✗ {af.get('clip_id')}: {exc}", file=sys.stderr)
 
-        json.dump({"results": results}, sys.stdout, indent=2)
+        json.dump({"results": results, "failures": failures},
+                  sys.stdout, indent=2)
+        if failures:
+            # A caller that only reads the return code must still see it.
+            sys.exit(1)
 
 
 if __name__ == "__main__":

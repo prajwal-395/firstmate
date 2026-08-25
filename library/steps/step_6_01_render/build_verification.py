@@ -28,39 +28,46 @@ def derive_verification_verdict(qa_reports: Sequence[Any]) -> bool:
     return all(rep.passed for rep in qa_reports)
 
 
-def detect_non_v1_fusion_drops(
+def detect_unreachable_fusion_effects(
     per_clip_effects: dict[str, dict],
-    v1_labels: set[str],
-    v2_labels: set[str],
+    labels_by_track: dict[int, set],
 ) -> list[dict[str, Any]]:
-    """Find per_clip Fusion effects that the subprocess cannot reach.
+    """Find per_clip Fusion effects that no placed clip can carry.
 
-    The Fusion subprocess (apply_fusion_comps.py) only iterates V1 clips.
-    Per-clip effects planned for labels on other tracks (e.g. B-roll on V2)
-    are silently dropped. This function detects and reports them.
+    ``labels_by_track`` maps a video track index to the clip labels this
+    build really placed on it, and its KEYS are the tracks the Fusion
+    subprocess walks - see
+    ``library/tools/execution/fusion_tracks.FUSION_COMP_TRACKS``. A label
+    that appears on none of them gets no comp, and nothing else in the
+    build notices: the picture underneath is intact and only the look is
+    missing.
 
-    Returns a list of dicts, each with:
-      - ``label``: the clip label
-      - ``track``: "V2" or "unknown track"
-      - ``params``: the effect parameters that would have been applied
-      - ``detail``: a human-readable string for the error message
+    V2 used to be unreachable by construction, because the subprocess
+    read ``tracks['V1']`` alone. That is fixed, so a B-roll label is now
+    a normal hit rather than a permanent drop, and what survives here is
+    the real question: was this label placed at all?
 
-    An empty return means every planned effect has a clip on V1.
+    Returns a list of dicts, each with ``label``, ``track`` (the track it
+    was expected on, or ``"unplaced"``), ``params`` and a human-readable
+    ``detail``. An empty return means every planned effect has a clip.
     """
     if not per_clip_effects:
         return []
 
+    reachable = set()
+    for labels in labels_by_track.values():
+        reachable |= set(labels)
+
     dropped = []
     for label in sorted(per_clip_effects):
-        if label in v1_labels:
-            continue  # V1 - subprocess handles these
+        if label in reachable:
+            continue
         params = per_clip_effects[label]
-        track = "V2" if label in v2_labels else "unknown track"
         dropped.append({
             "label": label,
-            "track": track,
+            "track": "unplaced",
             "params": params,
-            "detail": f"{label} ({track}): {json.dumps(params, default=str)}",
+            "detail": f"{label} (unplaced): {json.dumps(params, default=str)}",
         })
 
     return dropped
@@ -71,6 +78,6 @@ def format_fusion_drop_error(dropped: list[dict[str, Any]]) -> str:
     details = "; ".join(d["detail"] for d in dropped)
     return (
         f"Fusion per_clip effects planned for {len(dropped)} "
-        f"non-V1 clip(s) that the Fusion subprocess cannot reach: "
+        f"clip(s) the Fusion pass cannot reach: "
         + details
     )

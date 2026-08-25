@@ -155,6 +155,21 @@ class TestRunMechanicalChecksWithDuration:
 
 # --- step_5_03 duration warning tests ---
 
+def _spine(seconds):
+    """The timeline, which is what the duration gate measures.
+
+    These fixtures used to express the length as `body_sequence[-1]
+    ["end_time"]` - a SOURCE timestamp, where the last passage ends
+    inside its own clip - because that is what the gate read. It made the
+    gate warn about a length the video never had: 001's 54.77s timeline
+    was reported as 40.1s and "below the minimum target zone".
+    """
+    return {"structure": [
+        {"block_type": "speech", "position": 0,
+         "timeline_start": 0.0, "timeline_end": float(seconds)},
+    ]}
+
+
 class TestCohesionDurationWarning:
     """creative_cohesion warns (does not fail) when outside target zone."""
 
@@ -166,6 +181,7 @@ class TestCohesionDurationWarning:
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 120}]
             },
+            "audio_spine": _spine(120),
             "color_grade_spec": {},
             "project_config": {
                 "target_duration_seconds": 60
@@ -182,6 +198,7 @@ class TestCohesionDurationWarning:
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 20}]
             },
+            "audio_spine": _spine(20),
             "color_grade_spec": {},
             "project_config": {
                 "target_duration_seconds": 60
@@ -198,6 +215,7 @@ class TestCohesionDurationWarning:
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 60}]
             },
+            "audio_spine": _spine(60),
             "color_grade_spec": {},
             "project_config": {
                 "target_duration_seconds": 60
@@ -215,6 +233,7 @@ class TestCohesionDurationWarning:
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 120}]
             },
+            "audio_spine": _spine(120),
             "color_grade_spec": {},
         }
         review = review_creative_cohesion(inputs)

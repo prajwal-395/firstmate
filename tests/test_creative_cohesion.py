@@ -2,6 +2,19 @@ import json
 import pytest
 from library.steps.step_5_03_creative_cohesion.step import review_creative_cohesion
 
+# The timeline the duration gate measures. It used to read
+# `body_sequence[-1]["end_time"]` - a SOURCE timestamp - so these fixtures
+# expressed the length as a speech passage ending at 60s. The spine is the
+# timeline; see library/tools/timeline_duration.py.
+SPINE_60S = {
+    "structure": [
+        {"block_type": "hook", "position": 0,
+         "timeline_start": 0.0, "timeline_end": 3.0},
+        {"block_type": "speech", "position": 1,
+         "timeline_start": 3.0, "timeline_end": 60.0},
+    ]
+}
+
 def test_creative_cohesion_high_energy_mismatch():
     inputs = {
         "creative_direction": {
@@ -22,7 +35,8 @@ def test_creative_cohesion_high_energy_mismatch():
         },
         "color_grade_spec": {
             "mood": "soft and muted"
-        }
+        },
+        "audio_spine": SPINE_60S,
     }
     
     review = review_creative_cohesion(inputs)
@@ -65,7 +79,8 @@ def test_creative_cohesion_aligned_specs():
         },
         "color_grade_spec": {
             "mood": "soft and muted"
-        }
+        },
+        "audio_spine": SPINE_60S,
     }
     
     review = review_creative_cohesion(inputs)
@@ -78,7 +93,12 @@ def test_creative_cohesion_missing_inputs():
     inputs = {}
     review = review_creative_cohesion(inputs)
     assert review["cohesion_score"] == 100
-    assert len(review["warnings"]) == 0
+    # The duration gate says it could not measure, rather than warning
+    # about a length it invented. It costs no score.
+    assert review["warnings"] == [
+        "Duration not checked: neither audio_spine nor a_roll_assignments "
+        "reached creative_cohesion, so the timeline length is unknown"
+    ]
 
 def test_auto_adjustments_applied():
     inputs = {

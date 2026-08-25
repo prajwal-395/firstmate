@@ -6,6 +6,8 @@ Reviews creative decisions across plans for cohesion and consistency.
 import json
 import sys
 
+from library.tools.energy_reading import read_energy
+from library.tools.timeline_duration import measure_timeline_duration
 from library.tools.transition_vocabulary import canonical_type, is_cut
 
 # Transitions that read as slow and soft, so a calm edit wants them long.
@@ -13,12 +15,39 @@ SOFT_TRANSITIONS = ("fade_to_black", "defocus")
 
 
 def map_energy(energy_str):
-    energy_str = str(energy_str).lower()
-    if any(w in energy_str for w in ["high", "building", "dynamic", "fast", "intense"]):
-        return "high"
-    elif any(w in energy_str for w in ["low", "calm", "slow", "reflective"]):
-        return "calm"
-    return "moderate"
+    """Read the energy the way every other reader does.
+
+    This used to carry its own word list, which matched "building" to
+    "high" while `transition_selector` did not - and this is the reader
+    that ACTS, so project 001's deliberate "building" had three defocus
+    transitions cut from 500 ms to 333 ms and a demand for denser SFX.
+    One vocabulary now: library/tools/energy_reading.py.
+    """
+    return read_energy(energy_str)
+
+def engagement_score(passage) -> float:
+    """The composite engagement of one passage, or None if it has none.
+
+    `speech_sequence` writes `engagement` as the dict
+    `engagement_scorer.compute_engagement` returns, and the gate below
+    used to accept only an int or a float - so it read every real passage
+    as having no score at all. A bare number is still accepted: nothing
+    emits one today, but rejecting it would be the same mistake in the
+    other direction.
+    """
+    if not isinstance(passage, dict):
+        return None
+    value = passage.get("engagement")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        composite = value.get("composite")
+        if isinstance(composite, (int, float)) and not isinstance(composite, bool):
+            return float(composite)
+    return None
+
 
 def review_creative_cohesion(inputs: dict) -> dict:
     creative_direction = inputs.get("creative_direction", {})
@@ -82,13 +111,13 @@ def review_creative_cohesion(inputs: dict) -> dict:
                     "target_index": transitions.index(t)
                 })
 
+    # The timeline's real length, measured the way review_rough_cut
+    # measures it: the last spine block's timeline_end. See
+    # library/tools/timeline_duration.py for what this replaced.
+    timeline_duration = measure_timeline_duration(inputs)
+
     # SFX Check (density estimation)
-    # Get total duration if possible
-    total_duration = 60.0 # fallback
-    if isinstance(speech_sequence, dict) and "body_sequence" in speech_sequence:
-        body = speech_sequence["body_sequence"]
-        if body and "end_time" in body[-1] and body[-1]["end_time"] is not None:
-            total_duration = body[-1]["end_time"]
+    total_duration = timeline_duration or 60.0
 
     sfx_density_per_min = (len(sfx) / total_duration) * 60 if total_duration > 0 else 0
     if energy == "high" and sfx_density_per_min < 10:
@@ -142,19 +171,27 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # wanted it is a re-cut loop, and that is a design job.
 
     # Engagement score check
+    #
+    # `engagement` is the DICT `engagement_scorer.compute_engagement`
+    # emits - {hook, flow, value, composite, rationale} - and this gate
+    # tested `isinstance(..., (int, float))` on it, so `hook_eng` was
+    # permanently 0 and `eng_values` permanently empty: it could not fire
+    # on any real speech_sequence. The composite is the score the scorer
+    # exists to produce, so that is what is compared.
     if isinstance(speech_sequence, dict):
         hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence", [])
-        
-        hook_eng = hook.get("engagement", 0) if isinstance(hook.get("engagement"), (int, float)) else 0
-        if body:
-            eng_values = [b.get("engagement", 0) for b in body if isinstance(b.get("engagement"), (int, float))]
-            max_body_eng = max(eng_values) if eng_values else 0
-        else:
-            max_body_eng = 0
-        
+
+        hook_eng = engagement_score(hook)
+        eng_values = [engagement_score(b) for b in body
+                      if engagement_score(b) is not None]
+        max_body_eng = max(eng_values) if eng_values else 0
+        hook_eng = hook_eng if hook_eng is not None else 0
+
         if max_body_eng > hook_eng + 10:
-            warnings.append(f"Hook engagement ({hook_eng}) is lower than peak body engagement ({max_body_eng})")
+            warnings.append(
+                f"Hook engagement ({hook_eng:g}) is lower than peak body "
+                f"engagement ({max_body_eng:g})")
             score -= 10
             adjustments.append({
                 "target_step": "speech_sequence",
@@ -165,19 +202,29 @@ def review_creative_cohesion(inputs: dict) -> dict:
             })
 
     # 3. Duration Warning
-    # Check actual duration against target duration zone
+    # Check the TIMELINE against the target duration zone. This used to
+    # read `body_sequence[-1]["end_time"]`, a source timestamp, and so
+    # warned about a length the video never had.
     from library.tools.duration_targets import get_target_duration_zone
     min_dur, target_dur, max_dur = get_target_duration_zone(inputs)
-    
-    if total_duration > max_dur:
+
+    if not timeline_duration:
+        # No spine and no A-roll reached this step, so there is nothing
+        # to measure. Saying so beats warning about 0.0 seconds.
         warnings.append(
-            f"Duration warning: actual duration ({total_duration:.1f}s) "
+            "Duration not checked: neither audio_spine nor "
+            "a_roll_assignments reached creative_cohesion, so the "
+            "timeline length is unknown"
+        )
+    elif timeline_duration > max_dur:
+        warnings.append(
+            f"Duration warning: actual duration ({timeline_duration:.1f}s) "
             f"exceeds the maximum target zone ({max_dur:.1f}s)"
         )
         score -= 3
-    elif total_duration < min_dur:
+    elif timeline_duration < min_dur:
         warnings.append(
-            f"Duration warning: actual duration ({total_duration:.1f}s) "
+            f"Duration warning: actual duration ({timeline_duration:.1f}s) "
             f"is below the minimum target zone ({min_dur:.1f}s)"
         )
         score -= 3
@@ -202,6 +249,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # Construct review output
     cohesion_review = {
         "cohesion_score": score,
+        "timeline_duration_seconds": round(timeline_duration, 2),
         "warnings": warnings,
         "adjustments": adjustments,
         "applied_adjustments": applied_adjustments,

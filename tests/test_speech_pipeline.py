@@ -37,13 +37,23 @@ def sample_speech_regions():
     ]
 
 def test_analyze_prosody_no_parselmouth(monkeypatch):
-    """Test error handling when parselmouth is not installed."""
+    """A missing parselmouth raises; it does not return a soft error.
+
+    This used to assert the soft return `{"method": None, "error":
+    "parselmouth not installed"}` - and that dict was then written to
+    `<clip>_prosody.json` like any other result, so step 1.05 counted
+    seventeen files as seventeen profiles and reported success in 0.1s.
+    See tests/test_prosody_failure_is_loud.py.
+    """
+    from library.tools.analysis.speech_advanced_pipeline import (
+        ProsodyUnavailable,
+    )
     # Set to None to guarantee ImportError
     monkeypatch.setitem(sys.modules, 'parselmouth', None)
-    
-    result = analyze_prosody("dummy.wav")
-    assert result["method"] is None
-    assert result["error"] == "parselmouth not installed"
+
+    with pytest.raises(ProsodyUnavailable) as excinfo:
+        analyze_prosody("dummy.wav")
+    assert "praat-parselmouth" in str(excinfo.value)
 
 def test_analyze_prosody_success(sample_speech_regions):
     """Test successful prosody analysis with mocked parselmouth."""

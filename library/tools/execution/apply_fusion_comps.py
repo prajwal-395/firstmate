@@ -21,6 +21,12 @@ from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
 
+# Both entry points again: as a script the package path does not exist.
+try:
+    from execution.fusion_tracks import fusion_comp_tracks
+except ImportError:  # pragma: no cover - package import path
+    from library.tools.execution.fusion_tracks import fusion_comp_tracks
+
 
 def _source_resolution(mpi):
     """(width, height) of the frame Fusion composites over, or None.
@@ -50,6 +56,29 @@ def _source_resolution(mpi):
     return (width, height)
 
 
+def _map_clips_to_items(clips, items):
+    """Match one track's manifest clip specs to the items really placed.
+
+    A spec that names no source file, or whose file does not match the
+    next unconsumed item, is skipped rather than guessed at: the index is
+    what decides which clip a comp lands on.
+    """
+    mapping = {}
+    item_idx = 0
+    for orig_ci, clip_spec in enumerate(clips):
+        if item_idx >= len(items):
+            break
+        src = clip_spec.get('source_file', '')
+        if not src:
+            continue
+        mpi = items[item_idx].GetMediaPoolItem()
+        mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
+        if mpi_path == src or os.path.basename(mpi_path) == os.path.basename(src):
+            mapping[orig_ci] = item_idx
+            item_idx += 1
+    return mapping
+
+
 def apply_fusion_comps(manifest, project_folder):
     resolve = dvr.scriptapp("Resolve")
     if not resolve:
@@ -69,10 +98,13 @@ def apply_fusion_comps(manifest, project_folder):
         
     fps = float(timeline.GetSetting("timelineFrameRate") or 30)
     
-    # Re-build v1_clips from manifest
-    tracks = manifest.get('tracks', {})
-    v1_clips = tracks.get('V1', {}).get('clips', [])
-    
+    # Every track that carries per-clip Fusion comps, in build order.
+    # V2 is here because the house look is merged onto B-roll as well as
+    # A-roll, and reading V1 alone left every cutaway ungraded beside the
+    # clip it was cut into. See library/tools/execution/fusion_tracks.py.
+    comp_tracks = fusion_comp_tracks(manifest)
+    v1_clips = comp_tracks[0][1]
+
     fusion_effects = manifest.get('fusion_effects', {})
     per_clip_effects = fusion_effects.get('per_clip', {})
     # fusion_effects.transitions is the list compile_manifest indexes
@@ -131,24 +163,12 @@ def apply_fusion_comps(manifest, project_folder):
         import_effect_to_clip = None
         is_generator_effect = None
 
-    # Map legacy vfx_entries
+    # Map legacy vfx_entries. VFX are planned against V1 only - a vfx
+    # entry names a timeline instant and compile_manifest resolves it to
+    # the A-roll clip playing there.
     v1_items = timeline.GetItemListInTrack("video", 1) or []
-    
-    # Build mapping from original v1_clips index to actual v1_items index
-    orig_to_item = {}
-    item_idx = 0
-    for orig_ci, clip_spec in enumerate(v1_clips):
-        if item_idx >= len(v1_items):
-            break
-        src = clip_spec.get('source_file', '')
-        if not src:
-            continue
-        mpi = v1_items[item_idx].GetMediaPoolItem()
-        mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
-        if mpi_path == src or os.path.basename(mpi_path) == os.path.basename(src):
-            orig_to_item[orig_ci] = item_idx
-            item_idx += 1
-            
+    orig_to_item = _map_clips_to_items(v1_clips, v1_items)
+
     vfx_entries = manifest.get('vfx', [])
     if vfx_entries and v1_items:
         for vfx in vfx_entries:
@@ -188,10 +208,26 @@ def apply_fusion_comps(manifest, project_folder):
 
         comp_dir = tempfile.mkdtemp(prefix='fusion_comps_')
 
-        for orig_ci, clip_spec in enumerate(v1_clips):
-            if orig_ci not in orig_to_item:
+        # One flat work list over every track that carries comps, so the
+        # per-clip body below is written once. Each entry is a clip that
+        # was really placed - a spec with no matching timeline item is
+        # dropped by _map_clips_to_items rather than guessed at.
+        work = []
+        for track_index, track_clips, applies_transitions in comp_tracks:
+            if not track_clips:
                 continue
-            item_idx = orig_to_item[orig_ci]
+            track_items = (
+                v1_items if track_index == 1
+                else (timeline.GetItemListInTrack("video", track_index) or []))
+            track_map = _map_clips_to_items(track_clips, track_items)
+            for ci, spec in enumerate(track_clips):
+                if ci in track_map:
+                    work.append((track_index, track_items, track_map[ci],
+                                 ci, spec, applies_transitions))
+
+        for (track_index, track_items, item_idx, orig_ci, clip_spec,
+             applies_transitions) in work:
+            where = f"V{track_index}:{orig_ci}"
             label = clip_spec.get('label', f'clip_{orig_ci}')
 
             # A block-type preset used to be substituted here when a clip
@@ -218,7 +254,7 @@ def apply_fusion_comps(manifest, project_folder):
                 try:
                     if is_generator_effect(builtin_effect):
                         print(
-                            f"  ✗ [{orig_ci}] {label}: Rejected generator "
+                            f"  ✗ [{where}] {label}: Rejected generator "
                             f"preset {builtin_effect} - no image input, "
                             f"cannot modify the picture as a clip effect",
                             file=sys.stderr,
@@ -226,7 +262,7 @@ def apply_fusion_comps(manifest, project_folder):
                         builtin_effect = None
                 except ValueError as exc:
                     print(
-                        f"  ✗ [{orig_ci}] {label}: Rejected unclassifiable "
+                        f"  ✗ [{where}] {label}: Rejected unclassifiable "
                         f"preset {builtin_effect} - classifier raised: {exc}",
                         file=sys.stderr,
                     )
@@ -253,7 +289,7 @@ def apply_fusion_comps(manifest, project_folder):
                 # anything but corrupt the file. Dropping them costs the
                 # picture nothing.
                 effects.pop('_preset', None)
-                tl_clip = v1_items[item_idx]
+                tl_clip = track_items[item_idx]
                 for cn in (tl_clip.GetFusionCompNameList() or []):
                     tl_clip.DeleteFusionCompByName(cn)
 
@@ -261,15 +297,18 @@ def apply_fusion_comps(manifest, project_folder):
 
                 comp_names = tl_clip.GetFusionCompNameList()
                 if comp_names and len(comp_names) > 0:
-                    print(f"  ✓ [{orig_ci}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)
+                    print(f"  ✓ [{where}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)
                 else:
-                    print(f"  ✗ [{orig_ci}] {label}: Import built-in effect {builtin_effect} failed", file=sys.stderr)
+                    print(f"  ✗ [{where}] {label}: Import built-in effect {builtin_effect} failed", file=sys.stderr)
                 continue
 
             preset_name = effects.pop('_preset', None)
-            tl_clip = v1_items[item_idx]
+            tl_clip = track_items[item_idx]
 
-            trans_params = transition_by_clip.get(orig_ci, {})
+            # Transitions are indexed against the V1 clip list; see
+            # fusion_tracks.TRANSITION_TRACK.
+            trans_params = (transition_by_clip.get(orig_ci, {})
+                            if applies_transitions else {})
             if trans_params:
                 effects.update(trans_params)
 
@@ -318,7 +357,7 @@ def apply_fusion_comps(manifest, project_folder):
                     tl_clip.DeleteFusionCompByName(cn)
 
                 tl_clip.ImportFusionComp(custom_asset)
-                print(f"  ✓ [{orig_ci}] {label}: Imported custom asset {asset_key}", file=sys.stderr)
+                print(f"  ✓ [{where}] {label}: Imported custom asset {asset_key}", file=sys.stderr)
                 continue
 
             # 3. Generate custom .comp via composable engine
@@ -344,7 +383,7 @@ def apply_fusion_comps(manifest, project_folder):
                 tools = comp.GetToolList() if comp else {}
                 real_tools = [t for t in tools.values() if t.GetAttrs().get('TOOLS_RegID') not in ('MediaIn', 'MediaOut')]
                 if len(real_tools) == 0:
-                    print(f"  ✗ [{orig_ci}] {label}: empty comp (bad file)", file=sys.stderr)
+                    print(f"  ✗ [{where}] {label}: empty comp (bad file)", file=sys.stderr)
                     continue
                 parts = []
                 xf = comp.FindTool("Transform1")
@@ -358,9 +397,9 @@ def apply_fusion_comps(manifest, project_folder):
                 if tt: parts.append(f"tail={tt}")
                 if ht: parts.append(f"head={ht}")
                 detail = f" ({', '.join(parts)})" if parts else ""
-                print(f"  ✓ [{orig_ci}] {label}: {len(real_tools)} tools{detail}", file=sys.stderr)
+                print(f"  ✓ [{where}] {label}: {len(real_tools)} tools{detail}", file=sys.stderr)
             else:
-                print(f"  ✗ [{orig_ci}] {label}: ImportFusionComp failed", file=sys.stderr)
+                print(f"  ✗ [{where}] {label}: ImportFusionComp failed", file=sys.stderr)
 
 
     # ── Generator overlays on V5 ──

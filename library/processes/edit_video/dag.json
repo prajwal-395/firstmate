@@ -462,6 +462,20 @@
       }
     },
     {
+      "from": "mesh_spine",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "audio_spine": "audio_spine"
+      }
+    },
+    {
+      "from": "assign_aroll",
+      "to": "creative_cohesion",
+      "data_mapping": {
+        "a_roll_assignments": "a_roll_assignments"
+      }
+    },
+    {
       "from": "speech_sequence",
       "to": "creative_cohesion",
       "data_mapping": {
