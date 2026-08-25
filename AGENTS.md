@@ -729,6 +729,29 @@ duration plausibility and a justification naming the registers the
 creative direction forbids. Choosing from OUTSIDE the library is
 legitimate and stays allowed.
 
+**Six baseline-craft properties are checked on every build, and two of them
+deliberately do not fail.** `render_qa.py` measures the RENDER: the picture
+fills the delivery frame and keeps ONE geometry (`measure_frame_occupancy`),
+colour exists somewhere in the frame (`measure_chroma_presence`), speech sits
+above the bed (`measure_speech_above_bed`), and the master is deliverable
+without clipping (`measure_lufs` - its true-peak half sets `passed = False`
+now; it used to print +1.85 dBTP inside a detail string and drop it whenever
+the LUFS check had already failed). `manifest_validator.py` checks the PLAN:
+no caption card under 0.5s, and no effect family covering 100% of eligible
+items with two or fewer parameter sets. Chroma and the mix REPORT A NUMBER and
+pass - the chroma floor is an open captain decision and the mix has no
+delivery route, and a gate that must fail teaches everyone to ignore the
+report. Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`,
+`SPEECH_ABOVE_BED_GATES`); do not turn them into gates by another route.
+`min_sat: 10` is GONE, replaced not supplemented: frame-mean saturation cannot
+be the statistic, because the captain's two reference frames differ 9.3x in it
+and that floor would have rejected the one they chose for Punch Card. The
+occupancy gate needs to know what the picture was SUPPOSED to look like, so
+`compile_manifest._conform_fields` records the resolved `framing_intent` on
+every clip - a declared letterbox is exempt from the fill floor and never from
+the consistency half. Source: `data/vep-craft-reference-decomposition/report.md`
+(its Appendix A is the reproducible method); `tests/test_baseline_craft_properties.py`.
+
 **Judge a vision-model gate by what it actually reads - in both
 directions.** The rule that killed `smart_reframe` and
 `verify_fusion_comps` has a mirror: a gate that FAILS correct output is no

@@ -233,7 +233,10 @@ def test_landscape_footage_still_compiles_to_a_vertical_target(tmp_path):
     landscape = {"clip_001": {"width": 1920, "height": 1080}}
 
     same_frame = _conform_fields(landscape, "clip_001", [1920, 1080])
-    assert same_frame == {"needs_conform": False}, (
+    # `framing_intent` rides along so the render-side occupancy gate can
+    # tell a declared letterbox from an accidental one; the conform half
+    # is still "nothing to do".
+    assert same_frame == {"needs_conform": False, "framing_intent": 1.0}, (
         "target == source is why the framing mechanism was a no-op"
     )
 

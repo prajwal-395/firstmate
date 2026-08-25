@@ -77,6 +77,41 @@ def _declared_black_beats(assembly_manifest: dict) -> list:
     return declared_black_beat_ranges(assembly_manifest.get("_spine_blocks") or [])
 
 
+def _declared_framing_intents(assembly_manifest: dict) -> list:
+    """Every framing intent the manifest's picture clips declare.
+
+    `compile_manifest` writes the RESOLVED intent onto each conformed
+    clip. The occupancy gate needs it in both directions: a video whose
+    clips all declare FILL owes the whole frame, and a video whose clips
+    declare more than one intent is allowed to change geometry because
+    something asked it to.
+    """
+    intents = []
+    for track in ("V1", "V2"):
+        for clip in assembly_manifest.get("tracks", {}).get(track, {}).get("clips", []):
+            declared = clip.get("framing_intent")
+            if declared is not None:
+                intents.append(float(declared))
+    return intents
+
+
+def _music_bed(assembly_manifest: dict):
+    """(music file, automation windows) for the speech-above-bed measurement.
+
+    The bed is the first A2 clip. The plan is
+    `audio_mix.music_automation` - NOT `_spine_blocks[*].music_behavior`,
+    which `_spine_block_entry` recomputes into a two-word `full`/`ducked`
+    vocabulary that no code reads and in which a declared silence does not
+    exist.
+    """
+    clips = assembly_manifest.get("tracks", {}).get("A2", {}).get("clips", [])
+    music_path = clips[0].get("source_file") if clips else None
+    automation = (assembly_manifest.get("audio_mix") or {}).get("music_automation") or []
+    if not music_path or not os.path.exists(music_path):
+        return None, []
+    return music_path, automation
+
+
 def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     """Run automated validation checks on the rendered video using render_qa."""
     video_path = rendered_output.get('output_path', '')
@@ -113,6 +148,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
 
     # ── Run QA Toolkit ──
     qa_results = []
+    music_path, music_automation = _music_bed(assembly_manifest)
     try:
         qa_results = run_full_render_qa(
             video_path, expected_duration,
@@ -122,6 +158,13 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
             # judged every render against a hardcoded 1080x1920/30fps.
             expected_resolution=expected_resolution,
             expected_fps=expected_fps,
+            framing_intents=_declared_framing_intents(assembly_manifest),
+            # No chroma floor is passed, deliberately: the value is an
+            # open captain decision and P2 reports its number until one
+            # exists. See render_qa.CHROMA_PRESENCE_GATES.
+            music_path=music_path,
+            music_automation=music_automation,
+            spine_blocks=assembly_manifest.get("_spine_blocks") or [],
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)
@@ -138,6 +181,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
             
     # Process QA Results into existing checks format for compatibility
     tech_check = {"pass": True, "issues": []}
+    framing_check = {"pass": True, "issues": []}
     duration_check = {"pass": True, "issues": []}
     black_frame_check = {"pass": True, "issues": []}
     audio_check = {"pass": True, "issues": []}
@@ -169,12 +213,26 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
             if not r.passed:
                 black_frame_check["pass"] = False
                 black_frame_check["issues"].append(r.detail)
+        elif r.metric == "frame_occupancy":
+            # P1 gates. The picture filling the delivery frame and keeping
+            # one geometry is the largest visible defect project 001
+            # shipped, and nothing in this pipeline looked at it.
+            if not r.passed:
+                framing_check["pass"] = False
+                framing_check["issues"].append(r.detail)
+        elif r.metric in ("chroma_presence", "speech_above_bed"):
+            # P2 and P3 report and do not gate - their thresholds are open
+            # captain decisions. The number is in qa_report either way,
+            # which is the point: promoting them is a boolean in render_qa,
+            # not a change here.
+            pass
         elif r.metric in ["audio_streams", "lufs"]:
             if not r.passed:
                 audio_check["pass"] = False
                 audio_check["issues"].append(r.detail)
                 
     checks["technical"] = tech_check
+    checks["framing"] = framing_check
     checks["duration"] = duration_check
     checks["black_frames"] = black_frame_check
     checks["audio_levels"] = audio_check
@@ -183,7 +241,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
     all_passed = all(c.get("pass", False) for c in checks.values())
     critical_passed = all(
         checks.get(k, {}).get("pass", False)
-        for k in ["file_exists", "technical", "black_frames"]
+        for k in ["file_exists", "technical", "framing", "black_frames"]
     )
 
     all_issues = []

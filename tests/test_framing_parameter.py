@@ -345,7 +345,10 @@ class TestUnsetIsTheDefault:
             LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
             framing_intent=0.0, subject_center_x=0.42,
         )
-        assert letterboxed == {"needs_conform": False}
+        # The RESOLVED intent travels with the clip so render_qa's
+        # occupancy gate can tell a declared letterbox from an accidental
+        # one; the conform half is still "leave it alone".
+        assert letterboxed == {"needs_conform": False, "framing_intent": 0.0}
 
     def test_unset_matching_aspect_no_conform(self):
         """A clip whose aspect ratio matches the target should never

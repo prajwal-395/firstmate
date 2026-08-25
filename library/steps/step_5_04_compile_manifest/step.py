@@ -802,10 +802,19 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: floa
     # scale by whichever axis falls short.
     fit_scale = min(target_w / width, target_h / height)
     fill_scale = max(target_w / width, target_h / height)
+
+    # The resolved intent travels WITH the clip. Nothing downstream could
+    # tell a deliberate letterbox from the removed heuristic's accidental
+    # one, because the manifest carried only the RESULT (`fill_zoom`) and
+    # never the declaration - so `render_qa`'s occupancy gate would have
+    # had to guess what the picture was supposed to look like.
+    resolved_intent = (DEFAULT_FRAMING_INTENT if framing_intent is None
+                       else max(0.0, min(1.0, framing_intent)))
+
     if fill_scale <= fit_scale * (1 + 1e-6):
         # Source already matches the target aspect ratio - no conform needed
         # regardless of framing_intent (there are no bars to remove).
-        return {"needs_conform": False}
+        return {"needs_conform": False, "framing_intent": resolved_intent}
 
     max_zoom = round(fill_scale / fit_scale, 4)
 
@@ -815,12 +824,13 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: floa
     # subject was visible - which on a talking head is every clip, so
     # project 001 shipped its A-roll in a 608-row strip of a 1920-row
     # frame.  See library/tools/framing_intent.py.
-    intent = DEFAULT_FRAMING_INTENT if framing_intent is None else max(0.0, min(1.0, framing_intent))
+    intent = resolved_intent
     if intent == 0.0:
-        return {"needs_conform": False}
+        return {"needs_conform": False, "framing_intent": intent}
     zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
     result = {
         "needs_conform": True,
+        "framing_intent": intent,
         "source_width": width,
         "source_height": height,
         "fill_zoom": zoom,

@@ -42,6 +42,45 @@ ROUND_RANGE_TOLERANCE = 1e-6
 # so overlapping SFX are sound design, not a collision.
 NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 
+# ── P6: no caption card flashes ──
+#
+# A card below this reads as a flicker rather than as text. Nothing here
+# is invented: 0.5s is the threshold `render_qa`'s own
+# `subtitle_too_short` metric already uses, and 0.7s is
+# `step_4_01_plan_subtitles.MIN_DISPLAY_DURATION`, the pipeline's own
+# declared floor. The hard failure is at the lower one; cards between the
+# two are counted in the message so the softer floor stays visible.
+#
+# Why the existing floor cannot catch this, which is the finding:
+# `enforce_min_duration` extends a short card only up to the next card's
+# start, and on project 001 six of the eight short cards abut their
+# neighbour with a gap of exactly 0.0 - there is nowhere to extend into.
+# The floor is structurally unreachable in the normal case, so the fix is
+# in the GROUPING (do not emit a one-word card) and this is the check that
+# says whether a grouping change worked.
+MIN_CAPTION_DISPLAY_SECONDS = 0.5
+SOFT_CAPTION_DISPLAY_SECONDS = 0.7
+
+# ── P7: no discretionary effect applied to everything ──
+#
+# An effect on 100% of eligible items with almost no parameter variation
+# is not a decision, it is a default, and the viewer reads it as either
+# wallpaper or as trying. 100% is the exact boundary between "chosen for
+# these shots" and "applied to all shots", so no arbitrary number is
+# needed for the coverage half.
+#
+# This is NOT a creative ceiling and must not become one. The 2026-08-20
+# ruling removed the B-roll and SFX floors outright, and a maximum
+# DENSITY would be the same mistake in the opposite direction. P7 says
+# nothing about how many effects a piece gets; it says an effect on
+# literally all of them, in two flavours, was not chosen.
+MAX_UNIFORM_PARAMETER_SETS = 2
+
+# Below this many eligible items, "applied to everything" cannot be
+# distinguished from "applied to the two shots that wanted it". Three is
+# the smallest count at which uniformity is a statement.
+MIN_ITEMS_FOR_UNIFORMITY = 3
+
 
 def validate_manifest(manifest: dict) -> list[str]:
     """Returns list of errors. Empty = valid."""
@@ -183,6 +222,8 @@ def validate_manifest_semantics(manifest: dict) -> list[str]:
     errors.extend(_check_overlay_segments_do_not_overlap(manifest))
     errors.extend(_check_no_fabricated_source_ranges(manifest))
     errors.extend(_check_no_repeated_source_audio(manifest))
+    errors.extend(_check_no_flash_captions(manifest))
+    errors.extend(_check_no_effect_on_everything(manifest))
     return errors
 
 
@@ -353,6 +394,135 @@ def _check_no_repeated_source_audio(manifest: dict) -> list[str]:
                 f"that audio twice in a row"
             )
     return errors
+
+
+
+def _check_no_flash_captions(manifest: dict) -> list[str]:
+    """P6: no caption is on screen too briefly to register as text.
+
+    Measured on the plan rather than the render because this is where a
+    fix is possible and where it costs nothing: the durations are already
+    in `subtitles[*]`, and catching it here saves a full render.
+    """
+    subtitles = manifest.get("subtitles", []) or []
+    flashes = []
+    soft = 0
+    for sub in subtitles:
+        start = sub.get("timeline_start")
+        end = sub.get("timeline_end")
+        if start is None or end is None:
+            continue
+        duration = end - start
+        if duration <= 0:
+            continue
+        if duration < MIN_CAPTION_DISPLAY_SECONDS:
+            flashes.append((sub.get("id", "?"), sub.get("text", ""), duration))
+        elif duration < SOFT_CAPTION_DISPLAY_SECONDS:
+            soft += 1
+    if not flashes:
+        return []
+    worst = min(flashes, key=lambda f: f[2])
+    listed = ", ".join(f"{i} {d:.3f}s {t!r}" for i, t, d in flashes[:5])
+    if len(flashes) > 5:
+        listed += f", +{len(flashes) - 5} more"
+    return [
+        f"{len(flashes)} of {len(subtitles)} caption cards are shorter than "
+        f"{MIN_CAPTION_DISPLAY_SECONDS}s and flash rather than read "
+        f"(shortest {worst[2]:.3f}s = {worst[2] * 30:.1f} frames at 30fps, "
+        f"{worst[1]!r}); {soft} more sit under the "
+        f"{SOFT_CAPTION_DISPLAY_SECONDS}s display floor the subtitle planner "
+        f"declares. Group fewer one-word cards - extending them is not "
+        f"possible where they abut their neighbour. Offenders: {listed}"
+    ]
+
+
+def _uniformity_error(family: str, kind: str, counts: dict,
+                      param_sets: int, total: int) -> str:
+    breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+    return (
+        f"{family} covers all {total} {kind} ({breakdown}) with only "
+        f"{param_sets} distinct parameter set(s) - an effect on everything "
+        f"is a default, not a decision. Leave some {kind} alone, or vary "
+        f"what the ones that keep it are doing."
+    )
+
+
+def _check_no_effect_on_everything(manifest: dict) -> list[str]:
+    """P7: no discretionary effect family covers every eligible item.
+
+    Two families, judged the same way. VFX are counted against the V1
+    clips they could sit on; transitions against the cuts between them.
+    A family fires only when it covers 100% AND carries at most
+    `MAX_UNIFORM_PARAMETER_SETS` distinct parameter sets - a type on every
+    clip with genuinely different parameters each time IS a decision, made
+    many times.
+    """
+    errors = []
+    tracks = manifest.get("tracks", {})
+    v1_clips = tracks.get("V1", {}).get("clips", []) or []
+
+    # ── VFX, against the V1 clips ──
+    vfx = manifest.get("vfx", []) or []
+    if vfx and len(v1_clips) >= MIN_ITEMS_FOR_UNIFORMITY:
+        families = {}
+        for item in vfx:
+            effect = item.get("effect_type")
+            if not effect:
+                continue
+            family = _effect_family(effect)
+            entry = families.setdefault(family, {"counts": {}, "params": set()})
+            entry["counts"][effect] = entry["counts"].get(effect, 0) + 1
+            entry["params"].add(
+                json.dumps(item.get("params", {}), sort_keys=True))
+        for family, entry in sorted(families.items()):
+            covered = sum(entry["counts"].values())
+            if covered < len(v1_clips):
+                continue
+            if len(entry["params"]) > MAX_UNIFORM_PARAMETER_SETS:
+                continue
+            errors.append(_uniformity_error(
+                f"VFX family '{family}'", "V1 clips", entry["counts"],
+                len(entry["params"]), len(v1_clips)))
+
+    # ── Transitions, against the cuts ──
+    transitions = manifest.get("transitions", []) or []
+    cuts = max(len(v1_clips) - 1, 0)
+    if transitions and cuts >= MIN_ITEMS_FOR_UNIFORMITY:
+        counts = {}
+        params = {}
+        for t in transitions:
+            kind = t.get("transition_type")
+            if not kind:
+                continue
+            counts[kind] = counts.get(kind, 0) + 1
+            params.setdefault(kind, set()).add(
+                json.dumps({"duration_frames": t.get("duration_frames")},
+                           sort_keys=True))
+        for kind, count in sorted(counts.items()):
+            if count < cuts:
+                continue
+            if len(params[kind]) > MAX_UNIFORM_PARAMETER_SETS:
+                continue
+            errors.append(_uniformity_error(
+                f"Transition type '{kind}'", "cuts", {kind: count},
+                len(params[kind]), cuts))
+
+    return errors
+
+
+def _effect_family(effect_type: str) -> str:
+    """`slow_zoom_in` and `slow_zoom_out` are one decision, mirrored.
+
+    Counting them as two types would let a planner defeat P7 by
+    alternating direction, which is exactly what project 001 did: five
+    `slow_zoom_in` and three `slow_zoom_out` over eight clips, two
+    parameter sets, one of them the other's mirror.
+    """
+    name = str(effect_type)
+    for suffix in ("_in", "_out", "_up", "_down", "_left", "_right"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def _is_round(value: float) -> bool:
