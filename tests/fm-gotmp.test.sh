@@ -78,6 +78,12 @@ make_fake_root() {
   ln -s "$ROOT/bin/fm-worktree-claim-lib.sh" "$fake/bin/fm-worktree-claim-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/fm-pr-lib.sh" "$fake/bin/fm-pr-lib.sh"
+  # fm-tracker-lib.sh and fm-tracker.sh: teardown sources the library for the
+  # bounded call that closes the task's GitHub ticket, and runs the script itself.
+  # This fixture has no config/, so the script takes its unconfigured-project path
+  # and reports rather than failing - which is the behavior teardown depends on.
+  ln -s "$ROOT/bin/fm-tracker-lib.sh" "$fake/bin/fm-tracker-lib.sh"
+  ln -s "$ROOT/bin/fm-tracker.sh" "$fake/bin/fm-tracker.sh"
   # fm-public-followup-lib.sh (and the fm-x-lib.sh it sources): teardown sources
   # it for the relay-activation gate on the promised-public-reply check. Neither
   # does anything in this fixture, which has no .env, but both are real siblings
@@ -164,6 +170,12 @@ test_teardown_skips_gracefully_without_tasktmp() {
   ln -s "$ROOT/bin/fm-worktree-claim-lib.sh" "$fake/bin/fm-worktree-claim-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/fm-pr-lib.sh" "$fake/bin/fm-pr-lib.sh"
+  # fm-tracker-lib.sh and fm-tracker.sh: teardown sources the library for the
+  # bounded call that closes the task's GitHub ticket, and runs the script itself.
+  # This fixture has no config/, so the script takes its unconfigured-project path
+  # and reports rather than failing - which is the behavior teardown depends on.
+  ln -s "$ROOT/bin/fm-tracker-lib.sh" "$fake/bin/fm-tracker-lib.sh"
+  ln -s "$ROOT/bin/fm-tracker.sh" "$fake/bin/fm-tracker.sh"
   # fm-public-followup-lib.sh (and the fm-x-lib.sh it sources): teardown sources
   # it for the relay-activation gate on the promised-public-reply check. Neither
   # does anything in this fixture, which has no .env, but both are real siblings

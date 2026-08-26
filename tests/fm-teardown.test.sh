@@ -2665,6 +2665,149 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# --- the task's GitHub tracker ticket ----------------------------------------
+#
+# Cleanup is the one path every finished task takes, which is why the ticket is
+# closed HERE rather than by anyone remembering to close it. The ticket was
+# filed on the matching one path at dispatch (bin/fm-spawn.sh; the dispatch half
+# is covered in tests/fm-tracker-task-lifecycle.test.sh).
+#
+# The trap these cases exist for is that cleanup must not become dependent on
+# GitHub: a cleanup that could not finish because GitHub is unreachable would
+# strand a worktree over a ticket, which is worse than the stale ticket it was
+# trying to avoid.
+
+# A fake gh serving BOTH the landed-work check and the tracker's api calls,
+# recording each api call's arguments so a case can claim what was written.
+add_tracker_gh() {  # <case-dir> <task-id>
+  local case_dir=$1 task=$2
+  mkdir -p "$case_dir/gh"
+  {
+    printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n' \
+      156 OPEN 'fm:destination' '' '-' '' \
+      "$(printf 'The destination' | base64 | tr -d '\n')" \
+      "$(printf 'body' | base64 | tr -d '\n')"
+    printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n' \
+      157 OPEN 'fm:task' 'tester' 156 '' \
+      "$(printf 'the task' | base64 | tr -d '\n')" \
+      "$(printf '<!-- fm-task: %s -->\n\nbody\n' "$task" | base64 | tr -d '\n')"
+  } > "$case_dir/gh/graph"
+  printf '%s\n' "project o/r" > "$case_dir/config/tracker-repos"
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-} ${2:-}" = "pr view" ]; then
+  echo "error: pull request not found" >&2
+  exit 1
+fi
+[ "${1:-}" = api ] || exit 0
+shift
+n=$(cat "$FAKE_GH_DIR/seq" 2>/dev/null || printf '0\n')
+n=$((n + 1)); printf '%s\n' "$n" > "$FAKE_GH_DIR/seq"
+: > "$FAKE_GH_DIR/call.$n.args"
+for a in "$@"; do
+  printf '%s\n' "$a" >> "$FAKE_GH_DIR/call.$n.args"
+  case $a in
+    ?*=*) printf '%s' "${a#*=}" > "$FAKE_GH_DIR/call.$n.${a%%=*}" ;;
+  esac
+done
+[ "${FAKE_GH_FAIL:-0}" = 1 ] && exit 1
+for a in "$@"; do
+  [ "$a" = graphql ] || continue
+  cat "$FAKE_GH_DIR/graph"
+  exit 0
+done
+case " $* " in
+  *" /user "*) printf 'tester\n'; exit 0 ;;
+  *"/comments"*) printf '9001\n'; exit 0 ;;
+esac
+printf '157\n'
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh"
+}
+
+tracker_calls() {  # <case-dir>
+  cat "$1"/gh/call.*.args 2>/dev/null || true
+}
+
+run_teardown_with_tracker() {  # <case-dir> [args...]
+  local case_dir=$1; shift
+  FAKE_GH_DIR="$case_dir/gh" run_teardown "$case_dir" "$@"
+}
+
+test_teardown_closes_the_tasks_ticket_with_its_pr() {
+  local case_dir rc comment
+  case_dir=$(make_case tracker-shipped)
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" "project=$case_dir/project" \
+    "kind=ship" "mode=no-mistakes" "pr=https://github.com/o/r/pull/167"
+  add_tracker_gh "$case_dir" task-x1
+  wt_commit "$case_dir" "shipped work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+
+  set +e
+  run_teardown_with_tracker "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "tracker-shipped: teardown should succeed"
+  assert_contains "$(tracker_calls "$case_dir")" "state=closed" \
+    "cleanup must close the task's ticket"
+  assert_contains "$(tracker_calls "$case_dir")" "state_reason=completed" \
+    "shipped work must close its ticket as completed"
+  comment=$(cat "$case_dir"/gh/call.*.body 2>/dev/null)
+  assert_contains "$comment" "https://github.com/o/r/pull/167" \
+    "the closing comment must carry the task's PR link"
+  pass "cleanup closes the task's GitHub ticket and records its PR link"
+}
+
+test_teardown_without_a_pr_closes_the_ticket_as_not_planned() {
+  local case_dir rc
+  case_dir=$(make_case tracker-unshipped)
+  write_meta "$case_dir" no-mistakes ship
+  add_tracker_gh "$case_dir" task-x1
+  wt_commit "$case_dir" "work that never got a PR"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+
+  set +e
+  run_teardown_with_tracker "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "tracker-unshipped: teardown should succeed"
+  # Left open, this ticket would report READY on the frontier forever with
+  # nobody working it, which reads as queued work rather than as abandoned work.
+  assert_contains "$(tracker_calls "$case_dir")" "state_reason=not_planned" \
+    "a task cleaned up with no PR must close its ticket as not planned"
+  pass "cleanup with no PR closes the ticket as not planned rather than leaving it open"
+}
+
+test_teardown_survives_an_unreachable_github_tracker() {
+  local case_dir rc
+  case_dir=$(make_case tracker-unreachable)
+  write_meta "$case_dir" no-mistakes ship
+  add_tracker_gh "$case_dir" task-x1
+  wt_commit "$case_dir" "landed work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+
+  set +e
+  FAKE_GH_FAIL=1 run_teardown_with_tracker "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "tracker-unreachable: cleanup must not depend on GitHub"
+  grep -F "teardown task-x1 complete" "$case_dir/stdout" >/dev/null \
+    || fail "tracker-unreachable: cleanup did not finish"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "tracker-unreachable: cleanup must still clear the task's durable record"
+  pass "cleanup finishes when GitHub is unreachable, leaving the ticket open"
+}
+
 test_teardown_reaps_the_tasks_browser
 test_local_only_fork_remote_allows
 test_teardown_prompts_tasks_axi_done_when_compatible
@@ -2724,3 +2867,6 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_teardown_closes_the_tasks_ticket_with_its_pr
+test_teardown_without_a_pr_closes_the_ticket_as_not_planned
+test_teardown_survives_an_unreachable_github_tracker

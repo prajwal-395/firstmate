@@ -5,6 +5,18 @@
 # decisions, the known unknowns, and the tasks, with real blocking edges between
 # them. tasks-axi remains the execution layer and is untouched by this script.
 #
+# The TASK half is filed mechanically rather than by hand. `sync` runs on the one
+# path every dispatch takes (bin/fm-spawn.sh) and `complete` on the one path every
+# cleanup takes (bin/fm-teardown.sh), so a ticket is never something firstmate has
+# to remember. That is the point: a half-adopted convention is the failure mode
+# this whole script exists to make impossible, and a backfill that then has to be
+# maintained by hand IS a half-adopted convention. Both entrypoints resolve the
+# project's tracker repository from config/tracker-repos and NEVER fail - an
+# unconfigured project, an absent gh, an unreachable GitHub and a hung connection
+# all report the ticket they could not file and let the work proceed, because a
+# dispatch that dies because GitHub is down is a worse defect than a missing
+# ticket.
+#
 # This script exists because a half-adopted convention produces confident wrong
 # answers rather than obvious failures. The defects observed in a hand-rolled
 # run of this structure, and in this layer's own first live use, are made
@@ -37,6 +49,15 @@
 #      record and wakes firstmate on what firstmate just wrote. Use
 #      `fm-tracker.sh comment`.
 #
+#   6. The structure filed for the horizon and not for the work. The destination,
+#      decision and unknown halves were adopted and the task half was not, so the
+#      board showed where a project was going and nothing about what was moving:
+#      one destination and five open questions over an evening in which two
+#      workers were live and five PRs merged. A frontier that answers "what is
+#      the fleet doing" with silence is worse than no frontier, because the
+#      silence reads as an answer. The task half is therefore filed by the
+#      dispatch and the cleanup themselves, never by a convention.
+#
 # Because this script is the only writer of that structure, `validate` is a real
 # guard rather than a linter over free text.
 #
@@ -62,6 +83,37 @@
 #     The fleet's only issue-comment write path, so the wake can tell a comment
 #     firstmate wrote from one the captain wrote on the same account.
 #   fm-tracker.sh validate <owner/repo>
+#   fm-tracker.sh task-open <owner/repo> --task <task-id> --title <title>
+#                     [--kind <ship|scout>] [--project <name>] [--hold <text>]
+#                     [--blocked-by <n[,n...]>] [--adopt <n>] [--no-claim]
+#     Create, reopen, re-attach, re-body and claim ONE fm:task ticket until it
+#     says what that task is, then print its number. Idempotent: it writes only
+#     where the ticket and the intent disagree. Nothing the caller supplies is
+#     composed into the body - the task summary is the TITLE - so a summary
+#     worded in firstmate's own nouns can never be refused as a prose blocker and
+#     no private brief text reaches a public issue. In a body it FINDS, this owns
+#     only the marker line and the blocked-by section and preserves the rest
+#     verbatim, so a ticket someone wrote by hand keeps what they wrote.
+#     --adopt <n> binds an existing ticket to this task instead of filing a new
+#     one, for a ticket written before this layer reached the dispatch. It is by
+#     number and never by title, because matching a ticket to a task by title
+#     would be a guess.
+#   fm-tracker.sh task-close <owner/repo> --task <task-id>
+#                     --outcome <shipped|not-shipped> [--pr <url>] [--detail <text>]
+#     Record the outcome and close. `shipped` closes as completed; `not-shipped`
+#     closes as not planned, so a task cleaned up before it landed leaves a
+#     closed record with its reason rather than a ticket that reports READY
+#     forever with nobody working it. A re-dispatch reopens the same ticket.
+#   fm-tracker.sh sync --project <name> [--task <task-id>] [--dry-run] [--limit <n>]
+#     Reconcile that project's whole open queue into task tickets, in dependency
+#     order, and claim the in-flight rows. Reads data/backlog.md directly, so it
+#     works under either backlog backend and a broken tasks-axi cannot stop a
+#     dispatch. Skips kind:captain rows (a decision is not a task and has its own
+#     type), hold-kind:future rows (parked rows are parked from the captain too)
+#     and hold-kind:external rows (not work). Always exits 0.
+#   fm-tracker.sh complete --project <name> --task <task-id>
+#                     --outcome <shipped|not-shipped> [--pr <url>] [--detail <text>]
+#     task-close with the repository resolved from config. Always exits 0.
 #   fm-tracker.sh watch --task <task-id> <owner/repo> [more owner/repo...]
 #   fm-tracker.sh unwatch --task <task-id>
 #   fm-tracker.sh --help
@@ -77,6 +129,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -443,6 +496,475 @@ cmd_comment() {
 }
 
 # ---------------------------------------------------------------------------
+# The task half of the tracker
+# ---------------------------------------------------------------------------
+#
+# Every command below is built on ONE cached read of the issue graph, so a sync
+# that reconciles a whole backlog costs one query plus a write per ticket that
+# genuinely needs one.
+
+GRAPH_CACHE=
+GRAPH_LOADED=0
+LABELS_ENSURED=0
+TASK_INDEX=
+DESTINATION=
+GH_LOGIN=
+
+graph_load() {
+  [ "$GRAPH_LOADED" -eq 1 ] && return 0
+  GRAPH_CACHE=$(graph_json) || return 1
+  GRAPH_LOADED=1
+  TASK_INDEX=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_task_index)
+  DESTINATION=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_destination_number) || DESTINATION=
+  return 0
+}
+
+ensure_labels_once() {
+  [ "$LABELS_ENSURED" -eq 1 ] && return 0
+  ensure_labels
+  LABELS_ENSURED=1
+}
+
+# Fields of the ticket bound to <task-id>, or nothing. The id is matched whole,
+# so a task id that is a prefix of another cannot resolve to its neighbour's
+# ticket.
+task_index_row() {  # <task-id>
+  local want=$1 id number state parent assignees
+  while read -r id number state parent assignees; do
+    [ "$id" = "$want" ] || continue
+    printf '%s %s %s %s\n' "$number" "$state" "$parent" "$assignees"
+    return 0
+  done <<EOF
+$TASK_INDEX
+EOF
+  return 1
+}
+
+# True when a US-separated row list carries <task-id> in its first field. Field
+# equality rather than a regex, because a task id may contain characters a
+# pattern would read as syntax.
+row_list_has_task() {  # <rows> <task-id>
+  printf '%s\n' "${1-}" | awk -F'\037' -v want="${2-}" '$1 == want { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+authenticated_login() {
+  [ -n "$GH_LOGIN" ] && { printf '%s\n' "$GH_LOGIN"; return 0; }
+  GH_LOGIN=$(gh_api /user --jq .login) || return 1
+  printf '%s\n' "$GH_LOGIN"
+}
+
+# Assignment IS the claim (defect 3). Claiming as the configured captain login
+# would make the frontier report the ticket as a wait ON the captain rather than
+# as claimed work, so this says so rather than quietly inverting the meaning.
+claim_issue() {  # <number>
+  local num=$1 me captain
+  me=$(authenticated_login) || return 1
+  captain=$(captain_login)
+  if fm_tracker_is_captain "$me" "$captain"; then
+    printf 'warning: %s is the configured captain login, so the frontier will report\n' "$me" >&2
+    printf '         #%s as waiting on the captain rather than as claimed work\n' "$num" >&2
+  fi
+  gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/assignees" -f "assignees[]=$me" >/dev/null 2>&1
+}
+
+# Create, reopen, re-attach, re-body and claim one task ticket until it says what
+# this task actually is, then print its number. Idempotent by construction: it
+# writes only where the ticket and the intent disagree, so a sync that changes
+# nothing makes no write at all.
+#
+# The composed body is authoritative because no part of it came from a caller
+# (fm_tracker_task_prose owns why), so convergence never has to merge with
+# anything a human typed. Comments are untouched and are where discussion lives.
+#
+# Returns 1 without creating anything when the repository has no single open
+# destination to hang the ticket off. An orphan is precisely what `validate`
+# exists to report, and creating one to avoid an error message would trade a
+# loud failure for a quiet wrong answer.
+#
+# Callers invoke this through a command substitution, which is also what bounds
+# the `die` inside its GitHub helpers to this one ticket rather than the whole
+# run: a sync must survive one ticket it cannot file.
+# The body to publish: the marker, then whatever the author already had (or this
+# script's own short note when the ticket is new), then the computed edges.
+# fm_tracker_task_body_author_part owns why the author's half is preserved rather
+# than regenerated.
+compose_task_body() {  # <task-id> <kind> <project> <hold> <blocker-csv> <existing-body>
+  local task=$1 kind=$2 project=$3 hold=$4 blockers=$5 existing=$6 author
+  author=$(fm_tracker_task_body_author_part "$existing")
+  [ -n "$author" ] || author=$(fm_tracker_task_default_note "$task" "$kind" "$project" "$hold")
+  compose_body "$(fm_tracker_task_marker "$task"; printf '\n%s\n' "$author")" "$blockers"
+}
+
+ensure_task_ticket() {  # <task-id> <title> <kind> <project> <hold> <blocker-numbers-csv> <claim:0|1>
+  local task=$1 title=$2 kind=$3 project=$4 hold=$5 blockers=$6 claim=$7
+  local row num state parent assignees body current
+  if row=$(task_index_row "$task"); then
+    read -r num state parent assignees <<EOF
+$row
+EOF
+    if [ "$state" != OPEN ]; then
+      gh_api -X PATCH "/repos/$OWNER/$REPO/issues/$num" -f state=open --jq .number >/dev/null \
+        || { printf 'error: could not reopen #%s for %s\n' "$num" "$task" >&2; return 1; }
+    fi
+    current=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_body_of "$num") || current=
+    # A prose blocker already in the author's body is `validate`'s to report, not
+    # this pass's to refuse: refusing here would leave the ticket without the very
+    # edge that fixes it.
+    body=$(compose_task_body "$task" "$kind" "$project" "$hold" "$blockers" "$current")
+    if [ "$current" != "$body" ]; then
+      gh_api -X PATCH "/repos/$OWNER/$REPO/issues/$num" -f "body=$body" --jq .number >/dev/null \
+        || printf 'warning: could not update the body of #%s for %s\n' "$num" "$task" >&2
+    fi
+    if [ "$parent" = '-' ] && [ -n "$DESTINATION" ]; then
+      attach_parent "$num" "$DESTINATION" || true
+    fi
+    if [ "$claim" = 1 ] && [ -z "$assignees" ]; then
+      claim_issue "$num" || true
+    fi
+    printf '%s\n' "$num"
+    return 0
+  fi
+  if [ -z "$DESTINATION" ]; then
+    printf 'error: %s/%s has no single open destination ticket, so a task ticket would\n' "$OWNER" "$REPO" >&2
+    printf '       hang off nothing and report as orphaned. Run fm-tracker.sh init first.\n' >&2
+    return 1
+  fi
+  body=$(compose_task_body "$task" "$kind" "$project" "$hold" "$blockers" '')
+  fm_tracker_body_prose_blocker_refuse "$body" || return 1
+  ensure_labels_once
+  num=$(create_issue "$title" "$body" task) || return 1
+  attach_parent "$num" "$DESTINATION" || true
+  if [ "$claim" = 1 ]; then
+    claim_issue "$num" || true
+  fi
+  printf '%s\n' "$num"
+}
+
+# Record a ticket this run just resolved, so a later row in the same run reads it
+# as an existing edge target instead of filing a second ticket for it.
+task_index_record() {  # <task-id> <number> <claim:0|1>
+  local holder=''
+  [ "$3" = 1 ] && holder=$GH_LOGIN
+  TASK_INDEX="${TASK_INDEX:+$TASK_INDEX
+}$1 $2 OPEN ${DESTINATION:--} $holder"
+}
+
+cmd_task_open() {
+  local task='' title='' kind='' project='' hold='' blockers='' claim=1 adopt='' num row
+  parse_repo "${1-}"; shift
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      --title) [ "$#" -gt 1 ] || usage_die "--title requires a value"; title=$2; shift 2 ;;
+      --title=*) title=${1#--title=}; shift ;;
+      --kind) [ "$#" -gt 1 ] || usage_die "--kind requires a value"; kind=$2; shift 2 ;;
+      --kind=*) kind=${1#--kind=}; shift ;;
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      --hold) [ "$#" -gt 1 ] || usage_die "--hold requires text"; hold=$2; shift 2 ;;
+      --hold=*) hold=${1#--hold=}; shift ;;
+      --blocked-by) [ "$#" -gt 1 ] || usage_die "--blocked-by requires issue numbers"; blockers=$2; shift 2 ;;
+      --blocked-by=*) blockers=${1#--blocked-by=}; shift ;;
+      --adopt) [ "$#" -gt 1 ] || usage_die "--adopt requires an issue number"; adopt=$2; shift 2 ;;
+      --adopt=*) adopt=${1#--adopt=}; shift ;;
+      --no-claim) claim=0; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$task" ] || usage_die "task-open requires --task <task-id>"
+  fm_pr_task_id_valid "$task" || usage_die "invalid task id '$task'"
+  [ -n "$title" ] || usage_die "task-open requires --title <title>"
+  case "$kind" in
+    ''|ship|scout) ;;
+    *) usage_die "invalid --kind '$kind' (expected ship or scout)" ;;
+  esac
+  if [ -n "$blockers" ]; then
+    fm_tracker_blocker_csv_valid "$blockers" \
+      || usage_die "invalid --blocked-by '$blockers' (expected comma-separated issue numbers)"
+  fi
+  if [ -n "$adopt" ]; then
+    fm_tracker_issue_number_valid "$adopt" \
+      || usage_die "invalid --adopt '$adopt' (expected a positive issue number)"
+  fi
+  require_gh
+  graph_load || die "could not read the issue graph for $OWNER/$REPO"
+  verify_blockers_exist "$blockers"
+  # Adoption exists because a ticket filed before this layer reached the dispatch
+  # carries no marker, so nothing binds it to a task and the next sync files a
+  # SECOND ticket for the same work. It is deliberately explicit and by number:
+  # matching an existing ticket to a task by title would be a guess, and a guess
+  # here attaches a task's whole future to a ticket about something else.
+  if [ -n "$adopt" ]; then
+    if task_index_row "$task" >/dev/null; then
+      die "$task is already bound to a ticket in $OWNER/$REPO; release that one before adopting another"
+    fi
+    row=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_index_row_for_number "$adopt") \
+      || die "#$adopt does not exist in $OWNER/$REPO"
+    TASK_INDEX="${TASK_INDEX:+$TASK_INDEX
+}$task $row"
+  fi
+  num=$(ensure_task_ticket "$task" "$title" "$kind" "$project" "$hold" "$blockers" "$claim") || exit 1
+  printf 'task %s -> #%s in %s/%s\n' "$task" "$num" "$OWNER" "$REPO"
+}
+
+cmd_task_close() {
+  local task='' outcome='' pr='' detail='' row num state comment comment_id reason
+  parse_repo "${1-}"; shift
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      --outcome) [ "$#" -gt 1 ] || usage_die "--outcome requires a value"; outcome=$2; shift 2 ;;
+      --outcome=*) outcome=${1#--outcome=}; shift ;;
+      --pr) [ "$#" -gt 1 ] || usage_die "--pr requires a URL"; pr=$2; shift 2 ;;
+      --pr=*) pr=${1#--pr=}; shift ;;
+      --detail) [ "$#" -gt 1 ] || usage_die "--detail requires text"; detail=$2; shift 2 ;;
+      --detail=*) detail=${1#--detail=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$task" ] || usage_die "task-close requires --task <task-id>"
+  fm_pr_task_id_valid "$task" || usage_die "invalid task id '$task'"
+  fm_tracker_outcome_valid "$outcome" \
+    || usage_die "task-close requires --outcome <shipped|not-shipped>"
+  require_gh
+  graph_load || die "could not read the issue graph for $OWNER/$REPO"
+  row=$(task_index_row "$task") || die "no task ticket in $OWNER/$REPO is bound to $task"
+  read -r num state _parent _assignees <<EOF
+$row
+EOF
+  # Closing a closed ticket again would post a second outcome onto a finished
+  # record. Reporting and stopping keeps this safe to re-run, which is what a
+  # cleanup path that can be retried needs.
+  if [ "$state" != OPEN ]; then
+    printf 'task %s -> #%s already closed in %s/%s\n' "$task" "$num" "$OWNER" "$REPO"
+    return 0
+  fi
+  comment=$(fm_tracker_task_outcome_comment "$outcome" "$pr" "$detail")
+  comment_id=$(gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/comments" -f "body=$comment" --jq .id) \
+    || die "could not record the outcome on #$num"
+  record_self_comment "$comment_id"
+  reason=$(fm_tracker_outcome_state_reason "$outcome")
+  gh_api -X PATCH "/repos/$OWNER/$REPO/issues/$num" \
+    -f state=closed -f "state_reason=$reason" --jq .number >/dev/null \
+    || die "could not close #$num"
+  printf 'task %s -> #%s closed (%s)\n' "$task" "$num" "$outcome"
+}
+
+# ---------------------------------------------------------------------------
+# The path a dispatch takes
+# ---------------------------------------------------------------------------
+#
+# `sync` is what makes the task half MECHANICAL rather than a discipline. It
+# reconciles a project's whole open queue in one pass, so the frontier reports
+# what is claimed, what is queued and what is blocked without anyone having to
+# remember to file a ticket. bin/fm-spawn.sh calls it on every crewmate and scout
+# launch, which is the one path a dispatch cannot route around.
+#
+# It NEVER fails. A project with no configured tracker, an absent gh, an
+# unauthenticated gh, an unreachable GitHub and a hung connection all report what
+# was not filed and exit 0, because a dispatch that dies because GitHub is down
+# is a worse defect than the missing ticket it was trying to prevent.
+sync_report() { printf 'TRACKER: %s\n' "$*" >&2; }
+
+cmd_sync() {
+  local project='' task='' dry=0 limit=25 repo names backlog
+  local id kind rowrepo holdkind blocked section summary
+  local rows pending progress created=0 skipped=0 capped=0 deferred
+  local blocker_nums bid brow bnum bstate claim hold num
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      --dry-run) dry=1; shift ;;
+      --limit) [ "$#" -gt 1 ] || usage_die "--limit requires a count"; limit=$2; shift 2 ;;
+      --limit=*) limit=${1#--limit=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$project" ] || usage_die "sync requires --project <name>"
+  case "$limit" in
+    ''|*[!0-9]*|0) usage_die "invalid --limit '$limit'" ;;
+  esac
+  if [ -n "$task" ] && ! fm_pr_task_id_valid "$task"; then
+    usage_die "invalid task id '$task'"
+  fi
+
+  if ! fm_tracker_repo_for_project "$CONFIG" "$project"; then
+    sync_report "no tracker repository is configured for $project, so no task ticket was filed (config/$FM_TRACKER_PROJECT_CONFIG)"
+    return 0
+  fi
+  repo=$FM_TRACKER_PROJECT_REPO
+  names=$FM_TRACKER_PROJECT_NAMES
+  parse_repo "$repo"
+
+  if ! command -v "$GH" >/dev/null 2>&1; then
+    sync_report "$GH is not on PATH, so no task ticket was filed in $repo"
+    return 0
+  fi
+  backlog="$DATA/backlog.md"
+  if ! rows=$(fm_tracker_backlog_rows "$backlog"); then
+    sync_report "no readable task list at $backlog, so no task ticket was filed in $repo"
+    return 0
+  fi
+  if ! graph_load; then
+    sync_report "could not read the issue graph for $repo, so no task ticket was filed"
+    return 0
+  fi
+  if [ -z "$DESTINATION" ]; then
+    sync_report "$repo has no single open destination ticket, so no task ticket was filed"
+    return 0
+  fi
+
+  pending=$(printf '%s\n' "$rows" | while IFS=$'\037' read -r id kind rowrepo holdkind blocked section summary; do
+    [ -n "$id" ] || continue
+    fm_tracker_project_matches "$rowrepo" "$names" || continue
+    printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' \
+      "$id" "$kind" "$rowrepo" "$holdkind" "$blocked" "$section" "$summary"
+  done)
+  if [ -z "$pending" ]; then
+    sync_report "no open ship or scout work is recorded for $project, so nothing was filed in $repo"
+    return 0
+  fi
+
+  # Place the rows so a blocker's ticket exists before the ticket referencing it.
+  # A reference to a number that does not exist yet is a task-list entry GitHub
+  # never resolves into an edge, and the blocked ticket then queries as READY -
+  # defect 1 arriving through ordering rather than through wording. Each pass
+  # files every row whose dependencies are already settled; a pass that files
+  # nothing means what is left depends on itself, and is reported rather than
+  # filed without its edges.
+  progress=1
+  while [ -n "$pending" ] && [ "$progress" -eq 1 ]; do
+    progress=0
+    rows=$pending
+    pending=
+    while IFS=$'\037' read -r id kind rowrepo holdkind blocked section summary; do
+      [ -n "$id" ] || continue
+      # A blocker that is closed, or that this deliberately does not mirror (a
+      # finished task, or a captain-held row), contributes no edge: an edge to
+      # something already settled says nothing the frontier can use.
+      blocker_nums=
+      deferred=0
+      for bid in ${blocked//,/ }; do
+        [ -n "$bid" ] || continue
+        if brow=$(task_index_row "$bid"); then
+          read -r bnum bstate _bparent _bassignees <<EOF
+$brow
+EOF
+          [ "$bstate" = OPEN ] && blocker_nums="${blocker_nums:+$blocker_nums,}$bnum"
+        elif row_list_has_task "$rows" "$bid"; then
+          deferred=1
+        fi
+      done
+      if [ "$deferred" -eq 1 ]; then
+        pending="${pending:+$pending
+}$id"$'\037'"$kind"$'\037'"$rowrepo"$'\037'"$holdkind"$'\037'"$blocked"$'\037'"$section"$'\037'"$summary"
+        continue
+      fi
+      progress=1
+      # An in-flight row has a live worker, so its ticket is claimed and leaves
+      # the frontier; a queued row is available work and stays on it as READY or
+      # BLOCKED. That split is the whole point of mirroring the queue at all.
+      claim=0
+      [ "$section" = flight ] && claim=1
+      [ "$id" = "$task" ] && claim=1
+      hold=
+      [ -n "$holdkind" ] && hold="Held for the captain, with the reason recorded in firstmate's own task list."
+      if [ "$dry" -eq 1 ]; then
+        # A dry run names the DECLARED dependency rather than an issue number:
+        # the blocker's ticket is one of the things it did not create, so any
+        # number printed here would be invented. The placeholder below still
+        # enters the index, so the ordering pass is exercised for real.
+        printf 'would file %s [%s] claim=%s blocked-by=%s: %s\n' \
+          "$id" "$kind" "$claim" "${blocked:-none}" "$summary"
+        task_index_record "$id" 0 "$claim"
+        continue
+      fi
+      if [ "$created" -ge "$limit" ]; then
+        capped=1
+        continue
+      fi
+      if num=$(ensure_task_ticket "$id" "$summary" "$kind" "$project" "$hold" "$blocker_nums" "$claim"); then
+        created=$((created + 1))
+        task_index_record "$id" "$num" "$claim"
+        if [ "$id" = "$task" ]; then
+          sync_report "task ticket for $id: https://github.com/$OWNER/$REPO/issues/$num"
+        fi
+      else
+        skipped=$((skipped + 1))
+        sync_report "could not file a task ticket for $id in $repo"
+      fi
+    done <<EOF
+$rows
+EOF
+  done
+
+  if [ -n "$pending" ]; then
+    sync_report "left $(printf '%s\n' "$pending" | grep -c .) row(s) unfiled in $repo because their dependencies form a cycle"
+  fi
+  if [ "$capped" -eq 1 ]; then
+    sync_report "stopped at the $limit-ticket limit for one pass in $repo; rerun to continue"
+  fi
+  # The dispatched task getting no ticket while everything around it does is the
+  # one silence worth breaking: it means the work has no row in firstmate's own
+  # task list, which section 10 requires on every dispatch, and a missing row
+  # costs far more than a missing ticket.
+  if [ -n "$task" ] && [ "$dry" -eq 0 ] && ! task_index_row "$task" >/dev/null; then
+    sync_report "no open ship or scout row names $task under $project, so it has no ticket in $repo; record it in the task list"
+  fi
+  if [ "$dry" -eq 0 ]; then
+    printf 'sync %s -> %s: %s reconciled, %s could not be filed\n' "$project" "$repo" "$created" "$skipped"
+  fi
+  return 0
+}
+
+# The cleanup half of the same contract, and non-fatal for the same reason:
+# bin/fm-teardown.sh calls it, and a cleanup that could not finish because GitHub
+# is unreachable would strand a worktree over a ticket. The subshell is what
+# bounds task-close's refusals to this call.
+cmd_complete() {
+  local project='' task='' outcome='' pr='' detail='' repo
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      --outcome) [ "$#" -gt 1 ] || usage_die "--outcome requires a value"; outcome=$2; shift 2 ;;
+      --outcome=*) outcome=${1#--outcome=}; shift ;;
+      --pr) [ "$#" -gt 1 ] || usage_die "--pr requires a URL"; pr=$2; shift 2 ;;
+      --pr=*) pr=${1#--pr=}; shift ;;
+      --detail) [ "$#" -gt 1 ] || usage_die "--detail requires text"; detail=$2; shift 2 ;;
+      --detail=*) detail=${1#--detail=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$project" ] || usage_die "complete requires --project <name>"
+  [ -n "$task" ] || usage_die "complete requires --task <task-id>"
+  fm_pr_task_id_valid "$task" || usage_die "invalid task id '$task'"
+  fm_tracker_outcome_valid "$outcome" \
+    || usage_die "complete requires --outcome <shipped|not-shipped>"
+  if ! fm_tracker_repo_for_project "$CONFIG" "$project"; then
+    sync_report "no tracker repository is configured for $project, so no ticket was closed for $task"
+    return 0
+  fi
+  repo=$FM_TRACKER_PROJECT_REPO
+  if ! command -v "$GH" >/dev/null 2>&1; then
+    sync_report "$GH is not on PATH, so no ticket was closed for $task in $repo"
+    return 0
+  fi
+  if ! ( cmd_task_close "$repo" --task "$task" --outcome "$outcome" \
+    ${pr:+--pr "$pr"} ${detail:+--detail "$detail"} ); then
+    sync_report "could not close the task ticket for $task in $repo"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # The notification-driven wake
 # ---------------------------------------------------------------------------
 
@@ -558,6 +1080,10 @@ case $CMD in
   answer) cmd_answer "$@" ;;
   comment) cmd_comment "$@" ;;
   validate) cmd_validate "$@" ;;
+  task-open) cmd_task_open "$@" ;;
+  task-close) cmd_task_close "$@" ;;
+  sync) cmd_sync "$@" ;;
+  complete) cmd_complete "$@" ;;
   watch) cmd_watch "$@" ;;
   unwatch) cmd_unwatch "$@" ;;
   *) usage_die "unknown command '$CMD'" ;;

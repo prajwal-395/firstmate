@@ -270,7 +270,7 @@ family_for_basename() {
     fm-spawn-relaunch.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-spawn-pool-base-freshen.test.sh|\
-    fm-teardown-endpoint-safety.test.sh)
+    fm-teardown-endpoint-safety.test.sh|fm-tracker-task-lifecycle.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|\
@@ -563,6 +563,7 @@ tests/fm-test-isolation-proof.test.sh 410
 tests/fm-tmux-agent-liveness.test.sh 2329
 tests/fm-trace-context-lib.test.sh 196
 tests/fm-trace-context-spawn.test.sh 33779
+tests/fm-tracker-task-lifecycle.test.sh 12000
 tests/fm-turnend-guard.test.sh 15463
 tests/fm-update-nudge-surface.test.sh 1792
 tests/fm-update.test.sh 7433
@@ -1065,15 +1066,29 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' secondmate
       ;;
-    bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
+    bin/fm-teardown.sh)
+      # Cleanup's own family, plus the one teardown suite that lives outside it:
+      # tests/fm-gotmp.test.sh drives the real teardown against a fixture that
+      # symlinks exactly the libraries teardown sources, so a change to what
+      # teardown sources breaks it - and it is classified session-bootstrap, so
+      # pr-forge alone would not have selected it. It was CI, not the changed-file
+      # selection, that caught that.
+      printf '%s\n' pr-forge
+      printf '%s\n' "__script__:fm-gotmp.test.sh"
+      ;;
+    bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
     bin/fm-tracker*)
-      # The GitHub Issues project layer and its comment wake. Named as a script
-      # rather than a family: tests/fm-tracker.test.sh is the only coverage, and
-      # it is unclassified, so a family selection would not reach it.
+      # The GitHub Issues project layer, its task half, and its comment wake.
+      # tests/fm-tracker.test.sh is named as a script because it is unclassified
+      # and no family selection would reach it. The task half additionally files
+      # tickets from the dispatch and the cleanup, so a tracker change also has
+      # to re-run those two paths.
       printf '%s\n' "__script__:fm-tracker.test.sh"
+      printf '%s\n' backend-dispatch
+      printf '%s\n' pr-forge
       ;;
     bin/fm-browser-reaper.sh)
       # Two consumers: teardown's per-task reap (pr-forge) and bootstrap's
