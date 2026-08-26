@@ -98,6 +98,78 @@ $ gh api /rate_limit --jq '.resources.core.remaining'
 If the fleet later separates the captain's account from firstmate's, the notifications source begins carrying these events on its own and the per-repository source becomes redundant rather than load-bearing.
 Neither source needs removing for that to happen.
 
+## The fleet's own comments do not wake it, and the captain's still do
+
+Measured on 2026-08-26 against github.com, on the same `prajwal-395` account the fleet and the captain share, using pull request 71 of `prajwal-395/firstmate` as the comment thread.
+A pull request comment is an issue comment and appears on the same `/repos/{owner}/{repo}/issues/comments` feed the poll reads, so it measures the identical path.
+
+The fleet writes a comment through its own write path, which records the id GitHub returns:
+
+```sh
+$ bin/fm-tracker.sh comment prajwal-395/firstmate 71 --body '...'
+commented on #71
+
+$ cat state/.tracker-self-comments
+fm-tracker-self-comments-v1
+1787712074	5419826356
+
+$ bin/fm-tracker-notify.sh --task live      # silent: firstmate wrote it
+$ echo $?
+0
+```
+
+The same comment, at the same cursor position, against the poll as it stood before this behaviour existed:
+
+```sh
+$ cp cursor.before state/live.tracker-cursor
+$ oldbin/bin/fm-tracker-notify.sh --task live
+issue comment: prajwal-395/firstmate#71
+```
+
+That line is the over-reporting this record exists to show closed.
+
+A comment from the SAME account written outside the fleet's write path - which is how a captain's answer arrives - still wakes firstmate:
+
+```sh
+$ gh api -X POST /repos/prajwal-395/firstmate/issues/71/comments -f body='...' \
+    --jq '"id=\(.id) author=\(.user.login)"'
+id=5419828022 author=prajwal-395
+
+$ cat state/.tracker-self-comments        # unchanged: the fleet did not write it
+fm-tracker-self-comments-v1
+1787712074	5419826356
+
+$ bin/fm-tracker-notify.sh --task live
+issue comment: prajwal-395/firstmate#71
+```
+
+The author is identical in both directions; only the record differs.
+
+An unedited comment carries `updated_at == created_at`, and an edit moves `updated_at`, so a recorded id whose comment has since been edited wakes firstmate again:
+
+```sh
+$ gh api /repos/prajwal-395/firstmate/issues/comments/5419826356 \
+    --jq '"created_at=\(.created_at) updated_at=\(.updated_at)"'
+created_at=2026-08-26T02:41:14Z updated_at=2026-08-26T02:41:14Z
+
+$ gh api -X PATCH /repos/prajwal-395/firstmate/issues/comments/5419826356 -f body='...' \
+    --jq '"created_at=\(.created_at) updated_at=\(.updated_at)"'
+created_at=2026-08-26T02:41:14Z updated_at=2026-08-26T02:41:38Z
+
+$ bin/fm-tracker-notify.sh --task live
+issue comment: prajwal-395/firstmate#71
+```
+
+A settled poll is still silent and still free:
+
+```sh
+$ gh api /rate_limit --jq '.resources.core.remaining'
+4966
+$ bin/fm-tracker-notify.sh --task live      # silent
+$ gh api /rate_limit --jq '.resources.core.remaining'
+4966
+```
+
 ## Watcher cadence versus the server's cadence
 
 `bin/fm-watch.sh` sweeps checks every `FM_CHECK_INTERVAL` seconds, default 300, and allows `FM_CHECK_TIMEOUT` seconds per check, default 30.

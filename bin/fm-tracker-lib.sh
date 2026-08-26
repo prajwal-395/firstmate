@@ -40,6 +40,102 @@ FM_TRACKER_MAX_WATCHED_REPOS=10
 FM_TRACKER_DEFAULT_POLL_INTERVAL=60
 
 # ---------------------------------------------------------------------------
+# What the fleet wrote itself
+# ---------------------------------------------------------------------------
+#
+# The wake must not fire on a comment the fleet just wrote. The discriminator
+# cannot be the author: the fleet authenticates as the captain's own account, so
+# ignoring that login would discard the captain's answers - the one thing the
+# wake exists to deliver. It is the same trap the assignment rule above
+# documents, with the same root.
+#
+# The discriminator is WHAT WE DID, not who we are: every write path records the
+# comment id GitHub returns, and the poll skips exactly those ids. A comment
+# firstmate never wrote has no record and always wakes, whoever authored it.
+#
+# The record is home-wide rather than per-task, because a comment is written by
+# whichever command happens to write it and has no task to belong to, while
+# every poll in the home must be able to recognise it.
+FM_TRACKER_SELF_MAGIC='fm-tracker-self-comments-v1'
+FM_TRACKER_SELF_FILE='.tracker-self-comments'
+# The floor on how long a recorded id is kept. The binding constraint is not the
+# poll cycle: the comment cursor is durable, so the first poll after a watcher
+# outage still asks for everything since the last successful poll and sees every
+# comment the fleet wrote during it. Seven days covers an outage of that length
+# while holding a handful of ids a day, so the file stays a few kilobytes.
+# Nothing is dropped early; an id may outlive this, because the record is
+# rewritten only when a later write finds something to drop.
+FM_TRACKER_SELF_TTL=604800
+# A hard ceiling under the age bound, so a runaway writer cannot grow the file
+# without limit. The oldest entries go first: they are the ones a poll has most
+# likely already passed. Reading the record never applies either bound - an id
+# kept too long costs nothing, and dropping one early costs a spurious wake.
+FM_TRACKER_SELF_MAX=1000
+
+# Resolve the home-wide record of comments the fleet wrote, or refuse.
+fm_tracker_self_comments_path() {  # <state>
+  local state=${1-} parent
+  FM_TRACKER_ARTIFACT=
+  fm_tracker_state_root_valid "$state" || return 1
+  parent=$(cd "$state" 2>/dev/null && pwd -P) || return 1
+  [ -n "$parent" ] || return 1
+  FM_TRACKER_ARTIFACT="$parent/$FM_TRACKER_SELF_FILE"
+}
+
+# Record one comment id the fleet just wrote. Appends rather than rewrites: a
+# short append is atomic, so two commands writing comments at once cannot lose
+# each other's id, and losing an id would cost a spurious wake.
+fm_tracker_self_comment_record() {  # <state> <comment-id>
+  local state=${1-} id=${2-} file
+  case $id in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  fm_tracker_self_comments_path "$state" || return 1
+  file=$FM_TRACKER_ARTIFACT
+  if [ -e "$file" ] || [ -L "$file" ]; then
+    fm_tracker_plain_file "$file" || return 1
+    fm_tracker_self_comment_header_ok "$file" || return 1
+  else
+    ( umask 077; printf '%s\n' "$FM_TRACKER_SELF_MAGIC" > "$file" ) 2>/dev/null || return 1
+  fi
+  printf '%s\t%s\n' "$(date +%s)" "$id" >> "$file" 2>/dev/null || return 1
+  fm_tracker_self_comment_prune "$file"
+  return 0
+}
+
+# True when the file declares itself ours.
+fm_tracker_self_comment_header_ok() {  # <path>
+  local first
+  IFS= read -r first < "${1-}" 2>/dev/null || return 1
+  [ "$first" = "$FM_TRACKER_SELF_MAGIC" ]
+}
+
+# Drop entries past either bound. Best-effort and lock-free: a prune racing an
+# append can drop that one id, which costs one spurious wake and never a missed
+# captain comment, so it is not worth serialising the write path for. awk exits
+# non-zero when nothing needs dropping, so a quiet record is never rewritten.
+fm_tracker_self_comment_prune() {  # <path>
+  local file=${1-} cutoff tmp
+  cutoff=$(( $(date +%s) - FM_TRACKER_SELF_TTL ))
+  tmp=$(mktemp "$(dirname "$file")/.fm-tracker-self.XXXXXX" 2>/dev/null) || return 0
+  awk -F'\t' -v magic="$FM_TRACKER_SELF_MAGIC" -v cutoff="$cutoff" \
+    -v max="$FM_TRACKER_SELF_MAX" '
+      NR == 1 { next }
+      { total++ }
+      $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $1 >= cutoff { line[++n] = $0 }
+      END {
+        start = (n > max) ? n - max + 1 : 1
+        if (start == 1 && n == total) exit 1
+        print magic
+        for (i = start; i <= n; i++) print line[i]
+      }
+    ' "$file" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 0; }
+  chmod 0600 "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 0; }
+  mv -f -- "$tmp" "$file" 2>/dev/null || rm -f -- "$tmp"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # The two meanings of an assignment
 # ---------------------------------------------------------------------------
 #

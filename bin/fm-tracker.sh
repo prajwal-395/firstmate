@@ -6,8 +6,9 @@
 # them. tasks-axi remains the execution layer and is untouched by this script.
 #
 # This script exists because a half-adopted convention produces confident wrong
-# answers rather than obvious failures. Two defects observed in a hand-rolled
-# run of this structure are made structurally impossible here:
+# answers rather than obvious failures. The defects observed in a hand-rolled
+# run of this structure, and in this layer's own first live use, are made
+# structurally impossible here:
 #
 #   1. Blocking edges written as prose. GitHub builds a queryable trackedIssues
 #      edge only from a markdown task-list reference, so a prose
@@ -28,6 +29,13 @@
 #      else, so `add --type decision` REFUSES a body without context, two
 #      options that each state their consequence, and a recommendation, and
 #      always writes the invitation to answer with something none of them say.
+#   5. The wake firing on the fleet's own writing. Every comment the fleet
+#      writes is recorded by id as it is written, and the poll skips exactly
+#      those ids. The author cannot serve as the discriminator - the fleet
+#      authenticates as the captain's own account - so THIS SCRIPT IS THE ONLY
+#      WAY THE FLEET MAY COMMENT: a bare `gh api ... /comments` call leaves no
+#      record and wakes firstmate on what firstmate just wrote. Use
+#      `fm-tracker.sh comment`.
 #
 # Because this script is the only writer of that structure, `validate` is a real
 # guard rather than a linter over free text.
@@ -50,6 +58,9 @@
 #   fm-tracker.sh release <owner/repo> <n>
 #   fm-tracker.sh answer <owner/repo> <n> --decision <text>
 #                     [--settles <text>] [--does-not-settle <text>]
+#   fm-tracker.sh comment <owner/repo> <n> --body <text>|--body-file <path>
+#     The fleet's only issue-comment write path, so the wake can tell a comment
+#     firstmate wrote from one the captain wrote on the same account.
 #   fm-tracker.sh validate <owner/repo>
 #   fm-tracker.sh watch --task <task-id> <owner/repo> [more owner/repo...]
 #   fm-tracker.sh unwatch --task <task-id>
@@ -341,7 +352,7 @@ cmd_release() {
 }
 
 cmd_answer() {
-  local num='' decision='' settles='' not_settles='' labels comment json
+  local num='' decision='' settles='' not_settles='' labels comment comment_id json
   parse_repo "${1-}"; shift
   num=${1-}
   fm_tracker_issue_number_valid "$num" || usage_die "answer requires an issue number"
@@ -367,8 +378,9 @@ cmd_answer() {
     || die "#$num is not a decision or unknown (labels: ${labels:-none}); only those can be answered"
 
   comment=$(fm_tracker_answer_comment "$decision" "$settles" "$not_settles")
-  gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/comments" -f "body=$comment" --jq .id >/dev/null \
+  comment_id=$(gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/comments" -f "body=$comment" --jq .id) \
     || die "could not record the decision on #$num"
+  record_self_comment "$comment_id"
   gh_api -X PATCH "/repos/$OWNER/$REPO/issues/$num" \
     -f state=closed -f state_reason=completed --jq .number >/dev/null \
     || die "could not close #$num"
@@ -379,6 +391,55 @@ cmd_answer() {
     return 0
   fi
   printf '%s\n' "$json" | fm_tracker_render_unblocked "$num"
+}
+
+# ---------------------------------------------------------------------------
+# Comments the fleet writes
+# ---------------------------------------------------------------------------
+
+# Record a comment this script just wrote, so the wake can tell it from one the
+# captain wrote from the same account. A failure here is reported and not fatal:
+# the comment already exists, and the cost is one spurious wake rather than a
+# lost decision.
+record_self_comment() {  # <comment-id>
+  local id=${1-}
+  fm_tracker_self_comment_record "$STATE" "$id" && return 0
+  printf 'warning: could not record comment id %s in state/%s; this comment may wake firstmate\n' \
+    "${id:-<none>}" "$FM_TRACKER_SELF_FILE" >&2
+}
+
+# The fleet's issue-comment write path. It exists so that firstmate has one, and
+# only one, way to comment that the wake can recognise afterwards: a comment
+# posted with a bare `gh api` call leaves no record and wakes the fleet on its
+# own writing.
+cmd_comment() {
+  local num='' body='' body_file='' have_body=0 comment_id
+  parse_repo "${1-}"; shift
+  num=${1-}
+  fm_tracker_issue_number_valid "$num" || usage_die "comment requires an issue number"
+  shift
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --body) [ "$#" -gt 1 ] || usage_die "--body requires text"; body=$2; have_body=1; shift 2 ;;
+      --body=*) body=${1#--body=}; have_body=1; shift ;;
+      --body-file) [ "$#" -gt 1 ] || usage_die "--body-file requires a path"; body_file=$2; shift 2 ;;
+      --body-file=*) body_file=${1#--body-file=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  if [ -n "$body_file" ]; then
+    [ "$have_body" -eq 0 ] || usage_die "pass --body or --body-file, not both"
+    [ -f "$body_file" ] || die "no such body file: $body_file"
+    body=$(cat "$body_file") || die "could not read $body_file"
+    have_body=1
+  fi
+  [ "$have_body" -eq 1 ] || usage_die "comment requires --body <text> or --body-file <path>"
+  [ -n "$body" ] || usage_die "comment refuses an empty body"
+  require_gh
+  comment_id=$(gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/comments" -f "body=$body" --jq .id) \
+    || die "could not comment on #$num"
+  record_self_comment "$comment_id"
+  printf 'commented on #%s\n' "$num"
 }
 
 # ---------------------------------------------------------------------------
@@ -495,6 +556,7 @@ case $CMD in
   claim) cmd_claim "$@" ;;
   release) cmd_release "$@" ;;
   answer) cmd_answer "$@" ;;
+  comment) cmd_comment "$@" ;;
   validate) cmd_validate "$@" ;;
   watch) cmd_watch "$@" ;;
   unwatch) cmd_unwatch "$@" ;;
