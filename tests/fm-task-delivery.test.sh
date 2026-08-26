@@ -9,6 +9,12 @@
 # spawns carry no delivery posture at all. The registry keeps only the captain's
 # standing posture, for the mechanical consumers and for one advisory notice.
 #
+# The same read-the-brief pattern carries a second contract: bin/fm-brief.sh
+# scaffolds four required scope fields into every ship and scout brief, and the
+# spawn refuses to launch while any of them is empty. bin/fm-brief-lib.sh owns
+# those field names and the emptiness test; the cases here pin what the spawn
+# does with its verdict.
+#
 # Every spawn case here stops before any endpoint exists: the delivery checks run
 # ahead of backend creation, and a fake `tmux` that exits non-zero backstops the
 # cases that are meant to get past them, so no window or worktree is ever created.
@@ -21,6 +27,9 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 PROMOTE="$ROOT/bin/fm-promote.sh"
 PROJECT_MODE="$ROOT/bin/fm-project-mode.sh"
 TMP_ROOT=$(fm_test_tmproot fm-task-delivery)
+# The required scope-field names come from their owner, never restated here.
+# shellcheck source=bin/fm-brief-lib.sh
+. "$ROOT/bin/fm-brief-lib.sh"
 
 # A home with one registered project, one project directory, and a fake tmux that
 # refuses, so a spawn that clears the delivery checks still creates nothing.
@@ -45,6 +54,31 @@ write_brief() {  # <home> <id> [<recorded-mode>]
   mkdir -p "$home/data/$id"
   {
     printf 'You are a crewmate.\n\n# Definition of done\n'
+    [ -z "$mode" ] || printf 'Delivery contract: mode=%s\n' "$mode"
+  } > "$home/data/$id/brief.md"
+}
+
+# A brief that carries the required scope contract. <empty-field> leaves exactly
+# one of the four blank; omit it for a brief that answers all four. "Blocked on"
+# is answered with the literal word `nothing`, the answer that keeps the field
+# satisfiable for a task with no blocker at all.
+write_scoped_brief() {  # <home> <id> <recorded-mode> [<empty-field>]
+  local home=$1 id=$2 mode=$3 blank=${4:-} field body
+  mkdir -p "$home/data/$id"
+  {
+    printf 'You are a crewmate.\n\n# Task\nDo the thing.\n\n'
+    while IFS= read -r field; do
+      [ -n "$field" ] || continue
+      case "$field" in
+        "Blocked on") body=nothing ;;
+        *) body="An answer for $field." ;;
+      esac
+      [ "$field" != "$blank" ] || body=""
+      printf '## %s\n%s\n\n' "$field" "$body"
+    done <<EOF
+$(printf '%s\n' "$FM_BRIEF_SCOPE_FIELDS" | tr '|' '\n')
+EOF
+    printf '# Definition of done\n'
     [ -z "$mode" ] || printf 'Delivery contract: mode=%s\n' "$mode"
   } > "$home/data/$id/brief.md"
 }
@@ -324,9 +358,77 @@ EOF
   pass "fm-project-mode: handles comma-separated aliases and prints registered names on miss"
 }
 
+
+# The brief's four required scope fields are a dispatch gate, not decoration: a
+# ship or scout spawn refuses while any is empty, and names it. Emptiness is the
+# only refusal - the spawn never judges what a filled field says, so `nothing` in
+# "Blocked on" and a one-word answer everywhere else both launch. A brief written
+# before the fields existed carries none of the headings and stays dispatchable
+# behind one loud warning, so live work never becomes undispatchable.
+test_spawn_refuses_a_brief_with_an_empty_scope_field() {
+  local rec home proj fakebin out status field n=0
+  rec=$(make_home scope)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+
+  while IFS= read -r field; do
+    [ -n "$field" ] || continue
+    n=$((n + 1))
+    write_scoped_brief "$home" "scope-empty-$n" no-mistakes "$field"
+    out=$(run_spawn "$home" "$fakebin" "scope-empty-$n" "$proj" claude --mode no-mistakes --yolo off)
+    status=$?
+    [ "$status" -ne 0 ] || fail "a ship spawn on an empty '$field' should exit non-zero"
+    assert_contains "$out" "empty: $field" "the refusal did not name the empty field '$field'"
+    assert_contains "$out" "leaves a required scope field empty" \
+      "the refusal did not explain that a required scope field is empty"
+    assert_absent "$home/state/scope-empty-$n.meta" \
+      "a spawn refused for an empty '$field' still wrote task metadata"
+  done <<EOF
+$(printf '%s\n' "$FM_BRIEF_SCOPE_FIELDS" | tr '|' '\n')
+EOF
+  [ "$n" -eq 4 ] || fail "expected four required scope fields, gated $n"
+
+  # A scout brief carries the same fields and the same gate.
+  write_scoped_brief "$home" scope-empty-scout "" "Out of scope"
+  out=$(run_spawn "$home" "$fakebin" scope-empty-scout "$proj" claude --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a scout spawn on an empty scope field should exit non-zero"
+  assert_contains "$out" "empty: Out of scope" "the scout refusal did not name the empty field"
+
+  # All four answered, including the literal word `nothing`: the scope gate is
+  # cleared and the spawn only fails later, at the refusing tmux.
+  write_scoped_brief "$home" scope-filled no-mistakes
+  assert_grep "nothing" "$home/data/scope-filled/brief.md" \
+    "the filled fixture lost its 'nothing' blocked-on answer"
+  out=$(run_spawn "$home" "$fakebin" scope-filled "$proj" claude --mode no-mistakes --yolo off)
+  assert_not_contains "$out" "leaves a required scope field empty" \
+    "a brief answering all four fields was refused"
+  assert_not_contains "$out" "carries no scope contract" \
+    "a brief carrying the scope contract was reported as predating it"
+
+  # A brief scaffolded before the contract existed: one loud warning, still launches.
+  write_brief "$home" scope-legacy no-mistakes
+  out=$(run_spawn "$home" "$fakebin" scope-legacy "$proj" claude --mode no-mistakes --yolo off)
+  assert_contains "$out" "carries no scope contract" \
+    "a brief predating the scope contract launched silently instead of warning"
+  assert_not_contains "$out" "leaves a required scope field empty" \
+    "a brief predating the scope contract was refused instead of warned about"
+
+  # A secondmate charter carries none of the four and is never gated on them.
+  out=$(run_spawn "$home" "$fakebin" scope-sm "$home" --secondmate)
+  assert_not_contains "$out" "leaves a required scope field empty" \
+    "a secondmate spawn was gated on task-shaped scope fields a charter never carries"
+  assert_not_contains "$out" "carries no scope contract" \
+    "a secondmate spawn warned about a scope contract a charter never carries"
+
+  pass "fm-spawn: a ship or scout spawn refuses an empty required scope field, accepts every answered one, and warns once on a pre-contract brief"
+}
+
 test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
+test_spawn_refuses_a_brief_with_an_empty_scope_field
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract

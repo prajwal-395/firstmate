@@ -17,6 +17,9 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The required scope-field names come from their owner, never restated here.
+# shellcheck source=bin/fm-brief-lib.sh
+. "$ROOT/bin/fm-brief-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-brief)
 BRIEF_HOME="$TMP_ROOT/home"
@@ -772,8 +775,8 @@ test_scaffold_tokens_match_spawn_guard_expectations() {
   local id brief
 
   # Ship briefs: three modes, each with and without --herdr-lab.
-  # Ship scaffolds contain {TASK} (once, in # Task) and {DONE_CHECK} (once,
-  # in ## Done-check).
+  # Ship scaffolds contain {TASK} (once, in # Task), {DONE_CHECK} (once, in
+  # ## Done-check), and one placeholder per required scope field.
   for mode in no-mistakes direct-PR local-only; do
     for herdr_flag in "" "--herdr-lab"; do
       id="placeholder-ship-${mode}${herdr_flag:+-herdr}"
@@ -782,12 +785,14 @@ test_scaffold_tokens_match_spawn_guard_expectations() {
         || fail "scaffold failed for ship $mode ${herdr_flag:-no-herdr}"
       brief="$home/data/$id/brief.md"
       assert_present "$brief" "ship $mode ${herdr_flag:-no-herdr}: brief not created"
-      assert_token_counts "$brief" "ship $mode ${herdr_flag:-no-herdr}" "{TASK}:1" "{DONE_CHECK}:1"
+      assert_token_counts "$brief" "ship $mode ${herdr_flag:-no-herdr}" "{TASK}:1" "{DONE_CHECK}:1" \
+        "{SCOPE_DONE}:1" "{SCOPE_OUT_OF_SCOPE}:1" "{SCOPE_KNOWN_UNKNOWNS}:1" "{SCOPE_BLOCKED_ON}:1"
     done
   done
 
   # Scout: with and without --herdr-lab.
-  # Scout scaffolds contain {TASK} (once, in # Task) and no {DONE_CHECK}.
+  # Scout scaffolds contain {TASK} (once, in # Task), one placeholder per
+  # required scope field, and no {DONE_CHECK}.
   for herdr_flag in "" "--herdr-lab"; do
     id="placeholder-scout${herdr_flag:+-herdr}"
     # shellcheck disable=SC2086  # herdr_flag is an intentional word-split arg (may be empty)
@@ -795,7 +800,8 @@ test_scaffold_tokens_match_spawn_guard_expectations() {
       || fail "scaffold failed for scout ${herdr_flag:-no-herdr}"
     brief="$home/data/$id/brief.md"
     assert_present "$brief" "scout ${herdr_flag:-no-herdr}: brief not created"
-    assert_token_counts "$brief" "scout ${herdr_flag:-no-herdr}" "{TASK}:1"
+    assert_token_counts "$brief" "scout ${herdr_flag:-no-herdr}" "{TASK}:1" \
+      "{SCOPE_DONE}:1" "{SCOPE_OUT_OF_SCOPE}:1" "{SCOPE_KNOWN_UNKNOWNS}:1" "{SCOPE_BLOCKED_ON}:1"
   done
 
   # Secondmate with project list (FM_SECONDMATE_CHARTER set, so {TASK} is
@@ -923,6 +929,154 @@ test_ship_and_scout_include_test_selection_ladder() {
   pass "fm-brief.sh: test-selection ladder is present in ship and scout briefs"
 }
 
+
+# The four required scope fields (bin/fm-brief-lib.sh) are what a task brief must
+# answer before it can be dispatched, so every task scaffold has to carry them. A
+# secondmate charter deliberately carries none: a persistent home has no finish
+# line and no blocker at creation, its unknowns belong to the tasks routed to it,
+# and its exclusions are the complement of the Routing scope it already records.
+test_task_scaffolds_carry_the_required_scope_fields() {
+  local home id brief field
+  home="$TMP_ROOT/scope-fields-home"
+  mkdir -p "$home/data"
+
+  # `fail` exits, so every field loop below is fed from a heredoc rather than a
+  # pipeline: a pipeline subshell would swallow the failure and pass vacuously.
+  local fields
+  fields=$(printf '%s\n' "$FM_BRIEF_SCOPE_FIELDS" | tr '|' '\n')
+  [ "$(printf '%s\n' "$fields" | grep -c .)" -eq 4 ] \
+    || fail "the scope contract no longer declares exactly four fields: $FM_BRIEF_SCOPE_FIELDS"
+
+  for mode in no-mistakes direct-PR local-only; do
+    id="scope-ship-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1 \
+      || fail "scaffold failed for ship $mode"
+    brief="$home/data/$id/brief.md"
+    while IFS= read -r field; do
+      [ -n "$field" ] || continue
+      assert_grep "## $field" "$brief" "ship $mode brief is missing the required scope field: $field"
+    done <<EOF
+$fields
+EOF
+  done
+
+  id="scope-scout"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1 \
+    || fail "scaffold failed for scout"
+  brief="$home/data/$id/brief.md"
+  while IFS= read -r field; do
+    [ -n "$field" ] || continue
+    assert_grep "## $field" "$brief" "scout brief is missing the required scope field: $field"
+  done <<EOF
+$fields
+EOF
+
+  id="scope-secondmate"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='Test charter.' \
+    "$ROOT/bin/fm-brief.sh" "$id" --secondmate alpha >/dev/null 2>&1 \
+    || fail "scaffold failed for secondmate"
+  brief="$home/data/$id/brief.md"
+  while IFS= read -r field; do
+    [ -n "$field" ] || continue
+    assert_no_grep "## $field" "$brief" \
+      "secondmate charter carries the task-shaped scope field '$field'; a charter has no finish line to answer it with"
+  done <<EOF
+$fields
+EOF
+  assert_grep "# Routing scope" "$brief" "secondmate charter lost the routing scope it records instead"
+
+  pass "fm-brief.sh: ship and scout scaffolds carry all four required scope fields; a charter carries none"
+}
+
+# --check is the ready gate: it refuses while any required field is empty, names
+# every empty one, and never judges what a filled field says. `nothing` is the
+# answer that keeps "Blocked on" satisfiable for a one-line fix, so it must pass.
+test_scope_check_refuses_empty_and_never_judges_content() {
+  local home id brief out status field n=0
+  home="$TMP_ROOT/scope-check-home"
+  mkdir -p "$home/data"
+
+  # A brief with every field answered, and the shortest honest blocked-on answer.
+  fill_scope() {  # <brief> [<field-to-empty>]
+    local target=$1 blank=${2:-}
+    python3 - "$target" "$blank" <<'FILL'
+import sys
+path, blank = sys.argv[1], sys.argv[2]
+values = {
+    "{TASK}": "Do the thing.",
+    "{DONE_CHECK}": "run the check",
+    "{SCOPE_DONE}": "The gate refuses an empty field.",
+    "{SCOPE_OUT_OF_SCOPE}": "Delivery mode resolution.",
+    "{SCOPE_KNOWN_UNKNOWNS}": "Whether a charter needs the same fields.",
+    "{SCOPE_BLOCKED_ON}": "nothing",
+}
+text = open(path).read()
+for token, value in values.items():
+    text = text.replace(token, "" if token == blank else value)
+open(path, "w").write(text)
+FILL
+  }
+
+  id="scope-check-filled"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the filled case"
+  brief="$home/data/$id/brief.md"
+  fill_scope "$brief"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a brief with all four fields answered must report ready"
+  assert_contains "$out" "ready:" "the ready report did not say the brief is ready"
+  assert_grep "nothing" "$brief" "the fixture lost its 'nothing' blocked-on answer"
+
+  # Emptying any ONE field refuses, and the refusal names that field.
+  while IFS= read -r field; do
+    [ -n "$field" ] || continue
+    n=$((n + 1))
+    id="scope-check-empty-$n"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+      || fail "scaffold failed for the empty-$field case"
+    brief="$home/data/$id/brief.md"
+    case "$field" in
+      "What done means for this task") fill_scope "$brief" "{SCOPE_DONE}" ;;
+      "Out of scope") fill_scope "$brief" "{SCOPE_OUT_OF_SCOPE}" ;;
+      "Known unknowns") fill_scope "$brief" "{SCOPE_KNOWN_UNKNOWNS}" ;;
+      "Blocked on") fill_scope "$brief" "{SCOPE_BLOCKED_ON}" ;;
+      *) fail "unknown required scope field in the contract: $field" ;;
+    esac
+    out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+    [ "$status" -ne 0 ] || fail "an empty '$field' was reported as ready"
+    assert_contains "$out" "empty: $field" "the refusal did not name the empty field '$field'"
+  done <<EOF
+$(printf '%s\n' "$FM_BRIEF_SCOPE_FIELDS" | tr '|' '\n')
+EOF
+
+  # Content is never judged: a one-word answer in every field is accepted.
+  id="scope-check-terse"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the terse case"
+  brief="$home/data/$id/brief.md"
+  python3 - "$brief" <<'TERSE'
+import sys, re
+path = sys.argv[1]
+text = open(path).read()
+text = re.sub(r"\{[A-Z_]+\}", "nothing", text)
+open(path, "w").write(text)
+TERSE
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a one-word answer in every field must be accepted; content is never judged"
+
+  # A brief written before the contract existed warns loudly and stays dispatchable.
+  id="scope-check-legacy"
+  mkdir -p "$home/data/$id"
+  printf 'You are a crewmate.\n\n# Task\nDo the thing.\n\n# Definition of done\nDelivery contract: mode=direct-PR\n' \
+    > "$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a brief predating the scope contract must stay dispatchable"
+  assert_contains "$out" "carries no scope contract" \
+    "a brief predating the scope contract passed silently instead of warning"
+
+  pass "fm-brief.sh --check: empty is the only refusal, it names every empty field, and a pre-contract brief warns rather than blocks"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -944,6 +1098,8 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_scaffold_tokens_match_spawn_guard_expectations
+test_task_scaffolds_carry_the_required_scope_fields
+test_scope_check_refuses_empty_and_never_judges_content
 test_ship_base_verification_before_branching
 test_scout_does_not_assert_false_detached_head
 test_paused_examples_include_long_local_processes

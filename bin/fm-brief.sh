@@ -9,6 +9,11 @@
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
+#        fm-brief.sh <task-id> --check
+#   --check reports whether an already-scaffolded brief is ready to dispatch: it
+#   refuses while any required scope field below is still empty, and names every
+#   empty one. bin/fm-spawn.sh runs the identical check before launching a ship
+#   or scout task, so a brief this reports ready is a brief the spawn accepts.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -40,6 +45,26 @@
 # "Delivery contract: mode=<mode>" line. bin/fm-spawn.sh reads that line and refuses
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
+# REQUIRED SCOPE FIELDS. Every ship and scout scaffold carries four headings the
+# brief must answer before dispatch, and bin/fm-brief-lib.sh is the single owner of
+# their names and of the emptiness test:
+#   ## What done means for this task   this task's finish line, not the project's
+#   ## Out of scope                    what a helpful worker must not "improve"
+#   ## Known unknowns                  what we do not know that could change the answer
+#   ## Blocked on                      a decision, credential, or prior task, named,
+#                                      or the literal word `nothing`
+# Empty is the ONLY refusal: no field's content is judged, because a required field
+# that cannot be answered honestly gets filled with noise, and noise in a required
+# field is worse than no field. Every field must be answerable for a one-line fix as
+# readily as for a month of programme work, which is why `nothing` completes Blocked on.
+# A secondmate charter deliberately carries NONE of the four: a persistent home has no
+# finish line and no blocker at creation, its unknowns belong to the tasks routed to it,
+# and its exclusions are the complement of the Routing scope it already records. Forcing
+# task-shaped fields onto a charter would create exactly the unanswerable field this
+# contract exists to avoid.
+# Briefs written before this contract existed carry none of the four headings; they warn
+# once and still dispatch, so live work never becomes undispatchable. A brief carrying
+# SOME of them is current-generation with a field emptied, and that is refused.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
@@ -86,6 +111,8 @@ esac
 . "$SCRIPT_DIR/fm-marker-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-brief-lib.sh
+. "$SCRIPT_DIR/fm-brief-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
 resolve_directory_input() {
@@ -115,6 +142,7 @@ fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
+CHECK=0
 MODE=
 MODE_SET=0
 POS=()
@@ -134,6 +162,7 @@ for a in "$@"; do
   case "$a" in
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
+    --check) CHECK=1 ;;
     --herdr-lab) HERDR_LAB=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
@@ -146,6 +175,22 @@ for a in "$@"; do
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
+
+# --check inspects a brief that already exists, so it takes neither a delivery
+# mode nor a scaffold kind. bin/fm-brief-lib.sh owns the verdict and its wording;
+# this branch only resolves the path and reports the ready case.
+if [ "$CHECK" -eq 1 ]; then
+  [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
+  [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
+  [ "$HERDR_LAB" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --herdr-lab" >&2; exit 1; }
+  [ "$NO_PROJECTS" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --no-projects" >&2; exit 1; }
+  [ "${#POS[@]}" -eq 1 ] || { echo "error: --check takes exactly one task id" >&2; exit 1; }
+  CHECK_BRIEF="$DATA/${POS[0]}/brief.md"
+  [ -f "$CHECK_BRIEF" ] || { echo "error: no brief at $CHECK_BRIEF" >&2; exit 1; }
+  fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
+  echo "ready: $CHECK_BRIEF (every required scope field is answered)"
+  exit 0
+fi
 
 # Ship delivery mode is an explicit per-task decision (AGENTS.md section 7). A
 # missing or invalid value stops the scaffold rather than silently defaulting.
@@ -337,6 +382,18 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 # Task
 {TASK}
 
+## What done means for this task
+{SCOPE_DONE}
+
+## Out of scope
+{SCOPE_OUT_OF_SCOPE}
+
+## Known unknowns
+{SCOPE_KNOWN_UNKNOWNS}
+
+## Blocked on
+{SCOPE_BLOCKED_ON}
+
 $HERDR_SECTION
 
 # Setup
@@ -389,7 +446,7 @@ Before reporting done, read and follow \`$FM_ROOT/.agents/skills/decision-hold-l
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
-echo "scaffolded: $BRIEF (scout; replace {TASK})"
+echo "scaffolded: $BRIEF (scout; replace {TASK} and answer every scope field)"
 exit 0
 fi
 
@@ -478,6 +535,18 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 # Task
 {TASK}
 
+## What done means for this task
+{SCOPE_DONE}
+
+## Out of scope
+{SCOPE_OUT_OF_SCOPE}
+
+## Known unknowns
+{SCOPE_KNOWN_UNKNOWNS}
+
+## Blocked on
+{SCOPE_BLOCKED_ON}
+
 ## Done-check
 {DONE_CHECK}
 
@@ -550,4 +619,4 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"
+echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and answer every scope field)"
