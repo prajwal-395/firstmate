@@ -403,6 +403,17 @@ Every record carries the METHOD that produced it, because an audit that cannot t
 - Every run writes a manifest to `pipeline_output/migrations/` - each action with source, destination, byte count, digest and reason, plus the byte totals before and after. `manage_project.py organize <slug> --revert <manifest> --apply` reads it back.
 - `tests/test_project_migration.py`.
 
+### Replaying a step without running the pipeline
+
+**A step's exact prompt and context can be rebuilt off frozen state, at a named revision, with no pipeline run, no Resolve and no project write.**
+`library/tools/replay_bench/`, driven by `python3 -m library.tools.replay_bench`. Read [`docs/STEP_REPLAY_BENCH.md`](docs/STEP_REPLAY_BENCH.md) before changing what a step is routed: it answers "did that change what the model sees" in seconds, against a project two other workers may be holding.
+
+- The reconstruction is the runner's OWN assembly - `gather_step_inputs`, the step's `bridge.py`, `project_fields`, `json_to_toon`, the handoff and `get_brand_constraints` - never a model of it. `reconstruct.py` therefore imports nothing from `library` at module scope: it runs as a subprocess with the TARGET tree first on `sys.path`, and a module-scope import would measure the same tree on both sides of a comparison.
+- **A snapshot is captured outside the repository; only its MANIFEST is committed**, to `tests/fixtures/replay_snapshots/`. The payload is one client's transcripts and goes stale the moment a step changes what it emits; the manifest is digests, so two people can establish they hold the same bytes without shipping them.
+- **`verify` is a gate, not a report.** It reconstructs every archived context and exits non-zero on any unaccounted difference: if it cannot reproduce the past it cannot be trusted to compare futures. A step that matches only after a named cause is subtracted reads `EXACT (explained)`, never as a clean pass.
+- **Never use the pipeline's own token figures.** `present_llm_step` logs `len(s.split()) * 1.3` and it is 0.38x-0.54x the `o200k_base` count on 001's own contexts. The bench measures from the reconstructed string and names the tokenizer; with `tiktoken` absent the count is absent rather than estimated.
+- The bench measures the pipeline and stays out of it. No step, process or dashboard module may import it - `tests/test_replay_bench.py` fails if one does.
+
 ### No test reaches a real project
 
 **A test builds its project under `tmp_path`, or it skips. It never falls back to a real one.**

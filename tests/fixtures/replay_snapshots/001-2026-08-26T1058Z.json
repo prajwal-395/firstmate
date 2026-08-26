@@ -1,0 +1,188 @@
+{
+  "archive_from": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped",
+  "capture_repo_head": "0ece3c38441aeb64df36e5958b7f161543146aaa",
+  "captured_at": "2026-08-26T15:41:52.477460+00:00",
+  "declared_project_folder": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001",
+  "files": [
+    {
+      "bytes": 4247823,
+      "path": "project/pipeline_data.json",
+      "sha256": "56860bd35ab6432011aa842bf98dc9e5c015e3e4b5d2f60e6aa8e8b6579f4e81",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/pipeline_data.json"
+    },
+    {
+      "bytes": 478,
+      "path": "project/project.yaml",
+      "sha256": "6580449c016808ea88d6abaa7ad2989583fa547aab2cdd823d1d0d3ed2e3149e",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/project.yaml"
+    },
+    {
+      "bytes": 134185,
+      "path": "archive/llm_requests/creative_direction.json",
+      "sha256": "b3bc8c980cbe58cf2925af183cee800d4af77de8c42e823bc283d23688152c7c",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/creative_direction.json"
+    },
+    {
+      "bytes": 1298609,
+      "path": "archive/llm_requests/mesh_spine.json",
+      "sha256": "095a67de5302acfa62f9c8a04e17d8e59fbe4939666f15f76e91ccd4d979e92e",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/mesh_spine.json"
+    },
+    {
+      "bytes": 17622,
+      "path": "archive/llm_requests/music_selection.json",
+      "sha256": "4925d5a759c2c54be972eb9ef2d0416c24d374b4a05abece5164723f29db6eaa",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/music_selection.json"
+    },
+    {
+      "bytes": 77546,
+      "path": "archive/llm_requests/plan_sfx.json",
+      "sha256": "e9eab2e165de4055f979a20b39e2288bf3917fb5c2cb1d12ebcbe6389cf65782",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/plan_sfx.json"
+    },
+    {
+      "bytes": 198230,
+      "path": "archive/llm_requests/plan_transitions.json",
+      "sha256": "ba82787d41693920b341b336b2b62eac4ae8907fa5bb9c59919d239fc73888fa",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/plan_transitions.json"
+    },
+    {
+      "bytes": 66502,
+      "path": "archive/llm_requests/plan_vfx.json",
+      "sha256": "1f11790588e135611d4829a0f11ae769b9ad6d9991ff3e428c6b22f27b0009e0",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/plan_vfx.json"
+    },
+    {
+      "bytes": 47492,
+      "path": "archive/llm_requests/render.json",
+      "sha256": "1b0186e6e4a419e9488225873637ed5dcd6ca0668211429de3b4ffc42e6f135f",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/render.json"
+    },
+    {
+      "bytes": 1325578,
+      "path": "archive/llm_requests/review_rough_cut.json",
+      "sha256": "674ff125f8f628d6d6381fc9a4653751073a8dabb2571a8b38fa2fae246ff41a",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/review_rough_cut.json"
+    },
+    {
+      "bytes": 109489,
+      "path": "archive/llm_requests/select_broll.json",
+      "sha256": "ba2a8eb94075b0a65055b422cdcd8997638c83fa3c68914369cef4215513ea42",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/select_broll.json"
+    },
+    {
+      "bytes": 125620,
+      "path": "archive/llm_requests/semantic_analysis.json",
+      "sha256": "7aba636ba5e1b94639a7a8843c88e5ce86565412ad45ffd49053ea97e0eabb24",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/semantic_analysis.json"
+    },
+    {
+      "bytes": 173501,
+      "path": "archive/llm_requests/speech_sequence.json",
+      "sha256": "936ddfe65a4527a22ef127d1797ae82d071f282efa865455c93b05558c00b61f",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_requests/speech_sequence.json"
+    },
+    {
+      "bytes": 5298,
+      "path": "archive/llm_responses/creative_direction.json",
+      "sha256": "69457f7f735ae5fd208dde5ccfdb666e7cb69a243fc55b9b299873f8e195011e",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/creative_direction.json"
+    },
+    {
+      "bytes": 5132,
+      "path": "archive/llm_responses/mesh_spine.json",
+      "sha256": "9a93b21ec27b6b2bd33689086a2f59a274c74d6b7698c0c086d3d677bedbe466",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/mesh_spine.json"
+    },
+    {
+      "bytes": 8294,
+      "path": "archive/llm_responses/music_selection.json",
+      "sha256": "e55ce8624b1674a537e25e571776689e6a59f9c19cb7766a4a50151376ed5621",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/music_selection.json"
+    },
+    {
+      "bytes": 1425,
+      "path": "archive/llm_responses/plan_sfx.json",
+      "sha256": "48989518b2d5ba43b1c3e3b9b3a58cb197e7072ddfc57095b019badce2788f1c",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/plan_sfx.json"
+    },
+    {
+      "bytes": 5112,
+      "path": "archive/llm_responses/plan_transitions.json",
+      "sha256": "364b62a8c436c7f7a38c5374ee13c6d80dcbebc1892d0c2a305b60c779a89293",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/plan_transitions.json"
+    },
+    {
+      "bytes": 1841,
+      "path": "archive/llm_responses/plan_vfx.json",
+      "sha256": "71be1bd53e9af1497f39e442d769b22ab0110b9040ae05d39a7f8c249d8f96eb",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/plan_vfx.json"
+    },
+    {
+      "bytes": 3595,
+      "path": "archive/llm_responses/render.json",
+      "sha256": "c9ada01ca28d8b3a96eb1cffb73f5e93739e9f8c1f111721ba8ca76203e8f24b",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/render.json"
+    },
+    {
+      "bytes": 10232,
+      "path": "archive/llm_responses/review_rough_cut.json",
+      "sha256": "9aa55963cf1eef5211307964ef5316d922de97d04fab934344d7d30b4ff190a9",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/review_rough_cut.json"
+    },
+    {
+      "bytes": 5077,
+      "path": "archive/llm_responses/select_broll.json",
+      "sha256": "7f02f40f560d1baaa7b7a69a51214bcc82202c2534219d955c4412bae0f15109",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/select_broll.json"
+    },
+    {
+      "bytes": 3,
+      "path": "archive/llm_responses/semantic_analysis.json",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/semantic_analysis.json"
+    },
+    {
+      "bytes": 8853,
+      "path": "archive/llm_responses/speech_sequence.json",
+      "sha256": "c741589b2c93441c0a3a45effe5493c2ebb48d4f46749f9a8c204924ad877d87",
+      "source": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/archive_shaped/llm_responses/speech_sequence.json"
+    }
+  ],
+  "note": "Project 001's state and its complete eleven-step LLM archive as they stood at 2026-08-26 10:58 local, copied out of the project before the 11:06 run began overwriting llm_requests/. Both prior reports (vep-llm-context-audit, vep-information-layer-plan) measure this same state, so their figures and this bench's are directly comparable. The archive is entirely PRE-#194: reconstruct it at 940893d, not at HEAD.",
+  "pipeline_run_at_capture": {
+    "current_step": null,
+    "started_at": "2026-08-26T11:06:55",
+    "status": "failed"
+  },
+  "references": [
+    {
+      "area": "raw",
+      "entry_count": 36,
+      "listing_sha256": "9f04b70bc5ec2f0929d82734417197888616a604389c7d92668aa842ef68f75c",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw"
+    },
+    {
+      "area": "music",
+      "entry_count": 7,
+      "listing_sha256": "cce73b262c78f104ae9a17386d7ec54c9a816a5ef17051a382c1717201716eab",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/music"
+    },
+    {
+      "area": "assets",
+      "entry_count": 106,
+      "listing_sha256": "822e26ceb6afcf54bf943d1fcd47c8463e6cd02f12d2766bd9cbaa753b98f989",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/assets"
+    },
+    {
+      "area": "pipeline_output",
+      "entry_count": 831,
+      "listing_sha256": "1cae688c8d98471247027d74d3d408e422ebc711757d20763292a87f9e23d34c",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output"
+    }
+  ],
+  "snapshot_id": "001-2026-08-26T1058Z",
+  "source_project": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001",
+  "state_from": "/private/tmp/claude-501/-Users-prajwal--treehouse-video-editing-pilot-9487f5-4-video-editing-pilot/cf1bbd4d-23c5-401b-b77b-5617dd88330a/scratchpad/p001_1058/pipeline_data.json",
+  "torn": false
+}
