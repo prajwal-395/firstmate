@@ -17,6 +17,17 @@
 #   2. Ticket type parsed out of the title string, so a reworded title silently
 #      reclassified a ticket. Type is a label (fm:destination, fm:decision,
 #      fm:unknown, fm:task) and is never read from, or written into, a title.
+#   3. Every assignment read as a claim. An agent's assignment is a claim and
+#      leaves the frontier, but the captain's assignment means the opposite -
+#      nothing moves until they answer - so it stays on the frontier as BLOCKED,
+#      naming them. The discriminator is the assignee login, configured in
+#      config/captain-github (or FM_CAPTAIN_GITHUB); with none configured every
+#      assignment reads as a claim. See docs/configuration.md.
+#   4. A decision that could not be answered without going and finding the
+#      background. A decision reaches the captain as a notification and nothing
+#      else, so `add --type decision` REFUSES a body without context, two
+#      options that each state their consequence, and a recommendation, and
+#      always writes the invitation to answer with something none of them say.
 #
 # Because this script is the only writer of that structure, `validate` is a real
 # guard rather than a linter over free text.
@@ -31,6 +42,9 @@
 #   fm-tracker.sh add <owner/repo> --type <destination|decision|unknown|task>
 #                     --title <title> [--body <text>|--body-file <path>]
 #                     [--parent <n>] [--blocked-by <n[,n...]>]
+#     --type decision requires a body carrying '## Context', '## Options' with at
+#     least two '- <option> - <consequence>' lines, and '## Recommendation'.
+#     '## Or something else' is appended by this script and must not be authored.
 #   fm-tracker.sh frontier <owner/repo>
 #   fm-tracker.sh claim <owner/repo> <n>
 #   fm-tracker.sh release <owner/repo> <n>
@@ -51,6 +65,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -78,6 +93,8 @@ parse_repo() {  # <owner/repo>
 }
 
 gh_api() { "$GH" api "$@"; }
+
+captain_login() { fm_tracker_captain_login "$CONFIG"; }
 
 # ---------------------------------------------------------------------------
 # Body assembly and the blocked-by contract
@@ -238,6 +255,10 @@ cmd_add() {
   # Refuse before any network call, so a rejected body never leaves a partly
   # created ticket behind.
   fm_tracker_body_prose_blocker_refuse "$body" || exit 1
+  if [ "$type" = decision ]; then
+    fm_tracker_decision_body_refuse "$body" || exit 1
+    body="$body$(fm_tracker_decision_escape_hatch)"
+  fi
 
   require_gh
   verify_blockers_exist "$blockers"
@@ -262,7 +283,7 @@ cmd_frontier() {
   [ "$#" -eq 0 ] || usage_die "unexpected argument '$1'"
   require_gh
   json=$(graph_json) || die "could not read the issue graph for $OWNER/$REPO"
-  printf '%s\n' "$json" | fm_tracker_render_frontier "$OWNER/$REPO"
+  printf '%s\n' "$json" | fm_tracker_render_frontier "$OWNER/$REPO" "$(captain_login)"
 }
 
 cmd_validate() {
@@ -275,7 +296,7 @@ cmd_validate() {
 }
 
 cmd_claim() {
-  local num me holder
+  local num me holder captain
   parse_repo "${1-}"; shift
   num=${1-}
   fm_tracker_issue_number_valid "$num" || usage_die "claim requires an issue number"
@@ -290,6 +311,15 @@ cmd_claim() {
   # the exact failure the claim exists to prevent.
   if [ -n "$holder" ] && [ "$holder" != "$me" ]; then
     die "#$num is already claimed by $holder"
+  fi
+  # A claim by the captain's own login is indistinguishable from a wait ON the
+  # captain, because both are the same assignment. This still claims - what
+  # `claim` does for agents is unchanged - but it says so, because the frontier
+  # will report the ticket as waiting on the captain rather than as claimed.
+  captain=$(captain_login)
+  if fm_tracker_is_captain "$me" "$captain"; then
+    printf 'warning: %s is the configured captain login, so the frontier will report\n' "$me" >&2
+    printf '         #%s as waiting on the captain rather than as claimed work\n' "$num" >&2
   fi
   gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/assignees" -f "assignees[]=$me" >/dev/null \
     || die "could not claim #$num"

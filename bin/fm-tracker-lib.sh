@@ -40,6 +40,74 @@ FM_TRACKER_MAX_WATCHED_REPOS=10
 FM_TRACKER_DEFAULT_POLL_INTERVAL=60
 
 # ---------------------------------------------------------------------------
+# The two meanings of an assignment
+# ---------------------------------------------------------------------------
+#
+# An assignment means one of two opposite things, and which one depends entirely
+# on WHO holds it.
+#
+# For an agent it is a claim: "I am working on this, do not take it". A claimed
+# ticket is not available work, so it leaves both the ready and the blocked set.
+#
+# For the captain it is the opposite of a claim: nobody is working on it, and
+# nothing moves until they answer. That is the single most important thing the
+# frontier can report as BLOCKED, so a captain-held ticket stays on the frontier
+# and names them as what it waits on.
+#
+# The discriminator is the assignee login, and it is read from local
+# configuration rather than derived or hardcoded. `gh api /user` cannot serve
+# here: it returns the login the fleet is AUTHENTICATED as, which is the same
+# account every crewmate claims with, so deriving the captain from it would
+# reclassify every agent claim as a wait on the captain. Absent configuration
+# means no login is the captain's, which is exactly the behavior before this
+# distinction existed: every assignment is a claim.
+FM_TRACKER_CAPTAIN_CONFIG='captain-github'
+
+# Resolve the captain's GitHub login, or print nothing. FM_CAPTAIN_GITHUB wins
+# for a one-off run; otherwise the first non-blank line of the config file.
+fm_tracker_captain_login() {  # <config-dir>
+  local dir=${1-} file line
+  if [ -n "${FM_CAPTAIN_GITHUB-}" ]; then
+    printf '%s\n' "$FM_CAPTAIN_GITHUB"
+    return 0
+  fi
+  [ -n "$dir" ] || return 0
+  file="$dir/$FM_TRACKER_CAPTAIN_CONFIG"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [ -n "$line" ] || continue
+    printf '%s\n' "$line"
+    return 0
+  done < "$file"
+}
+
+# True when <login> is the captain's. GitHub logins are case-insensitive, so a
+# case difference between the config file and the API response must not be what
+# decides whether a ticket reads as a wait or as a claim.
+fm_tracker_is_captain() {  # <login> <captain-login>
+  local who=${1-} captain=${2-}
+  [ -n "$who" ] && [ -n "$captain" ] || return 1
+  [ "$(printf '%s' "$who" | tr '[:upper:]' '[:lower:]')" \
+    = "$(printf '%s' "$captain" | tr '[:upper:]' '[:lower:]')" ]
+}
+
+# True when the captain is among an assignee list. The graph joins an issue's
+# assignees with a space and a blocker's with a semicolon, so both separators are
+# accepted here rather than at each call site. A ticket assigned to the captain
+# AND to an agent is a wait, not a claim: the agent cannot finish it either way,
+# and reporting the wait is the answer that stays visible.
+fm_tracker_assignees_include_captain() {  # <assignees> <captain-login>
+  local list=${1-} captain=${2-} who
+  [ -n "$captain" ] || return 1
+  for who in ${list//;/ }; do
+    fm_tracker_is_captain "$who" "$captain" && return 0
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Identity validation
 # ---------------------------------------------------------------------------
 
@@ -331,6 +399,151 @@ own `fm:unknown` ticket._
 EOF
 }
 
+# ---------------------------------------------------------------------------
+# A decision has to be answerable cold
+# ---------------------------------------------------------------------------
+#
+# A decision ticket reaches the captain as a phone notification, so its body is
+# the whole surface they get. A notification that arrives and then demands
+# research is not a notification worth sending, so the write path refuses a
+# decision body that cannot be answered from itself.
+#
+# WHERE THE LINE IS DRAWN. Structure is enforced, judgement is not. Whether a
+# context section exists, whether there are at least two options, whether each
+# option states its consequence, and whether a recommendation exists are all
+# mechanically decidable, and every one of them missing makes the ticket
+# unanswerable without opening something else. Whether the recommendation is any
+# GOOD is not decidable here and is left to the author.
+#
+# The invitation to answer with something none of the options say is not asked of
+# the author at all: this script writes it, identically, on every decision. An
+# options list with no way out quietly pushes the reader toward the nearest
+# listed answer, and a section the author can forget is a section that will be
+# forgotten on the ticket where it matters most.
+FM_TRACKER_DECISION_CONTEXT_HEADING='## Context'
+FM_TRACKER_DECISION_OPTIONS_HEADING='## Options'
+FM_TRACKER_DECISION_RECOMMENDATION_HEADING='## Recommendation'
+FM_TRACKER_DECISION_ESCAPE_HEADING='## Or something else'
+# An option carries its own consequence: a noun, then " - ", then what follows
+# from choosing it. Both sides must be non-empty.
+FM_TRACKER_DECISION_OPTION_RE='^- +[^ ].* - +[^ ]'
+
+# Print the lines under <heading>, stopping at the next ATX heading. Silent when
+# the heading is absent.
+fm_tracker_body_section() {  # <body> <heading>
+  local body=${1-} heading=${2-} line inside=0
+  while IFS= read -r line; do
+    if [ "$line" = "$heading" ]; then
+      inside=1
+      continue
+    fi
+    case $line in
+      '#'*)
+        if [ "$inside" -eq 1 ]; then
+          return 0
+        fi
+        ;;
+    esac
+    if [ "$inside" -eq 1 ]; then
+      printf '%s\n' "$line"
+    fi
+  done <<EOF
+$body
+EOF
+}
+
+# Report every way a decision body fails to be answerable cold, one problem per
+# line. Silent when the body carries what a reader needs. Deliberately says
+# nothing about the escape-hatch section, which this script writes rather than
+# reads from the author.
+fm_tracker_decision_body_problems() {  # <body>
+  local body=${1-} section line options=0
+  section=$(fm_tracker_body_section "$body" "$FM_TRACKER_DECISION_CONTEXT_HEADING")
+  if [ -z "${section//[[:space:]]/}" ]; then
+    printf 'has no "%s" section with anything under it, so answering it starts with research\n' \
+      "$FM_TRACKER_DECISION_CONTEXT_HEADING"
+  fi
+
+  section=$(fm_tracker_body_section "$body" "$FM_TRACKER_DECISION_OPTIONS_HEADING")
+  while IFS= read -r line; do
+    case $line in
+      '- '*) ;;
+      *) continue ;;
+    esac
+    if printf '%s' "$line" | grep -Eq "$FM_TRACKER_DECISION_OPTION_RE"; then
+      options=$((options + 1))
+    else
+      printf 'option "%s" states no consequence; write it as "- <the option> - <what follows from it>"\n' \
+        "$line"
+    fi
+  done <<EOF
+$section
+EOF
+  if [ "$options" -lt 2 ]; then
+    printf 'has fewer than two options under "%s", and one option is not a choice\n' \
+      "$FM_TRACKER_DECISION_OPTIONS_HEADING"
+  fi
+
+  section=$(fm_tracker_body_section "$body" "$FM_TRACKER_DECISION_RECOMMENDATION_HEADING")
+  if [ -z "${section//[[:space:]]/}" ]; then
+    printf 'has no "%s" section with anything under it, so the answer has to be built from scratch\n' \
+      "$FM_TRACKER_DECISION_RECOMMENDATION_HEADING"
+  fi
+}
+
+fm_tracker_decision_template() {
+  cat <<EOF
+$FM_TRACKER_DECISION_CONTEXT_HEADING
+
+_Everything needed to answer this without opening anything else._
+
+$FM_TRACKER_DECISION_OPTIONS_HEADING
+
+- <the first option, in your own nouns> - <what follows from choosing it>
+- <the second option> - <what follows from choosing it>
+
+$FM_TRACKER_DECISION_RECOMMENDATION_HEADING
+
+_Which option, and why. A recommendation, not a decision._
+EOF
+}
+
+# The invitation to answer with something none of the options say. Fixed text,
+# written by this script on every decision, so it cannot be forgotten.
+fm_tracker_decision_escape_hatch() {
+  cat <<EOF
+
+
+$FM_TRACKER_DECISION_ESCAPE_HEADING
+
+The options above are a starting point, not the whole answer space.
+If the right call is none of them, say it in your own words and it will be recorded verbatim.
+EOF
+}
+
+# Refuse a decision body that cannot be answered cold, naming every problem and
+# printing the shape that works. Returns 1 so no caller can proceed to a write.
+fm_tracker_decision_body_refuse() {  # <body>
+  local body=${1-} found line
+  found=$(fm_tracker_decision_body_problems "$body")
+  if printf '%s\n' "$body" | grep -Fxq "$FM_TRACKER_DECISION_ESCAPE_HEADING"; then
+    found="$found${found:+
+}$(printf 'already carries a "%s" section; this script writes that one, so remove yours' \
+      "$FM_TRACKER_DECISION_ESCAPE_HEADING")"
+  fi
+  [ -n "$found" ] || return 0
+  printf 'error: refusing a decision that cannot be answered cold\n' >&2
+  printf '%s\n' "$found" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    printf '  the body %s\n' "$line" >&2
+  done
+  printf 'This ticket reaches the captain as a notification and nothing else, so its\n' >&2
+  printf 'body has to carry the context, the options with their consequences, and a\n' >&2
+  printf 'recommendation. Start from this shape:\n\n' >&2
+  fm_tracker_decision_template >&2
+  return 1
+}
+
 fm_tracker_answer_comment() {  # <decision> <settles> <not-settles>
   local decision=$1 settles=${2-} not_settles=${3-}
   printf '%s\n\n' '**Captain'"'"'s decision** (recorded verbatim):'
@@ -413,9 +626,11 @@ fm_tracker_b64_decode() {  # <b64>
 }
 
 # Describe what one blocker is waiting on, in the captain's nouns rather than
-# the graph's.
-fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee>
-  local n=$1 state=$2 type=$3 who=$4 what
+# the graph's. A blocker the captain holds is not claimed work either: saying
+# "claimed by" there would hide the wait one level down from the ticket that
+# reports it.
+fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee> [captain-login]
+  local n=$1 state=$2 type=$3 who=$4 captain=${5-} what
   case "$type" in
     decision) what='a decision the captain owns' ;;
     unknown) what='an unresolved unknown' ;;
@@ -423,7 +638,9 @@ fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee>
     destination) what='the destination itself' ;;
     *) what='an untyped ticket' ;;
   esac
-  if [ -n "$who" ]; then
+  if fm_tracker_assignees_include_captain "$who" "$captain"; then
+    printf '#%s - %s, with the captain (%s)\n' "$n" "$what" "${who//;/, }"
+  elif [ -n "$who" ]; then
     printf '#%s - %s, claimed by %s\n' "$n" "$what" "${who//;/, }"
   else
     printf '#%s - %s, unclaimed\n' "$n" "$what"
@@ -431,11 +648,12 @@ fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee>
   : "$state"
 }
 
-# Render the frontier from graph records on stdin. Assigned tickets are excluded
-# from both the ready and the blocked set: assignment IS the claim, so a claimed
-# ticket is not available work.
-fm_tracker_render_frontier() {  # <owner/repo>
-  local slug=$1
+# Render the frontier from graph records on stdin. An agent's assignment is a
+# claim and leaves both sets, because a claimed ticket is not available work. The
+# captain's assignment is the opposite and stays in BLOCKED naming them. An empty
+# <captain-login> means no login is the captain's, so every assignment is a claim.
+fm_tracker_render_frontier() {  # <owner/repo> [captain-login]
+  local slug=$1 captain=${2-}
   local number state labels assignees parent blockers title_b64 body_b64
   local title type ready='' blocked='' claimed='' b bn bstate btype bwho waits
   while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
@@ -445,12 +663,16 @@ fm_tracker_render_frontier() {  # <owner/repo>
     fm_tracker_type_of_labels "$labels"
     type=$FM_TRACKER_TYPE
     [ -n "$type" ] || type='untyped'
-    if [ -n "$assignees" ]; then
+    waits=
+    if fm_tracker_assignees_include_captain "$assignees" "$captain"; then
+      waits="$(printf '            waits on the captain (%s) - assigned, not claimed' \
+        "${assignees// /, }")
+"
+    elif [ -n "$assignees" ]; then
       claimed="$claimed$(printf '  #%-5s [%-11s] %s\n            claimed by %s\n' \
         "$number" "$type" "$title" "${assignees// /, }")"
       continue
     fi
-    waits=
     if [ -n "$blockers" ]; then
       while IFS= read -r b; do
         [ -n "$b" ] || continue
@@ -458,7 +680,7 @@ fm_tracker_render_frontier() {  # <owner/repo>
 $b
 EOF
         [ "$bstate" = OPEN ] || continue
-        waits="$waits$(printf '            waits on %s' "$(fm_tracker_blocker_phrase "$bn" "$bstate" "$btype" "$bwho")")
+        waits="$waits$(printf '            waits on %s' "$(fm_tracker_blocker_phrase "$bn" "$bstate" "$btype" "$bwho" "$captain")")
 "
       done <<EOF
 $(printf '%s' "$blockers" | tr ',' '\n')
@@ -476,10 +698,15 @@ $waits"
   printf 'frontier: %s\n\n' "$slug"
   printf 'READY (open, unclaimed, no open blocker):\n'
   if [ -n "$ready" ]; then printf '%s' "$ready"; else printf '  (none)\n'; fi
-  printf '\nBLOCKED (open, unclaimed, waiting on something):\n'
+  printf '\nBLOCKED (open, waiting on something - a blocker, or the captain):\n'
   if [ -n "$blocked" ]; then printf '%s' "$blocked"; else printf '  (none)\n'; fi
-  printf '\nCLAIMED (excluded from the frontier - assignment is the claim):\n'
+  printf '\nCLAIMED (excluded from the frontier - an agent assignment is the claim):\n'
   if [ -n "$claimed" ]; then printf '%s' "$claimed"; else printf '  (none)\n'; fi
+  if [ -z "$captain" ]; then
+    printf '\nnote: no captain login is configured, so every assignment reads as a claim.\n'
+    printf '      put the captain GitHub login in config/%s to tell a wait from a claim.\n' \
+      "$FM_TRACKER_CAPTAIN_CONFIG"
+  fi
 }
 
 # Report every structurally malformed ticket. This is the standing guard against
@@ -487,7 +714,7 @@ $waits"
 fm_tracker_render_validate() {  # <owner/repo>
   local slug=$1
   local number state labels assignees parent blockers title_b64 body_b64
-  local title body type problems=0 prose lineno text refs ref edges
+  local title body type problems=0 prose lineno text refs ref edges problem
   printf 'validate: %s\n' "$slug"
   while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
     [ -n "$number" ] || continue
@@ -536,6 +763,25 @@ fm_tracker_render_validate() {  # <owner/repo>
       done <<EOF
 $prose
 EOF
+    fi
+    # A decision that cannot be answered cold is the same class of defect as an
+    # invisible blocker: the tool reported something and the report was not
+    # usable. The write path refuses one, so anything malformed here arrived by
+    # hand-edit, which is exactly what this guard is for.
+    if [ "$type" = decision ] && [ "$FM_TRACKER_TYPE_COUNT" -eq 1 ]; then
+      while IFS= read -r problem; do
+        [ -n "$problem" ] || continue
+        printf '  #%s %s\n' "$number" "$problem"
+        problems=$((problems + 1))
+      done <<EOF
+$(fm_tracker_decision_body_problems "$body")
+EOF
+      if ! printf '%s\n' "$body" | grep -Fxq "$FM_TRACKER_DECISION_ESCAPE_HEADING"; then
+        printf '  #%s has no "%s" section - an options list with no way out pushes\n' \
+          "$number" "$FM_TRACKER_DECISION_ESCAPE_HEADING"
+        printf '        the reader toward the nearest listed answer\n'
+        problems=$((problems + 1))
+      fi
     fi
     if [ "$type" != destination ] && [ "$parent" = '-' ]; then
       printf '  #%s orphaned - no parent, so it hangs off no destination and never rolls up\n' "$number"

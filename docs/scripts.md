@@ -109,7 +109,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-pr-check.sh`         | Record validated `pr=` and `pr_head=` values, then atomically arm a static merge poll |
 | `fm-pr-merge.sh`         | Record PR metadata, then merge a task's canonical full GitHub URL                    |
 | `fm-tracker.sh`          | Own firstmate's GitHub Issues project layer: typed tickets, blocking edges, frontier, claims, answers, validation, and the comment wake |
-| `fm-tracker-lib.sh`      | Own the tracker's type vocabulary, blocking-edge format, issue-graph query, and refusal guards |
+| `fm-tracker-lib.sh`      | Own the tracker's type vocabulary, blocking-edge format, captain identity, decision shape, issue-graph query, and refusal guards |
 | `fm-tracker-notify.sh`   | Provide the conditional-request watcher program behind the GitHub issue-comment wake |
 | `fm-tracker-parse.py`    | Filter one GitHub notifications or issue-comment response for the tracker wake       |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode |
