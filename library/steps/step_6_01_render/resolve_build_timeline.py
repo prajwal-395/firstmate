@@ -57,6 +57,9 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
         sys.path.append(_p)
 
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.execution.deliver_audio_mix import (  # noqa: E402
+    PREMIX_SUFFIX, deliver_mix,
+)
 
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
@@ -633,9 +636,13 @@ def build_timeline(
 
     # ── Delete existing timeline if requested ──
     if delete_existing:
+        # `<name>__premix` too: the audio-mix round trip parks the
+        # placement timeline under that name for the length of one
+        # import, so a run killed mid-import leaves one behind.
+        stale = {timeline_name, f"{timeline_name}{PREMIX_SUFFIX}"}
         for i in range(project.GetTimelineCount(), 0, -1):
             tl = project.GetTimelineByIndex(i)
-            if tl and tl.GetName() == timeline_name:
+            if tl and tl.GetName() in stale:
                 media_pool.DeleteTimelines([tl])
 
     # ── Create empty timeline ──
@@ -1156,25 +1163,12 @@ def build_timeline(
                 placed = result[0] if isinstance(result, list) else result
                 print(f"  ✓ {basename}: {placed.GetDuration()}f on A2", file=sys.stderr)
                 results["tracks"]["A2"] = 1
-
-                # Set volume if specified
-                vol_db = clip.get('volume_db')
-                if vol_db is not None:
-                    # Resolve uses linear volume (0-1 range typical)
-                    # Convert dB: linear = 10^(dB/20)
-                    linear_vol = 10 ** (vol_db / 20.0)
-                    # Clamp to reasonable range
-                    linear_vol = max(0.0, min(linear_vol, 4.0))
-                    # Note: SetProperty("Volume") may not work on all clips
-                    # This is a best-effort attempt
-                    try:
-                        placed.SetProperty("Volume", linear_vol)
-                    except Exception as e:
-                        results["warnings"].append(
-                            f"Volume set failed for {basename}: {e}"
-                        )
-                        
-
+                # No level is set here. `SetProperty("Volume", ...)`
+                # returns False on every audio TimelineItem - the object
+                # has no property dictionary at all - so the call that
+                # used to sit here changed nothing while reading as a
+                # mix. Levels are delivered together, after placement,
+                # by deliver_mix below.
             else:
                 print(f"  ✗ {basename}: failed", file=sys.stderr)
 
@@ -1221,23 +1215,98 @@ def build_timeline(
                       f"TL {tl_in_f}-{tl_out_f} → A{track_idx}",
                       file=sys.stderr)
 
-                # Apply volume
-                placed = result[0] if isinstance(result, list) else result
-                vol_db = clip.get('volume_db')
-                if vol_db is not None:
-                    linear_vol = 10 ** (vol_db / 20.0)
-                    linear_vol = max(0.0, min(linear_vol, 4.0))
-                    try:
-                        placed.SetProperty("Volume", linear_vol)
-                    except Exception as e:
-                        results["warnings"].append(
-                            f"SFX volume set failed on A{track_idx}: {e}"
-                        )
+                # `volume_db` is delivered by deliver_mix below, for the
+                # same reason as A2: no scripting call sets an audio
+                # level. This is the hop where per-clip SFX volume used
+                # to be lost.
             else:
                 print(f"  ✗ {basename} on A{track_idx} at {tl_in_f}: failed", file=sys.stderr)
 
         for tk, count in sorted(sfx_track_counts.items()):
             results["tracks"][f"A{tk}"] = count
+
+    # ══════════════════════════════════════════════════════════
+    # DELIVER THE AUDIO MIX (OTIO round trip)
+    # ══════════════════════════════════════════════════════════
+    # THIS IS WHY IT IS HERE AND NOT LATER. The OTIO import REBUILDS the
+    # timeline, and Fusion comps and CDL grades do not survive it -
+    # placement, transform, markers and native transitions do (AGENTS.md
+    # section 5). Everything below this line therefore has to run on the
+    # timeline the import produced, and this is the last moment before
+    # the Fusion pass draws anything worth losing.
+    #
+    # `timeline` is REBOUND on success. Nothing below may hold a
+    # TimelineItem from before this point; they all re-read the track.
+    audio_mix = manifest.get('audio_mix', {})
+    mix_report = deliver_mix(
+        resolve, project, media_pool, timeline, manifest,
+        fps=fps, project_folder=project_folder)
+    results["audio_mix_delivery"] = {
+        "delivered": mix_report["delivered"],
+        "reason": mix_report["reason"],
+        "levels_applied": len(mix_report["applied"]),
+        "otio_path": mix_report["mixed_otio_path"] or mix_report["otio_path"],
+    }
+
+    if mix_report["delivered"]:
+        timeline = mix_report["timeline"]
+        timeline_name = mix_report["timeline_name"]
+        results["timeline_name"] = timeline_name
+        curves = sum(1 for a in mix_report["applied"] if a.get("keyframes"))
+        print(f"\n── Audio mix: {len(mix_report['applied'])} clip levels "
+              f"({curves} automated) written through OTIO ──", file=sys.stderr)
+        for entry in mix_report["applied"]:
+            keys = entry.get("keyframes") or {}
+            detail = (f"{len(keys)} keyframes, "
+                      f"{min(keys.values()):.0f}..{max(keys.values()):.0f}dB"
+                      if keys else f"{entry['level_db']:.1f}dB")
+            print(f"  ✓ {entry['label']}: {detail}", file=sys.stderr)
+    else:
+        print(f"\n── Audio mix NOT delivered: {mix_report['reason']} ──",
+              file=sys.stderr)
+
+    for target in mix_report["unmatched"]:
+        msg = (f"planned level for {target['label']} matched no clip at frame "
+               f"{target['start_frame']} - it does not reach the mix")
+        results["warnings"].append(msg)
+        print(f"  ⚠ {msg}", file=sys.stderr)
+    for complaint in mix_report["complaints"]:
+        msg = f"audio mix read back wrong: {complaint}"
+        results["warnings"].append(msg)
+        print(f"  ⚠ {msg}", file=sys.stderr)
+
+    if not mix_report["delivered"]:
+        # THE FALLBACK, and it is a fallback: a cyan marker is a note
+        # asking a human to set the level by hand, not a level. It is
+        # written only when the real route above declined, and it says so.
+        music_automation = audio_mix.get('music_automation', [])
+        if music_automation:
+            results["warnings"].append(
+                f"audio mix not delivered ({mix_report['reason']}); "
+                f"{len(music_automation)} target levels left as markers for a "
+                f"human to set by hand")
+            for auto in music_automation:
+                frame = round(auto.get('timeline_start', 0) * fps)
+                timeline.AddMarker(
+                    frame, "Cyan",
+                    f"UNAPPLIED target: {auto.get('target_level_db', 0)}dB "
+                    f"({auto.get('music_behavior', 'background')})",
+                    "The pipeline could not write this level; set it by hand",
+                    1)
+            print(f"  ⚠ Fell back to {len(music_automation)} cyan markers",
+                  file=sys.stderr)
+
+    # The master limiter is a MASTER BUS setting, not a clip volume, so
+    # no clip-level route reaches it. It stays a marker on purpose.
+    master_limiter = audio_mix.get('master_limiter', {})
+    if master_limiter and master_limiter.get('enabled'):
+        threshold_db = master_limiter.get('threshold_db', -1.0)
+        timeline.AddMarker(
+            0, "Purple", f"Master Limiter: {threshold_db}dBTP",
+            "Set the master track limiter to this threshold", 1)
+
+    if verify_audio:
+        _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
 
     # ══════════════════════════════════════════════════════════
     # APPLY FUSION .comp FILES (animated VFX + transitions per clip)
@@ -1423,26 +1492,10 @@ def build_timeline(
             results["warnings"].append(f"Fairlight preset '{fairlight_preset}' exception: {e}")
             print(f"  ⚠ Fairlight preset '{fairlight_preset}' raised an exception: {e}", file=sys.stderr)
 
-    # Apply audio mix automation and master limiter markers
-    audio_mix = manifest.get('audio_mix', {})
-    music_automation = audio_mix.get('music_automation', [])
-    master_limiter = audio_mix.get('master_limiter', {})
-    
-    if master_limiter and master_limiter.get('enabled'):
-        threshold_db = master_limiter.get('threshold_db', -1.0)
-        timeline.AddMarker(0, "Purple", f"Master Limiter: {threshold_db}dBTP", "Set the master track limiter to this threshold", 1)
-
-    if music_automation and isinstance(music_automation, list):
-        for auto in music_automation:
-            time_sec = auto.get('timeline_start', 0)
-            vol_db = auto.get('target_level_db', 0)
-            behavior = auto.get('music_behavior', 'background')
-            frame = round(time_sec * fps)
-            timeline.AddMarker(frame, "Cyan", f"Target Level: {vol_db}dB ({behavior})", "Duck or boost the music track to this target level", 1)
-        print(f"  ✓ Added {len(music_automation)} audio target markers to timeline", file=sys.stderr)
-
-    if verify_audio:
-        _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
+    # The audio mix is NOT here. It is delivered at placement time, in
+    # the OTIO round trip above, because the import that carries it
+    # rebuilds the timeline and would discard every Fusion comp drawn
+    # since. The cyan-marker path that used to sit here is its fallback.
 
     # ══════════════════════════════════════════════════════════
     # COLOR GRADING (house look: CDL half)

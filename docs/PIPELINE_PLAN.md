@@ -108,11 +108,17 @@ the audio thread should start by finding what Resolve *does* accept for a
 clip level - the property dict being empty suggests it is not a
 TimelineItem property at all on this build.
 
-**Music plays at unity and never ducks.** `compile_manifest/step.py:974-983`
+~~**Music plays at unity and never ducks.** `compile_manifest/step.py:974-983`
 builds the A2 clip with no `volume_db` key at all. The reader,
 `resolve_build_timeline.py:1022`, is `vol_db = clip.get('volume_db')`, so it
 is `None` and the volume set is skipped. The music sits at source level
-under the speech for the whole video.
+under the speech for the whole video.~~ **DONE.** The bed now carries the
+per-block curve `audio_mix` plans, delivered through an OTIO round trip; a
+`volume_db` on the A2 clip was never the mechanism, because
+`SetProperty("Volume", ...)` returns False on every audio item. Measured on
+001: silence at the file's floor where the spine planned `silent`, -18 dB
+under background speech, -6 dB where it planned `prominent`, exact to
+0.1 dB. See AGENTS.md section 5, "The mix goes through OTIO".
 
 **Neural directives are best-effort and honest about it.**
 `resolve_build_timeline.py:1164-1206` calls `apply_stabilization` and
@@ -124,14 +130,18 @@ behaviour, unverifiable here.
 These are the current instances of the failure mode this codebase is prone
 to. Each one is a thing the manifest says happened.
 
-**1. The music mix.** `step_5_02_audio_mix` designs `track_levels`,
+**1. The music mix.** ~~`step_5_02_audio_mix` designs `track_levels`,
 per-block `music_automation` and a `master_limiter`. The only reader is
 `resolve_build_timeline.py:1243-1257`, and it calls `timeline.AddMarker` for
 each one. A purple marker reading "Master Limiter: -1.0dBTP" and cyan
 markers reading "Duck or boost the music track to this target level". Those
-are notes to a human editor. `track_levels` has no reader at all: A1's
-compressor, the -12dB SFX bed, the A4 transition-audio bus are three designs
-with nowhere to go. ~~AGENTS.md section 10 says `manifest_validator` asserts
+are notes to a human editor.~~ **DONE.** `music_automation` and every clip's
+`volume_db` reach Fairlight through `library/tools/otio_mix.py`; the markers
+are the fallback and now say UNAPPLIED. `master_limiter` stays a marker on
+purpose - it is a master BUS setting and no clip-level route reaches it.
+`track_levels` is read only for its `fade_duration_seconds`, which sets the
+ramp between two planned levels; A1's compressor, the -12dB SFX bed and the
+A4 transition-audio bus are still three designs with nowhere to go. ~~AGENTS.md section 10 says `manifest_validator` asserts
 "monotonic ducking curves"; it does not.~~ The doc claim was corrected under
 P0.4; there is still no ducking check in `library/tools/manifest_validator.py`
 and, audio being out of scope, there is not going to be one.

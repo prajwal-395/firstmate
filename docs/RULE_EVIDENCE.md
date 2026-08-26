@@ -154,7 +154,21 @@ The drop detection in `build_verification` now asks whether a label was PLACED, 
 `SetProperty` returns False for `PanX` and `PanY` and reads back None, silently: there is no such property.
 `ZoomX` and `ZoomY` are real.
 
-`Volume` on an audio TimelineItem also returns False on Resolve 21 - its property dict is empty - so per-clip SFX `volume_db` does not reach the mix.
+`Volume` on an audio TimelineItem also returns False on Resolve 21, and the reason is now known rather than guessed: an audio `TimelineItem` has **no property dictionary at all**.
+
+    audio TimelineItem GetProperty()  ->  {}
+    video TimelineItem GetProperty()  ->  ['AnchorPointX', ..., 'Pan', ..., 'ZoomY']   (25 keys)
+
+So `SetProperty("Volume", x)` does not fail because the name is wrong; it fails because the property system on that object is empty.
+Every spelling returns False and reads back None: `Volume`, `volume`, `Gain`, `Level`, `AudioLevel`, `ClipVolume`, `Pan`.
+
+The rest of the surface was enumerated with `dir()` across every proxy, which is truthful where `hasattr` is not.
+The complete set of audio-adjacent methods anywhere in the API is `GetFairlightPresets`, `ApplyFairlightPresetToCurrentTimeline`, `InsertAudioToCurrentTrackAtPlayhead`, `AutoSyncAudio`, `GetAudioMapping`, `PerformAudioClassification`, `ClearAudioClassification`, `TranscribeAudio`, the `Timeline` track calls (`AddTrack`, `SetTrackEnable`, `SetTrackLock`, ...), `GetSourceAudioChannelMapping`, `GetTrackTypeAndIndex` and `GetVoiceIsolationState`.
+There is no fader, no pan, no solo, no automation mode, no bus, no FairlightFX.
+`Fusion.ActionManager.GetActions()` resolves to 199 unique action ids and exactly three match `audio|volume|gain|level|fader|fairlight|mix|bus|pan|mute|solo|automat` - `Fusion_Zone_Expand`, `Player_Gain`, `Viewer_Show_GainGamma`, all image controls - and the set does not grow on the Fairlight page.
+
+**This is a complete enumeration, not a failed search.**
+Levels go through OTIO instead; see [the-mix-goes-through-otio](#the-mix-goes-through-otio).
 
 `TimelineItem.GetProperty()` with no argument returns the whole dict.
 Read the truth off it before trusting any property name.
@@ -168,6 +182,65 @@ Computing audio in/out against the timeline fps stretched the music to 125% and 
 
 `SetRenderSettings` must set `ExportAudio` and `AudioCodec` explicitly or the render has no audio at all.
 `resolve_render.py` now also probes the output for an audio stream before reporting success, because a silent render is otherwise indistinguishable from a good one.
+
+### the-mix-goes-through-otio
+
+Until this landed, the renderer turned every `audio_mix.music_automation` entry into a cyan timeline marker reading "Target Level: -96dB (silent)" and set no level at all.
+On project 001 the two blocks the spine planned `silent` played music at full level in the finished video, and the marker made it look handled.
+
+`Timeline.Export(path, resolve.EXPORT_OTIO)` writes plain JSON in which each audio clip carries a `Fairlight Clip Volume and Fades` effect, and its `volume` parameter is **dB directly** - no fader law, no taper.
+`Key Frames` maps a frame number to a dB value and Resolve interpolates linearly between them, so a pair of keys at one value is a plateau and the gap between two plateaus is a ramp.
+
+**What survives an OTIO round trip.**
+Established by exporting 001's built timeline, importing it back and comparing the two:
+
+| | survives | how it was established |
+|---|---|---|
+| clip placement, durations, track structure and names | yes, frame-exact | `GetItemListInTrack` on both |
+| transform: `Pan`/`Tilt`/`ZoomX`/`ZoomY` (`_apply_conform`) | yes, exact | `GetProperty` on both; OTIO carries it as a normalised `transformationPan` |
+| timeline markers, with colour and name | yes, all 11 | `GetMarkers()` on both |
+| native transitions | yes | authored a `Transition.1`, imported, re-exported unchanged |
+| Fairlight clip volume and keyframes | yes | the point; measured below |
+| **Fusion comps** | **no** | `GetFusionCompNameList()` empty on all 8 V1 clips |
+| **CDL grades** | **no** | `GetNodeGraph().GetToolsInNode(1)` returns `None` after import and `['Primary Balance', 'Saturation, Hue & Lum Mix']` before - and the getter was proved truthful by calling `SetCDL` on one imported clip and watching it change |
+
+That is why the round trip runs at PLACEMENT time: the two things it destroys are the two the renderer had not applied yet.
+
+**Where a keyframe's frame number is measured from.**
+Two renders settled it.
+A music clip was placed at timeline frame 150 with keys at 300 and 450, first with source in-point 0 and then with source in-point 200.
+Both times the ducked floor landed at 15.0-20.0s in the rendered file, which is timeline frames 450-600 - the keys plus the clip's own start.
+Timeline-absolute would have put it at 10.0-15.0s; source-relative at 8.3-13.3s.
+So the numbers are **clip-relative**, and the earlier scouting note that called them "timeline frame number" was true only because that clip began at frame 0.
+
+**Three ways the route answers None and says nothing.**
+`ImportTimelineFromFile` returns None, with no diagnostic and no partial import, when any referenced media file is missing, when the path is relative, or when the timeline name is already taken.
+The first is checked before the call, the second by passing an absolute path, the third by renaming the placement timeline to `<name>__premix` for the length of the import.
+
+A fourth trap is in the export rather than the import: Resolve writes `"Parameters": []` on the clip-volume effect whenever every value is at its default, so a patcher that looks for an existing `"Parameter ID": "volume"` finds nothing, changes nothing, and the render comes back unchanged.
+The parameter has to be inserted.
+
+**Measured on 001.**
+The bed was rendered twice from the same build - once as mixed, once from the pre-mix export at unity - with A1 and A3 muted so the music could be measured on its own, and differenced per second:
+
+    time     mixed(mean)  unity(mean)  delivered   planned
+     0-2s        -91.0       -45.5      floor      silent  (-96)
+       3s        -57.8       -45.8      -12.0      fade_in (-12)
+    6-17s        -64.6       -46.6      -18.0      background (-18)
+      19s        -37.6       -31.6       -6.0      prominent (-6)
+      34s        -27.2       -21.2       -6.0      prominent (-6)
+    36-43s       -34.6       -17.6      -18.0      background (-18)
+    44-54s        -91.0      -20.2      floor      silent  (-96)
+
+Every plateau is exact to 0.1 dB.
+The silences read as the file's own -91 dB floor rather than -96 because that is as low as a 16-bit AAC master goes; against the unmixed bed they are 44 to 71 dB down.
+The ramps land on the planned frames: out of the second `prominent` block, keys at frame 1061 (-6 dB) and 1091 (-18 dB) measured -6.0 dB through frame 1050, -8.6 at 1065, -14.9 at 1080, and -18.0 from 1095 on.
+
+**Routes not taken.**
+DRT blob surgery reaches the same data through a supported import and preserves Fusion comps, but only a static gain is demonstrated on it: automation is stored zstd-compressed under a different flag byte, in 64-byte records that were characterised and never decoded.
+It also depends on an undocumented binary layout that Blackmagic can change in any release.
+FCP7 XML works, keyframes included, but its round trip is not level-transparent - an untouched export and reimport comes back a constant **3.1 dB quieter**, and every level then sits on top of that tax.
+AAF carries no gain entries. EDL is video only. Control surfaces and UI automation were never needed.
 
 ### media-pool-name-collisions
 

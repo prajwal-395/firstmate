@@ -238,6 +238,7 @@ class Area(str, Enum):
     ASSEMBLY_MANIFEST = "assembly_manifest"
     FUSION_COMPS = "fusion_comps"
     CARRIERS = "carriers"
+    TIMELINE_INTERCHANGE = "timeline_interchange"
     QA_FRAMES = "qa_frames"
 
     # Project-level, and deliberately NOT under steps/: nesting these
@@ -360,6 +361,12 @@ AREAS: dict[Area, AreaSpec] = {
     Area.CARRIERS: AreaSpec(
         _step_path("render", "carriers"), Kind.OUTPUT,
         "Transparent ProRes carriers that generator effects composite onto.",
+        step="render"),
+    Area.TIMELINE_INTERCHANGE: AreaSpec(
+        _step_path("render", "otio"), Kind.OUTPUT,
+        "OpenTimelineIO exports of the built timeline, and the copy the "
+        "mix was written into - the route the planned dB reach Fairlight "
+        "by. See library/tools/otio_mix.py.",
         step="render"),
     Area.QA_FRAMES: AreaSpec(
         _step_path("validate", "qa_frames"), Kind.OUTPUT,

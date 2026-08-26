@@ -399,13 +399,18 @@ CHROMA_PRESENCE_GATES = False
 DEFAULT_CHROMA_PASS_FRACTION = 0.9
 
 # ── P3: the gate switch ──
-# The mix has no delivery route: `SetProperty("Volume")` returns False on
-# Resolve 21 and the Fairlight preset failed, so the level automation the
-# plan writes reaches nothing. Until the captain rules on
-# `vep-pipeline-decision-map-decision-audio-automation-delivery-route`
-# this check CANNOT pass whatever anyone configures, and a gate that must
-# fail teaches everyone to ignore the report. So it reports and does not
-# fail. Promoting it is this boolean.
+# The mix NOW HAS a delivery route. It did not when this switch was
+# written: `SetProperty("Volume")` returns False on Resolve 21, the
+# Fairlight preset failed, and the level automation the plan wrote
+# reached nothing - so the check could not pass whatever anyone
+# configured, and a gate that must fail teaches everyone to ignore the
+# report. The OTIO round trip (AGENTS.md section 5, "The mix goes
+# through OTIO") closed that, and 001 now renders with every planned dB
+# measurably present.
+#
+# The switch stays False anyway, because promoting it is a separate
+# captain decision about what a FAILING mix should cost a run, not a
+# consequence of the route existing. Promoting it is this boolean.
 SPEECH_ABOVE_BED_GATES = False
 
 # A `silent` window is judged by how far its music sits below the median

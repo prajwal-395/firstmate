@@ -254,8 +254,16 @@ def test_allocate_sfx_tracks():
     assert allocations[1][1] == 4
     assert allocations[2][1] == 3
 
-def test_audio_markers_added(mock_resolve, sample_manifest):
-    """Test that audio mix target markers and master limiter are added."""
+def test_audio_markers_are_the_fallback_not_the_mix(mock_resolve, sample_manifest):
+    """A cyan marker is a note asking a human to set a level, not a level.
+
+    Levels reach the timeline through the OTIO round trip
+    (library/tools/execution/deliver_audio_mix.py). This manifest plans
+    music automation and gives it no A2 clip to sit on, so the route
+    declines - and the markers that come back say UNAPPLIED, so nobody
+    reads them as a mix. The master limiter stays a marker in every case:
+    it is a master BUS setting, and no clip-level route reaches it.
+    """
     sample_manifest["audio_mix"] = {
         "master_limiter": {
             "enabled": True,
@@ -289,18 +297,21 @@ def test_audio_markers_added(mock_resolve, sample_manifest):
     media_pool.AppendToTimeline.return_value = [placed_item]
     
     with patch('os.path.exists', return_value=True):
-        build_timeline(sample_manifest)
-        
+        result = build_timeline(sample_manifest)
+
+    assert result["audio_mix_delivery"]["delivered"] is False
+    assert "no A2 music clip" in result["audio_mix_delivery"]["reason"]
     assert timeline.AddMarker.call_count >= 2
-    
-    # Check Master Limiter marker
+
     timeline.AddMarker.assert_any_call(
         0, "Purple", "Master Limiter: -1.5dBTP", "Set the master track limiter to this threshold", 1
     )
-    
-    # Check Music Automation marker (2.0s * 30fps = 60 frame)
+
+    # 2.0s * 30fps = frame 60. The wording is the point: an unapplied
+    # target, not a "target level" that reads like one was applied.
     timeline.AddMarker.assert_any_call(
-        60, "Cyan", "Target Level: -18dB (background)", "Duck or boost the music track to this target level", 1
+        60, "Cyan", "UNAPPLIED target: -18dB (background)",
+        "The pipeline could not write this level; set it by hand", 1
     )
 
 

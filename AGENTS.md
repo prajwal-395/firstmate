@@ -171,7 +171,8 @@ If `resolve` is `None`, Resolve is not running or not fully loaded - retry with 
 - **`hasattr` is always True on Resolve's scripting proxies, including invented names.** Guard on return values, never on `hasattr`. [why](docs/RULE_EVIDENCE.md#hasattr-is-always-true)
 - Discarding a return value and printing success is not evidence the call did anything. Say so when Resolve declines; the neural-directive block in `resolve_build_timeline` is the pattern to copy. [why](docs/RULE_EVIDENCE.md#smart-reframe-reported-success-for-months)
 - Read the truth off `TimelineItem.GetProperty()` with no argument, which returns the whole dict, before trusting any property name.
-- **`Pan` and `Tilt` are the transform properties. There is no `PanX` and no `PanY`.** `ZoomX`/`ZoomY` are real. `Volume` on an audio TimelineItem returns False on Resolve 21, so per-clip SFX `volume_db` does not reach the mix. [why](docs/RULE_EVIDENCE.md#pan-tilt-and-volume)
+- **`Pan` and `Tilt` are the transform properties. There is no `PanX` and no `PanY`.** `ZoomX`/`ZoomY` are real. [why](docs/RULE_EVIDENCE.md#pan-tilt-and-volume)
+- **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** An audio `TimelineItem` has no property dictionary at all, so every spelling of `SetProperty` returns False; the whole documented audio surface is `GetFairlightPresets`, `ApplyFairlightPresetToCurrentTimeline` and `InsertAudioToCurrentTrackAtPlayhead`, and Fusion's `ActionManager` registers no audio action. Do not re-probe it - see "The mix goes through OTIO" below. [why](docs/RULE_EVIDENCE.md#pan-tilt-and-volume)
 - `TimelineItem.Stabilize()` works, and is the most expensive call in a build - see below.
 - `CreateMagicMask` is withdrawn: it returns False for every mode.
 - Super Scale is a **MediaPoolItem** property taking an **int**, with companion keys `SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after Super). [why](docs/RULE_EVIDENCE.md#hasattr-is-always-true)
@@ -256,6 +257,34 @@ Overlapping SFX are fine - the timeline builder allocates A3, A4, ... - but iden
 - **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks: iPhone MOVs contain multiple audio streams. Add A2 and later tracks afterward, and place music or SFX with `mediaType: 2`.
 - **Resolve audio pool items report 24fps regardless of the timeline.** `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so compute audio in/out with the pool item's own FPS. [why](docs/RULE_EVIDENCE.md#audio-pool-items-report-24fps)
 - **Renders are silent unless you say otherwise.** `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes the output for an audio stream before reporting success. [why](docs/RULE_EVIDENCE.md#renders-are-silent-by-default)
+
+### The mix goes through OTIO, and it goes in at placement time
+
+Every planned dB - the bed's per-block curve and each clip's `volume_db` - reaches Fairlight
+by ONE route: `library/tools/otio_mix.py` writes it into an OpenTimelineIO export and
+`library/tools/execution/deliver_audio_mix.py` imports the result back.
+Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
+[why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
+
+- **The import REBUILDS the timeline.** Fusion comps and CDL grades do NOT survive it; clip
+  placement, transform (`_apply_conform`), timeline markers and native transitions do. So the
+  round trip runs straight after the last clip is placed, before the Fusion pass and the
+  grade, and nothing may hold a `TimelineItem` from before it.
+  `tests/test_audio_mix_delivery.py` drives a whole build and asserts the comps are still there.
+- **The `volume` parameter is ABSENT from an untouched export**: Resolve writes
+  `"Parameters": []` when every value is at its default, so it must be INSERTED, not patched.
+- **A keyframe's frame number is measured from the CLIP'S START ON THE TIMELINE**, not from the
+  start of the timeline and not from the source in-point.
+- **`ImportTimelineFromFile` answers None with no diagnostic** when a referenced media file is
+  missing, when the path is relative, or when the timeline name is taken. Check the first,
+  pass an absolute path, and rename the placement timeline out of the way.
+- A cyan `UNAPPLIED target` marker is the FALLBACK, written only when the route declines and
+  saying so. It is a note asking a human to set a level, never a level.
+- The master limiter stays a marker in every case: it is a master BUS setting, and no
+  clip-level route reaches it.
+- DRT blob surgery reaches the same data and preserves Fusion comps, but only a static gain is
+  demonstrated on it and it rests on an undocumented binary layout. FCP7 XML is rejected: its
+  round trip costs a constant 3.1 dB tax on everything.
 
 ### Visual verification
 

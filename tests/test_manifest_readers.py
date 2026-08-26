@@ -16,8 +16,9 @@ reader DOES with the value. Writing that sentence is the check - if you
 cannot say what a viewer gets, the key is inert and belongs in
 EXEMPTED_KEYS with a reason, or nowhere. The sentence is asserted
 non-empty so it cannot be skipped, and it must be honest: "draws a
-marker for a human editor" is a legitimate thing to write, and it is
-what `audio_mix` says.
+marker for a human editor" is a legitimate thing to write. It is what
+`audio_mix` used to say, and no longer does - the mix reaches the sound
+now, through library/tools/otio_mix.py.
 """
 import ast
 import pathlib
@@ -87,8 +88,11 @@ EXPECTED_READERS = {
     ],
     "audio_mix": [
         (RENDERER, "build_timeline",
-         "Adds coloured timeline markers only. Nothing changes a level: audio "
-         "mixing is out of scope by ruling, and this key is a note to a human editor."),
+         "Writes every planned dB onto the timeline through an OTIO round "
+         "trip: the bed's per-block curve as Fairlight keyframes, each clip's "
+         "volume_db as a static level. Falls back to a marker saying UNAPPLIED "
+         "when Resolve declines the import, and keeps the master limiter as a "
+         "marker because no clip-level route reaches a bus."),
     ],
     "_spine_blocks": [
         (COMPILE, "_assert_timeline_fully_covered",
