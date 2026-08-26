@@ -15,6 +15,172 @@ RUNNER="$ROOT/bin/fm-test-run.sh"
 assert_present "$RUNNER" "bin/fm-test-run.sh is missing"
 [ -x "$RUNNER" ] || fail "bin/fm-test-run.sh must be executable"
 
+# A committed snapshot of THIS repo's real bin/ and tests/, so selection sizing
+# is measured against the real family map and the real fan-out rather than a
+# hand-built fixture that can only confirm its own assumptions.
+init_real_snapshot_repo() {
+  local repo=$1
+  mkdir -p "$repo"
+  cp -R "$ROOT/bin" "$repo/bin"
+  cp -R "$ROOT/tests" "$repo/tests"
+  git -C "$repo" init -q
+  git -C "$repo" add -A
+  git -C "$repo" -c user.name='Firstmate Tests' \
+    -c user.email='tests@example.invalid' commit -qm snapshot
+}
+
+# Smallest lane size in a snapshot repo, measured the way a caller would.
+snapshot_smallest_lane_count() {
+  local repo=$1 lane count best=
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    count=$(cd "$repo" && bin/fm-test-run.sh --list --lane "$lane" | wc -l | tr -d ' ')
+    if [ -z "$best" ] || [ "$count" -lt "$best" ]; then
+      best=$count
+    fi
+  done < <(cd "$repo" && bin/fm-test-run.sh --list-lanes)
+  printf '%s\n' "$best"
+}
+
+test_oversized_changed_selection_announces_itself() {
+  local tmp repo selected lane_count notice claimed_selected claimed_lane line rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-oversize.XXXXXX")
+  repo="$tmp/repo"
+  init_real_snapshot_repo "$repo"
+
+  # bin/fm-test-run.sh is a real high-fan-out source in this repo: a change to it
+  # pulls in whole families, which is exactly the case where --changed stops
+  # being the narrow option.
+  printf '\n' >>"$repo/bin/fm-test-run.sh"
+  # Earlier tests in this file leave errexit on; pair it so a refusal is
+  # reported as a failure instead of silently ending the script.
+  set +e
+  (cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+    >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || { rm -rf "$tmp"; fail "--list --changed refused on a high-fan-out change (rc=$rc): $(cat "$tmp/err")"; }
+
+  selected=$(wc -l <"$tmp/out" | tr -d ' ')
+  lane_count=$(snapshot_smallest_lane_count "$repo")
+
+  # The case must not go vacuous: prove this selection really is oversized
+  # before asserting that it says so.
+  [ "$selected" -gt $((lane_count * 2)) ] \
+    || { rm -rf "$tmp"; fail "high-fan-out change selected $selected, not more than twice the smallest lane ($lane_count); pick a wider source"; }
+
+  notice=$(grep 'NOTICE --changed selected' "$tmp/err" || true)
+  [ -n "$notice" ] \
+    || { rm -rf "$tmp"; fail "oversized --changed selection ran silently; stderr was: $(cat "$tmp/err")"; }
+
+  # The notice must carry BOTH real numbers, because a caller who cannot see the
+  # comparison is back to counting two --list runs by hand.
+  claimed_selected=$(printf '%s\n' "$notice" | sed -n 's/.*selected \([0-9][0-9]*\) scripts.*/\1/p')
+  claimed_lane=$(printf '%s\n' "$notice" | sed -n 's/.*is \([0-9][0-9]*\)\..*/\1/p')
+  [ "$claimed_selected" = "$selected" ] \
+    || { rm -rf "$tmp"; fail "notice claimed $claimed_selected selected scripts, actual $selected"; }
+  [ "$claimed_lane" = "$lane_count" ] \
+    || { rm -rf "$tmp"; fail "notice claimed smallest lane $claimed_lane, actual $lane_count"; }
+
+  grep -q 'compare-selections' "$tmp/err" \
+    || { rm -rf "$tmp"; fail "notice does not point at the command that sizes every option"; }
+
+  # The notice goes to stderr so --list stays a clean machine-readable list.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      tests/*.test.sh) ;;
+      *) rm -rf "$tmp"; fail "--list stdout polluted by the notice: $line" ;;
+    esac
+  done <"$tmp/out"
+
+  rm -rf "$tmp"
+  pass "an oversized --changed selection announces itself with both real counts, before running"
+}
+
+test_ordinary_changed_selection_stays_quiet() {
+  local tmp repo selected lane_count rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-quiet.XXXXXX")
+  repo="$tmp/repo"
+  init_real_snapshot_repo "$repo"
+
+  printf '\n' >>"$repo/bin/fm-pr-merge.sh"
+  set +e
+  (cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+    >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || { rm -rf "$tmp"; fail "--list --changed refused on a narrow change (rc=$rc): $(cat "$tmp/err")"; }
+
+  selected=$(wc -l <"$tmp/out" | tr -d ' ')
+  lane_count=$(snapshot_smallest_lane_count "$repo")
+  [ "$selected" -gt 0 ] \
+    || { rm -rf "$tmp"; fail "narrow change selected nothing; the quiet case would be vacuous"; }
+  [ "$selected" -le $((lane_count * 2)) ] \
+    || { rm -rf "$tmp"; fail "bin/fm-pr-merge.sh is no longer a narrow change ($selected vs lane $lane_count); pick another narrow source"; }
+
+  ! grep -q 'NOTICE' "$tmp/err" \
+    || { rm -rf "$tmp"; fail "ordinary narrow selection printed a notice: $(cat "$tmp/err")"; }
+
+  rm -rf "$tmp"
+  pass "an ordinary narrow --changed selection stays quiet"
+}
+
+test_compare_selections_sizes_every_option() {
+  local tmp repo lane changed_count marked prev count label rest smallest rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-compare.XXXXXX")
+  repo="$tmp/repo"
+  init_real_snapshot_repo "$repo"
+  printf '\n' >>"$repo/bin/fm-test-run.sh"
+
+  set +e
+  (cd "$repo" && bin/fm-test-run.sh --compare-selections --base HEAD) \
+    >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || { rm -rf "$tmp"; fail "--compare-selections is unavailable (rc=$rc), so a caller is back to counting two --list runs by hand: $(cat "$tmp/err")"; }
+
+  ! grep -q 'FM_TEST_SUMMARY' "$tmp/out" \
+    || { rm -rf "$tmp"; fail "--compare-selections must not run any tests"; }
+
+  assert_contains "$(cat "$tmp/out")" '--changed --base HEAD' "compare must size the change-based selection"
+  assert_contains "$(cat "$tmp/out")" '--all' "compare must size the complete suite"
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    grep -Fq -- "--lane $lane" "$tmp/out" \
+      || { rm -rf "$tmp"; fail "compare omitted lane $lane"; }
+  done < <(cd "$repo" && bin/fm-test-run.sh --list-lanes)
+
+  # The change-based row must agree with what --changed would actually select.
+  changed_count=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD 2>/dev/null | wc -l | tr -d ' ')
+  grep -Eq "^ *$changed_count  --changed --base HEAD" "$tmp/out" \
+    || { rm -rf "$tmp"; fail "compare's --changed row disagrees with --list --changed ($changed_count): $(cat "$tmp/out")"; }
+
+  # Exactly one smallest-lane marker, and it is genuinely the minimum lane.
+  marked=$(grep -c 'smallest lane' "$tmp/out" | tr -d ' ' || true)
+  [ "$marked" = 1 ] \
+    || { rm -rf "$tmp"; fail "expected exactly one smallest-lane marker, found $marked"; }
+  smallest=$(snapshot_smallest_lane_count "$repo")
+  grep -Eq "^ *$smallest  --lane .*\(smallest lane\)" "$tmp/out" \
+    || { rm -rf "$tmp"; fail "smallest-lane marker is not on the $smallest-script lane: $(cat "$tmp/out")"; }
+
+  # Ascending order is the whole point: the caller reads the top row and stops.
+  prev=-1
+  while read -r count label rest; do
+    [ "$count" = SCRIPTS ] && continue
+    [ -n "$label" ] || continue
+    [ "$count" -ge "$prev" ] \
+      || { rm -rf "$tmp"; fail "compare rows are not smallest-first: $count after $prev"; }
+    prev=$count
+  done <"$tmp/out"
+
+  rm -rf "$tmp"
+  pass "--compare-selections sizes every selection smallest-first without running any"
+}
+
 test_list_all_exact_suite_coverage() {
   local listed expected missing extra f
   listed=$("$RUNNER" --list --all | LC_ALL=C sort)
@@ -865,6 +1031,9 @@ test_family_selection
 test_single_script_selection
 test_changed_file_selection_is_conservative
 test_changed_dependency_selection_and_unmapped_failure
+test_oversized_changed_selection_announces_itself
+test_ordinary_changed_selection_stays_quiet
+test_compare_selections_sizes_every_option
 test_empty_selection_emits_summary
 test_timing_markers_and_json
 test_aggregate_exit_behavior
