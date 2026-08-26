@@ -62,6 +62,7 @@ from model_lifecycle import load_model, unload_model
 # library/tools/step_stdout.py; `main()` calls _claim_stdout() first.
 from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.subject_framing import load_face_cascade
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -1105,46 +1106,10 @@ def decompose_camera_motion(
 
 # ── 10. Face presence (5Hz) ───────────────────────────────────────────
 
-def _load_face_cascade():
-    """The frontal-face Haar cascade, or None if this OpenCV has none.
-
-    Returning None matters as much as returning a classifier. OpenCV 5
-    dropped Haar cascades: there is no `cv2.CascadeClassifier` and no XML
-    in `cv2.data.haarcascades`. `requirements.txt` said `opencv-python>=4.8`,
-    which resolves to 5.x, and the AttributeError that produced was caught
-    by the broad `except Exception` around the whole function - so
-    `face_presence` came back with EMPTY values on such a machine, rather
-    than falling back to the variance heuristic. Empty is worse than
-    approximate: it silently disabled the subject-absence usable-range
-    rule in the vision pass as well as subject-aware framing.
-
-    The requirement is now pinned below 5 so the cascade is really there;
-    this function is the guard for anyone whose environment predates that.
-    """
-    try:
-        import cv2
-    except ImportError:
-        return None
-
-    classifier = getattr(cv2, "CascadeClassifier", None)
-    if classifier is None:
-        return None
-
-    data = getattr(cv2, "data", None)
-    haar_dir = getattr(data, "haarcascades", None) if data else None
-    if not haar_dir:
-        return None
-
-    cascade_path = os.path.join(haar_dir, "haarcascade_frontalface_default.xml")
-    if not os.path.exists(cascade_path):
-        return None
-
-    cascade = classifier(cascade_path)
-    # A CascadeClassifier that failed to load its XML is not an error, it
-    # is an object that detects nothing on every frame.
-    if hasattr(cascade, "empty") and cascade.empty():
-        return None
-    return cascade
+# One loader, shared with `render_qa.measure_face_intact` - the render
+# side asks the same availability question about the same cascade, and
+# two copies of this guard is how one of them ends up not asking.
+_load_face_cascade = load_face_cascade
 
 
 # The shortest side of the frames the cascade actually sees. Sampling was
@@ -1280,13 +1245,30 @@ def compute_face_presence(
             "face_center_x": [float|None, ...],  # 0.0=left edge, 1.0=right
                                                  # edge; None where no face
                                                  # was located at that sample
+            "face_width": [float|None, ...],     # box width as a fraction of
+                                                 # the frame width; None where
+                                                 # no face was located
             "face_present_times": [float, ...],  # timestamps where value > 0.5
             "face_absent_times": [float, ...]    # timestamps where value < 0.5
         }
 
-    `face_center_x` is parallel to `values` and the same length. It tracks
-    the LARGEST face in the frame, the same face `values` scores, so the
-    two never describe different people.
+    `face_center_x` and `face_width` are parallel to `values` and the same
+    length. They track the LARGEST face in the frame, the same face
+    `values` scores, so the three never describe different people.
+
+    **`face_width` is the measurement this function used to throw away.**
+    The cascade returns (x, y, w, h) and only the centre was kept, so the
+    pipeline could aim a crop at the subject but had no way to know
+    whether the crop was WIDE ENOUGH for them. On project 001's A-roll
+    the answer was no - a face box spanning 37.7% of the source width,
+    into a fill crop that keeps 31.6% - and the conform cropped the
+    speaker's face with nothing measuring it. See
+    `library/tools/subject_framing.py`.
+
+    Only the WIDTH is recorded, not the height. Landscape source in a
+    portrait frame is a width-limited crop: the source's full height is
+    always shown, so a face can only ever be lost off the sides. A
+    measurement nothing can read is not worth a key.
     """
     try:
         import numpy as np
@@ -1312,6 +1294,7 @@ def compute_face_presence(
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
                 "face_center_x": [],
+                "face_width": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
@@ -1325,6 +1308,7 @@ def compute_face_presence(
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
                 "face_center_x": [],
+                "face_width": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
@@ -1333,6 +1317,7 @@ def compute_face_presence(
             n_frames, sample_h, sample_w, 3)
         face_values = []
         face_center_x = []
+        face_width = []
 
         cascade = _load_face_cascade()
         if cascade is not None:
@@ -1357,9 +1342,11 @@ def compute_face_presence(
                     # both the sample size and the source resolution.
                     face_center_x.append(
                         round(float(fx + fw / 2.0) / sample_w, 4))
+                    face_width.append(round(float(fw) / sample_w, 4))
                 else:
                     face_values.append(0.0)
                     face_center_x.append(None)
+                    face_width.append(None)
 
         else:
             # Fallback: mid-frequency variance heuristic.
@@ -1376,6 +1363,7 @@ def compute_face_presence(
                 # "centred" here would be a fabricated measurement, so the
                 # honest answer is None and consumers centre by default.
                 face_center_x.append(None)
+                face_width.append(None)
 
         # Derive presence/absence time arrays
         face_present_times = [
@@ -1391,6 +1379,7 @@ def compute_face_presence(
             "sample_rate_hz": sample_rate_hz,
             "values": face_values,
             "face_center_x": face_center_x,
+            "face_width": face_width,
             "face_present_times": face_present_times,
             "face_absent_times": face_absent_times,
         }
@@ -1404,6 +1393,7 @@ def compute_face_presence(
             "sample_rate_hz": sample_rate_hz,
             "values": [],
             "face_center_x": [],
+            "face_width": [],
             "face_present_times": [],
             "face_absent_times": [],
         }
@@ -1416,6 +1406,7 @@ def compute_face_presence(
             "sample_rate_hz": sample_rate_hz,
             "values": [],
             "face_center_x": [],
+            "face_width": [],
             "face_present_times": [],
             "face_absent_times": [],
         }

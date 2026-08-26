@@ -247,6 +247,60 @@ def validate_manifest_semantics(manifest: dict) -> list[str]:
     errors.extend(_check_no_repeated_source_audio(manifest))
     errors.extend(_check_no_flash_captions(manifest))
     errors.extend(_check_no_effect_on_everything(manifest))
+    errors.extend(_check_subject_survives_the_conform(manifest))
+    return errors
+
+
+def _check_subject_survives_the_conform(manifest: dict) -> list[str]:
+    """P8: a clip's crop must be wide enough for the subject it measured.
+
+    Filling a portrait frame from landscape source keeps exactly
+    ``1 / fill_zoom`` of the source WIDTH.  When the pipeline measured a
+    subject on that clip and the subject needs more width than that, the
+    speaker is cut off by the frame edge no matter where the pan points.
+
+    **This is the half that carries the verdict.**  The render-side
+    counterpart (`render_qa.measure_face_intact`) can only judge a face
+    the cascade still finds, and a face cropped hard enough stops being
+    detectable at all - measured on 001's own master, where 118 sampled
+    frames of a talking-head video yielded 9 detections and none of them
+    touching an edge, for a render whose A-roll was cut through the
+    middle of the speaker's face throughout.  Here the question is
+    arithmetic and has an exact answer, and it is answered before a
+    40-minute render rather than after it.
+
+    `compile_manifest._conform_fields` avoids this by switching such a
+    clip to the backdrop route, which shows the subject whole over a
+    blurred plate.  So an error here means the geometry and the plan
+    disagree - a hand-edited manifest, or a conform that ran before this
+    existed.
+    """
+    from library.tools.subject_framing import SUBJECT_HEADROOM
+
+    errors = []
+    tracks = manifest.get("tracks", {}) or {}
+    for track_key in ("V1", "V2"):
+        for clip in (tracks.get(track_key, {}) or {}).get("clips", []) or []:
+            if clip.get("framing_backdrop"):
+                # The whole subject is composited into the frame; the
+                # crop no longer decides what is visible.
+                continue
+            subject_width = clip.get("subject_width")
+            zoom = clip.get("fill_zoom")
+            if not subject_width or not zoom or zoom <= 1.0:
+                continue
+            crop = 1.0 / float(zoom)
+            needed = float(subject_width) * (1.0 + 2.0 * SUBJECT_HEADROOM)
+            if crop + 1e-6 < needed:
+                errors.append(
+                    f"{track_key} clip '{clip.get('label', '?')}' crops the "
+                    f"subject: the conform keeps {crop:.1%} of the source "
+                    f"width at zoom {zoom}, and the measured subject needs "
+                    f"{needed:.1%} (a face box of {float(subject_width):.1%} "
+                    f"plus {SUBJECT_HEADROOM:.0%} clear on each side). The "
+                    f"speaker is cut by the frame edge wherever the pan "
+                    f"points."
+                )
     return errors
 
 

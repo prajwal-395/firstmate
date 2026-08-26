@@ -33,6 +33,11 @@ try:
 except ImportError:  # imported as a top-level module from library/tools
     from framing_intent import DEFAULT_FRAMING_INTENT, FILL
 
+try:
+    from library.tools.subject_framing import load_face_cascade
+except ImportError:  # imported as a top-level module from library/tools
+    from subject_framing import load_face_cascade
+
 # Slack when matching detected black against a declared beat. blackdetect
 # reports whole-frame timestamps, so the segment it reports for a beat can
 # run a frame wider than the gap the manifest planned; 50ms covers a frame
@@ -460,18 +465,31 @@ def _probe_video_size(video_path: str) -> Optional[tuple]:
 
 def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
                        width: int, height: int,
-                       sample_fps: float) -> Iterator["object"]:
+                       sample_fps: float,
+                       scaled: bool = False) -> Iterator["object"]:
     """Yield sampled frames as (planes, height, width) uint8 arrays.
 
     Streamed one frame at a time rather than read whole: a 55-second
     1080x1920 master at 2 Hz in yuv444p is 680 MB if you slurp it, and
     every consumer here reduces each frame to a handful of scalars.
+
+    ``width`` / ``height`` are what the caller will RESHAPE to, so they
+    must be the size ffmpeg really emits.  Pass ``scaled=True`` to have
+    the filter chain resize to them; leave it False (the default) when
+    they are the video's own probed size.  A caller that asks for a size
+    the chain does not produce gets frames reshaped across frame
+    boundaries and measures noise - silently, because the byte count
+    still divides.
     """
     import numpy as np
 
     frame_bytes = planes * width * height
+    chain = f'fps={sample_fps}'
+    if scaled:
+        chain += f',scale={width}:{height}'
+    chain += f',format={pix_fmt}'
     cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-i', video_path,
-           '-vf', f'fps={sample_fps},format={pix_fmt}',
+           '-vf', chain,
            '-f', 'rawvideo', '-pix_fmt', pix_fmt, '-']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
@@ -604,6 +622,178 @@ def measure_frame_occupancy(
     except Exception as e:
         return RenderQAResult("frame_occupancy", False, str(e), None,
                               "error", f"Error measuring frame occupancy: {e}")
+
+
+# ── The face-crop guard ──
+# `measure_frame_occupancy` asks whether the picture fills the frame.
+# Nothing asked whether the SUBJECT survived being cropped into it, and a
+# half-face at full bleed passes every other gate in this module - which
+# is exactly what project 001 shipped on 2026-08-26 (AGENTS.md section
+# 10.3, "The frame FILLS by default").
+#
+# Same short side as `step_1_04_temporal_index.FACE_SAMPLE_SHORT_SIDE`,
+# for the same measured reason: past 480 the cascade's false positives
+# grow faster than its recall. Aspect is preserved, so a portrait master
+# costs the same as a landscape one.
+MASTER_FACE_SHORT_SIDE = 480
+
+# A detection smaller than this fraction of the frame is not the speaker.
+# On a vertical master the subject's face is a large object; a 2% box is
+# a passer-by, a poster, or a false positive on a bright rectangle, and
+# failing a render because one of those touched the edge would be a gate
+# that fails correct output.
+MIN_SUBJECT_FACE_AREA = 0.03
+
+# How far inside the frame a box must start before it counts as whole.
+# Zero would make the gate fire on a face that merely reaches the edge
+# pixel, which the cascade's box placement cannot resolve; 4 px on the
+# 480-short-side sample is under 1% of the frame.
+FACE_EDGE_TOLERANCE_PX = 4
+
+# Fraction of the face-bearing samples that may show a cropped face
+# before the render fails. Not zero: a speaker who leans out of frame for
+# a moment is a moment, and a gate that fails a 40-minute render for one
+# sampled frame teaches everyone to ignore the report. A conform that is
+# geometrically wrong crops EVERY frame of the clips it governs, so it
+# clears this bound by a wide margin.
+MAX_CROPPED_FACE_FRACTION = 0.10
+
+
+def _master_face_sample_size(width: int, height: int) -> tuple:
+    """Sample (w, h) for the cascade, short side bounded, aspect kept."""
+    target = min(MASTER_FACE_SHORT_SIDE, min(width, height))
+    if width <= height:
+        out_w, out_h = float(target), target * height / float(width)
+    else:
+        out_h, out_w = float(target), target * width / float(height)
+    return (max(2, int(out_w / 2.0 + 0.5) * 2),
+            max(2, int(out_h / 2.0 + 0.5) * 2))
+
+
+def measure_face_intact(
+        video_path: str,
+        sample_fps: float = DEFAULT_SAMPLE_FPS,
+        max_cropped_fraction: float = MAX_CROPPED_FACE_FRACTION) -> RenderQAResult:
+    """A face the render detects is not cut off by the frame edge.
+
+    The degenerate case of subject placement, and the only part of it that
+    is statable: "face in the middle third" is wrong for a deliberately
+    off-centre composition and no brand document asks for it, but nobody
+    in any series wants a beheaded speaker.
+
+    Measured on the MASTER, because that is the only place the question
+    can be answered.  The plan's own geometry is checked separately by
+    `manifest_validator`; this catches the case where the plan was fine
+    and something downstream - a Fusion zoom, a transform Resolve applied
+    differently, a comp that did not import - cropped the speaker anyway.
+
+    Only boxes at least `MIN_SUBJECT_FACE_AREA` of the frame are judged,
+    and a render fails only when more than `max_cropped_fraction` of its
+    face-bearing samples are cropped.  Both bounds exist so the gate
+    cannot fail correct output: the alternative - failing on any single
+    edge-touching detection - fires on a passer-by and on a speaker who
+    leans out of shot for half a second.
+
+    A render in which NO face is detected passes and says so.  This is a
+    guard against a specific defect, not an assertion that every video has
+    a face in it.
+    """
+    try:
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - numpy is a hard dependency
+        return RenderQAResult("face_intact", True, str(e), None,
+                              "warning", f"numpy unavailable: {e}")
+
+    cascade = load_face_cascade()
+    if cascade is None:
+        # OpenCV 5 ships no Haar cascades. Saying so is the point: a
+        # measurement that could not be taken must not read as a pass
+        # that was earned.
+        return RenderQAResult(
+            "face_intact", True, None, None, "warning",
+            "No Haar cascade available, face crop unmeasured")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("face_intact", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+        sample_w, sample_h = _master_face_sample_size(width, height)
+        frame_area = float(sample_w * sample_h)
+
+        face_frames = 0
+        cropped = []
+        for index, frame in enumerate(_stream_raw_frames(
+                video_path, 'gray', 1, sample_w, sample_h, sample_fps,
+                scaled=True)):
+            gray = np.ascontiguousarray(frame[0])
+            boxes = [b for b in cascade.detectMultiScale(
+                gray, scaleFactor=1.1, minNeighbors=3, minSize=(20, 20))
+                if (b[2] * b[3]) / frame_area >= MIN_SUBJECT_FACE_AREA]
+            if not boxes:
+                continue
+            face_frames += 1
+            x, y, fw, fh = max(boxes, key=lambda b: b[2] * b[3])
+            tol = FACE_EDGE_TOLERANCE_PX
+            edges = []
+            if x <= tol:
+                edges.append("left")
+            if x + fw >= sample_w - tol:
+                edges.append("right")
+            if y <= tol:
+                edges.append("top")
+            if y + fh >= sample_h - tol:
+                edges.append("bottom")
+            if edges:
+                cropped.append({
+                    "at_seconds": round(index / sample_fps, 2),
+                    "edges": edges,
+                    "box_fraction": [round(float(x) / sample_w, 4),
+                                     round(float(y) / sample_h, 4),
+                                     round(float(fw) / sample_w, 4),
+                                     round(float(fh) / sample_h, 4)],
+                })
+
+        if face_frames == 0:
+            return RenderQAResult(
+                metric="face_intact", passed=True,
+                value={"face_frames": 0, "cropped_frames": 0},
+                threshold={"max_cropped_fraction": max_cropped_fraction,
+                           "min_subject_face_area": MIN_SUBJECT_FACE_AREA},
+                severity="info",
+                detail="No face large enough to judge was detected in the "
+                       "render - nothing to crop")
+
+        fraction = len(cropped) / float(face_frames)
+        failed = fraction > max_cropped_fraction
+        detail = (f"{len(cropped)} of {face_frames} face-bearing samples "
+                  f"show a face cut by the frame edge ({fraction:.1%})")
+        if failed:
+            worst = cropped[0]
+            detail += (f" - first at {worst['at_seconds']}s off the "
+                       f"{'/'.join(worst['edges'])} edge; the subject does "
+                       f"not survive the conform")
+
+        return RenderQAResult(
+            metric="face_intact",
+            passed=not failed,
+            value={
+                "face_frames": face_frames,
+                "cropped_frames": len(cropped),
+                "cropped_fraction": round(fraction, 4),
+                "sample_size": [sample_w, sample_h],
+                "examples": cropped[:8],
+            },
+            threshold={"max_cropped_fraction": max_cropped_fraction,
+                       "min_subject_face_area": MIN_SUBJECT_FACE_AREA,
+                       "edge_tolerance_px": FACE_EDGE_TOLERANCE_PX},
+            severity="error" if failed else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("face_intact", False, str(e), None,
+                              "error", f"Error measuring face crop: {e}")
 
 
 def measure_chroma_presence(
@@ -1053,6 +1243,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                                            framing_intents=framing_intents))
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
+    results.append(measure_face_intact(video_path))
     if music_path and music_automation:
         results.append(measure_speech_above_bed(
             video_path, music_path, music_automation,

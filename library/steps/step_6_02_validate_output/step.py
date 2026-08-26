@@ -228,6 +228,17 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 framing_check["pass"] = False
                 framing_check["issues"].append(r.detail)
+        elif r.metric == "face_intact":
+            # A face the render still shows must not be cut by the frame
+            # edge. It gates through the same check as P1 because it is
+            # the same question - what the conform did to the picture -
+            # and a reviewer reading "framing" wants both answers there.
+            # The verdict on a conform too tight to leave a detectable
+            # face at all is carried by manifest_validator's P8, before
+            # the render.
+            if not r.passed:
+                framing_check["pass"] = False
+                framing_check["issues"].append(r.detail)
         elif r.metric in ("chroma_presence", "speech_above_bed"):
             # P2 and P3 report and do not gate - their thresholds are open
             # captain decisions. The number is in qa_report either way,

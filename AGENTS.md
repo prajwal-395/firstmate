@@ -586,6 +586,16 @@ Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`
 - `subject_framing` returns None whenever the footage cannot support an answer. **None means "frame centred" - do not replace it with a fabricated 0.5.**
 - The join is `subject_centers_by_clip`. Step 1.04's real output shape is `{"temporal_event_indices": [...], "full_indices": [...]}` - a LIST of per-clip dicts, not a mapping. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 
+**A crop must be wide enough for the subject, and aiming it is not enough.**
+`compute_face_presence` records `face_width` beside `face_center_x`; `subject_framing.subject_box` reduces both, and `SUBJECT_HEADROOM` is how much clear space the subject needs on each side.
+Filling a portrait frame from landscape source keeps exactly `1 / fill_zoom` of the source WIDTH, and a subject wider than that is cut by the frame edge wherever the pan points. [why - 001's measured frame](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
+
+- **No zoom both fills the frame and holds an over-wide subject** - every zoom below fill leaves bars - so `_conform_fields` SYNTHESISES the missing picture. It shrinks the source until the subject fits and puts the same frame again, scaled to cover and blurred, behind it: the `framing_backdrop` route, drawn by `fx.subject_backdrop` and dispatched on `backdrop_picture_scale`.
+- The Fusion comp composes into the 9:16 column Resolve's own transform then crops at FULL fill zoom, so a backdrop clip carries **no `framing_pan_x`**: a pan slides the composition out of the frame.
+- **The verdict is carried by the PLAN check**, `manifest_validator`'s P8. `render_qa.measure_face_intact` is the render-side backstop and is weaker on purpose: a face cropped hard enough stops being detectable at all, which is why 001's own master yielded nine detections in 118 samples and none touching an edge.
+- An explicit `framing_pan_x` still outranks the measurement, and the clip then keeps its crop with `subject_safe_zoom` recorded so P8 can say what that cost.
+- `tests/test_subject_survives_the_conform.py`.
+
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
 `face_sample_dimensions` reads the DISPLAY shape (rotation side data applied, because autorotate runs before the filter chain) and bounds the SHORT side to `FACE_SAMPLE_SHORT_SIDE`.
 It raises rather than falling back to a shape.
@@ -614,6 +624,7 @@ Read `engagement["composite"]`, not the dict itself, when scoring a passage.
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
 **Six baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
+A seventh, a face cut by the frame edge, is measured on the render and gates through the same `framing` check (§10.3).
 
 `render_qa.py` measures the RENDER:
 

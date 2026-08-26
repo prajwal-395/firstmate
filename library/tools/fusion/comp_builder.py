@@ -72,6 +72,18 @@ def build_effect_comp(effects: dict, clip_dur: int,
     src_in = effects.get('source_in_frame')
     src_out = effects.get('source_out_frame')
 
+    # The backdrop is FIRST, and must be: it branches off MediaIn1 by
+    # name, and everything after it - the Ken Burns drift, the grade, the
+    # vignette - is meant to act on the composed picture, not on the
+    # source behind it.
+    if 'backdrop_picture_scale' in effects:
+        engine.add(fx.subject_backdrop(
+            picture_scale=effects['backdrop_picture_scale'],
+            picture_center_x=effects.get('backdrop_picture_center_x', 0.5),
+            backdrop_scale=effects.get('backdrop_scale', 1.0),
+            backdrop_center_x=effects.get('backdrop_center_x', 0.5),
+        ))
+
     if any(k in effects for k in ZOOM_KEYS):
         engine.add(fx.zoom(
             clip_dur,

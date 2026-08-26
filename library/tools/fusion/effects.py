@@ -59,6 +59,14 @@ class EffectBlock:
             self.output_name = self.input_name
 
 
+#: How hard the backdrop behind a subject-safe conform is blurred.
+#: Big enough that no detail in it competes with the picture in front, so
+#: it reads as a plate rather than as a second, smaller edit of the same
+#: shot.  A `Blur` carries it and not a `Defocus`: `FusionNode._validate`
+#: caps `Defocus.XDefocusSize` at 3.0 because a defocus past that
+#: artefacts, and 3.0 is nowhere near a plate.
+BACKDROP_BLUR_SIZE = 24.0
+
 #: The transition types `transition_tail`/`transition_head` can draw.
 #: `library/tools/transition_vocabulary.FUSION_TYPES` must equal this, and
 #: `tests/test_transition_vocabulary.py` asserts it - the whole defect was
@@ -185,6 +193,80 @@ class fx:
             input_name=tf_name,
             input_key="Input",
             output_name=tf_name,
+        )
+
+    @staticmethod
+    def subject_backdrop(
+        *,
+        picture_scale: float,
+        picture_center_x: float = 0.5,
+        backdrop_scale: float = 1.0,
+        backdrop_center_x: float = 0.5,
+        blur_size: float = BACKDROP_BLUR_SIZE,
+        source: str = "MediaIn1",
+    ) -> EffectBlock:
+        """The subject, whole, over a blurred copy of the same frame.
+
+        This is the only effect that BRANCHES: both the picture and the
+        thing behind it come from the same MediaIn, so the block wires
+        ``source`` into two Transforms and merges them.  That is why it
+        must be the first block in the comp - ``CompEngine`` wires only
+        one input per block, and the second branch is named here.
+
+        Why it exists.  Filling a portrait frame from landscape source
+        keeps ``1 / fill_zoom`` of the source width - 31.6% for 1920x1080
+        into 1080x1920 - and a talking head does not fit in that.  Any
+        zoom below fill leaves black bars, so there is no setting that
+        both fills the frame and keeps the face.  This synthesises the
+        missing picture instead: ``picture_scale`` shrinks the source
+        until the subject fits, and the gap is the same frame again,
+        scaled to cover and defocused.
+
+        Every value is computed by ``compile_manifest._conform_fields``,
+        which owns the conform geometry; nothing is derived here.  The
+        scales and centres are in the comp CANVAS's units (the source
+        clip's own frame), not the delivery frame's, because Resolve's
+        own transform crops the central 9:16 column of this canvas
+        afterwards.
+
+        A ``Blur`` carries it rather than the ``Defocus`` this repo's
+        transition vocabulary uses: ``Defocus.XDefocusSize`` is capped at
+        3.0 by ``FusionNode._validate`` because a defocus past that
+        artefacts, and a backdrop needs an order of magnitude more.
+        """
+        bd_name = _next_name("Transform")
+        bl_name = _next_name("Blur")
+        pic_name = _next_name("Transform")
+        mg_name = _next_name("Merge")
+
+        backdrop = FusionNode(bd_name, "Transform")
+        backdrop.set_attr("CtrlWZoom", False)
+        backdrop.set_input("Size", backdrop_scale)
+        backdrop.set_input("Center", (backdrop_center_x, 0.5))
+        backdrop.pos = (110, 82)
+
+        blur = FusionNode(bl_name, "Blur")
+        blur.set_input("XBlurSize", blur_size)
+        blur.set_input("Input", bd_name)
+        blur.pos = (220, 82)
+
+        picture = FusionNode(pic_name, "Transform")
+        picture.set_attr("CtrlWZoom", False)
+        picture.set_input("Size", picture_scale)
+        picture.set_input("Center", (picture_center_x, 0.5))
+        picture.set_input("Input", source)
+        picture.pos = (220, 0)
+
+        merge = FusionNode(mg_name, "Merge")
+        merge.set_input("Background", bl_name)
+        merge.set_input("Foreground", pic_name)
+        merge.pos = (330, 0)
+
+        return EffectBlock(
+            nodes=[backdrop, blur, picture, merge],
+            input_name=bd_name,
+            input_key="Input",
+            output_name=mg_name,
         )
 
     @staticmethod

@@ -48,7 +48,9 @@ from tools.spine_contract import (
     is_speech_block,
 )
 from tools.semantic_index import build_semantic_lookup
-from tools.subject_framing import subject_center_x, subject_centers_by_clip
+from tools.subject_framing import (
+    SUBJECT_HEADROOM, subject_box, subject_center_x, subject_centers_by_clip,
+)
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import project_template_name, resolve_project_template
@@ -781,7 +783,11 @@ def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     return dropped
 
 
-def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: float = None, framing_pan_x: float = None, subject_center_x: float = None) -> dict:
+def _conform_fields(clip_metadata: dict, clip_id, proj_res,
+                    framing_intent: float = None,
+                    framing_pan_x: float = None,
+                    subject_center_x: float = None,
+                    subject_width: float = None) -> dict:
     """Scale factor needed to fill the output frame, if any.
 
     ``framing_intent`` is a normalised scalar spanning the continuum from
@@ -810,10 +816,39 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: floa
     dead centre happens to put them.  An explicit ``framing_pan_x`` always
     wins: a per-clip creative choice outranks a measurement.
 
+    ``subject_width`` is how much room the subject NEEDS, as a fraction of
+    the source width, from ``subject_framing.subject_box``.  A fill crop of
+    landscape source into a portrait frame keeps exactly ``1 / zoom`` of
+    the source width, so a subject wider than that is cropped by the frame
+    edge no matter where the pan points - which is what happened to
+    project 001 (see ``library/tools/subject_framing.py``).  When the fill
+    crop is too narrow for them, the conform switches to the BACKDROP
+    route below rather than delivering a cropped face.
+
     This is the only place the subject position becomes a pixel offset.
     The conversion needs the source width, the fit scale, the zoom and the
     target width, all of which are local here - computing it anywhere else
-    means two copies of the geometry that can disagree.
+    means two copies of the geometry that can disagree.  The backdrop's
+    two Transform values are computed here for the same reason, even
+    though a Fusion node is what applies them.
+
+    The backdrop route
+    ------------------
+
+    Filling a 1080x1920 frame from 1920x1080 source keeps 31.6% of the
+    width.  A talking head does not fit in 31.6% of a selfie, and no zoom
+    between letterbox and fill both fills the frame and holds the face -
+    the arithmetic is closed, because any zoom below fill leaves bars.  So
+    the missing picture is SYNTHESISED: the source is scaled down until
+    the subject fits, and the rest of the frame is the same frame again,
+    scaled to cover and blurred.  The frame is still entirely picture, the
+    face is whole, and the geometry is the same from the first clip to the
+    last.
+
+    Resolve's own transform still crops the central 9:16 column at full
+    fill zoom.  The composition happens UPSTREAM of it, in the clip's
+    Fusion comp, which is why the values handed over are a scale and a
+    centre in the comp's own canvas rather than a pan in output pixels.
     """
     meta = clip_metadata.get(clip_id) or {}
     width = meta.get("width")
@@ -866,6 +901,56 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res, framing_intent: floa
         "source_height": height,
         "fill_zoom": zoom,
     }
+
+    # ── Does the crop this zoom implies still hold the subject? ──
+    # Only in the width-limited case. Portrait source in a portrait frame
+    # crops the HEIGHT, and the full source width is always shown, so a
+    # face can never be lost off the sides there.
+    width_limited = (target_w / width) < (target_h / height)
+    subject_safe_zoom = None
+    if width_limited and subject_width:
+        required = min(1.0, float(subject_width) * (1.0 + 2.0 * SUBJECT_HEADROOM))
+        if required > 0:
+            result["subject_width"] = round(float(subject_width), 4)
+            subject_safe_zoom = round(1.0 / required, 4)
+            result["subject_safe_zoom"] = subject_safe_zoom
+
+    # An explicit framing_pan_x is a per-clip creative choice and outranks
+    # a measurement, here as everywhere else in this function: it says
+    # "aim the crop here", and the backdrop route has nothing to aim.
+    explicit_pan = framing_pan_x is not None and framing_pan_x != 0.0
+
+    if (subject_safe_zoom is not None
+            and not explicit_pan
+            and subject_safe_zoom < zoom - 1e-6):
+        # The crop cannot hold them. Show `required` of the source width,
+        # centred on the subject, over a blurred copy of the same frame.
+        required = 1.0 / subject_safe_zoom
+        centre = (float(subject_center_x)
+                  if subject_center_x is not None else 0.5)
+        column = 1.0 / max_zoom          # of the canvas width, in comp units
+
+        def _centre_for(scale):
+            """Transform Center.x that puts `centre` in the column's middle.
+
+            Clamped so the scaled image never uncovers the column: past
+            this bound its own edge would slide into frame.
+            """
+            bound = max(0.0, (scale - column) / 2.0)
+            offset = (0.5 - centre) * scale
+            return round(0.5 + max(-bound, min(bound, offset)), 4)
+
+        picture_scale = round(column / required, 4)
+        result["fill_zoom"] = max_zoom
+        result["framing_backdrop"] = {
+            "visible_source_width": round(required, 4),
+            "picture_scale": picture_scale,
+            "picture_center_x": _centre_for(picture_scale),
+            "backdrop_scale": 1.0,
+            "backdrop_center_x": _centre_for(1.0),
+        }
+        return result
+
     # Pan: convert normalised (-1..1) to pixel offset.
     zoomed_w = width * fit_scale * zoom
     max_pan_px = (zoomed_w - target_w) / 2.0
@@ -1084,8 +1169,8 @@ def compile_manifest(out_dir: str) -> dict:
                      or load(out_dir, "step_1_04.json") or {})
     _subject_faces = subject_centers_by_clip(temporal_data)
 
-    def _resolve_subject_center(clip_id, source_in, source_out):
-        """Subject position for this clip's source range, or None."""
+    def _face_track(clip_id):
+        """This clip's `face_presence` block, or None."""
         if not _subject_faces or clip_id is None:
             return None
         face = _subject_faces.get(clip_id)
@@ -1099,9 +1184,24 @@ def compile_manifest(out_dir: str) -> dict:
                 stem = os.path.splitext(os.path.basename(src))[0] if src else None
             if stem:
                 face = _subject_faces.get(stem)
+        return face
+
+    def _subject_framing(clip_id, source_in, source_out):
+        """The two subject arguments `_conform_fields` takes.
+
+        Kept as one call so the position and the width can never be read
+        off different clips, and so a new call site cannot pick up the
+        aim without the size - which is the pair whose separation cropped
+        001's face.
+        """
+        face = _face_track(clip_id)
         if face is None:
-            return None
-        return subject_center_x(face, source_in, source_out)
+            return {"subject_center_x": None, "subject_width": None}
+        box = subject_box(face, source_in, source_out)
+        return {
+            "subject_center_x": subject_center_x(face, source_in, source_out),
+            "subject_width": box.width if box else None,
+        }
 
     # ── V1: A-Roll clips (from spine speech blocks) ──
     v1_clips = []
@@ -1166,7 +1266,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                     clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res,
                         framing_intent=_fi, framing_pan_x=_fp,
-                        subject_center_x=_resolve_subject_center(
+                        **_subject_framing(
                             get_clip_id(seg), clip.get("source_in", 0.0),
                             clip.get("source_out", 0.0))))
                     v1_clips.append(clip)
@@ -1188,7 +1288,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res,
                     framing_intent=_fi, framing_pan_x=_fp,
-                    subject_center_x=_resolve_subject_center(
+                    **_subject_framing(
                         get_clip_id(assignment), clip.get("source_in", 0.0),
                         clip.get("source_out", 0.0))))
                 v1_clips.append(clip)
@@ -1209,7 +1309,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res,
                     framing_intent=_fi, framing_pan_x=_fp,
-                    subject_center_x=_resolve_subject_center(
+                    **_subject_framing(
                         get_clip_id(block), clip.get("source_in", 0.0),
                         clip.get("source_out", 0.0))))
                 v1_clips.append(clip)
@@ -1240,7 +1340,7 @@ def compile_manifest(out_dir: str) -> dict:
         _fi, _fp = _resolve_framing(broll)
         v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res,
             framing_intent=_fi, framing_pan_x=_fp,
-            subject_center_x=_resolve_subject_center(
+            **_subject_framing(
                 get_clip_id(broll), v2_clip.get("source_in", 0.0),
                 v2_clip.get("source_out", 0.0))))
         v2_clips.append(v2_clip)
@@ -1262,7 +1362,7 @@ def compile_manifest(out_dir: str) -> dict:
         _fi, _fp = _resolve_framing(interj)
         v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res,
             framing_intent=_fi, framing_pan_x=_fp,
-            subject_center_x=_resolve_subject_center(
+            **_subject_framing(
                 get_clip_id(assigned), v2_clip.get("source_in", 0.0),
                 v2_clip.get("source_out", 0.0))))
         v2_clips.append(v2_clip)
@@ -1455,6 +1555,22 @@ def compile_manifest(out_dir: str) -> dict:
             effect = per_clip_effects.setdefault(clip["label"], {})
             for key, value in fusion_look.items():
                 effect.setdefault(key, value)
+
+    # ── The subject-safe conform's own comp (§10.3) ──
+    # `_conform_fields` decided the geometry; this is the only thing that
+    # carries it to the picture. A clip whose fill crop is too narrow for
+    # its subject gets a comp whether or not any VFX or house look put one
+    # there, because without it the clip renders as the cropped face the
+    # conform declined to deliver.
+    for clip in v1_clips + v2_clips:
+        backdrop = clip.get("framing_backdrop")
+        if not backdrop:
+            continue
+        effect = per_clip_effects.setdefault(clip["label"], {})
+        effect["backdrop_picture_scale"] = backdrop["picture_scale"]
+        effect["backdrop_picture_center_x"] = backdrop["picture_center_x"]
+        effect["backdrop_scale"] = backdrop["backdrop_scale"]
+        effect["backdrop_center_x"] = backdrop["backdrop_center_x"]
 
     if unplaced_vfx:
         raise ValueError(

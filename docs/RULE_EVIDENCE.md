@@ -971,3 +971,77 @@ Four more list entries would have fixed these four steps and left the fifth new 
 
 `tests/test_llm_context_routing.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
 Both fail on the parent revision for exactly the four steps above and pass for `select_broll`.
+
+### the-crop-was-narrower-than-the-face
+
+**2026-08-26.** Two consecutive full runs of project 001 - PRs #192 and #201 - independently
+named the same defect as the biggest picture problem in the finished video, and neither run
+caused it. At **t=44.0 s of `exports/Pipeline_Edit.mp4`**, the emotional floor of the edit, the
+frame shows roughly half a face, soft from the upscale, on a source frame that is a clean
+landscape close-up with his whole head and a full sunset behind him.
+
+**What the numbers say.** The clip is `IMG_1818.MOV`, stored 1920x1080 with rotation 0. At
+t=44.0 s the timeline is 2.257 s into the V1 clip `speech_15_seg0`, which is source
+20.646 s. Running the pipeline's own cascade at its own sample size on that source frame:
+
+```
+Haar frontal face box   x 285..1008 of 1920   (37.7% of the source width)
+conform crop window     x 450..1056 of 1920   (31.6%, fill_zoom 3.1605)
+```
+
+The crop's left edge sits **165 px inside** the face box. The `framing_pan_x` of 366.59 px in
+the manifest is correct - it aims at the clip's measured subject centre of 0.3926, and the
+median face centre over the clip's range measures 0.3926 - so the pan was computed right,
+applied right, and could not have helped. **The window was smaller than the thing it was
+aiming at.**
+
+**Why nothing caught it.** `compute_face_presence` receives (x, y, w, h) from the cascade and
+recorded only `(x + w/2) / sample_w`. The size was measured and thrown away, so no consumer
+could ask whether the crop was wide enough. Every gate passed: `measure_frame_occupancy` asks
+whether the picture fills the frame and it does, completely.
+
+**The arithmetic is closed.** A width-limited fill keeps exactly `1 / zoom` of the source
+width. Holding a 37.7% face box with 15% of its own width clear on each side needs 49.0% of the
+width, which is zoom 2.04 - and at zoom 2.04 the source's full height maps to 1241 of 1920
+rows, so 35% of the frame is bars. There is no zoom that both fills the frame and holds this
+subject, and there was never going to be: the source is already a tight selfie.
+
+So the missing picture is synthesised rather than the subject sacrificed. `_conform_fields`
+emits a `framing_backdrop` - the source scaled to 0.6463 and centred on the subject, over the
+same frame at scale 1.0, blurred - and `fx.subject_backdrop` draws it in the clip's Fusion comp,
+upstream of Resolve's own transform. Frame occupancy stays 100%, the geometry stays constant
+across the video, and the face is whole.
+
+**Seen on a frame, twice.** The before and after were both rendered through DaVinci Resolve
+21 on a scratch timeline built from this manifest's own values (probe timelines created and
+deleted; the captain's project untouched), and reproduced independently with ffmpeg from the
+same `_conform_fields` output. The comp imports, `GetFusionCompNameList` reports it, and the
+delivered frame shows the whole head, both ears, the cap and the sunset.
+
+**Two things the probe established that are not obvious.**
+
+* A `framing_pan_x` applied *on top of* a backdrop comp slides the whole composition sideways
+  and reintroduces the crop. That is why the backdrop route emits no pan at all.
+* `TimelineItem.DeleteFusionCompByName` returned **False** for a comp that
+  `GetFusionCompNameList` was reporting, and the comp stayed on the clip - the first render of
+  the "before" case came out with the backdrop still applied. Judge it by its return value like
+  every other Resolve call (§5).
+
+**Why the render-side gate is the weaker half.** The obvious check - Haar on the master, fail a
+box touching the frame edge - does not catch this, and the measurement says so. Over 118
+sampled frames of 001's shipped master the cascade found **9** subject-sized faces and **none**
+of them touched an edge, on a video whose A-roll is cut through the middle of the speaker's
+face throughout: a face cropped that hard, softened by a 1.78x upscale and overlaid with
+caption cards, stops being detectable at all. `measure_face_intact` is kept as a backstop for
+the case where the plan was right and the render was not, and the verdict is carried by
+`manifest_validator`'s P8, which asks the same question of the plan where it has an exact
+answer and asks it before a 40-minute render rather than after one.
+
+**What this was.** Not a missing default and not a working feature failing to reach these
+clips: subject-aware framing reached them and did its job. It was a **missing measurement** -
+the subject's size - and therefore a missing capability, because a conform that cannot fit the
+subject had nowhere to go.
+
+Related: [the-squashed-face-frame](#the-squashed-face-frame) fixed the sampling that made
+`face_center_x` available on this footage at all; [the-letterbox-default](#the-letterbox-default)
+is why the frame fills in the first place.

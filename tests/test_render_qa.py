@@ -110,10 +110,11 @@ def test_verify_duration(mock_run):
 @patch('library.tools.render_qa.verify_audio_streams')
 def test_run_full_render_qa(m1, m2, m3, m4, m5, m6, m7, m8):
     results = run_full_render_qa("dummy.mp4", 30.0)
-    # The eight original metrics plus the two baseline-craft measurements
-    # that need nothing but the file: frame occupancy (P1) and chroma
-    # presence (P2). The mix measurement (P3) needs a music path and a
-    # plan, and does not run without them.
-    assert len(results) == 10
+    # The eight original metrics plus the three measurements that need
+    # nothing but the file: frame occupancy (P1), chroma presence (P2) and
+    # the face-crop guard. The mix measurement (P3) needs a music path and
+    # a plan, and does not run without them.
+    assert len(results) == 11
     assert "frame_occupancy" in [getattr(r, "metric", None) for r in results]
     assert "chroma_presence" in [getattr(r, "metric", None) for r in results]
+    assert "face_intact" in [getattr(r, "metric", None) for r in results]

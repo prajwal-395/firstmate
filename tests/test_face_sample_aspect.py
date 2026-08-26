@@ -218,3 +218,49 @@ def test_face_center_x_is_normalised_against_the_sampled_width(tmp_path,
             f"centre {c} for a face at the right edge of a {sample_w}-wide "
             "frame - normalised against the wrong width")
         assert 0.0 <= c <= 1.0
+
+
+def test_face_width_is_recorded_and_parallel_to_the_centre(tmp_path,
+                                                           monkeypatch):
+    """The size the cascade measures is kept, not thrown away.
+
+    `compute_face_presence` had (x, y, w, h) in hand and recorded only the
+    centre, so the conform could aim a crop at the subject but never knew
+    whether the crop was wide enough for them. On project 001 it was not,
+    and the speaker's face was cut by the frame edge with every gate
+    passing. See `library/tools/subject_framing.subject_box`.
+    """
+    pytest.importorskip("cv2")
+    path = _synth(tmp_path / "landscape.mp4", "480x270", seconds=2)
+    sample_w, _sample_h = s.face_sample_dimensions(path)
+    box_w = max(2, sample_w // 4)
+
+    class QuarterWidthCascade:
+        def detectMultiScale(self, gray, **kwargs):
+            _h, w = gray.shape
+            return [(w // 4, 0, max(2, w // 4), max(2, w // 4))]
+
+    monkeypatch.setattr(s, "_load_face_cascade", lambda: QuarterWidthCascade())
+    out = s.compute_face_presence(path)
+
+    assert len(out["face_width"]) == len(out["face_center_x"]) == \
+        len(out["values"]), "the three tracks describe the same samples"
+    widths = [w for w in out["face_width"] if w is not None]
+    assert widths, "no widths recorded"
+    for w in widths:
+        assert w == pytest.approx(box_w / sample_w, abs=0.01)
+
+
+def test_a_sample_with_no_face_carries_no_width(tmp_path, monkeypatch):
+    """None, not zero: zero is a measurement and this is an absence."""
+    pytest.importorskip("cv2")
+    path = _synth(tmp_path / "landscape.mp4", "480x270", seconds=2)
+
+    class BlindCascade:
+        def detectMultiScale(self, gray, **kwargs):
+            return []
+
+    monkeypatch.setattr(s, "_load_face_cascade", lambda: BlindCascade())
+    out = s.compute_face_presence(path)
+    assert out["face_width"], "the track must exist even with no detections"
+    assert all(w is None for w in out["face_width"])
