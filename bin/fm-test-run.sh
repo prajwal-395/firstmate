@@ -1066,7 +1066,17 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' secondmate
       ;;
-    bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
+    bin/fm-teardown.sh)
+      # Cleanup's own family, plus the one teardown suite that lives outside it:
+      # tests/fm-gotmp.test.sh drives the real teardown against a fixture that
+      # symlinks exactly the libraries teardown sources, so a change to what
+      # teardown sources breaks it - and it is classified session-bootstrap, so
+      # pr-forge alone would not have selected it. It was CI, not the changed-file
+      # selection, that caught that.
+      printf '%s\n' pr-forge
+      printf '%s\n' "__script__:fm-gotmp.test.sh"
+      ;;
+    bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
