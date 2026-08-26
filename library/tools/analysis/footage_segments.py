@@ -36,6 +36,7 @@ thing to filter by, never a thing to retrieve.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -456,3 +457,67 @@ def coverage_report(project_folder) -> dict:
         "vision_scene_observations": sum(len(d.get("scene") or []) for d in vision.values()),
         "vision_object_labels": sum(len(d.get("objects") or []) for d in vision.values()),
     }
+
+
+# ─── Noticing that the ingest moved under the index ───────────────
+
+# Every place this module reads, as a glob relative to the project folder.
+# An index is built from exactly these files, so a change to any of them
+# is what "the index is stale" means.  Keep this in step with the loaders
+# above: a source read but not listed here is a source that can change
+# without anybody noticing.
+INGEST_SOURCES = (
+    "pipeline_output/steps/1_02_catalog_footage/output.json",
+    "pipeline_output/steps/1_03_semantic_analysis/clip_profile_*.json",
+    "pipeline_output/steps/1_04_temporal_index/index/clip_*.json",
+    "pipeline_output/steps/1_05_prosody_analysis/clip_*_prosody.json",
+)
+
+# `pipeline_data.json` is read too, but it is NOT fingerprinted whole:
+# it carries every step's output and the runner's state writer rewrites
+# it after every step, so a colour grade landing would report the ingest
+# as stale.  Only the subtree `load_catalog` reads is measured.
+STATE_FILE = "pipeline_data.json"
+STATE_INGEST_KEYS = ("catalog",)
+
+
+def ingest_fingerprint(project_folder) -> dict:
+    """A digest of the ingest an index would be built from.
+
+    CONTENT, not mtime - the same reasoning as `footage_identity.py`
+    (§3): a file rewritten byte-for-byte identically has not changed, and
+    a rebuild it triggers is 4 s of work for nothing.  These are JSON
+    documents rather than footage, so the whole file is read; on 001 that
+    is 70 files and 15 ms, which is small beside the 4 s build it guards.
+
+    Returns ``{"digest", "files", "bytes"}``.  A project with no ingest
+    at all fingerprints to zero files, which is itself a stable answer.
+    """
+    root = Path(project_folder)
+    digest = hashlib.sha256()
+    count, total = 0, 0
+
+    state_path = root / STATE_FILE
+    if state_path.is_file():
+        state = _load_json(state_path) or {}
+        outputs = state.get("step_outputs") or {}
+        subtree = json.dumps({k: outputs.get(k) for k in STATE_INGEST_KEYS},
+                             sort_keys=True, default=str).encode("utf-8")
+        digest.update(STATE_FILE.encode("utf-8"))
+        digest.update(subtree)
+        count += 1
+        total += len(subtree)
+
+    for pattern in INGEST_SOURCES:
+        for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
+            try:
+                blob = path.read_bytes()
+            except OSError:
+                continue
+            digest.update(str(path.relative_to(root)).encode("utf-8"))
+            digest.update(blob)
+            count += 1
+            total += len(blob)
+    return {"digest": digest.hexdigest(), "files": count, "bytes": total}

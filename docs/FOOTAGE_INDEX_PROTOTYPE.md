@@ -1,25 +1,79 @@
 # Cross-clip footage index - prototype
 
-**Status: PROTOTYPE, UNWIRED.** Nothing in the DAG, no step and no manifest
-reaches for it, and `tests/test_footage_query_prototype.py::test_footage_index_stays_unwired`
-fails the moment one does. Wiring it in is the captain's call (issue #185),
-not this module's.
+**Status: PROTOTYPE. In the DASHBOARD, out of the PIPELINE.**
+
+The captain wanted this index for two reasons, their words: "to speed up
+both a person's workflow and also help the LLM actually find what it is
+looking for." On 2026-08-26 they authorised the first half and only the
+first half - "can you wire this index search into the UI we have for this
+project" - so:
+
+- **A person may call it.** The review dashboard has a Footage Search view.
+- **The pipeline may not.** No step, DAG node, bridge used by a step or
+  process manifest may name either module, and
+  `tests/test_footage_query_prototype.py::test_footage_index_stays_unwired`
+  fails the moment one does. That test was NARROWED to allow the
+  dashboard, not deleted; its docstring carries the reasoning and a
+  companion test drives the same scan over a fake step to show it still
+  fires.
 
     library/tools/analysis/footage_segments.py   what the unit of retrieval is
     library/tools/analysis/footage_query.py      build, search, filter, CLI, tool defs
     library/tools/footage_query_bridge.py        JSON in / JSON out, for an orchestrator
+    library/dashboard/footage_search.py          the dashboard's half: warm index, build, hits for Resolve
+    library/dashboard/static/components/footage-search.js   the view
     tests/test_footage_query_prototype.py        including the unwired guard
+    tests/test_dashboard_footage_search.py       the dashboard half
 
 It answers "where in all my footage does X happen" for two callers: the
-captain, from the command line; and an LLM step, through an interface that
-exists and is documented but that nothing calls.
+captain, from the command line or the dashboard; and an LLM step, through
+an interface that exists and is documented but that nothing calls.
+
+## In the dashboard
+
+    source .venv/bin/activate
+    python3 manage_project.py dashboard <slug>            # or an absolute project path
+    open http://127.0.0.1:8420/                           # sidebar -> Footage Search
+
+Its own sidebar entry rather than a tab inside **Footage Library**, because
+the two answer different questions about different units: the Library is a
+browser over CLIPS (17 cards, one per file, clip-level tags), and this is a
+search over SPANS INSIDE clips (409 segments, each with its own timecode,
+score and reason). They are linked - a hit's clip id opens the Library's
+inspector - not merged.
+
+Three decisions the CLI never had to make:
+
+- **Where the index lives, and when it is built.** In the project, at
+  `pipeline_output/scratch/footage_index/`, and only when the reviewer
+  presses **Build**. The view states the full path *before* the button.
+  Building at server start would write into the captain's project every
+  time the dashboard opens; building on first query would do it at the
+  moment they are least expecting a wait.
+- **The model is loaded once per server.** Cold start is ~2 s, a warm query
+  2-8 ms. The banner reports `cold` / `loading` / `ready` / `unavailable`
+  and names the backend, so a first load does not look like a hang and a
+  degraded backend says so rather than quietly returning worse results.
+- **A stale index is noticed.** `build` records an `ingest_fingerprint` of
+  the files it read - contents, not mtimes - and the banner compares it on
+  every visit. `pipeline_data.json` is fingerprinted by its `catalog`
+  subtree ONLY, because the state writer rewrites the whole file after
+  every step and a colour grade landing is not a change to the footage.
+
+A hit carries the clip, the `MM:SS.mmm` range, a non-drop `HH:MM:SS:FF`
+source timecode at the clip's own frame rate (or nothing at all, when the
+catalog records no rate), the matching words' own sub-second timings, the
+shot facets, and both raw scores with the half that found it named.
 
 ## Using it
 
     python3 -m library.tools.analysis.footage_query build   <project>
     python3 -m library.tools.analysis.footage_query search  <project> "the parking lot"
     python3 -m library.tools.analysis.footage_query search  <project> "..." --mode dense
+    python3 -m library.tools.analysis.footage_query search  <project> "..." --floor 0    # no abstain
     python3 -m library.tools.analysis.footage_query filter  <project> --kind scene --framing wide
+    python3 -m library.tools.analysis.footage_query filter  <project> --max-face-presence 0.1
+    python3 -m library.tools.analysis.footage_query stale   <project>
     python3 -m library.tools.analysis.footage_query hybrid  <project> "cars" --kind scene
     python3 -m library.tools.analysis.footage_query detail  <project> 'clip_006#speech#001'
     python3 -m library.tools.analysis.footage_query transcript <project> clip_011
@@ -194,7 +248,7 @@ gets close via "smiling", which is why this is a near-miss rather than a
 failure - and the two 10-second action windows are a worse answer than a
 1.94 s one, which is the granularity of `actions[]` showing through.
 
-### Failure: `"find the shot with the cup"`
+### Failure, since fixed: `"find the shot with the cup"`
 
     1. [camera] clip_016 (IMG_1821.MOV) 00:00.000-00:20.000  (20.00s)
        score 0.7704  dense 0.330  bm25 3.956
@@ -213,8 +267,75 @@ Two failures in one, and this is the most important result on the page.
 
 A search that cannot say "not here" is dangerous for the LLM caller in
 particular: a planner handed three confident-looking rows has no way to
-know the answer set was empty. A score floor plus a "nothing above it"
-answer is the first thing to add if this goes further.
+know the answer set was empty.
+
+**Fixed, 2026-08-26.** The same query now:
+
+    query: 'find the shot with the cup'  mode=hybrid  floor=0.40  409/409 segments considered
+    backend: transformers+mean-pooling
+
+    NOTHING in this footage cleared the floor - that is the answer, not an empty result set.
+      closest: 0.391 < 0.40  [object] clip_016 :: black baseball cap. object. background
+
+      5 weak match(es) between 0.28 and 0.40 - not confident:
+    1. [object] clip_016 (IMG_1821.MOV) 00:00.000-00:42.000  (42.00s)
+       score 0.6000  dense 0.391  bm25 0.000
+       black baseball cap. object. background
+
+See **The floor, and the abstain** below for how the number was chosen.
+
+### The floor, and the abstain
+
+Retention is judged on the RAW signals - the dense cosine, and a BM25 that
+is exactly zero when no query term appeared - never on the blended score.
+The blend is min-max normalised over the candidate set, so its top row
+scores ~1.0 for **every** query ever asked, which is exactly why the
+unfloored index answered the cup query with three confident rows.
+
+Measured on 001, 409 segments, `transformers+mean-pooling` over
+`all-MiniLM-L6-v2`. Twelve queries whose subject is in the footage, eight
+whose subject is not:
+
+| subject present | best cosine | kept at >=0.40 |
+|---|---|---|
+| brick building | 0.878 | 36 |
+| someone walking | 0.745 | 5 |
+| motorcycle | 0.731 | 12 |
+| the pollen | 0.721 | 2 |
+| trees | 0.665 | 10 |
+| the brewery sign | 0.645 | 4 |
+| he says look at me | 0.640 | 2 |
+| talking about goals and momentum | 0.631 | 1 |
+| wide shot of the parking lot | 0.601 | 36 |
+| driving the car | 0.578 | 39 |
+| where does he talk about parking | 0.553 | 9 |
+| he laughs | 0.347 | **0** |
+
+| subject absent | best cosine | kept at >=0.40 |
+|---|---|---|
+| a birthday cake with candles | 0.396 | 0 |
+| find the shot with the cup | 0.391 | 0 |
+| cup | 0.325 | 0 |
+| snowboarding down a mountain | 0.266 | 0 |
+| a horse galloping on a beach | 0.264 | 0 |
+| someone playing the piano | 0.255 | 0 |
+| the president gives a speech about taxes | 0.211 | 0 |
+| underwater coral reef | 0.204 | 0 |
+
+`DENSE_SCORE_FLOOR = 0.40` separates them: every absent subject retains
+nothing, and eleven of the twelve present ones retain at least one segment.
+
+The twelfth is the reason there is a WEAK BAND as well as a floor.
+`"he laughs"` tops out at 0.347 - and that is the honest failure, because
+the vision pass wrote *smiling* and never wrote *laughing*. Between
+`DENSE_WEAK_FLOOR = 0.28` and the floor, a hit is reported as "the closest
+thing was this, and it is not confident", which is a third answer distinct
+from both silence and a confident wrong row. The reviewer can show the band
+or drop the floor to zero; the CLI takes `--floor`.
+
+Without an embedder the floor degrades to "at least one query term appears
+in this text", and both the CLI and the dashboard say so in as many words -
+a keyword floor cannot tell "absent" from "phrased differently".
 
 ### Where the two halves disagree: `"a sign that says reserved"`
 
@@ -252,9 +373,21 @@ working as designed: two appearances are two timecodes.)
       clip_008#scene#000    00:00.000-00:09.000    9.00s  Outdoor sidewalk and storefront area...
       (2 more)
 
-`--min-face-presence`, `--max-motion`, `--min-duration` and the rest read
-the reduced 1.04 curves, so "steady wide footage with nobody on screen" is a
-filter rather than a search.
+`--min-face-presence`, `--max-face-presence`, `--max-motion`,
+`--min-duration` and the rest read the reduced 1.04 curves, so "steady wide
+footage with nobody on screen" is a filter rather than a search:
+
+    $ ... filter <project> --framing wide --stability stable --max-face-presence 0.1
+    65 matching segments:
+      clip_001#action#000   00:00.000-00:03.570   3.57s  The camera pans and tilts downward...
+      clip_001#scene#000    00:00.000-00:02.000   2.00s  Parking lot and sidewalk. outdoor...
+      ...
+
+An UNMEASURED facet fails its bound rather than passing it: a clip whose
+face curve step 1.04 never wrote is not evidence that nobody is on screen.
+The dashboard offers exactly these as controls, and builds each dropdown
+from the values the index really holds, so a reviewer cannot pick a framing
+nothing was shot at.
 
 ## Would this have improved a real pipeline decision?
 
@@ -332,7 +465,9 @@ the captain's whole archive would need the index keyed by project.
 
 In the order the measurements argue for:
 
-1. **A score floor and an honest empty answer.** The cup query is the case.
+1. ~~**A score floor and an honest empty answer.** The cup query is the
+   case.~~ **Done, 2026-08-26**, alongside the dashboard view - the
+   captain was going to hit it on their first afternoon.
 2. **The reduction, separately and first.** 66x off `temporal_index` for
    three steps, with no index involved.
 3. **Denser scene sampling in 1.03**, which is where the retrieval ceiling

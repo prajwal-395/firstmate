@@ -4,7 +4,11 @@
 captain's instruction was to prototype a cross-clip footage index and NOT
 wire it in, so "nothing imports it" is a property of the repository, not
 a promise in a PR description. That test fails the moment a step, the
-DAG or a manifest reaches for it.
+DAG or a manifest reaches for it. It was NARROWED on 2026-08-26 when the
+captain authorised the dashboard - and only the dashboard - to call it;
+its own docstring carries the reasoning, and
+`test_the_guard_still_fires_when_a_step_imports_the_index` shows it
+still fires.
 
 Every other test builds its project under `tmp_path`. No test reads a
 real project (§8).
@@ -278,6 +282,157 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
     assert "error" in idx.search("pollen", mode="dense")[0]
 
 
+# ─── The floor, and the abstain ───────────────────────────────────
+#
+# The captain will type something that is not in the footage on their
+# first afternoon with this. A search that cannot say "not here" reads as
+# broken, so these are about the answer NOTHING being a real answer.
+
+
+def test_the_default_floor_is_the_measured_one(offline_index):
+    """The floor a caller gets without asking is the one that was measured."""
+    idx, _ = offline_index
+    assert footage_query.DENSE_SCORE_FLOOR == 0.40
+    assert footage_query.DENSE_WEAK_FLOOR == 0.28
+    assert idx.search_report("parking")["floor"] == footage_query.DENSE_SCORE_FLOOR
+
+
+def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
+    """Not three confident wrong rows. Nothing, plus the near miss.
+
+    The floor here is set just above what the best segment really scores,
+    rather than to a magic number, so the test asserts the MECHANISM and
+    not a threshold that only holds for one stub embedder.
+    """
+    idx, _ = offline_index
+    unfloored = idx.search_report("parking", top_k=5, floor=0)
+    best = unfloored["results"][0]["dense_score"]
+
+    report = idx.search_report("parking", top_k=5, floor=best + 0.01)
+    assert report["results"] == [], "nothing cleared the floor, so nothing comes back"
+    assert report["abstained"] is True
+    assert report["best_rejected"]["dense_score"] == best, (
+        "an abstain that cannot name its near miss reads as a broken search"
+    )
+    assert report["considered"] == len(idx.segments)
+    assert report["retained"] == 0
+
+    # And the list-returning form agrees: an empty list, not an error row.
+    assert idx.search("parking", floor=best + 0.01) == []
+
+
+def test_the_weak_band_is_reported_and_is_not_the_results(offline_index):
+    """Below the floor and above the weak floor is a THIRD answer."""
+    idx, _ = offline_index
+    unfloored = idx.search_report("parking", top_k=5, floor=0)
+    best = unfloored["results"][0]["dense_score"]
+
+    report = idx.search_report("parking", top_k=5, floor=best + 0.01)
+    assert report["weak"], "the weak band carries what the floor turned away"
+    assert all(h["dense_score"] >= footage_query.DENSE_WEAK_FLOOR for h in report["weak"])
+    assert report["weak"][0]["dense_score"] == best, "weak rows are ordered by the signal the floor judged on"
+    assert len(report["weak"]) <= footage_query.WEAK_BAND_LIMIT
+
+
+def test_a_zero_floor_is_the_unfloored_ranking(offline_index):
+    """The reviewer can always ask to see the ranking with no abstain."""
+    idx, _ = offline_index
+    assert len(idx.search_report("parking", top_k=5, floor=0)["results"]) == 5
+
+
+def test_lexical_retention_drops_what_no_query_word_appears_in(project, tmp_path, monkeypatch):
+    """A zero BM25 is never evidence: no word of the query is in that text."""
+    monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
+    index_dir = tmp_path / "lexfloor"
+    build_index(project, index_dir=index_dir)
+    idx = FootageIndex(project, index_dir=index_dir)
+
+    assert idx.search("zebra", top_k=5, mode="lexical") == []
+    report = idx.search_report("zebra", top_k=5, mode="hybrid")
+    assert report["results"] == [] and report["abstained"]
+    assert report["degraded"], "an answer with no embedder must say so"
+    assert idx.search("pollen", top_k=5, mode="lexical")
+
+
+def test_search_and_filter_tells_the_two_empties_apart(offline_index):
+    """"nothing is that kind of shot" and "nothing of it is about that"."""
+    idx, _ = offline_index
+    nothing_matches_filter = idx.search_report(
+        "parking", filters={"kind": "speech", "clip_id": "clip_002"})
+    assert nothing_matches_filter["results"] == []
+    assert nothing_matches_filter["error_hint"] == "no segment passes the facet filters"
+
+    unfloored = idx.search_report("parking", filters={"kind": "scene"}, floor=0)
+    best = unfloored["results"][0]["dense_score"]
+    nothing_clears_floor = idx.search_report(
+        "parking", filters={"kind": "scene"}, floor=best + 0.01)
+    assert nothing_clears_floor["results"] == []
+    assert "error_hint" not in nothing_clears_floor
+    assert nothing_clears_floor["considered"] == len(idx.filter(kind="scene"))
+
+    # An unset filter is not a filter: a form with empty boxes filters nothing.
+    assert idx.search_report("parking", filters={"kind": None, "framing": ""})["considered"] \
+        == len(idx.segments)
+
+
+def test_a_report_names_the_backend_that_answered(offline_index):
+    """A degraded backend must be visible, not silently worse results."""
+    idx, stats = offline_index
+    report = idx.search_report("parking")
+    assert report["embed_backend"] == stats["embed_backend"] == "test-stub"
+    assert report["segment_count"] == len(idx.segments)
+
+
+# ─── Noticing that the ingest moved ───────────────────────────────
+
+
+def test_a_current_index_says_so_and_a_changed_ingest_makes_it_stale(offline_index, project):
+    idx, _ = offline_index
+    assert idx.staleness()["stale"] is False
+
+    doc = project / "pipeline_output" / "steps" / "1_04_temporal_index" / "index" / "clip_002.json"
+    payload = json.loads(doc.read_text())
+    payload["speech_regions"] = [{"start": 1.0, "end": 2.0, "text": "a new utterance"}]
+    doc.write_text(json.dumps(payload))
+
+    stale = idx.staleness()
+    assert stale["stale"] is True
+    assert "changed" in stale["reason"]
+
+
+def test_a_downstream_step_writing_state_does_not_make_the_ingest_stale(
+        offline_index, project):
+    """`pipeline_data.json` is not an ingest file, it is every file.
+
+    `save_pipeline_state` rewrites it after EVERY step, so fingerprinting
+    it whole would report the index stale within seconds of a run
+    starting - which is what it did when this was first written, against
+    a live run of 001. Only the subtree the segment builder reads counts.
+    """
+    idx, _ = offline_index
+    state_path = project / "pipeline_data.json"
+    state = json.loads(state_path.read_text())
+    state["step_outputs"]["color_grade"] = {"applied": True, "look": "warm"}
+    state["steps_completed"] = {"color_grade": {}}
+    state_path.write_text(json.dumps(state))
+
+    assert idx.staleness()["stale"] is False, (
+        "a downstream step landing is not a change to the footage"
+    )
+
+    # ...and a change to the CATALOG still is.
+    state["step_outputs"]["catalog"]["clip_catalog"][0]["duration_seconds"] = 21.0
+    state_path.write_text(json.dumps(state))
+    assert idx.staleness()["stale"] is True
+
+
+def test_an_index_written_before_fingerprints_cannot_be_judged(offline_index):
+    """It says it cannot be checked rather than claiming to be current."""
+    idx, _ = offline_index
+    idx.payload.pop("ingest_fingerprint")
+    assert idx.staleness()["stale"] is None
+
+
 def test_search_mode_is_checked(offline_index):
     idx, _ = offline_index
     with pytest.raises(ValueError, match="Unknown search mode"):
@@ -294,6 +449,13 @@ def test_filter_selects_on_facets_including_reduced_curves(offline_index):
 
     assert idx.filter(kind="scene", min_face_presence=0.5) != []
     assert idx.filter(kind="object", clip_id="clip_002") == []
+
+    # "nobody in frame" is the upper bound, and an UNMEASURED face curve
+    # fails it rather than passing it: clip_002 has no face curve at all,
+    # which is not evidence that nobody is on screen.
+    assert idx.filter(kind="scene", max_face_presence=0.1) == []
+    assert [h["clip_id"] for h in idx.filter(kind="scene", max_face_presence=1.0)] \
+        == ["clip_001"]
 
     with pytest.raises(ValueError, match="Unknown kind"):
         idx.filter(kind="vibes")
@@ -394,21 +556,15 @@ def test_the_bridge_reports_a_failure_as_an_error(monkeypatch, capsys):
 # ─── The constraint the captain set ───────────────────────────────
 
 
-def test_footage_index_stays_unwired():
-    """Nothing in the pipeline may reach for the prototype.
+def _name_the_prototype(roots) -> list:
+    """Every file under `roots` that names either prototype module.
 
-    "not actually wiring it in until we are ready for it" is the captain's
-    call to reverse. Until then this is enforced here rather than trusted:
-    no step, no DAG, no process manifest may name either module.
+    Factored out so the guard can be pointed at a fake tree and shown to
+    still fire - a guard nobody has watched fail is a guard nobody knows
+    still works.
     """
-    searched = [
-        REPO_ROOT / "library" / "steps",
-        REPO_ROOT / "library" / "processes",
-        REPO_ROOT / "library" / "dashboard",
-        REPO_ROOT / "manage_project.py",
-    ]
     offenders = []
-    for root in searched:
+    for root in roots:
         paths = [root] if root.is_file() else sorted(root.rglob("*"))
         for path in paths:
             if not path.is_file() or path.suffix not in (".py", ".json", ".md"):
@@ -418,11 +574,94 @@ def test_footage_index_stays_unwired():
             text = path.read_text(encoding="utf-8", errors="replace")
             for module in PROTOTYPE_MODULES:
                 if module in text:
-                    offenders.append(f"{path.relative_to(REPO_ROOT)} names {module}")
+                    offenders.append(f"{path} names {module}")
+    return offenders
+
+
+# The roots the captain's constraint still covers. `library/dashboard/`
+# used to be here and is NOT any more - see the docstring below.
+PIPELINE_ROOTS = (
+    REPO_ROOT / "library" / "steps",
+    REPO_ROOT / "library" / "processes",
+    REPO_ROOT / "manage_project.py",
+)
+
+
+def test_footage_index_stays_unwired():
+    """No STEP may reach for the prototype. The dashboard now may.
+
+    The captain's ruling was "not actually wiring it in until we are ready
+    for it", and their reason for wanting the index was two-sided: "to
+    speed up both a person's workflow and also help the LLM actually find
+    what it is looking for."
+
+    On 2026-08-26 they authorised the FIRST half and only the first half -
+    "can you wire this index search into the UI we have for this project" -
+    so `library/dashboard/` came out of this scan. A reviewer searching
+    their own rushes in a browser is a person using a tool; a step calling
+    the same module is the pipeline making an editorial decision out of a
+    prototype whose retrieval quality has not been signed off. Those are
+    different acts and only the first one is allowed.
+
+    So this test was NARROWED, not weakened. `library/steps/`,
+    `library/processes/` and `manage_project.py` are still scanned, which
+    is every route by which the index could reach a run: a step module, a
+    step's bridge, a `dag.json`, a `manifest.json`, or the CLI that drives
+    them. `manage_project.py` reaches the dashboard through
+    `library.dashboard.server.start_server` and never needs to name either
+    prototype module, so it stays in the scan.
+
+    Widening it back is the captain's call, in the same direction the
+    narrowing went: state which half is being authorised.
+    """
+    offenders = _name_the_prototype(PIPELINE_ROOTS)
     assert not offenders, (
         "The footage index is a prototype and must stay out of the pipeline:\n  "
-        + "\n  ".join(offenders)
+        + "\n  ".join(o.replace(str(REPO_ROOT) + "/", "") for o in offenders)
     )
+
+
+def test_the_guard_still_fires_when_a_step_imports_the_index(tmp_path):
+    """The narrowed guard is still a guard.
+
+    A test that is quietly relaxed the first time it fires is worse than
+    no test, so this drives the same scan over a fake `library/steps/`
+    holding exactly what a wiring-in would look like, and asserts it
+    reports the offender.
+    """
+    steps = tmp_path / "library" / "steps" / "step_3_02_select_broll"
+    steps.mkdir(parents=True)
+    (steps / "step.py").write_text(
+        "from library.tools.analysis.footage_query import FootageIndex\n",
+        encoding="utf-8")
+    (steps / "manifest.json").write_text(
+        json.dumps({"interface": {"tools": ["footage_segments"]}}), encoding="utf-8")
+
+    offenders = _name_the_prototype([tmp_path / "library" / "steps"])
+    assert len(offenders) == 2, offenders
+    assert any("step.py" in o and "footage_query" in o for o in offenders)
+    assert any("manifest.json" in o and "footage_segments" in o for o in offenders)
+
+    # ...and stays quiet over a tree that does not name it.
+    clean = tmp_path / "clean"
+    (clean / "library" / "steps").mkdir(parents=True)
+    (clean / "library" / "steps" / "step.py").write_text("import json\n", encoding="utf-8")
+    assert _name_the_prototype([clean]) == []
+
+
+def test_the_dashboard_is_the_one_caller_that_was_carved_out():
+    """The carve-out is real and it is exactly one module.
+
+    `library/dashboard/footage_search.py` is where the dashboard reaches
+    the prototype. If a future change reaches it from somewhere else in
+    the dashboard, that is fine - but the scan above no longer notices, so
+    this records where the authorised caller lives.
+    """
+    caller = REPO_ROOT / "library" / "dashboard" / "footage_search.py"
+    assert caller.is_file(), "the dashboard's half of the footage index went missing"
+    source = caller.read_text(encoding="utf-8")
+    assert "footage_query" in source
+    assert "footage_query" not in (REPO_ROOT / "manage_project.py").read_text(encoding="utf-8")
 
 
 def test_the_prototype_does_not_import_the_pipeline_either():

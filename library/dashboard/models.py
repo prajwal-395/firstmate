@@ -302,3 +302,25 @@ class ReviewReplyRequest(BaseModel):
     text: str
     note_ids: List[str] = Field(default_factory=list)
     author: str = "agent"
+
+
+# ── Footage Search ─────────────────────────────────────────────────
+
+class FootageSearchRequest(BaseModel):
+    """One search of the project's own footage, from the browser.
+
+    `query` and `filters` are independent halves. A query with no filters
+    is a search; filters with no query is a selection ("steady wide
+    footage with nobody in frame"), and both together is the useful case.
+
+    `floor` is the minimum dense cosine a segment needs to count as
+    evidence, so that a search for something the footage does not contain
+    can answer "nothing" instead of three confident wrong rows. Omitted
+    means the measured default in `footage_query.DENSE_SCORE_FLOOR`; 0
+    means the reviewer asked to see the ranking with no floor at all.
+    """
+    query: str = ""
+    top_k: int = 10
+    mode: str = "hybrid"
+    floor: Optional[float] = None
+    filters: Dict[str, Any] = Field(default_factory=dict)

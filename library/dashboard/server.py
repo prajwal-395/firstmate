@@ -27,11 +27,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-from library.dashboard import review_channel
+from library.dashboard import footage_search, review_channel
 from library.dashboard.models import (
     Annotation,
     AnnotationBatch,
     ClipInfo,
+    FootageSearchRequest,
     GateActionRequest,
     GateStatus,
     PipelinePauseRequest,
@@ -341,6 +342,10 @@ async def select_project(request: SelectProjectRequest):
     global _project_dir, _project_slug
     _project_dir = request.project_dir
     _project_slug = os.path.basename(request.project_dir)
+    # The footage index is held warm PER PROJECT and caches its segments
+    # the first time they are read. Switching project without dropping it
+    # would search the new project against the old one's footage.
+    footage_search.forget()
     return {"status": "ok"}
 
 @app.get("/api/project")
@@ -894,6 +899,61 @@ async def get_clips():
         ))
 
     return clips
+
+
+# ── Footage Search ────────────────────────────────────────────────
+#
+# The captain's own footage, searchable by hand from the browser.  This
+# is the PERSON half of the footage-index prototype and it is the only
+# half that is wired: no step, DAG node or process manifest may reach for
+# `footage_query`, and `tests/test_footage_query_prototype.py` still
+# fails if one does.  See library/dashboard/footage_search.py.
+
+@app.get("/api/footage/search/status")
+async def footage_search_status():
+    """Is there an index, is it current, and which embedder answers?
+
+    Also starts the model warming in the background, so the ~2 s load is
+    already under way by the time a query is typed.
+    """
+    project_dir = _get_project_dir()
+    return await asyncio.to_thread(footage_search.status, project_dir)
+
+
+@app.post("/api/footage/search/build")
+async def footage_search_build():
+    """Build the index. Writes into the project's scratch area, on request only."""
+    project_dir = _get_project_dir()
+    try:
+        return await asyncio.to_thread(footage_search.build, project_dir)
+    except Exception as exc:  # noqa: BLE001 - the browser gets the real reason
+        raise HTTPException(500, f"index build failed: {type(exc).__name__}: {exc}")
+
+
+@app.post("/api/footage/search")
+async def footage_search_query(request: FootageSearchRequest):
+    """Search, filter, or both. An empty result list is a real answer."""
+    project_dir = _get_project_dir()
+    try:
+        return await asyncio.to_thread(
+            footage_search.search, project_dir,
+            query=request.query, top_k=request.top_k, mode=request.mode,
+            floor=request.floor, filters=request.filters,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/footage/search/segment")
+async def footage_search_segment(segment_id: str):
+    """One segment's whole record, word timings included."""
+    project_dir = _get_project_dir()
+    try:
+        return await asyncio.to_thread(footage_search.detail, project_dir, segment_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
 
 
 # ── Timeline Endpoint ─────────────────────────────────────────────

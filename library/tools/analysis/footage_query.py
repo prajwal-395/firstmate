@@ -82,6 +82,7 @@ from library.tools.analysis.footage_segments import (
     SEGMENT_KINDS,
     build_segments,
     coverage_report,
+    ingest_fingerprint,
 )
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -92,6 +93,61 @@ EMBEDDINGS_FILE = "footage_embeddings.npy"
 # Weight on the dense half of a hybrid score.  Both halves are normalised
 # to 0..1 over the candidate set first, so this is a straight blend.
 HYBRID_DENSE_WEIGHT = 0.6
+
+# ─── The floor, and the abstain ───────────────────────────────────
+#
+# A ranking alone cannot say "not here".  The blended score is min-max
+# normalised over the candidate set, so its top row scores ~1.0 for every
+# query - including one whose subject appears nowhere in the footage.
+# Asked to "find the shot with the cup" against 001, which has no cup,
+# the unfloored index answered with three confident wrong rows.
+#
+# Retention is therefore judged on the RAW signals, which are the only
+# numbers here that mean the same thing from one query to the next: the
+# dense cosine, and a BM25 that is exactly zero when no query term
+# appeared at all.
+#
+# Measured on 001 (17 clips, 409 segments) through the
+# `transformers+mean-pooling` backend over `all-MiniLM-L6-v2` - twelve
+# queries whose subject IS in the footage, eight whose subject is not:
+#
+#     subject present                       best cosine   at >=0.40
+#     brick building                            0.878          36
+#     someone walking                           0.745           5
+#     motorcycle                                0.731          12
+#     the pollen                                0.721           2
+#     trees                                     0.665          10
+#     the brewery sign                          0.645           4
+#     he says look at me                        0.640           2
+#     talking about goals and momentum          0.631           1
+#     wide shot of the parking lot              0.601          36
+#     driving the car                           0.578          39
+#     where does he talk about parking          0.553           9
+#     he laughs                                 0.347           0
+#
+#     subject absent                        best cosine   at >=0.40
+#     a birthday cake with candles              0.396           0
+#     find the shot with the cup                0.391           0
+#     cup                                       0.325           0
+#     snowboarding down a mountain              0.266           0
+#     a horse galloping on a beach              0.264           0
+#     someone playing the piano                 0.255           0
+#     the president gives a speech about taxes  0.211           0
+#     underwater coral reef                     0.204           0
+#
+# 0.40 separates them.  Every absent subject retains nothing; eleven of
+# the twelve present ones retain at least one segment.  The twelfth,
+# "he laughs", is the honest failure - the vision pass wrote "smiling"
+# and never wrote "laughing" - and it is why there is a WEAK band as
+# well as a floor: below 0.40 and above 0.28 a hit is reported as
+# "the closest thing was this, and it is not confident", which is a
+# different answer from both silence and a confident wrong row.
+DENSE_SCORE_FLOOR = 0.40
+DENSE_WEAK_FLOOR = 0.28
+
+# How many weak rows a report carries.  It is context for an abstain,
+# not a second result list.
+WEAK_BAND_LIMIT = 5
 
 _TOKEN = re.compile(r"[a-z0-9']+")
 # A plain English stoplist, plus the question words a person types into a
@@ -269,6 +325,10 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "embed_dimension": dimension,
         "segment_count": len(segments),
         "kinds": list(kinds),
+        "built_at": time.time(),
+        # What this index was built FROM.  An index cannot notice that the
+        # ingest moved under it unless it recorded the ingest it read.
+        "ingest_fingerprint": ingest_fingerprint(project_folder),
         "coverage": coverage_report(project_folder),
         "segments": [s.to_dict() for s in segments],
     }
@@ -357,6 +417,21 @@ class FootageIndex:
             return None
         return self._embedder([query])[0]
 
+    def warm(self) -> dict:
+        """Load the embedder now, and say which one answered.
+
+        Loading the model is ~2 s and every query after it is ~2 ms, so a
+        long-lived caller wants to pay that once, deliberately, rather
+        than inside whichever query happens to be first.  Returns
+        ``{"ready", "backend"}``; `backend` carries the reason when the
+        load failed, because "no embedder" is a thing to report and not a
+        thing to hide behind lexical results.
+        """
+        if self._embedder is None:
+            self._embedder, self._embed_backend = _load_embedder()
+        return {"ready": self._embedder is not None,
+                "backend": self._embed_backend or "not loaded"}
+
     # ── result shaping ──
 
     @staticmethod
@@ -402,42 +477,30 @@ class FootageIndex:
                 })
         return hits
 
-    # ── core query methods (for LLM tool use) ──
+    # ── scoring, shared by `search` and `search_report` ──
 
-    def search(self, query: str, top_k: int = 5, mode: str = "hybrid") -> list:
-        """Find the footage segments most relevant to a natural-language query.
+    def _raw_scores(self, query: str, mode: str):
+        """``(combined, dense, lexical)`` for one query, or a reason string.
 
-        Args:
-            query: what to look for, e.g. "he talks about finding a place
-                to park", "wide shot of the parking lot".
-            top_k: number of results.
-            mode: "hybrid" (default), "dense" (embedding similarity only)
-                or "lexical" (BM25 only).  Hybrid is the recommendation;
-                the other two exist so a hit can be attributed.
-
-        Returns:
-            Segments ordered by relevance, each with `clip_id`, `start`,
-            `end`, a `timecode`, the text that matched, and - for speech -
-            `word_hits` giving the matching words' own source timings.
+        `dense` is None when this index carries no embeddings or the
+        embedder could not be loaded, and the caller decides whether that
+        is a degradation to report or an outright refusal.
         """
         if mode not in ("hybrid", "dense", "lexical"):
             raise ValueError(f"Unknown search mode {mode!r}; use hybrid, dense or lexical")
-        segments = self.segments
-        if not segments:
-            return []
 
         lexical = self.bm25.scores(query)
         dense = None
         if mode in ("hybrid", "dense"):
             matrix = self.matrix
-            if matrix is not None and len(matrix) == len(segments):
+            if matrix is not None and len(matrix) == len(self.segments):
                 vector = self._encode_query(query)
                 if vector is not None:
                     dense = matrix @ vector
 
         if mode == "dense":
             if dense is None:
-                return [{"error": "This index has no embeddings; use mode='lexical'."}]
+                return None, None, None
             combined = dense
         elif mode == "lexical":
             combined = lexical
@@ -448,12 +511,45 @@ class FootageIndex:
                 HYBRID_DENSE_WEIGHT * _normalize(dense)
                 + (1 - HYBRID_DENSE_WEIGHT) * _normalize(lexical)
             )
+        return combined, dense, lexical
 
-        order = np.argsort(-combined)[: min(top_k, len(segments))]
+    @staticmethod
+    def _eligible(dense, lexical, floor: float):
+        """Which segments count as EVIDENCE, before any ranking.
+
+        Judged on the raw signals, never on `combined`: the blend is
+        min-max normalised over the candidate set, so its top row is ~1.0
+        for every query ever asked, including one whose subject is not in
+        the footage at all.
+
+        A segment is evidence when its dense cosine clears `floor`, or -
+        when there is no dense half to judge - when at least one query
+        term actually appeared in its text.  A zero BM25 is never
+        evidence: no word of the query is in that segment.
+        """
+        if dense is None:
+            return lexical > 0
+        if floor <= 0:
+            return np.ones(len(dense), dtype=bool)
+        return dense >= floor
+
+    def _rank(self, query, combined, dense, lexical, keep, top_k, rank_by=None):
+        """The `keep` segments, best first, shaped into result rows.
+
+        `rank_by` overrides the ranking signal.  The weak band uses it to
+        order by the raw cosine the floor actually judged on, so the first
+        row of an abstain is the near miss the reviewer wants named.
+        """
+        segments = self.segments
+        candidates = np.flatnonzero(keep)
+        if candidates.size == 0:
+            return []
+        signal = combined if rank_by is None else rank_by
+        order = candidates[np.argsort(-signal[candidates])][:max(0, top_k)]
         results = []
         for rank in order:
             i = int(rank)
-            scores = {"score": round(float(combined[i]), 4), "mode": mode}
+            scores = {"score": round(float(combined[i]), 4)}
             if dense is not None:
                 scores["dense_score"] = round(float(dense[i]), 4)
             scores["lexical_score"] = round(float(lexical[i]), 4)
@@ -464,6 +560,120 @@ class FootageIndex:
                     hit["word_hits"] = words
             results.append(hit)
         return results
+
+    # ── core query methods (for LLM tool use) ──
+
+    def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
+               floor: float | None = None) -> list:
+        """Find the footage segments most relevant to a natural-language query.
+
+        Args:
+            query: what to look for, e.g. "he talks about finding a place
+                to park", "wide shot of the parking lot".
+            top_k: number of results.
+            mode: "hybrid" (default), "dense" (embedding similarity only)
+                or "lexical" (BM25 only).  Hybrid is the recommendation;
+                the other two exist so a hit can be attributed.
+            floor: minimum dense cosine for a segment to count as evidence.
+                Defaults to `DENSE_SCORE_FLOOR`.  Pass 0 to rank everything
+                the way an unfloored index would.
+
+        Returns:
+            Segments ordered by relevance, each with `clip_id`, `start`,
+            `end`, a `timecode`, the text that matched, and - for speech -
+            `word_hits` giving the matching words' own source timings.
+            **An empty list is a real answer**: it means nothing in this
+            footage cleared the floor.  Use `search_report` when you need
+            to say so in as many words.
+        """
+        report = self.search_report(query, top_k=top_k, mode=mode, floor=floor)
+        if report.get("error"):
+            return [{"error": report["error"]}]
+        return report["results"]
+
+    def search_report(self, query: str, top_k: int = 5, mode: str = "hybrid",
+                      floor: float | None = None, filters: dict | None = None,
+                      weak_k: int = WEAK_BAND_LIMIT) -> dict:
+        """`search`, plus everything needed to explain an empty answer.
+
+        Returns a dict carrying the results, the WEAK band beneath the
+        floor, what was considered, which backend answered and whether the
+        index abstained.  A caller that cannot distinguish "nothing here"
+        from "the search is broken" will report the second when it means
+        the first, so this hands it both.
+        """
+        mode_floor = DENSE_SCORE_FLOOR if floor is None else float(floor)
+        report = {
+            "query": query,
+            "mode": mode,
+            "floor": mode_floor,
+            "weak_floor": DENSE_WEAK_FLOOR,
+            "segment_count": len(self.segments),
+            "embed_backend": self.payload.get("embed_backend"),
+            "embed_model": self.payload.get("embed_model"),
+            "results": [],
+            "weak": [],
+            "considered": 0,
+            "retained": 0,
+            "abstained": False,
+            "degraded": None,
+            "error": None,
+        }
+        if not self.segments:
+            report["error"] = "This index has no segments; build it against a project with ingest output."
+            return report
+
+        combined, dense, lexical = self._raw_scores(query, mode)
+        if combined is None:
+            report["error"] = "This index has no embeddings; use mode='lexical'."
+            return report
+
+        # A filter left unset is not a filter.  Stripping the Nones here
+        # means a caller can hand over its whole form without deciding
+        # which boxes the reviewer bothered to fill in.
+        filters = {k: v for k, v in (filters or {}).items() if v is not None and v != ""}
+        allowed = None
+        if filters:
+            report["filters"] = dict(filters)
+            allowed = {h["segment_id"] for h in self.filter(**filters)}
+            report["filtered_to"] = len(allowed)
+            if not allowed:
+                report["abstained"] = True
+                report["error_hint"] = "no segment passes the facet filters"
+                return report
+
+        mask = np.ones(len(self.segments), dtype=bool)
+        if allowed is not None:
+            mask = np.array([s["segment_id"] in allowed for s in self.segments], dtype=bool)
+        report["considered"] = int(mask.sum())
+
+        if dense is None and mode in ("hybrid", "dense"):
+            report["degraded"] = (
+                "no embedder loaded - this answer is keyword match only, and a "
+                "keyword floor cannot tell 'absent' from 'phrased differently'"
+            )
+
+        keep = mask & self._eligible(dense, lexical, mode_floor)
+        report["retained"] = int(keep.sum())
+        report["results"] = self._rank(query, combined, dense, lexical, keep, top_k)
+
+        # The weak band: what the floor turned away, and how close it came.
+        # An abstain that cannot name its near miss reads as a broken search.
+        if dense is not None and mode_floor > 0:
+            weak = mask & ~keep & (dense >= DENSE_WEAK_FLOOR)
+            report["weak"] = self._rank(query, combined, dense, lexical, weak, weak_k,
+                                        rank_by=dense)
+            rejected = mask & ~keep
+            if rejected.any():
+                best = int(np.flatnonzero(rejected)[np.argmax(dense[rejected])])
+                report["best_rejected"] = {
+                    "dense_score": round(float(dense[best]), 4),
+                    "text": self.segments[best]["text"][:160],
+                    "clip_id": self.segments[best]["clip_id"],
+                    "kind": self.segments[best]["kind"],
+                }
+        report["abstained"] = not report["results"]
+        return report
 
     def filter(
         self,
@@ -479,6 +689,7 @@ class FootageIndex:
         min_duration: float | None = None,
         max_duration: float | None = None,
         min_face_presence: float | None = None,
+        max_face_presence: float | None = None,
         max_motion: float | None = None,
         min_motion: float | None = None,
         contains: str | None = None,
@@ -495,8 +706,12 @@ class FootageIndex:
             movement / scene_type / content_type: as reported.
             has_speech: True selects only speech segments.
             min_duration / max_duration: segment length in seconds.
-            min_face_presence: mean face-detection rate over the span,
-                0..1, reduced from step 1.04's 5 Hz curve.
+            min_face_presence / max_face_presence: mean face-detection rate
+                over the span, 0..1, reduced from step 1.04's 5 Hz curve.
+                A low `max_face_presence` is how "nobody in frame" is asked
+                for - and note that a clip whose face curve 1.04 never wrote
+                fails the bound rather than passing it, because an
+                unmeasured face is not an absent one.
             min_motion / max_motion: mean motion energy over the span,
                 reduced from step 1.04's 30 Hz curve.
             contains: plain substring match against the segment text.
@@ -516,7 +731,7 @@ class FootageIndex:
             "scene_type": scene_type, "content_type": content_type,
         }
         bounds = (
-            ("face_presence", min_face_presence, None),
+            ("face_presence", min_face_presence, max_face_presence),
             ("motion", min_motion, max_motion),
         )
 
@@ -553,18 +768,21 @@ class FootageIndex:
         return [self._result(s, {}) for s in self.segments if keeps(s)]
 
     def search_and_filter(self, query: str, top_k: int = 10, mode: str = "hybrid",
-                          **filter_kwargs) -> list:
+                          floor: float | None = None, **filter_kwargs) -> list:
         """Semantic search restricted to segments passing the filters.
 
         This is the recommended method for an LLM: it lets the model say
         both what it is looking for and what the shot has to be, in one
-        call.  Filters are applied FIRST so `top_k` counts survivors.
+        call.  Filters are applied FIRST so `top_k` counts survivors, and
+        the score floor is applied to those survivors - so an empty list
+        here means either "nothing is that kind of shot" or "nothing that
+        kind of shot is about that".  `search_report` tells them apart.
         """
-        allowed = {s["segment_id"] for s in self.filter(**filter_kwargs)}
-        if not allowed:
+        report = self.search_report(query, top_k=top_k, mode=mode, floor=floor,
+                                    filters=filter_kwargs)
+        if report.get("error") and not report["results"]:
             return []
-        pool = self.search(query, top_k=len(self.segments), mode=mode)
-        return [r for r in pool if r.get("segment_id") in allowed][:top_k]
+        return report["results"]
 
     def get_detail(self, segment_id: str) -> dict:
         """The full record for one segment, including its word timings."""
@@ -591,6 +809,37 @@ class FootageIndex:
             if s["clip_id"] == clip_id and s["kind"] == "speech"
         ]
 
+    def staleness(self) -> dict:
+        """Whether the ingest has moved since this index was built.
+
+        An index built before a re-transcription answers with the old
+        words and has no way to know it, so the comparison is made
+        explicit rather than left to whoever remembers.  Returns
+        ``{"stale", "reason", "built_at", "files_now", "files_then"}``.
+
+        An index written before this recorded a fingerprint cannot be
+        judged, and says so rather than claiming to be current.
+        """
+        recorded = self.payload.get("ingest_fingerprint")
+        now = ingest_fingerprint(self.project_folder)
+        out = {
+            "built_at": self.payload.get("built_at"),
+            "files_now": now["files"],
+            "files_then": (recorded or {}).get("files"),
+        }
+        if not recorded:
+            out.update(stale=None,
+                       reason="this index recorded no ingest fingerprint, so it cannot be checked")
+            return out
+        if recorded.get("digest") == now["digest"]:
+            out.update(stale=False, reason="the ingest is byte-for-byte what this index was built from")
+            return out
+        moved = now["files"] - recorded.get("files", 0)
+        detail = (f"{abs(moved)} ingest file(s) {'appeared' if moved > 0 else 'went away'}"
+                  if moved else "an ingest file changed")
+        out.update(stale=True, reason=f"{detail} since this index was built")
+        return out
+
     def summary(self) -> dict:
         """What is in this index: clips, kinds, coverage, indexed seconds."""
         segments = self.segments
@@ -611,6 +860,7 @@ class FootageIndex:
             "spoken_words": sum(len(s.get("words") or []) for s in speech),
             "embed_model": self.payload.get("embed_model"),
             "embed_backend": self.payload.get("embed_backend"),
+            "built_at": self.payload.get("built_at"),
             "coverage": self.payload.get("coverage", {}),
         }
 
@@ -646,6 +896,10 @@ class FootageIndex:
             "min_face_presence": {
                 "type": "number",
                 "description": "0..1 mean face-detection rate over the span. Use ~0.5 to require the subject on screen.",
+            },
+            "max_face_presence": {
+                "type": "number",
+                "description": "0..1 mean face-detection rate over the span. Use a low value to find footage with nobody in frame.",
             },
             "max_motion": {
                 "type": "number",
@@ -787,6 +1041,35 @@ def _print_hits(results):
             print(f"     word '{word['word']}' at {word['start']}-{word['end']}s")
 
 
+def _print_report(report):
+    """A search report as a person reads it, abstain included."""
+    bits = [f"query: {report['query']!r}", f"mode={report['mode']}",
+            f"floor={report['floor']:.2f}",
+            f"{report['considered']}/{report['segment_count']} segments considered"]
+    print("  ".join(bits))
+    if report.get("embed_backend"):
+        print(f"backend: {report['embed_backend']}")
+    if report.get("degraded"):
+        print(f"DEGRADED: {report['degraded']}")
+    if report.get("error"):
+        print(report["error"])
+        return
+    if report["results"]:
+        _print_hits(report["results"])
+        return
+
+    print("\nNOTHING in this footage cleared the floor - that is the answer, "
+          "not an empty result set.")
+    best = report.get("best_rejected")
+    if best:
+        print(f"  closest: {best['dense_score']:.3f} < {report['floor']:.2f}  "
+              f"[{best['kind']}] {best['clip_id']} :: {best['text'][:100]}")
+    if report["weak"]:
+        print(f"\n  {len(report['weak'])} weak match(es) between "
+              f"{report['weak_floor']:.2f} and {report['floor']:.2f} - not confident:")
+        _print_hits(report["weak"])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -804,6 +1087,9 @@ def main(argv=None):
     p_search.add_argument("query")
     p_search.add_argument("-k", "--top-k", type=int, default=5)
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
+    p_search.add_argument("--floor", type=float, default=None,
+                          help=f"minimum dense cosine to count as evidence "
+                               f"(default {DENSE_SCORE_FLOOR}; 0 disables the abstain)")
     p_search.add_argument("--index-dir")
 
     p_filter = sub.add_parser("filter", help="Select by measurable properties")
@@ -817,6 +1103,7 @@ def main(argv=None):
     p_filter.add_argument("--min-duration", type=float)
     p_filter.add_argument("--max-duration", type=float)
     p_filter.add_argument("--min-face-presence", type=float)
+    p_filter.add_argument("--max-face-presence", type=float)
     p_filter.add_argument("--max-motion", type=float)
     p_filter.add_argument("--contains")
     p_filter.add_argument("--index-dir")
@@ -826,10 +1113,14 @@ def main(argv=None):
     p_hybrid.add_argument("query")
     p_hybrid.add_argument("-k", "--top-k", type=int, default=5)
     p_hybrid.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
+    p_hybrid.add_argument("--floor", type=float, default=None,
+                          help=f"minimum dense cosine to count as evidence "
+                               f"(default {DENSE_SCORE_FLOOR}; 0 disables the abstain)")
     p_hybrid.add_argument("--kind", choices=list(SEGMENT_KINDS))
     p_hybrid.add_argument("--clip-id")
     p_hybrid.add_argument("--framing")
     p_hybrid.add_argument("--min-face-presence", type=float)
+    p_hybrid.add_argument("--max-face-presence", type=float)
     p_hybrid.add_argument("--max-motion", type=float)
     p_hybrid.add_argument("--index-dir")
 
@@ -846,6 +1137,10 @@ def main(argv=None):
     p_summary = sub.add_parser("summary", help="What is in the index")
     p_summary.add_argument("project")
     p_summary.add_argument("--index-dir")
+
+    p_stale = sub.add_parser("stale", help="Has the ingest moved since the index was built?")
+    p_stale.add_argument("project")
+    p_stale.add_argument("--index-dir")
 
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
 
@@ -867,11 +1162,11 @@ def main(argv=None):
 
     if args.command == "search":
         started = time.perf_counter()
-        results = idx.search(args.query, top_k=args.top_k, mode=args.mode)
+        report = idx.search_report(args.query, top_k=args.top_k, mode=args.mode,
+                                   floor=args.floor)
         elapsed = time.perf_counter() - started
-        print(f"query: {args.query!r}  mode={args.mode}  "
-              f"{len(idx.segments)} segments  {elapsed * 1000:.1f} ms")
-        _print_hits(results)
+        _print_report(report)
+        print(f"\n{elapsed * 1000:.1f} ms")
 
     elif args.command == "filter":
         results = idx.filter(
@@ -879,6 +1174,7 @@ def main(argv=None):
             camera_mode=args.camera_mode, stability=args.stability,
             scene_type=args.scene_type, min_duration=args.min_duration,
             max_duration=args.max_duration, min_face_presence=args.min_face_presence,
+            max_face_presence=args.max_face_presence,
             max_motion=args.max_motion, contains=args.contains,
         )
         print(f"{len(results)} matching segments:")
@@ -888,14 +1184,17 @@ def main(argv=None):
 
     elif args.command == "hybrid":
         started = time.perf_counter()
-        results = idx.search_and_filter(
-            args.query, top_k=args.top_k, mode=args.mode, kind=args.kind,
-            clip_id=args.clip_id, framing=args.framing,
-            min_face_presence=args.min_face_presence, max_motion=args.max_motion,
+        report = idx.search_report(
+            args.query, top_k=args.top_k, mode=args.mode, floor=args.floor,
+            filters={"kind": args.kind, "clip_id": args.clip_id,
+                     "framing": args.framing,
+                     "min_face_presence": args.min_face_presence,
+                     "max_face_presence": args.max_face_presence,
+                     "max_motion": args.max_motion},
         )
         elapsed = time.perf_counter() - started
-        print(f"query: {args.query!r}  mode={args.mode}  {elapsed * 1000:.1f} ms")
-        _print_hits(results)
+        _print_report(report)
+        print(f"\n{elapsed * 1000:.1f} ms")
 
     elif args.command == "detail":
         print(json.dumps(idx.get_detail(args.segment_id), indent=2))
@@ -906,6 +1205,9 @@ def main(argv=None):
 
     elif args.command == "summary":
         print(json.dumps(idx.summary(), indent=2))
+
+    elif args.command == "stale":
+        print(json.dumps(idx.staleness(), indent=2))
 
     return 0
 

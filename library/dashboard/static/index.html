@@ -40,6 +40,9 @@
                 <button class="nav-item" data-view="footage" onclick="navigate('footage')">
                     <span class="nav-icon">&#127909;</span> Footage Library
                 </button>
+                <button class="nav-item" data-view="footage-search" onclick="navigate('footage-search')">
+                    <span class="nav-icon">&#128269;</span> Footage Search
+                </button>
                 <button class="nav-item" data-view="transcript" onclick="navigate('transcript')">
                     <span class="nav-icon">&#128196;</span> Transcript
                 </button>
@@ -121,6 +124,10 @@
                 <div id="footage-content"></div>
             </div>
 
+            <div id="view-footage-search" class="view">
+                <div id="footage-search-content"></div>
+            </div>
+
             <div id="view-transcript" class="view">
                 <div id="transcript-content" class="transcript-container"></div>
             </div>
@@ -180,6 +187,7 @@
     <script src="/static/components/step-inspector.js"></script>
     <script src="/static/components/transcript-view.js"></script>
     <script src="/static/components/footage-library.js"></script>
+    <script src="/static/components/footage-search.js"></script>
     <script src="/static/components/timeline-view.js"></script>
     <script src="/static/components/gate-controls.js"></script>
     <script src="/static/components/message-feed.js"></script>

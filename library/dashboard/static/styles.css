@@ -1614,3 +1614,428 @@ body.review-panel-open #app {
     color: var(--text-primary);
     white-space: pre-wrap;
 }
+
+/* ── Footage Search ────────────────────────────────────────────────
+   A span search, not a clip browser: every row is a piece of a clip
+   with its own timecode and its own reason for being on screen. The
+   tokens are the shared set; nothing here invents a colour. */
+
+.fs-banner {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+
+.fs-banner-absent { border-color: var(--color-gate-pending); }
+
+.fs-banner-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.fs-banner-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.fs-banner-line {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.fs-path { color: var(--text-muted); word-break: break-all; }
+
+.fs-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.fs-kind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.fs-kind-chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.fs-backend {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-left: 4px;
+}
+.fs-backend.good { background: rgba(63, 185, 80, 0.12); color: var(--color-completed); }
+.fs-backend.warn { background: rgba(210, 153, 34, 0.14); color: var(--color-gate-pending); }
+.fs-backend.bad  { background: rgba(248, 81, 73, 0.14);  color: var(--color-failed); }
+
+.fs-warn, .fs-note {
+    font-size: 12px;
+    line-height: 1.55;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 3px solid var(--color-gate-pending);
+    background: rgba(210, 153, 34, 0.07);
+    color: var(--text-secondary);
+}
+.fs-note { border-left-color: var(--border-primary); background: var(--bg-tertiary); }
+
+/* ── Query bar ── */
+
+.fs-querybar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.fs-query {
+    flex: 1 1 340px;
+    min-width: 0;
+    padding: 9px 14px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+}
+.fs-query:focus { outline: none; border-color: var(--border-accent); }
+
+.fs-opt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.fs-num {
+    width: 66px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+/* ── Facets ── */
+
+.fs-facets { margin-bottom: 14px; }
+
+.fs-facet-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 0;
+}
+.fs-facet-toggle:hover { color: var(--text-primary); }
+
+.fs-count {
+    display: inline-block;
+    background: var(--accent-blue);
+    color: var(--bg-primary);
+    border-radius: 9px;
+    padding: 0 6px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.fs-facet-body {
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+}
+
+.fs-facet-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.fs-facet-row:last-of-type { margin-bottom: 0; }
+
+.fs-facet-hint {
+    margin-top: 10px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+/* ── Result meta ── */
+
+.fs-resultmeta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 6px 2px 12px;
+    border-bottom: 1px solid var(--border-secondary);
+    margin-bottom: 12px;
+}
+
+/* ── A hit ── */
+
+.fs-hits { display: flex; flex-direction: column; gap: 10px; }
+.fs-hits-weak { opacity: 0.8; }
+
+.fs-hit {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-primary);
+    border-left: 3px solid var(--accent-blue);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+.fs-hits-weak .fs-hit { border-left-color: var(--color-gate-pending); }
+
+.fs-hit-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.fs-kind {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--bg-active);
+    color: var(--text-secondary);
+}
+.fs-kind-speech { background: rgba(88, 166, 255, 0.14); color: var(--accent-blue); }
+.fs-kind-action { background: rgba(188, 140, 255, 0.14); color: var(--accent-purple); }
+.fs-kind-scene  { background: rgba(57, 210, 192, 0.14);  color: var(--accent-cyan); }
+.fs-kind-object { background: rgba(210, 153, 34, 0.14);  color: var(--color-gate-pending); }
+.fs-kind-camera { background: rgba(63, 185, 80, 0.12);   color: var(--color-completed); }
+
+.fs-clip {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-accent);
+    cursor: pointer;
+}
+.fs-clip:hover { text-decoration: underline; }
+
+.fs-file { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+.fs-score {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.fs-tc {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    background: var(--bg-primary);
+}
+
+.fs-tc-seconds {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.fs-tc-frames { font-family: var(--font-mono); font-size: 12px; color: var(--accent-cyan); }
+.fs-tc-missing { color: var(--text-muted); font-style: italic; }
+.fs-dur { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+.fs-copy {
+    margin-left: auto;
+    background: var(--bg-active);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.fs-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.fs-hit-text { font-size: 14px; line-height: 1.5; color: var(--text-primary); }
+
+.fs-words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.fs-word {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent-blue);
+}
+.fs-word .mono { color: var(--text-muted); margin-left: 4px; }
+
+.fs-hit-facets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
+.fs-measured {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+/* Why it matched: both raw halves, and which one found it. */
+.fs-why {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-secondary);
+}
+
+.fs-why-label { font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
+.fs-why.meaning .fs-why-label { color: var(--accent-purple); }
+.fs-why.words .fs-why-label { color: var(--accent-cyan); }
+
+.fs-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+
+.fs-bar-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 54px;
+    flex-shrink: 0;
+}
+
+.fs-bar {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-active);
+    overflow: hidden;
+}
+
+.fs-bar-fill { display: block; height: 100%; border-radius: 2px; }
+.fs-bar-fill.meaning { background: var(--accent-purple); }
+.fs-bar-fill.words { background: var(--accent-cyan); }
+
+.fs-bar-value {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.fs-hit-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+.fs-segid { font-size: 10px; color: var(--text-muted); }
+.fs-hit-foot .fs-copy { margin-left: auto; }
+
+/* ── The abstain ── */
+
+.fs-abstain {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-primary);
+    border-left: 3px solid var(--color-gate-pending);
+    border-radius: 8px;
+    padding: 16px 18px;
+}
+
+.fs-abstain-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.fs-abstain-body { font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
+
+.fs-quoted { color: var(--text-primary); font-style: italic; }
+
+.fs-closest {
+    margin-top: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-primary);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+.fs-closest .mono { font-size: 11px; color: var(--text-muted); }
+
+.fs-abstain-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.fs-corpus { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-secondary); }
+
+.fs-corpus-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.fs-corpus-line { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 8px; }
+
+.fs-corpus-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    width: 100%;
+    margin-bottom: 2px;
+}
+
+.fs-weak-head {
+    margin: 18px 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-gate-pending);
+}
+
+/* A ghost button is chrome-less because the topbar puts it among other
+   buttons. Standing alone on a card it reads as plain text, so the ones
+   this view places on their own get an outline back. */
+.fs-abstain-actions .btn-ghost,
+.fs-facet-row .btn-ghost,
+.fs-banner-actions .btn-ghost {
+    border-color: var(--border-primary);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.fs-abstain-actions .btn-ghost:hover,
+.fs-facet-row .btn-ghost:hover,
+.fs-banner-actions .btn-ghost:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+}

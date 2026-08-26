@@ -67,6 +67,7 @@ function navigate(viewName, context) {
         pipeline: 'Pipeline Overview',
         messages: 'Messages',
         footage: 'Footage Library',
+        'footage-search': 'Footage Search',
         transcript: 'Transcript',
         timeline: 'Timeline',
         'step-detail': context?.stepName || 'Step Detail',
@@ -88,6 +89,9 @@ async function renderView(viewName, context) {
                 break;
             case 'footage':
                 await renderFootageLibrary();
+                break;
+            case 'footage-search':
+                await renderFootageSearch();
                 break;
             case 'transcript':
                 await renderTranscriptView();

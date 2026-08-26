@@ -41,13 +41,17 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `manage_project.py`: top-level CLI for creating, listing and running projects.
 - `requirements.txt`: Python dependencies.
 
-**One thing in `library/tools/` is a prototype and must stay out of the pipeline.**
+**One thing in `library/tools/` is a prototype: it is in the DASHBOARD and stays out of the PIPELINE.**
 `footage_query.py` / `footage_segments.py` / `footage_query_bridge.py` are a cross-clip footage
-search - "where in all my footage does X happen" - built to be judged, not used.
-Do not import them from a step, the DAG or a manifest: `tests/test_footage_query_prototype.py`
-fails if you do, and turning that off is the captain's call.
-[`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, what it
-gets wrong, and the 66x reduction of `temporal_index` that is worth doing without it.
+search - "where in all my footage does X happen".
+A PERSON may call it: `library/dashboard/footage_search.py` serves the dashboard's Footage Search
+view, and that is the only authorised caller.
+A STEP may not: do not import either module from a step, the DAG or a manifest.
+`tests/test_footage_query_prototype.py` fails if you do, and widening it further is the captain's
+call - stated the way the dashboard carve-out was, by naming which half is being authorised.
+[`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
+measured score floor that lets it answer "not in this footage", and the 66x reduction of
+`temporal_index` that is worth doing without it.
 
 ## 3. Pipeline execution
 
@@ -112,11 +116,33 @@ The run summary reports `SUCCESS` only when the whole DAG is complete and `faile
 ## 4. Dashboard
 
 Launch with `python3 manage_project.py dashboard <slug>`.
-It serves a pipeline view, a footage library, a transcript view and a timeline view, and it is the human-in-the-loop review layer.
+It serves a pipeline view, a footage library, a footage SEARCH, a transcript view and a timeline view, and it is the human-in-the-loop review layer.
 
 - Review gates pause execution for inspection. Reviewers approve, reject or revise. A rejected gate halts the pipeline entirely; a revised gate applies the reviewer's modifications directly to the step output in `pipeline_data.json`.
 - The dashboard also captures annotations and feedback as structured data for agent communication.
 - **Extend this dashboard. Never author a fresh per-run review page.** [why](docs/RULE_EVIDENCE.md#review-surface-is-this-dashboard)
+
+### Footage search
+
+**Footage Search is a span search; Footage Library is a clip browser. Keep them apart.**
+`library/dashboard/footage_search.py` is the dashboard's half of the footage-index prototype
+(§2) - the ONE place authorised to call it.
+
+- The index is built ONLY when the reviewer presses the button, into
+  `<project>/pipeline_output/scratch/footage_index/`, and the view states that path first.
+  Never build it at server start or on first query: both write into the captain's project
+  without them asking.
+- The embedding model is loaded once per server in a background thread; the banner reports
+  `cold`/`loading`/`ready`/`unavailable` and names the backend, because a degraded backend
+  must say so rather than quietly return worse results.
+- **A ranking cannot say "not here", so there is a floor.** Retention is judged on the RAW
+  dense cosine (`DENSE_SCORE_FLOOR`), never on the blended score, which is min-max normalised
+  and therefore ~1.0 at the top for every query ever asked. Below it and above
+  `DENSE_WEAK_FLOOR` is a WEAK band, reported as a near miss rather than as a result.
+- Staleness compares an `ingest_fingerprint` recorded at build time. `pipeline_data.json` is
+  fingerprinted by its `catalog` subtree only - the state writer rewrites the whole file after
+  every step, so a downstream step landing is not a change to the footage.
+- `tests/test_dashboard_footage_search.py`.
 
 ### The review return channel
 
