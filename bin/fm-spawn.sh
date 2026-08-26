@@ -24,6 +24,10 @@
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
+#   A ship or scout spawn also refuses a brief that leaves any of its four required
+#   scope fields empty, on the same read-the-brief pattern; bin/fm-brief-lib.sh owns
+#   those field names and the emptiness test, only emptiness refuses, and a brief
+#   scaffolded before the fields existed warns once and launches.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
@@ -283,6 +287,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-brief-lib.sh
+. "$SCRIPT_DIR/fm-brief-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-cursor-lib.sh
@@ -1867,6 +1873,17 @@ if [ -n "$UNFILLED" ]; then
   echo "       fill every placeholder before dispatch - a worker cannot act on one, and the" >&2
   echo "       instruction referring to it becomes a sentence about nothing" >&2
   exit 1
+fi
+
+# Required scope contract, checked in the same place and the same manner as the
+# placeholder guard above and the delivery agreement below: the brief records what
+# the spawn must agree with, and a brief that cannot answer its own scope is not
+# something to hand a worker. bin/fm-brief-lib.sh is the single owner of the four
+# field names, the emptiness test, and the wording. Only emptiness refuses - no
+# field's content is judged here. A secondmate charter carries none of the fields,
+# so a secondmate spawn is not gated on them.
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  fm_brief_scope_check "$BRIEF" "this spawn" || exit 1
 fi
 
 # Brief/spawn delivery agreement, checked before any endpoint exists.

@@ -505,6 +505,8 @@ Preserve durable structured identifiers, dependencies, and completion artifact l
 
 `bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, delivery-mode definitions of done, and exact safety mechanics.
 Use its scaffold as the contract, then replace every `{TASK}` placeholder with a clear task description, acceptance criteria, constraints, and necessary context before dispatch or seeding.
+Every ship and scout brief also carries four required scope fields - what done means for this task, what is out of scope, the known unknowns, and what it is blocked on - and both `bin/fm-brief.sh --check` and the spawn refuse a brief that leaves one empty.
+Answer each one honestly at intake rather than filling it with noise; `nothing` completes the blocked-on field, emptiness is the only refusal, and a secondmate charter carries none of the four.
 Keep additions task-specific rather than repeating lifecycle instructions, and alter generated sections only when the task genuinely differs from the standard shape.
 
 Every ship brief must retain the worktree-isolation assertion and stop if launched in the primary checkout.
