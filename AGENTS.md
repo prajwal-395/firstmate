@@ -41,6 +41,14 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `manage_project.py`: top-level CLI for creating, listing and running projects.
 - `requirements.txt`: Python dependencies.
 
+**One thing in `library/tools/` is a prototype and must stay out of the pipeline.**
+`footage_query.py` / `footage_segments.py` / `footage_query_bridge.py` are a cross-clip footage
+search - "where in all my footage does X happen" - built to be judged, not used.
+Do not import them from a step, the DAG or a manifest: `tests/test_footage_query_prototype.py`
+fails if you do, and turning that off is the captain's call.
+[`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, what it
+gets wrong, and the 66x reduction of `temporal_index` that is worth doing without it.
+
 ## 3. Pipeline execution
 
 The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`, ordered by topological sort.
