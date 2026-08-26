@@ -3,7 +3,7 @@
 # lifecycle verbs addressed to an exact task id.
 #
 # Usage: fm-control.sh <task-id> interrupt
-#        fm-control.sh <task-id> exit
+#        fm-control.sh <task-id> exit [--reason <text>]
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
@@ -32,6 +32,15 @@
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent).
+#              A verified stop also DECLARES the endpoint agent-free by design,
+#              in state/<id>.stopped, bound to the exact incarnation it stopped
+#              (bin/fm-stopped-lib.sh owns that record). That declaration is the
+#              only thing downstream supervision has that separates a worker
+#              firstmate stopped on purpose from one that died on its own, so
+#              --reason <text> - why it was stopped and how it resumes - is
+#              worth passing whenever the stop is not self-evident. A relaunch
+#              mints a new incarnation, which spends the declaration and
+#              restores ordinary supervision.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree, on the same or a newly chosen harness/model/
 #              effort - so switching harness is one ordinary use of this verb.
@@ -165,6 +174,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-stopped-lib.sh
+. "$SCRIPT_DIR/fm-stopped-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -223,6 +234,8 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
+REASON=
+REASON_SET=0
 want_value=
 for a in "$@"; do
   if [ -n "$want_value" ]; then
@@ -239,11 +252,14 @@ for a in "$@"; do
         NOTE=$(cat "$a")
         NOTE_SET=1
         ;;
+      reason) REASON=$a; REASON_SET=1 ;;
     esac
     want_value=
     continue
   fi
   case "$a" in
+    --reason) want_value=reason ;;
+    --reason=*) REASON=${a#--reason=}; REASON_SET=1 ;;
     --harness) want_value=harness ;;
     --harness=*) NEW_HARNESS=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -267,6 +283,10 @@ if [ "$VERB" != relaunch ]; then
   [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
     || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
 fi
+if [ "$VERB" != exit ]; then
+  [ "$REASON_SET" = 0 ] || die "--reason applies to 'exit' only"
+fi
+[ "$REASON_SET" = 0 ] || [ -n "$REASON" ] || die "--reason requires a non-empty value"
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
 [ "$EFFORT_SET" = 0 ] || [ -n "$NEW_EFFORT" ] || die "--effort requires a non-empty value"
@@ -1054,7 +1074,22 @@ case "$VERB" in
         die "task $ID's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action"
         ;;
     esac
-    echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
+    # The stop is verified; declare the endpoint agent-free BY DESIGN so
+    # supervision has something to read other than an empty endpoint, which is
+    # byte-identical to the one a worker that died on its own leaves behind.
+    # Bound to this exact incarnation, so a relaunch spends it (see
+    # bin/fm-stopped-lib.sh). A declaration that cannot be written is reported
+    # and does not fail the stop: the agent IS stopped, and a stop reported as
+    # failed would be the worse lie.
+    if fm_stopped_record "$STATE" "$ID" \
+        "${REASON:-stopped by firstmate through the control plane}" \
+        "$HARNESS" "$T" "$BACKEND"; then
+      declared=declared
+    else
+      declared=undeclared
+      echo "notice: task $ID stopped, but its intentional-stop record could not be written, so supervision will keep reporting the empty endpoint as a stopped worker needing attention" >&2
+    fi
+    echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT stop=$declared"
     ;;
   relaunch)
     do_relaunch

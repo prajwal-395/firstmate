@@ -93,6 +93,7 @@ projects/            cloned repos; gitignored; read-only except under hard rule 
 state/               runtime records and signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
   <id>.turn-ended    touched by turn-end hooks
+  <id>.stopped       written by a verified `exit`: this endpoint is agent-free BY DESIGN, with its reason and the one incarnation it binds to; bin/fm-stopped-lib.sh owns the record (docs/agent-control.md)
   <id>.grok-turnend-token   firstmate-owned grok hook registry token for the task; removed by teardown
   <id>.kimi-turnend-token   firstmate-owned Kimi hook registry token for the task; removed by teardown
   <id>.muse-session  muse busy-source binding (sessions root plus task worktree) written by fm-spawn; removed by teardown
@@ -128,7 +129,7 @@ state/               runtime records and signals; gitignored
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
   .claude-autoarm.lock .claude-autoarm-epoch .claude-autoarm-failure-notified .claude-autoarm-failure-alarmed .turnend-claude-blocks .turnend-claude-blocks.lock   Claude Stop auto-arm single-flight, epoch, failure-episode, attended-alarm, guard-budget, and budget-lock records; never touch
   .cursor-park-owner .cursor-park-owner.lock .turnend-cursor-blocks   Cursor stop-hook owner record, publication and commit lock, and bounded repair-nag budget; never touch
-  .hash-* .count-* .stale-* .stale-since-* .paused-* .terminal-mtime-* .terminal-resurfaced-* .wedge-escalations-* .progress-* .progress-suppressed-* .busy-stall-surfaced-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
+  .hash-* .count-* .stale-* .stale-since-* .stopped-* .paused-* .terminal-mtime-* .terminal-resurfaced-* .wedge-escalations-* .progress-* .progress-suppressed-* .busy-stall-surfaced-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch

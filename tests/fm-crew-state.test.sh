@@ -32,6 +32,11 @@
 #       endpoint has no agent in it yet reads exactly like one whose agent
 #       left, so the exit verdict is withheld until the record is old enough
 #       for that emptiness to mean something - and is still reached after.
+#   (n) the DECLARED STOP: a worker firstmate itself stopped through the control
+#       plane is agent-free by design, and reads `stopped` rather than `exited`
+#       - but only while the declaration binds to the incarnation it was written
+#       for, and only alongside a verified-gone agent, so a worker that died on
+#       its own and a replacement worker on the same task id are both untouched.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1751,6 +1756,145 @@ test_registration_window_does_not_mask_a_reported_result() {
   pass "the registration window never delays a worker's own reported result"
 }
 
+# ---------------------------------------------------------------------------
+# (n) THE 2026-08-25 DEFECT: a worker firstmate DELIBERATELY stopped, whose
+#     endpoint it preserved on purpose, read as a worker that had died.
+#
+#     bin/fm-control.sh exit stops an agent and keeps the endpoint, the local
+#     copy and every uncommitted change. What it leaves behind is byte-identical
+#     to what a worker that died on its own leaves behind, so supervision had no
+#     way to tell them apart and reported both as needing attention - about
+#     forty alerts across one four-hour quota window, each indistinguishable at
+#     arrival from the one that matters.
+#
+#     The discriminator is the control plane's own declaration, bound to the
+#     exact incarnation it stopped. These cases pin that it separates the two,
+#     and the three directions it must NOT reach: an agent that died on its own,
+#     an agent that is still alive, and a replacement on the same task id.
+
+# Write a declared-stop record for <id> bound to <incarnation>.
+declare_stop() {  # <state-dir> <id> <incarnation> <reason>
+  {
+    echo "v1"
+    echo "task=$2"
+    echo "incarnation=$3"
+    echo "reason=$4"
+    echo "harness=claude"
+    echo "endpoint=fm:fm-$2"
+    echo "backend=tmux"
+    echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "epoch=$(date +%s)"
+  } > "$1/$2.stopped"
+}
+
+# The fix: a stop firstmate performed and recorded reads as intentional.
+test_declared_stop_reports_stopped_not_exited() {
+  reset_fakes
+  local d; d=$(new_case declared-stop)
+  make_repo_on_branch "$d/wt" fm/feat-stopped-on-purpose
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-stop.meta" "window=fm:fm-feat-stop" "worktree=$d/wt" \
+    "kind=ship" "harness=claude" "spawn_gen=s1000.1.1" "spawned_at=$(settled_spawn_ts)"
+  printf 'working: implementing the fix\n' > "$d/state/feat-stop.status"
+  declare_stop "$d/state" feat-stop s1000.1.1 "zero model quota until about 19:00; relaunch when it resets"
+  FM_FAKE_TMUX_WINDOWS=fm-feat-stop
+  FM_FAKE_PANE_COMMAND=zsh          # the agent is gone, exactly as exit intended
+  arm_idle_record "$d/state" feat-stop
+  local out; out=$(run_crew_state "$d" feat-stop)
+  assert_contains "$out" "state: stopped" "a deliberately stopped worker must read as stopped"
+  assert_not_contains "$out" "state: exited" "an intentional stop is not an unreported departure"
+  assert_contains "$out" "source: declared-stop" "the verdict must name the declaration it came from"
+  assert_contains "$out" "zero model quota" "the recorded reason is what the next read reports"
+  assert_contains "$out" "relaunch" "the verdict must say how the worker resumes"
+  pass "a worker firstmate stopped on purpose reports stopped, with its reason"
+}
+
+# The direction that must not break: no declaration, no absorption. A worker
+# that died on its own is exactly the alert this change exists to protect.
+test_self_died_worker_still_reports_exited() {
+  reset_fakes
+  local d; d=$(new_case declared-stop-absent)
+  make_repo_on_branch "$d/wt" fm/feat-self-died
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-died.meta" "window=fm:fm-feat-died" "worktree=$d/wt" \
+    "kind=ship" "harness=claude" "spawn_gen=s2000.1.1" "spawned_at=$(settled_spawn_ts)"
+  printf 'working: implementing the fix\n' > "$d/state/feat-died.status"
+  [ ! -e "$d/state/feat-died.stopped" ] || fail "fixture must not declare a stop"
+  FM_FAKE_TMUX_WINDOWS=fm-feat-died
+  FM_FAKE_PANE_COMMAND=zsh
+  arm_idle_record "$d/state" feat-died
+  local out; out=$(run_crew_state "$d" feat-died)
+  assert_contains "$out" "state: exited" "a worker that died on its own must still surface immediately"
+  assert_not_contains "$out" "state: stopped" "an undeclared departure must never read as intentional"
+  pass "a worker that died on its own still reports exited (the property that must not break)"
+}
+
+# The incarnation binding. A relaunch mints a new spawn_gen, so a declaration
+# left by the worker it replaced describes an agent that no longer exists and
+# must silence nobody - the replacement is supervised from its first read.
+test_declared_stop_cannot_silence_a_later_incarnation() {
+  reset_fakes
+  local d; d=$(new_case declared-stop-spent)
+  make_repo_on_branch "$d/wt" fm/feat-relaunched
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-relaunch.meta" "window=fm:fm-feat-relaunch" "worktree=$d/wt" \
+    "kind=ship" "harness=claude" "spawn_gen=s3000.2.2" "spawned_at=$(settled_spawn_ts)"
+  printf 'working: implementing the fix\n' > "$d/state/feat-relaunch.status"
+  # The declaration names the PREVIOUS incarnation; the record now runs another.
+  declare_stop "$d/state" feat-relaunch s3000.1.1 "stopped for the quota window"
+  FM_FAKE_TMUX_WINDOWS=fm-feat-relaunch
+  FM_FAKE_PANE_COMMAND=zsh
+  arm_idle_record "$d/state" feat-relaunch
+  local out; out=$(run_crew_state "$d" feat-relaunch)
+  assert_contains "$out" "state: exited" "a spent declaration must not suppress the replacement's own verdict"
+  assert_not_contains "$out" "state: stopped" "a declaration may never outlive the incarnation it names"
+  pass "a declared stop cannot silence a later, different worker on the same task"
+}
+
+# The declaration is never believed alone. An agent that is right there is not
+# stopped, whatever any record says - the endpoint outranks the file.
+test_declared_stop_never_overrides_a_live_agent() {
+  reset_fakes
+  local d; d=$(new_case declared-stop-live)
+  make_repo_on_branch "$d/wt" fm/feat-still-alive
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-live.meta" "window=fm:fm-feat-live" "worktree=$d/wt" \
+    "kind=ship" "harness=claude" "spawn_gen=s4000.1.1" "spawned_at=$(settled_spawn_ts)"
+  printf 'working: still going\n' > "$d/state/feat-live.status"
+  declare_stop "$d/state" feat-live s4000.1.1 "stopped for the quota window"
+  FM_FAKE_TMUX_WINDOWS=fm-feat-live
+  FM_FAKE_PANE_COMMAND=claude       # the agent process is right there
+  arm_idle_record "$d/state" feat-live
+  local out; out=$(run_crew_state "$d" feat-live)
+  assert_not_contains "$out" "state: stopped" "an agent that is present must never be reported as stopped"
+  assert_contains "$out" "source: status-log" "a live idle agent still reads from its own log"
+  pass "a declared stop is never believed over an agent that is actually there"
+}
+
+# The watcher's own absorb predicate, end to end over the REAL helper: this is
+# the single read that decides whether the stale pane goes quiet.
+test_declared_stop_absorb_predicate_end_to_end() {
+  reset_fakes
+  local d; d=$(new_case declared-stop-predicate)
+  make_repo_on_branch "$d/wt" fm/feat-predicate
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-pred.meta" "window=fm:fm-feat-pred" "worktree=$d/wt" \
+    "kind=ship" "harness=claude" "spawn_gen=s5000.1.1" "spawned_at=$(settled_spawn_ts)"
+  printf 'working: implementing the fix\n' > "$d/state/feat-pred.status"
+  declare_stop "$d/state" feat-pred s5000.1.1 "stopped for the quota window"
+  FM_FAKE_TMUX_WINDOWS=fm-feat-pred
+  FM_FAKE_PANE_COMMAND=zsh
+  arm_idle_record "$d/state" feat-pred
+  PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_is_declared_stopped feat-pred \
+    || fail "the declared-stop absorb predicate did not recognize an intentional stop"
+  PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_is_provably_working feat-pred \
+    && fail "an intentionally stopped worker must not read as provably working"
+  rm -f "$d/state/feat-pred.stopped"
+  PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_is_declared_stopped feat-pred \
+    && fail "the predicate must not fire without a declaration"
+  pass "crew_is_declared_stopped: only a bound declaration plus a gone agent absorbs"
+}
+
 test_active_run_is_authoritative
 test_stale_needs_decision_superseded
 test_stale_blocked_superseded
@@ -1817,5 +1961,10 @@ test_fresh_spawn_is_not_absorbed_as_working
 test_settled_record_with_empty_endpoint_still_reports_exited
 test_record_without_spawn_timestamp_uses_its_publication_time
 test_registration_window_does_not_mask_a_reported_result
+test_declared_stop_reports_stopped_not_exited
+test_self_died_worker_still_reports_exited
+test_declared_stop_cannot_silence_a_later_incarnation
+test_declared_stop_never_overrides_a_live_agent
+test_declared_stop_absorb_predicate_end_to_end
 
 echo "all fm-crew-state tests passed"

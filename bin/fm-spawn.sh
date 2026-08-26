@@ -3232,6 +3232,11 @@ preserve_relaunch_meta() {
     echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
   fi
 } > "$SPAWN_META_PATH"
+# This incarnation is new, so any declaration that this task's endpoint is
+# agent-free by design describes an agent that no longer exists. The record's
+# incarnation binding already makes it inert (bin/fm-stopped-lib.sh); removing
+# it keeps a spent statement from being read at all.
+rm -f "$STATE/$ID.stopped"
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_PUBLISH_STARTED=1
   mv -f "$SPAWN_META_TMP" "$STATE/$ID.meta"
