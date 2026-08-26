@@ -12,6 +12,7 @@ import pytest
 
 from library.steps.step_4_01_plan_subtitles.step import (
     apply_caption_case,
+    UnknownCaptionCase,
     generate_subtitles,
 )
 from library.schemas.brand_template import EffectSlots
@@ -65,7 +66,11 @@ class TestApplyCaptionCase:
         assert apply_caption_case("Hello World", "as_written") == "Hello World"
 
     def test_unknown_mode_defaults_to_lowercase(self):
-        assert apply_caption_case("Hello World", "bogus") == "hello world"
+        # A typo used to lowercase the whole video silently. Which case
+        # the copy is set in is the template's decision, and an
+        # unrecognised value is not a licence to make it here.
+        with pytest.raises(UnknownCaptionCase):
+            apply_caption_case("Hello World", "bogus")
 
     def test_empty_string(self):
         assert apply_caption_case("", "lowercase") == ""

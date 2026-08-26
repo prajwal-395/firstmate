@@ -14,6 +14,7 @@ import pytest
 
 from library.steps.step_4_03_plan_vfx.post_bridge import (
     EFFECT_ALIASES,
+    WITHDRAWN_ALIASES,
     INTENSITY_MAP,
     resolve_vfx,
 )
@@ -121,13 +122,35 @@ def test_an_unknown_effect_type_is_dropped_not_defaulted(capsys):
 
 
 def test_an_aliased_effect_type_resolves():
+    """An alias may RENAME an effect. `push_in` and `zoom_emphasis` are
+    two names for the same punch-and-settle, so the mapping states a
+    fact rather than making a choice."""
     resolved = resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "slow_zoom"}],
+        [{"target_block_position": 1, "effect_type": "push_in",
+          "intensity": "moderate"}],
         _spine(1, 2),
     )
     assert len(resolved) == 1
-    assert resolved[0]["effect_type"] == EFFECT_ALIASES["slow_zoom"]
-    assert resolved[0]["params"]["zoom_end"] > 1.0
+    assert resolved[0]["effect_type"] == EFFECT_ALIASES["push_in"]
+    assert resolved[0]["params"]["zoom_mid"] > 1.0
+
+
+def test_an_alias_that_chose_a_direction_is_withdrawn(capsys):
+    """`slow_zoom` and `ken_burns` name no direction.
+
+    They used to resolve to `slow_zoom_in`, which answers "which way?" on
+    the planner's behalf. A plan naming one is dropped with the toolkit
+    listed, so the editor says which they meant.
+    """
+    for alias in WITHDRAWN_ALIASES:
+        resolved = resolve_vfx(
+            [{"target_block_position": 1, "effect_type": alias,
+              "intensity": "moderate"}],
+            _spine(1, 2),
+        )
+        assert resolved == []
+        err = capsys.readouterr().err
+        assert alias in err and "direction" in err
 
 
 def test_a_builtin_fusion_effect_passes_through_without_parameters():
@@ -143,8 +166,10 @@ def test_dropping_an_effect_frees_its_block_for_another():
     """The drop must not consume the block's one-effect slot."""
     resolved = resolve_vfx(
         [
-            {"target_block_position": 1, "effect_type": "sparkle_blast"},
-            {"target_block_position": 1, "effect_type": "slow_zoom_in"},
+            {"target_block_position": 1, "effect_type": "sparkle_blast",
+             "intensity": "moderate"},
+            {"target_block_position": 1, "effect_type": "slow_zoom_in",
+             "intensity": "moderate"},
         ],
         _spine(1, 2),
     )

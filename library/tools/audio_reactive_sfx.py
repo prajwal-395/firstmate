@@ -68,36 +68,18 @@ def align_sfx_to_prosody(sfx_spec: list, prosody_data: dict, engagement_scores: 
         
     return adjusted_sfx
 
-def scale_sfx_density(sfx_spec: list, energy_level: str) -> list:
-    """
-    Adjust SFX count based on energy:
-    - "high": keep all SFX, add additional micro-impacts (or at least keep all)
-    - "moderate": keep transition SFX, reduce impacts
-    - "calm": minimal SFX, only scene transitions
-    """
-    energy = energy_level.lower() if energy_level else "moderate"
-    
-    if energy == "high":
-        # Keep all, in a full implementation we might duplicate/add some
-        return list(sfx_spec)
-        
-    filtered_sfx = []
-    
-    if energy == "calm":
-        for sfx in sfx_spec:
-            sfx_type = sfx.get("type", "").lower()
-            if "transition" in sfx_type or "whoosh" in sfx_type or "ambient" in sfx_type:
-                filtered_sfx.append(sfx)
-    else:
-        # moderate
-        impact_count = 0
-        for sfx in sfx_spec:
-            sfx_type = sfx.get("type", "").lower()
-            if "impact" in sfx_type:
-                impact_count += 1
-                if impact_count % 2 == 1:  # keep half
-                    filtered_sfx.append(sfx)
-            else:
-                filtered_sfx.append(sfx)
-                
-    return filtered_sfx
+
+# `scale_sfx_density` was here and is DELETED, not disabled.
+#
+# It took the plan and an energy word and returned a SHORTER plan: on
+# "calm" it kept only transition, whoosh and ambient entries; on
+# "moderate" it dropped every second impact. The energy word it judged by
+# was read from a key `creative_direction` does not have, so in practice
+# the constant "moderate" decided it on every run.
+#
+# How many sound effects a piece gets is the creative direction's call
+# (captain's ruling 2026-08-20). A function that deletes half of them
+# because a constant says the piece is "moderate" is the same floor in
+# the other direction, and leaving it here uncalled would state that
+# taste as fact for the next reader. Guarded by
+# tests/test_no_creative_floors.py.

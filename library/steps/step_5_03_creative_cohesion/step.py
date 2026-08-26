@@ -72,16 +72,36 @@ def review_creative_cohesion(inputs: dict) -> dict:
     score = 100
 
     # 1. Energy Alignment Check
-    raw_energy = creative_direction.get("target_energy", "moderate")
-    energy = map_energy(raw_energy)
+    #
+    # The energy comes from the creative direction or the checks below do
+    # not run. This used to read `.get("target_energy", "moderate")`, so a
+    # direction that declared no energy was scored against one this file
+    # made up - and the transition adjustments below are APPLIED by
+    # compile_manifest, so an invented word reached the picture.
+    raw_energy = creative_direction.get("target_energy")
+    energy = map_energy(raw_energy) if raw_energy else None
+    if not energy:
+        warnings.append(
+            "Energy not checked: the creative direction declares no "
+            "target_energy, so there is nothing to judge the transitions "
+            "and SFX density against"
+        )
 
     # Transition Check
-    for t in transitions:
-        dur_frames = t.get("duration_frames", 15)
+    for t in transitions if energy else []:
+        # A transition that declares no duration is not measured. Assuming
+        # 15 frames invented the very number this check then judged.
+        dur_frames = t.get("duration_frames")
+        if not isinstance(dur_frames, (int, float)) or isinstance(dur_frames, bool):
+            warnings.append(
+                f"Transition at {t.get('cut_point_timeline', '?')}s declares "
+                f"no duration_frames, so its pace was not checked"
+            )
+            continue
         # assuming 30fps -> ms = (frames / 30) * 1000
         dur_ms = (dur_frames / 30.0) * 1000
         ttype = t.get("transition_type", t.get("type", ""))
-        
+
         if energy == "high":
             if dur_ms >= 500 and not is_cut(ttype):
                 warnings.append(f"High energy but found slow transition ({dur_ms}ms)")
@@ -117,10 +137,20 @@ def review_creative_cohesion(inputs: dict) -> dict:
     timeline_duration = measure_timeline_duration(inputs)
 
     # SFX Check (density estimation)
-    total_duration = timeline_duration or 60.0
+    #
+    # Measured against the REAL timeline or not at all. `timeline_duration
+    # or 60.0` made a minute up when nothing had been measured, and
+    # `measure_timeline_duration` returns 0.0 to mean "no evidence"
+    # precisely so a reader says so instead (AGENTS.md 10.1).
+    total_duration = timeline_duration
+    if energy and not total_duration:
+        warnings.append(
+            "SFX density not checked: the timeline length is unknown, so "
+            "there is nothing to measure a density against"
+        )
 
     sfx_density_per_min = (len(sfx) / total_duration) * 60 if total_duration > 0 else 0
-    if energy == "high" and sfx_density_per_min < 10:
+    if energy == "high" and total_duration and sfx_density_per_min < 10:
         warnings.append(f"High energy but sparse SFX ({sfx_density_per_min:.1f} per min)")
         score -= 5
         adjustments.append({
@@ -130,7 +160,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
             "suggested_value": "dense",
             "reason": "High energy requires dense SFX"
         })
-    elif energy == "calm" and sfx_density_per_min > 15:
+    elif energy == "calm" and total_duration and sfx_density_per_min > 15:
         warnings.append(f"Calm energy but dense SFX ({sfx_density_per_min:.1f} per min)")
         score -= 5
         adjustments.append({

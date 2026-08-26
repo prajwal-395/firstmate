@@ -1290,7 +1290,7 @@ def build_timeline(
                 timeline.AddMarker(
                     frame, "Cyan",
                     f"UNAPPLIED target: {auto.get('target_level_db', 0)}dB "
-                    f"({auto.get('music_behavior', 'background')})",
+                    f"({auto.get('music_behavior') or 'unspecified'})",
                     "The pipeline could not write this level; set it by hand",
                     1)
             print(f"  ⚠ Fell back to {len(music_automation)} cyan markers",

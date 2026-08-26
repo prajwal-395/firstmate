@@ -1433,7 +1433,15 @@ def compile_manifest(out_dir: str) -> dict:
     a3_clips = []
     sfx_unresolved = []
     for si, sfx_entry in enumerate(sfx_list):
-        sfx_type = sfx_entry.get("sfx_type", "whoosh")
+        # Which sound plays is a decision step 4.04 makes, not one this
+        # step fills in. Defaulting to "whoosh" here put a sound on A3
+        # that nothing had chosen.
+        sfx_type = sfx_entry.get("sfx_type")
+        if not sfx_type:
+            raise ValueError(
+                f"SFX entry {sfx_entry.get('label', si)} names no sfx_type. "
+                f"No sound is substituted - fix the plan in step 4.04."
+            )
         # step_4_04 emits timeline_in/timeline_out (seconds).
         tl_start_sec = sfx_entry.get("timeline_in",
                                      sfx_entry.get("timeline_start"))

@@ -21,7 +21,10 @@ def _get_default_template() -> BrandTemplate:
         effect=EffectSlots(
             transition_types=list(PLANNABLE_TYPES), sfx_density="moderate"
         ),
-        content=ContentSlots(music_genre=["ambient"])
+        # No music_genre. Nothing in the pipeline reads the slot, and an
+        # in-code default that names a genre states a taste the captain
+        # never chose for a project that declared nothing.
+        content=ContentSlots()
     )
 
 def load_brand_template(template_path: str) -> BrandTemplate:

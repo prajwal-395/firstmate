@@ -14,9 +14,30 @@ from library.tools.transition_vocabulary import (
 # See library/tools/energy_reading.py.
 _HIGH_ENERGY_WORDS = HIGH_ENERGY_WORDS
 
-# Scene-change defaults, most to least energetic. Every entry is drawable.
-_SCENE_CHANGE_HIGH = "flash"
-_SCENE_CHANGE_DEFAULT = "hard_cut"
+# There is no scene-change default, and there must not be one again.
+#
+# This module used to invent a DRAWN transition for any cut the plan had
+# not decorated: `fade_to_black` on a breather or a transition_slot,
+# `flash` on a music step up, and `defocus` on everything else, capped at
+# one per twenty seconds. None of it was asked for by an editor. It is
+# the same shape as `inject_default_ken_burns` (removed by the captain's
+# ruling of 2026-08-20, still alive in code until #192) and as the
+# `min_trans` floor in step 4.02's post-bridge that padded the plan with
+# `defocus` entries - taste, chosen by a constant, outvoting the plan.
+#
+# A cut the plan did not decorate is a HARD CUT. `transition_vocabulary`
+# says so in as many words: a cut type draws nothing, and AGENTS.md 10.4
+# records that "an edit of nothing but hard cuts is the absence of
+# decoration". Absence is a legitimate answer; an invented `defocus` is
+# not. Guarded by tests/test_no_creative_floors.py.
+WITHDRAWN_SCENE_CHANGE_DEFAULTS = {
+    "flash": "invented on a `music_behavior` of 'step_up' - which is not "
+             "even a word in library/tools/music_behavior.py, so the "
+             "branch could never fire on a real spine",
+    "fade_to_black": "invented on a 'breather' or 'transition_slot' block",
+    "defocus": "invented on every other cut across two source clips, once "
+               "per twenty seconds",
+}
 
 
 def _resolve_duration_ms(raw, default: int = 500) -> int:
@@ -44,7 +65,6 @@ def select_transition(
     brand_effect: dict,
     creative_direction: dict,
     requested_type: str = "",
-    last_drawn_time: float = -999.0,
 ) -> dict:
     """
     Choose the transition to draw at one cut.
@@ -55,9 +75,10 @@ def select_transition(
     - A requested type that is not plannable is downgraded to a hard cut
       and the reason is recorded. It is never quietly swapped for a
       different creative transition.
-    - Otherwise: a cut inside one take is a jump cut, a cut across takes
-      takes the scene-change transition for the creative direction's
-      energy.
+    - Otherwise nothing is drawn. A cut inside one take is labelled a
+      jump cut; every other undecorated cut is a hard cut. This function
+      never invents a DRAWN transition - see
+      `WITHDRAWN_SCENE_CHANGE_DEFAULTS`.
 
     Returns {"type", "duration_ms", "requested_type", "downgrade_reason"}.
     """
@@ -74,8 +95,7 @@ def select_transition(
     duration_ms = _resolve_duration_ms(brand_effect.get("transition_duration_ms"))
 
     requested_raw = (requested_type or "").strip()
-    # No request at all is not a request for a hard cut - it means fall
-    # through to the heuristic below.
+    # No request at all means nothing is drawn here.
     requested = canonical_type(requested_raw) if requested_raw else None
     result = {
         "type": "hard_cut",
@@ -117,36 +137,14 @@ def select_transition(
     known = from_clip_id is not None and to_clip_id is not None
 
     # 1. Same source clip = jump cut (there is no second angle to move to)
+    #
+    # This is the one label chosen without a request, and it draws
+    # nothing: `jump_cut` is in CUT_TYPES. It DESCRIBES the cut that is
+    # already there - a cut inside one take IS a jump cut - rather than
+    # deciding anything about how the piece should feel.
     if known and from_clip_id == to_clip_id:
         return settle("jump_cut" if "jump_cut" in preferred_types else "hard_cut")
 
-    # 2. Scene change = the drawable transition matching the energy
-    if known and from_clip_id != to_clip_id:
-        wanted = "hard_cut"
-        
-        # Select drawn transition from signal, capped at one per 20 seconds
-        tl_start = to_clip.get("timeline_start", 0)
-        time_since_last = tl_start - last_drawn_time
-        
-        if time_since_last >= 20.0:
-            block_type = to_clip.get("block_type", "")
-            music_behavior = to_clip.get("music_behavior", "")
-            if not block_type:
-                block_type = from_clip.get("block_type", "")
-            if not music_behavior:
-                music_behavior = from_clip.get("music_behavior", "")
-                
-            if block_type in ("transition_slot", "breather"):
-                wanted = "fade_to_black"
-            elif music_behavior == "step_up":
-                wanted = "flash"
-            else:
-                wanted = "defocus"
-                
-        if wanted in preferred_types:
-            return settle(wanted)
-        for fallback in preferred_types:
-            if fallback not in CUT_TYPES:
-                return settle(fallback)
-
-    return settle(preferred_types[0] if preferred_types else "hard_cut")
+    # 2. Anything else the plan did not decorate is a hard cut.
+    #    See WITHDRAWN_SCENE_CHANGE_DEFAULTS above.
+    return settle("hard_cut")

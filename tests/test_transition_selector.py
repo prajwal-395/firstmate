@@ -10,22 +10,35 @@ def test_same_source_clip_is_a_jump_cut():
     assert res["duration_ms"] == 0
 
 
-def test_scene_change_defaults_to_hard_cut_if_under_cap():
+def test_a_scene_change_the_plan_did_not_decorate_is_a_hard_cut():
+    """No request means nothing is drawn.
+
+    This used to answer `defocus` once every twenty seconds, and
+    `fade_to_black` or `flash` off the incoming block's type - taste
+    chosen by a constant for a cut nobody asked to decorate. See
+    `WITHDRAWN_SCENE_CHANGE_DEFAULTS`, and
+    tests/test_no_creative_floors.py.
+    """
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 5.0},
-        {"transition_duration_ms": 600}, {}, last_drawn_time=0.0
+        {"transition_duration_ms": 600}, {},
     )
     assert res["type"] == "hard_cut"
     assert res["duration_ms"] == 0
 
 
-def test_music_step_up_yields_flash():
-    """`music_behavior` step up gives a flash."""
-    res = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 25.0, "music_behavior": "step_up"},
-        {}, {},
-    )
-    assert res["type"] == "flash"
+def test_no_signal_on_the_incoming_block_draws_a_transition():
+    """Neither a block type nor a music behaviour invents one now."""
+    for to_clip in (
+        {"clip_id": "clip_002", "timeline_start": 25.0,
+         "music_behavior": "step_up"},
+        {"clip_id": "clip_002", "timeline_start": 25.0,
+         "block_type": "breather"},
+        {"clip_id": "clip_002", "timeline_start": 25.0,
+         "block_type": "transition_slot"},
+    ):
+        res = select_transition({"clip_id": "clip_001"}, to_clip, {}, {})
+        assert res["type"] == "hard_cut", to_clip
 
 
 def test_an_explicit_request_outranks_the_heuristic():
@@ -70,6 +83,20 @@ def test_brand_types_the_renderer_cannot_draw_are_rejected(capsys):
     assert "dissolve" in err and "wipe" in err
 
 
+def test_a_brand_allowing_a_drawn_type_still_does_not_draw_it_unasked():
+    """The allow-list is a permission, not an instruction.
+
+    The final line used to be `settle(preferred_types[0])`, so a brand
+    template whose list happened to start with a drawn type got that type
+    on every undecorated cut.
+    """
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+        {"transition_types": ["defocus", "hard_cut"]}, {},
+    )
+    assert res["type"] == "hard_cut"
+
+
 def test_brand_duration_accepts_the_min_max_shape():
     """default_brand.yaml writes {min, max}; every reader wanted a scalar.
 
@@ -79,6 +106,7 @@ def test_brand_duration_accepts_the_min_max_shape():
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
         {"transition_duration_ms": {"min": 200, "max": 500}}, {},
+        requested_type="defocus",
     )
     assert res["duration_ms"] == 500
 
@@ -97,25 +125,19 @@ def test_every_outcome_is_a_plannable_type():
         )
         assert res["type"] in PLANNABLE_TYPES, res
 
-def test_drawn_transition_capped_per_20_seconds():
-    # First one at 20s should draw
-    res1 = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 20.0, "block_type": "breather"},
-        {}, {},
-    )
-    assert res1["type"] == "fade_to_black"
+def test_the_withdrawn_scene_change_defaults_are_recorded():
+    """A withdrawal is only visible if the reason is written down.
 
-    # Second one at 25s should fall back to hard cut (under 20s cap from last drawn time at 0, well wait)
-    # The last_drawn_time must be passed explicitly to test it
-    res2 = select_transition(
-        {"clip_id": "clip_002"}, {"clip_id": "clip_003", "timeline_start": 25.0, "block_type": "breather"},
-        {}, {}, last_drawn_time=20.0
+    The one-per-twenty-seconds cap that used to live here is gone with
+    the thing it capped: there is nothing left to rate-limit, because
+    nothing is drawn unasked.
+    """
+    from library.tools.transition_selector import (
+        WITHDRAWN_SCENE_CHANGE_DEFAULTS,
     )
-    assert res2["type"] == "hard_cut"
 
-    # Third one at 41s should draw again
-    res3 = select_transition(
-        {"clip_id": "clip_003"}, {"clip_id": "clip_004", "timeline_start": 41.0, "block_type": "breather"},
-        {}, {}, last_drawn_time=20.0
-    )
-    assert res3["type"] == "fade_to_black"
+    assert set(WITHDRAWN_SCENE_CHANGE_DEFAULTS) == {
+        "flash", "fade_to_black", "defocus",
+    }
+    for name, reason in WITHDRAWN_SCENE_CHANGE_DEFAULTS.items():
+        assert reason.strip(), f"{name} is withdrawn with no reason"

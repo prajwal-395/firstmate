@@ -29,6 +29,28 @@ only guarded the two steps the ruling was WRITTEN about:
 
 Both are gone, and every creative-planning prompt is now under the guard
 rather than the two that were named on the day.
+
+2026-08-26: and the guard now reads CODE as well as prompts, because
+reading only prompts is how the VFX pair survived, and reading only the
+two steps the ruling named is how a third floor survived in
+`step_4_02_plan_transitions/post_bridge.py` for longer still:
+
+* `min_trans = max(1, total_cuts // 3)`, an injection loop appending
+  `{"type": "defocus", "duration_feel": "medium"}` at any boundary where
+  the semantic mood or the keyword tags differed, and a `sys.exit(1)`
+  reading "You MUST plan at least N transitions at DISTINCT cut points".
+* `library/tools/transition_selector.select_transition` invented a DRAWN
+  `defocus`/`flash`/`fade_to_black` for any cut the plan had left alone,
+  once per twenty seconds.
+* `library/tools/audio_reactive_sfx.scale_sfx_density` DELETED plan
+  entries - half the impacts on "moderate" - judged by an energy word
+  read from a `creative_direction` key that does not exist, so the
+  constant "moderate" decided it every time.
+
+A floor is a floor whether it pads, rejects, warns, or cuts. The code
+guard below is deliberately narrow - it drives the real bridges and
+asserts on their real output rather than grepping for the word "default",
+which would fail on every legitimate frame rate in the tree.
 """
 import json
 import os
@@ -49,7 +71,8 @@ SPEECH = STEPS / "step_2_02_speech_sequence"
 # Every step whose prompt asks a model HOW MANY of something to plan.
 # Add a creative-planning step here when you add one; the ruling is about
 # floors, not about the two steps it was written about.
-CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH)
+TRANSITIONS = STEPS / "step_4_02_plan_transitions"
+CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH, TRANSITIONS)
 
 
 def _run_bridge(script: Path, payload: dict):
@@ -345,3 +368,235 @@ def test_plan_vfx_accepts_an_empty_plan():
         f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
     )
     assert json.loads(proc.stdout)["enhancement_spec"]["visual_effects"] == []
+
+
+# ── The guard reaches CODE, not only prompts ──────────────────────────
+#
+# Everything above this line drives a bridge or reads a prompt. What
+# follows drives the bridges the ruling had never been applied to, and
+# reads the modules where a floor can live without a prompt saying so.
+
+
+def _spine(n_blocks: int, clip_ids=None) -> dict:
+    """A spine of `n_blocks` speech blocks, five seconds each."""
+    ids = clip_ids or [f"clip_{i+1:03d}" for i in range(n_blocks)]
+    return {
+        "structure": [
+            {
+                "position": i + 1,
+                "block_type": "speech",
+                "clip_id": ids[i],
+                "source_start": i * 5.0,
+                "source_end": i * 5.0 + 5.0,
+                "timeline_start": i * 5.0,
+                "timeline_end": i * 5.0 + 5.0,
+                "word_timestamps": [],
+                "alignment_method": "whisperx",
+            }
+            for i in range(n_blocks)
+        ]
+    }
+
+
+def _transitions_payload(creative: list, n_blocks: int = 9) -> dict:
+    return {
+        "transition_creative": creative,
+        "timed_spine": _spine(n_blocks),
+        "music_selection": {"audio_path": ""},
+        "music_analysis": {},
+        "temporal_event_indices": [],
+        "frame_rate": 30.0,
+        "creative_direction": {},
+        "brand_effect": {},
+        "semantic_analysis": [],
+    }
+
+
+def test_plan_transitions_accepts_an_empty_plan():
+    """No transition is a legitimate edit: a cut draws nothing.
+
+    The post-bridge used to exit 1 with "You MUST plan at least N
+    transitions at DISTINCT cut points" whenever the plan covered fewer
+    than a third of the spine's boundaries.
+    """
+    proc = _run_bridge(TRANSITIONS / "post_bridge.py", _transitions_payload([]))
+    assert proc.returncode == 0, (
+        "an empty transition plan was rejected - a floor is back.\n"
+        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+    )
+    assert json.loads(proc.stdout)["transition_spec"] == []
+
+
+def test_plan_transitions_does_not_pad_the_plan():
+    """One transition on eight boundaries stays one transition."""
+    creative = [{"cut_point_position": 2, "type": "flash",
+                 "duration_feel": "quick",
+                 "rationale": "the topic really does change here"}]
+    proc = _run_bridge(TRANSITIONS / "post_bridge.py",
+                       _transitions_payload(creative))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    resolved = json.loads(proc.stdout)["transition_spec"]
+    assert len(resolved) == 1, (
+        f"the bridge padded the plan back up - a floor is back: {resolved}"
+    )
+    combined = (proc.stdout + proc.stderr).lower()
+    for word in ("default defocus", "you must plan", "at least"):
+        assert word not in combined, (
+            f"the bridge still talks about a floor ({word!r})"
+        )
+
+
+def test_the_transition_selector_invents_no_drawn_transition():
+    """A cut the plan did not decorate draws nothing.
+
+    `select_transition` used to answer `defocus` (or `flash`, or
+    `fade_to_black`) for any cut across two source clips more than twenty
+    seconds after the last drawn one - taste, chosen by a constant, for a
+    cut nobody asked to decorate.
+    """
+    from library.tools.transition_selector import select_transition
+    from library.tools.transition_vocabulary import is_drawn
+
+    for to_clip in (
+        {"clip_id": "clip_002", "timeline_start": 25.0},
+        {"clip_id": "clip_002", "timeline_start": 90.0,
+         "block_type": "breather"},
+        {"clip_id": "clip_002", "timeline_start": 90.0,
+         "music_behavior": "step_up"},
+        {"clip_id": "clip_002", "timeline_start": 90.0,
+         "block_type": "transition_slot"},
+    ):
+        res = select_transition({"clip_id": "clip_001"}, to_clip, {}, {})
+        assert not is_drawn(res["type"]), (
+            f"an undecorated cut produced a drawn {res['type']!r} - a "
+            f"creative default is back: {to_clip}"
+        )
+
+
+def test_the_transition_selector_still_honours_a_request():
+    """Removing the invented defaults must not remove the editor's call."""
+    from library.tools.transition_selector import select_transition
+
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+        {}, {}, requested_type="defocus",
+    )
+    assert res["type"] == "defocus"
+
+
+def test_nothing_scales_the_sfx_plan_by_energy():
+    """`scale_sfx_density` deleted plan entries; it is gone, not unwired.
+
+    Left in the module it would still state, to the next reader, that a
+    "moderate" piece keeps half its impacts.
+    """
+    import library.tools.audio_reactive_sfx as ars
+
+    assert not hasattr(ars, "scale_sfx_density"), (
+        "scale_sfx_density is back. How many sound effects a piece gets "
+        "is the creative direction's call, and that holds for cutting "
+        "them as much as for padding them."
+    )
+    sfx_source = (SFX / "post_bridge.py").read_text(encoding="utf-8")
+    assert "scale_sfx_density(" not in sfx_source, (
+        "the SFX post-bridge scales the plan by energy again"
+    )
+
+
+# ── No creative value is substituted for one the plan omitted ─────────
+#
+# The other half of the captain's 2026-08-26 ruling: the pipeline never
+# invents a creative judgement on the model's behalf. A plan entry that
+# names no effect, no intensity, no sound or no level is DROPPED with the
+# reason, never completed from a constant.
+
+CREATIVE_SUBSTITUTIONS = [
+    # (file, the literal that must not be a fallback, what it decided)
+    (VFX / "post_bridge.py", '"effect_type", "slow_zoom_in"',
+     "which effect a block gets"),
+    (VFX / "post_bridge.py", '"intensity", "moderate"',
+     "how strong that effect is"),
+    (SFX / "post_bridge.py", '"sfx_type", "whoosh"',
+     "which sound plays"),
+    (SFX / "post_bridge.py", '"volume_level", "subtle"',
+     "how loud it plays"),
+    (TRANSITIONS / "post_bridge.py", '"duration_feel", "medium"',
+     "how long a transition holds"),
+    (STEPS / "step_5_04_compile_manifest" / "step.py", '"sfx_type", "whoosh"',
+     "which sound reaches track A3"),
+    (STEPS / "step_5_03_creative_cohesion" / "step.py",
+     '"target_energy", "moderate"',
+     "the energy the whole edit is scored against"),
+]
+
+
+@pytest.mark.parametrize(
+    "path,literal,decided",
+    CREATIVE_SUBSTITUTIONS,
+    ids=lambda v: v if isinstance(v, str) else v.parent.name,
+)
+def test_no_creative_value_is_substituted_for_a_missing_one(
+        path, literal, decided):
+    source = path.read_text(encoding="utf-8")
+    # The literal may appear in a comment recording its removal; what must
+    # not come back is a `.get(...)` handing it to live code.
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        assert f".get({literal}" not in stripped, (
+            f"{path.relative_to(REPO)} substitutes a creative value for a "
+            f"missing one: {literal}. That constant decides {decided}, "
+            f"which is the model's call. Drop the entry with the reason "
+            f"instead."
+        )
+
+
+def test_plan_vfx_drops_an_entry_that_names_no_effect():
+    """No effect_type used to mean `slow_zoom_in`."""
+    payload = _vfx_payload([])
+    payload["vfx_creative"] = [
+        {"target_block_position": 1, "intensity": "subtle",
+         "rationale": "the shot is held"}
+    ]
+    proc = _run_bridge(VFX / "post_bridge.py", payload)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["enhancement_spec"]["visual_effects"] == [], (
+        "an entry naming no effect was completed from a constant"
+    )
+    assert "names no effect_type" in proc.stderr
+
+
+def test_plan_vfx_drops_an_entry_that_names_no_intensity():
+    """No intensity, and an unrecognised one, both used to mean
+    "moderate"."""
+    for entry in (
+        {"target_block_position": 1, "effect_type": "slow_zoom_in"},
+        {"target_block_position": 1, "effect_type": "slow_zoom_in",
+         "intensity": "quite strong actually"},
+    ):
+        payload = _vfx_payload([])
+        payload["vfx_creative"] = [entry]
+        proc = _run_bridge(VFX / "post_bridge.py", payload)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        effects = json.loads(proc.stdout)["enhancement_spec"]["visual_effects"]
+        assert effects == [], f"intensity was substituted for {entry}"
+
+
+def test_plan_sfx_drops_an_entry_that_names_no_sound_or_no_level():
+    for entry in (
+        {"spine_block_position": 1, "volume_level": "subtle",
+         "rationale": "marks the cut"},
+        {"spine_block_position": 1, "sfx_type": "whoosh",
+         "rationale": "marks the cut"},
+        {"spine_block_position": 1, "sfx_type": "whoosh",
+         "volume_level": "deafening", "rationale": "marks the cut"},
+    ):
+        payload = _sfx_payload(1)
+        payload["sfx_creative"] = [entry]
+        proc = _run_bridge(SFX / "post_bridge.py", payload)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
+        assert placed == [], (
+            f"a sound or a level was substituted for {entry}: {placed}"
+        )

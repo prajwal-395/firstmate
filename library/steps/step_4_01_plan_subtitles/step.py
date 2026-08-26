@@ -52,21 +52,36 @@ MIN_VISIBLE_DURATION = 0.08
 
 # ── Caption case transformation ──
 # Controlled by the brand template's effect.caption_case setting.
-# Default is "lowercase" so that templates omitting the key (including
-# older or third-party templates) preserve the house look.
+
+CAPTION_CASES = ("lowercase", "as_written")
+
+
+class UnknownCaptionCase(ValueError):
+    """A template named a caption case that does not exist.
+
+    Raised rather than defaulted. Every unrecognised value used to fall
+    through to `text.lower()` "for safety", so a template that typed
+    `as-written` or `Lowercase` got every caption on screen lowercased and
+    nothing said so. Which case the copy is set in is the template's
+    decision; a typo is not a licence to make it here.
+    """
+
 
 def apply_caption_case(text: str, mode: str) -> str:
     """Apply the configured caption case transformation.
 
     Args:
         text: Raw caption text.
-        mode: One of "lowercase" or "as_written". Unknown values
-              fall back to "lowercase" for safety.
+        mode: One of "lowercase" or "as_written".
     """
     if mode == "as_written":
         return text
-    # "lowercase" and any unknown value
-    return text.lower()
+    if mode == "lowercase":
+        return text.lower()
+    raise UnknownCaptionCase(
+        f"Unknown caption_case {mode!r}. A brand template's "
+        f"effect.caption_case must be one of: {', '.join(CAPTION_CASES)}."
+    )
 
 
 # ── Caption fitting, measured in pixels ──
@@ -548,7 +563,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
 
     Args:
         audio_spine: The audio spine with structure blocks.
-        caption_case: "lowercase" (default) or "as_written". Controls
+        caption_case: "lowercase" or "as_written". Controls
             whether subtitle text is lowercased or left as the source
             transcript produced it.
         project_folder: Resolves the delivery format, and through it the
@@ -907,7 +922,14 @@ def main():
         sys.exit(1)
 
     # Read caption case from brand template's effect slot.
-    # Default to "lowercase" so omitted templates preserve the house look.
+    #
+    # Every shipped template declares one. The `"lowercase"` written here
+    # when the slot is absent entirely is LOAD-BEARING and left in place
+    # deliberately: `EffectSlots.caption_case` defaults to it too, so
+    # removing it here would only move the same decision one file over,
+    # and a project running with no brand template at all must still
+    # render captions. It is listed for the captain as a creative default
+    # that survives this pass - see the PR that removed the rest.
     brand_effect = input_data.get("brand_effect", {})
     brand_style = input_data.get("brand_style", {})
     caption_case = brand_effect.get("caption_case", "lowercase")

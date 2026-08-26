@@ -67,13 +67,23 @@ INTENSITY_MAP = {
     # lower framing value, so a separate sub-1.0 zoom effect is redundant.
 }
 
-# Spellings that mean an existing effect. `slow_zoom` was advertised in
-# the handoff without a direction and fell through to the default, which
-# is how six of eight effects came out as the same 3% zoom.
+# Spellings that mean an existing effect. An alias may only RENAME an
+# effect, never decide one: `push_in` and `zoom_emphasis` are two names
+# for the same punch-and-settle, so the mapping states a fact.
 EFFECT_ALIASES = {
-    "slow_zoom": "slow_zoom_in",
-    "ken_burns": "slow_zoom_in",
     "push_in": "zoom_emphasis",
+}
+
+# Aliases that chose a direction the planner had not stated. Kept so the
+# withdrawal is visible: a name that says only "zoom" does not say which
+# way, and answering "in" on the planner's behalf is taste. A plan naming
+# one of these now gets dropped with the toolkit listed, which tells the
+# editor to say which they meant.
+WITHDRAWN_ALIASES = {
+    "slow_zoom": "names no direction; `slow_zoom_in` and `slow_zoom_out` "
+                 "are different effects and the pipeline may not pick",
+    "ken_burns": "same: a Ken Burns move has a direction and this alias "
+                 "did not carry it",
 }
 
 # There is no default zoom, and there must not be one again. A
@@ -157,14 +167,40 @@ def resolve_vfx(
         tl_start = block["timeline_start"]
         tl_end = block["timeline_end"]
 
-        raw_type = vfx.get("effect_type", "slow_zoom_in")
+        # An entry that names no effect used to become a `slow_zoom_in`,
+        # so a malformed plan entry put a zoom on the picture that no
+        # editor asked for. Which effect a block gets is the decision the
+        # step exists to make; there is nothing to fall back to.
+        raw_type = vfx.get("effect_type")
+        if not raw_type:
+            print(
+                f"  Dropped VFX on block {pos!r}: it names no effect_type. "
+                f"No effect is substituted - choose one of "
+                f"{', '.join(sorted(INTENSITY_MAP))}.",
+                file=sys.stderr,
+            )
+            covered_positions.discard(str(pos))
+            continue
         effect_type = EFFECT_ALIASES.get(raw_type, raw_type)
-        intensity = vfx.get("intensity", "moderate")
+        intensity = vfx.get("intensity")
 
         # Resolve intensity -> concrete parameters
         type_map = INTENSITY_MAP.get(effect_type)
         if type_map:
-            params = dict(type_map.get(intensity, type_map["moderate"]))
+            # How strong an effect is is part of the choice. Both a
+            # missing intensity and an unrecognised one used to land on
+            # "moderate", so a typo silently changed the picture.
+            if intensity not in type_map:
+                print(
+                    f"  Dropped VFX {raw_type!r} on block {pos!r}: "
+                    f"intensity {intensity!r} is not one of "
+                    f"{', '.join(sorted(type_map))}. No intensity is "
+                    f"substituted.",
+                    file=sys.stderr,
+                )
+                covered_positions.discard(str(pos))
+                continue
+            params = dict(type_map[intensity])
         elif effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.
             # It takes no intensity parameters.
@@ -187,10 +223,13 @@ def resolve_vfx(
             # No silent default. An unknown type used to become the
             # default 3% zoom while keeping its own name, so the manifest
             # claimed an effect the viewer never saw.
+            withdrawn = WITHDRAWN_ALIASES.get(raw_type)
             print(
-                f"  Dropped VFX {raw_type!r} on block {pos!r}: not in the "
-                f"effect toolkit ({', '.join(sorted(INTENSITY_MAP))}) and "
-                f"not a built-in Fusion clip effect",
+                f"  Dropped VFX {raw_type!r} on block {pos!r}: "
+                + (f"{withdrawn}. " if withdrawn else "")
+                + f"not in the effect toolkit "
+                f"({', '.join(sorted(INTENSITY_MAP))}) and not a built-in "
+                f"Fusion clip effect",
                 file=sys.stderr,
             )
             covered_positions.discard(str(pos))

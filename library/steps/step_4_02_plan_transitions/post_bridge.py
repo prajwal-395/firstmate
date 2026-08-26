@@ -223,8 +223,7 @@ def resolve_transitions(
 
     resolved = []
     seen_block_indices = set()
-    last_drawn_time = -999.0
-    
+
     for trans in creative_plan:
         block_idx = _resolve_cut_block_index(trans, spine_blocks)
         if block_idx is None:
@@ -258,12 +257,9 @@ def resolve_transitions(
             brand_effect=brand_effect,
             creative_direction=creative_direction,
             requested_type=trans.get("type", trans.get("transition_type", "")),
-            last_drawn_time=last_drawn_time,
         )
 
         ttype = selected_trans["type"]
-        if not is_cut(ttype):
-            last_drawn_time = original_tl
 
         # Duration frame calculation
         if is_cut(ttype):
@@ -272,14 +268,29 @@ def resolve_transitions(
             # For dissolve/wipe, we might fall back to LLM feel if needed, but selector returns duration_ms
             dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
             if dur_frames == 0:
+                # How long a transition holds is pace, so it comes from
+                # the plan or from the brand template - never from a word
+                # this file picks. `duration_feel` used to default to
+                # "medium", which handed every undeclared transition the
+                # same third of a second on the pipeline's say-so.
                 duration_map = {
                     "instant": 0,
                     "quick": int(6 * (frame_rate / 30)),
                     "medium": int(10 * (frame_rate / 30)),
                     "slow": int(15 * (frame_rate / 30)),
                 }
-                feel = trans.get("duration_feel", "medium")
-                dur_frames = duration_map.get(feel, int(10 * (frame_rate / 30)))
+                feel = trans.get("duration_feel")
+                if feel in duration_map:
+                    dur_frames = duration_map[feel]
+                else:
+                    print(
+                        f"  Transition at spine boundary "
+                        f"{block.get('position')!r} resolves to under one "
+                        f"frame and the plan declares no duration_feel "
+                        f"({feel!r}); leaving it at 0 frames rather than "
+                        f"choosing a pace for it",
+                        file=sys.stderr,
+                    )
 
         # Resolve the precise cut point
         cut_info = resolve_cut_point(
@@ -376,92 +387,36 @@ def main():
         
     creative = [v for v in creative if isinstance(v, dict)]
 
-    spine = data.get("timed_spine", {})
-    spine_blocks = spine.get("structure", spine.get("audio_spine", {}).get("structure", []))
-    total_cuts = max(0, len(spine_blocks) - 1)
-    
-    min_trans = max(1, total_cuts // 3) if total_cuts > 0 else 0
-
-    # Count the DISTINCT boundaries the plan actually covers. Counting raw
-    # entries let a plan of ten stacked duplicates look fully covered.
-    covered = {
-        idx for idx in (
-            _resolve_cut_block_index(t, spine_blocks) for t in creative
-        ) if idx is not None
-    }
-
-    if total_cuts > 0 and len(covered) < min_trans:
-        # We need semantic_analysis to detect scene boundaries
-        semantic_data = data.get("semantic_analysis", {})
-        if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:
-            sem_inner = semantic_data["semantic_analysis"]
-            if isinstance(sem_inner, list):
-                semantic_clips = sem_inner
-            else:
-                semantic_clips = sem_inner.get("clips", [])
-        elif isinstance(semantic_data, list):
-            semantic_clips = semantic_data
-        else:
-            semantic_clips = semantic_data.get("clips", [])
-            
-        semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
-        
-        existing_cuts = {
-            str(spine_blocks[idx]["position"]) for idx in covered
-        }
-
-        for i in range(1, len(spine_blocks)):
-            prev_block = spine_blocks[i-1]
-            curr_block = spine_blocks[i]
-            
-            if str(curr_block["position"]) in existing_cuts:
-                continue
-
-            # The spine contract guarantees a top-level clip_id on every
-            # block (None for non-speech), so there is one place to read it.
-            prev_cid = prev_block["clip_id"]
-            curr_cid = curr_block["clip_id"]
-
-
-            if not prev_cid or not curr_cid or prev_cid == curr_cid:
-                continue
-                
-            prev_sem = semantic_lookup.get(prev_cid, {})
-            curr_sem = semantic_lookup.get(curr_cid, {})
-            
-            prev_mood = prev_sem.get("mood", "")
-            curr_mood = curr_sem.get("mood", "")
-            prev_tags = set(prev_sem.get("tags", []) + prev_sem.get("keywords", []))
-            curr_tags = set(curr_sem.get("tags", []) + curr_sem.get("keywords", []))
-            
-            mood_changed = prev_mood and curr_mood and prev_mood.lower() != curr_mood.lower()
-            topic_shift = len(prev_tags & curr_tags) == 0 if prev_tags and curr_tags else False
-            
-            if mood_changed or topic_shift:
-                creative.append({
-                    "cut_point_position": curr_block.get("position", i),
-                    # A drawable type, not cross_dissolve: nothing on the
-                    # Fusion route can mix two clips (see
-                    # library/tools/transition_vocabulary.py).
-                    "type": "defocus",
-                    "duration_feel": "medium",
-                    "rationale": "Default defocus added at scene boundary due to mood/topic shift"
-                })
+    # There is NO minimum transition count, and no transition is ever
+    # added to a plan that did not ask for one.
+    #
+    # This is where the third creative floor lived, and it outlived the
+    # captain's ruling of 2026-08-20 for the same reason
+    # `inject_default_ken_burns` did (#192): it was written in CODE, and
+    # `tests/test_no_creative_floors.py` only read prompts. It did all
+    # three of the things the ruling forbids at once:
+    #
+    #   * `min_trans = max(1, total_cuts // 3)` - a floor of one drawn
+    #     transition per three cuts, chosen by a constant;
+    #   * an injection loop that appended `{"type": "defocus",
+    #     "duration_feel": "medium", "rationale": "Default defocus added
+    #     at scene boundary due to mood/topic shift"}` to the model's plan
+    #     wherever the semantic mood or the keyword tags differed;
+    #   * and, if the padded plan still fell short, `sys.exit(1)` with
+    #     "You MUST plan at least N transitions at DISTINCT cut points" -
+    #     word for word the guard removed from plan_vfx.
+    #
+    # How many transitions a piece gets is a creative decision. An empty
+    # plan is a legitimate answer: `transition_vocabulary.CUT_TYPES` draw
+    # nothing, so an edit of nothing but hard cuts is the absence of
+    # decoration (AGENTS.md 10.4), not a defect. Guarded by
+    # tests/test_no_creative_floors.py.
 
     spine = data.get("timed_spine", {})
     music = data.get("music_selection", {})
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     fps = data.get("frame_rate", 30.0)
-    
-    covered = {
-        idx for idx in (
-            _resolve_cut_block_index(t, spine_blocks) for t in creative
-        ) if idx is not None
-    }
-    if len(covered) < min_trans:
-        print(json.dumps({"error": f"Planned {len(creative)} transitions covering only {len(covered)} of {total_cuts} spine boundaries. You MUST plan at least {min_trans} transitions at DISTINCT cut points, each naming its cut_point_position.", "step": "4.02_bridge"}))
-        sys.exit(1)
 
     # Extract new inputs
     creative_direction = data.get("creative_direction", {})

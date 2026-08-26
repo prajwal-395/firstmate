@@ -7,7 +7,7 @@ from library.tools.fusion_macro_loader import load_macro, list_available_transit
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import PLANNABLE_TYPES
 from library.tools.fairlight_presets import get_preset, select_preset_for_content
-from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
+from library.tools.audio_reactive_sfx import align_sfx_to_prosody
 from library.tools.brand_registry import load_brand_template, query_slots
 from library.tools.engagement_scorer import compute_engagement
 from library.schemas.brand_template import BrandTemplate
@@ -101,14 +101,18 @@ def test_transition_selection_only_yields_drawable_types():
     )
     assert transition["type"] in PLANNABLE_TYPES
 
-    # With the full vocabulary allowed, a music step up gets a
-    # transition the renderer can draw.
+    # With the full vocabulary allowed, a cut the plan did not decorate
+    # is still a hard cut: the selector draws nothing unasked. What it
+    # DOES honour is an explicit request.
     clip_b["timeline_start"] = 25.0
     clip_b["music_behavior"] = "step_up"
-    energetic = select_transition(
-        clip_a, clip_b, {}, {},
+    undecorated = select_transition(clip_a, clip_b, {}, {})
+    assert undecorated["type"] == "hard_cut"
+
+    requested = select_transition(
+        clip_a, clip_b, {}, {}, requested_type="flash",
     )
-    assert energetic["type"] == "flash"
+    assert requested["type"] == "flash"
 
 def test_cohesion_review_end_to_end():
     inputs = {

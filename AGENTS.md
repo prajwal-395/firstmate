@@ -219,6 +219,7 @@ The Python timeline builder plus Fusion IS the architecture, not a workaround.
 **Do not wire FCPXML or DRP project-file surgery back in.** [why](docs/RULE_EVIDENCE.md#fcpxml-and-drp-are-closed)
 
 - Every transition type the pipeline may plan lives in ONE enumeration, `library/tools/transition_vocabulary.py`, with a recorded reason for each withdrawn type.
+- **A cut the plan did not decorate is a hard cut.** `transition_selector` never invents a DRAWN transition; `WITHDRAWN_SCENE_CHANGE_DEFAULTS` records the three it used to. A brand template's allow-list is a permission, not an instruction.
 - `tests/test_transition_vocabulary.py` checks the handoff toolkit, the brand templates, the registry fallback and the renderer's dispatch against it. A type advertised anywhere else fails CI.
 - Adding a transition means adding a builder to `library/tools/fusion/effects.py` first.
 - No per-clip Fusion comp can mix two clips, so there is no cross dissolve or wipe on this route.
@@ -651,11 +652,21 @@ A declared letterbox is exempt from the fill floor and never from the consistenc
 
 ### 10.5 Creative latitude
 
+**The pipeline never invents a creative judgement on the model's behalf.**
+A CREATIVE fallback substitutes taste - a mood, a theme, a transition, an effect, a sound, an energy word, a pace chosen for feel - and it goes. A MECHANICAL default is a safe technical value - a frame rate, a timeout, a codec, a retry count, a path - and it stays. Where a creative value is genuinely absent, FAIL or REPORT PLAINLY; a silently-defaulted mood ships and a stopped run does not. [why - the full audit, and what was left](docs/RULE_EVIDENCE.md#the-pipeline-invented-taste-where-no-step-ran)
+
+- Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `house_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
+- A plan entry that names no effect, no sound, no intensity or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
+- An alias may RENAME a capability and may not CHOOSE one. `push_in` -> `zoom_emphasis` is a fact; `slow_zoom` -> `slow_zoom_in` answered "which way?" for the planner and is withdrawn.
+- Dead code that states taste is removed, not left. Step 2.01's `step.py` produced a fixed `target_mood`/`energy_arc` and could never run - the manifest declares the step pure LLM.
+
 **There are NO creative floors, and there must not be again.**
 The creative direction decides how many cutaways and how many sounds a piece gets, and the accepted consequence is that a thin edit is no longer caught mechanically. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 - **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`). Add a planning step, add it there.
 - **A floor in a BRIDGE is a floor, and that is where the last one hid.** The VFX post-bridge padded the plan up to every eligible block and failed the step when the plan was empty, and survived the ruling by living in code rather than in a prompt. The same test now drives the post-bridge. [why](docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan)
+- **A floor that CUTS is still a floor.** `audio_reactive_sfx.scale_sfx_density` deleted half the plan's impacts because a constant said the piece was "moderate". Deleted, not unwired.
+- **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output. Reading only prompts is how the VFX pair survived (#192); listing only the steps the ruling named is how step 4.02's `min_trans` floor and its `defocus` injection survived longer still.
 - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
 

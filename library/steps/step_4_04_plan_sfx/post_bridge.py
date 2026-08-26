@@ -29,7 +29,7 @@ import json
 import sys
 
 from library.tools.fairlight_presets import select_preset_for_content
-from library.tools.audio_reactive_sfx import align_sfx_to_prosody, scale_sfx_density
+from library.tools.audio_reactive_sfx import align_sfx_to_prosody
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.sfx_library import available_sfx_types
 from library.tools.spine_contract import (
@@ -347,11 +347,22 @@ def resolve_sfx(
     from library.tools.beat_grid import downbeat_positions
     beat_grid = downbeat_positions(music_analysis)
 
-    # Apply SFX density scaling based on energy
-    energy_level = "moderate"
-    if creative_direction:
-        energy_level = creative_direction.get("energy_level", "moderate")
-    creative_plan = scale_sfx_density(creative_plan, energy_level)
+    # There is no density scaling here, and there must not be one again.
+    #
+    # `scale_sfx_density` used to run over the plan at this point and
+    # DELETE entries from it: half the impacts on a "moderate" energy,
+    # everything but transitions and ambience on a "calm" one. The energy
+    # it judged by was `creative_direction.get("energy_level",
+    # "moderate")` - and `energy_level` is not a creative_direction key at
+    # all (the real one is `target_energy`, see
+    # library/tools/energy_reading.py), so the word was ALWAYS the
+    # hardcoded "moderate". A constant in this file decided how many
+    # sounds the piece kept.
+    #
+    # How many sound effects a piece gets is a creative decision -
+    # captain's ruling 2026-08-20 - and that holds for cutting them as
+    # much as for padding them. The function is deleted, not just
+    # unwired. Guarded by tests/test_no_creative_floors.py.
 
     # Align to prosody if available
     if prosody_analysis:
@@ -378,9 +389,29 @@ def resolve_sfx(
         # Get temporal index for this clip
         ti = ti_lookup.get(clip_id, {}) if clip_id else {}
 
-        sfx_type = sfx.get("sfx_type", "whoosh")
-        volume = sfx.get("volume_level", "subtle")
-        volume_db = VOLUME_MAP.get(volume, -14)
+        # Which sound plays, and how loud, is the decision this step
+        # exists to make. An entry naming neither used to become a
+        # `whoosh` at -14 dB, so a malformed plan entry put a sound on the
+        # timeline that nobody chose.
+        sfx_type = sfx.get("sfx_type")
+        if not sfx_type:
+            print(
+                f"  Dropped SFX on block {block.get('position')!r}: it "
+                f"names no sfx_type. No sound is substituted.",
+                file=sys.stderr,
+            )
+            continue
+        volume = sfx.get("volume_level")
+        if volume not in VOLUME_MAP:
+            print(
+                f"  Dropped SFX {sfx_type!r} on block "
+                f"{block.get('position')!r}: volume_level {volume!r} is "
+                f"not one of {', '.join(sorted(VOLUME_MAP))}. No level is "
+                f"substituted.",
+                file=sys.stderr,
+            )
+            continue
+        volume_db = VOLUME_MAP[volume]
         duration = DURATION_DEFAULTS.get(sfx_type, 0.5)
 
         # Signal-driven placement
@@ -427,10 +458,12 @@ def resolve_sfx(
 
     _assert_sfx_distributed(resolved)
 
-    # Determine Fairlight preset
-    content_type = "vlog"
-    if creative_direction:
-        content_type = creative_direction.get("content_type", "vlog")
+    # Determine Fairlight preset. The content type is whatever the
+    # creative direction declared; this file does not invent one. (The
+    # preset selector's own answer for an undeclared type is a mix
+    # setting, and the mix is out of this ruling's scope - see
+    # library/tools/fairlight_presets.py.)
+    content_type = (creative_direction or {}).get("content_type", "")
     preset_name = select_preset_for_content(content_type, brand_audio)
 
     return {
@@ -508,8 +541,8 @@ def main():
     
     available = set(data.get("available_sfx_types") or available_sfx_types())
     unplayable = sorted({
-        s.get("sfx_type", "whoosh") for s in creative
-        if s.get("sfx_type", "whoosh") not in available
+        s["sfx_type"] for s in creative
+        if s.get("sfx_type") and s["sfx_type"] not in available
     })
     if unplayable:
         print(json.dumps({"error": f"The SFX library has no sound for {unplayable}. Choose from: {sorted(available)}", "step": "4.04_bridge"}))

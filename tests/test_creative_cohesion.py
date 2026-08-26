@@ -93,11 +93,15 @@ def test_creative_cohesion_missing_inputs():
     inputs = {}
     review = review_creative_cohesion(inputs)
     assert review["cohesion_score"] == 100
-    # The duration gate says it could not measure, rather than warning
-    # about a length it invented. It costs no score.
+    # Both gates say they could not measure, rather than judging the edit
+    # against an energy and a duration this step invented. Neither costs
+    # any score.
     assert review["warnings"] == [
+        "Energy not checked: the creative direction declares no "
+        "target_energy, so there is nothing to judge the transitions and "
+        "SFX density against",
         "Duration not checked: neither audio_spine nor a_roll_assignments "
-        "reached creative_cohesion, so the timeline length is unknown"
+        "reached creative_cohesion, so the timeline length is unknown",
     ]
 
 def test_auto_adjustments_applied():

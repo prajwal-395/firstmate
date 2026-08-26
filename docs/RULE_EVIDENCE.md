@@ -767,6 +767,38 @@ It now guards every step in `CREATIVE_PLANNING_STEPS`.
 
 `_assert_sfx_distributed` catches a collapse - every SFX on one frame - not a sparse plan, which is why it is not a floor.
 
+### the-pipeline-invented-taste-where-no-step-ran
+
+Captain, 2026-08-26, on finding a fixed creative direction in step 2.01: "we need to remove all hardcoded fallbacks from the repo, they should not be there, we should not be hardcoding creative stuff like that".
+
+**The line applied.** A CREATIVE fallback substitutes taste - a mood, a theme, a transition choice, an effect, a sound, an energy arc, a pace chosen for feel. A MECHANICAL default is a safe technical value - a frame rate, a timeout, a codec, a retry count, a path. Creative fallbacks go; mechanical ones stay. Where a creative value is genuinely absent the step fails or reports plainly, because a silently-defaulted mood ships and a stopped run does not.
+
+**Two corollaries the audit needed.** First: a value that means "nothing is drawn" is not taste. `hard_cut` and `jump_cut` are in `transition_vocabulary.CUT_TYPES` and draw nothing, and `house_look`'s `NEUTRAL_CDL` is the identity transform - falling back to the absence of decoration is not choosing decoration. Second: a rule that acts on a value the creative direction really declared is not a fallback. `creative_cohesion` may judge a transition against a DECLARED "high"; what it may not do is invent the word "high" first.
+
+**What was found, and where.**
+
+The one that prompted it, `step_2_01_creative_direction/step.py`: 77 lines producing `"target_mood": "motivational"`, `"target_energy": "medium"`, `"energy_arc": "start medium -> build tension -> climax at key moments -> resolve"`. The manifest declares `implementation.default.runtime: "llm"` with `entry_point: handoff.md`, so it never executed. Deleted: dead code that states taste as fact misleads the next reader whether or not it runs.
+
+`step_4_02_plan_transitions/post_bridge.py` carried the third creative floor, and it was the largest. `min_trans = max(1, total_cuts // 3)`; an injection loop appending `{"type": "defocus", "duration_feel": "medium", "rationale": "Default defocus added at scene boundary due to mood/topic shift"}` wherever the semantic mood or the keyword tags differed between two clips; and, if the padded plan still fell short, `sys.exit(1)` with "You MUST plan at least N transitions at DISTINCT cut points" - word for word the guard removed from `plan_vfx` on 2026-08-25. It survived the ruling of 2026-08-20 because `CREATIVE_PLANNING_STEPS` did not list step 4.02 and because it was code, not a prompt.
+
+`library/tools/transition_selector.py` invented a DRAWN transition for any cut the plan had not decorated: `fade_to_black` on a `breather` or `transition_slot`, `flash` on a `music_behavior` of `step_up`, `defocus` on everything else, rate-limited to one per twenty seconds, plus a final `settle(preferred_types[0])` that could draw whatever the brand's allow-list happened to list first. Now: no request means `hard_cut`. The `step_up` branch was already unreachable - the word is not in `music_behavior.MUSIC_BEHAVIORS`, which is the second instance recorded under `silence-lost-in-the-two-word-vocabulary`; removing the branch closes that open item too.
+
+`library/tools/audio_reactive_sfx.scale_sfx_density` DELETED entries from the plan: on "calm" it kept only transition, whoosh and ambient sounds; on "moderate" it dropped every second impact. The energy it judged by came from `creative_direction.get("energy_level", "moderate")`, and `energy_level` is not a `creative_direction` key at all - the real one is `target_energy` (see `library/tools/energy_reading.py`) - so the hardcoded "moderate" decided it on every run the pipeline has ever made. It was inert only by a SECOND key mismatch: it filters on `sfx["type"]` while the creative plan writes `sfx_type`. Deleted, not unwired.
+
+Four plan-completion substitutions, all reachable, all now a loud drop with the reason: `plan_vfx` completing a missing `effect_type` to `slow_zoom_in` and a missing or unrecognised `intensity` to `moderate`; `plan_sfx` completing a missing `sfx_type` to `whoosh` and a missing or unrecognised `volume_level` to `subtle` at -14 dB; `compile_manifest` completing an A3 entry's `sfx_type` to `whoosh` a second time, one step from the timeline; and `plan_transitions` completing a missing `duration_feel` to `medium`. A declared value is still honoured in every case - only the invention is gone.
+
+`EFFECT_ALIASES` mapped `slow_zoom` and `ken_burns` to `slow_zoom_in`. An alias may RENAME an effect and may not CHOOSE one: a name that says only "zoom" does not say which way. Both are in `WITHDRAWN_ALIASES` with the reason; `push_in` -> `zoom_emphasis` stays, because those are two names for one punch-and-settle.
+
+`creative_cohesion` read `creative_direction.get("target_energy", "moderate")` and `timeline_duration or 60.0`, then scored the edit against both - and its transition adjustments are APPLIED by `compile_manifest`, so an invented energy word reached the picture. Both gates now say they could not measure. That is the same remedy `measure_timeline_duration` already documents: 0.0 means no evidence, so say so.
+
+`apply_caption_case` lowercased on ANY unrecognised mode "for safety", so a template that typed `as-written` got every caption on screen lowercased with nothing saying so. It raises now.
+
+**Left in place, and why.** The duration targets - `duration_targets.get_target_duration_zone`'s 54/60/66 and `music_selection/bridge.DEFAULT_TARGET_DURATION_SECONDS = 60.0` - are a number that is also a creative choice; the captain lists rather than decides. `subtitle_style.resolve_subtitle_style`'s `or "default_subtitles"` and `EffectSlots.caption_case = "lowercase"` are load-bearing: every shipped template declares both, and removing them stops a template-less project rendering captions at all. `TRACK_LEVELS` in `audio_mix` and `VOLUME_MAP`/`DURATION_DEFAULTS` in `plan_sfx` are the mix, which the captain narrowed out of scope. `music_behavior`'s `SPEECH_DEFAULT_BEHAVIOR`/`NON_SPEECH_DEFAULT_BEHAVIOR` and `framing_intent`'s `DEFAULT_FRAMING_INTENT` are documented single-enumeration decisions AGENTS.md mandates by name. `select_transition`'s same-clip `jump_cut` DESCRIBES a cut inside one take and draws nothing.
+
+**Dead slots found and reported, not changed.** `StyleSlots.energy_profile` and `EffectSlots.sfx_density` both default to `"moderate"` and have NO reader anywhere in the pipeline - only `brand_registry.validate_template`'s own enum check. Two templates set them; nothing acts on them.
+
+`tests/test_no_creative_floors.py` now drives the real bridges and reads the modules, not only the prompts. It is deliberately narrow - a grep for the word "default" would fail on every legitimate frame rate in the tree - so it asserts on bridge OUTPUT and on the specific `.get(literal, creative_value)` shapes that were removed.
+
 ### silence-lost-in-the-two-word-vocabulary
 
 Test: `tests/test_music_behavior_vocabulary.py`.
@@ -798,8 +830,8 @@ The one true thing the reduction knew - a block with no speech under it has noth
 
 `full` and `ducked` are recorded as withdrawn, and asking for either raises and says which real word to use.
 
-**A second instance on the same field, reported and not fixed here**: `library/tools/transition_selector.py` selects a flash when `music_behavior == "step_up"`.
-`step_up` is not in the vocabulary and no producer emits it - the only occurrences in the repo are that branch and two tests that hand-write the word - so the flash branch is unreachable. That is a reader against a word that does not exist, not a narrowing, and it wants its own decision about which real word (if any) should mean "the music steps up here".
+**A second instance on the same field, since closed**: `library/tools/transition_selector.py` selected a flash when `music_behavior == "step_up"`.
+`step_up` is not in the vocabulary and no producer emits it - the only occurrences in the repo were that branch and two tests that hand-wrote the word - so the flash branch was unreachable. It went with the rest of the scene-change heuristic on 2026-08-26 (see `the-pipeline-invented-taste-where-no-step-ran`): the branch decided a drawn transition nobody asked for, and it decided it off a word that does not exist. No real word has been made to mean "the music steps up here", and none is needed - a transition is drawn because the plan asked for one.
 
 ---
 

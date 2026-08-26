@@ -256,7 +256,8 @@ class TestManifestIntegration:
         )
         creative = [
             {"target_block_position": 1, "effect_type": "fireworks", "intensity": "moderate"},
-            {"target_block_position": 2, "effect_type": "slow_zoom_in"},
+            {"target_block_position": 2, "effect_type": "slow_zoom_in",
+             "intensity": "moderate"},
         ]
         spine = _spine(1, 2, 3)
         vfx = resolve_vfx(creative, spine)
