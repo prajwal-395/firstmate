@@ -515,6 +515,22 @@ Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `d
 - `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps and are an open captain decision; `tests/test_llm_context_routing.py` holds that exemption list.
 - **A pre-bridge's own table is never projected away, and you do not have to list it.** `present_llm_step` restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
+**Word timings do not reach a prompt, and the transcript is a named VIEW.**
+`library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
+
+- `view:transcript` is what steps 2.01 and 2.02 read instead of `temporal_index.*.speech_regions`: what was said, in which clip, between which two seconds. It leaves 1,439 per-word records and 82.5% of 2.01's context behind.
+- **A view is not routing.** The step still has to declare the input the view reads.
+- **The code that cuts on the timings still gets every word**, because none of it reads the prompt: `speech_sequence`'s post-bridge opens the per-clip index files, and every post-bridge and `step.py` receives the UNPROJECTED inputs.
+- **A declaration of NOTHING BUT `-` paths means "everything, minus these".** That is how `render` and `validate` drop `assembly_manifest.subtitles.*.words` while staying deliberately unprojected; an allow-list written to remove one field would have become the open decision about what those two should ask for.
+- `tests/test_transcript_view.py`.
+
+**A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.**
+`library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
+
+- Two content classes travel in these cells and this pipeline sends both: English prose full of apostrophes, and a `json.dumps`'d dict or list full of double quotes and backslashes. Whichever character is the quote character is the one that gets rewritten, so it is one neither class contains. `'` sent `we're` to every prompt as `we''re`, 180 times in one context; `"` would do the same to the JSON.
+- **A lossless round trip is NOT the test.** Nothing downstream calls `toon_to_json` - the model reads the characters. Assert the emitted FORM.
+- Escaping a newline is right in a CELL, where a row is a line. Under a KEY it is not: the creative brief is 47,903 bytes of markdown and arrived as one line carrying 700-odd literal `\n`.
+
 **A call with nothing to ask is not made.**
 When every key a step declares has already been produced - by its own `step.py`, or by its pre-bridge - the schema is empty and `present_llm_step` returns `{}` without calling. Declare `interface.llm_outputs` to ask anyway. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 

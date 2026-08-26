@@ -564,6 +564,65 @@ Fleet total across the eleven LLM calls: 1,725,098 tok to 233,733 tok, -86.5%.
 
 **Do not read a token figure the pipeline reports about itself.** `pipeline_log.jsonl` records `len(s.split()) * 1.3` against the RAW pre-projection inputs; measured errors run 0.3x to 9.9x in both directions. Measure from the archived request files.
 
+### the-transcript-arrived-with-every-word
+
+`temporal_index.*.speech_regions` gives a step, per clip, every speech region's text AND every word in it with a start and an end.
+Two steps declared it: `creative_direction` (2.01) and `speech_sequence` (2.02).
+
+Measured on project 001's seventeen clips, from the archived requests of 2026-08-26:
+
+| | |
+|---|---|
+| speech regions | 110 |
+| individual word-timing records | 1,439 |
+| the transcript as plain text | 7,184 B |
+| `temporal_index` as sent to 2.01 | 93,246 B |
+| 2.01's whole context | 113,053 B |
+
+So 82.5% of the call that decides the creative direction was per-word timings, to say 7 KB of English.
+
+No creative model is asked anything a word boundary answers.
+Every reader of those timings is Python, and none of them reads the prompt: `speech_sequence`'s post-bridge opens `pipeline_output/steps/1_04_temporal_index/<clip_id>.json` off disk, and `spine_contract`, `plan_subtitles`, `bookends` and the other post-bridges receive the UNPROJECTED inputs (`run_hybrid_step` hands the post-bridge `dict(inputs)`).
+
+`view:transcript` replaces the whole section with what was said, in which clip, between which two seconds.
+The 2.01 table had no `clip_id` column at all before, so the regions were anonymous; the view carries one.
+
+Measured with the step-replay bench against a snapshot of 001, `origin/main` (6a312eb) against the change:
+
+| step | context before | after |
+|---|---|---|
+| `creative_direction` | 113,053 B | 30,835 B |
+| `speech_sequence` | 147,990 B | 65,724 B |
+| `render` | 44,582 B | 37,463 B |
+| `validate` | 41,683 B | 34,569 B |
+
+`render` and `validate` carried word timings by the OTHER route - `assembly_manifest.subtitles[*].words`, from `plan_subtitles`, 6,953 B each.
+Both are deliberately unprojected on a standing decision, so they take a drop-only declaration rather than an allow-list: an allow-list written to remove one field would quietly have become the decision about what the QA calls should ask for.
+
+The first wiring of the view deleted itself. An `llm_only` step is projected TWICE on every run - `gather_step_inputs` projects it and `present_llm_step` projects the result again - and the second pass ran against a tree the first had already taken `speech_regions` out of, so the builder found nothing and the section vanished. That is why a view's NAME is the key it writes.
+
+### the-apostrophe-was-doubled-in-every-prompt
+
+`toon_serializer` quoted table cells with `'` and left `csv`'s `doublequote` on, so a cell holding a comma was quoted and every apostrophe inside it was then doubled, SQL-style.
+
+On disk 001's transcript says `okay, we're here, we're here.`
+The model read `okay, we''re here, we''re here.`
+
+232 doubled apostrophes in `creative_direction`'s recorded context alone, across `we''re`, `there''s`, `i''m`.
+Nine of the ten archived requests carried it: `creative_direction` 232, `speech_sequence` 280, `plan_transitions` 248, `plan_sfx` 135, `review_rough_cut` 135, `select_broll` 113, `plan_vfx` 109, `mesh_spine` 85, `render` 37. Only `music_selection` had none, and only because none of its cells happened to contain both a comma and an apostrophe.
+
+The round trip was symmetric all along - `toon_to_json` un-doubles it - which is exactly why nothing caught it. Nothing downstream calls `toon_to_json`; the model reads the characters.
+
+`"` was rejected as the replacement. These cells carry two content classes and this pipeline sends both: English prose, which is full of apostrophes, and a JSON document, because a dict or list in a cell falls back to `json.dumps` and is full of double quotes. `"` would have rewritten `[{"time": 0.0}]` as `"[{\"time\": 0.0}]"` - the same corruption, moved.
+
+Backslash-escaping instead of doubling was tried and rejected for the same reason one step further out: `csv` escapes the escape character too, so every `\"` and `\n` `json.dumps` had already written came out double-escaped.
+Any CSV dialect has to represent its quote character inside a quoted field somehow and there are only those two ways, so the answer is not to change HOW it is represented but to pick a quote character neither content class contains.
+A backtick appears in neither, so neither is altered, and the only character this dialect ever doubles is one this pipeline does not send.
+
+The same reasoning produced the `|` block.
+Escaping a newline is correct inside a CELL, where a row IS a line.
+Under a dict KEY there is no such constraint, and the values that travel there are documents: the captain's creative brief is 47,903 B of markdown reaching two thirds of the LLM steps, and escaped it arrived as ONE line carrying 700-odd literal `\n`.
+
 ### thirty-three-thousand-tokens-for-three-bytes
 
 `semantic_analysis` (1.03) is deterministic, and its own `handoff.md` says so: "No model is asked to author the per-clip analysis document here."

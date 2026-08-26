@@ -108,7 +108,7 @@
     "semantic_analysis_documents.*.camera",
     "semantic_analysis_documents.*.assessment.content_type",
     "semantic_analysis_documents.*.assessment.usable_ranges",
-    "temporal_index.*.speech_regions",
+    "view:transcript",
     "temporal_index.*.scene_boundaries",
     "prosody_analysis.profiles",
     "prosody_analysis.total_clips",

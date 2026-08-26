@@ -112,7 +112,7 @@
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "semantic_analysis_documents.*.assessment.unusable_ranges",
     "temporal_index.*.clip_id",
-    "temporal_index.*.speech_regions",
+    "view:transcript",
     "temporal_index.*.scene_boundaries"
   ]
 }

@@ -2,13 +2,42 @@ import re
 import csv
 import io
 
+# ── How a table cell is quoted ────────────────────────────────────────
+#
+# A cell is quoted only when it needs to be, and the quote character is
+# a BACKTICK.  That choice is the whole point.
+#
+# Two kinds of value travel in these cells and this pipeline sends both:
+#
+#   * English prose - every transcript line, every scene description.
+#     It is full of apostrophes.
+#   * A JSON document - the nested-object fallback below serialises a
+#     dict or list into one cell with `json.dumps`.  It is full of double
+#     quotes, and of backslashes wherever json.dumps escaped something.
+#
+# Any CSV dialect has to represent the quote character inside a quoted
+# field somehow, and there are only two ways: double it, or escape it
+# with a backslash.  Backslash-escaping means backslashes themselves get
+# escaped, which double-escapes every `\"` and `\n` inside an embedded
+# JSON document.  Doubling touches nothing but the quote character.
+#
+# So: double, and pick a quote character neither content class contains.
+# `'` was the old choice and it corrupted the first - `we're` reached
+# every prompt as `we''re`, 180 times in one context on project 001,
+# because the cell was quoted for its comma and the apostrophe was then
+# doubled.  Nothing downstream un-doubles it: the model reads the text
+# and never calls `toon_to_json`.  `"` would corrupt the second the same
+# way.  A backtick appears in neither, so neither is altered.
+_QUOTECHAR = "`"
+
 def _parse_csv_line(line: str) -> list[str]:
-    reader = csv.reader([line], quotechar="'", escapechar="\\")
+    reader = csv.reader([line], quotechar=_QUOTECHAR, doublequote=True)
     return next(reader)
 
 def _format_csv_row(vals: list[str]) -> str:
     writer_file = io.StringIO()
-    writer = csv.writer(writer_file, quotechar="'", escapechar="\\", quoting=csv.QUOTE_MINIMAL, lineterminator="")
+    writer = csv.writer(writer_file, quotechar=_QUOTECHAR, doublequote=True,
+                        quoting=csv.QUOTE_MINIMAL, lineterminator="")
     writer.writerow(vals)
     return writer_file.getvalue()
 
@@ -40,6 +69,19 @@ def _is_uniform_dict_list(data: list) -> tuple[bool, list[str]]:
     keys.sort()
     return True, keys
 
+# A multi-line string under a dict key is emitted as an indented BLOCK,
+# introduced by `|`, rather than escaped onto one line.
+#
+# The escape is right inside a table cell, where a row is a line and a
+# real newline would end it.  Under a key there is no such constraint,
+# and the values that travel there are documents: the captain's creative
+# brief is 47,903 bytes of markdown, and `\n`-escaping it delivered the
+# whole thing as ONE line carrying 700-odd literal `\n`.  A brief the
+# model has to unescape before it can read it is the same defect as a
+# transcript arriving with doubled apostrophes.
+BLOCK_MARKER = "|"
+
+
 def _format_scalar(val: any) -> str:
     if val is None:
         return ""
@@ -48,11 +90,21 @@ def _format_scalar(val: any) -> str:
     if isinstance(val, (int, float)):
         return str(val)
     if isinstance(val, str):
-        # We handle newlines and commas via csv module later if it's in a table,
-        # but for inline key-value pairs we also need to escape it if it has newlines.
+        # Inside a table cell a row IS a line, so a newline has to be
+        # escaped.  Under a dict key it is emitted as a block instead -
+        # see `_format_block` and BLOCK_MARKER above.
         val = val.replace('\n', '\\n')
         return val
     return str(val)
+
+
+def _format_block(val: str, indent: int) -> list[str]:
+    """The lines of a `|` block, indented under the key that introduces it."""
+    ind = " " * indent
+    # A blank source line is emitted blank rather than as trailing
+    # whitespace; the reader below takes an under-indented BLANK line as
+    # part of the block, and only a non-blank one ends it.
+    return [ind + line if line else "" for line in val.split('\n')]
 
 def _parse_scalar(val_str: str) -> any:
     if val_str == "":
@@ -87,6 +139,13 @@ def json_to_toon(data: any, indent: int = 0) -> str:
                 sub = json_to_toon(v, indent + 2)
                 if sub:
                     lines.append(sub)
+            elif isinstance(v, str) and ('\n' in v
+                                         or v.strip() == BLOCK_MARKER):
+                # The bare marker goes through the block route too, or a
+                # value that IS `|` would read back as an empty block
+                # that swallowed the keys under it.
+                lines.append(f"{ind}{k}: {BLOCK_MARKER}")
+                lines.extend(_format_block(v, indent + 2))
             else:
                 scalar_val = _format_scalar(v)
                 # If scalar_val has commas or something, no big deal for KV, but let's just emit it
@@ -128,6 +187,26 @@ def json_to_toon(data: any, indent: int = 0) -> str:
             return "\n".join(lines)
     else:
         return f"{ind}{_format_scalar(data)}"
+
+def _read_block(lines: list[str], start_idx: int, indent: int):
+    """Read back a `|` block. Returns (value, index of the line after it)."""
+    collected = []
+    idx = start_idx
+    while idx < len(lines):
+        line = lines[idx]
+        line_indent = len(line) - len(line.lstrip(' '))
+        if line_indent >= indent:
+            collected.append(line[indent:])
+        elif not line.strip():
+            # A blank line inside the block. Only a non-blank line at a
+            # shallower indent ends it - the writer emits blanks bare, so
+            # a blank can never belong to the key that follows.
+            collected.append("")
+        else:
+            break
+        idx += 1
+    return "\n".join(collected), idx
+
 
 def toon_to_json(toon_str: str) -> any:
     """Parse TOON format back to JSON. (Best effort for tests)"""
@@ -216,7 +295,10 @@ def toon_to_json(toon_str: str) -> any:
                 k_str, v_str = line.split(':', 1)
                 k = k_str.strip()
                 v_str = v_str.strip()
-                if v_str:
+                if v_str == BLOCK_MARKER:
+                    result[k], idx = _read_block(lines, idx + 1,
+                                                 line_indent + 2)
+                elif v_str:
                     result[k] = _parse_scalar(v_str)
                     idx += 1
                 else:

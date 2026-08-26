@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from library.processes.edit_video.run_pipeline import (  # noqa: E402
     PROCESS_LEVEL_INPUTS,
     gather_step_inputs,
+    load_pipeline_state,
     present_llm_step,
 )
 
@@ -281,3 +282,95 @@ def test_context_field_projection_does_not_drop_the_brief(tmp_path):
     )
     assert "SENTINEL_BRIEF_MARKER_9f3a" in request["context"]
     assert "should not survive" not in request["context"]
+
+
+# ── The declaration half ──────────────────────────────────────────────
+#
+# Everything above starts from `state["creative_brief"]` already being
+# set. What sets it is `load_pipeline_state`, off the project's own
+# `project.yaml`, and nothing tested that - which is how a channel that
+# works end to end can still deliver nothing: no project points at a
+# document.
+
+
+def _project_declaring(tmp_path, declaration: str) -> Path:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.yaml").write_text(declaration, encoding="utf-8")
+    return project
+
+
+def test_a_top_level_declaration_is_loaded(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    project = _project_declaring(
+        tmp_path, f'name: "T"\nslug: "t"\ncreative_brief: "{brief}"\n')
+
+    state = load_pipeline_state(str(project))
+
+    assert state["creative_brief"] == str(brief)
+
+
+def test_a_declaration_under_pipeline_is_loaded(tmp_path):
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    project = _project_declaring(
+        tmp_path,
+        f'name: "T"\nslug: "t"\npipeline:\n  creative_brief: "{brief}"\n')
+
+    state = load_pipeline_state(str(project))
+
+    assert state["creative_brief"] == str(brief)
+
+
+def test_a_project_declaring_none_stays_declaring_none(tmp_path):
+    project = _project_declaring(tmp_path, 'name: "T"\nslug: "t"\n')
+
+    state = load_pipeline_state(str(project))
+
+    assert not state.get("creative_brief")
+
+
+def test_a_brief_in_a_read_only_planning_tree_reaches_the_request(tmp_path, request):
+    """The whole path, from the declaration to the file the model is given.
+
+    This is the shape a real project uses: the planning tree lives
+    outside the project and is never copied in, so the declaration is an
+    absolute path into somebody else's directory. Read-only here, because
+    a run must not need to write to the captain's planning tree.
+    """
+    planning = tmp_path / "planning" / "1_through_the_4th_wall"
+    planning.mkdir(parents=True)
+    brief = planning / "branding_creative_direction.md"
+    brief.write_text(BRIEF_TEXT, encoding="utf-8")
+    brief.chmod(0o444)
+    planning.chmod(0o555)
+    request.addfinalizer(lambda: planning.chmod(0o755))
+
+    project = _project_declaring(
+        tmp_path, f'name: "T"\nslug: "t"\ncreative_brief: "{brief}"\n')
+
+    state = load_pipeline_state(str(project))
+    inputs = gather_step_inputs(
+        "plan_vfx", EDGELESS_DAG, state, manifest=DECLARING_MANIFEST)
+    assert inputs["creative_brief"] == BRIEF_TEXT
+
+    prompt_path = tmp_path / "handoff.md"
+    prompt_path.write_text("Do the creative work.\n", encoding="utf-8")
+    _answer_when_asked(project, "plan_vfx",
+                       {"vfx_plan": [{"clip_id": "clip_001",
+                                      "effect": "punch_in"}]})
+    present_llm_step(
+        str(prompt_path), {**inputs, "project_folder": str(project)},
+        "plan_vfx",
+        manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                "outputs": [{"name": "vfx_plan"}]},
+                  "context_fields": ["timed_spine"]},
+        full_auto="agy", llm_timeout=30)
+
+    request = json.loads(
+        (project / "pipeline_output" / "llm_requests"
+         / "plan_vfx.json").read_text())
+    assert "SENTINEL_BRIEF_MARKER_9f3a" in request["context"], (
+        "the declaration reached state and the words did not reach the "
+        "request")

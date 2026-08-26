@@ -91,13 +91,38 @@ def project_fields(data: dict, dot_paths: list[str]) -> dict:
     field to remove cannot go stale that way.  A `-` path that matches
     nothing is a no-op, because "not present" is what it asked for.
 
+    An entry may instead be `view:<name>`, naming a reading of a routed
+    input rather than a path into it - see `library/tools/context_views.py`
+    for the enumeration and for why the transcript needs one.  Views are
+    merged alongside the selected paths and before the drops, so a `-`
+    path may narrow a view the same way it narrows anything else.  An
+    unknown view name raises.
+
+    A declaration of NOTHING BUT `-` paths means "everything, minus
+    these".  That is the only way to remove one field from a step that is
+    deliberately unprojected: `render` and `validate` are handed their
+    whole input set on a standing decision, and an allow-list written to
+    take one key out of them would silently become the decision it was
+    avoiding.
+
     Raises RuntimeError if a projection produces all-empty dicts from a
     non-empty list, which indicates a schema mismatch in context_fields.
     """
     import sys
 
-    keep_paths = [p for p in dot_paths if not p.startswith('-')]
+    from library.tools.context_views import build_view, is_view, view_name
+
+    view_paths = [p for p in dot_paths if is_view(p)]
+    keep_paths = [p for p in dot_paths
+                  if not p.startswith('-') and not is_view(p)]
     drop_paths = [p[1:] for p in dot_paths if p.startswith('-')]
+
+    # Nothing but `-` paths: everything, minus these.
+    if drop_paths and not keep_paths and not view_paths:
+        result = copy.deepcopy(data)
+        for path in drop_paths:
+            _drop_single_path(result, path.split('.'))
+        return result
 
     result = {}
     missed_paths = []
@@ -110,6 +135,9 @@ def project_fields(data: dict, dot_paths: list[str]) -> dict:
             root = parts[0]
             if root in data and data[root] is not None:
                 missed_paths.append(path)
+
+    for path in view_paths:
+        result = _merge(result, build_view(view_name(path), data))
 
     for path in drop_paths:
         _drop_single_path(result, path.split('.'))
