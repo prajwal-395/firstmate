@@ -240,14 +240,21 @@ pinned in `tests/fm-agy-live-descent.test.sh`, which runs everywhere.
 
 Both were driven against live panes, and neither touched the worker.
 
-A durable record that does not describe the running worker:
+A durable record that does not describe the running worker.
+These are two models the catalogue lists on separate rows, so nothing can reconcile them and nothing may.
 
 ```
 --- the worker is really running: ---
 Gemini 3.1 Pro (High) | ctx: 0.0% | quota: 76.8% (16m)
 --- recorded model: model=Claude Opus 4.6 (Thinking) ---
-refused caseA is recorded on Claude Opus 4.6 (Thinking) but its worker reports Gemini 3.1 Pro (High); nothing was changed while the two disagree
+refused caseA is recorded on Claude Opus 4.6 (Thinking) but its worker reports Gemini 3.1 Pro (High), which agy lists as different models; caseA will not be moved down when its rung crosses its floor, nor back up when a rung above resets, until the record and the worker name one model
 ```
+
+Provenance, because the two halves of that block were established differently.
+The pane contents, the recorded model, the refusal, and the worker being left untouched are the live capture.
+The refusal's WORDING was rewritten afterwards, without re-driving the pane, when this guard learned to reconcile the two spellings agy accepts for one model.
+That change did two things to this line: it now names the in-flight protection the refusal takes out rather than only the names that differed, and a pair differing only in spelling no longer reaches the refusal at all.
+`tests/fm-agy-live-descent.test.sh` owns both and runs everywhere; the pane behaviour this section records is unchanged.
 
 A pane where `/model` opens no picker - the case where a renamed or removed
 command would otherwise take arrow keys and an Enter into whatever is actually

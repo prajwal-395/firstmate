@@ -219,6 +219,60 @@ test_catalogue_accepts_both_spellings_agy_accepts() {
   pass "fm-agy-lib: both accepted model spellings resolve and near-misses do not"
 }
 
+test_the_catalogue_says_which_spellings_are_one_model() {
+  local catalogue rc
+  catalogue=$(printf '%s\n' \
+    'gemini-3.1-pro-high	Gemini 3.1 Pro (High)' \
+    'gemini-3.6-flash-high	Gemini 3.6 Flash (High)' \
+    'claude-opus-4-6-thinking	Claude Opus 4.6 (Thinking)')
+
+  # The pair the ladder kept mistaking for a conflict: one row, both spellings.
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'gemini-3.1-pro-high' 'Gemini 3.1 Pro (High)' \
+    || fail "a kebab id and its own display name must be one model"
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'Gemini 3.1 Pro (High)' 'gemini-3.1-pro-high' \
+    || fail "the same pair must reconcile in either argument order"
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'Gemini 3.1 Pro (High)' 'Gemini 3.1 Pro (High)' \
+    || fail "one name must be the same model as itself"
+
+  # THE BEHAVIOUR THAT MUST NOT BE TRADED AWAY. Two real models stay two, and
+  # they are reported as a CONFLICT rather than as missing evidence, because a
+  # caller owes those two cases different answers.
+  rc=0
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'gemini-3.1-pro-high' 'Gemini 3.6 Flash (High)' || rc=$?
+  [ "$rc" = 1 ] || fail "two different models must report a conflict (1), got $rc"
+  rc=0
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'gemini-3.1-pro-high' 'claude-opus-4-6-thinking' || rc=$?
+  [ "$rc" = 1 ] || fail "two different kebab ids must report a conflict (1), got $rc"
+
+  # A near-miss is NOT a conflict. "Gemini 3.1 Pro" is a real picker row and no
+  # catalogue name, so the honest answer is that this cannot be decided - and
+  # collapsing it into "different" would let a caller act on a distinction the
+  # catalogue never drew.
+  rc=0
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'Gemini 3.1 Pro' 'gemini-3.1-pro-high' || rc=$?
+  [ "$rc" = 2 ] || fail "a name the catalogue does not list must be indeterminate (2), got $rc"
+  rc=0
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model \
+    'Totally Bogus Model' 'Also Bogus' || rc=$?
+  [ "$rc" = 2 ] || fail "two unlisted names must be indeterminate (2), got $rc"
+  rc=0
+  printf '%s\n' "$catalogue" | fm_agy_catalog_same_model '' 'gemini-3.1-pro-high' || rc=$?
+  [ "$rc" = 2 ] || fail "an empty name must be indeterminate (2), got $rc"
+
+  # An empty catalogue decides nothing at all, which is what makes an
+  # unreachable `agy models` refuse rather than quietly agree.
+  rc=0
+  printf '' | fm_agy_catalog_same_model 'gemini-3.1-pro-high' 'Gemini 3.1 Pro (High)' || rc=$?
+  [ "$rc" = 2 ] || fail "no catalogue must be indeterminate (2), got $rc"
+  pass "fm-agy-lib: the catalogue decides which spellings are one model, and says when it cannot"
+}
+
 # The catalogue probe is a NETWORK call that bin/fm-spawn.sh makes while holding
 # the per-task spawn lock and the task-set lock, so it must never be able to
 # block indefinitely: an unbounded probe would wedge that spawn and every later
@@ -384,6 +438,7 @@ test_agy_composer_reads_empty_and_pending_without_identity
 test_pi_blank_separated_region_still_requires_identity
 test_dead_shell_prompt_is_never_empty
 test_catalogue_accepts_both_spellings_agy_accepts
+test_the_catalogue_says_which_spellings_are_one_model
 test_resolve_binary_refuses_when_absent
 test_catalogue_probe_cannot_block_indefinitely
 test_probe_carries_no_pane_identity

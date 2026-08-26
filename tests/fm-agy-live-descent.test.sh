@@ -25,7 +25,12 @@
 #      driving the two apart deliberately.
 #   6. The per-poll evaluation is silent and free for a healthy fleet, escalates
 #      once rather than every minute, and refuses instead of acting whenever the
-#      durable record and the running worker disagree.
+#      durable record and the running worker name different models. WHICH
+#      SPELLING each side uses is not such a disagreement - agy accepts a kebab
+#      id and a display name for the same model - so the two are reconciled
+#      through agy's own catalogue, a catalogue that cannot be read refuses
+#      rather than assuming agreement, and every refusal names the in-flight
+#      protection it just took out rather than only the names that differed.
 #   7. Climbing back up obeys the SAME floor: a running worker returns into the
 #      free three quarters of rung 1 and never into the captain's reserved
 #      quarter, and unlike a launch it needs positive evidence to move at all.
@@ -330,6 +335,57 @@ SH
   chmod +x "$fakebin/tmux"
   fm_fake_treehouse "$fakebin"
   printf '%s\n' "$fakebin"
+}
+
+# agy_catalog_on_path <dir>: an `agy` on PATH whose `models` prints the account
+# catalogue the way the real command does - the kebab id and the display name of
+# each model PAIRED on one row, behind the "Fetching" chatter the reader strips.
+#
+# The reconciliation under test is asked of exactly this and derives nothing of
+# its own, so this fixture is the contract rather than a convenience: a pair the
+# catalogue does not pair is not the same model here either.
+agy_catalog_on_path() {  # <dir>
+  local fakebin
+  fakebin=$(fm_fakebin "$1")
+  cat > "$fakebin/agy" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = models ]; then
+  printf 'Fetching models...\n'
+  printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
+  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+  printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/agy"
+  printf '%s\n' "$fakebin"
+}
+
+# agy_off_path: the caller's PATH with the one directory holding a real `agy`
+# removed, and nothing else touched.
+#
+# A hand-picked minimal PATH was the obvious way to do this and is wrong: the
+# evaluation legitimately shells out to date, awk and a checksum tool long
+# BEFORE it reaches the guard under test, so a stripped-down PATH fails it
+# somewhere else entirely and the case passes for a reason nobody asserted.
+# Removing exactly the agy directory leaves every one of those intact, and it
+# makes a developer machine with agy installed take the same branch CI does
+# with none installed.
+agy_off_path() {
+  local resolved dir entry out=''
+  resolved=$(command -v agy 2>/dev/null || true)
+  if [ -z "$resolved" ]; then
+    printf '%s' "$PATH"
+    return 0
+  fi
+  dir=$(cd "$(dirname "$resolved")" && pwd)
+  local IFS=:
+  for entry in $PATH; do
+    [ -n "$entry" ] || continue
+    [ "$(cd "$entry" 2>/dev/null && pwd || printf '%s' "$entry")" != "$dir" ] || continue
+    out="${out:+$out:}$entry"
+  done
+  printf '%s' "$out"
 }
 
 # spawn_agy_worker <dir> <id>: a REAL bin/fm-spawn.sh launch of an agy ship task
@@ -687,21 +743,106 @@ test_a_spent_ladder_escalates_exactly_once() {
 }
 
 test_a_disagreeing_record_refuses_rather_than_guessing() {
-  local state out
+  local state out fakebin outer_path=$PATH
+  fakebin=$(agy_catalog_on_path "$TMP_ROOT/catalog-mismatch")
+  # Shadowed for this case only, so the reconciliation reads the fixture
+  # catalogue rather than whatever agy the host happens to have installed.
+  local PATH="$fakebin:$outer_path"
   state=$(fresh_state tick-disagree)
   meta "$state" drifted "$RUNG1"
   record "$state" "$RUNG1" 0.0 '3h 41m'
   record "$state" "$RUNG2" 94.6 '3h 37m'
   # The worker is actually running rung 2 while the durable record still says
   # rung 1. Every move count below is derived from that record, so acting on it
-  # would be moving a worker on a description that does not fit it.
+  # would be moving a worker on a description that does not fit it. These are two
+  # rows of the catalogue, so no spelling rule can reconcile them and none may.
   FAKE_PANE=$(settled_on_rung3 | sed 's/^Gemini 3.7 Flash (High) | ctx/Gemini 3.1 Pro (High) | ctx/')
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "refused drifted" "a record that disagrees with the worker must refuse"
   assert_contains "$out" "Gemini 3.1 Pro (High)" "the refusal must name what the worker reports"
+  assert_contains "$out" "different models" \
+    "the refusal must say the catalogue itself separates them, not that the bytes differed"
   assert_not_contains "$out" "descended" "nothing may be moved while the two disagree"
-  pass "fm_agy_descent_tick: a durable record that does not describe the worker refuses"
+
+  # THE CONSEQUENCE, NOT ONLY THE SYMPTOM. Tripping this guard takes both
+  # in-flight halves of the ladder out for this worker, and a line reporting only
+  # a naming conflict trains its reader to skim past exactly that.
+  assert_contains "$out" "will not be moved down when its rung crosses its floor" \
+    "the refusal must say the descent stopped, not only that the two names differ"
+  assert_contains "$out" "nor back up when a rung above resets" \
+    "the refusal must say the climb stopped too"
+  pass "fm_agy_descent_tick: a durable record that does not describe the worker refuses, and says what that disabled"
+}
+
+test_the_two_spellings_of_one_model_are_not_a_disagreement() {
+  # THE DEFECT THIS PINS. agy accepts a model under either spelling, so a
+  # dispatch profile naming `claude-opus-4-6-thinking` launches happily and then
+  # runs a worker whose footer draws "Claude Opus 4.6 (Thinking)". Compared as
+  # bytes those look like the drift above, and the guard that refuses on drift
+  # refused here forever - silently disabling the descent and the climb for a
+  # worker whose record was never wrong.
+  local state out fakebin outer_path=$PATH
+  fakebin=$(agy_catalog_on_path "$TMP_ROOT/catalog-kebab")
+  local PATH="$fakebin:$outer_path"
+  state=$(fresh_state tick-kebab)
+  meta "$state" kebabbed claude-opus-4-6-thinking
+  record "$state" "$RUNG1" 0.0 '3h 41m'
+  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG3" 100.0 '4h 59m'
+  FAKE_STICKY=0
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
+
+  out=$(fm_agy_descent_tick "$state" "$NOW")
+  assert_not_contains "$out" refused \
+    "one model under its two accepted spellings must never read as a disagreement"
+  assert_contains "$out" "descended kebabbed" \
+    "the ladder must act normally on a worker whose record uses the kebab id"
+
+  # The move really happened, rather than the refusal merely having gone quiet.
+  [ "$(fake_settled)" = "$RUNG2" ] \
+    || fail "the selection must have been committed to rung 2; got '$(fake_settled)'"
+  [ "$(fm_meta_get "$state/kebabbed.meta" model)" = "$RUNG2" ] \
+    || fail "the task's durable record must now name rung 2"
+  FAKE_MODE=static
+  pass "fm_agy_descent_tick: the kebab id and the display name are one model, and the ladder acts"
+}
+
+test_a_model_list_that_cannot_be_read_refuses_rather_than_guessing() {
+  # The pairing is the catalogue's to state. With no catalogue there is no
+  # evidence that these two names are one model AND none that they are two, and
+  # the caller is about to drive a modal picker into a live worker on the
+  # strength of that record - so the missing evidence has to stop it.
+  local state out stripped
+  stripped=$(agy_off_path)
+  # Both halves are needed: the resolver falls back to agy's own documented
+  # install location under HOME after PATH misses, so stripping only PATH would
+  # find the host's agy anyway and this case would silently stop testing.
+  local PATH="$stripped"
+  local HOME="$TMP_ROOT/no-agy-home"
+  mkdir -p "$HOME"
+  state=$(fresh_state tick-nocatalog)
+  meta "$state" unreadable claude-opus-4-6-thinking
+  record "$state" "$RUNG1" 0.0 '3h 41m'
+  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG3" 100.0 '4h 59m'
+  FAKE_STICKY=0
+  fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
+
+  out=$(fm_agy_descent_tick "$state" "$NOW")
+  assert_contains "$out" "refused unreadable" \
+    "a pair that cannot be reconciled must refuse, not be assumed to agree"
+  assert_contains "$out" "could not be reconciled because" \
+    "the refusal must say the reconciliation itself failed, not that the models differ"
+  assert_contains "$out" "agy is not installed here" \
+    "the refusal must name the concrete reason the list could not be read"
+  assert_contains "$out" "will not be moved down when its rung crosses its floor" \
+    "an unreconciled refusal must name what it disabled too"
+  assert_not_contains "$out" "descended" "nothing may be moved on evidence that could not be read"
+  [ "$(fm_meta_get "$state/unreadable.meta" model)" = claude-opus-4-6-thinking ] \
+    || fail "the durable record must be left exactly as it was"
+  FAKE_MODE=static
+  pass "fm_agy_descent_tick: an unreadable model list refuses and says so"
 }
 
 test_a_worker_that_never_settles_is_escalated_after_the_grace() {
@@ -1529,6 +1670,8 @@ test_crossing_the_floor_uses_the_ladders_own_reading
 test_a_healthy_fleet_is_silent_and_starts_no_clock
 test_a_spent_ladder_escalates_exactly_once
 test_a_disagreeing_record_refuses_rather_than_guessing
+test_the_two_spellings_of_one_model_are_not_a_disagreement
+test_a_model_list_that_cannot_be_read_refuses_rather_than_guessing
 test_a_worker_that_never_settles_is_escalated_after_the_grace
 test_the_captains_override_holds_a_worker_and_says_so
 test_the_evaluation_is_rate_limited
