@@ -231,6 +231,7 @@ The Python timeline builder plus Fusion IS the architecture, not a workaround.
 - Treat it as the memory ceiling of the whole pipeline and do not run other heavy jobs beside it.
 - It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
 - For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
+  `PIPELINE_SKIP_STABILIZATION=1` is that pop, in step 6.01, opt-in and off by default: the plan keeps its directives and only that run declines them. A render made with it is UNSTABILIZED - say so when reporting one. [why](docs/RULE_EVIDENCE.md#stabilization-oom-87gb)
 
 ### Fusion .comp files - NEVER
 

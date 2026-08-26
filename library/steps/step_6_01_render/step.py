@@ -73,6 +73,33 @@ def run(inputs: dict) -> dict:
         else:
             raise ValueError("assembly_manifest missing from inputs")
             
+    # Stabilization is the memory ceiling of the whole pipeline (AGENTS.md
+    # section 5): `neural_engine_directives` is applied AFTER every clip, comp,
+    # overlay and SFX is placed, so a build that dies inside it loses ALL of
+    # them.  On 2026-08-26 it did exactly that on project 001 - the entire
+    # timeline built (11 V1, 7 V2, 11 V3, 3 audio tracks) and the step then
+    # died on the FIRST stabilized clip, taking the finished build with it.
+    #
+    # The escape AGENTS.md section 5 prescribes is to pop the directives off
+    # the IN-MEMORY manifest and leave the file on disk carrying them, so the
+    # plan still records what was asked for and only this run declines to do
+    # it.  That is what this does.  Opt-in, and off by default: a shipped
+    # timeline wants its stabilization.
+    #
+    # Captain's ruling of 2026-08-26: "skip stabilization and move on".
+    if os.environ.get("PIPELINE_SKIP_STABILIZATION", "").strip().lower() in (
+            "1", "true", "yes"):
+        dropped = manifest.pop("neural_engine_directives", None)
+        if dropped:
+            print(
+                f"  PIPELINE_SKIP_STABILIZATION set: dropping "
+                f"{len(dropped)} neural-engine directive(s) from the "
+                f"in-memory manifest. The manifest ON DISK still carries "
+                f"them - this run declines to apply them, the plan is "
+                f"unchanged.",
+                file=sys.stderr,
+            )
+
     try:
         # Build timeline (this connects to Resolve)
         result = build_timeline(
