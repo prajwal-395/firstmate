@@ -111,8 +111,8 @@ class StepDir:
     wired: bool = True
     """False for a step that is implemented but that no DAG node runs.
     `object_segmentation` (1.06) and `ocr_extraction` (1.07) are the two
-    (AGENTS.md section 3). They still get a directory, because they still
-    have somewhere their output would land."""
+    (AGENTS.md section 3). Their directory appears only if the step is
+    ever run; a normal pipeline run produces nothing there."""
 
 
 STEPS: tuple = (
@@ -814,23 +814,24 @@ class ProjectLayout:
     # ── Discoverability ─────────────────────────────────────────────
 
     def ensure(self) -> ProjectLayout:
-        """Create the output side of the layout and refresh the README.
+        """Create the container directories and refresh the README.
 
-        Every step gets a directory, including the ones that have not run
-        and the two the DAG does not wire, because `ls
-        pipeline_output/steps/` is meant to BE the pipeline. An empty
-        directory says "this step produced nothing", which is a fact
-        worth being able to see.
+        Only the two structural containers are pre-created:
+        `pipeline_output/` and `pipeline_output/steps/`.  Everything
+        else - individual step directories, project-level areas like
+        `gates/` or `annotations/` - appears when something writes to
+        it, through `write_dir` or `write_path`.
+
+        A directory that exists because the scaffold guessed carries no
+        information.  A directory that appears only when something writes
+        tells you the step has run and produced output.
 
         Input areas are NOT created: a project with no `music/` should
         not sprout an empty one, and creating an input directory is the
         first half of writing to it.
         """
-        for spec in AREAS.values():
-            if spec.kind in WRITABLE_KINDS and spec.relpath != ".":
-                (self.root / spec.relpath).mkdir(parents=True, exist_ok=True)
-        for step in STEPS:
-            (self.root / _STEPS / step.dirname).mkdir(parents=True, exist_ok=True)
+        (self.root / _OUT).mkdir(parents=True, exist_ok=True)
+        (self.root / _STEPS).mkdir(parents=True, exist_ok=True)
         self.write_readme()
         return self
 
@@ -864,6 +865,10 @@ class ProjectLayout:
             "numbered so the listing walks it in the order it runs, and named for the",
             "step rather than for the kind of thing inside. To follow what happened,",
             "read down that listing.",
+            "",
+            "A step directory appears when the step writes output and not before.",
+            "If a directory is not there, that step has not run. If it is, open it",
+            "to see exactly what it produced.",
             "",
             "Each step directory holds `" + STEP_OUTPUT_FILE + "` (what the step",
             "returned, also in `pipeline_data.json`) and `" + STEP_SUMMARY_FILE + "`",
@@ -923,6 +928,11 @@ class ProjectLayout:
             "Read by the pipeline, never written to. Asking the layout to write",
             "into one of these raises.",
             "",
+            "Only `raw/` is scaffolded when a project is created: every project",
+            "needs footage, and step 1.01 scans it. The others appear when the",
+            "captain puts material there. A directory's presence tells you the",
+            "captain has that kind of material; its absence tells you they do not.",
+            "",
         ]
         for area, spec in sorted(AREAS.items(), key=lambda r: r[1].relpath):
             if spec.kind is not Kind.INPUT or spec.relpath == ".":
@@ -936,6 +946,8 @@ class ProjectLayout:
             "",
             "## Rules this folder is kept to",
             "",
+            "- A directory exists because something wrote to it, not because the scaffold",
+            "  guessed. An empty directory is a bug, not a placeholder.",
             "- A step never composes a path. It names an `Area` and the layout owner",
             "  returns the path, so no two steps can disagree about where something goes.",
             "- A step writes only inside its own directory. Everything else raises.",

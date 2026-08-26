@@ -50,6 +50,7 @@ from library.tools.project_layout import (
     STEP_BY_ID,
     STEP_OUTPUT_FILE,
     STEP_SUMMARY_FILE,
+    WRITABLE_KINDS,
     Area,
     Kind,
     ProjectLayout,
@@ -275,6 +276,7 @@ def plan_organization(project_folder) -> Plan:
     # husks are only empty once those have run.
     plan.actions.extend(_plan_legacy_dir_cleanup(
         layout, moving=[a.src for a in relocations if a.action == "move"]))
+    plan.actions.extend(_plan_scaffold_empty_cleanup(layout))
     return plan
 
 
@@ -491,6 +493,95 @@ def _plan_legacy_dir_cleanup(layout: ProjectLayout, moving=()) -> list:
     return out
 
 
+def _plan_scaffold_empty_cleanup(layout: ProjectLayout) -> list:
+    """Empty directories left by the old `ensure()` pre-creation.
+
+    Before this change, `ensure()` pre-created every writable area and
+    every step directory regardless of whether the step had run.  That
+    produced ~40 empty directories in a project whose pipeline had not
+    yet completed.  The new `ensure()` only creates the containers;
+    this planner cleans up the leftovers from the old one.
+
+    Bounded by the same rule as `_plan_legacy_dir_cleanup`: only a
+    directory that holds no file at any depth, and only a directory that
+    the layout NAMES (a step directory in STEPS, or a writable area in
+    AREAS).  Re-checked at the moment of removal.  Recorded in the
+    manifest.  Revertible.
+    """
+    out = []
+    out_root = layout.read_dir(Area.OUTPUT_ROOT)
+    if not out_root.is_dir():
+        return out
+
+    from library.tools.project_layout import STEPS, _OUT, _STEPS
+
+    # Empty step directories: a step that has not run should not show.
+    for step in STEPS:
+        d = layout.root / _STEPS / step.dirname
+        if not d.is_dir():
+            continue
+        if any(p.is_file() for p in d.rglob("*")):
+            # The step ran and has output. But check for empty
+            # sub-areas within it (e.g. render/carriers/ created by
+            # write_dir() but left empty when the step decided not to
+            # write there).
+            for sub in sorted(d.iterdir(), reverse=True):
+                if not sub.is_dir():
+                    continue
+                if any(p.is_file() for p in sub.rglob("*")):
+                    continue
+                out.append(Action(
+                    REMOVE_EMPTY, str(sub), "", "dir", 0, digest(sub),
+                    f"an empty sub-area inside step {step.node_id}. "
+                    f"The step ran but wrote nothing here."))
+            continue
+        out.append(Action(
+            REMOVE_EMPTY, str(d), "", "dir", 0, digest(d),
+            f"an empty step directory pre-created by the old scaffold. "
+            f"Step {step.node_id} has not run, so the directory carries no "
+            f"information. It will reappear when the step writes output."))
+
+    # Empty project-level areas: gates/, annotations/, messages/ etc.
+    for area, spec in AREAS.items():
+        if spec.step:
+            continue  # step dirs are handled above
+        if spec.kind not in WRITABLE_KINDS or spec.relpath == ".":
+            continue
+        if spec.relpath in (_OUT, _STEPS):
+            continue  # the containers stay
+        d = layout.root / spec.relpath
+        if not d.is_dir():
+            continue
+        if any(p.is_file() for p in d.rglob("*")):
+            continue
+        out.append(Action(
+            REMOVE_EMPTY, str(d), "", "dir", 0, digest(d),
+            f"an empty {area.value} directory pre-created by the old "
+            f"scaffold. Nothing has written to it. It will reappear when "
+            f"something writes."))
+
+    # Empty directories inside backup archives: gates/ with 23 empty
+    # subdirs, messages/, thumbnails/ etc. inside _archive_* directories.
+    # These are safe to remove because they carry no files.
+    archives = layout.root / _OUT / "backups" / "run_archives"
+    if archives.is_dir():
+        # Walk bottom-up so parent dirs become empty after children go.
+        # Collect candidates first, then sort deepest-first.
+        candidates = []
+        for d in sorted(archives.rglob("*"), reverse=True):
+            if not d.is_dir():
+                continue
+            if any(p.is_file() for p in d.rglob("*")):
+                continue
+            candidates.append(d)
+        for d in candidates:
+            out.append(Action(
+                REMOVE_EMPTY, str(d), "", "dir", 0, digest(d),
+                "an empty directory inside a backup archive. Nothing was "
+                "archived in it; it was a scaffold artifact."))
+    return out
+
+
 def _plan_input_dir_rescues(layout: ProjectLayout) -> list:
     """Pipeline output found inside an input directory.
 
@@ -573,6 +664,20 @@ def organize_project(project_folder, apply: bool = False) -> dict:
             else:
                 shutil.move(str(src), str(dest))
             act.dest = str(dest)
+            performed.append(act)
+        # Post-apply sweep: moves in this run may have carried empty
+        # subdirectories into the backup archives (e.g. an archive
+        # containing gates/ with 23 empty per-step subdirs).  A second
+        # plan round would catch them, but the point is stability: one
+        # run should be a no-op the second time.
+        post = _plan_scaffold_empty_cleanup(layout)
+        for act in post:
+            src = Path(act.src)
+            if not src.exists():
+                continue
+            if any(p.is_file() for p in src.rglob("*")):
+                continue
+            shutil.rmtree(src)
             performed.append(act)
         _write_bucket_readmes(layout, plan)
 

@@ -282,18 +282,36 @@ def test_every_step_owned_area_lives_under_its_step(tmp_path):
 
 # ── The layout itself ───────────────────────────────────────────────
 
-def test_ensure_creates_the_output_side_and_not_the_input_side(tmp_path):
+def test_ensure_creates_containers_and_not_the_input_side(tmp_path):
+    """ensure() creates the two structural containers and the README.
+
+    Individual step directories and project-level areas appear when
+    something writes to them, not when the scaffold guesses.  An empty
+    directory that was pre-created carries no information."""
     ProjectLayout(tmp_path).ensure()
+    # The containers must exist.
+    assert (tmp_path / "pipeline_output").is_dir()
+    assert (tmp_path / "pipeline_output" / "steps").is_dir()
+    # Input areas must NOT be created.
     for area, spec in AREAS.items():
         if spec.relpath == ".":
             continue
-        made = (tmp_path / spec.relpath).is_dir()
-        if spec.kind in WRITABLE_KINDS:
-            assert made, f"{area.value} should have been created"
-        else:
-            assert not made, (
+        if spec.kind not in WRITABLE_KINDS:
+            assert not (tmp_path / spec.relpath).is_dir(), (
                 f"{area.value} is {spec.kind.value}; creating it is the "
                 f"first half of writing to it")
+    # Step directories must NOT be pre-created.
+    steps_root = tmp_path / "pipeline_output" / "steps"
+    assert not list(steps_root.iterdir()), (
+        "no step directory should exist before the step writes to it")
+    # Project-level areas (gates/, annotations/ etc.) must NOT be pre-created.
+    for area, spec in AREAS.items():
+        if spec.step or spec.relpath in (".", "pipeline_output",
+                                         "pipeline_output/steps"):
+            continue
+        if spec.kind in WRITABLE_KINDS:
+            assert not (tmp_path / spec.relpath).is_dir(), (
+                f"{area.value} should not be pre-created by ensure()")
 
 
 def test_the_folder_explains_itself(tmp_path):
@@ -317,15 +335,28 @@ def test_the_readme_walks_the_pipeline_in_the_order_it_runs(tmp_path):
         "the README must render steps in run order, not alphabetically")
 
 
-def test_every_step_gets_a_directory_even_before_it_runs(tmp_path):
-    """An empty directory says "this step produced nothing", which is a
-    fact worth being able to see."""
+def test_no_step_directory_exists_before_the_step_writes(tmp_path):
+    """A directory that was pre-created carries no information.  A
+    directory that appears only when something writes tells you the step
+    has run and produced output."""
     from library.tools.project_layout import STEPS
 
     ProjectLayout(tmp_path).ensure()
     steps_root = tmp_path / "pipeline_output" / "steps"
-    on_disk = sorted(p.name for p in steps_root.iterdir())
-    assert on_disk == sorted(s.dirname for s in STEPS)
+    assert not list(steps_root.iterdir()), (
+        "ensure() should not pre-create step directories")
+
+
+def test_a_step_directory_appears_when_the_step_writes(tmp_path):
+    """write_dir creates the step directory on demand."""
+    layout = ProjectLayout(tmp_path)
+    layout.ensure()
+    steps_root = tmp_path / "pipeline_output" / "steps"
+    assert not list(steps_root.iterdir())
+    # Writing to an area creates just that step's directory.
+    layout.write_dir(Area.PROSODY, step="prosody_analysis")
+    on_disk = [p.name for p in steps_root.iterdir()]
+    assert on_disk == ["1_05_prosody_analysis"]
 
 
 # The two places where sorting by step number is not run order. The DAG
@@ -343,7 +374,12 @@ KNOWN_SORT_INVERSIONS = {
 def test_the_step_directories_sort_into_pipeline_order(tmp_path):
     from library.tools.project_layout import STEPS
 
-    ProjectLayout(tmp_path).ensure()
+    layout = ProjectLayout(tmp_path)
+    layout.ensure()
+    # Simulate what happens after all steps run: each step's directory
+    # is created when the step writes its output.
+    for step in STEPS:
+        layout.step_dir(step.node_id, create=True)
     listing = sorted(p.name for p in
                      (tmp_path / "pipeline_output" / "steps").iterdir())
     run_order = [s.dirname for s in STEPS]
@@ -491,12 +527,22 @@ def test_the_new_project_scaffold_is_the_layout(tmp_path):
 
     create_project("scaffold-test", name="Scaffold Test", root=tmp_path)
     root = tmp_path / "scaffold-test"
-    for area, spec in AREAS.items():
-        if spec.relpath == "." or spec.kind not in WRITABLE_KINDS:
-            continue
-        assert (root / spec.relpath).is_dir(), f"{area.value} not scaffolded"
+    # The containers and raw/ exist.
+    assert (root / "pipeline_output").is_dir()
+    assert (root / "pipeline_output" / "steps").is_dir()
     assert (root / "README-LAYOUT.md").is_file()
     assert (root / "raw").is_dir()
+    # Only raw/ is scaffolded on the input side.  music/, assets/,
+    # brand_assets/ and compositions/ appear when the captain puts
+    # material there.
+    assert not (root / "music").exists()
+    assert not (root / "assets").exists()
+    assert not (root / "brand_assets").exists()
+    assert not (root / "compositions").exists()
+    # Step dirs and project-level areas are NOT pre-created.
+    steps_root = root / "pipeline_output" / "steps"
+    assert not list(steps_root.iterdir()), (
+        "new project should not have pre-created step directories")
 
 
 def test_the_timed_text_render_dirname_is_the_layouts(tmp_path):
@@ -505,3 +551,70 @@ def test_the_timed_text_render_dirname_is_the_layouts(tmp_path):
 
     assert TIMED_TEXT_RENDER_DIRNAME == Path(
         AREAS[Area.TIMED_TEXT_SEGMENTS].relpath).name
+
+
+# ── Read-side audit: no consumer crashes on a bare project ──────────
+
+def test_read_paths_survive_a_project_with_no_directories(tmp_path):
+    """The lazy ensure() creates only containers.  Every consumer that
+    calls read_dir() must handle the case where the returned path does
+    not exist.  This test exercises those code paths against a project
+    whose directories have never been created - the case that could not
+    previously occur and no existing test covered.
+    """
+    # A project with ONLY project.yaml and pipeline_data.json - nothing
+    # else exists.  No ensure(), no input dirs, no output dirs.
+    (tmp_path / "project.yaml").write_text(
+        "name: bare\nslug: bare\n", encoding="utf-8")
+    (tmp_path / "pipeline_data.json").write_text(
+        '{"step_outputs": {}, "preflight_completed": {}, '
+        '"edit_completed": {}, "failed_steps": []}',
+        encoding="utf-8")
+
+    layout = ProjectLayout(tmp_path)
+
+    # 1. review_gate: every read function returns a safe default.
+    from library.tools.review_gate import (
+        get_all_gate_statuses, get_gate_status,
+        load_gate_feedback, load_gate_snapshot,
+    )
+    assert get_all_gate_statuses(str(tmp_path)) == {}
+    assert get_gate_status(str(tmp_path), "scan") == "none"
+    assert load_gate_snapshot(str(tmp_path), "scan") is None
+    assert load_gate_feedback(str(tmp_path), "scan") is None
+
+    # 2. provenance: snapshot returns empty, no crash on missing dirs.
+    from library.tools.provenance import ProvenanceLedger
+    prov = ProvenanceLedger(tmp_path)
+    assert prov.snapshot() == {}
+
+    # 3. music_selection_contract: sources include paths but no crash.
+    from library.tools.music_selection_contract import catalogue_sources
+    sources = catalogue_sources(str(tmp_path))
+    for label, dirs in sources.items():
+        for d in dirs:
+            # The path may not exist, but the caller is expected to
+            # check os.path.isdir() before listing.
+            import os
+            if os.path.isdir(d):
+                os.listdir(d)  # would crash if wrongly assumed to exist
+
+    # 4. paths.py: returns a path without I/O.
+    from library.tools.paths import project_output_dir
+    p = project_output_dir(str(tmp_path))
+    assert isinstance(p, Path)
+    # p may not exist - that is fine, it is just a path.
+
+    # 5. project_config: properties return paths without I/O.
+    from library.schemas.project_config import ProjectConfig
+    cfg = ProjectConfig(name="bare", slug="bare")
+    object.__setattr__(cfg, "_project_root", Path(tmp_path))
+    assert isinstance(cfg.raw_dir, Path)
+    assert isinstance(cfg.pipeline_output_dir, Path)
+    assert isinstance(cfg.exports_dir, Path)
+
+    # 6. read_dir on every area returns a path without crashing.
+    for area in Area:
+        p = layout.read_dir(area)
+        assert isinstance(p, Path)
+        # None of these should exist, and that is the point.

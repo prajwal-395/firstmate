@@ -58,12 +58,18 @@ from library.tools.project_layout import ProjectLayout
 # steps read, which is the only way the two cannot disagree.
 # See library/tools/project_layout.py.
 #
-# Input directories a new project starts with. These are the captain's to
-# fill, so they are created empty and the pipeline never writes to them.
+# Input directories a new project starts with. Only raw/ is universal:
+# every project needs footage, and step 1.01 scans this directory.
+#
+# music/, assets/, brand_assets/ and compositions/ are declared as
+# Kind.INPUT in the layout but NOT scaffolded - a directory whose
+# presence means the captain has that kind of material is more useful
+# than five empty directories. The captain creates them when needed,
+# and the pipeline handles their absence gracefully (music_selection
+# checks os.path.isdir before listing, brand_assets is optional for
+# Remotion, etc.).
 PROJECT_INPUT_DIRS = [
     "raw",
-    "brand_assets",
-    "compositions",
 ]
 
 

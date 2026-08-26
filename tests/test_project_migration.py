@@ -93,7 +93,7 @@ def test_every_file_that_was_there_is_still_there_afterwards(messy):
 
 def test_no_action_is_a_delete(messy):
     m = organize_project(messy, apply=True)
-    assert {a["action"] for a in m["actions"]} <= {"move", "copy"}
+    assert {a["action"] for a in m["actions"]} <= {"move", "copy", "remove_empty_dir"}
 
 
 def test_every_moved_file_exists_at_its_destination(messy):
@@ -139,6 +139,8 @@ def test_a_vision_cache_inside_raw_is_copied_out_not_moved(messy):
 def test_no_destination_is_inside_an_input_directory(messy):
     layout = ProjectLayout(messy)
     for a in organize_project(messy, apply=True)["actions"]:
+        if a["action"] == "remove_empty_dir":
+            continue  # no destination to check
         layout.assert_writable(a["dest"])
 
 
@@ -230,7 +232,9 @@ def test_the_manifest_records_every_action_with_a_reason(messy):
     m = organize_project(messy, apply=True)
     assert m["actions"]
     for a in m["actions"]:
-        assert a["src"] and a["dest"] and a["reason"]
+        assert a["src"] and a["reason"]
+        if a["action"] != "remove_empty_dir":
+            assert a["dest"], "a move/copy must have a destination"
         assert a["digest"], "a fingerprint is what matches a file to where it went"
     from pathlib import Path
     stored = json.loads(
@@ -411,3 +415,80 @@ def test_an_already_tidy_project_needs_nothing(tmp_path):
     ProjectLayout(tmp_path).ensure()
     (tmp_path / "project.yaml").write_text("slug: x\n", encoding="utf-8")
     assert not plan_organization(tmp_path).actions
+
+
+# ── Cleaning up empty pre-created directories ───────────────────────
+
+@pytest.fixture
+def scaffolded(tmp_path):
+    """A project that was scaffolded by the old ensure() which
+    pre-created every step directory and project-level area."""
+    (tmp_path / "project.yaml").write_text("slug: t\n", encoding="utf-8")
+    layout = ProjectLayout(tmp_path)
+    layout.ensure()
+
+    from library.tools.project_layout import STEPS, WRITABLE_KINDS, _OUT, _STEPS
+
+    # Simulate the old ensure() by creating all step dirs and areas.
+    for step in STEPS:
+        (tmp_path / _STEPS / step.dirname).mkdir(parents=True, exist_ok=True)
+    for area, spec in Area.__members__.items():
+        area_spec = layout.spec(spec)
+        if area_spec.kind in WRITABLE_KINDS and area_spec.relpath != ".":
+            (tmp_path / area_spec.relpath).mkdir(parents=True, exist_ok=True)
+
+    # One step has real output - it should NOT be removed.
+    step_dir = tmp_path / _STEPS / "1_04_temporal_index"
+    (step_dir / "output.json").write_text('{"ok": true}', encoding="utf-8")
+
+    # One project-level area has content - it should NOT be removed.
+    (tmp_path / _OUT / "logs" / "run_001.log").write_text(
+        "log", encoding="utf-8")
+
+    return tmp_path
+
+
+def test_empty_scaffold_step_dirs_are_removed(scaffolded):
+    from library.tools.project_layout import STEPS, _STEPS
+
+    m = organize_project(scaffolded, apply=True)
+    # The step that has output stays.
+    assert (scaffolded / _STEPS / "1_04_temporal_index").is_dir()
+    # Empty step directories are gone.
+    removed = [a for a in m["actions"]
+               if a["action"] == "remove_empty_dir"
+               and "step directory" in a["reason"]]
+    # 28 steps, one has content, so 27 should be removed.
+    assert len(removed) == len(STEPS) - 1
+
+
+def test_empty_scaffold_areas_are_removed(scaffolded):
+    from library.tools.project_layout import _OUT
+
+    m = organize_project(scaffolded, apply=True)
+    # logs/ has content - stays.
+    assert (scaffolded / _OUT / "logs").is_dir()
+    # Empty areas like gates/, annotations/ etc. are gone.
+    removed = [a for a in m["actions"]
+               if a["action"] == "remove_empty_dir"
+               and "pre-created by the old" in a["reason"]
+               and "step directory" not in a["reason"]]
+    assert removed, "some empty project-level areas should have been removed"
+    for a in m["actions"]:
+        if a["action"] == "remove_empty_dir":
+            assert a["reason"], "every removal has a stated reason"
+
+
+def test_scaffold_cleanup_is_recorded_in_the_manifest(scaffolded):
+    m = organize_project(scaffolded, apply=True)
+    removals = [a for a in m["actions"] if a["action"] == "remove_empty_dir"]
+    assert removals
+    for a in removals:
+        assert a["reason"]
+        assert a["bytes"] == 0
+
+
+def test_a_nonempty_step_dir_is_never_removed_by_scaffold_cleanup(scaffolded):
+    organize_project(scaffolded, apply=True)
+    assert (scaffolded / "pipeline_output" / "steps"
+            / "1_04_temporal_index" / "output.json").is_file()
