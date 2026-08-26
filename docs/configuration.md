@@ -136,6 +136,16 @@ It does not set `commands.test` to a complete `tests/*.test.sh` walk.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test policy and entry points.
 Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](fm-test-portable-shards.md); [herdr-backend.md](herdr-backend.md#destructive-lab-safety) owns the real-Herdr lane's isolation boundary, and [runtime-backends.md](verification/runtime-backends.md#herdr) owns active evidence.
 
+## Captain identity (config/captain-github / FM_CAPTAIN_GITHUB)
+
+`config/captain-github` records the captain's GitHub login so firstmate's GitHub Issues project layer can tell a wait from a claim.
+An assignment means one of two opposite things depending on who holds it: for an agent it is a claim and the ticket leaves the frontier, while for the captain it means nobody is working on it and nothing moves until they answer, so `bin/fm-tracker.sh frontier` keeps it in the BLOCKED set and names them.
+The file is local and gitignored, holds the login on its first non-blank line, and is compared case-insensitively as GitHub treats logins.
+`FM_CAPTAIN_GITHUB` overrides it for one run.
+It is deliberately configured rather than derived: `gh api /user` returns the login the fleet is authenticated as, which is the same account every crewmate claims with, so deriving the captain from it would reclassify every agent claim as a wait on the captain.
+When it is absent no login is the captain's and every assignment reads as a claim, which is the behavior before the distinction existed; `frontier` says so in a closing note rather than looking like a working classifier.
+It is inherited into secondmate homes, because the captain is one person across the whole fleet and a secondmate reading the same repository must classify a ticket the same way.
+
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
 Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
@@ -327,7 +337,7 @@ When a running home advances and its loaded instruction surface (`AGENTS.md`, `b
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
 The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `backend`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `backend`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, `captain-github`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.

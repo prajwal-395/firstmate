@@ -145,6 +145,25 @@ graph_record() {  # <number> <state> <labels> <assignees> <parent> <blockers> <t
     "$(printf '%s' "$8" | base64 | tr -d '\n')"
 }
 
+# A decision body carrying what an answer needs: the context, two options each
+# stating its own consequence, and a recommendation. `add --type decision`
+# refuses anything less, so every decision case below starts from this.
+GOOD_DECISION=$(cat <<'BODY'
+## Context
+
+The queue backs up past 10k messages twice a week and the retry path replays duplicates.
+
+## Options
+
+- Keep the current queue - no migration, and the duplicate replays stay.
+- Move to the managed queue - duplicates go away, and it adds a monthly bill and a migration week.
+
+## Recommendation
+
+Move to the managed queue: the duplicate replays are already costing more than the bill.
+BODY
+)
+
 # ===========================================================================
 # Defect 1: a prose blocking edge is refused, and nothing is created
 # ===========================================================================
@@ -203,7 +222,7 @@ pass "add accepts an already-canonical blocked-by section"
 reset_gh
 printf '7\n' > "$FAKE_GH_DIR/rest.default"
 out=$(run_tracker "$HOME_A" add o/r --type decision \
-  --title 'TASK: does the house grain belong here?' 2>&1)
+  --title 'TASK: does the house grain belong here?' --body "$GOOD_DECISION" 2>&1)
 rc=$?
 expect_code_out 0 "$rc" "$out" "add must create a typed ticket"
 assert_grep 'labels[]=fm:decision' "$FAKE_GH_LOG" "type must be sent as a label"
@@ -580,5 +599,289 @@ else
     "the cursor written under Bash 3.2 must be complete"
   pass "the wake poll runs correctly under stock Bash 3.x, not merely parses"
 fi
+
+# ===========================================================================
+# An assignment carries two opposite meanings, and the assignee decides which
+#
+# For an agent it is a claim and the ticket leaves the frontier. For the captain
+# it is a wait and the ticket must stay in BLOCKED naming them, because a
+# decision nobody is working on is the single most important thing the frontier
+# has to report. These cases pin BOTH directions: the captain case is the new
+# behavior, and the agent case is the behavior that must not break to get it.
+# ===========================================================================
+
+HOME_C=$(make_home c)
+mkdir -p "$HOME_C/config"
+printf 'the-captain\n' > "$HOME_C/config/captain-github"
+
+assignment_graph() {
+  {
+    graph_record 1 OPEN 'fm:destination' '' '-' '' 'the destination' ''
+    graph_record 2 OPEN 'fm:decision' 'the-captain' '1' '' 'which storage engine' ''
+    graph_record 3 OPEN 'fm:task' 'a-crewmate' '1' '' 'claimed work' ''
+    graph_record 4 OPEN 'fm:task' '' '1' '' 'unassigned work' ''
+  } > "$FAKE_GH_DIR/graphql.out"
+}
+
+reset_gh
+assignment_graph
+out=$(run_tracker "$HOME_C" frontier o/r 2>&1)
+expect_code_out 0 "$?" "$out" "frontier must succeed"
+ready=$(printf '%s\n' "$out" | sed -n '/^READY/,/^$/p')
+blocked=$(printf '%s\n' "$out" | sed -n '/^BLOCKED/,/^$/p')
+claimed=$(printf '%s\n' "$out" | sed -n '/^CLAIMED/,$p')
+
+assert_contains "$blocked" "#2" "a decision assigned to the captain must be blocked"
+assert_contains "$blocked" "waits on the captain (the-captain)" \
+  "the blocked entry must name the captain as what it waits on"
+assert_not_contains "$claimed" "#2" "the captain's assignment must not read as a claim"
+assert_not_contains "$ready" "#2" "a decision waiting on the captain is not ready work"
+pass "a decision assigned to the captain is BLOCKED naming them, not CLAIMED"
+
+assert_contains "$claimed" "#3" "an assignment to an agent must still be a claim"
+assert_contains "$claimed" "claimed by a-crewmate" "the claim must still name its holder"
+assert_not_contains "$ready" "#3" "a claimed ticket must still leave the ready set"
+assert_not_contains "$blocked" "#3" "a claimed ticket must still leave the blocked set"
+pass "an assignment to anyone else still reads as claimed and leaves both sets"
+
+assert_contains "$ready" "#4" "an unassigned ticket with no blocker must be ready"
+assert_not_contains "$blocked" "#4" "an unassigned ticket must not be blocked"
+assert_not_contains "$claimed" "#4" "an unassigned ticket must not be claimed"
+pass "an unassigned ticket is unchanged: ready, and in neither other set"
+
+# The safe default. With no captain login configured the classifier is inert and
+# every assignment is a claim, which is the behavior before this distinction
+# existed. A wrong default here would silently reclassify every ticket a human
+# touches, so it is pinned rather than assumed.
+HOME_NOCAP=$(make_home nocaptain)
+reset_gh
+assignment_graph
+out=$(run_tracker "$HOME_NOCAP" frontier o/r 2>&1)
+expect_code_out 0 "$?" "$out" "frontier must succeed with no captain configured"
+assert_contains "$(printf '%s\n' "$out" | sed -n '/^CLAIMED/,$p')" "#2" \
+  "with no captain configured every assignment must still read as a claim"
+assert_contains "$out" "no captain login is configured" \
+  "an inert classifier must say so rather than look like a working one"
+assert_contains "$out" "config/captain-github" "the note must name the file that fixes it"
+pass "with no captain configured, the classifier is inert and says so"
+
+# GitHub logins are case-insensitive, so a case difference between the config
+# file and the API response must not be what decides wait versus claim.
+HOME_CASE=$(make_home captaincase)
+mkdir -p "$HOME_CASE/config"
+printf 'The-Captain\n' > "$HOME_CASE/config/captain-github"
+reset_gh
+assignment_graph
+out=$(run_tracker "$HOME_CASE" frontier o/r 2>&1)
+assert_contains "$(printf '%s\n' "$out" | sed -n '/^BLOCKED/,/^$/p')" "#2" \
+  "a case difference in the login must not reclassify the captain's wait"
+pass "the captain is matched case-insensitively, as GitHub treats logins"
+
+# A ticket held by the captain AND an agent is still a wait: the agent cannot
+# finish it either way, and the wait is the answer that has to stay visible.
+reset_gh
+{
+  graph_record 1 OPEN 'fm:destination' '' '-' '' 'the destination' ''
+  graph_record 2 OPEN 'fm:decision' 'a-crewmate the-captain' '1' '' 'shared hold' ''
+} > "$FAKE_GH_DIR/graphql.out"
+out=$(run_tracker "$HOME_C" frontier o/r 2>&1)
+assert_contains "$(printf '%s\n' "$out" | sed -n '/^BLOCKED/,/^$/p')" "#2" \
+  "a ticket the captain also holds must be reported as a wait"
+pass "an assignment holding the captain and an agent is a wait, not a claim"
+
+# The same distinction one level down. A blocker the captain holds is not
+# claimed work, and calling it "claimed by" would hide the wait from the ticket
+# that reports it.
+reset_gh
+{
+  graph_record 1 OPEN 'fm:destination' '' '-' '' 'the destination' ''
+  graph_record 3 OPEN 'fm:task' '' '1' '2|OPEN|decision|the-captain' 'downstream work' ''
+} > "$FAKE_GH_DIR/graphql.out"
+out=$(run_tracker "$HOME_C" frontier o/r 2>&1)
+blocked=$(printf '%s\n' "$out" | sed -n '/^BLOCKED/,/^$/p')
+assert_contains "$blocked" "with the captain (the-captain)" \
+  "a blocker the captain holds must read as a wait on them"
+assert_not_contains "$blocked" "claimed by the-captain" \
+  "a blocker the captain holds must never read as claimed work"
+pass "a blocker held by the captain reads as a wait on them, not as a claim"
+
+# claim still claims - what claim does for agents is unchanged - but when the
+# fleet is authenticated as the captain's own account it says what the frontier
+# will then report, rather than writing that ambiguity silently.
+reset_gh
+printf '\n' > "$FAKE_GH_DIR/rest.default"
+export FAKE_GH_LOGIN=the-captain
+out=$(run_tracker "$HOME_C" claim o/r 3 2>&1)
+rc=$?
+unset FAKE_GH_LOGIN
+expect_code_out 0 "$rc" "$out" "claiming as the captain's own login must still claim"
+assert_contains "$out" "claimed #3" "the claim itself must be unchanged"
+assert_contains "$out" "the configured captain login" "the collision must be named"
+assert_grep "assignees" "$FAKE_GH_LOG" "the assignment must still be written"
+pass "claim as the captain's own login still claims, and names the ambiguity"
+
+# ===========================================================================
+# A decision has to be answerable cold
+#
+# A decision ticket reaches the captain as a notification and nothing else, so
+# the write path refuses a body that would send them off to do research first.
+# The line drawn is structural: presence of context, of two options each stating
+# its consequence, and of a recommendation. Whether the recommendation is any
+# good is the author's problem and is deliberately not judged here.
+# ===========================================================================
+
+# The stored shape a well-formed decision ends up with, written out here rather
+# than derived from the script, so this fixture cannot drift into agreeing with
+# a broken writer.
+ESCAPE_HATCH=$(cat <<'BODY'
+
+
+## Or something else
+
+The options above are a starting point, not the whole answer space.
+If the right call is none of them, say it in your own words and it will be recorded verbatim.
+BODY
+)
+
+reset_gh
+printf '7\n' > "$FAKE_GH_DIR/rest.default"
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' \
+  --body "$GOOD_DECISION" 2>&1)
+expect_code_out 0 "$?" "$out" "a decision that can be answered cold must be accepted"
+assert_grep "## Or something else" "$FAKE_GH_LOG" \
+  "the write path must add the invitation to answer with something unlisted"
+assert_grep "say it in your own words" "$FAKE_GH_LOG" \
+  "the invitation must be explicit, not implied by a heading"
+assert_grep "## Recommendation" "$FAKE_GH_LOG" "the author's own sections must survive"
+pass "a well-formed decision is accepted and the escape hatch is written for it"
+
+# Each refusal is asserted by the reason it names, not merely by exit 1: three
+# guards refuse the same body, so "it refused" alone would keep passing with any
+# two of them deleted.
+reset_gh
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' \
+  --body 'Postgres or SQLite?' 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "a bare decision body must be refused"
+assert_contains "$out" "cannot be answered cold" "the refusal must name the reason"
+assert_contains "$out" '"## Context" section' "the missing context must be named"
+assert_contains "$out" '"## Options"' "the missing options must be named"
+assert_contains "$out" '"## Recommendation" section' "the missing recommendation must be named"
+assert_contains "$out" "_Which option, and why" "the refusal must print the shape that works"
+assert_no_grep "POST" "$FAKE_GH_LOG" "a refused decision must not create anything"
+pass "add refuses a decision body carrying none of what an answer needs"
+
+reset_gh
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' --body "$(cat <<'BODY'
+## Context
+
+The queue backs up twice a week.
+
+## Options
+
+- Move to the managed queue - duplicates go away, and it adds a monthly bill.
+
+## Recommendation
+
+Move to the managed queue.
+BODY
+)" 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "a single-option decision must be refused"
+assert_contains "$out" "one option is not a choice" "the refusal must say why one option fails"
+assert_no_grep "POST" "$FAKE_GH_LOG" "a refused decision must not create anything"
+pass "add refuses a decision offering a single option"
+
+reset_gh
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' --body "$(cat <<'BODY'
+## Context
+
+The queue backs up twice a week.
+
+## Options
+
+- Keep the current queue
+- Move to the managed queue
+
+## Recommendation
+
+Move to the managed queue.
+BODY
+)" 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "options with no consequences must be refused"
+assert_contains "$out" "states no consequence" "the refusal must name the empty option"
+assert_contains "$out" "Keep the current queue" "the refusal must quote the offending option"
+assert_no_grep "POST" "$FAKE_GH_LOG" "a refused decision must not create anything"
+pass "add refuses options that state no consequence"
+
+reset_gh
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' --body "$(cat <<'BODY'
+## Context
+
+The queue backs up twice a week.
+
+## Options
+
+- Keep the current queue - the duplicate replays stay.
+- Move to the managed queue - duplicates go away, and it adds a monthly bill.
+BODY
+)" 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "a decision with no recommendation must be refused"
+assert_contains "$out" '"## Recommendation" section' "the refusal must name what is missing"
+assert_no_grep "POST" "$FAKE_GH_LOG" "a refused decision must not create anything"
+pass "add refuses a decision with options but no recommendation"
+
+# The escape hatch has one owner. An author-written copy would let a second,
+# possibly weaker, invitation ship beside the fixed one.
+reset_gh
+out=$(run_tracker "$HOME_C" add o/r --type decision --title 'which queue' \
+  --body "$GOOD_DECISION
+
+## Or something else
+
+whatever you like" 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "an author-written escape hatch must be refused"
+assert_contains "$out" "this script writes that one" "the refusal must name the owner"
+assert_no_grep "POST" "$FAKE_GH_LOG" "a refused decision must not create anything"
+pass "add refuses an author-written escape hatch, which this script owns"
+
+# The shape is required of decisions only. A task with a plain body is untouched.
+reset_gh
+printf '7\n' > "$FAKE_GH_DIR/rest.default"
+out=$(run_tracker "$HOME_C" add o/r --type task --title 'do the thing' \
+  --body 'Done when it ships.' 2>&1)
+expect_code_out 0 "$?" "$out" "a task body must not be held to the decision shape"
+assert_no_grep "## Or something else" "$FAKE_GH_LOG" \
+  "a task must not be given a decision's escape hatch"
+pass "the decision shape is required of decisions only"
+
+# validate is the standing guard: the write path refuses a malformed decision,
+# so one in the graph arrived by hand-edit, which is what validate exists for.
+reset_gh
+{
+  graph_record 1 OPEN 'fm:destination' '' '-' '' 'the destination' ''
+  graph_record 2 OPEN 'fm:decision' '' '1' '' 'hand-edited decision' 'Postgres or SQLite?'
+} > "$FAKE_GH_DIR/graphql.out"
+out=$(run_tracker "$HOME_C" validate o/r 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "a hand-edited decision must fail validation"
+assert_contains "$out" '#2 has no "## Context" section' "validate must name the missing context"
+assert_contains "$out" '#2 has no "## Or something else" section' \
+  "validate must catch a stripped escape hatch"
+pass "validate reports a decision that can no longer be answered cold"
+
+reset_gh
+{
+  graph_record 1 OPEN 'fm:destination' '' '-' '' 'the destination' ''
+  graph_record 2 OPEN 'fm:decision' '' '1' '' 'a good decision' \
+    "$GOOD_DECISION$ESCAPE_HATCH"
+} > "$FAKE_GH_DIR/graphql.out"
+out=$(run_tracker "$HOME_C" validate o/r 2>&1)
+expect_code_out 0 "$?" "$out" "a decision this script wrote must pass validation"
+assert_contains "$out" "no malformed tickets" "a clean decision must be reported clean"
+pass "validate passes the decision shape this script writes"
 
 printf '\nall fm-tracker cases passed\n'
