@@ -884,4 +884,131 @@ expect_code_out 0 "$?" "$out" "a decision this script wrote must pass validation
 assert_contains "$out" "no malformed tickets" "a clean decision must be reported clean"
 pass "validate passes the decision shape this script writes"
 
+# ===========================================================================
+# The fleet's own comments
+#
+# The wake fired on every comment firstmate wrote, because the fleet
+# authenticates as the captain's own account and the comment feed cannot tell
+# them apart by author. These cases pin the discriminator that can: what we
+# wrote, recorded by id as we write it. The pair that matters is the two
+# directions - the same response body, the same author, the same repository,
+# differing only in whether the id is in the record.
+# ===========================================================================
+
+HOME_D=$(make_home d)
+SELF_RECORD="$HOME_D/state/.tracker-self-comments"
+
+# One comment in the feed, with GitHub's own shape: unedited comments carry
+# created_at == updated_at, which is what lets an edit still wake firstmate.
+comment_feed() {  # <id> <created> [updated]
+  printf '[{"id":%s,"issue_url":"https://api.github.com/repos/o/r/issues/9",' "$1"
+  printf '"created_at":"%s","updated_at":"%s"}]' "$2" "${3:-$2}"
+}
+
+# Every poll below drives the comment feed, so the inbox is pinned quiet: it
+# structurally cannot carry the account its own actions and has nothing to say
+# about this behaviour.
+pin_inbox_quiet() {  # <home> <task>
+  sed -i.bak 's/^notifications_next=.*/notifications_next=9999999999/' \
+    "$1/state/$2.tracker-cursor"
+  rm -f "$1/state/$2.tracker-cursor.bak"
+}
+
+reset_gh
+printf 'fm:decision\n' > "$FAKE_GH_DIR/rest.default"
+printf '5555\n' > "$FAKE_GH_DIR/rest_repos_o_r_issues_9_comments"
+out=$(run_tracker "$HOME_D" answer o/r 9 --decision 'ship it' 2>&1)
+expect_code_out 0 "$?" "$out" "answering a decision must succeed"
+assert_grep '5555' "$SELF_RECORD" "answer must record the comment id it wrote"
+pass "answer records the comment id it wrote"
+
+reset_gh
+printf '6666\n' > "$FAKE_GH_DIR/rest_repos_o_r_issues_9_comments"
+out=$(run_tracker "$HOME_D" comment o/r 9 --body 'closing this out' 2>&1)
+expect_code_out 0 "$?" "$out" "commenting must succeed"
+assert_grep 'POST /repos/o/r/issues/9/comments' "$FAKE_GH_LOG" \
+  "comment must post to the issue's comment endpoint"
+assert_grep '6666' "$SELF_RECORD" "comment must record the id it wrote"
+pass "comment writes an issue comment and records its id"
+
+out=$(run_tracker "$HOME_D" comment o/r 9 2>&1)
+rc=$?
+expect_code_out 2 "$rc" "$out" "a comment with no body must be refused"
+assert_contains "$out" "requires --body" "the refusal must name what is missing"
+pass "comment refuses a call with no body"
+
+# Seed the poll's position, then pin the inbox so the comment feed is the only
+# source under test.
+reset_gh
+arm_watch "$HOME_D" own
+http_response 1 '200 OK' 'X-Poll-Interval: 60
+' '[]'
+http_response 2 '200 OK' '' '[]'
+run_notify "$HOME_D" --task own >/dev/null 2>&1
+pin_inbox_quiet "$HOME_D" own
+
+poll_comment() {  # <id> <created> [updated]
+  rm -f "$FAKE_GH_DIR"/http.*
+  printf '1\n' > "$FAKE_GH_DIR/http.seq"
+  http_response 1 '200 OK' '' "$(comment_feed "$@")"
+  run_notify "$HOME_D" --task own 2>&1
+}
+
+# Direction one: a comment the fleet wrote must not wake firstmate.
+out=$(poll_comment 5555 '2026-08-25T12:00:00Z')
+[ -z "$out" ] || fail "a comment the fleet wrote must not wake firstmate, got: $out"
+pass "a comment the fleet wrote does not wake firstmate"
+
+# Direction two, and the one that must not break: the SAME account, the same
+# feed, the same shape - only the record differs. An unrecorded comment is the
+# captain's and must wake firstmate.
+out=$(poll_comment 7777 '2026-08-25T12:05:00Z')
+assert_contains "$out" "o/r#9" "an unrecorded comment must wake firstmate"
+pass "a comment the fleet did not write wakes firstmate from the same account"
+
+# An edit is somebody saying something new, so a recorded id whose comment has
+# been edited since it was written still wakes firstmate.
+out=$(poll_comment 6666 '2026-08-25T12:06:00Z' '2026-08-25T12:07:00Z')
+assert_contains "$out" "o/r#9" "an edited comment must wake firstmate"
+pass "an edited comment wakes firstmate even though the fleet wrote it"
+
+# The record is a suppression list, so an unreadable one must suppress nothing
+# rather than swallow the captain.
+mv "$SELF_RECORD" "$SELF_RECORD.aside"
+printf 'not our file\n' > "$SELF_RECORD"
+out=$(poll_comment 5555 '2026-08-25T12:08:00Z')
+assert_contains "$out" "o/r#9" "an unrecognised record must suppress nothing"
+mv -f "$SELF_RECORD.aside" "$SELF_RECORD"
+pass "a record the poll cannot recognise suppresses nothing"
+
+# Retention. The record is bounded by age and by count, and a later write is
+# what applies both, so nothing has to be cleaned up on the read path.
+reset_gh
+printf '7000\n' > "$FAKE_GH_DIR/rest_repos_o_r_issues_9_comments"
+printf '%s\t4242\n' "$(( $(date +%s) - 604801 ))" >> "$SELF_RECORD"
+run_tracker "$HOME_D" comment o/r 9 --body 'later' >/dev/null 2>&1 \
+  || fail "the retention fixture comment must succeed"
+assert_no_grep '4242' "$SELF_RECORD" "an id past the age bound must be dropped"
+assert_grep '7000' "$SELF_RECORD" "the id just written must be kept"
+pass "a recorded id past the age bound is dropped by the next write"
+
+now=$(date +%s)
+{
+  printf 'fm-tracker-self-comments-v1\n'
+  i=0
+  while [ "$i" -lt 1200 ]; do
+    printf '%s\t9%06d\n' "$now" "$i"
+    i=$((i + 1))
+  done
+} > "$SELF_RECORD"
+reset_gh
+printf '8000\n' > "$FAKE_GH_DIR/rest_repos_o_r_issues_9_comments"
+run_tracker "$HOME_D" comment o/r 9 --body 'ceiling' >/dev/null 2>&1 \
+  || fail "the ceiling fixture comment must succeed"
+kept=$(sed 1d "$SELF_RECORD" | wc -l | tr -d ' ')
+[ "$kept" -le 1000 ] || fail "the record must stay under its ceiling, kept $kept"
+assert_grep '8000' "$SELF_RECORD" "the newest id must survive the ceiling"
+assert_no_grep '9000000' "$SELF_RECORD" "the oldest entries must be the ones dropped"
+pass "the record stays under its ceiling and drops its oldest entries first"
+
 printf '\nall fm-tracker cases passed\n'

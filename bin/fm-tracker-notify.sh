@@ -19,6 +19,14 @@
 # which does see same-account comments. Both are ETag-conditional and both are
 # silent on 304, so the fallback also costs nothing when nothing happened.
 #
+# That second source also sees the comments the FLEET writes, and firstmate must
+# not be woken by its own writing. The filter is the record of comment ids the
+# fleet wrote (bin/fm-tracker-lib.sh owns it), never the author: the fleet
+# authenticates as the captain's own account, so an author filter would discard
+# the captain's answers. The record is passed to the parser for the comment
+# source only - the inbox structurally cannot deliver an account its own
+# actions, so nothing there needs suppressing.
+#
 # Measured against github.com on 2026-08-25; docs/verification/github-tracker-wake.md
 # owns the exact commands and output behind both claims.
 #
@@ -200,8 +208,8 @@ add_hit() {  # <slug> <number>
 
 # Filter one response body, advancing NEW_CURSOR and recording every issue whose
 # thread moved since the stored position.
-collect() {  # <mode> <slug> <since>  ; body on stdin
-  local mode=$1 slug=$2 since=$3 field_a field_b
+collect() {  # <mode> <slug> <since> [self-record]  ; body on stdin
+  local mode=$1 slug=$2 since=$3 self=${4-} field_a field_b
   NEW_CURSOR=$since
   while IFS=$'\t' read -r field_a field_b; do
     case $field_a in
@@ -210,8 +218,18 @@ collect() {  # <mode> <slug> <since>  ; body on stdin
       *) add_hit "$field_a" "$field_b" ;;
     esac
   done < <(FM_PARSE_MODE="$mode" FM_PARSE_SLUG="$slug" FM_PARSE_SINCE="$since" \
-    FM_PARSE_REPOS="$REPO_CSV" "$PYTHON" "$PARSER" 2>/dev/null)
+    FM_PARSE_REPOS="$REPO_CSV" FM_PARSE_SELF_FILE="$self" "$PYTHON" "$PARSER" 2>/dev/null)
 }
+
+# The home-wide record of comments the fleet wrote. An unreadable or absent
+# record means no id is suppressed: over-reporting is the failure this poll can
+# survive, and silently dropping a captain's comment is the one it cannot.
+SELF_RECORD=
+if fm_tracker_self_comments_path "$STATE" \
+  && fm_tracker_plain_file "$FM_TRACKER_ARTIFACT" \
+  && fm_tracker_self_comment_header_ok "$FM_TRACKER_ARTIFACT"; then
+  SELF_RECORD=$FM_TRACKER_ARTIFACT
+fi
 
 # ---------------------------------------------------------------------------
 # Source 1: the notifications inbox - one endpoint for every repository
@@ -266,7 +284,7 @@ for slug in "${REPOS[@]}"; do
   case $HTTP_STATUS in
     200)
       [ -z "$HTTP_ETAG" ] || cur_set "comments_etag_$key" "$HTTP_ETAG"
-      collect comments "$slug" "$since" <<EOF
+      collect comments "$slug" "$since" "$SELF_RECORD" <<EOF
 $HTTP_BODY
 EOF
       [ -z "$NEW_CURSOR" ] || cur_set "comments_since_$key" "$NEW_CURSOR"
