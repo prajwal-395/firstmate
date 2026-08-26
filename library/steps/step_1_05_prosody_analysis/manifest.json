@@ -40,7 +40,7 @@
     "archetype": "data_transformation",
     "idempotent": true,
     "per_clip_artifacts": [
-      "pipeline_output/prosody/{clip_id}_prosody.json"
+      "{area:prosody}/{clip_id}_prosody.json"
     ]
   },
   "dependencies": [

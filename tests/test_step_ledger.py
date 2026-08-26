@@ -19,7 +19,7 @@ import pytest
 
 from library.processes.edit_video import run_pipeline as runner
 from library.tools import footage_identity, step_ledger
-from library.tools.project_layout import ProjectLayout
+from library.tools.project_layout import Area, ProjectLayout
 
 PILOT_ROOT = Path(__file__).resolve().parents[1]
 STEPS_ROOT = PILOT_ROOT / "library" / "steps"
@@ -188,7 +188,7 @@ def test_a_preflight_failure_does_not_re_arm_the_expensive_work(project):
     the ledger is bookkeeping, the per-clip files are the cache.
     """
     root, state, _files = project
-    index_dir = root / "pipeline_output" / "temporal_index"
+    index_dir = ProjectLayout(root).read_dir(Area.TEMPORAL_INDEX)
     before = sorted(p.name for p in index_dir.iterdir())
 
     runner._record_step_failure(state, "temporal_index", "whisperx blew up")
@@ -202,7 +202,7 @@ def test_a_preflight_failure_does_not_re_arm_the_expensive_work(project):
 
 def test_rerun_one_clip_removes_exactly_that_clips_artifacts(project):
     root, state, _files = project
-    index_dir = root / "pipeline_output" / "temporal_index"
+    index_dir = ProjectLayout(root).read_dir(Area.TEMPORAL_INDEX)
     assert sorted(p.name for p in index_dir.iterdir()) == [
         "clip_001.json", "clip_002.json", "clip_003.json"]
 
@@ -217,7 +217,7 @@ def test_rerun_one_clip_removes_exactly_that_clips_artifacts(project):
     assert not step_ledger.is_completed(state, "temporal_index")
     assert step_ledger.is_completed(state, "semantic_analysis")
     assert step_ledger.is_completed(state, "prosody_analysis")
-    assert len(list((root / "pipeline_output" / "prosody").iterdir())) == 3
+    assert len(list(ProjectLayout(root).read_dir(Area.PROSODY).iterdir())) == 3
 
 
 def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
@@ -262,7 +262,7 @@ def test_rerun_a_whole_step_removes_every_clip(project):
     root, state, _files = project
     runner.apply_rerun_requests(str(root), state, ["temporal_index"],
                                 STAGE_BY_NODE, MANIFESTS)
-    index_dir = root / "pipeline_output" / "temporal_index"
+    index_dir = ProjectLayout(root).read_dir(Area.TEMPORAL_INDEX)
     assert list(index_dir.iterdir()) == []
     assert "temporal_index" not in state["step_outputs"]
 
@@ -274,7 +274,8 @@ def test_rerun_the_edit_stage_is_the_reset(project):
     assert state[step_ledger.LEDGER_KEY[step_ledger.EDIT]] == {}
     assert set(state[step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]]) == {
         n for n, s in STAGE_BY_NODE.items() if s == step_ledger.PREFLIGHT}
-    assert (root / "pipeline_output" / "temporal_index" / "clip_001.json").exists()
+    assert (ProjectLayout(root).read_path(
+        Area.TEMPORAL_INDEX, "clip_001.json")).exists()
 
 
 def test_a_rerun_target_that_names_nothing_raises(project):
@@ -307,18 +308,20 @@ def test_replacing_one_clip_invalidates_only_its_own_analysis(project):
     assert delta.changed == ["clip_002"]
     assert delta.stale_clip_ids == ["clip_002"]
 
-    for node, subdir, names in [
-        ("temporal_index", "pipeline_output/temporal_index",
+    for node, area, names in [
+        ("temporal_index", Area.TEMPORAL_INDEX,
          ["clip_001.json", "clip_003.json"]),
-        ("prosody_analysis", "pipeline_output/prosody",
+        ("prosody_analysis", Area.PROSODY,
          ["clip_001_prosody.json", "clip_003_prosody.json"]),
     ]:
-        on_disk = sorted(p.name for p in (root / subdir).iterdir())
+        on_disk = sorted(p.name
+                         for p in ProjectLayout(root).read_dir(area).iterdir())
         assert on_disk == names, f"{node} kept the wrong clips"
 
     # Vision profiles are keyed by file STEM, not clip id, so the
     # translation has to work or the wrong profile is deleted.
-    profiles = sorted(p.name for p in (root / "raw" / "analysis").iterdir())
+    profiles = sorted(p.name for p in
+                      ProjectLayout(root).read_dir(Area.VISION_ANALYSIS).iterdir())
     assert profiles == [
         "clip_profile_a_first.json",
         "clip_profile_a_first_v3.json",
@@ -382,7 +385,8 @@ def test_a_record_without_a_digest_is_not_read_as_a_change(project):
                                          MANIFESTS)
 
     assert not delta.footage_changed
-    assert (root / "pipeline_output" / "temporal_index" / "clip_001.json").exists()
+    assert (ProjectLayout(root).read_path(
+        Area.TEMPORAL_INDEX, "clip_001.json")).exists()
 
 
 def test_untouched_footage_invalidates_nothing(project):
@@ -412,7 +416,7 @@ def test_added_footage_renumbers_clips_and_the_check_notices(project):
     # every id now points at a different file.
     assert delta.stale_clip_ids == ["clip_001", "clip_002", "clip_003",
                                     "clip_004"]
-    assert list((root / "pipeline_output" / "temporal_index").iterdir()) == []
+    assert list(ProjectLayout(root).read_dir(Area.TEMPORAL_INDEX).iterdir()) == []
     assert not step_ledger.is_completed(state, "scan")
     assert not step_ledger.is_completed(state, "catalog")
 
@@ -426,7 +430,8 @@ def test_an_empty_raw_directory_refuses_to_invalidate(project):
     assert runner.apply_source_identity(str(root), state, STAGE_BY_NODE,
                                         MANIFESTS) is None
 
-    assert (root / "pipeline_output" / "temporal_index" / "clip_001.json").exists()
+    assert (ProjectLayout(root).read_path(
+        Area.TEMPORAL_INDEX, "clip_001.json")).exists()
     for node in STAGE_BY_NODE:
         assert step_ledger.is_completed(state, node), node
 
@@ -481,7 +486,15 @@ def test_migration_is_idempotent():
 
 # ── The declared per-clip artifacts are real declarations ────────────
 
-def test_declared_per_clip_artifacts_are_project_relative_and_templated():
+def test_declared_per_clip_artifacts_name_an_area_and_a_clip(tmp_path):
+    """A pattern spells no directory of its own.
+
+    They used to. When the layout moved the vision profiles out of
+    `raw/analysis/`, steps 1.03 and 1.07 were left declaring the old
+    path - so `--rerun semantic_analysis:clip_007` deleted nothing and
+    re-ran nothing, silently. The prefix is the layout's to state and
+    only the filename is the step's.
+    """
     for step_dir in sorted(STEPS_ROOT.iterdir()):
         manifest_path = step_dir / "manifest.json"
         if not manifest_path.exists():
@@ -491,9 +504,31 @@ def test_declared_per_clip_artifacts_are_project_relative_and_templated():
         for pattern in step_ledger.per_clip_artifacts(manifest):
             assert not os.path.isabs(pattern), \
                 f"{step_dir.name}: {pattern} must be project-relative"
+            assert pattern.startswith("{area:"), (
+                f"{step_dir.name}: {pattern} spells its own directory. Name "
+                f"an area - see library/tools/project_layout.py.")
             assert "{clip_id}" in pattern or "{stem}" in pattern, \
                 f"{step_dir.name}: {pattern} names no clip"
-            # {clip_id} and {stem} are the only placeholders the runner
-            # can fill; anything else would render a literal brace.
-            rendered = pattern.format(clip_id="clip_001", stem="IMG_1806")
+            # {area:...}, {clip_id} and {stem} are the only placeholders
+            # the runner can fill; anything else renders a literal brace.
+            rendered, = step_ledger.artifact_paths(
+                str(tmp_path), [pattern], "clip_001", "IMG_1806")
             assert "{" not in rendered and "}" not in rendered
+
+
+def test_a_declared_area_that_does_not_exist_raises(tmp_path):
+    with pytest.raises(step_ledger.LedgerError):
+        step_ledger.artifact_paths(
+            str(tmp_path), ["{area:somewhere_else}/{clip_id}.json"], "clip_001")
+
+
+def test_every_declared_area_resolves_inside_the_declaring_steps_directory(tmp_path):
+    """A step's per-clip artifacts belong in that step's directory."""
+    layout = ProjectLayout(tmp_path)
+    for node, manifest in MANIFESTS.items():
+        for pattern in step_ledger.per_clip_artifacts(manifest):
+            rendered, = step_ledger.artifact_paths(
+                str(tmp_path), [pattern], "clip_001", "IMG_1806")
+            assert layout.step_of(rendered) == node, (
+                f"{node} declares {pattern}, which lands in "
+                f"{layout.step_of(rendered)!r}'s directory")

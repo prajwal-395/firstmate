@@ -65,7 +65,8 @@ def main():
 
     # Output directory for analysis results.
     # See library/tools/project_layout.py.
-    output_dir = str(ProjectLayout(project_folder).write_dir(Area.MUSIC_ANALYSIS))
+    output_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.MUSIC_ANALYSIS, step="music_analysis"))
 
     # Path to the music pipeline tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(

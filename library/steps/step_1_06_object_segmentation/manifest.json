@@ -34,7 +34,7 @@
     "archetype": "data_processing",
     "idempotent": true,
     "per_clip_artifacts": [
-      "pipeline_output/segmentation_data/{clip_id}_segmentation.json"
+      "{area:segmentation}/{clip_id}_segmentation.json"
     ]
   },
   "dependencies": [

@@ -17,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "State input: rendered_output"
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "The project this run belongs to. Declared so the QA report lands in the project's exports area by name rather than beside whatever path the render reported. See library/tools/project_layout.py."
       }
     ],
     "outputs": [

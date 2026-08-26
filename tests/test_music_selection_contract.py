@@ -136,7 +136,8 @@ def test_catalogue_sources_includes_the_music_library(monkeypatch, tmp_path):
         # places, and catalogue_sources for why they share a label.
         assert sources["project"] == (
             str(tmp_path / "proj" / "music"),
-            str(tmp_path / "proj" / "pipeline_output" / "acquired_media"),
+            str(tmp_path / "proj" / "pipeline_output" / "steps"
+                / "2_04_music_selection" / "downloads"),
         )
     finally:
         monkeypatch.delenv("PIPELINE_MUSIC_LIBRARY", raising=False)

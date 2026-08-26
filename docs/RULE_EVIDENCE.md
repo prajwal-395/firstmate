@@ -246,6 +246,55 @@ Ten was chosen because nine spanned twelve days at the captain's real cadence, a
 
 One per run rather than one per save, because `save_pipeline_state` runs after every step: a per-save policy would spend the whole retention window inside a single run and lose exactly the thing these files were keeping.
 
+### the-folder-could-not-be-read-back
+
+The layout landed and the folder was tidy, and the captain said the point was not tidiness:
+
+> "i meant for you to clean up the actual pipeline output folder so we know what everything is and what step it relates to and all that ... i think for me to be able to work with you on auditing all the steps manually, we need to have everything able to be properly traced and be able to read that traceback of steps and whatnot. and then the lavish docs can be rewritten just referencing them instead of trying to copy things into them"
+
+Ruling of 2026-08-25. The requirement is provenance and legibility.
+
+What was already recorded, measured on project 001 before any of this was built:
+
+- The two ledgers carried `completed_at` and `elapsed_s` for every step, plus `failed_steps` and `step_errors`. Real facts about a real run.
+- `dag.json` carried the consumption graph in its 99 edges, so "what did this step read" was answerable at the step level.
+- Several artifacts already named their own source: `temporal_index/clip_001.json` carries `source_file`, a vision profile carries `file_path`, a prosody profile carries `audio_file`.
+- `source_fingerprints` linked each `clip_XXX` to a path and a digest.
+
+What was not recorded at all: which step wrote which FILE, and any notion of a run. `pipeline_log.jsonl` is append-only across every run with no run id, and its 50 `step_end` events all name the step `unknown_step`.
+
+So the change is narrow: a run identity, an observed artifact ledger, and two generated documents. The `declared` fallback exists because project 001's runs already happened and re-running them was explicitly out of scope - reconstruction is legitimate, and pretending it was observed is not.
+
+The three files `organize` could not attribute - `001.mov`, `fully loaded demo v0.mov`, `001.PNG` - were re-checked with the provenance machinery in hand. Nothing names them: not `pipeline_data.json`, not any per-step export, not any QA report, and not the archived pre-rerun state. They remain unknown, and `unsorted/` is `Kind.UNSORTED` precisely so that `organize` having MOVED them is not reported as `organize` having PRODUCED them.
+
+### by-kind-was-the-wrong-axis
+
+The first layout grouped by KIND - `pipeline_output/prosody/`, `pipeline_output/temporal_index/`, `pipeline_output/subtitle_segments/`.
+That was a correct answer to the brief it was given, and the brief was wrong.
+The captain, on being shown it:
+
+> "i wanted the pipeline output to be organized by step so i could step through it as well, why did you decide to organize it like this"
+
+Ruling of 2026-08-26. The folder structure IS the traceback. Sidecar metadata and an index do not give a reader that; the directory listing does.
+
+Two things hid the step from the reader, and the content was already almost step-shaped: the directory names said what the files WERE rather than which step made them, and they sorted alphabetically rather than in run order.
+
+The multi-writer audit that decided the shape, measured before any of it was built:
+
+- `Area.TEMPORAL_INDEX` has exactly ONE writer, step 1.04. Steps 1.07 and 2.02 reach it only through `read_dir`, `os.listdir` and reads. So by-step forced no compromise there and no shared area was needed.
+- Steps 4.05 and 4.06 appeared to write the output root. Both assignments were dead - the variable was assigned and never used.
+- `exports/` is genuinely written by two steps, 6.01 the render and 6.02 the QA report. It stays at project level, because it is the deliverable rather than any step's workspace, and both writers are declared.
+- Step 6.02 wrote `qa_report.json` via `os.path.dirname(video_path)` - a sixteenth inline path composition, missed by the first pass because it composes from a path rather than from `project_folder`.
+
+### a-declaration-that-went-stale
+
+`classification.per_clip_artifacts` used to spell the path out: `pipeline_output/temporal_index/{clip_id}.json`.
+
+When the layout moved the vision profiles out of `raw/analysis/`, the declarations in steps 1.03 and 1.07 were left behind pointing at the old location.
+Nothing failed. `--rerun semantic_analysis:clip_007` deleted nothing, so the step's own "already on disk?" check found the profile still there and re-ran nothing - silently, and reporting success.
+
+A declaration that can go stale is the exact failure the layout owner exists to remove, so the prefix is now the owner's to state (`{area:vision_analysis}/`) and only the filename is the step's.
+
 ---
 
 ## Section 9 - environment

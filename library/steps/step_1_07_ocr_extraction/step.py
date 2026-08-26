@@ -19,7 +19,7 @@ def main():
     # in raw/analysis/ocr/ inside the captain's footage directory.
     # See library/tools/project_layout.py.
     layout = ProjectLayout(data.get('project_folder') or os.getcwd())
-    ocr_dir = str(layout.write_dir(Area.OCR))
+    ocr_dir = str(layout.write_dir(Area.OCR, step="ocr_extraction"))
     
     temporal_index = data.get("temporal_index", {})
     temporal_dir = ""

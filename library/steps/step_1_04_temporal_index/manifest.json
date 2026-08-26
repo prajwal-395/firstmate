@@ -64,8 +64,8 @@
     "archetype": "data_transformation",
     "idempotent": true,
     "per_clip_artifacts": [
-      "pipeline_output/temporal_index/{clip_id}.json",
-      "pipeline_output/audio_cache/{clip_id}.wav"
+      "{area:temporal_index}/{clip_id}.json",
+      "{area:audio_cache}/{clip_id}.wav"
     ]
   },
   "dependencies": [

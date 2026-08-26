@@ -2,6 +2,8 @@ import os
 import json
 import tempfile
 from pathlib import Path
+
+from library.tools.project_layout import Area, ProjectLayout
 from library.tools.pipeline_logger import PipelineLogger, get_logger, step_timer
 
 def test_pipeline_logger_basic():
@@ -15,7 +17,8 @@ def test_pipeline_logger_basic():
             error="None"
         )
         
-        log_file = Path(tmpdir) / "pipeline_output" / "pipeline_log.jsonl"
+        log_file = ProjectLayout(tmpdir).read_path(
+            Area.LOGS, "pipeline_log.jsonl")
         assert log_file.exists()
         
         with open(log_file) as f:
@@ -40,7 +43,8 @@ def test_step_timer_decorator():
             
         dummy_step(node_id="step_2")
         
-        log_file = Path(tmpdir) / "pipeline_output" / "pipeline_log.jsonl"
+        log_file = ProjectLayout(tmpdir).read_path(
+            Area.LOGS, "pipeline_log.jsonl")
         with open(log_file) as f:
             lines = f.readlines()
             # Find step_2 log

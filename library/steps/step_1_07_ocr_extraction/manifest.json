@@ -26,7 +26,7 @@
     "archetype": "extraction",
     "idempotent": true,
     "per_clip_artifacts": [
-      "raw/analysis/ocr/{clip_id}/ocr_result.json"
+      "{area:ocr}/{clip_id}/ocr_result.json"
     ]
   },
   "dependencies": [

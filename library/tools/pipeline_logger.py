@@ -11,7 +11,7 @@ class PipelineLogger:
     def __init__(self, project_dir: str):
         self.project_dir = Path(project_dir)
         self.log_file = ProjectLayout(project_dir).write_path(
-            Area.OUTPUT_ROOT, "pipeline_log.jsonl")
+            Area.LOGS, "pipeline_log.jsonl")
         
     def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None):
         entry = {

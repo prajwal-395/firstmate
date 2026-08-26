@@ -198,6 +198,31 @@ def cmd_status(args):
     print(f"  Resolve folder:  {info['resolve_folder'] or '(root)'}")
 
 
+def cmd_trace(args):
+    """Regenerate the two documents that describe what a run did.
+
+    Works on a run that already happened: timings and verdicts come from
+    the ledgers in pipeline_data.json, and file attribution falls back to
+    the layout's declaration - labelled as a declaration, never dressed
+    up as an observation. See library/tools/run_traceback.py.
+    """
+    from library.tools.run_traceback import write_traceback
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    w = write_traceback(project_folder)
+    print(f"\n  Wrote {w['traceback']}")
+    print(f"  Wrote {w['artifact_index']}")
+    print(f"\n  {w['steps']} steps, {w['artifacts']} artifacts")
+    print(f"    observed: {w['observed']}  (a run was watching)")
+    print(f"    declared: {w['declared']}  (the layout says which step owns the area)")
+    print(f"    unknown:  {w['unknown']}  (neither - left as unknown)")
+
+
 def cmd_organize(args):
     """Bring a project folder onto the layout - or undo one that was.
 
@@ -421,6 +446,13 @@ def main():
     p_info = sub.add_parser("info", help="Show project configuration as JSON")
     p_info.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_info.set_defaults(func=cmd_info)
+
+    # trace
+    p_trace = sub.add_parser(
+        "trace",
+        help="Regenerate the run traceback and the artifact index for a project")
+    p_trace.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
+    p_trace.set_defaults(func=cmd_trace)
 
     # organize
     p_org = sub.add_parser(

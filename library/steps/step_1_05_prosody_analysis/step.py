@@ -131,7 +131,7 @@ def main():
 
     # Output directory. See library/tools/project_layout.py - a step
     # names an area and gets a path; it does not compose one.
-    output_dir = str(ProjectLayout(project_folder).write_dir(Area.PROSODY))
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.PROSODY, step="prosody_analysis"))
 
     # Path to the prosody tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(

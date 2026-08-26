@@ -1669,7 +1669,7 @@ def index_clip(
     print(f"    Duration: {duration:.1f}s", file=sys.stderr)
 
     # Extract audio (shared by speech + energy + audio event analyzers)
-    audio_dir = str(layout.write_dir(Area.AUDIO_CACHE))
+    audio_dir = str(layout.write_dir(Area.AUDIO_CACHE, step="temporal_index"))
     audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
     # 1. Scene detection
@@ -1877,7 +1877,7 @@ def build_temporal_index(
     # Absolute, and resolved from the PROJECT rather than the runner's
     # CWD, so downstream steps find the per-clip JSON files whatever
     # directory they run from.  The layout owner guarantees both.
-    index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX))
+    index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX, step="temporal_index"))
 
     results = []
     full_indices = []

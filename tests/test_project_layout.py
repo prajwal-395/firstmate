@@ -169,6 +169,117 @@ def test_an_empty_project_folder_raises():
             ProjectLayout(empty)
 
 
+# ── A step writes only in its own directory ─────────────────────────
+
+def test_a_step_cannot_write_into_another_steps_directory(tmp_path):
+    """`pipeline_output/steps/` only means anything if this holds. A
+    directory named for a step has to mean that step wrote it."""
+    layout = ProjectLayout(tmp_path)
+    with pytest.raises(ProjectLayoutViolation) as exc:
+        layout.write_dir(Area.PROSODY, step="render_subtitles")
+    assert "belongs to step 'prosody_analysis'" in str(exc.value)
+    assert "writes only inside its own directory" in str(exc.value)
+
+
+def test_a_step_may_write_into_its_own_directory(tmp_path):
+    layout = ProjectLayout(tmp_path)
+    d = layout.write_dir(Area.PROSODY, step="prosody_analysis")
+    assert layout.step_of(d) == "prosody_analysis"
+
+
+def test_a_step_may_write_to_an_area_no_step_owns(tmp_path):
+    """`exports/` is shared by 6.01 and 6.02, and `scratch/` by anyone."""
+    layout = ProjectLayout(tmp_path)
+    assert layout.write_dir(Area.EXPORTS, step="render")
+    assert layout.write_dir(Area.EXPORTS, step="validate")
+    assert layout.write_dir(Area.SCRATCH, step="prosody_analysis")
+
+
+def test_assert_step_owns_refuses_a_path_in_another_steps_directory(tmp_path):
+    """The guard for a path that arrived from outside the layout."""
+    layout = ProjectLayout(tmp_path)
+    stray = layout.write_path(Area.PROSODY, "x.json", step="prosody_analysis")
+    layout.assert_step_owns("prosody_analysis", stray)
+    with pytest.raises(ProjectLayoutViolation):
+        layout.assert_step_owns("render_subtitles", stray)
+
+
+def test_an_unknown_step_raises_rather_than_getting_a_directory(tmp_path):
+    with pytest.raises(ProjectLayoutViolation) as exc:
+        ProjectLayout(tmp_path).step_dir("nope")
+    assert "Unknown step" in str(exc.value)
+
+
+def test_a_files_directory_names_the_step_that_wrote_it(tmp_path):
+    """The payoff: no index and no sidecar - the answer is the path."""
+    layout = ProjectLayout(tmp_path)
+    for area, spec in AREAS.items():
+        if not spec.step:
+            continue
+        p = layout.write_path(area, "f.json", step=spec.step)
+        assert layout.step_of(p) == spec.step, f"{area.value} is misfiled"
+
+
+def test_a_path_outside_steps_belongs_to_no_step(tmp_path):
+    layout = ProjectLayout(tmp_path)
+    assert layout.step_of(layout.write_path(Area.LOGS, "run.log")) is None
+    assert layout.step_of(layout.write_dir(Area.EXPORTS)) is None
+
+
+# ── The step table matches the pipeline ─────────────────────────────
+
+def test_every_step_in_the_table_is_a_real_step_directory():
+    from library.tools.project_layout import STEPS
+
+    repo = Path(__file__).resolve().parent.parent / "library" / "steps"
+    on_disk = {p.name for p in repo.iterdir() if p.name.startswith("step_")}
+    for step in STEPS:
+        assert f"step_{step.dirname}" in on_disk, (
+            f"{step.node_id} names directory {step.dirname}, which is not "
+            f"a step in library/steps/")
+
+
+def test_every_step_directory_is_in_the_table():
+    from library.tools.project_layout import STEPS
+
+    repo = Path(__file__).resolve().parent.parent / "library" / "steps"
+    on_disk = {p.name[len("step_"):] for p in repo.iterdir()
+               if p.name.startswith("step_") and p.is_dir()}
+    assert on_disk == {s.dirname for s in STEPS}
+
+
+def test_the_table_is_in_dag_order_and_names_the_dag_nodes():
+    from library.tools.project_layout import STEPS
+    from library.tools.run_traceback import load_dag
+
+    dag_ids = [n["id"] for n in load_dag()["nodes"]]
+    wired = [s.node_id for s in STEPS if s.wired]
+    assert wired == dag_ids, (
+        "STEPS must list the wired steps in the order the DAG runs them - "
+        "the generated README renders from it")
+
+
+def test_the_unwired_steps_are_marked_unwired():
+    from library.tools.project_layout import STEPS
+    from library.tools.run_traceback import load_dag
+
+    dag_ids = {n["id"] for n in load_dag()["nodes"]}
+    for step in STEPS:
+        assert step.wired == (step.node_id in dag_ids), (
+            f"{step.node_id}: wired={step.wired} disagrees with the DAG")
+
+
+def test_every_step_owned_area_lives_under_its_step(tmp_path):
+    from library.tools.project_layout import STEP_BY_ID
+
+    for area, spec in AREAS.items():
+        if not spec.step:
+            continue
+        expected = f"pipeline_output/steps/{STEP_BY_ID[spec.step].dirname}"
+        assert spec.relpath == expected or spec.relpath.startswith(expected + "/"), (
+            f"{area.value} declares step {spec.step} but sits at {spec.relpath}")
+
+
 # ── The layout itself ───────────────────────────────────────────────
 
 def test_ensure_creates_the_output_side_and_not_the_input_side(tmp_path):
@@ -190,10 +301,56 @@ def test_the_folder_explains_itself(tmp_path):
     ProjectLayout(tmp_path).ensure()
     readme = (tmp_path / "README-LAYOUT.md").read_text(encoding="utf-8")
     for area, spec in AREAS.items():
-        if spec.relpath == ".":
-            continue
-        assert spec.relpath in readme, f"{area.value} is undocumented"
+        if spec.relpath in (".", "pipeline_output", "pipeline_output/steps"):
+            continue  # the containers; their contents are what is described
         assert spec.purpose in readme, f"{area.value} has no stated purpose"
+
+
+def test_the_readme_walks_the_pipeline_in_the_order_it_runs(tmp_path):
+    """The whole point: `ls` and the README both read as the pipeline."""
+    from library.tools.project_layout import STEPS
+
+    ProjectLayout(tmp_path).ensure()
+    readme = (tmp_path / "README-LAYOUT.md").read_text(encoding="utf-8")
+    positions = [readme.index(f"steps/{s.dirname}/") for s in STEPS]
+    assert positions == sorted(positions), (
+        "the README must render steps in run order, not alphabetically")
+
+
+def test_every_step_gets_a_directory_even_before_it_runs(tmp_path):
+    """An empty directory says "this step produced nothing", which is a
+    fact worth being able to see."""
+    from library.tools.project_layout import STEPS
+
+    ProjectLayout(tmp_path).ensure()
+    steps_root = tmp_path / "pipeline_output" / "steps"
+    on_disk = sorted(p.name for p in steps_root.iterdir())
+    assert on_disk == sorted(s.dirname for s in STEPS)
+
+
+# The two places where sorting by step number is not run order. The DAG
+# runs 2.06 before 2.05 and 5.04 before 5.03. Numbering by DAG position
+# instead would renumber every later directory whenever a step is
+# inserted, and would stop matching the "step 1.04" vocabulary the docs
+# and the code comments already share - so the inversions are accepted
+# and stated, and the README renders true run order.
+KNOWN_SORT_INVERSIONS = {
+    "2_05_mesh_spine", "2_06_music_analysis",
+    "5_03_creative_cohesion", "5_04_compile_manifest",
+}
+
+
+def test_the_step_directories_sort_into_pipeline_order(tmp_path):
+    from library.tools.project_layout import STEPS
+
+    ProjectLayout(tmp_path).ensure()
+    listing = sorted(p.name for p in
+                     (tmp_path / "pipeline_output" / "steps").iterdir())
+    run_order = [s.dirname for s in STEPS]
+    diverging = {a for a, b in zip(listing, run_order) if a != b}
+    assert diverging <= KNOWN_SORT_INVERSIONS, (
+        f"the listing diverges from run order beyond the two known "
+        f"inversions: {sorted(diverging - KNOWN_SORT_INVERSIONS)}")
 
 
 def test_every_area_has_a_purpose_sentence():

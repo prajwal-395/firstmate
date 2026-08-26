@@ -176,7 +176,7 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
         project_folder = os.path.dirname(os.path.dirname(os.path.dirname(mov_path)))
 
     from library.tools.project_layout import Area, ProjectLayout
-    qa_frames_dir = str(ProjectLayout(project_folder).write_dir(Area.QA_FRAMES))
+    qa_frames_dir = str(ProjectLayout(project_folder).write_dir(Area.QA_FRAMES, step="validate"))
     os.makedirs(qa_frames_dir, exist_ok=True)
 
     try:

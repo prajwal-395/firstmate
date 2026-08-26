@@ -309,19 +309,54 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 **One module owns the project-side layout: `library/tools/project_layout.py`.**
 `paths.py` owns the REPO and the MACHINE; this owns one PROJECT, which is a folder passed in rather than a constant.
 
+**`pipeline_output/steps/` IS the pipeline.** One directory per step, `1_04_temporal_index/` and so on, so `ls` walks it in the order it runs and a file's directory names the step that wrote it. That is the point: the captain audits by walking the folder, not by consulting an index. [why](docs/RULE_EVIDENCE.md#by-kind-was-the-wrong-axis)
+
+- `STEPS` is the ordered table of every step, in DAG order, with the directory it owns. `AreaSpec.step` names the owning step for a step-owned area.
+- Directory names use the STEP number, the same spelling `library/steps/` and every "step 1.04" citation uses. Sorting therefore diverges from run order in exactly two places - the DAG runs 2.06 before 2.05 and 5.04 before 5.03 - and `README-LAYOUT.md` renders true run order. Numbering by DAG position instead would renumber every later directory whenever a step is inserted.
+- Each step directory holds `output.json` and `summary.md` (what `step_exporter` writes) plus whatever files the step produced.
+- **A step writes only inside its own directory.** Pass `step=` to `write_dir`/`write_path` and another step's area raises; `assert_step_owns` is the same guard for a path from outside the layout.
+- **Not everything is a step's product.** `logs/`, `gates/`, `review/`, `llm_*/`, `thumbnails/`, `backups/`, `migrations/`, `provenance/`, `scratch/`, `unsorted/` and `exports/` stay at project level. Nesting them under a step would be a lie about who wrote them.
+- `exports/` is the one area TWO steps legitimately write: 6.01 the render and 6.02 the QA report. `produced_by` names both, and provenance leaves `step_id` None rather than picking one.
+
 - Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
-- **A step never composes a project path.** It names an `Area` and gets a path: `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state. All fifteen steps that used to join `project_folder` with a name of their own choosing now do this. [why](docs/RULE_EVIDENCE.md#nothing-owned-the-project-folder)
+- **A step never composes a project path.** It names an `Area` and gets a path: `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state. All sixteen steps that used to join `project_folder` with a name of their own choosing now do this. [why](docs/RULE_EVIDENCE.md#nothing-owned-the-project-folder)
 - **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/` and `compositions/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
 - `assert_writable(path)` is the guard for a path that arrives from outside the layout - a manifest key, a CLI flag. Outside the project, at the bare project root, or inside an input area all raise.
-- **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads, and runs on `manage_project.py new` and at step 1.01 of every run. Add a row, and the folder documents it.
+- **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads - the steps in run order, what each reads and what each writes - and runs on `manage_project.py new` and at step 1.01 of every run.
+- **`classification.per_clip_artifacts` names an AREA, not a directory**: `{area:temporal_index}/{clip_id}.json`. Spelling the path out is what left steps 1.03 and 1.07 pointing at `raw/analysis/` after the layout moved it, so `--rerun semantic_analysis:clip_007` deleted nothing. [why](docs/RULE_EVIDENCE.md#a-declaration-that-went-stale)
 - The scaffold is not a second list. It drifted from the steps once, promising `pipeline_output/subtitles` while step 4.05 wrote `subtitle_segments`.
-- Anything the pipeline FETCHES rather than computes - a downloaded music track - is output, and goes to `Area.ACQUIRED_MEDIA`, not into `music/`.
+- Anything the pipeline FETCHES rather than computes - a downloaded music track - is output, and goes to `Area.ACQUIRED_MEDIA` under the step that fetched it, not into `music/`.
 
 **Backups of `pipeline_data.json` are automatic and bounded.**
 `pipeline_output/backups/pipeline_data/`, one per RUN rather than per save, newest `MAX_PIPELINE_DATA_BACKUPS` kept, pruned by the writer.
 
 - The pruner only ever considers files matching its own naming pattern, so a hand-made backup dropped in beside them is never deleted. Pre-policy backups live in `backups/pipeline_data/legacy/`.
 - One per run, not one per save, because `save_pipeline_state` runs after every step and the thing worth keeping is the state as it stood BEFORE a run. [why](docs/RULE_EVIDENCE.md#nine-hand-made-backups)
+
+### Reading a run back
+
+**The layout answers "which step wrote this" by where the file is. Provenance adds WHICH RUN and FROM WHAT.**
+`library/tools/provenance.py` owns it.
+
+Every record carries the METHOD that produced it, because an audit that cannot tell a measurement from a declaration is not an audit:
+
+- `observed` - the runner listed the output tree before the step and again after, and this file appeared or changed in between. A recorded fact about a specific run. It costs the steps nothing, which is what makes it work for the ones that hand the writing to ffmpeg, Remotion or Resolve.
+- `declared` - nothing was watching, but the file sits in a step's directory, or the area declares a writer. True of the pipeline as built, not of this file.
+- `unknown` - neither, and it stays unknown. **Never attribute a file to the nearest plausible step.**
+
+- The runner observes each step **after** `_export_step_for_review`, or a step's own `<step_id>.json` export is attributed to nobody.
+- Records are append-only: a run is a thing that happened, and a later run overwriting a file does not unmake the record of the earlier one. Newest wins when the question is "what is this file now".
+- An area declaring TWO producers (`exports/` is `render` and `validate`) leaves `step_id` None and names both. Picking the first would be an answer the pipeline does not have.
+- `derived_from` is READ out of the artifact - `SOURCE_KEYS` names the keys - never inferred from a filename. A `clip_id` is not a path.
+- `pipeline_output/backups/` is counted, not listed: an archived copy is not the artifact the step wrote.
+
+**Two generated documents, regenerated on every run and by `manage_project.py trace <slug>`.**
+`library/tools/run_traceback.py`. `RUN-TRACEBACK.md` is the steps in order - when, how long, what it consumed and from which step, what it produced. `ARTIFACTS.md` is the other direction: every file, with the step that wrote it and how that was established.
+
+- Both are generated from `dag.json`, the two ledgers, `step_errors` and the provenance ledger. Never hand-written, and never edited in place.
+- `trace` works on a run that already happened: the timings and verdicts are recorded fact, and file attribution falls back to `declared` - labelled, with the header saying plainly that nothing was observed. [why](docs/RULE_EVIDENCE.md#the-folder-could-not-be-read-back)
+- `object_segmentation` and `ocr_extraction` declare their areas and are not in the DAG, so `ARTIFACTS.md` says nothing runs them. `unwired_step_ids` matches by `step_ref`, because the DAG calls `step_1_01_scan_project` simply `scan`.
+- `tests/test_run_traceback.py`.
 
 **A project that predates the layout is brought onto it with `manage_project.py organize <slug>`.**
 `library/tools/project_migration.py`. It plans by default and changes nothing until `--apply`.

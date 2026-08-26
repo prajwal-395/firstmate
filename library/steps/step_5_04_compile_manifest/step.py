@@ -54,7 +54,9 @@ from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import project_template_name, resolve_project_template
 from tools.framing_intent import DEFAULT_FRAMING_INTENT, resolve_framing_intent
 from tools.delivery_format import resolve_delivery_format
-from tools.project_layout import Area, ProjectLayout
+from tools.project_layout import (
+    STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
+)
 
 # Wording that means the camera was not locked off. Read from the vision
 # analysis's own stability verdict and motion prose, which is where both
@@ -267,14 +269,27 @@ def _load_state_outputs(out_dir: str) -> dict:
 def load(out_dir, filename):
     """Load a step's output: pipeline state first, then the exported file.
 
-    pipeline_data.json is authoritative. The per-step files in
-    pipeline_output are written best-effort by the dashboard exporter and
-    that export is allowed to fail while the state save succeeds, so a
-    stale file must never win over the state that produced this run.
+    pipeline_data.json is authoritative. The exported files are written
+    best-effort by the dashboard exporter and that export is allowed to
+    fail while the state save succeeds, so a stale file must never win
+    over the state that produced this run.
+
+    Three places, in order: the state, the step's own directory under
+    `pipeline_output/steps/`, and - for a project that predates the
+    by-step layout - the flat `<step_id>.json` at the output root.
     """
     stem = filename.replace(".json", "")
     if stem in _STATE_OUTPUTS:
         return _STATE_OUTPUTS[stem]
+
+    if out_dir and out_dir != ".":
+        try:
+            layout = ProjectLayout(os.path.dirname(os.path.abspath(out_dir)))
+            step_file = layout.step_dir(stem) / STEP_OUTPUT_FILE
+            if step_file.exists():
+                return _read_json(str(step_file))
+        except (ProjectLayoutViolation, KeyError):
+            pass  # `stem` is not a step id; the flat lookups below still apply
 
     path = os.path.join(out_dir, filename)
     if os.path.exists(path):
@@ -1683,7 +1698,8 @@ def main():
 
         out_path = str(ProjectLayout(
             os.path.dirname(os.path.abspath(out_dir))
-        ).write_path(Area.OUTPUT_ROOT, "assembly_manifest.json"))
+        ).write_path(Area.ASSEMBLY_MANIFEST, "assembly_manifest.json",
+                     step="compile_manifest"))
         with open(out_path, "w") as f:
             json.dump(manifest, f, indent=2)
         print(f"\nWrote: {out_path}", file=sys.stderr)

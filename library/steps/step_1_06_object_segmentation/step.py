@@ -79,7 +79,8 @@ def main():
     # Where masks land is the layout owner's call, not this step's.
     # See library/tools/project_layout.py.
     project_folder = input_data.get("project_folder") or os.getcwd()
-    output_dir = str(ProjectLayout(project_folder).write_dir(Area.SEGMENTATION))
+    output_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.SEGMENTATION, step="object_segmentation"))
     
     result = run_step(raw_footage_files, clip_catalog, output_dir)
     json.dump(result, sys.stdout, indent=2)

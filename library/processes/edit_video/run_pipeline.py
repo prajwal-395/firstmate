@@ -33,6 +33,7 @@ from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools import provenance
 
 logger = logging.getLogger(__name__)
 
@@ -1524,6 +1525,16 @@ def run_pipeline(
                                  argv=sys.argv[1:])
     print(f"  Mode: {run_mode}", file=sys.stderr)
 
+    # This run's identity, and the ledger every artifact it writes is
+    # recorded against. `run_control` owns the handbrake protocol and
+    # says whether a run is UP; this says which run a FILE came from,
+    # which outlives the run by a lot. See library/tools/provenance.py.
+    _run_id = provenance.new_run_id()
+    _provenance = provenance.ProvenanceLedger(project_dir)
+    _provenance.start_run(_run_id, mode=run_mode)
+    _steps_this_run = []
+    print(f"  Run:  {_run_id}", file=sys.stderr)
+
     current_phase = None
     
     for node_id in steps_to_run:
@@ -1618,7 +1629,14 @@ def run_pipeline(
         
         try:
             start_time = time.time()
-            
+            # What the output tree looks like BEFORE this step. Compared
+            # against the same listing afterwards, this is how every
+            # artifact learns which step wrote it - without any step
+            # having to say so, which matters because half of them hand
+            # the writing to ffmpeg, Remotion or Resolve.
+            # See library/tools/provenance.py.
+            artifacts_before = _provenance.snapshot()
+
             def execute_step_once():
                 if impl["type"] == "deterministic":
                     return run_deterministic_step(impl["entry"], inputs), False
@@ -1795,7 +1813,17 @@ def run_pipeline(
                     logger.warning(f"Mesh spine duration ({total_duration:.1f}s) below minimum ({MIN_DURATION}s). Consider using more footage.")
             
             _export_step_for_review(project_dir, node_id, node["name"], output, state)
-            
+
+            # Now, and not before the export: `_export_step_for_review`
+            # writes <step_id>.json and <step_id>.summary.md, and a
+            # snapshot taken above them attributes a step's own export to
+            # nobody. Everything the step's completion caused to appear
+            # is what belongs to the step.
+            # See library/tools/provenance.py.
+            _provenance.observe(node_id, _run_id, artifacts_before,
+                                _provenance.snapshot())
+            _steps_this_run.append(node_id)
+
             if review_mode:
                 _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
                 print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
@@ -1934,6 +1962,21 @@ def run_pipeline(
         held_before_step=held_before_step,
         paused_at_gate=paused_at_gate,
     )
+    _provenance.end_run(_run_id, status.lower(), _steps_this_run)
+
+    # Regenerate the two readable documents from what was just recorded.
+    # Generated rather than written, and regenerated on every run, so the
+    # folder never describes a run that is two runs old.
+    # See library/tools/run_traceback.py.
+    try:
+        from library.tools.run_traceback import write_traceback
+        written = write_traceback(project_dir)
+        print(f"  Traceback: {written['traceback']}", file=sys.stderr)
+        print(f"  Artifacts: {written['artifact_index']}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not write the run traceback: {exc}",
+              file=sys.stderr)
+
     json.dump(summary, sys.stdout, indent=2)
     return summary
 

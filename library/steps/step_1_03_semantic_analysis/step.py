@@ -78,7 +78,7 @@ def main():
     # is what makes that unrepeatable rather than merely fixed.
     # See library/tools/project_layout.py.
     layout = ProjectLayout(data.get('project_folder') or os.getcwd())
-    analysis_dir = str(layout.write_dir(Area.VISION_ANALYSIS))
+    analysis_dir = str(layout.write_dir(Area.VISION_ANALYSIS, step="semantic_analysis"))
     
     # Path to the vision pipeline tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

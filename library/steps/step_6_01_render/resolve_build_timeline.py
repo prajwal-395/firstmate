@@ -320,7 +320,7 @@ def _ensure_transparent_carrier(
     # nowhere to put it that belongs to anything, so it falls back to the
     # step directory as before.  See library/tools/project_layout.py.
     carrier_dir = (
-        str(ProjectLayout(project_folder).write_dir(Area.CARRIERS))
+        str(ProjectLayout(project_folder).write_dir(Area.CARRIERS, step="render"))
         if project_folder
         else os.path.join(os.path.dirname(__file__), "_carriers"))
     os.makedirs(carrier_dir, exist_ok=True)

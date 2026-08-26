@@ -82,6 +82,97 @@ class Kind(str, Enum):
     guessing, and rather than deleting them."""
 
 
+# ── The steps, in the order the DAG runs them ───────────────────────
+#
+# The directory name is the step's own number, the same spelling
+# `library/steps/` uses and the same one every "step 1.04" citation in
+# AGENTS.md uses.  That makes `ls pipeline_output/steps/` sort into
+# pipeline order - with TWO inversions, because the DAG runs
+# `music_analysis` (2.06) before `mesh_spine` (2.05) and
+# `compile_manifest` (5.04) before `creative_cohesion` (5.03).  The table
+# below is in true run order and the generated README renders from it, so
+# the order the captain READS is exact even where the sort is not.
+#
+# Numbering by step rather than by DAG position is deliberate: a
+# topological position renumbers every later directory the moment a step
+# is inserted, and the step number is the vocabulary the docs and the
+# code comments already share.
+
+@dataclass(frozen=True)
+class StepDir:
+    node_id: str
+    """The DAG node id. Four are shortened: `step_1_01_scan_project` is
+    the node `scan`, and catalog / validate / mesh_spine are the same
+    shape. The id is what `pipeline_data.json` keys everything by."""
+
+    dirname: str
+    """`1_04_temporal_index` - the step directory, named for the step."""
+
+    wired: bool = True
+    """False for a step that is implemented but that no DAG node runs.
+    `object_segmentation` (1.06) and `ocr_extraction` (1.07) are the two
+    (AGENTS.md section 3). They still get a directory, because they still
+    have somewhere their output would land."""
+
+
+STEPS: tuple = (
+    StepDir("validate_sfx_library", "0_01_validate_sfx_library"),
+    StepDir("scan", "1_01_scan_project"),
+    StepDir("catalog", "1_02_catalog_footage"),
+    StepDir("semantic_analysis", "1_03_semantic_analysis"),
+    StepDir("temporal_index", "1_04_temporal_index"),
+    StepDir("prosody_analysis", "1_05_prosody_analysis"),
+    StepDir("object_segmentation", "1_06_object_segmentation", wired=False),
+    StepDir("ocr_extraction", "1_07_ocr_extraction", wired=False),
+    StepDir("creative_direction", "2_01_creative_direction"),
+    StepDir("speech_sequence", "2_02_speech_sequence"),
+    StepDir("music_selection", "2_04_music_selection"),
+    StepDir("music_analysis", "2_06_music_analysis"),
+    StepDir("mesh_spine", "2_05_mesh_spine"),
+    StepDir("assign_aroll", "3_01_assign_aroll"),
+    StepDir("select_broll", "3_02_select_broll"),
+    StepDir("review_rough_cut", "3_03_review_rough_cut"),
+    StepDir("plan_subtitles", "4_01_plan_subtitles"),
+    StepDir("plan_transitions", "4_02_plan_transitions"),
+    StepDir("plan_vfx", "4_03_plan_vfx"),
+    StepDir("plan_sfx", "4_04_plan_sfx"),
+    StepDir("render_subtitles", "4_05_render_subtitles"),
+    StepDir("render_motion_graphics", "4_06_render_motion_graphics"),
+    StepDir("color_grade", "5_01_color_grade"),
+    StepDir("audio_mix", "5_02_audio_mix"),
+    StepDir("compile_manifest", "5_04_compile_manifest"),
+    StepDir("creative_cohesion", "5_03_creative_cohesion"),
+    StepDir("render", "6_01_render"),
+    StepDir("validate", "6_02_validate_output"),
+)
+
+STEP_BY_ID: dict = {s.node_id: s for s in STEPS}
+STEP_ORDER: dict = {s.node_id: i for i, s in enumerate(STEPS)}
+
+# Writers that are not steps.  Named so an area they own does not have to
+# read as unattributed.
+RUNNER = "runner"
+DASHBOARD = "dashboard"
+ORGANIZE = "organize"
+NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE)
+
+_OUT = "pipeline_output"
+_STEPS_DIRNAME = "steps"
+_STEPS = f"{_OUT}/{_STEPS_DIRNAME}"
+
+# What a step's own JSON output and human summary are called inside its
+# directory.  Not `<step_id>.json`: inside `1_04_temporal_index/` the
+# step id is the directory name, and repeating it is noise.
+STEP_OUTPUT_FILE = "output.json"
+STEP_SUMMARY_FILE = "summary.md"
+
+
+def _step_path(node_id: str, *parts) -> str:
+    """`pipeline_output/steps/1_04_temporal_index[/parts...]`."""
+    step = STEP_BY_ID[node_id]
+    return "/".join((_STEPS, step.dirname, *parts))
+
+
 # ── The table ───────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -89,12 +180,31 @@ class AreaSpec:
     relpath: str
     kind: Kind
     purpose: str
+    step: str = ""
+    """The DAG node id whose directory this is, for a step-owned area.
+
+    Empty for everything that is not a step's product. This is what makes
+    the folder walkable: a file's directory names the step that wrote it,
+    so nothing has to be looked up.
+    """
+
+    produced_by: tuple = ()
+    """Writers, for an area no single step owns.
+
+    Only `exports/` and the project-level areas need this. It is a
+    DECLARATION about the pipeline as built, never an observation of a
+    particular file; `provenance.py` labels it accordingly.
+    """
+
+    @property
+    def writers(self) -> tuple:
+        return (self.step,) if self.step else self.produced_by
 
 
 class Area(str, Enum):
     """Every named place inside a project folder.
 
-    A place that is not here does not exist.  Adding a directory means
+    A place that is not here does not exist. Adding a directory means
     adding a row, which is what keeps the scaffold, the README and the
     steps from drifting apart.
     """
@@ -107,29 +217,31 @@ class Area(str, Enum):
     BRAND_ASSETS = "brand_assets"
     COMPOSITIONS = "compositions"
 
-    # The output root, and the per-step JSON/summary export that lands
-    # directly in it.
+    # The output root, and the steps/ directory that is most of it.
     OUTPUT_ROOT = "output_root"
+    STEPS_ROOT = "steps_root"
 
-    # Preflight enrichment of this project's footage.
+    # One per step that leaves files behind. The key still says what the
+    # files ARE; the PATH says which step made them, which is what the
+    # captain reads.
     VISION_ANALYSIS = "vision_analysis"
     TEMPORAL_INDEX = "temporal_index"
     AUDIO_CACHE = "audio_cache"
     PROSODY = "prosody"
     SEGMENTATION = "segmentation"
     OCR = "ocr"
-
-    # Chosen and generated media.
-    MUSIC_ANALYSIS = "music_analysis"
     ACQUIRED_MEDIA = "acquired_media"
+    MUSIC_ANALYSIS = "music_analysis"
     SUBTITLE_SEGMENTS = "subtitle_segments"
     MOTION_GRAPHICS_SEGMENTS = "motion_graphics_segments"
     TIMED_TEXT_SEGMENTS = "timed_text_segments"
+    ASSEMBLY_MANIFEST = "assembly_manifest"
     FUSION_COMPS = "fusion_comps"
     CARRIERS = "carriers"
-
-    # Review, QA and the agent/human channel.
     QA_FRAMES = "qa_frames"
+
+    # Project-level, and deliberately NOT under steps/: nesting these
+    # under a step would be a lie about who wrote them.
     THUMBNAILS = "thumbnails"
     GATES = "gates"
     ANNOTATIONS = "annotations"
@@ -139,8 +251,7 @@ class Area(str, Enum):
     LLM_RESPONSES = "llm_responses"
     LLM_RESPONSES_BAK = "llm_responses_bak"
     LOGS = "logs"
-
-    # Deliverables, state, backups, scratch, admitted unknowns.
+    PROVENANCE = "provenance"
     MIGRATIONS = "migrations"
     EXPORTS = "exports"
     RUN_STATE = "run_state"
@@ -149,19 +260,18 @@ class Area(str, Enum):
     UNSORTED = "unsorted"
 
 
-_OUT = "pipeline_output"
-
 AREAS: dict[Area, AreaSpec] = {
     Area.PROJECT_ROOT: AreaSpec(
         ".", Kind.INPUT,
-        "The project itself. project.yaml lives here and is read, never written by a step."),
+        "The project itself. project.yaml lives here and is read, never "
+        "written by a step."),
     Area.RAW: AreaSpec(
         "raw", Kind.INPUT,
         "Source footage as the captain shot it. Read-only to the pipeline."),
     Area.MUSIC: AreaSpec(
         "music", Kind.INPUT,
         "Music the captain put here by hand. Read-only to the pipeline; "
-        "tracks the pipeline downloads land in pipeline_output/acquired_media/."),
+        "tracks the pipeline downloads land under the step that fetched them."),
     Area.ASSETS: AreaSpec(
         "assets", Kind.INPUT,
         "Project-owned artwork and presets referenced by name from project.yaml."),
@@ -170,105 +280,160 @@ AREAS: dict[Area, AreaSpec] = {
         "Fonts and logos this series owns, staged into Remotion by prep_remotion."),
     Area.COMPOSITIONS: AreaSpec(
         "compositions", Kind.INPUT,
-        "Project-owned Remotion compositions, staged verbatim. The engine renders "
-        "them and never edits one."),
+        "Project-owned Remotion compositions, staged verbatim. The engine "
+        "renders them and never edits one."),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,
-        "Everything the pipeline computes. Per-step <step_id>.json and "
-        "<step_id>.summary.md land directly here; the rest is in the subdirectories below."),
+        "Everything the pipeline computes. Almost all of it is under steps/; "
+        "what is not is listed below and belongs to the runner or the "
+        "dashboard rather than to any step.",
+        produced_by=(RUNNER,)),
+    Area.STEPS_ROOT: AreaSpec(
+        _STEPS, Kind.OUTPUT,
+        "One directory per step, numbered so the listing walks the pipeline "
+        "in the order it runs. Open a step's directory to see exactly what "
+        "that step produced.",
+        produced_by=(RUNNER,)),
 
+    # ── Step-owned ──────────────────────────────────────────────────
     Area.VISION_ANALYSIS: AreaSpec(
-        f"{_OUT}/vision_analysis", Kind.OUTPUT,
-        "Per-clip vision profiles from the v3 pipeline (step 1.03)."),
+        _step_path("semantic_analysis"), Kind.OUTPUT,
+        "Per-clip vision profiles from the v3 pipeline. Each names the clip "
+        "it describes in its `file_path`.",
+        step="semantic_analysis"),
     Area.TEMPORAL_INDEX: AreaSpec(
-        f"{_OUT}/temporal_index", Kind.OUTPUT,
-        "Per-clip transcription, word timings and face presence (step 1.04)."),
+        _step_path("temporal_index", "index"), Kind.OUTPUT,
+        "One JSON per clip: transcription, word timings, face presence. Each "
+        "names its clip in `source_file`. THE cache - deleting a file here "
+        "is what makes that clip get re-transcribed.",
+        step="temporal_index"),
     Area.AUDIO_CACHE: AreaSpec(
-        f"{_OUT}/audio_cache", Kind.OUTPUT,
-        "16 kHz mono audio extracted from each clip for transcription (step 1.04)."),
+        _step_path("temporal_index", "audio_cache"), Kind.OUTPUT,
+        "16 kHz mono audio extracted from each clip so WhisperX can read it.",
+        step="temporal_index"),
     Area.PROSODY: AreaSpec(
-        f"{_OUT}/prosody", Kind.OUTPUT,
-        "Per-clip prosody profiles (step 1.05)."),
+        _step_path("prosody_analysis"), Kind.OUTPUT,
+        "Per-clip prosody profiles. Each names the audio it measured.",
+        step="prosody_analysis"),
     Area.SEGMENTATION: AreaSpec(
-        f"{_OUT}/segmentation_data", Kind.OUTPUT,
-        "Per-clip object masks (step 1.06, not wired into the DAG)."),
+        _step_path("object_segmentation"), Kind.OUTPUT,
+        "Per-clip object masks. The step is implemented but NOT wired into "
+        "the DAG, so a run produces nothing here.",
+        step="object_segmentation"),
     Area.OCR: AreaSpec(
-        f"{_OUT}/ocr_data", Kind.OUTPUT,
-        "Per-clip on-screen text (step 1.07, not wired into the DAG)."),
-
-    Area.MUSIC_ANALYSIS: AreaSpec(
-        f"{_OUT}/music", Kind.OUTPUT,
-        "Tempo, beat grid and structure of the CHOSEN track (step 2.06)."),
+        _step_path("ocr_extraction"), Kind.OUTPUT,
+        "Per-clip on-screen text. The step is implemented but NOT wired into "
+        "the DAG, so a run produces nothing here.",
+        step="ocr_extraction"),
     Area.ACQUIRED_MEDIA: AreaSpec(
-        f"{_OUT}/acquired_media", Kind.OUTPUT,
-        "Media the pipeline fetched rather than the captain supplying it - "
-        "notably a music track downloaded by step 2.04."),
+        _step_path("music_selection", "downloads"), Kind.OUTPUT,
+        "A music track the step fetched rather than the captain supplying "
+        "it. Output, so it is here and not in the read-only music/.",
+        step="music_selection"),
+    Area.MUSIC_ANALYSIS: AreaSpec(
+        _step_path("music_analysis"), Kind.OUTPUT,
+        "Tempo, beat grid and structure of the CHOSEN track.",
+        step="music_analysis"),
     Area.SUBTITLE_SEGMENTS: AreaSpec(
-        f"{_OUT}/subtitle_segments", Kind.OUTPUT,
-        "Rendered per-block subtitle overlays, ProRes 4444 with alpha (step 4.05)."),
+        _step_path("render_subtitles"), Kind.OUTPUT,
+        "Rendered per-block subtitle overlays, ProRes 4444 with alpha, plus "
+        "the props each was rendered from.",
+        step="render_subtitles"),
     Area.MOTION_GRAPHICS_SEGMENTS: AreaSpec(
-        f"{_OUT}/motion_graphics_segments", Kind.OUTPUT,
-        "Rendered per-block motion graphics overlays (step 4.06)."),
+        _step_path("render_motion_graphics", "motion_graphics"), Kind.OUTPUT,
+        "Rendered per-block motion graphics overlays, plus their props.",
+        step="render_motion_graphics"),
     Area.TIMED_TEXT_SEGMENTS: AreaSpec(
-        f"{_OUT}/timed_text_segments", Kind.OUTPUT,
-        "Rendered timed-text cards, placed on V6 (step 4.06)."),
+        _step_path("render_motion_graphics", "timed_text"), Kind.OUTPUT,
+        "Rendered timed-text cards. The renderer places these on V6.",
+        step="render_motion_graphics"),
+    Area.ASSEMBLY_MANIFEST: AreaSpec(
+        _step_path("compile_manifest"), Kind.OUTPUT,
+        "assembly_manifest.json - every decision consolidated into the one "
+        "document that drives the Resolve build.",
+        step="compile_manifest"),
     Area.FUSION_COMPS: AreaSpec(
-        f"{_OUT}/fusion_comps", Kind.OUTPUT,
-        "Generated Fusion .comp files imported onto timeline clips (step 6.01)."),
+        _step_path("render", "fusion_comps"), Kind.OUTPUT,
+        "Generated Fusion .comp files, imported onto timeline clips.",
+        step="render"),
     Area.CARRIERS: AreaSpec(
-        f"{_OUT}/carriers", Kind.OUTPUT,
-        "Transparent ProRes carriers that generator effects are composited onto."),
-
+        _step_path("render", "carriers"), Kind.OUTPUT,
+        "Transparent ProRes carriers that generator effects composite onto.",
+        step="render"),
     Area.QA_FRAMES: AreaSpec(
-        f"{_OUT}/qa_frames", Kind.OUTPUT,
-        "Single frames pulled off a render to check an effect drew (step 6.02)."),
+        _step_path("validate", "qa_frames"), Kind.OUTPUT,
+        "Single frames pulled off the render to check an effect drew.",
+        step="validate"),
+
+    # ── Project-level: not a step's product ─────────────────────────
     Area.THUMBNAILS: AreaSpec(
         f"{_OUT}/thumbnails", Kind.OUTPUT,
-        "Footage-library thumbnails for the dashboard."),
+        "Footage-library thumbnails for the dashboard.",
+        produced_by=(DASHBOARD,)),
     Area.GATES: AreaSpec(
         f"{_OUT}/gates", Kind.OUTPUT,
-        "Review-gate records: what paused, and how the reviewer answered."),
+        "Review-gate records: what paused, and how the reviewer answered.",
+        produced_by=(RUNNER, DASHBOARD)),
     Area.ANNOTATIONS: AreaSpec(
         f"{_OUT}/annotations", Kind.OUTPUT,
-        "Per-step annotations captured on the dashboard."),
+        "Per-step annotations captured on the dashboard.",
+        produced_by=(DASHBOARD,)),
     Area.MESSAGES: AreaSpec(
         f"{_OUT}/messages", Kind.OUTPUT,
-        "Dashboard/agent message log."),
+        "Dashboard/agent message log.",
+        produced_by=(DASHBOARD,)),
     Area.REVIEW: AreaSpec(
         f"{_OUT}/review", Kind.OUTPUT,
-        "The anchored review channel - channel.json holds every note and reply."),
+        "The anchored review channel - channel.json holds every note and reply.",
+        produced_by=(DASHBOARD,)),
     Area.LLM_REQUESTS: AreaSpec(
         f"{_OUT}/llm_requests", Kind.OUTPUT,
-        "The prompt each hybrid/LLM step was handed, as it was sent."),
+        "The prompt each hybrid/LLM step was handed, as it was sent.",
+        produced_by=(RUNNER,)),
     Area.LLM_RESPONSES: AreaSpec(
         f"{_OUT}/llm_responses", Kind.OUTPUT,
-        "What the model returned for each hybrid/LLM step."),
+        "What the model returned for each hybrid/LLM step.",
+        produced_by=(RUNNER,)),
     Area.LLM_RESPONSES_BAK: AreaSpec(
         f"{_OUT}/llm_responses_bak", Kind.OUTPUT,
-        "The previous response for a step being re-run, kept for comparison."),
+        "The previous response for a step being re-run, kept for comparison.",
+        produced_by=(RUNNER,)),
     Area.LOGS: AreaSpec(
         f"{_OUT}/logs", Kind.OUTPUT,
-        "Stdout/stderr of runs the dashboard launched, one file per run."),
-
+        "Stdout/stderr of runs the dashboard launched, one file per run, plus "
+        "pipeline_log.jsonl.",
+        produced_by=(RUNNER, DASHBOARD)),
+    Area.PROVENANCE: AreaSpec(
+        f"{_OUT}/provenance", Kind.OUTPUT,
+        "Which run wrote each artifact, and what that artifact names as its "
+        "source. Append-only: a later run overwriting a file does not unmake "
+        "the record of the earlier one.",
+        produced_by=(RUNNER,)),
     Area.MIGRATIONS: AreaSpec(
         f"{_OUT}/migrations", Kind.OUTPUT,
         "One record per time this folder was reorganised onto the layout: "
         "what moved, from where, to where, and how big it was. Reading one "
-        "of these is how a reorganisation is undone."),
+        "of these is how a reorganisation is undone.",
+        produced_by=(ORGANIZE,)),
     Area.EXPORTS: AreaSpec(
         "exports", Kind.DELIVERABLE,
-        "Finished renders and their QA reports. This is what the run is for."),
+        "Finished renders and their QA reports. This is what the run is for, "
+        "so it sits at the project root rather than inside any one step - and "
+        "TWO steps write here, 6.01 the render and 6.02 the QA report.",
+        produced_by=("render", "validate")),
     Area.RUN_STATE: AreaSpec(
         ".", Kind.RUN_STATE,
         "pipeline_data.json, pipeline_run.json, pipeline.pid and pipeline.hold "
-        "sit at the project root. Only the runner and the dashboard write them."),
+        "sit at the project root. Only the runner and the dashboard write them.",
+        produced_by=(RUNNER, DASHBOARD)),
     Area.BACKUPS: AreaSpec(
         f"{_OUT}/backups", Kind.BACKUP,
         "Automatic, bounded copies of pipeline_data.json - one per run, a "
         "fixed number kept (MAX_PIPELINE_DATA_BACKUPS). Hand-made backups "
         "from before this policy are in backups/pipeline_data/legacy/ and "
-        "are never pruned."),
+        "are never pruned.",
+        produced_by=(RUNNER, DASHBOARD, ORGANIZE)),
     Area.SCRATCH: AreaSpec(
         f"{_OUT}/scratch", Kind.SCRATCH,
         "Working files with no reader after the step that wrote them. Safe to "
@@ -276,10 +441,16 @@ AREAS: dict[Area, AreaSpec] = {
     Area.UNSORTED: AreaSpec(
         f"{_OUT}/unsorted", Kind.UNSORTED,
         "Files whose purpose could not be established. Nothing writes here at "
-        "run time. An admitted unknown, never a guess and never a deletion."),
+        "run time. An admitted unknown, never a guess and never a deletion.",
+        produced_by=(ORGANIZE,)),
 }
 
-# Areas a step may write to.  Everything else is read-only to a step.
+# The areas a given step owns, in table order.
+AREAS_BY_STEP: dict = {}
+for _area, _spec in AREAS.items():
+    if _spec.step:
+        AREAS_BY_STEP.setdefault(_spec.step, []).append(_area)
+
 WRITABLE_KINDS = frozenset({
     Kind.OUTPUT, Kind.DELIVERABLE, Kind.BACKUP, Kind.SCRATCH, Kind.UNSORTED,
 })
@@ -404,26 +575,54 @@ class ProjectLayout:
         """A path inside `area`, for reading.  Nothing is created."""
         return self._join(area, parts)
 
-    def write_dir(self, area: Area) -> Path:
-        """The directory for `area`, created, with the write guard applied."""
+    def write_dir(self, area: Area, step: str = "") -> Path:
+        """The directory for `area`, created, with the write guard applied.
+
+        Pass `step` and the guard tightens: a step may write only inside
+        its OWN directory, or into an area no step owns. That is what
+        keeps `pipeline_output/steps/` honest - a directory named for a
+        step has to mean that step wrote it.
+        """
         spec = self.spec(area)
         if spec.kind not in WRITABLE_KINDS:
             raise ProjectLayoutViolation(
                 f"{area.value} is {spec.kind.value}, not writable by a step: "
                 f"{spec.purpose}"
             )
+        if step and spec.step and spec.step != step:
+            raise ProjectLayoutViolation(
+                f"step {step!r} may not write to {area.value}, which belongs "
+                f"to step {spec.step!r} ({spec.relpath}). A step writes only "
+                f"inside its own directory."
+            )
         d = self._join(area, ())
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def write_path(self, area: Area, *parts) -> Path:
+    def assert_step_owns(self, step: str, path) -> Path:
+        """Raise unless `path` is inside `step`'s own directory.
+
+        The by-step counterpart of `assert_writable`, for a path that
+        arrived from outside the layout.
+        """
+        p = self.assert_writable(path)
+        owner = self.step_of(p)
+        if owner is not None and owner != step:
+            raise ProjectLayoutViolation(
+                f"{p} is in step {owner!r}'s directory; step {step!r} may not "
+                f"write there. A step writes only inside its own directory."
+            )
+        return p
+
+    def write_path(self, area: Area, *parts, step: str = "") -> Path:
         """A path inside `area`, with its parent created.
 
         The ONLY way a step gets a path it may write to.  Asking for an
         input area raises; asking for an area that is not in the table
+        raises; and with `step` given, asking for another step's area
         raises.
         """
-        self.write_dir(area)  # kind check + base mkdir
+        self.write_dir(area, step=step)  # kind + ownership checks, base mkdir
         p = self._join(area, parts)
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
@@ -446,11 +645,55 @@ class ProjectLayout:
     def project_config_path(self) -> Path:
         return self.root / PROJECT_CONFIG_FILE
 
+    # ── A step's own directory ──────────────────────────────────────
+
+    def step_dir(self, step_id: str, *parts, create: bool = False) -> Path:
+        """`pipeline_output/steps/1_04_temporal_index[/parts...]`.
+
+        The whole point of the layout: a file's directory names the step
+        that wrote it, so the captain walks the folder instead of
+        looking anything up.
+        """
+        step = STEP_BY_ID.get(step_id)
+        if step is None:
+            raise ProjectLayoutViolation(
+                f"Unknown step {step_id!r}. Every step is a row in "
+                f"project_layout.STEPS; add a row rather than composing a "
+                f"path. Known: {sorted(STEP_BY_ID)}"
+            )
+        d = self.root / _STEPS / step.dirname
+        for part in parts:
+            if part:
+                d = d / str(part)
+        if create:
+            self.assert_writable(d)
+            d.mkdir(parents=True, exist_ok=True)
+        return d
+
     def step_output_json(self, step_id: str) -> Path:
-        return self.write_path(Area.OUTPUT_ROOT, f"{step_id}.json")
+        return self.step_dir(step_id, create=True) / STEP_OUTPUT_FILE
 
     def step_output_summary(self, step_id: str) -> Path:
-        return self.write_path(Area.OUTPUT_ROOT, f"{step_id}.summary.md")
+        return self.step_dir(step_id, create=True) / STEP_SUMMARY_FILE
+
+    def step_of(self, path) -> str | None:
+        """The step whose directory `path` is in, or None.
+
+        This is the by-step layout paying off: no index, no sidecar - the
+        answer is in the path.
+        """
+        p = Path(str(path))
+        p = p if p.is_absolute() else self.root / p
+        try:
+            rel = Path(os.path.normpath(str(p))).relative_to(
+                self.root / _STEPS).as_posix()
+        except ValueError:
+            return None
+        head = rel.split("/", 1)[0]
+        for step in STEPS:
+            if step.dirname == head:
+                return step.node_id
+        return None
 
     def resolve_project_relative(self, path) -> Path:
         """Resolve a possibly-relative path recorded in state.
@@ -566,6 +809,12 @@ class ProjectLayout:
     def ensure(self) -> ProjectLayout:
         """Create the output side of the layout and refresh the README.
 
+        Every step gets a directory, including the ones that have not run
+        and the two the DAG does not wire, because `ls
+        pipeline_output/steps/` is meant to BE the pipeline. An empty
+        directory says "this step produced nothing", which is a fact
+        worth being able to see.
+
         Input areas are NOT created: a project with no `music/` should
         not sprout an empty one, and creating an input directory is the
         first half of writing to it.
@@ -573,6 +822,8 @@ class ProjectLayout:
         for spec in AREAS.values():
             if spec.kind in WRITABLE_KINDS and spec.relpath != ".":
                 (self.root / spec.relpath).mkdir(parents=True, exist_ok=True)
+        for step in STEPS:
+            (self.root / _STEPS / step.dirname).mkdir(parents=True, exist_ok=True)
         self.write_readme()
         return self
 
@@ -583,72 +834,142 @@ class ProjectLayout:
             p.write_text(text, encoding="utf-8")
         return p
 
-    def describe(self) -> str:
-        """The layout, as prose, rendered from the same table the code reads."""
-        by_kind: dict[Kind, list[tuple[Area, AreaSpec]]] = {}
-        for area, spec in AREAS.items():
-            by_kind.setdefault(spec.kind, []).append((area, spec))
+    def describe(self, consumption=None) -> str:
+        """The folder explained, walking the pipeline in the order it runs.
 
-        order = [Kind.INPUT, Kind.RUN_STATE, Kind.OUTPUT,
-                 Kind.DELIVERABLE, Kind.BACKUP, Kind.SCRATCH, Kind.UNSORTED]
-        headings = {
-            Kind.INPUT: ("Inputs - the captain's material",
-                         ("Read by the pipeline, never written to. "
-                          "`ProjectLayout.write_dir` raises for these.")),
-            Kind.RUN_STATE: ("Run state",
-                             "The runner's account of itself, at the project root."),
-            Kind.OUTPUT: ("Output - everything the pipeline computes",
-                          "Safe to delete; a re-run reproduces it."),
-            Kind.DELIVERABLE: ("Deliverables",
-                               "What the run is for. Computed, but kept."),
-            Kind.BACKUP: ("Backups",
-                          (f"Automatic and bounded: one per run, newest "
-                           f"{MAX_PIPELINE_DATA_BACKUPS} kept.")),
-            Kind.SCRATCH: ("Scratch",
-                           "Safe to discard at any moment, including mid-run."),
-            Kind.UNSORTED: ("Unsorted",
-                            "Admitted unknowns. Nothing writes here at run time."),
-        }
+        Rendered from the same table the code reads, so it cannot drift
+        from where files actually go. `consumption` is
+        `{step: {input_key: [producing_step, ...]}}`; it is read off the
+        DAG when not supplied, and omitted entirely if the DAG cannot be
+        read, rather than guessed at.
+        """
+        if consumption is None:
+            consumption = _dag_consumption()
 
         lines = [
             "# What is in this folder",
             "",
-            "This file is generated from `library/tools/project_layout.py`, which is",
-            "the one place in the pipeline that decides where a project's files go.",
-            "Do not edit it by hand - edit the table and it regenerates.",
+            "Generated from `library/tools/project_layout.py`, the one place in the",
+            "pipeline that decides where a project's files go. Do not edit it by",
+            "hand - edit the table and it regenerates.",
             "",
-            "Every directory below has one job. If something is not listed here, the",
-            "pipeline did not put it there.",
+            "`pipeline_output/steps/` is the pipeline. One directory per step,",
+            "numbered so the listing walks it in the order it runs, and named for the",
+            "step rather than for the kind of thing inside. To follow what happened,",
+            "read down that listing.",
+            "",
+            "Each step directory holds `" + STEP_OUTPUT_FILE + "` (what the step",
+            "returned, also in `pipeline_data.json`) and `" + STEP_SUMMARY_FILE + "`",
+            "(the same thing for a human), plus whatever files it produced.",
             "",
         ]
-        for kind in order:
-            rows = by_kind.get(kind, [])
-            if not rows:
-                continue
-            title, blurb = headings[kind]
-            lines += [f"## {title}", "", blurb, ""]
-            for area, spec in sorted(rows, key=lambda r: r[1].relpath):
-                shown = "(project root)" if spec.relpath == "." else f"`{spec.relpath}/`"
-                lines.append(f"- {shown} - {spec.purpose}")
+
+        lines += ["## The steps, in the order they run", ""]
+        for i, step in enumerate(STEPS, 1):
+            lines.append(f"### {i}. `{_STEPS_DIRNAME}/{step.dirname}/`")
+            lines.append("")
+            if not step.wired:
+                lines += [
+                    "Implemented but NOT wired into the DAG, so a run produces",
+                    "nothing here.",
+                    "",
+                ]
+            consumed = consumption.get(step.node_id) or {}
+            if consumed:
+                parts = [f"`{k}` from `{_STEPS_DIRNAME}/"
+                         f"{STEP_BY_ID[v[0]].dirname}/`"
+                         if v and v[0] in STEP_BY_ID else f"`{k}`"
+                         for k, v in sorted(consumed.items())]
+                lines.append("- reads: " + "; ".join(parts))
+            elif consumption:
+                lines.append("- reads: nothing - no inbound edge in the DAG")
+            for area in AREAS_BY_STEP.get(step.node_id, []):
+                spec = AREAS[area]
+                leaf = spec.relpath[len(_STEPS) + len(step.dirname) + 2:]
+                where = f"`{leaf}/`" if leaf else "(directly here)"
+                lines.append(f"- writes {where} - {spec.purpose}")
+            if not AREAS_BY_STEP.get(step.node_id):
+                lines.append(
+                    f"- writes `{STEP_OUTPUT_FILE}` and `{STEP_SUMMARY_FILE}` "
+                    f"only - this step produces a decision, not files")
             lines.append("")
 
         lines += [
+            "## Not a step's product",
+            "",
+            "These belong to the runner, the dashboard or the tooling. Nesting them",
+            "under a step would be a lie about who wrote them.",
+            "",
+        ]
+        for area, spec in sorted(AREAS.items(), key=lambda r: r[1].relpath):
+            if spec.step or spec.kind is Kind.INPUT or spec.relpath == ".":
+                continue
+            if spec.relpath in (_OUT, _STEPS):
+                continue
+            writers = ", ".join(f"`{w}`" for w in spec.writers) or "-"
+            lines.append(f"- `{spec.relpath}/` ({writers}) - {spec.purpose}")
+        lines.append("")
+
+        lines += [
+            "## Inputs - the captain's material",
+            "",
+            "Read by the pipeline, never written to. Asking the layout to write",
+            "into one of these raises.",
+            "",
+        ]
+        for area, spec in sorted(AREAS.items(), key=lambda r: r[1].relpath):
+            if spec.kind is not Kind.INPUT or spec.relpath == ".":
+                continue
+            lines.append(f"- `{spec.relpath}/` - {spec.purpose}")
+        lines += [
+            "",
+            "## Run state",
+            "",
+            AREAS[Area.RUN_STATE].purpose,
+            "",
             "## Rules this folder is kept to",
             "",
             "- A step never composes a path. It names an `Area` and the layout owner",
             "  returns the path, so no two steps can disagree about where something goes.",
+            "- A step writes only inside its own directory. Everything else raises.",
             "- Inputs are structurally protected: asking the layout to write into",
             "  `raw/`, `music/`, `assets/`, `brand_assets/` or `compositions/` raises.",
-            f"- `pipeline_output/backups/{BACKUP_SUBDIR}/` holds one backup of",
+            f"- `{_OUT}/backups/{BACKUP_SUBDIR}/` holds one backup of",
             f"  `pipeline_data.json` per run, newest {MAX_PIPELINE_DATA_BACKUPS} kept,",
             "  pruned automatically. Hand-made backups from before that policy are in",
             f"  `{LEGACY_BACKUP_SUBDIR}/` beside them and are never pruned.",
-            "- `pipeline_output/unsorted/` is where a file goes when nobody could say",
+            f"- `{_OUT}/unsorted/` is where a file goes when nobody could say",
             "  what it was. An admitted unknown beats a confident wrong guess, and",
             "  beats deleting it.",
             "",
         ]
         return "\n".join(lines)
+
+
+def _dag_consumption() -> dict:
+    """`{step: {input_key: [producing_step, ...]}}` off the DAG's edges.
+
+    Read here rather than imported, because `run_traceback` imports this
+    module and the dependency must not go both ways. An unreadable DAG
+    yields {}, and the README then omits the reads lines rather than
+    inventing them.
+    """
+    import json
+
+    dag_path = (Path(__file__).resolve().parents[1]
+                / "processes" / "edit_video" / "dag.json")
+    try:
+        dag = json.loads(dag_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict = {}
+    for edge in dag.get("edges", []):
+        src, dst = edge.get("from"), edge.get("to")
+        for in_key in (edge.get("data_mapping") or {}).values():
+            producers = out.setdefault(dst, {}).setdefault(in_key, [])
+            if src not in producers:
+                producers.append(src)
+    return out
 
 
 def _slug(text: str) -> str:

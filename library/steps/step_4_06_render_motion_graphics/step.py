@@ -157,8 +157,8 @@ def main():
     # Output directory. No repo fallback: see step 4.05 and
     # library/tools/project_layout.py.
     layout = ProjectLayout(project_folder)
-    output_dir = str(layout.write_dir(Area.OUTPUT_ROOT))
-    mg_output_dir = str(layout.write_dir(Area.MOTION_GRAPHICS_SEGMENTS))
+    mg_output_dir = str(layout.write_dir(
+        Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
 
     # Generate per-block props
     fps = data.get("project_fps", 30)
@@ -207,7 +207,8 @@ def main():
         timed_text_segments = render_timed_text_segments(
             resolve_declaration(data.get("brand_effect", {}), project_folder),
             REMOTION_DIR,
-            str(layout.write_dir(Area.TIMED_TEXT_SEGMENTS)),
+            str(layout.write_dir(
+                Area.TIMED_TEXT_SEGMENTS, step="render_motion_graphics")),
             fps=fps, width=width, height=height,
             spine_structure=structure, project_folder=project_folder,
         )

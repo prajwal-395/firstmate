@@ -11,10 +11,15 @@ formatted brief, a speech_sequence step gets a script layout, etc.
 
 import json
 import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-from library.tools.project_layout import Area, ProjectLayout
+from library.tools.project_layout import (
+    STEP_OUTPUT_FILE,
+    STEP_SUMMARY_FILE,
+    STEPS,
+    Area,
+    ProjectLayout,
+)
 
 
 def export_step_output(
@@ -43,38 +48,73 @@ def export_step_output(
     return {"json": str(json_path), "summary_md": str(md_path)}
 
 
+# The export filename is BUILT from the step id, right above. That makes
+# it a mechanism rather than a coincidence, which is why `provenance.py`
+# is allowed to read a step id back out of it - and why the rule lives
+# here, next to the naming, instead of being re-derived over there.
+EXPORT_SUFFIXES = (".summary.md", ".json")
+
+
+def step_id_for_export(filename: str) -> Optional[str]:
+    """The step an exported filename belongs to, or None.
+
+    Lexical, and deliberately so: `export_step_output` writes exactly
+    `<step_id>.json` and `<step_id>.summary.md`. The caller is expected
+    to check the answer against the real step ids.
+    """
+    for suffix in EXPORT_SUFFIXES:
+        if filename.endswith(suffix):
+            stem = filename[: -len(suffix)]
+            return stem or None
+    return None
+
+
+def _legacy_export(project_dir: str, name: str):
+    """Where an export landed before the by-step layout.
+
+    Project 001 has a run's worth of these at the output root. Reading
+    them is free; writing there is not done any more.
+    """
+    return ProjectLayout(project_dir).read_path(Area.OUTPUT_ROOT, name)
+
+
 def load_step_output(project_dir: str, step_id: str) -> Optional[Dict[str, Any]]:
     """Load a previously exported step output."""
-    json_path = ProjectLayout(project_dir).read_path(
-        Area.OUTPUT_ROOT, f"{step_id}.json")
-    if not json_path.exists():
-        return None
-    with open(json_path) as f:
-        return json.load(f)
+    layout = ProjectLayout(project_dir)
+    for path in (layout.step_dir(step_id) / STEP_OUTPUT_FILE,
+                 _legacy_export(project_dir, f"{step_id}.json")):
+        if path.exists():
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    return None
 
 
 def load_step_summary(project_dir: str, step_id: str) -> str:
     """Load a previously generated step summary."""
-    md_path = ProjectLayout(project_dir).read_path(
-        Area.OUTPUT_ROOT, f"{step_id}.summary.md")
-    if not md_path.exists():
-        return ""
-    with open(md_path) as f:
-        return f.read()
+    layout = ProjectLayout(project_dir)
+    for path in (layout.step_dir(step_id) / STEP_SUMMARY_FILE,
+                 _legacy_export(project_dir, f"{step_id}.summary.md")):
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    return ""
 
 
 def list_exported_steps(project_dir: str) -> list[str]:
-    """List all step IDs that have exported outputs."""
-    output_dir = ProjectLayout(project_dir).read_dir(Area.OUTPUT_ROOT)
-    if not output_dir.exists():
-        return []
-    return sorted(
-        p.stem
-        for p in output_dir.glob("*.json")
-        if not p.name.endswith(".summary.json")
-        and p.stem not in ("gates",)
-        and not p.name.startswith("gate_")
-    )
+    """Every step that has an exported output, in the order it runs.
+
+    Pipeline order, not alphabetical: this feeds the dashboard's step
+    list, and the point of the by-step layout is that the pipeline reads
+    in order.
+    """
+    layout = ProjectLayout(project_dir)
+    found = []
+    for step in STEPS:
+        if (layout.step_dir(step.node_id) / STEP_OUTPUT_FILE).exists():
+            found.append(step.node_id)
+            continue
+        if _legacy_export(project_dir, f"{step.node_id}.json").exists():
+            found.append(step.node_id)
+    return found
 
 
 # ── Summary Generators ─────────────────────────────────────────────

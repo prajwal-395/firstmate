@@ -47,10 +47,14 @@ from library.tools.project_layout import (
     AREAS,
     BACKUP_SUBDIR,
     LEGACY_BACKUP_SUBDIR,
+    STEP_BY_ID,
+    STEP_OUTPUT_FILE,
+    STEP_SUMMARY_FILE,
     Area,
     Kind,
     ProjectLayout,
 )
+from library.tools.step_exporter import step_id_for_export
 
 # Files this big get a head/tail digest rather than a full hash.  A whole
 # -file sha256 of project 001's 973 MB top-level .mov is pure IO for a
@@ -264,7 +268,13 @@ def plan_organization(project_folder) -> Plan:
                     "why_unknown": act.reason,
                 })
 
+    relocations = _plan_legacy_relocations(layout)
+    plan.actions.extend(relocations)
     plan.actions.extend(_plan_input_dir_rescues(layout))
+    # Last, and told what the relocations are taking with them: the
+    # husks are only empty once those have run.
+    plan.actions.extend(_plan_legacy_dir_cleanup(
+        layout, moving=[a.src for a in relocations if a.action == "move"]))
     return plan
 
 
@@ -362,6 +372,125 @@ def _classify(layout: ProjectLayout, entry: Path):
         "a file at the project root that the layout does not name.")
 
 
+# Where the by-KIND layout put things, and the area that owns them now.
+#
+# The first layout grouped by kind - `pipeline_output/prosody/`,
+# `pipeline_output/temporal_index/`. That was a correct answer to the
+# wrong question: the captain wants to walk the folder in pipeline order,
+# which means one directory per STEP. A project laid out the old way is
+# moved onto the new one from this table, and a project already on the
+# new one finds nothing to do.
+LEGACY_AREA_DIRS = {
+    "vision_analysis": Area.VISION_ANALYSIS,
+    "temporal_index": Area.TEMPORAL_INDEX,
+    "audio_cache": Area.AUDIO_CACHE,
+    "prosody": Area.PROSODY,
+    "segmentation_data": Area.SEGMENTATION,
+    "ocr_data": Area.OCR,
+    "music": Area.MUSIC_ANALYSIS,
+    "acquired_media": Area.ACQUIRED_MEDIA,
+    "subtitle_segments": Area.SUBTITLE_SEGMENTS,
+    "motion_graphics_segments": Area.MOTION_GRAPHICS_SEGMENTS,
+    "timed_text_segments": Area.TIMED_TEXT_SEGMENTS,
+    "fusion_comps": Area.FUSION_COMPS,
+    "carriers": Area.CARRIERS,
+    "qa_frames": Area.QA_FRAMES,
+}
+
+LEGACY_ROOT_FILES = {
+    "pipeline_log.jsonl": (Area.LOGS, "pipeline_log.jsonl"),
+    "assembly_manifest.json": (Area.ASSEMBLY_MANIFEST, "assembly_manifest.json"),
+}
+
+
+def _plan_legacy_relocations(layout: ProjectLayout) -> list:
+    """Move a by-kind output tree onto the by-step one."""
+    out = []
+    out_root = layout.read_dir(Area.OUTPUT_ROOT)
+    if not out_root.is_dir():
+        return out
+
+    for legacy_name, area in LEGACY_AREA_DIRS.items():
+        src_dir = out_root / legacy_name
+        dest_dir = layout.read_dir(area)
+        if not src_dir.is_dir() or src_dir.resolve() == dest_dir.resolve():
+            continue
+        step = AREAS[area].step
+        for src in sorted(src_dir.rglob("*")):
+            if not src.is_file():
+                continue
+            dest = dest_dir / src.relative_to(src_dir)
+            out.append(Action(
+                "move", str(src), str(dest), "file",
+                tree_bytes(src), digest(src),
+                f"was grouped by kind under {legacy_name}/. It is step "
+                f"{step}'s product, so it moves into that step's directory - "
+                f"which is what makes pipeline_output/steps/ walkable."))
+
+    # The runner's per-step exports, `<step_id>.json` at the output root.
+    for src in sorted(out_root.glob("*")):
+        if not src.is_file():
+            continue
+        if src.name in LEGACY_ROOT_FILES:
+            area, name = LEGACY_ROOT_FILES[src.name]
+            dest = layout.read_path(area, name)
+            if src.resolve() != dest.resolve():
+                out.append(Action(
+                    "move", str(src), str(dest), "file",
+                    tree_bytes(src), digest(src),
+                    f"belongs in {AREAS[area].relpath}/ under the layout."))
+            continue
+        step_id = step_id_for_export(src.name)
+        if step_id and step_id in STEP_BY_ID:
+            leaf = (STEP_SUMMARY_FILE if src.name.endswith(".summary.md")
+                    else STEP_OUTPUT_FILE)
+            out.append(Action(
+                "move", str(src), str(layout.step_dir(step_id) / leaf),
+                "file", tree_bytes(src), digest(src),
+                f"is step {step_id}'s own output, exported as a flat "
+                f"{src.name} at the output root. It moves into that step's "
+                f"directory as {leaf}."))
+    return out
+
+
+REMOVE_EMPTY = "remove_empty_dir"
+
+
+def _plan_legacy_dir_cleanup(layout: ProjectLayout, moving=()) -> list:
+    """Legacy directories left standing with nothing in them.
+
+    The by-kind directories become empty husks once their contents move
+    under the owning step, and `ls pipeline_output/` is the thing this
+    whole change exists to make legible - so they go.
+
+    This is the ONE action that removes anything, and it is bounded to
+    the point of being uncontroversial: only a directory named in
+    LEGACY_AREA_DIRS, only when it contains no file at any depth, and
+    recorded in the manifest like every other action. No byte of the
+    captain's is inside an empty directory.
+    """
+    out = []
+    out_root = layout.read_dir(Area.OUTPUT_ROOT)
+    if not out_root.is_dir():
+        return out
+    for legacy_name, area in LEGACY_AREA_DIRS.items():
+        d = out_root / legacy_name
+        dest = layout.read_dir(area)
+        if not d.is_dir() or d.resolve() == dest.resolve():
+            continue
+        # `moving` is what the relocations above are about to take out
+        # of here, so the plan says "this will be empty" rather than
+        # needing a second run to notice that it is.
+        leaving = set(moving)
+        if any(p.is_file() and str(p) not in leaving for p in d.rglob("*")):
+            continue
+        out.append(Action(
+            REMOVE_EMPTY, str(d), "", "dir", 0, digest(d),
+            f"an empty directory left by the by-kind layout. Its contents "
+            f"moved to {AREAS[area].relpath}/; nothing is inside it."))
+    return out
+
+
 def _plan_input_dir_rescues(layout: ProjectLayout) -> list:
     """Pipeline output found inside an input directory.
 
@@ -425,6 +554,15 @@ def organize_project(project_folder, apply: bool = False) -> dict:
             src = Path(act.src)
             if not src.exists():
                 continue
+            if act.action == REMOVE_EMPTY:
+                # Re-checked at the moment of removal, not just when the
+                # plan was made: a relocation in this same run may have
+                # emptied it, and something else may have filled it.
+                if any(p.is_file() for p in src.rglob("*")):
+                    continue
+                shutil.rmtree(src)
+                performed.append(act)
+                continue
             dest = _unique(Path(act.dest))
             dest.parent.mkdir(parents=True, exist_ok=True)
             # The guard, applied to every destination: a migration that
@@ -448,6 +586,10 @@ def organize_project(project_folder, apply: bool = False) -> dict:
         "layout_owner": "library/tools/project_layout.py",
         "policy": {
             "nothing_deleted": True,
+        "empty_directories_removed": (
+            "Only a directory named by the by-kind layout, only when it "
+            "holds no file at any depth. Every one is listed as a "
+            f"{REMOVE_EMPTY!r} action below."),
             "input_dirs_unmodified": sorted(
                 spec.relpath for spec in AREAS.values()
                 if spec.kind is Kind.INPUT and spec.relpath != "."),
@@ -540,8 +682,9 @@ def render_manifest_markdown(manifest: dict) -> str:
     for a in manifest["actions"]:
         src = a["src"].replace(root, "")
         dest = a["dest"].replace(root, "")
+        dest_cell = f"`{dest}`" if dest else "(removed - it was empty)"
         lines.append(
-            f"| {a['action']} | `{src}` | `{dest}` | {a['bytes']:,} | "
+            f"| {a['action']} | `{src}` | {dest_cell} | {a['bytes']:,} | "
             f"{a['reason']} |")
 
     lines += ["", "## What stayed, and why", "",
@@ -571,6 +714,12 @@ def revert_from_manifest(manifest_path, apply: bool = False) -> list:
     data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     undone = []
     for a in data["actions"]:
+        if a["action"] == REMOVE_EMPTY:
+            src = Path(a["src"])
+            if apply and not src.exists():
+                src.mkdir(parents=True, exist_ok=True)
+            undone.append({"from": "(empty)", "to": str(src), "bytes": 0})
+            continue
         if a["action"] != "move":
             continue
         src, dest = Path(a["src"]), Path(a["dest"])

@@ -105,8 +105,8 @@ def main():
     # no project says so rather than banking work somewhere nothing will
     # look for it. See library/tools/project_layout.py.
     layout = ProjectLayout(project_folder)
-    output_dir = str(layout.write_dir(Area.OUTPUT_ROOT))
-    sub_output_dir = str(layout.write_dir(Area.SUBTITLE_SEGMENTS))
+    sub_output_dir = str(
+        layout.write_dir(Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
 
     # Generate per-block props
     fps = data.get("project_fps", 30)

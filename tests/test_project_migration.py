@@ -12,6 +12,7 @@ in a manifest that can be read back to undo it.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -282,6 +283,128 @@ def test_a_rescued_copy_is_not_copied_again(messy):
         p.name for p in ProjectLayout(messy).read_dir(
             Area.VISION_ANALYSIS).iterdir())
     assert landed == ["clip_profile_IMG_1806_v3.json"]
+
+
+# ── Moving a by-kind project onto the by-step layout ────────────────
+
+@pytest.fixture
+def by_kind(tmp_path):
+    """A project laid out the way the first version of the layout did."""
+    out = tmp_path / "pipeline_output"
+    (tmp_path / "project.yaml").write_text("slug: t\n", encoding="utf-8")
+    (out / "prosody").mkdir(parents=True)
+    (out / "prosody" / "clip_001_prosody.json").write_text(
+        '{"clip_id": "clip_001"}', encoding="utf-8")
+    (out / "temporal_index").mkdir()
+    (out / "temporal_index" / "clip_001.json").write_text("{}", encoding="utf-8")
+    (out / "audio_cache").mkdir()
+    (out / "audio_cache" / "clip_001.wav").write_bytes(b"\x00" * 8)
+    (out / "temporal_index.json").write_text('{"index_dir": "x"}', encoding="utf-8")
+    (out / "temporal_index.summary.md").write_text("# summary\n", encoding="utf-8")
+    (out / "pipeline_log.jsonl").write_text('{"a":1}\n', encoding="utf-8")
+    return tmp_path
+
+
+def test_a_by_kind_tree_moves_under_its_producing_step(by_kind):
+    organize_project(by_kind, apply=True)
+    layout = ProjectLayout(by_kind)
+    assert (layout.read_path(Area.PROSODY, "clip_001_prosody.json")).is_file()
+    assert (layout.read_path(Area.TEMPORAL_INDEX, "clip_001.json")).is_file()
+    assert (layout.read_path(Area.AUDIO_CACHE, "clip_001.wav")).is_file()
+    assert layout.step_of(
+        layout.read_path(Area.PROSODY, "clip_001_prosody.json")
+    ) == "prosody_analysis"
+    assert not (by_kind / "pipeline_output" / "prosody"
+                / "clip_001_prosody.json").exists()
+
+
+def test_a_flat_per_step_export_moves_into_that_steps_directory(by_kind):
+    organize_project(by_kind, apply=True)
+    layout = ProjectLayout(by_kind)
+    d = layout.step_dir("temporal_index")
+    assert (d / "output.json").is_file()
+    assert (d / "summary.md").is_file()
+    assert not (by_kind / "pipeline_output" / "temporal_index.json").exists()
+
+
+def test_the_pipeline_log_moves_to_the_logs_area(by_kind):
+    organize_project(by_kind, apply=True)
+    assert (ProjectLayout(by_kind).read_path(
+        Area.LOGS, "pipeline_log.jsonl")).is_file()
+
+
+def _contents(root):
+    """Every file's bytes. Matching on content, not name, because the
+    per-step exports are deliberately RENAMED to output.json."""
+    from collections import Counter
+    return Counter(p.read_bytes() for p in root.rglob("*") if p.is_file())
+
+
+def test_relocating_a_by_kind_tree_loses_nothing(by_kind):
+    before = _contents(by_kind)
+    organize_project(by_kind, apply=True)
+    lost = before - _contents(by_kind)
+    assert not lost, f"the relocation lost {len(lost)} file(s) of content"
+
+
+def test_relocating_twice_is_a_no_op_the_second_time(by_kind):
+    organize_project(by_kind, apply=True)
+    second = organize_project(by_kind, apply=True)
+    assert not second["actions"], f"not stable: {second['actions']}"
+
+
+def test_the_emptied_by_kind_husks_are_removed_in_the_same_run(by_kind):
+    """`ls pipeline_output/` is what this change exists to make legible.
+    A husk left standing defeats it."""
+    organize_project(by_kind, apply=True)
+    out = by_kind / "pipeline_output"
+    for husk in ("prosody", "temporal_index", "audio_cache"):
+        assert not (out / husk).exists(), f"{husk}/ is still standing"
+
+
+def test_a_legacy_directory_holding_anything_is_not_removed(by_kind):
+    """The one action that removes anything, bounded so it cannot matter.
+
+    Everything under a legacy directory relocates with the step, so in a
+    real run the directory IS empty by the time this looks. The bound is
+    what matters: told that nothing is moving out, it plans no removal.
+    """
+    from library.tools.project_migration import _plan_legacy_dir_cleanup
+
+    planned = _plan_legacy_dir_cleanup(ProjectLayout(by_kind), moving=())
+    assert not [a for a in planned
+                if a.src.endswith("prosody")], (
+        "prosody/ still holds a file; removing it is not this tool's call")
+
+
+def test_a_directory_the_layout_does_not_name_is_never_removed(by_kind):
+    """Only the by-kind names, and nothing else the captain may have made."""
+    from library.tools.project_migration import (
+        LEGACY_AREA_DIRS,
+        _plan_legacy_dir_cleanup,
+    )
+
+    stray = by_kind / "pipeline_output" / "captains_own_notes"
+    stray.mkdir()
+    organize_project(by_kind, apply=True)
+    assert stray.is_dir(), "an unrecognised empty directory is not ours to remove"
+    planned = _plan_legacy_dir_cleanup(ProjectLayout(by_kind))
+    assert all(Path(a.src).name in LEGACY_AREA_DIRS for a in planned)
+
+
+def test_a_removal_is_recorded_like_every_other_action(by_kind):
+    m = organize_project(by_kind, apply=True)
+    removals = [a for a in m["actions"] if a["action"] == "remove_empty_dir"]
+    assert removals
+    for a in removals:
+        assert a["reason"] and a["bytes"] == 0
+    assert "empty_directories_removed" in m["policy"]
+
+
+def test_reverting_puts_an_emptied_directory_back(by_kind):
+    m = organize_project(by_kind, apply=True)
+    revert_from_manifest(m["manifest_path"], apply=True)
+    assert (by_kind / "pipeline_output" / "prosody").is_dir()
 
 
 def test_an_already_tidy_project_needs_nothing(tmp_path):

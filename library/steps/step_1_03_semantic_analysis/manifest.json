@@ -39,9 +39,9 @@
     "archetype": "evaluation_judgment",
     "idempotent": false,
     "per_clip_artifacts": [
-      "raw/analysis/clip_profile_{stem}.json",
-      "raw/analysis/clip_profile_{stem}_v3.json",
-      "raw/analysis/clip_profile_{stem}_video_only.json"
+      "{area:vision_analysis}/clip_profile_{stem}.json",
+      "{area:vision_analysis}/clip_profile_{stem}_v3.json",
+      "{area:vision_analysis}/clip_profile_{stem}_video_only.json"
     ]
   },
   "dependencies": [

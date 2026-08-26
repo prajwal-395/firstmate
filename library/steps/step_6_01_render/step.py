@@ -42,7 +42,7 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     if not project_folder:
         raise ValueError("project_folder is required to place the export")
 
-    output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS))
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS, step="render"))
     output_name = manifest.get("project", {}).get("name", "Pipeline_Edit")
 
     cmd = [

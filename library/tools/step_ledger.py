@@ -63,6 +63,7 @@ is the bookkeeping.
 """
 
 import os
+import re
 from typing import Dict, Iterable, List, Optional, Tuple
 
 PREFLIGHT = "preflight"
@@ -130,11 +131,40 @@ def per_clip_artifacts(manifest: Optional[dict]) -> List[str]:
     return list(patterns)
 
 
+# A pattern names the AREA it lives in, not the directory.
+#
+# It used to spell the path out - `pipeline_output/temporal_index/
+# {clip_id}.json`. When the layout moved those directories, two of these
+# declarations were left behind pointing at `raw/analysis/`, so
+# `--rerun semantic_analysis:clip_007` deleted nothing and silently
+# re-ran nothing. A declaration that can go stale is the failure mode the
+# layout owner exists to remove, so the prefix comes from the owner and
+# only the filename is the step's to state.
+_AREA_TOKEN = re.compile(r"^\{area:([a-z_]+)\}/")
+
+
 def artifact_paths(project_folder: str, patterns: Iterable[str],
                    clip_id: str, stem: str = "") -> List[str]:
     """Concrete paths for one clip's declared artifacts."""
+    from library.tools.project_layout import Area, ProjectLayout
+
     out = []
+    layout = None
     for pattern in patterns:
+        match = _AREA_TOKEN.match(pattern)
+        if match:
+            name = match.group(1)
+            try:
+                area = Area(name)
+            except ValueError:
+                raise LedgerError(
+                    f"per_clip_artifacts names area {name!r}, which is not a "
+                    f"row in project_layout.AREAS."
+                ) from None
+            layout = layout or ProjectLayout(project_folder)
+            rendered = pattern[match.end():].format(clip_id=clip_id, stem=stem)
+            out.append(str(layout.read_dir(area) / rendered))
+            continue
         rendered = pattern.format(clip_id=clip_id, stem=stem)
         out.append(os.path.join(project_folder, rendered))
     return out

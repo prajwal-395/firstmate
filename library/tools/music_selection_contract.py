@@ -122,7 +122,8 @@ def acquired_media_dir(project_folder: str) -> str:
     """Where a track the pipeline FETCHED lands.  Created on demand."""
     from library.tools.project_layout import Area, ProjectLayout
 
-    return str(ProjectLayout(project_folder).write_dir(Area.ACQUIRED_MEDIA))
+    return str(ProjectLayout(project_folder).write_dir(
+        Area.ACQUIRED_MEDIA, step="music_selection"))
 
 
 def _tokens(text: str) -> set:

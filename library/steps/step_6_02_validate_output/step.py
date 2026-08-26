@@ -25,6 +25,7 @@ import traceback
 
 # Import new QA modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from library.tools.project_layout import Area, ProjectLayout
 from library.tools.render_qa import run_full_render_qa
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
@@ -118,7 +119,8 @@ def _music_bed(assembly_manifest: dict):
     return music_path, automation
 
 
-def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
+def validate_output(rendered_output: dict, assembly_manifest: dict,
+                    project_folder: str = "") -> dict:
     """Run automated validation checks on the rendered video using render_qa."""
     video_path = rendered_output.get('output_path', '')
     project_settings = assembly_manifest.get('project', {})
@@ -255,8 +257,18 @@ def validate_output(rendered_output: dict, assembly_manifest: dict) -> dict:
         for issue in check.get("issues", []):
             all_issues.append(f"[{name}] {issue}")
 
-    # Write QA report JSON
-    qa_report_path = os.path.join(os.path.dirname(video_path), "qa_report.json")
+    # Write QA report JSON.
+    #
+    # exports/ by name, not `dirname(video_path)`. The report belongs
+    # with the deliverable it judges, and exports/ is one of the two
+    # areas two steps legitimately share - 6.01 writes the render, 6.02
+    # writes this. See library/tools/project_layout.py.
+    if project_folder:
+        qa_report_path = str(ProjectLayout(project_folder).write_path(
+            Area.EXPORTS, "qa_report.json", step="validate"))
+    else:
+        qa_report_path = os.path.join(os.path.dirname(video_path),
+                                      "qa_report.json")
     try:
         with open(qa_report_path, 'w') as f:
             json.dump(qa_report, f, indent=2)
@@ -286,7 +298,8 @@ def main():
     # let a run finish "pass" with distribution_ready: false and nobody
     # noticing there was no video.
     if rendered_output.get("output_path"):
-        result = validate_output(rendered_output, assembly_manifest)
+        result = validate_output(rendered_output, assembly_manifest,
+                                 input_data.get("project_folder", ""))
     else:
         result = {
             "status": "fail",
