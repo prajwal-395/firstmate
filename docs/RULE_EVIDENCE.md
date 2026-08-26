@@ -881,3 +881,29 @@ On 001 the music sits about **8.6 dB hotter** than the iPhone speech - raw music
 Turning the gate on today would fail every project whose bed is mastered louder than its dialogue, which is most of them.
 Promoting it needs one of: a loudness-relative bed level in `audio_mix`, or a target here that is the planned dB minus the measured source difference.
 Either is a decision, not a fix.
+
+### the-bridge-table-that-was-projected-away
+
+Found by the 001 A/B run of 2026-08-26, the run that measured whether #194's context cleanup changed the creative decisions.
+
+`context_fields` is an allow-list, and a pre-bridge's output is merged into the inputs BEFORE it runs.
+So a table the bridge computed and the handoff names is deleted unless somebody also thought to add it to the list, and on four of the five hybrid steps nobody had:
+
+| step | table the bridge builds | in `context_fields` |
+|---|---|:-:|
+| `speech_sequence` | `transcripts_toon`, `topics_toon` | no |
+| `select_broll` | `broll_candidates_toon` | **yes** |
+| `plan_transitions` | `cuts_toon` | no |
+| `plan_vfx` | `vfx_candidates_toon` | no |
+| `plan_sfx` | `sfx_candidates_toon` | no |
+
+The symptom is invisible from inside the step.
+The bridge logs success, the handoff still says "The `cuts_toon` table provides a summarized list of cut points... Use this value for `cut_point_position` in your response", and there is no `cuts_toon` in the prompt.
+Measured on the live run: `plan_transitions` was asked for one entry per cut, keyed by `cut_point_position`, with the table that carries those ids absent - along with `beat_near_cut`, the bridge's own answer to "is a musical beat within 100 ms of this cut", which is the data the step's beat-alignment rule depends on.
+It was answerable only because `timed_spine` was separately routed and the beat grid could be recomputed by hand from `music_analysis`.
+
+The fix restores by NAME in `present_llm_step` rather than adding four allow-list entries, and only where the projection dropped the key entirely - so a manifest that names its table may still narrow it with sub-paths.
+Four more list entries would have fixed these four steps and left the fifth new one to be found the same way.
+
+`tests/test_llm_context_routing.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
+Both fail on the parent revision for exactly the four steps above and pass for `select_broll`.

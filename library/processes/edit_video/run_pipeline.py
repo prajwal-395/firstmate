@@ -958,10 +958,30 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # invents a declaration the project never made.
         saved_brand_template = inputs.get("brand_template")
         saved_creative_brief = inputs.get("creative_brief")
-        
+        # A pre-bridge exists to build the ONE table its handoff tells the
+        # model to read, so projecting that table away is always wrong -
+        # the step is then instructed to use data the prompt does not
+        # carry. Four steps shipped that way: `cuts_toon`,
+        # `vfx_candidates_toon`, `sfx_candidates_toon` and
+        # `transcripts_toon`/`topics_toon` were all computed and then
+        # deleted, because only `select_broll` happened to name its table
+        # in `context_fields`. Restoring by NAME here, rather than adding
+        # four more allow-list entries, is deliberate: a new hybrid step
+        # gets this for free and it cannot go stale the way four lists
+        # can. See AGENTS.md 10.1 on key-name mismatches.
+        saved_bridge = {k: inputs[k] for k in (bridge_supplied or set())
+                        if k in inputs}
+
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
-        
+
+        # Only where projection dropped the key ENTIRELY. A manifest that
+        # names the table itself (select_broll does) may still narrow it
+        # with sub-paths, and that narrowing is a decision to respect.
+        for _bridge_key, _bridge_value in saved_bridge.items():
+            if _bridge_key not in inputs:
+                inputs[_bridge_key] = _bridge_value
+
         inputs["project_folder"] = saved_project_folder
         if saved_fps is not None:
             inputs["project_fps"] = saved_fps
@@ -969,7 +989,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             inputs["brand_template"] = saved_brand_template
         if saved_creative_brief is not None:
             inputs["creative_brief"] = saved_creative_brief
-        
+
     projected_input_tokens = len(str(inputs).split()) * 1.3
         
     from library.tools.toon_serializer import json_to_toon

@@ -253,3 +253,114 @@ def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):
         full_auto="agy", llm_timeout=30,
     )
     assert result == {"a_verdict": "fine"}
+
+
+# ---------------------------------------------------------------------------
+# A pre-bridge's own table must survive the projection.
+# ---------------------------------------------------------------------------
+#
+# Every hybrid step here computes ONE summarised table and its handoff.md
+# tells the model, by name, to read it.  `context_fields` is an allow-list,
+# so a table nobody thought to add to it is deleted between the bridge that
+# built it and the prompt that asks for it.  Four steps shipped that way -
+# only `select_broll` happened to name its table - and the symptom is
+# invisible from inside the step: the bridge logs success, the prompt still
+# says "use `cuts_toon`", and there is no `cuts_toon`.
+
+BRIDGE_TABLES = {
+    "speech_sequence": ("transcripts_toon", "topics_toon"),
+    "select_broll": ("broll_candidates_toon",),
+    "plan_transitions": ("cuts_toon",),
+    "plan_vfx": ("vfx_candidates_toon",),
+    "plan_sfx": ("sfx_candidates_toon",),
+}
+
+
+@pytest.mark.parametrize("node_id", sorted(BRIDGE_TABLES))
+def test_the_handoff_asks_for_a_table_the_bridge_really_builds(node_id):
+    """The prompt and the pre-bridge agree on the name.
+
+    Independent of the projection: a handoff naming a table no bridge
+    emits is the same key-name mismatch one step earlier.
+    """
+    step_dir = STEPS / LLM_STEPS[node_id]
+    bridge = (step_dir / "bridge.py").read_text(encoding="utf-8")
+    handoff = (step_dir / "handoff.md").read_text(encoding="utf-8")
+    for table in BRIDGE_TABLES[node_id]:
+        assert f'"{table}"' in bridge, (
+            f"'{node_id}' bridge.py no longer emits {table!r}; "
+            f"update BRIDGE_TABLES or the handoff that asks for it"
+        )
+        # The STEM, not the key: `speech_sequence`'s handoff describes its
+        # two tables as "transcripts" and "topics" rather than by their
+        # `_toon` key names, and which spelling a prompt uses is the
+        # captain's call. What must hold is that the prompt refers to the
+        # table at all - a bridge computing something no prompt mentions
+        # is a table nothing reads.
+        stem = table.removesuffix("_toon")
+        assert stem in handoff, (
+            f"'{node_id}' builds {table!r} and its handoff.md never "
+            f"mentions {stem!r} - either the prompt lost the instruction "
+            f"or the bridge is computing a table nothing reads"
+        )
+
+
+@pytest.mark.parametrize("node_id", sorted(BRIDGE_TABLES))
+def test_a_bridge_table_reaches_the_prompt(node_id, tmp_path):
+    """The regression this pins: built, then projected away.
+
+    Driven through `present_llm_step` rather than `project_fields`,
+    because the allow-list really does drop these names - what keeps them
+    is the restore that runs after it, and only the full call exercises
+    that.
+    """
+    import threading
+    import time
+
+    tables = BRIDGE_TABLES[node_id]
+    project = tmp_path / "project"
+    project.mkdir()
+    prompt_path = tmp_path / "handoff.md"
+    prompt_path.write_text("Use the table.\n", encoding="utf-8")
+
+    req = project / "pipeline_output" / "llm_requests" / f"{node_id}.json"
+    res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
+
+    def answer():
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            if req.exists():
+                res.parent.mkdir(parents=True, exist_ok=True)
+                res.write_text(json.dumps({"a_verdict": "fine"}),
+                               encoding="utf-8")
+                return
+            time.sleep(0.05)
+
+    threading.Thread(target=answer, daemon=True).start()
+
+    inputs = {"project_folder": str(project),
+              "a_key_no_manifest_names": {"dropped": True}}
+    for table in tables:
+        inputs[table] = f"[1]{{col}}\n{node_id}-row"
+
+    m = manifest(node_id)
+    present_llm_step(
+        str(prompt_path), inputs, node_id,
+        manifest={"context_fields": m["context_fields"],
+                  "interface": {"outputs": [{"name": "a_verdict"}]}},
+        full_auto="agy", llm_timeout=30,
+        bridge_supplied=set(tables),
+    )
+
+    written = json.loads(req.read_text(encoding="utf-8"))
+    for table in tables:
+        assert f"{node_id}-row" in written["context"], (
+            f"'{node_id}' built {table!r} and the prompt does not carry "
+            f"it - the projection deleted the one table the handoff tells "
+            f"the model to read"
+        )
+    # The allow-list still governs everything the bridge did NOT build.
+    assert "a_key_no_manifest_names" not in written["context"], (
+        "the bridge restore is passing through un-named inputs too, "
+        "which would undo the projection entirely"
+    )

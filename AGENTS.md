@@ -468,6 +468,7 @@ Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `d
 
 - A path prefixed with `-` DROPS what the paths above it selected: `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`. Prefer it to enumerating the twenty keys you meant to keep, which stops delivering the twenty-first.
 - `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps and are an open captain decision; `tests/test_llm_context_routing.py` holds that exemption list.
+- **A pre-bridge's own table is never projected away, and you do not have to list it.** `present_llm_step` restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
 **A call with nothing to ask is not made.**
 When every key a step declares has already been produced - by its own `step.py`, or by its pre-bridge - the schema is empty and `present_llm_step` returns `{}` without calling. Declare `interface.llm_outputs` to ask anyway. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
