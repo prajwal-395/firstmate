@@ -76,9 +76,14 @@ EFFECT_ALIASES = {
     "push_in": "zoom_emphasis",
 }
 
-# Minimum A-roll clip duration (seconds) to receive default Ken Burns zoom.
-# Clips shorter than this are too brief for a slow zoom to be perceptible.
-KEN_BURNS_MIN_DURATION_S = 3.0
+# There is no default zoom, and there must not be one again. A
+# `inject_default_ken_burns` here used to add `slow_zoom_in`/`slow_zoom_out`
+# to every speech block over three seconds that the plan had deliberately
+# left alone, "because the style spec requires subtle motion on all A-roll
+# clips >3s". That is a creative floor, removed by the captain's ruling of
+# 2026-08-20, and it is the one that survived because
+# `tests/test_no_creative_floors.py` guarded only the PROMPTS.
+# See docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan.
 
 
 def _builtin_effect_names() -> set:
@@ -312,74 +317,6 @@ def resolve_generator_overlays(
     return overlays
 
 
-def inject_default_ken_burns(
-    creative_plan: list,
-    timed_spine: dict,
-) -> list:
-    """Add default subtle Ken Burns zoom to A-roll clips that have no VFX.
-
-    The style spec mandates that nearly every A-roll talking head clip >3s
-    should have subtle Ken Burns motion. This function provides a
-    deterministic guarantee: if the LLM didn't assign VFX to a qualifying
-    clip, we inject the default.
-
-    Args:
-        creative_plan: List of VFX entries from the LLM (may be empty).
-        timed_spine: The timed audio spine with block positions.
-
-    Returns:
-        Updated creative_plan with defaults injected for uncovered blocks.
-    """
-    spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
-
-    # Find which spine positions already have VFX assigned
-    covered_positions = set()
-    for vfx in creative_plan:
-        pos = vfx.get("target_block_position", vfx.get("segment_id"))
-        if pos is not None:
-            covered_positions.add(str(pos))
-
-    # Inject defaults for uncovered A-roll blocks > KEN_BURNS_MIN_DURATION_S
-    injected_count = 0
-    for block in spine_blocks:
-        if block.get("block_type") not in ("speech", "hook"):
-            continue
-
-        pos = block.get("position")
-        if str(pos) in covered_positions:
-            continue
-
-        duration = block.get("timeline_end", 0) - block.get("timeline_start", 0)
-        if duration < KEN_BURNS_MIN_DURATION_S:
-            continue
-
-        try:
-            pos_int = int(pos)
-        except (ValueError, TypeError):
-            pos_int = hash(pos)
-
-        # Alternate between zoom_in and zoom_out for visual variety
-        effect = "slow_zoom_in" if (pos_int % 2 == 0) else "slow_zoom_out"
-
-        creative_plan.append({
-            "target_block_position": pos,
-            "effect_type": effect,
-            "intensity": "subtle",
-            "rationale": "Default Ken Burns - style spec requires subtle"
-                         " motion on all A-roll clips >3s.",
-        })
-        injected_count += 1
-
-    if injected_count > 0:
-        print(
-            f"  Ken Burns: injected {injected_count} default zoom effects"
-            f" on uncovered A-roll clips",
-            file=sys.stderr,
-        )
-
-    return creative_plan
-
-
 def main():
     data = json.loads(sys.stdin.read())
 
@@ -406,12 +343,11 @@ def main():
     spine = data.get("timed_spine", {})
     fps = data.get("frame_rate", 30.0)
 
-    # Inject default Ken Burns on uncovered A-roll clips before resolving
-    creative = inject_default_ken_burns(creative, spine)
-
-    if not creative and not data.get("vfx_plan"):
-        print(json.dumps({"error": "No VFX planned. You MUST plan at least 3-7 VFX items.", "step": "4.03_bridge"}))
-        sys.exit(1)
+    # An empty plan is a legitimate answer - the handoff says so in as many
+    # words ("an empty list is a legitimate answer for a piece that wants
+    # stillness"), and this is where the code used to disagree with it: it
+    # padded the plan up to every eligible block and then failed the step
+    # outright if the padding left it empty.
 
     result = resolve_vfx(creative, spine, fps)
 

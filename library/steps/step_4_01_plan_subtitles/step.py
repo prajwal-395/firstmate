@@ -38,6 +38,13 @@ from library.tools.subtitle_style import resolve_subtitle_style
 # are shifted forward to prevent overlap.
 MIN_DISPLAY_DURATION = 0.7
 
+# The hard floor, below which a card flashes rather than reads.  Same
+# number as `manifest_validator.MIN_CAPTION_DISPLAY_SECONDS` and
+# `render_qa`'s `subtitle_too_short`, and it is here because the GROUPING
+# is what sets it: a card is on screen until the next card's first word,
+# so nothing downstream of the split can lengthen one.
+MIN_CAPTION_FLASH_SECONDS = 0.5
+
 # Below this a subtitle flashes rather than reads; clamping a block's
 # entries to its bounds can leave a sliver, and a sliver is worth dropping.
 MIN_VISIBLE_DURATION = 0.08
@@ -85,6 +92,29 @@ def apply_caption_case(text: str, mode: str) -> str:
 # Changing one here without changing it there measures a caption nobody
 # renders.
 WORD_GAP_EM = 0.24        # AnimatedWord.tsx: marginRight "0.24em"
+
+# The caption BOX, not one line, is what a card has to fit inside.
+# `SubtitleOverlay/index.tsx` draws the words in a `flexWrap: "wrap"` box
+# bounded by `captionMaxWidth`, so a group wider than one line becomes two
+# and is drawn in full - `CaptionFitter.widest_word_width` says as much,
+# and `fit_scale` exists only for the single word that cannot be wrapped.
+# Grouping against ONE line is therefore stricter than the render, and it
+# is what halved the words on every card: the pre-measurement `max_chars =
+# 18` grouping was about seventeen characters, and one line at the 160px
+# style holds roughly eight.
+#
+# Three, not two, and the number is measured rather than chosen. At two,
+# project 001 still lands 11 of 52 cards under half a second - a two-line
+# card at 160px holds about 17 characters, and this speaker delivers 17
+# characters in well under half a second several times. At three it is 2
+# of 41, and both survivors are the block-final case no partition can
+# reach. A three-line card is 576px of a 1920-row frame sitting on a
+# 320px bottom inset, so it stays in the lower third and clear of the
+# speaker. Raising it further buys nothing: four lines removes one of the
+# two, and neither is a grouping fault.
+# See docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line.
+MAX_CAPTION_LINES = 3
+
 EMPHASIS_SCALE = 1.14     # AnimatedWord.tsx: EMPHASIS_SCALE
 
 # Mean advance of Montserrat's lowercase alphabet plus space, at weight
@@ -164,6 +194,30 @@ class CaptionFitter:
     def fits(self, text: str) -> bool:
         """Whether the caption fits the usable width on one line."""
         return self.text_width(text) <= self.usable_width
+
+    def line_count(self, text: str) -> int:
+        """How many lines the caption box wraps this text onto.
+
+        Greedy, because that is what the flex container does: words are
+        inline-blocks laid out left to right and the first one that does
+        not fit starts a new line.
+        """
+        words = text.split()
+        if not words:
+            return 0
+        lines, current = 1, []
+        for word in words:
+            trial = current + [word]
+            if current and self.text_width(" ".join(trial)) > self.usable_width:
+                lines += 1
+                current = [word]
+            else:
+                current = trial
+        return lines
+
+    def fits_in_box(self, text: str, max_lines: int = MAX_CAPTION_LINES) -> bool:
+        """Whether the caption fits the box within `max_lines` wrapped lines."""
+        return self.line_count(text) <= max_lines
 
     def widest_word_width(self, text: str) -> float:
         """The widest single word, which is what cannot be wrapped away.
@@ -254,18 +308,33 @@ def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
 def split_into_groups(
     words_with_times: list,
     fits_fn=None,
-    min_words: int = 1,
     max_words: int = 6,
     max_gap: float = 1.0,
+    display_until: float = None,
+    min_display: float = MIN_DISPLAY_DURATION,
 ) -> list:
     """
     Split a list of {word, start, end} dicts into display groups.
-    Respects sentence boundaries, the visual fit, and forces breaks on
-    large inter-word gaps.
+
+    The split is BALANCED, not greedy. A greedy fill packs each card to
+    the width limit and leaves whatever is left over as the next card, so
+    a run of words that wants four even cards comes out as three full ones
+    and a runt - and a runt card is on screen only until the next card's
+    first word, which is what makes it flash. On project 001 that is where
+    76 of 96 cards under half a second came from. This chooses, among the
+    partitions that all fit the caption box, the one with the fewest cards
+    below `min_display`, breaking ties towards the longest shortest card
+    and then towards ending cards on punctuation.
+
+    A card's time on screen is the gap to the NEXT card's first word, so
+    the partition is what sets it; `display_until` supplies the same
+    number for the last card (the end of the block or segment it is drawn
+    over). Without it the last card is measured to its own last word,
+    which is very nearly zero.
 
     Args:
         fits_fn: callable(text) -> bool, deciding whether the text fits
-                 the usable width at the resolved caption style. It is
+                 the caption box at the resolved caption style. It is
                  REQUIRED. It used to be optional with a `max_chars = 18`
                  fallback, and because nothing ever supplied it, that
                  literal is what grouped every caption the pipeline has
@@ -283,56 +352,94 @@ def split_into_groups(
     if not words_with_times:
         return []
 
+    words = list(words_with_times)
+    n = len(words)
+
+    def _ends_a_thought(word: str) -> bool:
+        return bool(re.search(r'[.!?,;:—–]$', word))
+
+    def _feasible(i: int, j: int) -> bool:
+        """Whether words[i:j] may be one card."""
+        if j - i > max_words:
+            return False
+        if j - i == 1:
+            # A single word is always its own card even when it is wider
+            # than the box: it cannot be wrapped away, and `fit_scale`
+            # draws that card smaller. This is the base case that makes a
+            # partition always exist.
+            return True
+        for k in range(i + 1, j):
+            if words[k]["start"] - words[k - 1]["end"] > max_gap:
+                return False
+        return bool(fits_fn(" ".join(w["word"] for w in words[i:j])))
+
+    def _room_until(j: int) -> float:
+        """When the card ending before word j must be gone."""
+        if j < n:
+            return words[j]["start"]
+        if display_until is not None:
+            return float(display_until)
+        return words[n - 1]["end"]
+
+    def _time_on_screen(i: int, j: int) -> float:
+        """How long words[i:j] is actually displayed for.
+
+        This mirrors the per-block pass at the end of the step exactly: a
+        card is on screen for as long as its own words last, and a card
+        shorter than `min_display` is extended towards that floor but no
+        further than the next card's first word. Optimising anything else
+        optimises a number nobody renders.
+        """
+        start = words[i]["start"]
+        span = words[j - 1]["end"] - start
+        if span >= min_display:
+            return span
+        return max(span, min(min_display, _room_until(j) - start))
+
+    # best[i] = (flashing, under_floor, -shortest, -punctuated_ends, j) for
+    # the optimal partition of words[i:]. `flashing` counts cards below the
+    # HARD floor - the one `manifest_validator` fails a build on - and
+    # `under_floor` the softer one this step declares, so the partition is
+    # chosen against the number that actually rejects a render first.
+    # Solved from the end back.
+    best = [None] * (n + 1)
+    best[n] = (0, 0, 0.0, 0, None)
+    for i in range(n - 1, -1, -1):
+        chosen = None
+        for j in range(i + 1, min(n, i + max_words) + 1):
+            if not _feasible(i, j):
+                continue
+            tail = best[j]
+            if tail is None:
+                continue
+            duration = _time_on_screen(i, j)
+            flashing = tail[0] + (1 if duration < MIN_CAPTION_FLASH_SECONDS
+                                  else 0)
+            under = tail[1] + (1 if duration < min_display else 0)
+            shortest = min(-tail[2], duration) if j < n else duration
+            punctuated = tail[3] + (1 if _ends_a_thought(words[j - 1]["word"])
+                                    else 0)
+            candidate = (flashing, under, -shortest, -punctuated, j)
+            if chosen is None or candidate[:4] < chosen[:4]:
+                chosen = candidate
+        best[i] = chosen
+
     groups = []
-    current_words = []
-
-    def current_text():
-        return " ".join(w["word"] for w in current_words)
-
-    def flush():
-        """Commit current_words as a group."""
-        if not current_words:
-            return
+    i = 0
+    while i < n and best[i] is not None:
+        j = best[i][4]
+        card = words[i:j]
         groups.append({
-            "text": current_text(),
-            "start": current_words[0]["start"],
-            "end": current_words[-1]["end"],
-            "word_count": len(current_words),
+            "text": " ".join(w["word"] for w in card),
+            "start": card[0]["start"],
+            "end": card[-1]["end"],
+            "word_count": len(card),
             "_words": [
                 {"word": w["word"], "start": w["start"], "end": w["end"]}
-                for w in current_words
+                for w in card
             ],
         })
-        current_words.clear()
-
-    for i, wt in enumerate(words_with_times):
-        # Gap detection: if there's a long silence before this word,
-        # flush the current group so the subtitle doesn't appear too early
-        if current_words:
-            gap = wt["start"] - current_words[-1]["end"]
-            if gap > max_gap:
-                flush()
-
-        # Visual fit: flush before adding if the card would not fit
-        if current_words:
-            would_be = current_text() + " " + wt["word"]
-            if not fits_fn(would_be):
-                flush()
-
-        current_words.append(wt)
-
-        word = wt["word"]
-        is_sentence_end = bool(re.search(r'[.!?]$', word))
-        is_clause_break = bool(re.search(r'[,;:—–]$', word))
-        at_max = len(current_words) >= max_words
-        at_reasonable = len(current_words) >= min_words
-
-        if at_max or (at_reasonable and (is_sentence_end or is_clause_break)):
-            flush()
-
-    # Handle remainder
-    if current_words:
-        flush()
+        i = j
 
     return groups
 
@@ -469,7 +576,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             f"{MEAN_ADVANCE_EM}em mean-advance estimate.",
             file=sys.stderr,
         )
-    fits_fn = fitter.fits
+    # The box, not one line: the overlay wraps (MAX_CAPTION_LINES).
+    fits_fn = fitter.fits_in_box
 
     for block in structure:
         block_type = block["block_type"]
@@ -510,7 +618,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 if w["end"] > block_start - 0.05
                 and w["start"] < block_end + 0.05
             ]
-            groups = split_into_groups(timeline_words, fits_fn=fits_fn)
+            groups = split_into_groups(
+                timeline_words, fits_fn=fits_fn,
+                display_until=block_end)
 
             for g in groups:
                 sub_counter += 1
@@ -599,7 +709,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     if w["end"] > seg_tl_start - 0.05
                     and w["start"] < seg_tl_end + 0.05
                 ]
-                groups = split_into_groups(timeline_words, fits_fn=fits_fn)
+                groups = split_into_groups(
+                timeline_words, fits_fn=fits_fn,
+                display_until=block_end)
 
                 for g in groups:
                     sub_counter += 1

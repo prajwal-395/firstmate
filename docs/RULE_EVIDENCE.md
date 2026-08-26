@@ -760,3 +760,75 @@ That marker is gone: the reader is `library/tools/timed_text_overlay.py`, which 
 `tests/test_timed_text_delivery.py` renders a 24-frame fixture through the real path and asserts the declared colours are in the declared rows at the declared frames - the delivery half, without which "a reader exists" is the same empty claim `smart_reframe` made for months.
 
 The worked example of a project-side declaration is `tests/fixtures/night_card_project/project.yaml` - Through the 4th Wall's Night card, the second item in the captain's ratified build order.
+
+### the-caption-box-is-not-one-line
+
+The measured caption fitter landed with `fits(text)` meaning "fits on ONE line", and grouping used it.
+`SubtitleOverlay/index.tsx` draws the words in a `flexWrap: "wrap"` box bounded by `captionMaxWidth`, so a card wider than one line becomes two and is drawn in full - `CaptionFitter.widest_word_width`'s own docstring says exactly that, and `fit_scale` exists only for the one word that cannot be wrapped.
+So grouping was stricter than the render.
+
+At the 160px `default_subtitles` style, 816px of usable ink holds roughly eight characters on one line.
+The pre-measurement `max_chars = 18` grouping was about seventeen characters, which is two lines' worth - so switching to one-line fitting HALVED the words on every card without anyone choosing it.
+
+A card is on screen until the NEXT card's first word, so halving the words halved the display times.
+Measured on project 001, 2026-08-26: **76 of 96 cards under 0.5s**, the shortest 0.080s - 2.4 frames at 30fps, the single word `'day.'`.
+`manifest_validator`'s P6 hard-fails on any card under 0.5s, so no render of any project was possible.
+
+Two changes, and the second is the one that mattered:
+
+* Group against the BOX (`fits_in_box`, `MAX_CAPTION_LINES`), not one line. `MAX_CAPTION_LINES` is 3, and the number is measured: at 2 the same run still lands 11 of 52 cards under half a second, because a two-line card at 160px holds about 17 characters and this speaker delivers 17 characters in well under half a second several times. Three lines is 576px of a 1920-row frame on a 320px bottom inset, so a card stays in the lower third and clear of the speaker.
+* Split each block's words BALANCED rather than greedy. A greedy fill packs each card to the width limit and leaves the remainder as the next card, and the remainder is the card that flashes. `split_into_groups` now solves, per block, for the partition with the fewest cards below the floor - a small dynamic program over the words, ties broken towards the longest shortest card and then towards ending cards on punctuation. It models the real display duration, including the extension the per-block pass applies and the block end the last card is clamped to; optimising anything else optimises a number nobody renders.
+
+Result on 001: **96 cards to 41, and 76 flashing cards to 2.**
+
+The two survivors are the one case grouping cannot reach, and P6 now reports them rather than failing:
+a card is on screen until the next card's first word, and the LAST card of a block has no next word - it leaves when the block does.
+Block 2 is "today is march 25th, 2026.", its final word is spoken for 0.21s, and block 3's captions begin in the same frame.
+No partition of those five words, at any width, makes that card longer.
+The exemption needs the card to be last in its block AND to end at the block's end, both provable from the manifest, because a floor that exempts the general case is a gate that cannot fail.
+
+`tests/test_caption_safe_area.py` pins all of it, including a greedy-versus-balanced fixture - project 001's own opening line, where greedy leaves `'me.'` alone for 7 frames.
+
+### the-default-that-outvoted-the-plan
+
+The captain's ruling of 2026-08-20 removed the creative floors.
+`tests/test_no_creative_floors.py` guarded the PROMPTS, and two floors in the VFX post-bridge survived it by being code:
+
+* `inject_default_ken_burns` added a `slow_zoom_in`/`slow_zoom_out` to every speech block over three seconds that the plan had left alone, "because the style spec requires subtle motion on all A-roll clips >3s".
+* An empty plan exited 1 with `You MUST plan at least 3-7 VFX items`, contradicting the step's own handoff, which says an empty list is a legitimate answer for a piece that wants stillness.
+
+Observed on the run of 2026-08-26: a deliberate three-effect plan came out of the bridge with seven, three of them on blocks the spine had marked "no effect" - including the closing eleven seconds, where the creative direction says the admission must not be decorated.
+It is also where the previous run's `VFX family 'slow_zoom' covers all 8 V1 clips` P7 failure came from: the padding created the uniformity the check exists to catch.
+
+Both are gone, and `tests/test_no_creative_floors.py` now drives the post-bridge as well as reading the prompt.
+
+### hard-cuts-are-not-an-effect-on-everything
+
+P7 failed a build for `Transition type 'hard_cut' covers all 8 cuts`. Two things were wrong.
+
+**`hard_cut` draws nothing.** `transition_vocabulary.CUT_TYPES` says so in as many words - "Instantaneous transitions. Nothing is drawn" - and the transition handoff asks for them to dominate ("hard cuts dominate - use `hard_cut` as the default for most cuts").
+A video whose every cut is a hard cut is the ABSENCE of decoration, not decoration applied to everything, and failing it is the creative ceiling P7's own note forbids it from becoming.
+`CUT_TYPES` are now excluded from the check.
+
+**The denominator counted the wrong thing.** `cuts` was `len(v1_clips) - 1`, but `transitions` carries an entry for every spine-block boundary, including the transition slots whose picture is B-roll on V2.
+Project 001 plans 13 transitions across 9 V1 clips, so 8 hard cuts - 62% of what was planned - were counted as "all 8 of them".
+The denominator is now the transitions the plan actually wrote.
+
+### the-mix-target-is-not-a-separation
+
+Issue #183 asked whether a render should FAIL when speech sits under the music bed, and the captain's answer was "turn it on, but only after the next full run of 001 confirms it passes cleanly with the mix in place".
+
+That run was performed on 2026-08-26. **It does not pass cleanly, so `SPEECH_ABOVE_BED_GATES` stays False.**
+
+The delivery route works. Two windows planned `silent` measured -68.6 and -69.3 dBFS against a -36.6 dBFS median of the non-silent windows, and the OTIO round trip wrote a 22-keyframe curve spanning -96..-6 dB.
+6 of 9 speech-bearing windows met the margin.
+
+Three `background` windows did not: +12.6, +13.6 and +12.5 dB where the plan asks for +18.
+What fails is the TARGET, not the delivery.
+`background` means -18 dB and `audio_mix` applies that as an absolute clip gain, while the check reads it as the separation between the speech and the bed.
+Those agree only when the music file's own level is at or below the speech's.
+On 001 the music sits about **8.6 dB hotter** than the iPhone speech - raw music -10.5 dBFS against speech -19.1 dBFS in the worst window - so -18 dB of gain buys about 12.5 dB of separation and no mix setting reaches 18.
+
+Turning the gate on today would fail every project whose bed is mastered louder than its dialogue, which is most of them.
+Promoting it needs one of: a loudness-relative bed level in `audio_mix`, or a target here that is the planned dB minus the measured source difference.
+Either is a decision, not a fix.

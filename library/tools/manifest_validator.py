@@ -15,6 +15,8 @@ import os
 import json
 import jsonschema
 
+from library.tools.transition_vocabulary import CUT_TYPES
+
 # Two clips whose ranges differ by less than this are the same position.
 POSITION_EPSILON = 0.001
 
@@ -58,8 +60,29 @@ NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 # The floor is structurally unreachable in the normal case, so the fix is
 # in the GROUPING (do not emit a one-word card) and this is the check that
 # says whether a grouping change worked.
+#
+# It worked, and it also found the one case grouping CANNOT reach.
+# `step_4_01_plan_subtitles` now partitions each block's words to minimise
+# the cards below this floor rather than filling greedily, which on 001
+# took the count from 76 of 96 to 2 of 41. Both survivors are the LAST
+# card of a spine block: a card is on screen until the next card's first
+# word, and the last card of a block has no next word - it leaves when the
+# block does. Block 2 is "today is march 25th, 2026." and its final word
+# is spoken for 0.21s with the next block's captions starting in the same
+# frame, so no partition of those five words, at any width, makes that
+# card longer.
+#
+# So a card that ends WITH ITS BLOCK is counted and named, and does not
+# fail the build; everything else still does. The exemption is deliberately
+# the narrowest one that is provable from the manifest - it needs the card
+# to be last in its block AND to end at the block's end - because a floor
+# that exempts the general case is a gate that cannot fail.
 MIN_CAPTION_DISPLAY_SECONDS = 0.5
 SOFT_CAPTION_DISPLAY_SECONDS = 0.7
+
+# How close a card's end must be to its block's end to count as ending
+# with it. One frame at 30fps, rounded up: the plan rounds to 3dp.
+BLOCK_END_TOLERANCE_SECONDS = 0.034
 
 # ── P7: no discretionary effect applied to everything ──
 #
@@ -403,9 +426,39 @@ def _check_no_flash_captions(manifest: dict) -> list[str]:
     Measured on the plan rather than the render because this is where a
     fix is possible and where it costs nothing: the durations are already
     in `subtitles[*]`, and catching it here saves a full render.
+
+    A card that ends with its spine block is reported and not failed - see
+    the note on `MIN_CAPTION_DISPLAY_SECONDS` for why no grouping can
+    lengthen one.
     """
     subtitles = manifest.get("subtitles", []) or []
+    block_end = {
+        str(block.get("position")): block.get("timeline_end")
+        for block in (manifest.get("_spine_blocks", []) or [])
+        if block.get("timeline_end") is not None
+    }
+
+    # The last card of each block, by the end it reaches.
+    last_end_in_block = {}
+    for sub in subtitles:
+        position = str(sub.get("spine_block_position"))
+        end = sub.get("timeline_end")
+        if end is None:
+            continue
+        if end > last_end_in_block.get(position, float("-inf")):
+            last_end_in_block[position] = end
+
+    def _ends_with_its_block(sub) -> bool:
+        position = str(sub.get("spine_block_position"))
+        end = sub.get("timeline_end")
+        if end is None or position not in block_end:
+            return False
+        if abs(end - last_end_in_block.get(position, end)) > 1e-6:
+            return False
+        return abs(end - block_end[position]) <= BLOCK_END_TOLERANCE_SECONDS
+
     flashes = []
+    held_by_block = []
     soft = 0
     for sub in subtitles:
         start = sub.get("timeline_start")
@@ -416,7 +469,11 @@ def _check_no_flash_captions(manifest: dict) -> list[str]:
         if duration <= 0:
             continue
         if duration < MIN_CAPTION_DISPLAY_SECONDS:
-            flashes.append((sub.get("id", "?"), sub.get("text", ""), duration))
+            row = (sub.get("id", "?"), sub.get("text", ""), duration)
+            if _ends_with_its_block(sub):
+                held_by_block.append(row)
+            else:
+                flashes.append(row)
         elif duration < SOFT_CAPTION_DISPLAY_SECONDS:
             soft += 1
     if not flashes:
@@ -425,7 +482,7 @@ def _check_no_flash_captions(manifest: dict) -> list[str]:
     listed = ", ".join(f"{i} {d:.3f}s {t!r}" for i, t, d in flashes[:5])
     if len(flashes) > 5:
         listed += f", +{len(flashes) - 5} more"
-    return [
+    message = (
         f"{len(flashes)} of {len(subtitles)} caption cards are shorter than "
         f"{MIN_CAPTION_DISPLAY_SECONDS}s and flash rather than read "
         f"(shortest {worst[2]:.3f}s = {worst[2] * 30:.1f} frames at 30fps, "
@@ -433,7 +490,14 @@ def _check_no_flash_captions(manifest: dict) -> list[str]:
         f"{SOFT_CAPTION_DISPLAY_SECONDS}s display floor the subtitle planner "
         f"declares. Group fewer one-word cards - extending them is not "
         f"possible where they abut their neighbour. Offenders: {listed}"
-    ]
+    )
+    if held_by_block:
+        message += (
+            f". {len(held_by_block)} further card(s) are short because they "
+            f"end with their spine block and no grouping can lengthen them; "
+            f"those are reported, not counted here"
+        )
+    return [message]
 
 
 def _uniformity_error(family: str, kind: str, counts: dict,
@@ -484,28 +548,42 @@ def _check_no_effect_on_everything(manifest: dict) -> list[str]:
                 f"VFX family '{family}'", "V1 clips", entry["counts"],
                 len(entry["params"]), len(v1_clips)))
 
-    # ── Transitions, against the cuts ──
-    transitions = manifest.get("transitions", []) or []
-    cuts = max(len(v1_clips) - 1, 0)
-    if transitions and cuts >= MIN_ITEMS_FOR_UNIFORMITY:
+    # ── Transitions, against the cuts that were planned ──
+    #
+    # The denominator is the transitions the plan actually wrote, not
+    # `len(v1_clips) - 1`. A spine with transition slots has more cut
+    # points than V1 has clips - 001 plans 13 transitions across 9 V1
+    # clips - so counting a type against the V1 gaps declared 8 hard cuts
+    # out of 13 transitions to be "all of them".
+    #
+    # `CUT_TYPES` are excluded outright. They draw NOTHING - the
+    # vocabulary says so in as many words - so a video whose every cut is
+    # a hard cut is not an effect applied to everything, it is the absence
+    # of one, and the transition handoff asks for exactly that ("hard cuts
+    # dominate - use hard_cut as the default for most cuts"). Failing a
+    # restrained edit here would be the creative ceiling this check's own
+    # note forbids it from becoming.
+    transitions = [t for t in (manifest.get("transitions", []) or [])
+                   if t.get("transition_type")]
+    if len(transitions) >= MIN_ITEMS_FOR_UNIFORMITY:
         counts = {}
         params = {}
         for t in transitions:
-            kind = t.get("transition_type")
-            if not kind:
+            kind = t["transition_type"]
+            if kind in CUT_TYPES:
                 continue
             counts[kind] = counts.get(kind, 0) + 1
             params.setdefault(kind, set()).add(
                 json.dumps({"duration_frames": t.get("duration_frames")},
                            sort_keys=True))
         for kind, count in sorted(counts.items()):
-            if count < cuts:
+            if count < len(transitions):
                 continue
             if len(params[kind]) > MAX_UNIFORM_PARAMETER_SETS:
                 continue
             errors.append(_uniformity_error(
-                f"Transition type '{kind}'", "cuts", {kind: count},
-                len(params[kind]), cuts))
+                f"Transition type '{kind}'", "planned cuts", {kind: count},
+                len(params[kind]), len(transitions)))
 
     return errors
 

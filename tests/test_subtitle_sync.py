@@ -149,11 +149,14 @@ def test_subtitle_cascade_no_drop():
     # to assert the literal card "single day.", which was the grouping a
     # `max_chars = 18` fallback produced; captions are grouped by measured
     # width now (library/tools/safe_area.py, and step 4.01's CaptionFitter),
-    # so at the resolved style those two words are two cards. The
+    # and the split is balanced rather than greedy, so which card any given
+    # word lands on is not stable and is not the invariant here. The
     # invariant the test is named for is that nothing is dropped.
     texts = [e["text"] for e in entries]
     spoken = " ".join(w["word"] for w in audio_spine["structure"][0]
                       ["word_timestamps"]).lower()
     assert " ".join(texts) == spoken, (
         f"words lost or reordered.\n  got: {texts}\n  want: {spoken}")
-    assert "single" in texts and "day." in texts, texts
+    # The tail of the block specifically, because that is what used to be
+    # truncated - on whichever card the split put them.
+    assert texts[-1].endswith("single day."), texts

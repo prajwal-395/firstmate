@@ -405,12 +405,34 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 # reached nothing - so the check could not pass whatever anyone
 # configured, and a gate that must fail teaches everyone to ignore the
 # report. The OTIO round trip (AGENTS.md section 5, "The mix goes
-# through OTIO") closed that, and 001 now renders with every planned dB
-# measurably present.
+# through OTIO") closed that.
 #
-# The switch stays False anyway, because promoting it is a separate
-# captain decision about what a FAILING mix should cost a run, not a
-# consequence of the route existing. Promoting it is this boolean.
+# The captain's ruling on issue #183 (2026-08-26) was "turn it on, but
+# only after the next full run of 001 confirms it passes cleanly with the
+# mix in place". That run was performed on 2026-08-26 and it does NOT
+# pass cleanly, so the switch stays False and this is the measurement
+# that keeps it there:
+#
+#   6 of 9 speech-bearing windows met the margin the plan declared.
+#   Three `background` windows fell short of the +18 dB the plan asks
+#   for: 26.41-29.52s at +12.6 dB, 29.52-33.32s at +13.6 dB and
+#   35.82-41.68s at +12.5 dB. The two windows planned `silent` measured
+#   -68.6 and -69.3 dBFS against a -36.6 dBFS median, so the planned
+#   silence is real; the delivery route works.
+#
+# What fails is the TARGET, not the delivery. `background` means -18 dB
+# and `audio_mix` applies that as an absolute clip gain, while this check
+# reads it as the separation between the speech and the bed. Those agree
+# only when the music file's own level is at or below the speech's. On
+# 001 the music sits about 8.6 dB HOTTER than the iPhone speech
+# (music -10.5 dBFS raw against speech -19.1 dBFS in the worst window),
+# so -18 dB of gain buys about 12.5 dB of separation and no mix setting
+# reaches 18. Turning this on today would fail every project whose bed is
+# mastered louder than its dialogue, which is most of them.
+#
+# Promoting it is this boolean, and it needs one of: a loudness-relative
+# bed level in `audio_mix`, or a target here that is the planned dB minus
+# the measured source difference. Either is a decision, not a fix.
 SPEECH_ABOVE_BED_GATES = False
 
 # A `silent` window is judged by how far its music sits below the median
@@ -845,8 +867,8 @@ def measure_speech_above_bed(
                        f"{worst['music_behavior']}, speech is "
                        f"{worst['margin_db']:+.1f} dB over the bed")
             if not gate:
-                detail += (" - REPORTED ONLY, the mix has no delivery route "
-                           "(open captain decision)")
+                detail += (" - REPORTED ONLY; see SPEECH_ABOVE_BED_GATES for "
+                           "why this is not a build failure yet")
 
         return RenderQAResult(
             metric="speech_above_bed",

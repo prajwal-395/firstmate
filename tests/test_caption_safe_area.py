@@ -33,6 +33,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.steps.step_4_01_plan_subtitles.step import (  # noqa: E402
+    MAX_CAPTION_LINES,
     build_caption_fitter,
     generate_subtitles,
     split_into_groups,
@@ -194,15 +195,34 @@ def test_the_step_runs_the_fitter_on_a_real_invocation():
     assert "usable width" in proc.stderr, proc.stderr
 
 
-# ── The regression: no card is emitted wider than the usable width ──
+# ── The regression: no card is emitted wider than the caption box ──
 
-def test_no_caption_group_is_wider_than_the_usable_width():
+def _wrapped_lines(fitter, text):
+    """The lines the caption box wraps `text` onto, greedily."""
+    lines, current = [], []
+    for word in text.split():
+        if current and fitter.text_width(
+                " ".join(current + [word])) > fitter.usable_width:
+            lines.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        lines.append(" ".join(current))
+    return lines
+
+
+def test_no_caption_line_is_wider_than_the_usable_width():
     """The defect, pinned.
 
     Before the fix this line grouped by `max_chars = 18` into cards like
     'brand template and' - 1707px of ink in a 1080px frame - and left
     'announcement' (1303px) as an unbreakable single word clipped at both
     edges. Measured ink span across the cards was columns 0-1079.
+
+    The bound is per LINE, because the overlay's box wraps (`flexWrap`),
+    so a card wider than one line becomes two and is drawn in full. What
+    must never happen is a LINE running off the frame.
     """
     style = resolve_subtitle_style({}, {})
     safe_area = resolve_safe_area()
@@ -218,12 +238,13 @@ def test_no_caption_group_is_wider_than_the_usable_width():
     for entry in entries:
         scale = entry["fit_scale"]
         assert 0 < scale <= 1.0
-        ink = fitter.text_width(entry["text"]) * scale + 2 * outline
-        assert ink <= safe_area.centered_usable_width, (
-            f"card {entry['id']} {entry['text']!r} draws {ink:.0f}px of ink "
-            f"in a {safe_area.centered_usable_width}px usable width")
-        left_edge = min(left_edge, (FRAME_W - ink) / 2.0)
-        right_edge = max(right_edge, (FRAME_W + ink) / 2.0)
+        for line in _wrapped_lines(fitter, entry["text"]):
+            ink = fitter.text_width(line) * scale + 2 * outline
+            assert ink <= safe_area.centered_usable_width, (
+                f"card {entry['id']} line {line!r} draws {ink:.0f}px of ink "
+                f"in a {safe_area.centered_usable_width}px usable width")
+            left_edge = min(left_edge, (FRAME_W - ink) / 2.0)
+            right_edge = max(right_edge, (FRAME_W + ink) / 2.0)
 
     assert left_edge >= safe_area.left, (
         f"caption ink starts at column {left_edge:.0f}, inside the "
@@ -231,6 +252,24 @@ def test_no_caption_group_is_wider_than_the_usable_width():
     assert right_edge <= FRAME_W - safe_area.right, (
         f"caption ink ends at column {right_edge:.0f}, inside the "
         f"{safe_area.right}px right safe margin")
+
+
+def test_no_card_needs_more_lines_than_the_box_allows():
+    """A card is a phrase, not a paragraph.
+
+    The grouper fits the BOX rather than one line, which is what restored
+    the card length the pre-measurement `max_chars = 18` grouping had.
+    `MAX_CAPTION_LINES` is the bound on how far that goes.
+    """
+    fitter = build_caption_fitter(
+        resolve_subtitle_style({}, {}), resolve_safe_area())
+    entries = generate_subtitles(
+        _spine(CLIPPING_LINE), caption_case="lowercase",
+    )["subtitle_plan"]["subtitle_entries"]
+    for entry in entries:
+        assert fitter.line_count(entry["text"]) <= MAX_CAPTION_LINES, (
+            f"card {entry['id']} {entry['text']!r} wraps onto "
+            f"{fitter.line_count(entry['text'])} lines")
 
 
 def test_an_unbreakable_word_is_shrunk_rather_than_clipped():
@@ -247,7 +286,7 @@ def test_an_unbreakable_word_is_shrunk_rather_than_clipped():
     entries = generate_subtitles(
         _spine(CLIPPING_LINE), caption_case="lowercase",
     )["subtitle_plan"]["subtitle_entries"]
-    card = next(e for e in entries if e["text"] == "announcement")
+    card = next(e for e in entries if "announcement" in e["text"])
     assert card["fit_scale"] < 1.0
     assert (fitter.word_width("announcement") * card["fit_scale"]
             <= fitter.usable_width)
@@ -378,3 +417,127 @@ def test_the_retired_literals_do_not_come_back():
         "max_chars is back. Caption grouping is measured in pixels now; a "
         "character count has no relation to how wide a caption draws.")
     assert "safe_area" in step_src
+
+
+# ── The grouper does not leave runts ──
+#
+# The balanced split. A greedy fill packs each card to the width limit and
+# leaves the remainder as the next card, and a card is on screen only
+# until the NEXT card's first word - so the remainder flashes. On project
+# 001 that produced 76 cards under half a second out of 96. Nothing
+# downstream can repair it: `enforce_min_duration` extends a card only up
+# to its neighbour's start, and a greedy card's neighbour starts
+# immediately.
+
+# The real opening line of project 001, at its real delivery speed.
+# Greedy grouping leaves "me." alone for 0.24s - 7 frames at 30fps.
+FAST_LINE = "i can feel the silent judgment of the people behind me."
+
+
+def _fast_spine(text, per_word=0.24, gap=0.0):
+    """A speech block delivered fast enough to make runt cards."""
+    words, t = [], 0.0
+    for word in text.split():
+        words.append({"word": word, "source_start": round(t, 3),
+                      "source_end": round(t + per_word, 3)})
+        t += per_word + gap
+    return {"structure": [{
+        "block_type": "speech",
+        "position": 1,
+        "timeline_start": 0.0,
+        "timeline_end": words[-1]["source_end"],
+        "source_start": 0.0,
+        "source_end": words[-1]["source_end"],
+        "clip_id": "clip_001",
+        "alignment_method": "whisperx",
+        "word_timestamps": words,
+        "content": {"text": text},
+    }]}
+
+
+def _durations(entries):
+    return [e["timeline_end"] - e["timeline_start"] for e in entries]
+
+
+def test_the_split_is_balanced_not_greedy():
+    """No card flashes where a different split of the same words would not.
+
+    The words all fit the box in more than one way; the grouper has to
+    pick the partition that keeps every card on screen, not the one that
+    fills each card first.
+    """
+    entries = generate_subtitles(
+        _fast_spine(FAST_LINE), caption_case="lowercase",
+    )["subtitle_plan"]["subtitle_entries"]
+    assert entries
+    flashing = [(e["text"], d) for e, d in zip(entries, _durations(entries))
+                if d < 0.5]
+    assert not flashing, f"cards under 0.5s: {flashing}"
+
+
+def test_a_greedy_split_of_the_same_words_would_have_flashed():
+    """The guard can fire: greedy on this fixture really does leave runts.
+
+    A gate that cannot fail reads as coverage, so this asserts the fixture
+    is one the old behaviour got wrong.
+    """
+    fitter = build_caption_fitter(
+        resolve_subtitle_style({}, {}), resolve_safe_area())
+    spine = _fast_spine(FAST_LINE)
+    words = [{"word": w["word"], "start": w["source_start"],
+              "end": w["source_end"]}
+             for w in spine["structure"][0]["word_timestamps"]]
+    block_end = spine["structure"][0]["timeline_end"]
+
+    greedy, current = [], []
+    for word in words:
+        trial = current + [word]
+        if current and not fitter.fits_in_box(
+                " ".join(w["word"] for w in trial)):
+            greedy.append(current)
+            current = [word]
+        else:
+            current = trial
+    if current:
+        greedy.append(current)
+
+    starts = [card[0]["start"] for card in greedy] + [block_end]
+    greedy_durations = [b - a for a, b in zip(starts, starts[1:])]
+    assert any(d < 0.5 for d in greedy_durations), (
+        "the fixture no longer distinguishes greedy from balanced; pick "
+        f"one that does (greedy durations {greedy_durations})")
+
+
+def test_the_last_card_of_a_block_is_measured_to_the_block_end():
+    """A card's time on screen ends where its block does, not at its own
+    last word - and the split has to know that or it optimises a number
+    nobody renders."""
+    fitter = build_caption_fitter(
+        resolve_subtitle_style({}, {}), resolve_safe_area())
+    words = [{"word": "one", "start": 0.0, "end": 0.3},
+             {"word": "two.", "start": 0.35, "end": 0.6}]
+    tight = split_into_groups(words, fits_fn=fitter.fits_in_box,
+                              display_until=0.6)
+    roomy = split_into_groups(words, fits_fn=fitter.fits_in_box,
+                              display_until=4.0)
+    # With four seconds of block left, splitting them is free; with none,
+    # it is not.  Whatever it chooses, it must not invent time.
+    assert tight and roomy
+    assert all(g["end"] <= 0.6 for g in tight)
+
+
+def test_a_single_word_is_always_a_legal_card():
+    """The base case that guarantees a partition exists.
+
+    One word wider than the box cannot be wrapped away - `fit_scale`
+    draws that card smaller - so the split must never be unable to place
+    it.
+    """
+    fitter = build_caption_fitter(
+        resolve_subtitle_style({}, {}), resolve_safe_area())
+    assert fitter.word_width("announcement") > fitter.usable_width, (
+        "the fixture word no longer overflows; pick one that does")
+    groups = split_into_groups(
+        [{"word": "announcement", "start": 0.0, "end": 0.8}],
+        fits_fn=fitter.fits_in_box, display_until=0.8)
+    assert [g["text"] for g in groups] == ["announcement"]

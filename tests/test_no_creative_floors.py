@@ -271,3 +271,77 @@ def test_sfx_collapse_is_still_caught():
                 {"timeline_in": 0.0},
             ]
         )
+
+
+# ── The VFX post-bridge must not pad the plan ─────────────────────────
+#
+# The third floor, and the one that outlived the ruling by hiding in code
+# rather than in a prompt. `inject_default_ken_burns` added a
+# `slow_zoom_in`/`slow_zoom_out` to every speech block over three seconds
+# that the plan had deliberately left alone, "because the style spec
+# requires subtle motion on all A-roll clips >3s", and a second guard
+# failed the step outright when the plan was empty. Observed on the run of
+# 2026-08-26: a three-effect plan came out of the bridge with seven, three
+# of them on blocks the spine had marked "no effect", and the resulting
+# manifest failed P7 for putting one zoom family on every V1 clip.
+
+
+def _vfx_payload(positions, n_blocks=4):
+    spine = {
+        "structure": [
+            {
+                "position": i + 1,
+                "block_type": "speech",
+                "clip_id": "clip_001",
+                "source_start": i * 5.0,
+                "source_end": i * 5.0 + 5.0,
+                "timeline_start": i * 5.0,
+                "timeline_end": i * 5.0 + 5.0,
+                "word_timestamps": [],
+                "alignment_method": "whisperx",
+            }
+            for i in range(n_blocks)
+        ]
+    }
+    return {
+        "vfx_creative": [
+            {
+                "target_block_position": pos,
+                "effect_type": "slow_zoom_in",
+                "intensity": "subtle",
+                "rationale": "the shot is held long enough to go dead",
+            }
+            for pos in positions
+        ],
+        "a_roll_assignments": [],
+        "timed_spine": spine,
+        "frame_rate": 30.0,
+        "creative_direction": {},
+    }
+
+
+def test_plan_vfx_leaves_the_blocks_the_plan_left_alone():
+    """One effect on four eligible blocks stays one effect."""
+    proc = _run_bridge(VFX / "post_bridge.py", _vfx_payload([1]))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    effects = json.loads(proc.stdout)["enhancement_spec"]["visual_effects"]
+    assert [e["target_block_position"] for e in effects] == [1], (
+        f"the bridge padded the plan back up - a floor is back: {effects}"
+    )
+    combined = (proc.stdout + proc.stderr).lower()
+    for word in ("ken burns", "default", "requires subtle"):
+        assert word not in combined, (
+            f"the bridge still talks about a default ({word!r})"
+        )
+
+
+def test_plan_vfx_accepts_an_empty_plan():
+    """The handoff says so in as many words: 'an empty list is a
+    legitimate answer for a piece that wants stillness'. The bridge used
+    to exit 1 with 'You MUST plan at least 3-7 VFX items'."""
+    proc = _run_bridge(VFX / "post_bridge.py", _vfx_payload([]))
+    assert proc.returncode == 0, (
+        "an empty VFX plan was rejected - a floor is back.\n"
+        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+    )
+    assert json.loads(proc.stdout)["enhancement_spec"]["visual_effects"] == []

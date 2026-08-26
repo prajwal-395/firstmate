@@ -486,6 +486,90 @@ class TestP6NoFlashingCaptions:
     def test_a_manifest_with_no_subtitles_is_not_a_failure(self):
         assert _check_no_flash_captions({}) == []
 
+    def test_a_card_that_ends_with_its_block_is_reported_not_failed(self):
+        """The one case grouping cannot reach.
+
+        A card is on screen until the next card's first word; the last
+        card of a block has no next word, so it leaves when the block
+        does. On 001 block 2 is "today is march 25th, 2026.", its final
+        word is spoken for 0.21s, and the next block's captions begin in
+        the same frame - no partition of those words, at any width, makes
+        that card longer.
+        """
+        manifest = {
+            "subtitles": [
+                {"id": "sub_001", "text": "today is march",
+                 "spine_block_position": 2,
+                 "timeline_start": 5.40, "timeline_end": 6.64},
+                {"id": "sub_002", "text": "25th,", "spine_block_position": 2,
+                 "timeline_start": 6.64, "timeline_end": 8.17},
+                {"id": "sub_003", "text": "2026.", "spine_block_position": 2,
+                 "timeline_start": 8.17, "timeline_end": 8.38},
+            ],
+            "_spine_blocks": [
+                {"position": 2, "timeline_start": 5.40, "timeline_end": 8.38},
+            ],
+        }
+        assert _check_no_flash_captions(manifest) == []
+
+    def test_a_runt_in_the_middle_of_a_block_still_fails(self):
+        """The exemption is the narrowest one provable from the manifest.
+        A short card with another card after it inside the same block was
+        cut short by the GROUPING, and that is fixable."""
+        manifest = {
+            "subtitles": [
+                {"id": "sub_001", "text": "today is march",
+                 "spine_block_position": 2,
+                 "timeline_start": 5.40, "timeline_end": 6.64},
+                {"id": "sub_002", "text": "25th,", "spine_block_position": 2,
+                 "timeline_start": 6.64, "timeline_end": 6.85},
+                {"id": "sub_003", "text": "2026.", "spine_block_position": 2,
+                 "timeline_start": 6.85, "timeline_end": 8.38},
+            ],
+            "_spine_blocks": [
+                {"position": 2, "timeline_start": 5.40, "timeline_end": 8.38},
+            ],
+        }
+        errors = _check_no_flash_captions(manifest)
+        assert len(errors) == 1
+        assert "sub_002" in errors[0]
+
+    def test_the_exemption_needs_the_block_to_vouch_for_it(self):
+        """Without `_spine_blocks` nothing can prove a card ends with its
+        block, so nothing is exempted - the check does not degrade to
+        trusting the plan."""
+        manifest = {
+            "subtitles": [
+                {"id": "sub_001", "text": "a", "spine_block_position": 2,
+                 "timeline_start": 0.0, "timeline_end": 1.0},
+                {"id": "sub_002", "text": "b", "spine_block_position": 2,
+                 "timeline_start": 1.0, "timeline_end": 1.21},
+            ],
+        }
+        errors = _check_no_flash_captions(manifest)
+        assert len(errors) == 1 and "sub_002" in errors[0]
+
+    def test_the_exempted_cards_are_still_named_in_the_message(self):
+        """Reported, not silently dropped: a build that has both kinds
+        says so."""
+        manifest = {
+            "subtitles": [
+                {"id": "sub_001", "text": "a", "spine_block_position": 2,
+                 "timeline_start": 0.0, "timeline_end": 1.0},
+                {"id": "sub_002", "text": "b", "spine_block_position": 2,
+                 "timeline_start": 1.0, "timeline_end": 1.21},
+                {"id": "sub_003", "text": "c", "spine_block_position": 2,
+                 "timeline_start": 1.21, "timeline_end": 1.40},
+            ],
+            "_spine_blocks": [
+                {"position": 2, "timeline_start": 0.0, "timeline_end": 1.40},
+            ],
+        }
+        errors = _check_no_flash_captions(manifest)
+        assert len(errors) == 1
+        assert "sub_002" in errors[0]
+        assert "end with their spine block" in errors[0]
+
 
 # ═══ P7: no discretionary effect applied to everything ═══
 
@@ -541,16 +625,46 @@ class TestP7NoEffectOnEverything:
         assert _check_no_effect_on_everything(
             _vfx_manifest([ZOOM_IN, ZOOM_OUT], clips=2)) == []
 
-    def test_transitions_are_judged_against_the_cuts(self):
+    def test_a_drawn_transition_on_every_cut_fires(self):
         manifest = {
             "tracks": {"V1": {"clips": [{"label": f"c{i}"} for i in range(6)]}},
             "transitions": [{"transition_id": f"t{i}",
-                             "transition_type": "hard_cut",
+                             "transition_type": "defocus",
                              "duration_frames": 10} for i in range(5)],
         }
         errors = _check_no_effect_on_everything(manifest)
         assert len(errors) == 1
-        assert "hard_cut" in errors[0] and "covers all 5 cuts" in errors[0]
+        assert "defocus" in errors[0] and "covers all 5 planned cuts" in errors[0]
+
+    def test_a_video_of_nothing_but_hard_cuts_is_not_an_effect(self):
+        """`CUT_TYPES` draw NOTHING - the vocabulary says so - so every cut
+        being a hard cut is the ABSENCE of an effect, and the transition
+        handoff asks for exactly that ("hard cuts dominate"). Failing a
+        restrained edit here would be the creative ceiling this check's own
+        note forbids it from becoming."""
+        for kind in ("hard_cut", "jump_cut", "match_cut"):
+            manifest = {
+                "tracks": {"V1": {"clips": [{"label": f"c{i}"}
+                                            for i in range(6)]}},
+                "transitions": [{"transition_id": f"t{i}",
+                                 "transition_type": kind,
+                                 "duration_frames": 0} for i in range(5)],
+            }
+            assert _check_no_effect_on_everything(manifest) == [], kind
+
+    def test_the_denominator_is_the_transitions_planned_not_the_v1_gaps(self):
+        """A spine with transition slots has more cut points than V1 has
+        clips. Project 001 plans 13 transitions across 9 V1 clips, and
+        counting a type against `len(v1_clips) - 1` declared its 8 hard
+        cuts to be "all 8 of them" and failed the build."""
+        types = (["hard_cut"] * 8 + ["defocus"] * 3 + ["jump_cut"] * 2)
+        manifest = {
+            "tracks": {"V1": {"clips": [{"label": f"c{i}"} for i in range(9)]}},
+            "transitions": [{"transition_id": f"t{i}", "transition_type": k,
+                             "duration_frames": 15 if k == "defocus" else 0}
+                            for i, k in enumerate(types)],
+        }
+        assert _check_no_effect_on_everything(manifest) == []
 
     def test_001s_transition_mix_passes(self):
         """4 hard_cut, 3 defocus, 3 jump_cut over 7 cuts - no type at 100%.

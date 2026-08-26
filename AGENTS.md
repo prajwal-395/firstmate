@@ -499,6 +499,9 @@ One enumeration keyed by delivery format, insets stored as FRACTIONS so a 4K ver
 Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth` props), `generate_motion_props`, `timed_text_overlay` (which refuses a card centred in the platform's UI band) and `plan_subtitles`' grouper. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
 - The subtitle style is resolved at the top of `generate_subtitles` and there is no blind path: `split_into_groups` raises without a `fits_fn`.
+- **A card fits the BOX, not one line.** The overlay wraps (`flexWrap`), so `fits_in_box`/`MAX_CAPTION_LINES` is the test; grouping against one line halves the words on every card and therefore halves how long each is on screen. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+- **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it - the extension the per-block pass applies, and the block end the last card is clamped to.
+- The last card of a block leaves when the block does, so it can be short with no partition able to fix it. `manifest_validator`'s P6 reports exactly that case and fails every other one.
 - Set the weight axis when measuring a VARIABLE font.
 - A card with one over-wide word carries `fit_scale` and the render draws THAT CARD smaller; the style's font size is untouched.
 - The Remotion studio's `defaultProps` get the insets from `src/safeArea.generated.ts`, projected out of the enumeration by `scripts/generate_safe_area_defaults.py`.
@@ -551,8 +554,15 @@ If you add a model-judged gate, give it a deterministic half that can carry the 
 
 `manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
 
+- P6 exempts the one card no grouping can lengthen - the last in its block, ending where the block does - and reports it. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+- P7 judges DRAWN effects only. `transition_vocabulary.CUT_TYPES` draw nothing, so an edit of nothing but hard cuts is the absence of decoration, and its denominator is the transitions the plan wrote, not `len(v1_clips) - 1`. [why](docs/RULE_EVIDENCE.md#hard-cuts-are-not-an-effect-on-everything)
+
 Chroma and the mix REPORT A NUMBER and pass.
 Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATES`); do not turn them into gates by another route. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+
+`SPEECH_ABOVE_BED_GATES` stays False on the captain's own condition (#183): the full run of 001 on 2026-08-26 did NOT pass it cleanly.
+The mix reaches the file - the planned silence measures 32 dB below the bed - but `background` means -18 dB of CLIP GAIN while the check reads it as SEPARATION, and 001's music is mastered 8.6 dB hotter than its speech, so the target is unreachable by any mix setting.
+Do not flip the boolean without changing one of the two. [why - the per-window numbers](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
 The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
 A declared letterbox is exempt from the fill floor and never from the consistency half.
@@ -564,6 +574,7 @@ A declared letterbox is exempt from the fill floor and never from the consistenc
 The creative direction decides how many cutaways and how many sounds a piece gets, and the accepted consequence is that a thin edit is no longer caught mechanically. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 - **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`). Add a planning step, add it there.
+- **A floor in a BRIDGE is a floor, and that is where the last one hid.** The VFX post-bridge padded the plan up to every eligible block and failed the step when the plan was empty, and survived the ruling by living in code rather than in a prompt. The same test now drives the post-bridge. [why](docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan)
 - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
 
