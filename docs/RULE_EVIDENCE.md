@@ -297,6 +297,58 @@ A declaration that can go stale is the exact failure the layout owner exists to 
 
 ---
 
+### tests-bound-to-the-captains-project
+
+`tests/test_pipeline.py` walked the real projects root at IMPORT time, so it happened on every pytest COLLECTION rather than only when its own test ran:
+
+    from library.tools.paths import PROJECTS_ROOT
+    for entry in PROJECTS_ROOT.iterdir():
+        if entry.is_dir() and (entry / "project.yaml").exists():
+            PROJECT_DIR = str(entry)
+            break
+    OUTPUT_DIR = os.path.join(PROJECT_DIR, "pipeline_output")
+
+`PIPELINE_TEST_PROJECT` overrode it, but the FALLBACK was the real thing and nothing sets that variable in CI or locally.
+The module then wrote `step_2_05_v2.json`, `step_3_01_v2.json`, `step_4_01_v2.json`, `assembly_manifest_v2.json` and `timeline_v2.xml` into whatever project it had bound (line 71), and `shutil.move`d a `.bak` back over `step_2_05.json` and `step_4_01.json` in a `finally` (line 284).
+
+**This is not known to have destroyed anything.**
+It was found on 2026-08-26 while investigating three exports that vanished on 2026-08-25, and the captain has since accounted for those separately.
+It is a live hazard on its own account, and the reason it is priority zero rather than tidiness is that there is no undo: this machine has no Time Machine destination configured.
+
+Two accidents are why nothing had been written recently, and neither is a control:
+
+- On this machine the walk aborts on `.DS_Store`, which `iterdir` returns first and which `entry.iterdir()` raises `NotADirectoryError` on - caught by the `except (ImportError, FileNotFoundError, OSError)`. Delete the `.DS_Store` and it binds to the first real project instead. Reproduced: with the `.DS_Store` skipped it resolves `video_projects/4th-wall`.
+- In CI the root does not exist at all, so the walk raises `FileNotFoundError` and the test skips. CI has therefore never run this; only a local machine could.
+
+**The test could not have passed anyway, and it asserted nothing.**
+Judged against a temporary fixture as the task asked:
+
+- Zero `assert` statements in 363 lines. It prints and it writes.
+- Line 295 does `from xmeml_generator import write_xmeml_file`. That module was deleted when the FCPXML route was closed (AGENTS.md section 5, [fcpxml-and-drp-are-closed](#fcpxml-and-drp-are-closed)), so the run raises `ImportError` at phase 6 even with every input present.
+- It reads flat `pipeline_output/step_2_01.json` names. Since PR #167 exports go to `pipeline_output/steps/<step>/output.json`, so its own `skipif` guard can only fire on a project predating that layout and never migrated.
+
+So it was a pre-pytest orchestrator script with a `@pytest.mark.skipif` bolted on, whose only remaining effect was writing into whatever project it found. It was deleted rather than rebuilt on a fixture: preserving a green that was never real would have meant fabricating a fully populated project to feed a route the repo has withdrawn.
+
+**The audit of the rest of `tests/`.** Every route into a real project, not just this one:
+
+| Where | Shape | Verdict |
+|---|---|---|
+| `test_pipeline.py` | walks `PROJECTS_ROOT`, binds at import, writes and `shutil.move`s | **Deleted.** The only instance. |
+| `test_dashboard_api.py:10` | `@patch("library.tools.paths.PROJECTS_ROOT")` | **Left.** A string target, patched to a `MagicMock`. Never reads the value. |
+| `library/dashboard/server.py` `_get_project_dir` | raises `HTTPException` when no project is set | **Left.** No fallback to scan; answers the "do the dashboard tests reach a real project another way" question with no. |
+| `test_dashboard_smoke.py`, `test_e2e_dashboard.py`, `test_e2e_pipeline_run.py`, `test_dashboard_run_control.py`, `test_run_traceback.py` | build a project under `tmp_path`/`TemporaryDirectory` and copy `tests/fixtures/` state into it | **Left.** Already correct. |
+| `test_runner_no_fixture_shortcuts.py` | quotes `/Users/prajwal/.../001/...` in its module docstring | **Left.** Documentation of the hazard it guards. The source scan is docstring-aware for this reason. |
+| `test_night_card_delivery.py` `CARD_PROJECT` | `tests/fixtures/night_card_project` | **Left.** In-repo fixture, read-only. |
+| `test_color_grade_delivery.py`, `test_integration.py` | `project_folder="proj"`, a relative path | **Left.** Nothing on that path is opened, verified by a clean `git status` after a full run. Not a route to a real project either way. |
+| `test_runner_library_paths.py`, `test_music_selection_contract.py`, `test_dotenv_encoding.py`, `test_validate_sfx_library.py` | set `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY` | **Left.** Set to `tmp_path`, or named in prose. These are the shared libraries, not a project. |
+| every `subprocess.run` in `tests/` | inherits `os.environ` | **Left, and now covered.** The conftest sandbox is an env var, so a child process inherits the sandbox rather than the real root. |
+
+**What was measured.** A full `python -m pytest tests/ -q` with `PIPELINE_TEST_PROJECT` unset, bracketed by a sha256-per-file snapshot of all 210 entries under the real projects root: identical before and after.
+
+**Why `paths.py` and not `project_layout.py`.**
+The task asked whether the by-step layout owner could be the enforcement point. It cannot: `ProjectLayout` is constructed from a folder passed in, and has no way to judge whether that folder is the captain's or a fixture's - which is the whole reason it is parameterised. `PROJECTS_ROOT` is the only thing in the repo that names the real root, so that is where the door is.
+
+
 ## Section 9 - environment
 
 ### text-true-decodes-with-the-locale-codec

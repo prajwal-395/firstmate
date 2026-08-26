@@ -366,6 +366,15 @@ Every record carries the METHOD that produced it, because an audit that cannot t
 - Every run writes a manifest to `pipeline_output/migrations/` - each action with source, destination, byte count, digest and reason, plus the byte totals before and after. `manage_project.py organize <slug> --revert <manifest> --apply` reads it back.
 - `tests/test_project_migration.py`.
 
+### No test reaches a real project
+
+**A test builds its project under `tmp_path`, or it skips. It never falls back to a real one.**
+The captain's footage and renders cannot be re-shot and this machine has no Time Machine destination, so there is no undo. [why](docs/RULE_EVIDENCE.md#tests-bound-to-the-captains-project)
+
+- `library.tools.paths.PROJECTS_ROOT` is the ONE constant naming where real projects live, and it is the enforcement point - `project_layout.py` cannot be, because a project folder is an argument it has no way to judge. **A test may not read that constant.** Patching it by string is fine.
+- `tests/conftest.py` points `PIPELINE_PROJECTS_ROOT` at an empty temporary directory for the whole session, before anything under `library/` is imported. The sandbox stays EMPTY; it is not a fixture.
+- `tests/test_tests_never_reach_real_projects.py` asserts the guarantee three ways: the root a test sees is the sandbox, no test source reads the constant or carries a home-absolute path, and collecting the whole suite against a populated DECOY root - sandbox deliberately off - binds nothing under it and changes not one byte of it.
+
 ## 9. Environment and dependencies
 
 - **Run from the dedicated `.venv`**, which holds all ML dependencies: `source .venv/bin/activate` before `manage_project.py`, which enforces this with a preflight check.
