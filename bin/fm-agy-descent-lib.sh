@@ -197,6 +197,13 @@ fi
 if ! declare -f fm_lock_try_acquire >/dev/null 2>&1; then
   . "$_FM_AGY_DESCENT_LIB_DIR/fm-wake-lib.sh"
 fi
+# The model catalogue, which is the only thing that can say whether two
+# spellings of a model name the same model. Sourced guarded like the rest; it
+# has no side effects on source.
+if ! declare -f fm_agy_catalog_same_model >/dev/null 2>&1; then
+  # shellcheck source=bin/fm-agy-lib.sh
+  . "$_FM_AGY_DESCENT_LIB_DIR/fm-agy-lib.sh"
+fi
 
 # FM_AGY_DESCENT: `off` disables the whole evaluation, leaving the launch gate
 # as the only enforcement. Nothing in production sets it; it exists so a
@@ -413,6 +420,54 @@ fm_agy_descent_confirms() {  # <text> <ladder-display>
   footer=$(fm_agy_footer_model "$text") || return 1
   [ "$footer" = "$want" ] || return 1
   return 0
+}
+
+# fm_agy_descent_model_agrees: does firstmate's durable record and the running
+# worker name the SAME model?
+#
+# THIS IS NOT A STRING COMPARISON, AND THAT IS THE POINT. agy accepts both
+# spellings of every model, so a task dispatched as `--model
+# gemini-3.1-pro-high` launches successfully and then runs a worker whose footer
+# draws "Gemini 3.1 Pro (High)". Compared as bytes those disagree, and the guard
+# that refuses on a disagreement then refuses forever on a pair that was never
+# in conflict - taking the whole in-flight half of the ladder down with it.
+#
+# The reconciliation is asked of `agy models`, which prints the id and the
+# display name of each model on one row and is therefore the authority on which
+# spellings are one model. Nothing is kebab-ised here: a locally derived mapping
+# is a guess at something the tool will state on request, and it would be wrong
+# the first time agy names a model in a way the rule did not anticipate.
+#
+# The equal case short-circuits before the catalogue is consulted, so the
+# ordinary agreeing worker - every worker, almost always - costs no subprocess
+# at all and the bounded network read happens only on a pair that actually
+# looks like a conflict.
+#
+# Three-valued, mirroring fm_agy_catalog_same_model, because a caller owes a
+# real conflict and missing evidence different answers:
+#   0  the same model, print nothing
+#   1  different models, print nothing
+#   2  could not be reconciled, print the reason
+#
+# An unreadable catalogue is deliberately NOT an agreement. The caller acts on
+# the record, so a pair it cannot identify has to stop it; guessing here would
+# drive a modal picker into a live worker on a description that may not fit it.
+fm_agy_descent_model_agrees() {  # <recorded> <reported>
+  local recorded=$1 reported=$2 binary catalog rc=0
+  [ "$recorded" != "$reported" ] || return 0
+  if ! binary=$(fm_agy_resolve_binary 2>/dev/null); then
+    printf 'agy is not installed here, so its model list could not be read'
+    return 2
+  fi
+  if ! catalog=$(fm_agy_list_models "$binary" 2>/dev/null) || [ -z "$catalog" ]; then
+    printf 'the live agy model list failed, timed out, or listed nothing'
+    return 2
+  fi
+  printf '%s\n' "$catalog" | fm_agy_catalog_same_model "$recorded" "$reported" || rc=$?
+  case "$rc" in
+    0|1) return "$rc" ;;
+    *) printf 'the agy model list has no row for one of those two names'; return 2 ;;
+  esac
 }
 
 # --- the decision -----------------------------------------------------------
@@ -967,6 +1022,7 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
   local state_dir=$1 now=$2
   local meta id harness model rung target_rung target_display backend endpoint
   local label verdict text footer below stamp reason any=1 unrecorded
+  local agrees unreconciled
   local direction spent climb_failed moved
 
   # Cheap pre-filter: does this home run any agy worker on a rung at all? A home
@@ -1115,15 +1171,36 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
         ;;
     esac
 
-    # GUARD: the durable record and the running worker must agree on which model
-    # is loaded. A disagreement means firstmate's record does not describe this
-    # worker, and every count below is derived from that record.
+    # GUARD: the durable record and the running worker must name the same model.
+    # A real disagreement means firstmate's record does not describe this worker,
+    # and every count below is derived from that record. Which spelling each side
+    # happens to use is NOT such a disagreement, so the two are reconciled
+    # through agy's own catalogue rather than compared as bytes.
+    #
+    # BOTH refusals say what stopped, not only what disagreed. This guard is the
+    # last one before the walk, so tripping it takes out both in-flight halves of
+    # the ladder for this worker at once - the descent that moves it down when its
+    # rung crosses its floor, and the climb that returns it when a rung above
+    # resets - while the launch gate goes on protecting the captain's reserve for
+    # NEW work. That asymmetry is invisible from a line that reports only a
+    # naming conflict, and a reader who skims it never learns a protection went
+    # quiet.
     footer=$(fm_agy_footer_model "$text" 2>/dev/null || true)
-    if [ -n "$footer" ] && [ "$footer" != "$model" ]; then
-      fm_agy_descent_escalate_once "$state_dir" "$id" \
-        && printf 'refused %s is recorded on %s but its worker reports %s; nothing was changed while the two disagree\n' \
-          "$id" "$model" "$footer"
-      continue
+    if [ -n "$footer" ]; then
+      agrees=0
+      unreconciled=$(fm_agy_descent_model_agrees "$model" "$footer") || agrees=$?
+      if [ "$agrees" = 1 ]; then
+        fm_agy_descent_escalate_once "$state_dir" "$id" \
+          && printf 'refused %s is recorded on %s but its worker reports %s, which agy lists as different models; %s will not be moved down when its rung crosses its floor, nor back up when a rung above resets, until the record and the worker name one model\n' \
+            "$id" "$model" "$footer" "$id"
+        continue
+      fi
+      if [ "$agrees" != 0 ]; then
+        fm_agy_descent_escalate_once "$state_dir" "$id" \
+          && printf 'refused %s is recorded on %s and its worker reports %s, and the two could not be reconciled because %s; %s will not be moved down when its rung crosses its floor, nor back up when a rung above resets, until they can be\n' \
+            "$id" "$model" "$footer" "$unreconciled" "$id"
+        continue
+      fi
     fi
 
     # The SAME guarded walk in both directions. It is one mechanism, and the

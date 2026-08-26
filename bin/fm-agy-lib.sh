@@ -199,3 +199,41 @@ fm_agy_catalog_has_model() {  # <model>
   done
   return 1
 }
+
+# fm_agy_catalog_same_model: do two model names denote the SAME model?
+#
+# agy accepts either spelling of every model, so firstmate's durable record can
+# name a model one way while the worker's own footer draws it the other:
+# `--model gemini-3.1-pro-high` launches a worker that reports "Gemini 3.1 Pro
+# (High)". A byte comparison of those two reads as a disagreement, and a caller
+# that refuses on a disagreement then refuses on a pair that never disagreed.
+#
+# THE PAIRING IS NEVER DERIVED HERE. The catalogue already states it: every row
+# carries the id and the display name of ONE model, so two names are the same
+# model exactly when one row answers to both. Kebab-ising a display name locally
+# would be this file guessing at a mapping the tool hands it on request, and the
+# guess would be wrong for the first model agy names in a way the rule did not
+# anticipate. Reads the catalogue on stdin, exactly as fm_agy_catalog_has_model
+# does, so both share one source and cannot drift.
+#
+# The status is three-valued, because "different models" and "cannot tell" must
+# never collapse into each other - one is a real conflict and the other is
+# missing evidence, and a caller owes them different answers:
+#   0  the same model: one row answers to both names
+#   1  different models: each name is listed, and on a different row
+#   2  indeterminate: the catalogue lists no row for at least one of the names
+fm_agy_catalog_same_model() {  # <a> <b>
+  local a=$1 b=$2 line id display row_a='' row_b=''
+  # An empty name names no model, so it can never be shown to be the same one.
+  [ -n "$a" ] && [ -n "$b" ] || return 2
+  while IFS= read -r line; do
+    id=${line%%	*}
+    display=${line#*	}
+    [ "$id" != "$line" ] || continue
+    if [ "$a" = "$id" ] || [ "$a" = "$display" ]; then row_a=$id; fi
+    if [ "$b" = "$id" ] || [ "$b" = "$display" ]; then row_b=$id; fi
+  done
+  [ -n "$row_a" ] && [ -n "$row_b" ] || return 2
+  [ "$row_a" = "$row_b" ] || return 1
+  return 0
+}
