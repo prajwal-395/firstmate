@@ -198,7 +198,11 @@ def test_projecting_an_already_projected_tree_keeps_the_view(node_id, name):
     cf = manifest(TRANSCRIPT_STEPS[node_id])["context_fields"]
     once = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
     twice = project_fields(once, cf)
-    assert twice[name] == once[name]
+    # `.get`, because a view whose source this fixture does not route
+    # builds nothing on either pass - and "absent both times" is the same
+    # guarantee as "identical both times". The one this fixture does
+    # build is asserted on above.
+    assert twice.get(name) == once.get(name)
 
 
 # ── And the code still gets every word ────────────────────────────────

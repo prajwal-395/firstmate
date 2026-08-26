@@ -74,7 +74,10 @@ def _write_project(root: Path) -> Path:
                  "scene_boundaries": [{"time": 0.0, "type": "start"}]},
             ]},
             "prosody_analysis": {"prosody_analysis": {
-                "profiles": [{"clip_id": "clip_001", "mean_pitch_hz": 120.0}],
+                "profiles": {"clip_001": {
+                    "clip_id": "clip_001",
+                    "prosody": {"method": "praat",
+                                "pitch_stats": {"mean_f0_hz": 120.0}}}},
                 "total_clips": 1}},
         },
     }
@@ -157,9 +160,13 @@ def test_replay_rebuilds_a_real_step_off_frozen_state(project, store):
     assert result["step_type"] == "llm_only"
     # The projector really ran: creative_direction declares context_fields,
     # so the context carries the four routed keys and not the whole state.
+    # `prosody` and `transcript` rather than `prosody_analysis` and
+    # `temporal_index`: both are declared as `view:` readings of a routed
+    # input (library/tools/context_views.py), and a view's name is the key
+    # it writes.
     assert set(result["top_level_keys"]) >= {
-        "clip_catalog", "prosody_analysis", "semantic_analysis_documents",
-        "temporal_index"}
+        "clip_catalog", "prosody", "semantic_analysis_documents",
+        "temporal_index", "transcript"}
     assert "step_outputs" not in result["top_level_keys"]
     # The serializer really ran, on real content from the frozen state.
     assert "clip_001" in result["context"]

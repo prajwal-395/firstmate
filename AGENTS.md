@@ -477,6 +477,12 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 **Key-name mismatches are the dominant bug class.**
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
 Join semantic documents to the catalog with `library/tools/semantic_index.py`: the documents are keyed by FILE STEM, the catalog by `clip_XXX`.
+A per-clip summary table built without that join comes out full of `none` and says nothing; the transition planner shipped one for months. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+
+**A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
+A manifest that declares `semantic_analysis`/`semantic_analysis_documents` with no sub-paths gets all fifteen columns - `file_path`, `fps`, `resolution`, `vision_schema_version` and `analysis_metadata` included - and that was 113 KB of `plan_transitions`' 162 KB.
+Name the columns, or - where a pre-bridge already builds the table the handoff points at, as 4.02 does with `cuts_toon` - route the document to the BRIDGE and keep it out of `context_fields` entirely.
+Projection narrows the prompt and never the inputs, so the bridge, the post-bridge and `step.py` still receive the whole thing.
 
 **`compile_manifest` reads `pipeline_data.json`, not just files.**
 The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export, and a missing file reads as `{}`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
@@ -513,22 +519,24 @@ Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `d
 
 - A path prefixed with `-` DROPS what the paths above it selected: `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`. Prefer it to enumerating the twenty keys you meant to keep, which stops delivering the twenty-first.
 - `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps and are an open captain decision; `tests/test_llm_context_routing.py` holds that exemption list.
-- **A pre-bridge's own table is never projected away, and you do not have to list it.** `present_llm_step` restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
+- **A pre-bridge's own table is never projected away, and you do not have to list it.** `run_pipeline.project_step_context` - the ONE place the projection happens, called by `present_llm_step` and by the replay bench - restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
-**Word timings do not reach a prompt, and the transcript is a named VIEW.**
+**Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
 `library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 
 - `view:transcript` is what steps 2.01 and 2.02 read instead of `temporal_index.*.speech_regions`: what was said, in which clip, between which two seconds. It leaves 1,439 per-word records and 82.5% of 2.01's context behind.
+- `view:prosody` is what step 2.01 reads instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through; the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: `speech_sequence`'s post-bridge opens the per-clip index files, and every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".** That is how `render` and `validate` drop `assembly_manifest.subtitles.*.words` while staying deliberately unprojected; an allow-list written to remove one field would have become the open decision about what those two should ask for.
-- `tests/test_transcript_view.py`.
+- `tests/test_transcript_view.py`, `tests/test_prosody_view.py`.
 
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.**
 `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
 - Two content classes travel in these cells and this pipeline sends both: English prose full of apostrophes, and a `json.dumps`'d dict or list full of double quotes and backslashes. Whichever character is the quote character is the one that gets rewritten, so it is one neither class contains. `'` sent `we're` to every prompt as `we''re`, 180 times in one context; `"` would do the same to the JSON.
 - **A lossless round trip is NOT the test.** Nothing downstream calls `toon_to_json` - the model reads the characters. Assert the emitted FORM.
+- A nested object in a table cell is `json.dumps`'d, and that is 7-64% of every large context. **Do not "fix" it by demoting the table to indexed blocks**: measured end to end on all eleven prompts it makes them 19% BIGGER, because a table names its keys once and indexed blocks repeat them per record. A view that flattens one shape is the route that measures better, and the large savings are in what a step READS, not how it is written. [why - both routes measured](docs/RULE_EVIDENCE.md#embedded-json-is-where-the-content-is)
 - Escaping a newline is right in a CELL, where a row is a line. Under a KEY it is not: the creative brief is 47,903 bytes of markdown and arrived as one line carrying 700-odd literal `\n`.
 
 **A call with nothing to ask is not made.**

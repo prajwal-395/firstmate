@@ -645,6 +645,13 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "plan_transitions",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "creative_direction",
       "to": "speech_sequence",
       "data_mapping": {

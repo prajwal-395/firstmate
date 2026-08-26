@@ -33,20 +33,41 @@ def main():
     beat_positions = real_beat_positions(music_analysis)
     bpm = real_bpm(music_analysis) or 0
 
-    semantic_data = data.get("semantic_analysis", {})
-    if isinstance(semantic_data, dict) and "semantic_analysis" in semantic_data:
-        sem_inner = semantic_data["semantic_analysis"]
-        if isinstance(sem_inner, list):
-            semantic_clips = sem_inner
-        else:
-            semantic_clips = sem_inner.get("clips", [])
-    elif isinstance(semantic_data, list):
-        semantic_clips = semantic_data
-    else:
-        semantic_clips = semantic_data.get("clips", [])
-        
-    semantic_lookup = {c.get("clip_id"): c for c in semantic_clips}
-    
+    # Step 1.03 keys its documents by the media file's STEM (`IMG_1816`)
+    # and the spine speaks catalog ids (`clip_011`), so keying the lookup
+    # on the document's own `clip_id` matched nothing and every row of
+    # this table read "none" - AGENTS.md 10.1, and the same join failure
+    # that emptied the B-roll candidate table. `build_semantic_lookup` is
+    # the one place that join is done.
+    from library.tools.semantic_index import (
+        build_semantic_lookup,
+        clip_observations,
+        clip_tags,
+    )
+
+    semantic_lookup = build_semantic_lookup(
+        data.get("semantic_analysis", {}), data.get("clip_catalog", []) or [])
+
+    # A cutaway block carries no `clip_id` of its own - the spine leaves the
+    # slot and step 3.02 fills it - so the picture either side of a cut INTO
+    # a cutaway was unattributable and read "none". That is the half of the
+    # cut most likely to want a transition, so resolve it through the
+    # assignment that filled the slot.
+    broll_raw = data.get("b_roll_assignments", [])
+    if isinstance(broll_raw, dict):
+        broll_raw = broll_raw.get("b_roll_assignments", [])
+    broll_by_position = {}
+    for assignment in broll_raw or []:
+        if not isinstance(assignment, dict):
+            continue
+        position = assignment.get("spine_block_position")
+        if position is not None and assignment.get("clip_id"):
+            broll_by_position[str(position)] = assignment["clip_id"]
+
+    def block_clip_id(block):
+        return (block.get("clip_id")
+                or broll_by_position.get(str(block.get("position"))))
+
     cut_rows = []
     
     # We will output a cuts table
@@ -55,7 +76,12 @@ def main():
         curr_block = spine_blocks[i]
         
         cut_time = curr_block.get("timeline_start", 0.0)
-        cut_type = f"{prev_block.get('type', 'unknown')}-to-{curr_block.get('type', 'unknown')}"
+        # `block_type` is the spine's own key (library/tools/spine_contract.py).
+        # Reading `type` made every row of this table read
+        # "unknown-to-unknown", which is the classification the handoff
+        # tells the model to plan against.
+        cut_type = (f"{prev_block.get('block_type', 'unknown')}"
+                    f"-to-{curr_block.get('block_type', 'unknown')}")
         
         beat_near_cut = "No"
         if beat_positions:
@@ -64,20 +90,35 @@ def main():
             if delta <= 0.10:
                 beat_near_cut = f"Yes ({delta:.2f}s away)"
                 
-        prev_cid = prev_block.get("clip_id")
-        curr_cid = curr_block.get("clip_id")
+        prev_cid = block_clip_id(prev_block)
+        curr_cid = block_clip_id(curr_block)
         
         prev_sem = semantic_lookup.get(prev_cid, {}) if prev_cid else {}
         curr_sem = semantic_lookup.get(curr_cid, {}) if curr_cid else {}
         
-        # Build description strings
+        # What the vision pass MEASURED about the shot either side of the
+        # cut, and nothing else. v3 measures no mood and no energy
+        # (AGENTS.md 10.1), so no mood is reported - a transition planner
+        # handed an invented one would be planning against taste no step
+        # produced (AGENTS.md 10.5). Framing and camera movement are what
+        # bear on a cut: a moving shot into a static one is a different
+        # edit from two locked-off shots of the same subject.
         def get_desc(sem):
-            if not sem: return "none"
-            mood = sem.get("mood", "")
-            tags = sem.get("tags", sem.get("keywords", []))
-            tags_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
-            return f"Mood: {mood} | Tags: {tags_str}"
-            
+            if not sem:
+                return "none"
+            obs = clip_observations(sem)
+            parts = []
+            if obs.get("framing"):
+                parts.append(f"Framing: {obs['framing']}")
+            if obs.get("movement"):
+                parts.append(f"Camera: {obs['movement']}")
+            if obs.get("stability"):
+                parts.append(f"Stability: {obs['stability']}")
+            tags = sorted(clip_tags(sem))
+            if tags:
+                parts.append(f"Tags: {', '.join(tags)}")
+            return " | ".join(parts) if parts else "measured nothing"
+
         cut_rows.append({
             "cut_point_position": curr_block.get("position", i),
             "cut_time": f"{cut_time:.2f}",

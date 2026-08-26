@@ -62,6 +62,61 @@ def _transcript(data: dict) -> dict:
     return {"transcript": lines}
 
 
+def _prosody(data: dict) -> dict:
+    """The prosody that was MEASURED, and one line for what was not.
+
+    `prosody_analysis.profiles` is a per-clip mapping and the failure
+    path used to fill it with records that say only why nothing was
+    measured.  Project 001 carried seventeen identical "parselmouth not
+    installed" profiles into the creative-direction prompt, and one arm
+    of the A/B said, unasked, that it had to ignore the whole section.
+
+    A path allow-list cannot tell a measurement from a record of its
+    absence - it selects by NAME - so this selects by `profile_defect`,
+    the same predicate step 1.05 rejects a hollow profile with.  The
+    absence is REPORTED rather than hidden: a model told plainly that
+    prosody was not measured knows not to reason about it, which is what
+    seventeen copies of an error message failed to say.
+    """
+    from library.tools.prosody_profile import profile_defect
+
+    analysis = data.get("prosody_analysis")
+    if not isinstance(analysis, dict):
+        return {}
+    profiles = analysis.get("profiles")
+    # Step 1.05 writes a clip_id -> profile mapping; a LIST of profiles
+    # each carrying its own clip_id is the other shape this key has been
+    # written in, and reading only one of them would send nothing at all.
+    if isinstance(profiles, list):
+        profiles = {str(p.get("clip_id", i)): p
+                    for i, p in enumerate(profiles) if isinstance(p, dict)}
+    if not isinstance(profiles, dict):
+        return {}
+
+    measured, unmeasured = {}, {}
+    for clip_id, profile in profiles.items():
+        defect = profile_defect(profile)
+        if defect:
+            unmeasured[clip_id] = defect
+        else:
+            measured[clip_id] = profile
+
+    view = {}
+    if measured:
+        view["measured"] = measured
+        view["clips_measured"] = len(measured)
+    if unmeasured:
+        reasons = sorted(set(unmeasured.values()))
+        view["not_measured"] = (
+            f"{len(unmeasured)} of {len(profiles)} clip(s) have no prosody "
+            f"measurement: " + "; ".join(reasons[:3])
+            + ("; ..." if len(reasons) > 3 else "")
+        )
+    if not view:
+        return {}
+    return {"prosody": view}
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -71,6 +126,7 @@ def _transcript(data: dict) -> dict:
 # pass sees a tree the first one already stripped the source out of.
 CONTEXT_VIEWS = {
     "transcript": _transcript,
+    "prosody": _prosody,
 }
 
 

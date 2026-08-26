@@ -48,18 +48,28 @@ def _load_tree(tree: Path):
     """Put `tree` first on the path and hand back the runner's own callables."""
     tree = Path(tree).resolve()
     sys.path.insert(0, str(tree))
+    import library.processes.edit_video.run_pipeline as runner
     from library.processes.edit_video.run_pipeline import (
         gather_step_inputs,
         get_step_implementation,
     )
     from library.tools.context_projector import project_fields
     from library.tools.toon_serializer import json_to_toon
+    # The runner's OWN projection, when the tree has it as a callable.  A
+    # tree that predates the extraction has the same logic inlined in
+    # `present_llm_step`, which cannot be called without calling an LLM,
+    # so `_project` reproduces the inlined version for those - and that
+    # version restored no pre-bridge table, which is what a pre-#201
+    # archive contains.  Reproducing the tree in front of it is the whole
+    # job: a reconstruction that assumed today's behaviour would report a
+    # prompt no revision ever sent.
     return {
         "tree": tree,
         "gather_step_inputs": gather_step_inputs,
         "get_step_implementation": get_step_implementation,
         "project_fields": project_fields,
         "json_to_toon": json_to_toon,
+        "project_step_context": getattr(runner, "project_step_context", None),
     }
 
 
@@ -140,6 +150,7 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
 
     notes = []
     bridge_ran = False
+    bridge_supplied: set = set()
     withheld = []
     if step_type == "deterministic_with_llm":
         recorded = dict(state.get("step_outputs", {}).get(node_id, {}))
@@ -167,15 +178,26 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
         if not inputs.get("project_folder"):
             inputs["project_folder"] = project_dir
         bridge_ran = True
+        bridge_supplied = set(pre_output)
         notes.append(f"pre-bridge ran, contributed {sorted(pre_output)}")
 
     projected_paths = manifest.get("context_fields")
     if projected_paths:
-        saved = {k: inputs.get(k) for k in
-                 ("project_fps", "brand_template", "creative_brief")}
-        saved["project_folder"] = inputs.get("project_folder", "")
-        inputs = _restore_globals(
-            api["project_fields"](inputs, projected_paths), saved)
+        before = set(inputs)
+        if api["project_step_context"] is not None:
+            inputs = api["project_step_context"](
+                inputs, manifest, bridge_supplied)
+        else:
+            saved = {k: inputs.get(k) for k in
+                     ("project_fps", "brand_template", "creative_brief")}
+            saved["project_folder"] = inputs.get("project_folder", "")
+            inputs = _restore_globals(
+                api["project_fields"](inputs, projected_paths), saved)
+        dropped = sorted(bridge_supplied & (before - set(inputs)))
+        if dropped:
+            notes.append(
+                "this tree's runner drops a pre-bridge table the handoff "
+                f"tells the model to read: {dropped}")
 
     subs = [0]
     inputs = _substitute(inputs, project_dir, declared, subs)

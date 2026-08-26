@@ -1136,3 +1136,166 @@ subject had nowhere to go.
 Related: [the-squashed-face-frame](#the-squashed-face-frame) fixed the sampling that made
 `face_center_x` available on this footage at all; [the-letterbox-default](#the-letterbox-default)
 is why the frame fills in the first place.
+
+### the-transition-planner-read-the-raw-document
+
+**2026-08-26.** The context sweep across the other ten LLM steps, measured with the replay
+bench against snapshot `001-2026-08-26T1058Z`.
+
+`plan_transitions` was the largest prompt in the pipeline by a factor of two - 161,958 bytes -
+and 113,446 of them were one section: `semantic_analysis`, the raw vision document, with all
+fifteen columns.
+
+    [17]{actions,analysis,analysis_metadata,assessment,blocks,camera,clip_id,
+         duration_s,file_path,fps,objects,resolution,scene,transcript,vision_schema_version}
+
+Every other step that wants vision declares `semantic_analysis_documents` and names the columns
+it reads. `plan_transitions` named the input and nothing under it, so it got `file_path`, `fps`,
+`resolution`, `vision_schema_version` and `analysis_metadata` as well - none of which a
+transition planner can act on.
+
+**Its handoff names ONE source for what is either side of a cut**, and it is not that document:
+
+> The `cuts_toon` table provides a summarized list of cut points... `outgoing_footage`: The mood
+> and tags of the clip ending at the cut. `incoming_footage`: ...
+
+That table was empty. Reconstructed at HEAD, all thirteen rows read:
+
+    1	2.40	unknown-to-unknown	No	none	none
+
+Two key-name failures of the class section 10.1 calls dominant, in the same six lines of bridge:
+
+- the lookup was built as `{doc["clip_id"]: doc}`, and step 1.03 keys its documents by the file
+  STEM (`IMG_1816`) while the spine speaks catalog ids (`clip_011`). Nothing ever matched, so
+  every footage cell read `none`. This is the same join that emptied the B-roll candidate table,
+  and `library/tools/semantic_index.build_semantic_lookup` already existed to do it;
+- the cut classification read `block.get("type")`, and the spine's own key is `block_type`
+  (`library/tools/spine_contract.py`), so every cut was `unknown-to-unknown`.
+
+A third gap sat behind them: a cutaway block carries no `clip_id` at all - the spine leaves the
+slot and step 3.02 fills it - so a cut INTO a cutaway, the cut most likely to want a transition,
+was unattributable even once the join worked.
+
+**What was sent, after.** The document is still ROUTED to the step - `bridge.py` is handed the
+unprojected inputs and is the reader that needs the whole thing - and `clip_catalog` is routed
+beside it, because the catalog is what the join needs. Neither is in `context_fields`, so
+neither reaches the prompt. What reaches the prompt is `cuts_toon`, carrying framing, camera
+movement, stability and the assessed keywords for the shot either side of every cut.
+
+**No mood is reported, and that is deliberate.** The handoff asks for "the mood and tags" and the
+v3 vision pass measures no mood and no energy (section 10.1). The old table printed `Mood: ` on
+every row - a header over nothing. Filling it would be inventing taste no step produced
+(section 10.5), so the column carries what was measured and the mood is absent rather than
+fabricated.
+
+Measured, same snapshot, same tokenizer: **161,958 B -> 53,952 B, a 67% reduction**, and the
+embedded-JSON share of that context falls from 73% to 13%.
+
+`tests/test_plan_transitions_context.py`.
+
+### seventeen-copies-of-an-error-are-not-a-measurement
+
+**2026-08-26.** Same sweep.
+
+`creative_direction`'s prompt carried seventeen records that each said only:
+
+    prosody:
+      method:
+      error: parselmouth not installed
+
+4.2 KB of identical error text, in a section the manifest declares a REQUIRED input. One arm of
+the A/B on that context said, unprompted: *"There is no actual prosody data to evaluate... I had
+to completely ignore this section."*
+
+`context_fields` could not fix it. It is an allow-list of dot PATHS, and these records have
+exactly the right paths - `prosody_analysis.profiles` is where a measurement would live too.
+Selecting by name cannot tell a measurement from a record of its absence.
+
+So the selection is done by VALUE, by the one predicate that already answers that question:
+`profile_defect`, which step 1.05 refuses to write a hollow profile with. It moved from that
+step to `library/tools/prosody_profile.py` so the write-time and read-time answers cannot
+diverge, and `view:prosody` in `library/tools/context_views.py` is the reader.
+
+**The absence is reported, not hidden.** Seventeen error records became one line:
+
+    prosody:
+      not_measured: 17 of 17 clip(s) have no prosody measurement: parselmouth not installed
+
+A model told plainly that nothing was measured knows not to reason about it. Silence would read
+as "no prosody worth mentioning", which is a different and false claim. Where prosody IS
+measured the profiles are passed through unchanged, so the step is not blinded - and whether to
+measure prosody at all stays a separate question.
+
+Measured: **30,835 B -> 26,668 B**. `tests/test_prosody_view.py`.
+
+### embedded-json-is-where-the-content-is
+
+**2026-08-26.** Same sweep. Both A/B arms flagged, without being asked, that nested objects
+arrive as JSON strings inside TOON cells - one said it *"increases the likelihood of an LLM
+incorrectly parsing the schema"*. `json_to_toon`'s own comment admits it: *"TOON tabular doesn't
+naturally support nested objects in cells."* It was 51-76% of every large context.
+
+Two routes were on the table and both were measured before choosing.
+
+**Route A - teach the serialiser nesting.** A uniform-dict list with any nested value stops being
+a table and becomes indexed blocks of real TOON. Prototyped in `json_to_toon` and measured
+end-to-end on all eleven contexts:
+
+| step | tabular + JSON | nested TOON | delta |
+|---|---:|---:|---:|
+| creative_direction | 26,668 | 31,491 | +4,823 |
+| speech_sequence | 77,715 | 76,268 | -1,447 |
+| mesh_spine | 29,027 | 34,021 | +4,994 |
+| select_broll | 72,804 | 95,753 | +22,949 |
+| review_rough_cut | 32,965 | 41,006 | +8,041 |
+| plan_transitions | 53,952 | 60,796 | +6,844 |
+| plan_vfx | 38,063 | 46,517 | +8,454 |
+| plan_sfx | 50,143 | 59,683 | +9,540 |
+| render | 37,463 | 48,722 | +11,259 |
+| validate | 34,569 | 45,828 | +11,259 |
+| **all eleven** | **460,896** | **547,612** | **+86,716 (+19%)** |
+
+The embedded JSON goes to zero everywhere and the contexts get 19% BIGGER. Demoting the table
+costs more than the JSON quoting saved: a table names its keys once in a header, and indexed
+blocks repeat every key on every record. **Rejected on the measurement, not on caution.**
+
+**Route B - a view that flattens before serialising.** Prototyped as a lossless re-encoding of
+`semantic_analysis_documents`: each nested column hoisted into its own flat TOON table, keyed
+back by `clip_id`. Nothing dropped.
+
+| step | section now | hoisted | delta |
+|---|---:|---:|---:|
+| creative_direction | 14,982 | 11,763 | -3,219 |
+| mesh_spine | 8,275 | 7,059 | -1,216 |
+| plan_sfx | 12,207 | 10,303 | -1,904 |
+| plan_vfx | 9,878 | 7,729 | -2,149 |
+| select_broll | 40,130 | 26,437 | -13,693 |
+| speech_sequence | 49,166 | 37,446 | -11,720 |
+| **six steps** | **134,638** | **100,737** | **-33,901 (-25%)** |
+
+Route B wins, and the "one view per shape" objection is answered by measurement rather than by
+argument: this ONE shape carries 120,512 of the 158,062 embedded-JSON bytes left across the
+eleven steps - 76% of them - and it is the largest section of five of the six largest
+contexts.
+
+**Nothing parses the current shape back out.** `toon_to_json` has no caller outside
+`tests/test_toon_serializer.py`; the model reads the characters. The format is safe to change.
+
+**Why route B was not landed in this pass.** Two obstructions, both above a mechanical fix:
+
+1. Views are built from the UNPROJECTED input (`project_fields` merges them alongside the keep
+   paths), so a footage view cannot honour the six different per-step column allow-lists that
+   `semantic_analysis_documents.*` expresses today. Landing it means either rewriting six
+   allow-lists as `-` drop lists or changing when a view is built.
+2. It reshapes a section three handoffs name and one describes column by column -
+   `step_3_02_select_broll/handoff.md` tells the model to read "`scene[]` segments with
+   start/end bounds, `camera[]` segments... `objects[]` with the time ranges they appear in".
+   The handoff files are the captain's.
+
+**And the sense of proportion the numbers give.** The ceiling for any pure re-encoding is the
+format tax - the punctuation, repeated keys and escaping inside those cells - which measures 36%
+to 71% of the embedded bytes, around 70 KB of the 461 KB sweep, and route A shows a re-encoding
+can as easily cost more than it recovers. Routing `plan_transitions` at its own handoff saved
+108 KB on one step. **The embedded JSON is mostly where the content is, not a
+tax on carrying it**; the large savings are in deciding what a step reads, and the format change
+is worth doing for legibility rather than for size.

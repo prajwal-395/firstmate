@@ -24,32 +24,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.project_layout import Area, ProjectLayout
-
-
-def profile_defect(profile: dict) -> str:
-    """Why this prosody profile measures nothing, or "" if it does.
-
-    A profile is a FILE ON DISK, and the failure path used to write one
-    like any other result: `{"prosody": {"method": null, "error":
-    "parselmouth not installed"}}`. Counting files is therefore not the
-    same as counting measurements, and the difference is the whole of
-    this defect. `speech_advanced_pipeline` no longer writes these, so
-    this reads the ones a previous run already left behind - and it is
-    also the check that keeps any future "soft failure" record from
-    passing as data.
-    """
-    if not isinstance(profile, dict):
-        return "not a JSON object"
-    prosody = profile.get("prosody")
-    if not isinstance(prosody, dict):
-        return "no prosody block"
-    if prosody.get("error"):
-        return str(prosody["error"])
-    if not prosody.get("method"):
-        return "no analysis method recorded"
-    if not prosody.get("pitch_stats") and not prosody.get("intensity_contour_50ms"):
-        return "neither pitch nor intensity was measured"
-    return ""
+# `profile_defect` lives in library/tools/ because two readers need it and
+# must not disagree: this step rejects a defective profile at write time,
+# and `context_views` keeps one a PREVIOUS run already recorded in state
+# out of the creative-direction prompt.  Imported under its own name here
+# because that is what the step is read and tested under.
+from library.tools.prosody_profile import profile_defect
 
 
 def main():

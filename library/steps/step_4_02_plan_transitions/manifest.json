@@ -40,7 +40,13 @@
         "name": "semantic_analysis",
         "type": "array",
         "required": false,
-        "description": "Semantic analysis output"
+        "description": "Semantic analysis output. Read by bridge.py only - joined to the catalog and summarised into the two footage columns of cuts_toon, never sent raw to the prompt."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog. Read by bridge.py only - it is what joins a semantic document (keyed by file stem) to the clip_id the spine speaks."
       },
       {
         "name": "temporal_event_indices",
@@ -141,7 +147,6 @@
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
     "-timed_spine.structure.*.content.word_timestamps",
-    "semantic_analysis",
     "temporal_event_indices.*.clip_id",
     "temporal_event_indices.*.scene_boundaries"
   ]

@@ -941,6 +941,60 @@ def generate_output_schema_text(outputs: list) -> str:
     return schema_text
 
 
+def project_step_context(inputs: dict, manifest: dict = None,
+                         bridge_supplied: set = None) -> dict:
+    """Narrow a step's inputs to what its manifest says the PROMPT reads.
+
+    The one place the projection happens, so the step-replay bench can
+    reconstruct a context by calling it rather than by modelling it.
+    Returns `inputs` unchanged when the manifest declares no
+    `context_fields` - a step declaring none is handed every byte it was
+    routed (AGENTS.md 10.1).
+    """
+    if not (manifest and "context_fields" in manifest):
+        return inputs
+
+    saved_project_folder = inputs.get("project_folder", "")
+    saved_fps = inputs.get("project_fps")
+    # None, not "default_brand": a project that declares no template
+    # must stay declaring none through projection, or the restore below
+    # invents a declaration the project never made.
+    saved_brand_template = inputs.get("brand_template")
+    saved_creative_brief = inputs.get("creative_brief")
+    # A pre-bridge exists to build the ONE table its handoff tells the
+    # model to read, so projecting that table away is always wrong -
+    # the step is then instructed to use data the prompt does not
+    # carry. Four steps shipped that way: `cuts_toon`,
+    # `vfx_candidates_toon`, `sfx_candidates_toon` and
+    # `transcripts_toon`/`topics_toon` were all computed and then
+    # deleted, because only `select_broll` happened to name its table
+    # in `context_fields`. Restoring by NAME here, rather than adding
+    # four more allow-list entries, is deliberate: a new hybrid step
+    # gets this for free and it cannot go stale the way four lists
+    # can. See AGENTS.md 10.1 on key-name mismatches.
+    saved_bridge = {k: inputs[k] for k in (bridge_supplied or set())
+                    if k in inputs}
+
+    from library.tools.context_projector import project_fields
+    inputs = project_fields(inputs, manifest["context_fields"])
+
+    # Only where projection dropped the key ENTIRELY. A manifest that
+    # names the table itself (select_broll does) may still narrow it
+    # with sub-paths, and that narrowing is a decision to respect.
+    for _bridge_key, _bridge_value in saved_bridge.items():
+        if _bridge_key not in inputs:
+            inputs[_bridge_key] = _bridge_value
+
+    inputs["project_folder"] = saved_project_folder
+    if saved_fps is not None:
+        inputs["project_fps"] = saved_fps
+    if saved_brand_template is not None:
+        inputs["brand_template"] = saved_brand_template
+    if saved_creative_brief is not None:
+        inputs["creative_brief"] = saved_creative_brief
+    return inputs
+
+
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None) -> dict:
     """Present an LLM step and execute it using LLMClient or AGY backend.
@@ -948,47 +1002,9 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     In automated mode, this calls the LLM and returns the parsed output.
     """
     raw_input_tokens = len(str(inputs).split()) * 1.3
-    
+
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
-    if manifest and "context_fields" in manifest:
-        saved_project_folder = inputs.get("project_folder", "")
-        saved_fps = inputs.get("project_fps")
-        # None, not "default_brand": a project that declares no template
-        # must stay declaring none through projection, or the restore below
-        # invents a declaration the project never made.
-        saved_brand_template = inputs.get("brand_template")
-        saved_creative_brief = inputs.get("creative_brief")
-        # A pre-bridge exists to build the ONE table its handoff tells the
-        # model to read, so projecting that table away is always wrong -
-        # the step is then instructed to use data the prompt does not
-        # carry. Four steps shipped that way: `cuts_toon`,
-        # `vfx_candidates_toon`, `sfx_candidates_toon` and
-        # `transcripts_toon`/`topics_toon` were all computed and then
-        # deleted, because only `select_broll` happened to name its table
-        # in `context_fields`. Restoring by NAME here, rather than adding
-        # four more allow-list entries, is deliberate: a new hybrid step
-        # gets this for free and it cannot go stale the way four lists
-        # can. See AGENTS.md 10.1 on key-name mismatches.
-        saved_bridge = {k: inputs[k] for k in (bridge_supplied or set())
-                        if k in inputs}
-
-        from library.tools.context_projector import project_fields
-        inputs = project_fields(inputs, manifest["context_fields"])
-
-        # Only where projection dropped the key ENTIRELY. A manifest that
-        # names the table itself (select_broll does) may still narrow it
-        # with sub-paths, and that narrowing is a decision to respect.
-        for _bridge_key, _bridge_value in saved_bridge.items():
-            if _bridge_key not in inputs:
-                inputs[_bridge_key] = _bridge_value
-
-        inputs["project_folder"] = saved_project_folder
-        if saved_fps is not None:
-            inputs["project_fps"] = saved_fps
-        if saved_brand_template is not None:
-            inputs["brand_template"] = saved_brand_template
-        if saved_creative_brief is not None:
-            inputs["creative_brief"] = saved_creative_brief
+    inputs = project_step_context(inputs, manifest, bridge_supplied)
 
     projected_input_tokens = len(str(inputs).split()) * 1.3
         

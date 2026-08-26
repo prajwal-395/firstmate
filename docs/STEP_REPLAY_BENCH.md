@@ -24,9 +24,19 @@ store and reused across steps.
 
 The reconstruction is the runner's own code, not a model of it:
 `gather_step_inputs` (the real DAG edge walk, the real brand block), the
-step's own `bridge.py` as a subprocess over JSON stdin, `project_fields`
-including the `-` drop paths, `json_to_toon`, the handoff with the schema
-injected from the manifest, and `TemplateLoader.get_brand_constraints`.
+step's own `bridge.py` as a subprocess over JSON stdin,
+`project_step_context` - the runner's own projection, allow-list, `-` drop
+paths, view builders, restored globals and restored pre-bridge tables
+together - `json_to_toon`, the handoff with the schema injected from the
+manifest, and `TemplateLoader.get_brand_constraints`.
+
+A tree that predates that function's extraction has the same logic inlined
+in `present_llm_step`, which cannot be called without calling an LLM, so
+the bench reproduces the inlined version for those - and that version
+restored no pre-bridge table, which is what a pre-#201 archive contains.
+Assuming today's behaviour would report a prompt no revision ever sent: a
+reconstruction has to reproduce the tree in front of it, which is why the
+bench asks the tree rather than the calendar.
 
 Two things are not replayed, and both are recorded on the result:
 
