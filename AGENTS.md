@@ -387,6 +387,12 @@ The times are in the MUSIC file's clock and are used as timeline times, which ho
 "Building" names a TRAJECTORY, not a level, and is not "high".
 `WITHDRAWN_HIGH_WORDS` records why "dynamic" and "fast" are out too; widening the high bucket is a decision, not drift. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
 
+**`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.**
+Five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent` - and `silent` is one of them, because a planned silence is a decision.
+`mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` turns it into the dB, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
+Resolve a block that declares none through `resolve_music_behavior`, never with a local default: `WITHDRAWN_BEHAVIORS` records why the two-word `full`/`ducked` form is out. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
+`tests/test_music_behavior_vocabulary.py`.
+
 **The timeline's length comes from the spine, never from a passage's `end_time`.**
 `library/tools/timeline_duration.measure_timeline_duration`: max `timeline_end` over the spine, falling back to `a_roll_assignments`.
 `0.0` means "no evidence" - say so rather than warn about a length nothing measured. [why](docs/RULE_EVIDENCE.md#end-time-is-a-source-timestamp)

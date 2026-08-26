@@ -11,7 +11,16 @@ Input:  { "audio_spine": {...}, "enhancement_spec": {...} }
 Output: { "audio_mix_spec": { track_levels, music_automation, ... } }
 """
 import json
+import os
 import sys
+
+# Add parent directories to path so we can import shared tools.
+# Both `library/` (for `tools.x`) and the repo root (for `library.tools.x`,
+# which the shared tools use to import each other).
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+from library.tools.music_behavior import music_level_db, resolve_music_behavior
+from library.tools.spine_contract import is_speech_block
 
 # Audio level parameters (from style spec)
 TRACK_LEVELS = {
@@ -35,14 +44,10 @@ TRACK_LEVELS = {
     },
 }
 
-# Music behavior → target level mapping
-BEHAVIOR_TO_DB = {
-    "prominent": -6,
-    "background": -18,
-    "fade_in": -12,  # midpoint
-    "fade_out": -12,  # midpoint
-    "silent": -96,   # effectively muted
-}
+# The behaviour → dB mapping is NOT here. It lives in
+# library/tools/music_behavior.py, with the vocabulary it belongs to, so
+# this step and `compile_manifest` cannot disagree about what a word
+# means or about which words exist.
 
 
 def define_audio_mix(audio_spine: dict, enhancement_spec: dict) -> dict:
@@ -54,13 +59,19 @@ def define_audio_mix(audio_spine: dict, enhancement_spec: dict) -> dict:
     # Build music automation from spine blocks
     music_automation = []
     for block in structure:
-        behavior = block.get("music_behavior", "background")
+        # A block that planned a behaviour keeps it, whatever it is - a
+        # planned `silent` is a decision, not a gap to fill. Only a block
+        # that planned nothing (a bookend card, which never passes through
+        # the spine's LLM) takes the default.
+        behavior = resolve_music_behavior(
+            block.get("music_behavior"),
+            block_carries_speech=is_speech_block(block))
         music_automation.append({
             "spine_block_position": block["position"],
             "timeline_start": block.get("timeline_start", 0.0),
             "timeline_end": block.get("timeline_end", 0.0),
             "music_behavior": behavior,
-            "target_level_db": BEHAVIOR_TO_DB.get(behavior, -18),
+            "target_level_db": music_level_db(behavior),
         })
 
     # --- Verification ---

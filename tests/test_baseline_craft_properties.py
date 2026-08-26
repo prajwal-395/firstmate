@@ -304,7 +304,7 @@ BACKGROUND_WINDOW = [{"spine_block_position": 1, "timeline_start": 0.0,
                       "timeline_end": 4.0, "music_behavior": "background",
                       "target_level_db": -18}]
 SPEECH_BLOCK = [{"position": 1, "block_type": "speech",
-                 "music_behavior": "ducked"}]
+                 "music_behavior": "background"}]
 
 
 class TestP3SpeechAboveBed:
@@ -355,14 +355,15 @@ class TestP3SpeechAboveBed:
         assert result.value["windows"][0]["music_in_mix_db"] is not None
 
     def test_the_plan_is_read_from_music_automation_not_from_spine_blocks(self):
-        """`_spine_block_entry` discards the spine's `music_behavior` and
-        recomputes it as `full`/`ducked` - a two-word vocabulary nothing
-        reads, in which a declared silence does not exist. A gate reading
-        it would never see one."""
+        """`_spine_blocks` names a behaviour but carries no dB, and P3
+        judges against the plan's own number. The two halves agree on the
+        vocabulary now (see tests/test_music_behavior_vocabulary.py); the
+        one that carries the LEVEL is the one read here."""
         mix, music = _mix_fixture(20.0)
         result = _speech_above_bed(
             mix, music, BACKGROUND_WINDOW,
-            [{"position": 1, "block_type": "speech", "music_behavior": "full"}])
+            [{"position": 1, "block_type": "speech",
+              "music_behavior": "silent"}])
         assert result.value["windows"][0]["music_behavior"] == "background"
         assert result.value["windows"][0]["required_margin_db"] == 18.0
 

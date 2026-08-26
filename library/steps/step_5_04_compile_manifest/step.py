@@ -42,8 +42,8 @@ from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
 from tools.beat_grid import assert_music_starts_at_timeline_zero
 from tools.bookends import block_bookend
+from library.tools.music_behavior import resolve_music_behavior
 from tools.spine_contract import (
-    BOOKEND_BLOCK_TYPES,
     MAX_DECLARED_BLACK_BEAT_SECONDS,
     is_speech_block,
 )
@@ -536,15 +536,25 @@ def _spine_block_entry(block: dict) -> dict:
     The optional black-beat declaration is carried through only when the
     spine actually made it, so an absent flag keeps meaning "nobody chose
     this hole" by the time the coverage assertion reads it.
+
+    `music_behavior` is CARRIED, not recomputed.  This entry used to
+    derive a two-word `full`/`ducked` value from `block_type` and discard
+    what the spine planned, which meant a block planned `silent` reached
+    the manifest saying the bed plays - see
+    docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary.  The
+    one true thing that reduction knew - a block with no speech under it
+    has nothing to duck for - is now the default in
+    `library/tools/music_behavior.py`, and it applies only to a block
+    that planned nothing.
     """
     entry = {
         "position": block.get("position", ""),
         "timeline_start": block.get("timeline_start", 0),
         "timeline_end": block.get("timeline_end", 0),
         "block_type": block.get("block_type", ""),
-        # A card carries no speech, so nothing is ducking under.
-        "music_behavior": "full" if block.get("block_type") in
-            ("transition_slot",) + BOOKEND_BLOCK_TYPES else "ducked",
+        "music_behavior": resolve_music_behavior(
+            block.get("music_behavior"),
+            block_carries_speech=is_speech_block(block)),
     }
     for key in ("intentional_black_beat", "black_beat_reason"):
         if key in block:

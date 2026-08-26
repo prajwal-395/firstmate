@@ -721,9 +721,10 @@ def measure_speech_above_bed(
 
     Only speech-bearing blocks are judged; the rest are measured and
     reported.  `spine_blocks` supplies `block_type` by position - read
-    ONLY that from it.  Its `music_behavior` is a two-word vocabulary
-    (`full`/`ducked`) that `_spine_block_entry` recomputes and nothing
-    reads; the real plan is in `music_automation`.
+    ONLY that from it.  The behaviour is read from `music_automation`,
+    which is the half carrying the dB this measurement is judged against;
+    `_spine_blocks` carries the same word in the same vocabulary
+    (`library/tools/music_behavior.py`) but no level.
 
     **This reports and does not fail** - see `SPEECH_ABOVE_BED_GATES`.
     """

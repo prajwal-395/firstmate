@@ -99,10 +99,16 @@ def _music_bed(assembly_manifest: dict):
     """(music file, automation windows) for the speech-above-bed measurement.
 
     The bed is the first A2 clip. The plan is
-    `audio_mix.music_automation` - NOT `_spine_blocks[*].music_behavior`,
-    which `_spine_block_entry` recomputes into a two-word `full`/`ducked`
-    vocabulary that no code reads and in which a declared silence does not
-    exist.
+    `audio_mix.music_automation`, because that is the half that carries a
+    LEVEL: `_spine_blocks[*].music_behavior` names the same behaviour in
+    the same vocabulary (both now resolve through
+    `library/tools/music_behavior.py`) but no dB, and P3 judges the render
+    against the plan's own numbers.
+
+    It did not always name the same behaviour. `_spine_block_entry` used
+    to recompute a two-word `full`/`ducked` value from `block_type`, in
+    which a declared silence did not exist at all - see
+    docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary.
     """
     clips = assembly_manifest.get("tracks", {}).get("A2", {}).get("clips", [])
     music_path = clips[0].get("source_file") if clips else None

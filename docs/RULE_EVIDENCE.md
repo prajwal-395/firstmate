@@ -480,6 +480,40 @@ It now guards every step in `CREATIVE_PLANNING_STEPS`.
 
 `_assert_sfx_distributed` catches a collapse - every SFX on one frame - not a sparse plan, which is why it is not a floor.
 
+### silence-lost-in-the-two-word-vocabulary
+
+Test: `tests/test_music_behavior_vocabulary.py`.
+Enumeration: `library/tools/music_behavior.py`.
+
+`mesh_spine` plans what the bed does under each block in five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent`.
+From the initial commit (2026-07-29) until 2026-08-25, `compile_manifest._spine_block_entry` threw that word away and recomputed a different one:
+
+    "music_behavior": "full" if block.get("block_type") in
+        ("transition_slot",) + BOOKEND_BLOCK_TYPES else "ducked",
+
+Two words, neither of them in the spine's vocabulary, derived from `block_type` rather than read from the plan.
+There is no word for silence in it, so a block the spine planned `silent` reached the manifest saying the bed plays.
+It was not even self-consistent by its own logic: an `intro` block carries no speech either and got `ducked`.
+
+**The trace, made before the change** - `_spine_block_entry` has exactly ONE caller, `compile_manifest` step.py, and the value it produced had NO reader:
+
+- `manifest["_spine_blocks"]` is read in three places: `compile_manifest._assert_timeline_fully_covered`, `step_6_02`'s `declared_black_beat_ranges`, and `render_qa.measure_speech_above_bed` (block_type by position). All three read `position`, `timeline_start`, `timeline_end`, `block_type` and the black-beat keys. None reads `music_behavior`.
+- The plan that DOES carry a level takes the other branch: `audio_mix` (5.02) reads `audio_spine.structure[*].music_behavior` straight from `mesh_spine`, not from `_spine_blocks`, and maps `silent` to -96 dB in `music_automation`.
+
+So the docstring in `step_6_02` that reported this was right about the narrowing and about nothing reading it.
+The stronger reading - that silence was destroyed before the delivery hop - is NOT what the trace shows: silence survives into `music_automation` intact, and 001's silent blocks played music because the delivery hop set no level at all, which is a separate finding.
+
+What the narrowing cost was the manifest's own record of the plan contradicting the plan, in the place a reader would naturally look for it, in a vocabulary that could not express the thing the creative direction most wanted to say.
+
+The remedy is not to delete the field - that is the `unread-decisions` remedy, and it is a different one.
+The field carries the word now, resolved through one enumeration that both halves read, so they cannot disagree about what a word means or about which words exist.
+The one true thing the reduction knew - a block with no speech under it has nothing to duck for - survives as the DEFAULT for a block that planned nothing (a bookend card, which `bookends.py` assembles and which never passes through the spine's LLM). A block that planned something keeps what it planned.
+
+`full` and `ducked` are recorded as withdrawn, and asking for either raises and says which real word to use.
+
+**A second instance on the same field, reported and not fixed here**: `library/tools/transition_selector.py` selects a flash when `music_behavior == "step_up"`.
+`step_up` is not in the vocabulary and no producer emits it - the only occurrences in the repo are that branch and two tests that hand-write the word - so the flash branch is unreachable. That is a reader against a word that does not exist, not a narrowing, and it wants its own decision about which real word (if any) should mean "the music steps up here".
+
 ---
 
 ## Section 11 - third-party assets

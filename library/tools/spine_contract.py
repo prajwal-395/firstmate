@@ -47,13 +47,22 @@ fail at the spine gate rather than surviving to `compile_manifest`, which
 rejects them again on the stretch of timeline they excuse.  `mesh_spine`'s
 handoff.md tells the LLM when a beat is worth declaring.
 
-They are optional by design: no block needs them, and neither is in
+A third optional key is `music_behavior`, the word for what the bed does
+under the block - the vocabulary is `library/tools/music_behavior.py`.
+Every block the spine's LLM writes declares one; a bookend card, which
+`library/tools/bookends.py` assembles instead, declares none and takes the
+default at the one place that resolves it.  A word OUTSIDE the vocabulary
+is rejected here, so it cannot become a dB level by default further down.
+
+They are optional by design: no block needs them, and none is in
 REQUIRED_BLOCK_KEYS.  A declared beat is still bounded by
 `MAX_DECLARED_BLACK_BEAT_SECONDS`, and every gate that has to tell a
 chosen hole from an accidental one - `compile_manifest` on the manifest,
 `render_qa` on the rendered file - reads that bound and
 `declared_black_beat_ranges` from here, so the two cannot drift apart.
 """
+
+from library.tools.music_behavior import is_known_behavior, MUSIC_BEHAVIORS
 
 SPEECH_BLOCK_TYPES = ("speech", "hook")
 
@@ -192,6 +201,17 @@ def validate_spine_blocks(blocks: list, total_duration: float = None, target_dur
                     f"{label}: intentional_black_beat is set but "
                     f"black_beat_reason is missing or empty"
                 )
+
+        # A behaviour is optional - a bookend card is assembled by
+        # library/tools/bookends.py and declares none - but a word outside
+        # the vocabulary is a plan nothing downstream can execute, and it
+        # fails here rather than becoming a dB level by default.
+        if "music_behavior" in block and \
+                not is_known_behavior(block["music_behavior"]):
+            problems.append(
+                f"{label}: music_behavior "
+                f"{block['music_behavior']!r} is not in the vocabulary "
+                f"{sorted(MUSIC_BEHAVIORS)}")
 
         if is_bookend_block(block):
             problems.extend(_bookend_problems(block, label))
