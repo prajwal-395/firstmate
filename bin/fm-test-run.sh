@@ -19,6 +19,7 @@
 #   fm-test-run.sh --list --lane portable-parallel-1
 #   fm-test-run.sh --list-families
 #   fm-test-run.sh --list-lanes
+#   fm-test-run.sh --compare-selections [--base <git-ref>]
 #   fm-test-run.sh --check-coverage
 #
 # Aggregation (no suite execution):
@@ -27,7 +28,13 @@
 # Options:
 #   --json <path>   write a deterministic timing artifact after the run
 #   --list          print selected script paths (one per line) and exit 0
-#   --base <ref>    with --changed, compare against this ref (default: origin/main)
+#   --base <ref>    with --changed or --compare-selections, compare against this
+#                   ref (default: origin/main)
+#   --compare-selections
+#                   print how many scripts every selection this runner can make
+#                   would run, smallest first, and exit 0 without running any of
+#                   them. Answers "which of these is actually the cheaper run"
+#                   in one command instead of two --list calls and a hand count.
 #   --exclude-family <name>
 #                   drop scripts whose primary family matches <name> after selection
 #                   (repeatable; portable CI lanes exclude real-herdr-gated so the
@@ -78,6 +85,16 @@
 # configured shard count is refused, so a CI matrix cannot silently drop a shard.
 # --changed is conservative: it over-selects related families rather than
 # under-selecting, and never expands to the complete suite unless --all.
+#
+# That conservatism has a cost worth stating out loud: --changed is cheap for an
+# ordinary change and expensive for a high-fan-out one, because a change to a
+# widely referenced source pulls in whole families. It is therefore NOT reliably
+# the narrow option, and the only way to know which of two selections is smaller
+# used to be running both --list forms and counting by hand. So --changed sizes
+# itself against the smallest runnable lane and prints a NOTICE when it exceeds
+# it by more than CHANGED_OVERSIZE_LANE_MULTIPLE, before any test runs, and
+# --compare-selections sizes every selection at once for a caller choosing
+# between them. Neither changes which scripts a selection picks.
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -87,6 +104,7 @@ MODE=
 LIST_ONLY=0
 LIST_FAMILIES=0
 LIST_LANES=0
+COMPARE_SELECTIONS=0
 CHECK_COVERAGE=0
 AGGREGATE_OUT=
 FAMILY=
@@ -107,6 +125,18 @@ PORTABLE_SERIAL_SHARDS=4
 # the measured per-script mean so a newly added test neither starves nor
 # overloads the shard it lands in.
 PORTABLE_SERIAL_DEFAULT_WEIGHT_MS=20000
+
+# A --changed selection announces itself as oversized once it exceeds the
+# smallest runnable lane by more than this multiple.
+#
+# One knob, calibrated against this repo rather than picked round: measured over
+# every bin/*.sh as a lone edit, a --changed selection is at or below twice the
+# smallest lane for a little over half of them, so the ordinary narrow change
+# stays silent. Above that the selection is a different order of work from the
+# smallest lane, which is exactly the belief this notice exists to correct. Raise
+# it if the notice ever starts reading as background; do not remove it, because a
+# silent oversized selection is the failure that put this here.
+CHANGED_OVERSIZE_LANE_MULTIPLE=2
 
 usage() {
   awk '
@@ -1260,6 +1290,134 @@ apply_exclude_families() {
   SCRIPTS=("${kept[@]+"${kept[@]}"}")
 }
 
+# --- selection sizing -------------------------------------------------------
+#
+# Every helper below sizes a selection in a SUBSHELL, so building a comparison
+# can never disturb the caller's own SCRIPTS. A lane that refuses to size itself
+# yields an empty count and is skipped rather than taking the run down with it:
+# sizing is advice, and advice must not be able to fail a test run.
+
+# Script count for one lane, after the caller's --exclude-family. Empty on any
+# refusal.
+# shellcheck disable=SC2030,SC2031 # The subshell IS the isolation: sizing a
+# selection must never leave the caller's SCRIPTS altered.
+lane_script_count() {
+  (
+    SCRIPTS=()
+    select_lane "$1" || exit 1
+    apply_exclude_families
+    printf '%s\n' "${#SCRIPTS[@]}"
+  ) || printf '%s\n' ''
+}
+
+# Script count for the change-based selection, after the caller's
+# --exclude-family. Propagates select_changed's refusals, because an unmapped
+# source path is a real answer about coverage, not a sizing hiccup.
+# shellcheck disable=SC2030,SC2031 # The subshell IS the isolation: sizing a
+# selection must never leave the caller's SCRIPTS altered.
+changed_script_count() {
+  (
+    SCRIPTS=()
+    select_changed "$1"
+    apply_exclude_families
+    printf '%s\n' "${#SCRIPTS[@]}"
+  )
+}
+
+# shellcheck disable=SC2030,SC2031 # The subshell IS the isolation: sizing a
+# selection must never leave the caller's SCRIPTS altered.
+all_script_count() {
+  (
+    SCRIPTS=()
+    select_all
+    apply_exclude_families
+    printf '%s\n' "${#SCRIPTS[@]}"
+  )
+}
+
+# "<lane>\t<count>" for the smallest lane that sizes successfully. Non-zero when
+# no lane could be sized at all.
+smallest_lane_and_count() {
+  local lane count best_lane='' best_count=''
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    count=$(lane_script_count "$lane")
+    case "$count" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    [ "$count" -gt 0 ] || continue
+    if [ -z "$best_count" ] || [ "$count" -lt "$best_count" ]; then
+      best_count=$count
+      best_lane=$lane
+    fi
+  done < <(list_known_lanes)
+  [ -n "$best_count" ] || return 1
+  printf '%s\t%s\n' "$best_lane" "$best_count"
+}
+
+# Say so when --changed turned out to be the wider selection, BEFORE anything
+# runs. Silent for an ordinary narrow change: a notice that fires every time is
+# a notice nobody reads.
+announce_oversized_changed_selection() {
+  local selected=$1 base=$2 pair lane count threshold
+  [ "$selected" -gt 0 ] || return 0
+  pair=$(smallest_lane_and_count) || return 0
+  lane=${pair%%$'\t'*}
+  count=${pair#*$'\t'}
+  threshold=$((count * CHANGED_OVERSIZE_LANE_MULTIPLE))
+  [ "$selected" -gt "$threshold" ] || return 0
+  log "NOTICE --changed selected $selected scripts vs $base; the smallest lane ($lane) is $count."
+  log "NOTICE this change has wide fan-out, so --changed is the WIDER selection here, not the narrower one."
+  log "NOTICE size every option before you run: bin/fm-test-run.sh --compare-selections --base $base"
+}
+
+# "<count>\t<label>\t<note>" for every selection this runner can make.
+selection_size_rows() {
+  local base=$1 lane count
+  count=$(changed_script_count "$base")
+  printf '%s\t%s\t%s\n' "$count" "--changed --base $base" 'covers your change'
+  while IFS= read -r lane; do
+    [ -n "$lane" ] || continue
+    count=$(lane_script_count "$lane")
+    case "$count" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    printf '%s\t%s\t\n' "$count" "--lane $lane"
+  done < <(list_known_lanes)
+  count=$(all_script_count)
+  printf '%s\t%s\t%s\n' "$count" '--all' 'covers your change'
+}
+
+# Size every selection, smallest first, and run none of them.
+compare_selections() {
+  local base=$1 rows sorted count label note mark smallest_label=''
+  rows=$(selection_size_rows "$base")
+  sorted=$(printf '%s\n' "$rows" | LC_ALL=C sort -t"$(printf '\t')" -k1,1n -k2,2)
+  while IFS=$'\t' read -r count label note; do
+    [ -n "$label" ] || continue
+    case "$label" in
+      --lane\ *) [ -n "$smallest_label" ] || smallest_label=$label ;;
+    esac
+  done <<EOF
+$sorted
+EOF
+  log "sizing every selection against $base; no tests are run."
+  log "only --changed and --all cover the files you changed - a lane is a CI shard and may not touch them at all."
+  printf '%7s  %s\n' SCRIPTS SELECTION
+  while IFS=$'\t' read -r count label note; do
+    [ -n "$label" ] || continue
+    mark=$note
+    [ "$label" = "$smallest_label" ] && mark='smallest lane'
+    if [ -n "$mark" ]; then
+      printf '%7s  %-34s (%s)\n' "$count" "$label" "$mark"
+    else
+      printf '%7s  %s\n' "$count" "$label"
+    fi
+  done <<EOF
+$sorted
+EOF
+}
+
 write_json_artifact() {
   local out=$1
   local started=$2
@@ -1332,6 +1490,9 @@ with open(out, "w", encoding="utf-8") as fh:
 PY
 }
 
+# Argument parsing appends to the GLOBAL SCRIPTS.
+# shellcheck disable=SC2031 # The sizing helpers' SCRIPTS is subshell-local
+# and never reaches here; that isolation is deliberate.
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --all)
@@ -1414,6 +1575,10 @@ while [ "$#" -gt 0 ]; do
       LIST_LANES=1
       shift
       ;;
+    --compare-selections)
+      COMPARE_SELECTIONS=1
+      shift
+      ;;
     --check-coverage)
       CHECK_COVERAGE=1
       shift
@@ -1482,6 +1647,11 @@ if [ "$LIST_LANES" -eq 1 ]; then
   exit 0
 fi
 
+if [ "$COMPARE_SELECTIONS" -eq 1 ]; then
+  compare_selections "$BASE_REF"
+  exit 0
+fi
+
 if [ "$CHECK_COVERAGE" -eq 1 ]; then
   run_coverage_guard
   exit $?
@@ -1547,6 +1717,10 @@ if [ -n "$FAIL_ON_GATE_SKIP" ]; then
 fi
 if [ "$JOBS" -gt 1 ]; then
   SELECTION_DESC="${SELECTION_DESC};jobs=$JOBS"
+fi
+
+if [ "${MODE:-}" = changed ]; then
+  announce_oversized_changed_selection "${#SCRIPTS[@]}" "$BASE_REF"
 fi
 
 if [ "$LIST_ONLY" -eq 1 ]; then

@@ -367,6 +367,7 @@ Choose the test selection deliberately BEFORE the first run, and climb a tier on
 3. The whole suite - deliberate full regression only, and say in your report why the narrower tiers were not enough.
 
 Find those tiers before you run anything: read the repo's contributor documentation (\`CONTRIBUTING.md\`, \`AGENTS.md\`) and the test runner's own \`--help\` once, then name the selection you chose.
+Tier 2's options are not ordered among themselves: a changed-file selection can be WIDER than a single lane or family when your change touches something with wide fan-out, so size both before you pick rather than assuming the change-scoped one is smaller.
 The gap between tiers is large - a full suite is routinely an order of magnitude more expensive than the selection that would have answered the same question - and a full run you abandon and restart from scratch pays that cost twice.
 Reaching for the whole suite because you have not looked for the narrower path is the default this section exists to prevent.
 
