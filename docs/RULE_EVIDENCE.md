@@ -1,0 +1,516 @@
+# Rule evidence
+
+This file is the history behind `AGENTS.md`.
+
+`AGENTS.md` states rules.
+This file records what produced each one: the incident, the measurement, the date, the crash log, the diagnostic path, the captain's ruling.
+Every entry is reachable from a `[why]` link on the rule it belongs to.
+
+**You do not need anything in this file to operate the pipeline.**
+Read an entry when you want to overturn a rule, when you need the numbers behind it, or when you are about to do the thing it warns about and want to know how bad it was.
+
+Entries are grouped by the `AGENTS.md` section they support and are named by anchor.
+When you add a rule to `AGENTS.md` that came from an incident, add its evidence here and link it; when you withdraw a rule, leave the evidence and say it was withdrawn.
+
+---
+
+## Section 3 - running the pipeline
+
+### whisperx-paid-twice
+
+Before the split ledger, one flat `steps_completed` covered all 28 steps with one lifetime.
+`--from` only trimmed the plan while the skip-if-finished check fired anyway, so the only way to redo creative work was to move `pipeline_data.json` aside.
+That move is what made project 001 pay for forty minutes of WhisperX twice.
+Recorded in `docs/RUN_001_END_TO_END.md`, whose Caches row says "Do not do this again".
+
+`--rerun edit` exists so that redoing creative work never names the enrichment ledger.
+
+### fingerprint-not-mtime
+
+The fingerprint is deliberately not mtime.
+A `cp` without `-p`, or a backup tool, rewrites mtime on untouched footage and would have destroyed forty minutes of WhisperX for nothing.
+It is deliberately not a whole-file hash either: that is gigabytes of IO on every run.
+Size plus a digest of the first and last mebibyte was the measured compromise.
+
+Clip ids are assigned by sorted path, so adding a file renumbers everything after it.
+The fingerprint carries the path for that reason: a renumber must invalidate the clips it renumbered.
+
+Deliberately NOT built alongside it: a caching framework, or a content-addressed artifact store.
+The whole mechanism is one declared field, one split ledger, one re-run flag and one identity check.
+
+### per-clip-index-in-a-worktree
+
+Step 1.04 wrote the per-clip index to `--output-dir`'s default of `./pipeline_output`, which is the runner's current working directory.
+Project 001's state therefore recorded its 17-clip index inside a disposable git worktree, which was then thrown away.
+It now resolves from `project_folder` and reuses any per-clip file already there instead of re-transcribing it.
+
+---
+
+## Section 4 - dashboard
+
+### review-surface-is-this-dashboard
+
+Captain's ruling of 2026-08-17 on `.lavish/video-gui-findings.html`: EXTEND THIS DASHBOARD, never author a fresh per-run review page.
+
+Whether the review surface should be per RUN or per PROJECT is NOT decided; the captain has not ruled on it.
+Keep both possible - per-run is a filter over the existing store, not a migration.
+
+### notes-are-anchored-not-page-comments
+
+A note whose `anchor.selector` is empty is rejected rather than degraded to a page comment, because a page comment is the thing this channel exists not to be.
+The server never computes an anchor; only the browser can measure one, because only the browser has the rendered element.
+
+### runs-are-driven-from-the-page
+
+Captain's ruling, 2026-08-17: runs are driven from the page.
+
+Start does not pass `--review` because forcing review gates turns one press into 26 stops; gates are an opt-in tick box.
+Step resolves the step id server-side to the first topologically-unrun step so it reuses the runner rather than adding single-step machinery.
+
+### the-handbrake-is-a-file
+
+Killing the runner mid-step would leave `pipeline_data.json` describing a step that half happened.
+The runner reads the hold at the top of each step instead, so the step in flight finishes and writes its state first, and what lands on disk is always a real step boundary.
+
+`pipeline_run.json` is the runner's own account of itself and nothing else may write it.
+The dashboard reports run state from that file, never from the fact that a launch request returned 200.
+
+Launches use `sys.executable` rather than a bare `python3`: the dashboard runs from the pipeline's `.venv`, and a PATH interpreter has none of the ML dependencies.
+
+---
+
+## Section 5 - DaVinci Resolve
+
+### fcpxml-and-drp-are-closed
+
+Captain's ruling: the Python timeline builder plus Fusion IS the architecture, not a workaround.
+
+**FCPXML** was deprecated because it does not recognise DaVinci's effects.
+Resolve's importer silently degrades unrecognised transitions to Cross Dissolve and scrambles the audio track layout on a round trip.
+Both were measured; the corrected table is at `research/drp_reverse_engineering.md:98-106`.
+
+**DRP project-file surgery** wrote to a temp file the renderer never loaded, so it could not fire at all.
+
+`library/tools/execution/apply_native_transitions.py` and its test remain in the tree unused.
+Do not wire either route back in.
+
+### hasattr-is-always-true
+
+`hasattr` returns True on Resolve's scripting proxies for invented method names as readily as for real ones.
+Every guard written against it passes, whatever the object actually supports.
+
+`CreateMagicMask` returns False for every mode, which is why it is withdrawn.
+
+Super Scale is a **MediaPoolItem** property taking an **int**, with the companion keys `SuperScale Sharpness` and `SuperScale Noise Reduction` (no space after Super).
+Setting it on a TimelineItem, or passing the string `"2"`, silently returns False.
+
+### smart-reframe-reported-success-for-months
+
+`smart_reframe` had a reader, the reader ran, and it printed "✓ Applied Smart Reframe" on every run for months.
+It guarded on `hasattr` (always True on a Resolve proxy), was handed a Timeline that exposes no such method, and discarded the return value.
+
+The neural-directive block in `resolve_build_timeline` is the pattern to copy: judge the call by what it returns, and say so when Resolve declines.
+
+### stabilization-oom-87gb
+
+Eight `Stabilize()` calls on project 001 took Resolve to **87.4 GB** resident and macOS jetsam killed it.
+The kill is recorded as `largestProcess: "Resolve"` in `/Library/Logs/DiagnosticReports/JetsamEvent-*.ips`.
+
+`neural_engine_directives` is applied AFTER every clip, comp, overlay and SFX is placed.
+The project database kept only the flush from before that pass, so the music, every SFX and all eight Fusion comps were gone.
+
+Stabilization changes picture steadiness and nothing else: never structure, timing, framing, grade, captions or sound.
+That is what makes it safe to pop off the in-memory manifest for a timeline meant to be scrubbed rather than shipped.
+
+### keyframes-outside-the-played-window
+
+A clip with 513 source frames placed as 410 frames on the timeline has a Fusion frame range of 0-512.
+`clip_dur` sets the comp's frame RANGE (GlobalIn/GlobalOut) and must come from the SOURCE clip frame count, read as `int(mpi.GetClipProperty('Frames'))`, not from `clip.GetDuration()`.
+
+Using `0..clip_dur` for keyframes when `source_in` is not zero puts all motion outside the frames that play.
+A segment from frames 25-97 of a 5657-frame clip must have its zoom ramp between 25 and 97, not between 0 and 5656.
+
+### background-sized-to-the-delivery-frame
+
+Every Background node `build_effect_comp` draws - vignette, fade, both transition halves - is a solid image merged over `MediaIn`.
+Sized to the delivery format instead of the source clip's own resolution, it paints a hard-edged rectangle in the middle of the picture, and no warning fires, because a wrong-sized Background is a valid comp.
+
+`CompEngine.from_params` had the fix and the comment; the renderer calls `build_effect_comp`, which did not.
+
+Read the size off the MediaPoolItem's `Resolution` and do NOT swap it for rotation - Fusion gets the stored frame.
+
+### house-look-missed-the-broll
+
+`compile_manifest` merges the house look onto both V1 and V2, and the pass that drew it read `tracks['V1']` alone.
+Project 001's three cutaways therefore played at a different contrast with no grain and no vignette beside the A-roll.
+
+Transitions stay on V1 because `after_clip` indexes the V1 clip LIST; replaying it elsewhere draws a transition at an unrelated cut.
+The drop detection in `build_verification` now asks whether a label was PLACED, not whether it is on V1.
+
+`tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
+
+### pan-tilt-and-volume
+
+`SetProperty` returns False for `PanX` and `PanY` and reads back None, silently: there is no such property.
+`ZoomX` and `ZoomY` are real.
+
+`Volume` on an audio TimelineItem also returns False on Resolve 21 - its property dict is empty - so per-clip SFX `volume_db` does not reach the mix.
+
+`TimelineItem.GetProperty()` with no argument returns the whole dict.
+Read the truth off it before trusting any property name.
+
+### audio-pool-items-report-24fps
+
+Resolve audio pool items report 24fps regardless of the timeline's frame rate, and `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase.
+Computing audio in/out against the timeline fps stretched the music to 125% and padded the export with trailing black.
+
+### renders-are-silent-by-default
+
+`SetRenderSettings` must set `ExportAudio` and `AudioCodec` explicitly or the render has no audio at all.
+`resolve_render.py` now also probes the output for an audio stream before reporting success, because a silent render is otherwise indistinguishable from a good one.
+
+### media-pool-name-collisions
+
+Overlay segments from different sources often share generic filenames like `seg_000.mov`.
+Importing them into the same media pool makes basename lookups silently pick the wrong clip.
+
+### reading-a-killed-build
+
+Resolve is the captain's application and a crashed build is not licence to start it.
+
+`~/Library/Preferences/Blackmagic Design/DaVinci Resolve/dblist.conf` names the active database.
+Each project under it is plain SQLite at `<db>/Resolve Projects/Users/guest/Projects/<folder>/<name>/Project.db`.
+**Copy it before opening; never open it in place.**
+
+The join is `Sm2Timeline` -> `Sm2Sequence.Sm2Timeline_id` -> `Sm2SequenceContainer.Sm2Sequence_id` -> `Sm2TiTrack.Sm2SequenceContainer_id` -> `Sm2TiItem_Sm2TiTrack`, in which **`DbOwner` is the TRACK and `DbAssociate` is the ITEM** - the reverse of what the column names suggest.
+`Sm2TiCompositionTable` holds the Fusion comps.
+
+It shows only what was FLUSHED, which is exactly what makes it useful: the gap between it and the manifest is where the build died.
+
+It cannot answer everything.
+Conform geometry (`Pan`/`Tilt`/`Zoom`) sits in a binary `FieldsBlob`, so proving the picture band still needs Resolve running.
+
+---
+
+## Section 6 - the spine contract
+
+### get-clip-id-disabled-beat-alignment
+
+A guard reading `block.get("clip_id", "")` on blocks that only had `content.clip_id` silently disabled beat-aligned cutting for four audits.
+That is why a missing key must raise rather than fall back.
+
+### overlapping-source-ranges-play-twice
+
+Two body passages cut from one clip that claim overlapping source ranges make the overlap play twice across the cut.
+
+The drift threshold is a secondary aid only: the shipped case drifted 0.76s and sailed under it.
+
+This is fixed in code and covered by tests, but the export at the reference project was NOT regenerated.
+The mp4 on disk still repeats "to post" at ~10.4s, so the fix is not verified in a render.
+
+---
+
+## Section 9 - environment
+
+### text-true-decodes-with-the-locale-codec
+
+The pipeline writes UTF-8 status glyphs.
+A check-mark in a child process's stderr failed a render under an ASCII locale, because `text=True` decodes with the locale codec rather than UTF-8.
+
+---
+
+## Section 10 - cross-cutting rules
+
+### key-name-mismatches
+
+Steps disagree about what a field is called, the reader `.get()`s a default, and the pipeline reports success over empty data.
+This is the dominant bug class in this repository.
+
+Known disagreements, kept as the worked examples:
+
+- B-roll assignments carry `video_in`/`video_out` plus `timeline_start`/`timeline_end`.
+- SFX carry `timeline_in`/`timeline_out`.
+- Semantic documents are keyed by FILE STEM while the catalog uses `clip_XXX`.
+
+`tests/test_dashboard_captured_state.py` is the standing guard, and it runs against `tests/fixtures/captured_run/`, a 77KB capture from a real broken run.
+
+### compile-manifest-read-an-empty-catalog
+
+The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export.
+A step that ran before that export existed leaves none, and a missing file reads as `{}`.
+
+`compile_manifest` spent entire runs compiling against an empty catalog for exactly that reason.
+
+### empty-llm-schema
+
+`present_llm_step` builds the injected schema from `interface.outputs` minus anything the bridge already produced.
+`music_selection` therefore asked its model for nothing at all and got `{}` back for months.
+
+The same hole in the QA loop demanded post-bridge outputs from the LLM, so every attempt at `mesh_spine` "failed": its LLM writes `structure`, while the post-bridge computes `audio_spine` and `timed_spine`.
+
+### vision-schema-two-views
+
+`vision_pipeline_v3.py` emits `scene[]`/`camera[]`/`actions[]`/`objects[]`/`assessment{}`.
+Consumers historically read `analysis.*` and `blocks`.
+
+An absent field warns in `context_projector`; a fabricated one silently misleads the model.
+That asymmetry is why the adapter derives only what v3 actually measured.
+
+### brand-template-never-reached-the-run
+
+`pipeline.brand_template` in a project.yaml was read by `delivery_format` and by nothing else in the run.
+`load_pipeline_state` populated `state["brand_template"]` only from the process manifest's `default`, which has none, so `gather_step_inputs` resolved the in-code `_get_default_template()` for every step of every project.
+
+A project naming `cinematic_narrative` got vfx_intensity 0.0 instead of 0.3, the full transition vocabulary instead of its four, no `subtitle_style` and no house look at all - silently, with the run reporting SUCCESS.
+
+### delivery-format-is-not-the-source-resolution
+
+The catalog's `source_resolution` describes the footage.
+Under the name `project_resolution` it was used as a render target, and project 001 shipped a 1920x1080 master with the framing mechanism idle (target == source means nothing to fit) and the vertical overlays banded down the middle.
+
+Nothing carries the value as a key because `project_resolution` was mapped by no DAG edge at all, and every `.get(..., [1080, 1920])` in the tree silently read its own fallback.
+`project_fps` had the identical hole and now has edges.
+
+### the-beat-grid-does-not-start-at-zero
+
+`music_pipeline.analyze_music` emits `tempo.beats` and `tempo.downbeats`.
+There has never been a `beat_grid` key, though two steps asked for one and got `[]`.
+
+No track's first beat lands at 0.000s, so a synthesised `[i * 60/bpm ...]` grid is offset from the music by the whole lead-in.
+
+The times are in the MUSIC file's clock and are used as timeline times, which holds only while music is placed at `source_in` 0.
+`compile_manifest` asserts that.
+
+### building-is-not-high
+
+Two readers bucketed the same free-text `target_energy` field differently and only one acted.
+
+`transition_selector` did not match "building", which was the correct outcome.
+`creative_cohesion.map_energy` substring-matched it to "high" and cut three 500ms defocus transitions to 333ms - on a direction whose own rationale chose "building" OVER "high" because high "would fight the source".
+
+"Building" names a TRAJECTORY, not a level.
+
+`WITHDRAWN_HIGH_WORDS` records why "dynamic" and "fast" are out too.
+Widening the high bucket decides which transitions get drawn on every project using the word, so it is a decision, not drift.
+
+### end-time-is-a-source-timestamp
+
+`speech_sequence`'s `end_time` is a SOURCE timestamp.
+Reading it as the timeline duration made `creative_cohesion` report 001's 54.77s timeline as "40.1s ... below the minimum target zone" one step after `review_rough_cut` had measured it correctly.
+
+`0.0` means "no evidence" - say so rather than warn about a length nothing measured.
+
+### unread-parameter-names
+
+The renderer dispatches on parameter NAMES in `apply_fusion_comps.build_effect_comp`.
+A planner emitting a name nothing reads produces a comp without that effect, and no warning.
+
+`zoom_percent`, `intensity_px` and `scale_factor` killed three of five VFX types that way, and four of the colour grade's five nodes had no reader at all.
+
+Withdrawal is a legitimate outcome and a silent unread key is not, which is why the reason is recorded where the design lives: `GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/step.py`, `WITHDRAWN` in `transition_vocabulary.py`.
+
+`tests/test_manifest_readers.py` discovers every top-level key from `compile_manifest`'s manifest literal and requires a named reader that really contains `manifest[key]`, plus one sentence saying what that reader does to the picture or the sound.
+Writing the sentence is the check the AST cannot do for you.
+
+### overlays-that-draw-nothing
+
+Step 4.06 ran Remotion eight times on project 001 for 53.8 MB of ProRes 4444 in which no pixel is ever opaque, and placed all eight on V4 - so `render.json` said "V4: 8".
+
+The output carries NO `available` key when nothing draws, because `available: false` anywhere fails the run.
+
+### manifest-validator-semantic-half
+
+The regression fixtures in `tests/fixtures/captured_run/` come from a real broken run.
+Replacing them with empty-list fixtures removes the only thing that proves the assertions fire.
+
+Correction of record: an earlier version of this entry claimed the validator checks ducking curves.
+Nothing in the module ever has.
+
+### undeclared-black
+
+The rough-cut review records only negative gaps by design.
+Before `_assert_timeline_fully_covered` existed, the only thing that noticed 6.4s of black was the ffmpeg probe in step 6.02, one step from the end of the run.
+
+Both gates bound a declared beat by `MAX_DECLARED_BLACK_BEAT_SECONDS` from the spine contract.
+Keep that bound in one place, or a beat passes compilation, burns a render, and fails at the last step.
+
+### safe-area-and-the-caption-grouper
+
+Captain's ruling of 2026-08-25: one master serves Reels, TikTok and Shorts and obeys the strictest of them.
+The vertical profile is the published short-form map - top 120, bottom 320, right 120, left 90 at 1080x1920.
+
+`plan_subtitles.text_fits_on_screen` measured real glyph widths and had NEVER RUN.
+It was switched on by `audio_spine["subtitle_style"]["font_path"]`, which no producer ever wrote, so grouping fell back to `max_chars = 18` - correct for a 58px caption, and 1663px of ink in a 1080px frame at the 160px style templates resolve today.
+
+A safe area applied only on the render side lifts the captions clear of the UI and leaves them clipped left and right, which is why all four consumers read the one enumeration.
+
+Measuring a VARIABLE font requires setting its weight axis: Montserrat-Variable defaults to Thin.
+
+A group split cannot fix one over-wide word, so such a card carries `fit_scale` and the render draws THAT CARD smaller.
+The style's font size is untouched, because caption size is an open captain decision.
+
+### the-squashed-face-frame
+
+`compute_face_presence` extracted at `scale=320:180`, so a rotated iPhone clip - 1080x1920 after ffmpeg's autorotate - reached the frontal cascade squashed about 5.3x horizontally.
+
+On project 001 that split the index exactly along `rotation`: 1,886 detections over 3,578 landscape samples, 1 over 461 rotated ones, and `subject_center_x` was None for every portrait clip.
+
+Size is a trade, and 480 is where it was measured: bigger keeps buying recall AND false positives, and 0.34 is where `subject_framing` starts believing a track.
+
+Note what the fix does NOT fix.
+The cascade fires on trees and dashboards, and on 001's face-free B-roll a 3s window crosses 0.34 at every size above 240.
+The squash was suppressing those by suppressing everything.
+
+`tests/test_face_sample_aspect.py` pins the aspect, not a detection count, which would rot with the OpenCV build.
+
+Face detection needs Haar cascades, so `opencv-python` is pinned `<5`; OpenCV 5 removed them.
+
+### subject-centers-by-clip-read-only-a-mapping
+
+Step 1.04's real output shape is `{"temporal_event_indices": [...], "full_indices": [...]}` - a LIST of per-clip dicts, not a mapping.
+
+`subject_centers_by_clip` read only a mapping for the life of P1.2, so it returned `{}` on every real project while its tests, which all fed invented mappings, passed.
+
+### the-letterbox-default
+
+`_conform_fields` used to have a second branch that ran whenever nothing declared a framing intent.
+Its rule was *letterbox if the primary subject is visible during this clip's range*, which on a talking head is every clip.
+
+Project 001 shipped its A-roll in rows 656..1263 of 1920 with 61.6% of every frame below luma 12, and the whole `framing_intent`/`subject_center_x` mechanism in the other branch never executed anywhere.
+
+The thing that branch protected - a blind centre crop beheading a speaker - is protected by the pan now, not by refusing to crop.
+
+This reverses the letterbox-default half of Q1 (2026-08-16); the tracking half stands.
+A series that wants bars declares 0.0, and `cinematic_narrative.yaml` does.
+
+### hollow-prosody-files-cached
+
+`speech_advanced_pipeline` wrote `{"method": null, "error": "parselmouth not installed"}` to `<clip>_prosody.json` like any other result.
+
+Step 1.05 counted seventeen files as seventeen profiles, reported `available: true` in 0.1s, and 4.2 KB of identical error records went into the creative-direction prompt.
+The files CACHED, so the next run skipped the clips.
+
+`praat-parselmouth` is in `requirements.txt`; CI filters it, because there is no cp314 wheel.
+
+### semantic-analysis-triggers-a-vision-run
+
+Any clip whose id is not already a `raw/analysis/clip_profile_<clip_id>.json` triggers a full local vision run when `step_1_03_semantic_analysis/step.py` is invoked.
+
+### gates-that-cannot-fail
+
+`timeline_qa.verify_fusion_comps` had `pass` as its only loop body and reported the Fusion pass healthy whatever the timeline held.
+
+`creative_cohesion`'s engagement check tested `isinstance(engagement, (int, float))` on the DICT that `engagement_scorer` emits, so it read every real passage as unscored.
+Read `engagement["composite"]`.
+
+A gate that cannot fail is worse than no gate, because it reads as coverage.
+
+### gates-that-fail-correct-output
+
+`subtitle_qa` sampled two fixed instants of a transparent overlay, which on an ordinary caption pause are blank.
+
+gemma-4-12b passed those blanks on one run and failed them on the next, then failed four demonstrably clean caption frames three times out of three with invented defects - "cut off by the bottom edge" of type with 150 clear rows beneath it.
+
+Its mechanical half - ink exists, ink is inside the frame, ink is bottom-positioned - now decides, and the model's typography opinion is recorded rather than enforced.
+
+### baseline-craft-properties
+
+Source: `data/vep-craft-reference-decomposition/report.md`; its Appendix A is the reproducible method.
+Test: `tests/test_baseline_craft_properties.py`.
+
+The true-peak half of `measure_lufs` used to print +1.85 dBTP inside a detail string and drop it whenever the LUFS check had already failed.
+It sets `passed = False` now.
+
+Chroma and the mix REPORT A NUMBER and pass.
+The chroma floor is an open captain decision and the mix has no delivery route, and a gate that must fail teaches everyone to ignore the report.
+
+`min_sat: 10` is GONE, replaced and not supplemented: frame-mean saturation cannot be the statistic, because the captain's two reference frames differ 9.3x in it and that floor would have rejected the one they chose for Punch Card.
+
+### no-creative-floors
+
+A B-roll minimum and an SFX minimum both existed.
+The captain removed them outright on 2026-08-20, declining warnings, a reconciled range and per-template minimums by name.
+
+The accepted consequence is that a thin edit is no longer caught mechanically.
+
+A floor in the PROMPT pads just as effectively as one in the bridge.
+"You MUST plan exactly 5-15" is what put two cutaways and one sound into the shipped edit with rationales that said so.
+
+`tests/test_no_creative_floors.py` originally guarded only the two steps the ruling was written about.
+That is how `plan_vfx`'s "at least 3-7 VFX items" plus "every talking head clip MUST have at least a slow zoom" (001: eight effects on eight clips, one each, alternating) and `speech_sequence`'s "strictly select exactly 10-15" survived it for five days.
+It now guards every step in `CREATIVE_PLANNING_STEPS`.
+
+`_assert_sfx_distributed` catches a collapse - every SFX on one frame - not a sparse plan, which is why it is not a floor.
+
+---
+
+## Section 11 - third-party assets
+
+### the-unlicensed-powergrade
+
+The repository previously carried one PowerGrade, `cinematic_warm.drx` - a free gift from Zay's Aesthetics with no written terms of any kind, and so no commercial usage clause for a repository that produces commercial video.
+
+It was removed along with the whole PowerGrade route: `build_powergrade.py`, the `luts/` and `dctls/` preset directories, and `preset_indexer.py`.
+`tests/test_color_grade_delivery.py` fails if any `.drx` reappears.
+
+### the-webfont-race
+
+Montserrat is bundled rather than fetched because `@import url('https://fonts.googleapis.com/...')` with no `delayRender` made typography a race with the network.
+A lost race rendered captions in Chromium's fallback sans at a different width, with nothing downstream able to tell.
+
+### timed-text-drew-in-the-wrong-face
+
+`TimedTextOverlay` loaded NO font at all until 2026-08-20 while naming a family in CSS.
+Every card it rendered was already in the wrong face, and the frames were still valid pictures of the right size.
+
+---
+
+## Section 12 - the house look
+
+### where-the-look-values-come-from
+
+The values are authored from the captain's planning docs at `PLAN/series portfolio '26 planning/`, which are READ-ONLY and live outside this repo.
+
+Nothing depends on a file inside a Resolve installation.
+
+---
+
+## Sections 13 and 14 - bookends, timed text and asset ownership
+
+### bookends-only-on-some-videos
+
+Captain's Q7, 2026-08-16: "wire them up, but only on some videos".
+A template that declares nothing gets nothing.
+
+A malformed declaration raises rather than being dropped, because a dropped declaration is a card the editor believes shipped.
+
+`library/tools/execution/import_endcard.py` appended one out of band after compilation and is deleted; see the row in `docs/PIPELINE_PLAN.md` section 5.
+
+### the-4th-wall-end-card
+
+`docs/ASSET_LIBRARY_PLAN.md` was ratified 2026-08-20 and is the standing test.
+
+The case that motivated it: the 4th Wall end card failed all three questions and was removed on the captain's ruling.
+It was one previous trial run's finished artwork - series copy, absolute frame numbers from a 60.000s cut, an unbundled typeface - filed in the now-deleted `library/templates/fourth_wall.yaml` as series defaults, where no step ever read it.
+
+The template itself was deleted on 2026-08-20 on the captain's ruling: the series template arrives later, whole, with authorisation.
+
+Per-series typefaces live per project, not in the engine (captain's ruling, 2026-08-20).
+Accepted cost: each project folder carries its own fonts and licences, and `bookend_render.py` must stage them.
+
+### the-night-card-y-band
+
+Geometry is normalised against the whole delivery frame, not the picture area inside letterbox bars, because there is no picture-area enumeration to resolve against.
+
+Measured on the only finished render on disk - project 001, `Pipeline_Edit.mp4`, 1080x1920, 16:9 landscape source - the picture occupies rows **656..1263** and the burnt-in captions rows ~1699..1765.
+So a `y` in 0.35..0.65 is over picture whether the source letterboxes or fills.
+
+`tests/test_night_card_delivery.py` asserts the real card's ink lands in that band.
+Put the removed end card's `y: 0.15` back and it fails at rows 260-327.
+
+`effect.timed_text_overlay` had no reader at all, and carried the marker `NO_READER` in `tests/test_manifest_readers.py`.
+That marker is gone: the reader is `library/tools/timed_text_overlay.py`, which is what makes a timed-text declaration legal under question three of the asset test.
+
+`tests/test_timed_text_delivery.py` renders a 24-frame fixture through the real path and asserts the declared colours are in the declared rows at the declared frames - the delivery half, without which "a reader exists" is the same empty claim `smart_reframe` made for months.
+
+The worked example of a project-side declaration is `tests/fixtures/night_card_project/project.yaml` - Through the 4th Wall's Night card, the second item in the captain's ratified build order.
