@@ -304,6 +304,33 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 - A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status`, `info` and `dashboard`. It is referenced in place, never copied.
 - Multi-project environments group projects by client folders if specified during creation.
 
+### Where a project's files go
+
+**One module owns the project-side layout: `library/tools/project_layout.py`.**
+`paths.py` owns the REPO and the MACHINE; this owns one PROJECT, which is a folder passed in rather than a constant.
+
+- Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
+- **A step never composes a project path.** It names an `Area` and gets a path: `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state. All fifteen steps that used to join `project_folder` with a name of their own choosing now do this. [why](docs/RULE_EVIDENCE.md#nothing-owned-the-project-folder)
+- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/` and `compositions/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
+- `assert_writable(path)` is the guard for a path that arrives from outside the layout - a manifest key, a CLI flag. Outside the project, at the bare project root, or inside an input area all raise.
+- **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads, and runs on `manage_project.py new` and at step 1.01 of every run. Add a row, and the folder documents it.
+- The scaffold is not a second list. It drifted from the steps once, promising `pipeline_output/subtitles` while step 4.05 wrote `subtitle_segments`.
+- Anything the pipeline FETCHES rather than computes - a downloaded music track - is output, and goes to `Area.ACQUIRED_MEDIA`, not into `music/`.
+
+**Backups of `pipeline_data.json` are automatic and bounded.**
+`pipeline_output/backups/pipeline_data/`, one per RUN rather than per save, newest `MAX_PIPELINE_DATA_BACKUPS` kept, pruned by the writer.
+
+- The pruner only ever considers files matching its own naming pattern, so a hand-made backup dropped in beside them is never deleted. Pre-policy backups live in `backups/pipeline_data/legacy/`.
+- One per run, not one per save, because `save_pipeline_state` runs after every step and the thing worth keeping is the state as it stood BEFORE a run. [why](docs/RULE_EVIDENCE.md#nine-hand-made-backups)
+
+**A project that predates the layout is brought onto it with `manage_project.py organize <slug>`.**
+`library/tools/project_migration.py`. It plans by default and changes nothing until `--apply`.
+
+- **It never deletes.** Every action is a move or a copy, and a file whose purpose cannot be established goes to `pipeline_output/unsorted/<bucket>/` with a stated reason, never a guess. Measure what you can - `media_facts` records a file's duration, format and encoder - so an admitted unknown is an examined one.
+- **It never modifies an input directory.** Pipeline output found inside one is COPIED out, so `raw/` is left byte for byte as it was found. That is also why `--revert` undoes moves and not copies: undoing a copy means deleting.
+- Every run writes a manifest to `pipeline_output/migrations/` - each action with source, destination, byte count, digest and reason, plus the byte totals before and after. `manage_project.py organize <slug> --revert <manifest> --apply` reads it back.
+- `tests/test_project_migration.py`.
+
 ## 9. Environment and dependencies
 
 - **Run from the dedicated `.venv`**, which holds all ML dependencies: `source .venv/bin/activate` before `manage_project.py`, which enforces this with a preflight check.

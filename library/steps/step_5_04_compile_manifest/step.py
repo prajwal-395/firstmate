@@ -54,6 +54,7 @@ from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import project_template_name, resolve_project_template
 from tools.framing_intent import DEFAULT_FRAMING_INTENT, resolve_framing_intent
 from tools.delivery_format import resolve_delivery_format
+from tools.project_layout import Area, ProjectLayout
 
 # Wording that means the camera was not locked off. Read from the vision
 # analysis's own stability verdict and motion prose, which is where both
@@ -246,8 +247,13 @@ _STATE_OUTPUTS: dict = {}
 
 
 def _load_state_outputs(out_dir: str) -> dict:
-    """Read step_outputs from the project's pipeline_data.json."""
-    state_path = os.path.join(os.path.dirname(out_dir), "pipeline_data.json")
+    """Read step_outputs from the project's pipeline_data.json.
+
+    `out_dir` is the project's output root, so the project is its
+    parent and the layout owner names the state file from there.
+    """
+    state_path = str(
+        ProjectLayout(os.path.dirname(os.path.abspath(out_dir))).pipeline_data_path)
     if not os.path.exists(state_path):
         return {}
     try:
@@ -1665,7 +1671,9 @@ def main():
         out_dir = sys.argv[1]
         manifest = compile_manifest(out_dir)
 
-        out_path = os.path.join(out_dir, "assembly_manifest.json")
+        out_path = str(ProjectLayout(
+            os.path.dirname(os.path.abspath(out_dir))
+        ).write_path(Area.OUTPUT_ROOT, "assembly_manifest.json"))
         with open(out_path, "w") as f:
             json.dump(manifest, f, indent=2)
         print(f"\nWrote: {out_path}", file=sys.stderr)
@@ -1676,7 +1684,8 @@ def main():
         inputs = json.loads(sys.stdin.read())
 
         if "project_folder" in inputs:
-            out_dir = os.path.join(inputs["project_folder"], "pipeline_output")
+            out_dir = str(
+                ProjectLayout(inputs["project_folder"]).write_dir(Area.OUTPUT_ROOT))
             if os.path.isdir(out_dir):
                 manifest = compile_manifest(out_dir)
                 json.dump({"assembly_manifest": manifest}, sys.stdout, indent=2)

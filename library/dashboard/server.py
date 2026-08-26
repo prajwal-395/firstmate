@@ -70,6 +70,7 @@ from library.tools.step_exporter import (
 )
 from library.tools.thumbnail_extractor import get_thumbnail_url
 from library.tools import run_control
+from library.tools.project_layout import Area, ProjectLayout
 from library.tools import step_ledger
 
 
@@ -108,9 +109,7 @@ review_batch_event = asyncio.Event()
 # ── Message Helpers ─────────────────────────────────────────────────
 
 def _messages_dir(project_dir: str) -> Path:
-    p = Path(project_dir) / "pipeline_output" / "messages"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return ProjectLayout(project_dir).write_dir(Area.MESSAGES)
 
 
 def _load_message(project_dir: str, message_id: str) -> Optional[dict]:
@@ -188,18 +187,22 @@ def _extract_interest_score(sem: dict) -> float:
 
 def _load_pipeline_state(project_dir: str) -> dict:
     """Load pipeline_data.json for the project."""
-    state_path = os.path.join(project_dir, "pipeline_data.json")
+    state_path = str(ProjectLayout(project_dir).pipeline_data_path)
     if not os.path.exists(state_path):
         return {}
-    with open(state_path) as f:
+    with open(state_path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _save_pipeline_state(project_dir: str, state: dict):
     """Save pipeline_data.json."""
-    state_path = os.path.join(project_dir, "pipeline_data.json")
+    layout = ProjectLayout(project_dir)
+    # One backup per process, before the first overwrite. The policy and
+    # the retention bound live in library/tools/project_layout.py.
+    layout.backup_pipeline_data(label="dashboard")
+    state_path = str(layout.pipeline_data_path)
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    with open(state_path, "w") as f:
+    with open(state_path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
 
 
@@ -225,7 +228,8 @@ def _load_project_config(project_dir: str) -> dict:
 
 def _load_annotations(project_dir: str, step_id: str) -> List[dict]:
     """Load annotations for a step."""
-    ann_path = Path(project_dir) / "pipeline_output" / "annotations" / f"{step_id}.json"
+    ann_path = ProjectLayout(project_dir).read_path(
+        Area.ANNOTATIONS, f"{step_id}.json")
     if not ann_path.exists():
         return []
     with open(ann_path) as f:
@@ -234,9 +238,8 @@ def _load_annotations(project_dir: str, step_id: str) -> List[dict]:
 
 def _save_annotations(project_dir: str, step_id: str, annotations: list):
     """Save annotations for a step."""
-    ann_dir = Path(project_dir) / "pipeline_output" / "annotations"
-    ann_dir.mkdir(parents=True, exist_ok=True)
-    ann_path = ann_dir / f"{step_id}.json"
+    ann_path = ProjectLayout(project_dir).write_path(
+        Area.ANNOTATIONS, f"{step_id}.json")
     with open(ann_path, "w") as f:
         json.dump(annotations, f, indent=2)
 
@@ -1020,9 +1023,8 @@ def _is_pipeline_running(project_dir: str) -> bool:
 
 
 def _run_log_path(project_dir: str) -> Path:
-    log_dir = Path(project_dir) / "pipeline_output" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    return log_dir / f"run_{time.strftime('%Y%m%d_%H%M%S')}.log"
+    return ProjectLayout(project_dir).write_path(
+        Area.LOGS, f"run_{time.strftime('%Y%m%d_%H%M%S')}.log")
 
 
 def _step_order() -> List[str]:
@@ -1291,7 +1293,7 @@ async def pipeline_status():
 async def serve_thumbnail(filename: str):
     """Serve a thumbnail image."""
     project_dir = _get_project_dir()
-    thumb_path = Path(project_dir) / "pipeline_output" / "thumbnails" / filename
+    thumb_path = ProjectLayout(project_dir).read_path(Area.THUMBNAILS, filename)
     if not thumb_path.exists():
         raise HTTPException(404, "Thumbnail not found")
     return FileResponse(str(thumb_path), media_type="image/jpeg")

@@ -52,6 +52,7 @@ from generate_remotion_props import generate_subtitle_props_per_block
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
+from library.tools.project_layout import Area, ProjectLayout
 
 
 def main():
@@ -95,11 +96,17 @@ def main():
     except ImportError:
         pass
 
-    # Output directory
-    output_dir = os.path.join(project_folder, "pipeline_output") if project_folder else os.path.join(PILOT_ROOT, "pipeline_output")
-    os.makedirs(output_dir, exist_ok=True)
-    sub_output_dir = os.path.join(output_dir, "subtitle_segments")
-    os.makedirs(sub_output_dir, exist_ok=True)
+    # Output directory.
+    #
+    # There is no repo fallback any more. Without a project_folder this
+    # step wrote its rendered overlays into <repo>/pipeline_output/ -
+    # inside the checkout, and inside a disposable worktree whenever the
+    # run happened in one. The layout owner raises instead, so a run with
+    # no project says so rather than banking work somewhere nothing will
+    # look for it. See library/tools/project_layout.py.
+    layout = ProjectLayout(project_folder)
+    output_dir = str(layout.write_dir(Area.OUTPUT_ROOT))
+    sub_output_dir = str(layout.write_dir(Area.SUBTITLE_SEGMENTS))
 
     # Generate per-block props
     fps = data.get("project_fps", 30)

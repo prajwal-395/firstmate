@@ -61,6 +61,7 @@ from model_lifecycle import load_model, unload_model
 # completed 17-clip index. The guard and the full story live in
 # library/tools/step_stdout.py; `main()` calls _claim_stdout() first.
 from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
+from library.tools.project_layout import Area, ProjectLayout
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -1653,7 +1654,7 @@ def get_duration(video_path: str) -> float:
 def index_clip(
     video_path: str,
     clip_id: str,
-    output_dir: str,
+    layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
 ) -> dict:
     """
@@ -1668,7 +1669,7 @@ def index_clip(
     print(f"    Duration: {duration:.1f}s", file=sys.stderr)
 
     # Extract audio (shared by speech + energy + audio event analyzers)
-    audio_dir = os.path.join(output_dir, "audio_cache")
+    audio_dir = str(layout.write_dir(Area.AUDIO_CACHE))
     audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
     # 1. Scene detection
@@ -1698,7 +1699,7 @@ def index_clip(
     print("    [4/12] Speech detection (WhisperX + wav2vec2)...",
           file=sys.stderr)
     speech = detect_speech_regions(
-        audio_path, output_dir,
+        audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
         onsets=onsets,
         whisper_model_size=whisper_model_size,
     )
@@ -1853,13 +1854,14 @@ def _load_cached_index(index_path: str):
 
 def build_temporal_index(
     raw_footage_files: list,
-    output_dir: str,
+    layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
 ) -> dict:
     """
     Build temporal event index for all clips.
 
-    Produces one JSON file per clip in <output_dir>/temporal_index/.
+    Produces one JSON file per clip in the project's TEMPORAL_INDEX area
+    (library/tools/project_layout.py).
 
     A clip whose index is already there is REUSED, not re-transcribed.
     That per-clip file is the cache; the ledger in pipeline_data.json is
@@ -1872,11 +1874,10 @@ def build_temporal_index(
         deletes exactly the clips whose source footage changed, and
         exactly the clip named by `--rerun temporal_index:clip_007`.
     """
-    index_dir = os.path.join(output_dir, "temporal_index")
-    # Resolve to absolute path so downstream steps can find the
-    # per-clip JSON files regardless of their own CWD.
-    index_dir = os.path.abspath(index_dir)
-    os.makedirs(index_dir, exist_ok=True)
+    # Absolute, and resolved from the PROJECT rather than the runner's
+    # CWD, so downstream steps find the per-clip JSON files whatever
+    # directory they run from.  The layout owner guarantees both.
+    index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX))
 
     results = []
     full_indices = []
@@ -1912,7 +1913,7 @@ def build_temporal_index(
                       file=sys.stderr)
             else:
                 index = index_clip(
-                    filepath, clip_id, output_dir, whisper_model_size
+                    filepath, clip_id, layout, whisper_model_size
                 )
                 # Write per-clip JSON
                 with open(index_path, "w", encoding="utf-8") as f:
@@ -2113,14 +2114,17 @@ def main():
     # never written to - and required a hit on ALL clips before it would
     # use any of them.  It could not fire, and it read as coverage for the
     # reuse that is now in build_temporal_index, per clip.
+    # `--output-dir` names an output directory, so the project that owns
+    # it is its parent.  With `project_folder` supplied - which is every
+    # DAG run - that is what the layout is built from, and the flag is a
+    # debugging convenience only.
     project_folder = input_data.get("project_folder", "")
-    output_dir = args.output_dir
-    if project_folder:
-        output_dir = os.path.join(project_folder, "pipeline_output")
+    layout = ProjectLayout(
+        project_folder or str(Path(args.output_dir).resolve().parent))
 
     # ── Index, reusing whatever is already on disk ──
     result = build_temporal_index(
-        raw_files, output_dir, args.whisper_model
+        raw_files, layout, args.whisper_model
     )
     result["source"] = "cache" if result["total_reused"] == len(raw_files) else "fresh"
 

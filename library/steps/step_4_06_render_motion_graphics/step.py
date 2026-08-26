@@ -70,9 +70,7 @@ from generate_motion_props import generate_motion_props, props_draw_ink
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
-from library.tools.timed_text_render import (  # noqa: E402
-    TIMED_TEXT_RENDER_DIRNAME,
-)
+from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 
 def _timed_text_output(segments: list, fps: int) -> dict:
@@ -156,11 +154,11 @@ def main():
     except ImportError:
         pass
 
-    # Output directory
-    output_dir = os.path.join(project_folder, "pipeline_output") if project_folder else os.path.join(PILOT_ROOT, "pipeline_output")
-    os.makedirs(output_dir, exist_ok=True)
-    mg_output_dir = os.path.join(output_dir, "motion_graphics_segments")
-    os.makedirs(mg_output_dir, exist_ok=True)
+    # Output directory. No repo fallback: see step 4.05 and
+    # library/tools/project_layout.py.
+    layout = ProjectLayout(project_folder)
+    output_dir = str(layout.write_dir(Area.OUTPUT_ROOT))
+    mg_output_dir = str(layout.write_dir(Area.MOTION_GRAPHICS_SEGMENTS))
 
     # Generate per-block props
     fps = data.get("project_fps", 30)
@@ -209,7 +207,7 @@ def main():
         timed_text_segments = render_timed_text_segments(
             resolve_declaration(data.get("brand_effect", {}), project_folder),
             REMOTION_DIR,
-            os.path.join(output_dir, TIMED_TEXT_RENDER_DIRNAME),
+            str(layout.write_dir(Area.TIMED_TEXT_SEGMENTS)),
             fps=fps, width=width, height=height,
             spine_structure=structure, project_folder=project_folder,
         )

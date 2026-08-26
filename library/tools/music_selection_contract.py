@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Where a locally-held track may come from.  "external" is the fourth
 # source and is deliberately NOT here: it has no directory to scan.
@@ -89,19 +89,40 @@ def max_track_duration_seconds(target_duration: float) -> float:
     )
 
 
-def catalogue_sources(project_folder: Optional[str]) -> Dict[str, str]:
-    """``{source_name: directory}`` for every local place tracks live.
+def catalogue_sources(project_folder: Optional[str]) -> Dict[str, Tuple[str, ...]]:
+    """``{source_name: directories}`` for every local place tracks live.
 
     ``library`` is ``PIPELINE_MUSIC_LIBRARY``, the shared asset library
-    the selection never used to open.  ``project`` is the project's own
-    ``music/`` directory, which is where downloads land.
+    the selection never used to open.  ``project`` is everything this
+    project holds: the captain's own ``music/`` directory, plus the
+    downloads area a fetched track lands in.
+
+    Those are two directories under one label deliberately.  ``music/``
+    is INPUT - the captain put those files there and the pipeline may not
+    write to it - while a track step 2.04 downloaded is pipeline output
+    and belongs in the output tree (``library/tools/project_layout.py``).
+    Both are equally "held by this project" as far as a choice is
+    concerned, and the source labels in :data:`CATALOGUE_SOURCES` are
+    part of the contract with the model, so the split is invisible there.
     """
     from library.tools.paths import music_library_path
+    from library.tools.project_layout import Area, ProjectLayout
 
-    sources = {"library": music_library_path()}
+    sources: Dict[str, Tuple[str, ...]] = {"library": (music_library_path(),)}
     if project_folder:
-        sources["project"] = os.path.join(project_folder, "music")
+        layout = ProjectLayout(project_folder)
+        sources["project"] = (
+            str(layout.read_dir(Area.MUSIC)),
+            str(layout.read_dir(Area.ACQUIRED_MEDIA)),
+        )
     return sources
+
+
+def acquired_media_dir(project_folder: str) -> str:
+    """Where a track the pipeline FETCHED lands.  Created on demand."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return str(ProjectLayout(project_folder).write_dir(Area.ACQUIRED_MEDIA))
 
 
 def _tokens(text: str) -> set:

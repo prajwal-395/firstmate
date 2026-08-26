@@ -7,6 +7,7 @@ import json, sys, subprocess, os, glob
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
+from library.tools.project_layout import Area, ProjectLayout
 
 # Per-clip ceiling for the vision analyser. It was 600s, which is under
 # what a long clip needs: measured on this machine, a 3.6s clip costs 86s
@@ -66,16 +67,18 @@ def main():
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
     
-    # Derive raw_dir from DAG-provided data
     raw_footage_files = data.get('raw_footage_files', [])
-    if 'raw_dir' in data:
-        raw_dir = data['raw_dir']
-    else:
-        raw_dir = os.path.join(data.get('project_folder', '.'), 'raw')
-    
-    # Analysis outputs go alongside the raw dir (raw/analysis/)
-    analysis_dir = os.path.join(raw_dir, 'analysis')
-    os.makedirs(analysis_dir, exist_ok=True)
+
+    # Profiles are pipeline OUTPUT and land in the output tree.
+    #
+    # They used to be written to raw/analysis/, inside the captain's own
+    # footage directory - so a step's product sat among the source
+    # material it was derived from, and `raw/` was not read-only in
+    # practice. The layout owner has no writable area under raw/, which
+    # is what makes that unrepeatable rather than merely fixed.
+    # See library/tools/project_layout.py.
+    layout = ProjectLayout(data.get('project_folder') or os.getcwd())
+    analysis_dir = str(layout.write_dir(Area.VISION_ANALYSIS))
     
     # Path to the vision pipeline tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

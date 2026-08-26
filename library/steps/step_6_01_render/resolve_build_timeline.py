@@ -56,6 +56,8 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
     if _p not in sys.path:
         sys.path.append(_p)
 
+from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
 _TOOLING_IMPORT_ERRORS = {}
@@ -312,9 +314,15 @@ def _ensure_transparent_carrier(
     Returns the MediaPoolItem for the imported carrier, or raises
     RuntimeError if creation or import fails.
     """
-    # The carrier lives next to the project's pipeline assets so it
-    # persists across runs and is never mistaken for user footage.
-    carrier_dir = os.path.join(project_folder, "pipeline_assets") if project_folder else os.path.join(os.path.dirname(__file__), "_carriers")
+    # The carrier persists across runs and is never mistaken for user
+    # footage, because it lives in the project's output tree with
+    # everything else the pipeline generated.  Without a project there is
+    # nowhere to put it that belongs to anything, so it falls back to the
+    # step directory as before.  See library/tools/project_layout.py.
+    carrier_dir = (
+        str(ProjectLayout(project_folder).write_dir(Area.CARRIERS))
+        if project_folder
+        else os.path.join(os.path.dirname(__file__), "_carriers"))
     os.makedirs(carrier_dir, exist_ok=True)
     carrier_path = os.path.join(
         carrier_dir,

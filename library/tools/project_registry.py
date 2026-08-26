@@ -44,21 +44,26 @@ from library.schemas.project_config import (
     project_config_to_dict,
 )
 from library.tools.paths import PROJECTS_ROOT, LIBRARY_ROOT
+from library.tools.project_layout import ProjectLayout
 
 
 # ─── Standard project directory structure ─────────────────────
 
-PROJECT_DIRS = [
+# The scaffold is NOT a list here.  It was, and it drifted: it promised
+# `pipeline_output/subtitles` and `pipeline_output/motion_graphics` while
+# the steps that render those wrote `subtitle_segments` and
+# `motion_graphics_segments`, so `create_project` made two empty
+# directories nothing ever opened and never made the two that filled up.
+# `ProjectLayout.ensure()` builds the layout from the same table the
+# steps read, which is the only way the two cannot disagree.
+# See library/tools/project_layout.py.
+#
+# Input directories a new project starts with. These are the captain's to
+# fill, so they are created empty and the pipeline never writes to them.
+PROJECT_INPUT_DIRS = [
     "raw",
-    "pipeline_output",
-    "pipeline_output/fusion_comps",
-    "pipeline_output/music",
-    "pipeline_output/prosody",
-    "pipeline_output/subtitles",
-    "pipeline_output/motion_graphics",
     "brand_assets",
     "compositions",
-    "exports",
 ]
 
 
@@ -234,10 +239,14 @@ def create_project(
                 f"Use get_project('{slug}') to load it."
             )
 
-    # Create directory structure
+    # Create directory structure. The output side comes from the layout
+    # owner, which also writes README-LAYOUT.md so the folder explains
+    # itself; the input side is these three, empty and read-only to the
+    # pipeline.
     project_dir.mkdir(parents=True, exist_ok=True)
-    for subdir in PROJECT_DIRS:
+    for subdir in PROJECT_INPUT_DIRS:
         (project_dir / subdir).mkdir(parents=True, exist_ok=True)
+    ProjectLayout(project_dir).ensure()
 
     # Build config
     config = ProjectConfig(

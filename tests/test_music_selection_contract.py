@@ -129,8 +129,15 @@ def test_catalogue_sources_includes_the_music_library(monkeypatch, tmp_path):
     importlib.reload(paths)
     try:
         sources = catalogue_sources(str(tmp_path / "proj"))
-        assert sources["library"] == str(library)
-        assert sources["project"] == str(tmp_path / "proj" / "music")
+        assert sources["library"] == (str(library),)
+        # One label, two directories: the captain's read-only music/ and
+        # the downloads area a fetched track lands in. See
+        # library/tools/project_layout.py for why those are separate
+        # places, and catalogue_sources for why they share a label.
+        assert sources["project"] == (
+            str(tmp_path / "proj" / "music"),
+            str(tmp_path / "proj" / "pipeline_output" / "acquired_media"),
+        )
     finally:
         monkeypatch.delenv("PIPELINE_MUSIC_LIBRARY", raising=False)
         importlib.reload(paths)

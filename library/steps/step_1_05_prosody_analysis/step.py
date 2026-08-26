@@ -20,6 +20,10 @@ import os
 import subprocess
 import sys
 import glob
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.project_layout import Area, ProjectLayout
 
 
 def profile_defect(profile: dict) -> str:
@@ -125,9 +129,9 @@ def main():
         }, sys.stdout, indent=2)
         return
 
-    # Output directory
-    output_dir = os.path.join(project_folder, "pipeline_output", "prosody")
-    os.makedirs(output_dir, exist_ok=True)
+    # Output directory. See library/tools/project_layout.py - a step
+    # names an area and gets a path; it does not compose one.
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.PROSODY))
 
     # Path to the prosody tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(

@@ -42,6 +42,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from library.tools.project_layout import Area, ProjectLayout
+
 # The captain's note text and the anchor's text excerpt are both bounded so a
 # runaway selection cannot turn the channel document into a megabyte of DOM.
 MAX_NOTE_CHARS = 4000
@@ -53,7 +55,7 @@ NOTE_STATUSES = ("queued", "sent", "answered")
 
 
 def channel_path(project_dir: str | os.PathLike) -> Path:
-    return Path(project_dir) / "pipeline_output" / "review" / "channel.json"
+    return ProjectLayout(project_dir).read_path(Area.REVIEW, "channel.json")
 
 
 def _now() -> str:

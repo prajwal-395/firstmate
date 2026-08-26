@@ -22,6 +22,10 @@ Output: {
 import json
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.project_layout import ProjectLayout
 
 
 DURATION_TOLERANCE = 0.15  # seconds
@@ -134,6 +138,7 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
     Every source_file must resolve to an existing file on disk.
     """
     missing = []
+    layout = ProjectLayout(project_folder or os.getcwd())
     
     # A-roll: source_file is in video_segments
     for ar in a_roll_assignments:
@@ -141,11 +146,10 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
             sf = seg.get("source_file")
             if not sf:
                 continue
-            # Try absolute, then relative to project
-            if not os.path.isabs(sf):
-                full_path = os.path.join(project_folder, sf)
-            else:
-                full_path = sf
+            # Absolute, or relative to the project - and the project is
+            # what the layout owner anchors it to, so this resolves the
+            # same whatever directory the step was run from.
+            full_path = str(layout.resolve_project_relative(sf))
             if not os.path.exists(full_path):
                 missing.append({
                     "clip_id": seg.get("clip_id", "?"),
@@ -158,10 +162,7 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
         sf = br.get("source_file")
         if not sf:
             continue
-        if not os.path.isabs(sf):
-            full_path = os.path.join(project_folder, sf)
-        else:
-            full_path = sf
+        full_path = str(layout.resolve_project_relative(sf))
         if not os.path.exists(full_path):
             missing.append({
                 "clip_id": br.get("clip_id", "?"),
@@ -174,10 +175,7 @@ def check_source_files(a_roll_assignments: list, b_roll_assignments: list,
         sf = clip.get("source_file")
         if not sf:
             continue
-        if not os.path.isabs(sf):
-            full_path = os.path.join(project_folder, sf)
-        else:
-            full_path = sf
+        full_path = str(layout.resolve_project_relative(sf))
         if not os.path.exists(full_path):
             missing.append({
                 "clip_id": clip.get("clip_id", "?"),

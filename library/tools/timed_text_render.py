@@ -22,14 +22,19 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from library.tools.timed_text_overlay import (
     TIMED_TEXT_COMPOSITION,
     plan_timed_text_segments,
 )
+from library.tools.project_layout import AREAS, Area
 
-# Where the rendered segments go, under the project's pipeline_output.
-TIMED_TEXT_RENDER_DIRNAME = "timed_text_segments"
+# Where the rendered segments go.  The directory is the layout owner's to
+# name (library/tools/project_layout.py); this is the same string, kept
+# for callers that want the leaf name rather than a project path.
+TIMED_TEXT_RENDER_DIRNAME = Path(
+    AREAS[Area.TIMED_TEXT_SEGMENTS].relpath).name
 
 # A timed text segment is a few seconds of type on transparency. If it has
 # not rendered in this long, something is wrong that waiting will not fix.

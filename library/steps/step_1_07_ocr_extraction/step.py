@@ -8,19 +8,18 @@ import os
 import glob
 from pathlib import Path
 from library.tools.analysis.ocr_extractor import OCRExtractor
+from library.tools.project_layout import Area, ProjectLayout
 
 def main():
     data = json.loads(sys.stdin.read())
     
     raw_footage_files = data.get('raw_footage_files', [])
-    if 'raw_dir' in data:
-        raw_dir = data['raw_dir']
-    else:
-        raw_dir = os.path.join(data.get('project_folder', '.'), 'raw')
-        
-    analysis_dir = os.path.join(raw_dir, 'analysis')
-    ocr_dir = os.path.join(analysis_dir, 'ocr')
-    os.makedirs(ocr_dir, exist_ok=True)
+
+    # OCR results are output, so they land in the output tree rather than
+    # in raw/analysis/ocr/ inside the captain's footage directory.
+    # See library/tools/project_layout.py.
+    layout = ProjectLayout(data.get('project_folder') or os.getcwd())
+    ocr_dir = str(layout.write_dir(Area.OCR))
     
     temporal_index = data.get("temporal_index", {})
     temporal_dir = ""
@@ -32,8 +31,7 @@ def main():
             temporal_dir = os.path.dirname(first["index_path"])
             
     if not temporal_dir:
-        # Fallback to hardcoded dir if not provided
-        temporal_dir = os.path.join(analysis_dir, 'temporal_index')
+        temporal_dir = str(layout.read_dir(Area.TEMPORAL_INDEX))
     
     extractor = OCRExtractor()
     

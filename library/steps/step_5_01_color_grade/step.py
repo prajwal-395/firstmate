@@ -22,6 +22,7 @@ import subprocess
 import sys
 
 from library.tools.house_look import NEUTRAL_CDL, resolve_look
+from library.tools.project_layout import ProjectLayout
 
 
 # The designed grade, as five nodes. Only the shape lives here now: the
@@ -205,8 +206,9 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
         seen_clips.add(entry["clip_id"])
 
         source_file = entry.get("source_file", "")
-        if source_file and not os.path.isabs(source_file) and project_folder:
-            source_file = os.path.join(project_folder, source_file)
+        if source_file and project_folder:
+            source_file = str(
+                ProjectLayout(project_folder).resolve_project_relative(source_file))
             
         if reference_image:
             frame_path = _extract_frame(source_file)
@@ -237,8 +239,9 @@ def define_color_grade(shot_list: dict, project_folder: str = "", reference_imag
         seen_clips.add(entry["clip_id"])
 
         source_file = entry.get("source_file", "")
-        if source_file and not os.path.isabs(source_file) and project_folder:
-            source_file = os.path.join(project_folder, source_file)
+        if source_file and project_folder:
+            source_file = str(
+                ProjectLayout(project_folder).resolve_project_relative(source_file))
 
         if reference_image and entry["clip_id"] in cdl_matches:
             # A reference frame REPLACES the house look's CDL half - the

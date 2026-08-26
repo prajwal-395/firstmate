@@ -198,6 +198,46 @@ def cmd_status(args):
     print(f"  Resolve folder:  {info['resolve_folder'] or '(root)'}")
 
 
+def cmd_organize(args):
+    """Bring a project folder onto the layout - or undo one that was.
+
+    Plans by default and changes nothing. Nothing is ever deleted; a file
+    whose purpose cannot be established goes to pipeline_output/unsorted/
+    with a stated reason. See library/tools/project_migration.py.
+    """
+    from library.tools.project_migration import (
+        organize_project,
+        render_manifest_markdown,
+        revert_from_manifest,
+    )
+
+    if args.revert:
+        undone = revert_from_manifest(args.revert, apply=args.apply)
+        verb = "Moved back" if args.apply else "Would move back"
+        for u in undone:
+            print(f"  {verb}: {u['from']} -> {u['to']}")
+        print(f"\n  {verb.lower()} {len(undone)} entr"
+              f"{'y' if len(undone) == 1 else 'ies'}"
+              f"{'' if args.apply else ' (pass --apply to perform it)'}")
+        print("  Copies are not undone: undoing a copy means deleting, and "
+              "this tool does not delete.")
+        return
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    manifest = organize_project(project_folder, apply=args.apply)
+    print(render_manifest_markdown(manifest))
+    if args.apply:
+        print(f"\nManifest: {manifest['manifest_path']}")
+        print(f"Readable: {manifest['manifest_markdown_path']}")
+    else:
+        print("\nNothing was changed. Pass --apply to perform this.")
+
+
 def cmd_run(args):
     """Run the pipeline for a project."""
     try:
@@ -381,6 +421,17 @@ def main():
     p_info = sub.add_parser("info", help="Show project configuration as JSON")
     p_info.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_info.set_defaults(func=cmd_info)
+
+    # organize
+    p_org = sub.add_parser(
+        "organize",
+        help="Bring an existing project folder onto the standard layout")
+    p_org.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
+    p_org.add_argument("--apply", action="store_true",
+                       help="Perform the reorganisation (default: plan only)")
+    p_org.add_argument("--revert", metavar="MANIFEST",
+                       help="Undo a reorganisation by reading its manifest")
+    p_org.set_defaults(func=cmd_organize)
 
     # run
     p_run = sub.add_parser("run", help="Run the pipeline for a project")

@@ -11,12 +11,12 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
+from library.tools.project_layout import Area, ProjectLayout
+
 
 def _thumbnails_dir(project_dir: str) -> Path:
     """Get the thumbnails directory for a project."""
-    p = Path(project_dir) / "pipeline_output" / "thumbnails"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return ProjectLayout(project_dir).write_dir(Area.THUMBNAILS)
 
 
 def extract_thumbnail(
@@ -91,11 +91,13 @@ def extract_thumbnails_for_catalog(
 
         # If filepath is relative, resolve against project dir
         if not os.path.isabs(filepath):
-            filepath = os.path.join(project_dir, filepath)
+            filepath = str(
+                ProjectLayout(project_dir).resolve_project_relative(filepath))
 
         if not os.path.exists(filepath):
             # Try raw/ subdirectory
-            alt_path = os.path.join(project_dir, "raw", os.path.basename(filepath))
+            alt_path = str(ProjectLayout(project_dir).read_path(
+                Area.RAW, os.path.basename(filepath)))
             if os.path.exists(alt_path):
                 filepath = alt_path
             else:

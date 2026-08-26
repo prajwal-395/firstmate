@@ -210,6 +210,44 @@ The mp4 on disk still repeats "to post" at ~10.4s, so the fix is not verified in
 
 ---
 
+## Section 8 - project management
+
+### nothing-owned-the-project-folder
+
+`library/tools/paths.py` has owned the repo side since the beginning and is well made.
+Measured on 2026-08-25: **zero of the twenty-one steps imported it**, and **fifteen of them composed project output paths independently**.
+
+Nothing owned the layout of a project folder, so every step invented its own answer and no two had to agree.
+What that produced, all of it real:
+
+- The scaffold in `project_registry.PROJECT_DIRS` created `pipeline_output/subtitles` and `pipeline_output/motion_graphics`.
+  Step 4.05 writes `subtitle_segments` and step 4.06 writes `motion_graphics_segments`.
+  Two directories nothing ever opened, and two the scaffold never made.
+- Step 1.03 wrote its vision profiles to `raw/analysis/` and step 1.07 wrote OCR to `raw/analysis/ocr/` - inside the captain's own footage directory, which was therefore not read-only in any enforceable sense.
+- Steps 4.05 and 4.06 fell back to `<repo>/pipeline_output/` when handed no `project_folder`.
+  In a disposable worktree that means the render is gone with the worktree.
+  It is the same shape as the `--output-dir ./pipeline_output` default that banked project 001's seventeen-clip WhisperX index inside a treehouse checkout.
+- Step 2.04 downloaded chosen music into `music/`, mixing a pipeline product into the captain's library.
+- `ProjectConfig` carried its own `raw_dir` / `pipeline_output_dir` / `exports_dir` properties, a second definition of the same answer.
+
+`vision_pipeline_v3.load_temporal_index` still reads `raw/analysis/temporal_index/`, a directory step 1.04 has never written to, so that read has never fired.
+Deliberately left as it is: repointing it would change what step 1.03 computes, which was out of scope for the layout work.
+
+### nine-hand-made-backups
+
+Project 001's root carried nine hand-made copies of `pipeline_data.json`, 25 MB in total:
+`.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak2_migrated`, `.bak_phase1_landscape`, `.bak_phase2_baseline`, `.bak_pre_trans_rerun`, `.bak-before-index-move`.
+They span 2026-08-10 to 2026-08-21.
+
+They were not junk - something real was being protected, and the run history says what: before the split ledger existed, moving `pipeline_data.json` aside was the only way to redo creative work.
+What they lacked was a policy. No retention, no naming, no way to tell which one mattered, and they sat beside the file they were backing up.
+
+Ten was chosen because nine spanned twelve days at the captain's real cadence, and because ten copies at ~4 MB is ~40 MB against a 6.8 GB project - bounded, and small enough that the bound never has to be argued about again.
+
+One per run rather than one per save, because `save_pipeline_state` runs after every step: a per-save policy would spend the whole retention window inside a single run and lose exactly the thing these files were keeping.
+
+---
+
 ## Section 9 - environment
 
 ### text-true-decodes-with-the-locale-codec

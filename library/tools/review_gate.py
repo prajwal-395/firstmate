@@ -20,6 +20,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from library.tools.project_layout import Area, ProjectLayout
+
 
 @dataclass
 class GateFeedback:
@@ -49,10 +51,9 @@ def _gates_dir(project_dir: str, *, create: bool = False) -> Path:
                 must pass False (the default) so that listing steps
                 does not litter the project with empty gate dirs.
     """
-    p = Path(project_dir) / "pipeline_output" / "gates"
-    if create:
-        p.mkdir(parents=True, exist_ok=True)
-    return p
+    layout = ProjectLayout(project_dir)
+    return (layout.write_dir(Area.GATES) if create
+            else layout.read_dir(Area.GATES))
 
 
 def _gate_dir(project_dir: str, step_id: str, *, create: bool = False) -> Path:

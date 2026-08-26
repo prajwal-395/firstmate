@@ -28,6 +28,10 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.project_layout import Area, ProjectLayout
 
 
 def main():
@@ -59,9 +63,9 @@ def main():
         }, sys.stdout, indent=2)
         return
 
-    # Output directory for analysis results
-    output_dir = os.path.join(project_folder, "pipeline_output", "music")
-    os.makedirs(output_dir, exist_ok=True)
+    # Output directory for analysis results.
+    # See library/tools/project_layout.py.
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.MUSIC_ANALYSIS))
 
     # Path to the music pipeline tool (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(

@@ -51,6 +51,7 @@ from library.tools.music_selection_contract import (  # noqa: E402
     catalogue_sources,
     max_track_duration_seconds,
 )
+from library.tools.project_layout import ProjectLayout  # noqa: E402
 
 DEFAULT_TARGET_DURATION_SECONDS = 60.0
 
@@ -90,7 +91,10 @@ def _target_duration(inputs: dict) -> float:
         return float(declared)
 
     project_folder = inputs.get("project_folder", "")
-    project_yaml = os.path.join(project_folder or "", "project.yaml")
+    project_yaml = (
+        str(ProjectLayout(project_folder).project_config_path)
+        if project_folder else ""
+    )
     if os.path.exists(project_yaml):
         try:
             import yaml
@@ -115,7 +119,14 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
     searched = []
     candidates = []
 
-    for source, directory in catalogue_sources(project_folder).items():
+    # One source label can cover more than one directory: `project` is
+    # both the captain's read-only music/ and the downloads area a
+    # fetched track lands in. See library/tools/music_selection_contract.py.
+    for source, directory in (
+        (label, d)
+        for label, dirs in catalogue_sources(project_folder).items()
+        for d in dirs
+    ):
         exists = bool(directory) and os.path.isdir(directory)
         found = 0
         if exists:

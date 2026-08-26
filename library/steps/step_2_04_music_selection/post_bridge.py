@@ -38,6 +38,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from library.tools.music_selection_contract import (  # noqa: E402
     validate_selection,
+    acquired_media_dir,
 )
 
 
@@ -58,11 +59,17 @@ def _probe_duration(audio_path: str) -> float:
 
 
 def _fetch_external(selection: dict, project_folder: str) -> dict:
-    """Download an external choice into the project's music folder."""
+    """Download an external choice into the project's downloads area.
+
+    NOT into `music/`.  That directory is the captain's own material and
+    the pipeline does not write to it - a fetched track is something the
+    pipeline produced, so it lives in the output tree with everything
+    else the pipeline produced.  It stays catalogued as a `project`
+    candidate either way; see `catalogue_sources`.
+    """
     from download_track import download_audio
 
-    output_dir = os.path.join(project_folder, "music")
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir = acquired_media_dir(project_folder)
     print(
         f"  Fetching external track: {selection.get('source_url')}",
         file=sys.stderr,

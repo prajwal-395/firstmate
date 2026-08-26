@@ -25,6 +25,8 @@ import re
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from library.tools.project_layout import Area, ProjectLayout
 try:
     from engagement_scorer import compute_engagement
 except ImportError:
@@ -633,11 +635,14 @@ def main():
         # Fallback to pipeline_data.json like bridge.py
         project_dir = data.get("project_folder", "")
         if project_dir:
-            state_file = os.path.join(project_dir, "pipeline_data.json")
+            layout = ProjectLayout(project_dir)
+            state_file = str(layout.pipeline_data_path)
             if os.path.exists(state_file):
-                with open(state_file, "r") as f:
+                with open(state_file, "r", encoding="utf-8") as f:
                     state_data = json.load(f)
                     ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
+            if not ti_dir or not os.path.isdir(ti_dir):
+                ti_dir = str(layout.read_dir(Area.TEMPORAL_INDEX))
                     
     if not ti_dir or not os.path.isdir(ti_dir):
         print(json.dumps({"error": f"Invalid temporal_index.index_dir: {ti_dir}",

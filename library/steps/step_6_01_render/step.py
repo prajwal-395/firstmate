@@ -26,6 +26,10 @@ PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 RENDER_SCRIPT = os.path.join(
     PILOT_ROOT, "library", "tools", "execution", "resolve_render.py")
 
+if PILOT_ROOT not in sys.path:
+    sys.path.insert(0, PILOT_ROOT)
+from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+
 
 def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     """Render the built timeline to a file and return the render report.
@@ -38,7 +42,7 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     if not project_folder:
         raise ValueError("project_folder is required to place the export")
 
-    output_dir = os.path.join(project_folder, "exports")
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS))
     output_name = manifest.get("project", {}).get("name", "Pipeline_Edit")
 
     cmd = [

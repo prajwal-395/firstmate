@@ -209,26 +209,36 @@ def project_root(slug: str) -> Path:
     )
 
 
+# ─── Project-side paths belong to project_layout ─────────────
+#
+# This module owns the REPO and the MACHINE: presets, the Resolve support
+# directories, the shared asset libraries.  Those are the same for every
+# project and are known at import.
+#
+# Where one PROJECT's files go is a different question with a different
+# shape - it is parameterised by a folder, it distinguishes input from
+# output, and it carries a retention policy - so it lives in
+# library/tools/project_layout.py.  These two helpers stay as thin
+# forwarders because they are part of this module's published surface.
+
 def project_output_dir(project_folder: str) -> Path:
     """Standard pipeline output directory for a given project.
 
-    All pipeline intermediates and generated assets live here:
-      <project_folder>/pipeline_output/
+    Forwards to `project_layout.ProjectLayout`, which owns the answer.
     """
-    return Path(project_folder) / "pipeline_output"
+    from library.tools.project_layout import Area, ProjectLayout
+    return ProjectLayout(project_folder).read_dir(Area.OUTPUT_ROOT)
 
 
 def comp_dir(project_folder: str = None) -> Path:
     """Where generated Fusion .comp files live.
 
-    If a project_folder is provided, comps go into the project's output:
-      <project_folder>/pipeline_output/fusion_comps/
-
-    Otherwise falls back to the repo-level location (for tests/dev):
-      library/steps/step_6_01_render/fusion_comps/
+    With a project, the project's own comps area.  Without one, the
+    repo-level location, for tests and dev.
     """
     if project_folder:
-        return project_output_dir(project_folder) / "fusion_comps"
+        from library.tools.project_layout import Area, ProjectLayout
+        return ProjectLayout(project_folder).read_dir(Area.FUSION_COMPS)
     return STEPS_ROOT / "step_6_01_render" / "fusion_comps"
 
 

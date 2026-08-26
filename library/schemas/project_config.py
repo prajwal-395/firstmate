@@ -115,21 +115,32 @@ class ProjectConfig:
             raise ValueError("project_root not set - load via load_project_config()")
         return self._project_root
 
+    # Every one of these delegates to the layout owner
+    # (library/tools/project_layout.py). Two definitions of "where the
+    # exports go" is one too many, and the schema is not the owner.
+    @property
+    def _layout(self):
+        from library.tools.project_layout import ProjectLayout
+        return ProjectLayout(self.project_root)
+
     @property
     def raw_dir(self) -> Path:
-        return self.project_root / "raw"
+        from library.tools.project_layout import Area
+        return self._layout.read_dir(Area.RAW)
 
     @property
     def pipeline_output_dir(self) -> Path:
-        return self.project_root / "pipeline_output"
+        from library.tools.project_layout import Area
+        return self._layout.read_dir(Area.OUTPUT_ROOT)
 
     @property
     def exports_dir(self) -> Path:
-        return self.project_root / "exports"
+        from library.tools.project_layout import Area
+        return self._layout.read_dir(Area.EXPORTS)
 
     @property
     def pipeline_data_path(self) -> Path:
-        return self.project_root / "pipeline_data.json"
+        return self._layout.pipeline_data_path
 
     def validate(self) -> list[str]:
         """Return a list of validation errors (empty = valid)."""

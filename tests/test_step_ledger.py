@@ -19,6 +19,7 @@ import pytest
 
 from library.processes.edit_video import run_pipeline as runner
 from library.tools import footage_identity, step_ledger
+from library.tools.project_layout import ProjectLayout
 
 PILOT_ROOT = Path(__file__).resolve().parents[1]
 STEPS_ROOT = PILOT_ROOT / "library" / "steps"
@@ -235,7 +236,7 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
 
     indexed = []
 
-    def fake_index_clip(video_path, clip_id, output_dir, whisper_model_size):
+    def fake_index_clip(video_path, clip_id, layout, whisper_model_size):
         indexed.append(clip_id)
         return {
             "clip_id": clip_id,
@@ -248,7 +249,7 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
 
     monkeypatch.setattr(module, "index_clip", fake_index_clip)
     result = module.build_temporal_index(
-        files, str(root / "pipeline_output"), "large-v3")
+        files, ProjectLayout(root), "large-v3")
 
     assert indexed == ["clip_002"], (
         "only the clip whose artifact was removed may be re-indexed")

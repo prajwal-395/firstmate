@@ -27,6 +27,7 @@ from library.tools.footage_identity import (
     SUPPORTED_VIDEO_EXTENSIONS,
     enumerate_footage,
 )
+from library.tools.project_layout import ProjectLayout
 
 
 def scan_project_folder(project_folder: str) -> dict:
@@ -71,7 +72,14 @@ def scan_project_folder(project_folder: str) -> dict:
         assert os.path.isfile(entry["path"]), \
             f"Invalid file path: {entry['path']}"
 
-    project_yaml_path = os.path.join(project_folder, "project.yaml")
+    # The first step of every run is where the folder gets its shape.
+    # `ensure` creates the output side of the layout and refreshes
+    # README-LAYOUT.md, so a project the captain opens in six months
+    # explains itself without anyone reading code. Input directories are
+    # deliberately not created. See library/tools/project_layout.py.
+    layout = ProjectLayout(project_folder).ensure()
+
+    project_yaml_path = str(layout.project_config_path)
     project_config = {
         "target_duration_seconds": 60,
         "style_preset": "shortform_vertical",

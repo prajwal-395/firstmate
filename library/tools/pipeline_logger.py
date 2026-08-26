@@ -5,11 +5,13 @@ import sys
 from pathlib import Path
 from functools import wraps
 
+from library.tools.project_layout import Area, ProjectLayout
+
 class PipelineLogger:
     def __init__(self, project_dir: str):
         self.project_dir = Path(project_dir)
-        self.log_file = self.project_dir / "pipeline_output" / "pipeline_log.jsonl"
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.log_file = ProjectLayout(project_dir).write_path(
+            Area.OUTPUT_ROOT, "pipeline_log.jsonl")
         
     def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None):
         entry = {

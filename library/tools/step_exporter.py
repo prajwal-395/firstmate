@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from library.tools.project_layout import Area, ProjectLayout
+
 
 def export_step_output(
     project_dir: str,
@@ -25,18 +27,17 @@ def export_step_output(
 
     Returns dict with paths: {"json": "...", "summary_md": "..."}
     """
-    output_dir = Path(project_dir) / "pipeline_output"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    layout = ProjectLayout(project_dir)
 
     # Write raw JSON output
-    json_path = output_dir / f"{step_id}.json"
-    with open(json_path, "w") as f:
+    json_path = layout.step_output_json(step_id)
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
 
     # Generate human-readable summary
     summary_md = generate_summary(step_id, step_name, output)
-    md_path = output_dir / f"{step_id}.summary.md"
-    with open(md_path, "w") as f:
+    md_path = layout.step_output_summary(step_id)
+    with open(md_path, "w", encoding="utf-8") as f:
         f.write(summary_md)
 
     return {"json": str(json_path), "summary_md": str(md_path)}
@@ -44,7 +45,8 @@ def export_step_output(
 
 def load_step_output(project_dir: str, step_id: str) -> Optional[Dict[str, Any]]:
     """Load a previously exported step output."""
-    json_path = Path(project_dir) / "pipeline_output" / f"{step_id}.json"
+    json_path = ProjectLayout(project_dir).read_path(
+        Area.OUTPUT_ROOT, f"{step_id}.json")
     if not json_path.exists():
         return None
     with open(json_path) as f:
@@ -53,7 +55,8 @@ def load_step_output(project_dir: str, step_id: str) -> Optional[Dict[str, Any]]
 
 def load_step_summary(project_dir: str, step_id: str) -> str:
     """Load a previously generated step summary."""
-    md_path = Path(project_dir) / "pipeline_output" / f"{step_id}.summary.md"
+    md_path = ProjectLayout(project_dir).read_path(
+        Area.OUTPUT_ROOT, f"{step_id}.summary.md")
     if not md_path.exists():
         return ""
     with open(md_path) as f:
@@ -62,7 +65,7 @@ def load_step_summary(project_dir: str, step_id: str) -> str:
 
 def list_exported_steps(project_dir: str) -> list[str]:
     """List all step IDs that have exported outputs."""
-    output_dir = Path(project_dir) / "pipeline_output"
+    output_dir = ProjectLayout(project_dir).read_dir(Area.OUTPUT_ROOT)
     if not output_dir.exists():
         return []
     return sorted(

@@ -175,7 +175,8 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
         # try to derive from mov_path, assuming it's in pipeline_output/subtitle_segments/
         project_folder = os.path.dirname(os.path.dirname(os.path.dirname(mov_path)))
 
-    qa_frames_dir = os.path.join(project_folder, "pipeline_output", "qa_frames")
+    from library.tools.project_layout import Area, ProjectLayout
+    qa_frames_dir = str(ProjectLayout(project_folder).write_dir(Area.QA_FRAMES))
     os.makedirs(qa_frames_dir, exist_ok=True)
 
     try:

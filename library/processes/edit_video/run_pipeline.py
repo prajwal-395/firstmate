@@ -32,6 +32,7 @@ import logging
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
+from library.tools.project_layout import Area, ProjectLayout
 
 logger = logging.getLogger(__name__)
 
@@ -243,9 +244,9 @@ def load_pipeline_state(project_dir: str) -> dict:
     Always sets project_folder from the argument, regardless of
     what's in the existing file.
     """
-    state_path = os.path.join(project_dir, "pipeline_data.json")
+    state_path = str(ProjectLayout(project_dir).pipeline_data_path)
     if os.path.exists(state_path):
-        with open(state_path) as f:
+        with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
     else:
         state = {
@@ -366,11 +367,25 @@ def _clear_step_failure(state: dict, node_id: str) -> None:
     state.get("step_errors", {}).pop(node_id, None)
 
 
+# One backup per RUN, taken before this process first overwrites the
+# state.  Not per save: this function runs after every step, so a
+# per-save policy would spend the whole retention window inside a single
+# run and lose the thing the captain's nine hand-made `.bak*` files were
+# actually protecting - the state as it stood BEFORE the run started.
+# The store, the naming and the bound are in library/tools/project_layout.py.
+_BACKED_UP_THIS_PROCESS: set = set()
+
+
 def save_pipeline_state(project_dir: str, state: dict):
     """Save pipeline state to project."""
-    state_path = os.path.join(project_dir, "pipeline_data.json")
+    layout = ProjectLayout(project_dir)
+    key = str(layout.root)
+    if key not in _BACKED_UP_THIS_PROCESS:
+        _BACKED_UP_THIS_PROCESS.add(key)
+        layout.backup_pipeline_data(label="run")
+    state_path = str(layout.pipeline_data_path)
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    with open(state_path, "w") as f:
+    with open(state_path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
 
 
@@ -1042,7 +1057,8 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         if full_auto == "mock":
             from pathlib import Path
             project_folder = inputs.get("project_folder", "")
-            bak_file = Path(project_folder) / "pipeline_output" / "llm_responses_bak" / f"{node_id}.json"
+            bak_file = ProjectLayout(project_folder).read_path(
+                Area.LLM_RESPONSES_BAK, f"{node_id}.json")
             if bak_file.exists():
                 print(f"  [MOCK] Reading LLM response from {bak_file}", file=sys.stderr)
                 with open(bak_file, "r") as f:
@@ -1057,10 +1073,9 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             if not project_folder:
                 raise LLMError("project_folder required in inputs for agy backend")
                 
-            requests_dir = Path(project_folder) / "pipeline_output" / "llm_requests"
-            responses_dir = Path(project_folder) / "pipeline_output" / "llm_responses"
-            requests_dir.mkdir(parents=True, exist_ok=True)
-            responses_dir.mkdir(parents=True, exist_ok=True)
+            _layout = ProjectLayout(project_folder)
+            requests_dir = _layout.write_dir(Area.LLM_REQUESTS)
+            responses_dir = _layout.write_dir(Area.LLM_RESPONSES)
             
             req_file = requests_dir / f"{node_id}.json"
             res_file = responses_dir / f"{node_id}.json"
@@ -1904,7 +1919,7 @@ def run_pipeline(
         "paused_at_gate": paused_at_gate,
         "held_before_step": held_before_step,
         "run_mode": run_mode,
-        "state_file": os.path.join(project_dir, "pipeline_data.json"),
+        "state_file": str(ProjectLayout(project_dir).pipeline_data_path),
     }
     # The run's own account of how it ended.  `held` is not overwritten:
     # the dashboard distinguishes "the captain stopped it" from "it ran

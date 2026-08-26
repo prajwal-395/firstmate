@@ -8,6 +8,7 @@ repo_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 from library.tools.analysis.object_segmentation import get_segmenter
+from library.tools.project_layout import Area, ProjectLayout
 
 def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str):
     """
@@ -75,9 +76,10 @@ def main():
         }))
         sys.exit(1)
         
-    # Standard output directory for pipeline steps
-    project_folder = input_data.get("project_folder", ".")
-    output_dir = os.path.join(project_folder, "pipeline_output", "segmentation_data")
+    # Where masks land is the layout owner's call, not this step's.
+    # See library/tools/project_layout.py.
+    project_folder = input_data.get("project_folder") or os.getcwd()
+    output_dir = str(ProjectLayout(project_folder).write_dir(Area.SEGMENTATION))
     
     result = run_step(raw_footage_files, clip_catalog, output_dir)
     json.dump(result, sys.stdout, indent=2)
