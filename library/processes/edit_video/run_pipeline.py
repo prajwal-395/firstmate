@@ -1037,7 +1037,22 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 o for o in outputs if o.get("name") not in already_have
             ]
         expected_schema_str = json.dumps(llm_outputs)
-        
+
+        # Nothing to ask.  A step reaches here with an empty schema when
+        # every key it declares has already been produced - by its own
+        # step.py, or by its pre-bridge - so there is no question left for
+        # a model to answer.  `semantic_analysis` is the standing case:
+        # its schema is `[]`, its handoff says in so many words that no
+        # model authors the per-clip analysis, and its answer every run
+        # was the three bytes `{}` for 33,000 tokens of vision documents.
+        # The call is skipped rather than made and discarded.  This is a
+        # property of the schema, not of any step's name: declare
+        # `interface.llm_outputs` and the call happens again.
+        if not llm_outputs:
+            print(f"  [llm] {node_id}: no LLM output declared - "
+                  f"nothing to ask, skipping the call", file=sys.stderr)
+            return {}
+
         llm_manifest = dict(manifest)
         if "interface" in manifest:
             llm_manifest["interface"] = dict(manifest["interface"])
@@ -1086,7 +1101,16 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 
             req_data = {
                 "step_id": node_id,
-                "prompt": prompt,
+                # The brand's constraints are PROMPT TEXT: `full_prompt`
+                # places them between the handoff and the context for
+                # every other backend.  This file carried `prompt` alone,
+                # so the answering agent never saw them - meaning that
+                # even with get_brand_constraints returning a real string,
+                # the mode this pipeline actually runs in would still have
+                # dropped it.  Recorded separately too, so the archive
+                # shows what the brand contributed to a call.
+                "prompt": prompt + constraints,
+                "constraints": constraints,
                 "context": current_context,
                 "expected_schema": expected_schema_str,
                 "project_folder": project_folder,

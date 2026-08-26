@@ -139,6 +139,8 @@
     "music_analysis",
     "rough_cut_review",
     "timed_spine",
+    "-timed_spine.structure.*.word_timestamps",
+    "-timed_spine.structure.*.content.word_timestamps",
     "semantic_analysis",
     "temporal_event_indices.*.clip_id",
     "temporal_event_indices.*.scene_boundaries"

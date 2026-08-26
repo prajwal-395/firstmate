@@ -53,22 +53,55 @@ def _merge(target, source):
     else:
         return copy.deepcopy(source)
 
+def _drop_single_path(target, path_parts) -> None:
+    """Delete one dot-path, `*` included, from an already-projected tree."""
+    if not path_parts:
+        return
+
+    part, rest = path_parts[0], path_parts[1:]
+
+    if part == '*':
+        if isinstance(target, list):
+            for item in target:
+                _drop_single_path(item, rest)
+        return
+
+    if not isinstance(target, dict) or part not in target:
+        return
+    if rest:
+        _drop_single_path(target[part], rest)
+    else:
+        del target[part]
+
+
 def project_fields(data: dict, dot_paths: list[str]) -> dict:
     """Extract only specified dot-notation paths from data.
-    
+
     Example:
         data = {"temporal_index": {"transcripts": [...], "energy_curve": {"values": [0.1, 0.2, ...]}}}
         project_fields(data, ["temporal_index.transcripts"]) 
         -> {"temporal_index": {"transcripts": [...]}}
-    
+
+    A path may be prefixed with `-` to DROP it from what the paths above
+    it selected: `["timed_spine", "-timed_spine.structure.*.word_timestamps"]`
+    is the whole spine without the per-word timings.  Enumerating the
+    other twenty keys instead would have worked once and then quietly
+    stopped delivering the twenty-first, which is the key-name failure
+    AGENTS.md section 10.1 calls the dominant bug class; naming the one
+    field to remove cannot go stale that way.  A `-` path that matches
+    nothing is a no-op, because "not present" is what it asked for.
+
     Raises RuntimeError if a projection produces all-empty dicts from a
     non-empty list, which indicates a schema mismatch in context_fields.
     """
     import sys
 
+    keep_paths = [p for p in dot_paths if not p.startswith('-')]
+    drop_paths = [p[1:] for p in dot_paths if p.startswith('-')]
+
     result = {}
     missed_paths = []
-    for path in dot_paths:
+    for path in keep_paths:
         parts = path.split('.')
         projected = _project_single_path(data, parts)
         if projected is not None:
@@ -77,6 +110,9 @@ def project_fields(data: dict, dot_paths: list[str]) -> dict:
             root = parts[0]
             if root in data and data[root] is not None:
                 missed_paths.append(path)
+
+    for path in drop_paths:
+        _drop_single_path(result, path.split('.'))
 
     if missed_paths:
         print(f"  [context_projector] WARNING: {len(missed_paths)} context_fields "

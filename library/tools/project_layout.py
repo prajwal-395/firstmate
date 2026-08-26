@@ -148,6 +148,31 @@ STEPS: tuple = (
 
 STEP_BY_ID: dict = {s.node_id: s for s in STEPS}
 STEP_ORDER: dict = {s.node_id: i for i, s in enumerate(STEPS)}
+STEP_BY_DIRNAME: dict = {s.dirname: s for s in STEPS}
+
+
+def node_id_for(step_identifier: str) -> str:
+    """The DAG node id for a step named in EITHER vocabulary.
+
+    A step has two names and they are not interchangeable.  The runner,
+    `pipeline_data.json` and the two ledgers know `scan`; the step's own
+    manifest and its directory know `step_1_01_scan_project`.  No rule
+    connects them - `scan` is not a prefix of `scan_project` - so the
+    STEPS table is the only thing that can translate, and any code that
+    holds one vocabulary while its caller holds the other must come
+    through here.  `TemplateLoader.get_brand_constraints` did not, and
+    every brand constraint it ever produced was discarded unread.
+
+    An identifier in neither vocabulary comes back unchanged: many
+    callers pass an id that names no step in this pipeline at all, and
+    inventing an answer for one would be worse than passing it through.
+    """
+    if step_identifier in STEP_BY_ID:
+        return step_identifier
+    dirname = step_identifier[len("step_"):] if step_identifier.startswith(
+        "step_") else step_identifier
+    step = STEP_BY_DIRNAME.get(dirname)
+    return step.node_id if step else step_identifier
 
 # Writers that are not steps.  Named so an area they own does not have to
 # read as unattributed.

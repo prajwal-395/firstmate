@@ -659,6 +659,20 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "mesh_spine",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
+      "from": "semantic_analysis",
+      "to": "mesh_spine",
+      "data_mapping": {
+        "semantic_analysis_documents": "semantic_analysis_documents"
+      }
+    },
+    {
       "from": "temporal_index",
       "to": "mesh_spine",
       "data_mapping": {

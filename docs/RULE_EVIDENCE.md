@@ -460,6 +460,55 @@ A step that ran before that export existed leaves none, and a missing file reads
 
 The same hole in the QA loop demanded post-bridge outputs from the LLM, so every attempt at `mesh_spine` "failed": its LLM writes `structure`, while the post-bridge computes `audio_spine` and `timed_spine`.
 
+### the-brand-reached-no-planning-step
+
+`TemplateLoader.get_brand_constraints` branched on `step_id == "step_2_01_creative_direction"` and two siblings - the steps' manifest ids.
+Its only caller, `present_llm_step`, passes `node_id`, and the DAG's ids are `creative_direction`, `plan_transitions`, `plan_vfx`.
+No branch could match, so the constraints string was `""` for every step, every template and every project from the day it was written.
+`plan_transitions` chose transitions with no knowledge of which ones its brand permits.
+
+Measured both ways against `default_brand`: 382 B / 179 B / 41 B with the directory name, `""` with the node id.
+The whole block costs about 250 tokens across the three steps.
+
+The one existing test called the function with the identifier the FUNCTION wanted, which is why nothing caught it for the life of the code.
+Every assertion in `tests/test_brand_constraints_reach_the_prompt.py` therefore starts from `dag.json` and the templates on disk.
+
+A second half was found while fixing it: the `agy` request file wrote `prompt` alone, while `constraints` was concatenated only into the API path's `full_prompt`.
+In the mode this pipeline actually runs, a working `get_brand_constraints` would still have reached nobody.
+
+### two-steps-had-no-projection
+
+`mesh_spine` and `review_rough_cut` declared no `context_fields`, so each was handed `temporal_index` in full: a 5 Hz per-clip stream of camera-motion decomposition, optical flow, energy curves and face presence, JSON-escaped inside TOON table cells.
+
+Measured on project 001, `o200k_base` over the archived `llm_requests/*.json`:
+
+| step | before | after | share that was `temporal_index` |
+|---|---|---|---|
+| `mesh_spine` | 720,067 tok | 9,857 tok | 98.2% |
+| `review_rough_cut` | 729,809 tok | 9,353 tok | 97.2% |
+
+Neither step's own code reads it: `grep -rn temporal_index` over each step directory finds only the manifest, the preconditions and the handoff's "Reads" table.
+It is still a declared input, and the post-bridge and `step.py` still receive it unprojected - the drop is prompt-side only.
+
+`mesh_spine` also received no vision at all, so it sized `transition_slot` blocks - non-speech picture - before anything had checked that usable non-speech picture existed.
+The footage cards that fix it cost 2,389 tokens, 0.3% of what the call cost before.
+`clip_catalog` is routed with them because the vision documents are keyed by file stem and everything else in that prompt is keyed `clip_XXX`; a card nothing can be joined to is not delivered.
+
+`word_timestamps` came out of the four `timed_spine` projections in the same pass: about 5,400 tokens a step, read by `spine_contract`, `bookends`, `plan_subtitles` and three post-bridges, all of which receive the unprojected inputs.
+
+Fleet total across the eleven LLM calls: 1,725,098 tok to 233,733 tok, -86.5%.
+
+**Do not read a token figure the pipeline reports about itself.** `pipeline_log.jsonl` records `len(s.split()) * 1.3` against the RAW pre-projection inputs; measured errors run 0.3x to 9.9x in both directions. Measure from the archived request files.
+
+### thirty-three-thousand-tokens-for-three-bytes
+
+`semantic_analysis` (1.03) is deterministic, and its own `handoff.md` says so: "No model is asked to author the per-clip analysis document here."
+The file sits beside `step.py`, which is what `get_step_implementation` classifies on, so the runner made an LLM call anyway - with `expected_schema` of `[]`, because `already_have` had removed every declared output.
+The response was the three bytes `{}`, after 33,051 tokens of vision documents, every run.
+
+The skip is a property of the SCHEMA, not of the step's name: `present_llm_step` returns `{}` when the model is asked for no keys at all.
+`render` and `validate` are the same classification accident but not the same call - both ask for something, and what they should ask for is an open captain decision.
+
 ### vision-schema-two-views
 
 `vision_pipeline_v3.py` emits `scene[]`/`camera[]`/`actions[]`/`objects[]`/`assessment{}`.

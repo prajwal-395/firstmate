@@ -37,3 +37,12 @@ def test_template_loader():
         # Test vfx
         vfx_constraints = loader.get_brand_constraints("default_brand", "step_4_03_plan_vfx")
         assert "0.8" in vfx_constraints
+
+        # Every assertion above names a step the way its own manifest does.
+        # The runner names it the way the DAG does, and for the whole life
+        # of this code that spelling matched no branch and returned "".
+        # tests/test_brand_constraints_reach_the_prompt.py is the guard;
+        # this is the reminder that the two spellings are one step.
+        assert loader.get_brand_constraints("default_brand", "plan_vfx") == vfx_constraints
+        assert loader.get_brand_constraints("default_brand", "creative_direction") == cd_constraints
+        assert loader.get_brand_constraints("default_brand", "plan_transitions") == tr_constraints

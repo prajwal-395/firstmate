@@ -110,5 +110,20 @@
     "created": "2026-07-25",
     "last_modified": "2026-07-25",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "a_roll_assignments",
+    "b_roll_assignments",
+    "b_roll_interjections",
+    "creative_direction",
+    "rough_cut_review",
+    "audio_spine",
+    "-audio_spine.structure.*.word_timestamps",
+    "-audio_spine.structure.*.content.word_timestamps",
+    "-audio_spine.music_selection.candidates_evaluated",
+    "-audio_spine.music_selection.direction_justification.why_not_forbidden",
+    "speech_sequence",
+    "-speech_sequence.hook_segment.word_timestamps",
+    "-speech_sequence.body_sequence.*.word_timestamps"
+  ]
 }

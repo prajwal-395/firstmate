@@ -13,6 +13,12 @@
         "description": "Brand template content slots. Only content.bookends is read: it declares the intro / outro / end card this template gets, and a template declaring none gets none."
       },
       {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "Clip identity. The vision documents are keyed by file stem and everything else in this step is keyed clip_XXX, so without the catalog a footage card cannot be tied to the clip a passage came from (AGENTS.md 10.1)."
+      },
+      {
         "name": "music_analysis",
         "type": "object",
         "required": true,
@@ -23,6 +29,12 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": true,
+        "description": "Per-clip vision documents. The spine commits the edit to N seconds of non-speech picture, so it has to know what picture the footage actually holds; without this the transition_slot durations were chosen from the transcript alone."
       },
       {
         "name": "speech_sequence",
@@ -58,7 +70,9 @@
       "'speech_sequence' exists in state",
       "'music_selection' exists in state",
       "'temporal_index' exists in state",
-      "'music_analysis' exists in state"
+      "'music_analysis' exists in state",
+      "'semantic_analysis_documents' exists in state",
+      "'clip_catalog' exists in state"
     ],
     "postconditions": [
       "'audio_spine' is written to state",
@@ -80,6 +94,8 @@
     "idempotent": false
   },
   "dependencies": [
+    "step_1_02_catalog_footage",
+    "step_1_03_semantic_analysis",
     "step_2_02_speech_sequence",
     "step_2_04_music_selection",
     "step_2_06_music_analysis"
@@ -103,5 +119,26 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "speech_sequence",
+    "-speech_sequence.hook_segment.word_timestamps",
+    "-speech_sequence.body_sequence.*.word_timestamps",
+    "music_selection",
+    "-music_selection.candidates_evaluated",
+    "-music_selection.direction_justification.why_not_forbidden",
+    "music_analysis",
+    "-music_analysis.energy_dynamics.energy_curve_1hz",
+    "brand_content",
+    "clip_catalog.*.clip_id",
+    "clip_catalog.*.filename",
+    "clip_catalog.*.duration_seconds",
+    "semantic_analysis_documents.*.clip_id",
+    "semantic_analysis_documents.*.duration_s",
+    "semantic_analysis_documents.*.analysis.scene",
+    "semantic_analysis_documents.*.assessment.content_type",
+    "semantic_analysis_documents.*.assessment.clip_type",
+    "semantic_analysis_documents.*.assessment.keywords",
+    "semantic_analysis_documents.*.assessment.usable_ranges"
+  ]
 }
