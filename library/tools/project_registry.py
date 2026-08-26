@@ -181,11 +181,20 @@ def get_project(slug: str, root: Path = None) -> ProjectConfig:
             if grouped.exists():
                 return load_project_config(grouped)
 
-    available = [c.slug for c in configs]
+    # Say which root was searched and what was in it. PROJECTS_ROOT is
+    # not exclusive by design - resolve_project_path above loads a
+    # project living anywhere on disk - so a slug that is not here is
+    # usually a project kept elsewhere, and the message has to say how
+    # to reach one rather than just that the slug is unknown.
+    available = sorted(c.slug for c in configs)
+    found = "\n".join(f"      {c}" for c in available) if available else "      (none)"
     raise FileNotFoundError(
-        f"Project '{slug}' not found in {root}. "
-        f"Available projects: {available}. "
-        f"A project outside {root} can be addressed by its absolute path."
+        f"No project with slug '{slug}'.\n"
+        f"    Searched: {root}\n"
+        f"    Found there:\n{found}\n"
+        f"    A project kept outside that root is addressed by its path "
+        f"instead of its slug, for example:\n"
+        f"      python3 manage_project.py dashboard /path/to/{slug}"
     )
 
 

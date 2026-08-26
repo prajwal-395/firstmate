@@ -429,6 +429,70 @@ The task asked whether the by-step layout owner could be the enforcement point. 
 The pipeline writes UTF-8 status glyphs.
 A check-mark in a child process's stderr failed a render under an ASCII locale, because `text=True` decodes with the locale codec rather than UTF-8.
 
+### the-dashboard-could-not-be-opened
+
+2026-08-26. The captain tried to open the review dashboard on the day the footage search landed, and could not.
+Three defects, each sufficient on its own. Verbatim:
+
+    ❯ cd ~/Documents/content_stuff/video_editing_pilot
+      source .venv/bin/activate
+      python3 manage_project.py dashboard 001
+    source: no such file or directory: .venv/bin/activate
+    ERROR: Missing ML dependencies: whisperx
+    The pipeline must be run from its virtual environment.
+    Run this to activate it:
+        source .venv/bin/activate
+    ❯ source .venv/bin/activate
+    source: no such file or directory: .venv/bin/activate
+
+**The check ran at import time, for every subcommand.**
+`_preflight_check()` was called at module scope, before argparse had seen the word `dashboard`, and it required `mlx_vlm`, `whisperx`, `easyocr` and `torch`.
+The dashboard needs none of them: measured on this machine with `whisperx` absent, `from library.dashboard.server import start_server` imports and the server serves.
+Every ML import in the repository is inside a pipeline step or under `library/tools/analysis/`, and `run` is the only command that reaches one - it launches `run_pipeline.py` with `sys.executable`, which is what makes checking the parent interpreter a real check of the child rather than a guess about it.
+`torch` inside `footage_query` is imported lazily inside a function, so the dashboard's footage search does not pull it in at start.
+
+**The message named a path that does not exist.**
+It printed a bare `source .venv/bin/activate`.
+The venv is per checkout and gitignored; the captain's checkout has none, so obeying the instruction produced a second and more confusing error than the first.
+The workflow is real - every worktree that runs the pipeline has one, made by hand - so the message now names the activate script by absolute path when the checkout really has one, and gives the `python3 -m venv` / `pip install -r requirements.txt` pair when it does not.
+
+**The slug could not have resolved either, and the reason was masked.**
+`PROJECTS_ROOT` is `~/Documents/content_stuff/video_projects`; project 001 lives at `~/Documents/content_stuff/post a day keeps the apple away/001`.
+`get_project` has accepted a path since #79 and has said so in its error since then, but the import-time check killed the process before argparse ran, so that message was never printed.
+Fixing the first defect is what made the third one visible.
+
+**`PROJECTS_ROOT` is not exclusive, and this is not a layout bug.**
+`resolve_project_path` deliberately loads a project living anywhere on disk, and §8 documents it.
+The captain's main project sitting outside the root is a configuration choice, not a fault; what was missing was discoverability, so the lookup failure now names the root it searched on its own line, lists what it found, and shows the path form of the command that was just typed.
+
+Measured after the fix, with `whisperx` absent from the interpreter:
+
+    ❯ python3 manage_project.py dashboard 001
+      Error: No project with slug '001'.
+        Searched: /Users/prajwal/Documents/content_stuff/video_projects
+        Found there:
+          4th-wall
+          geo-podcast
+          podcast-roughcut
+          test-proof
+        A project kept outside that root is addressed by its path instead of its slug, for example:
+          python3 manage_project.py dashboard /path/to/001
+
+    ❯ python3 manage_project.py dashboard "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001" --port 8461
+
+      Review Dashboard
+      Project: /Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001
+      URL:     http://127.0.0.1:8461
+      Press Ctrl+C to stop
+
+    INFO:     Started server process [79136]
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://127.0.0.1:8461 (Press CTRL+C to quit)
+
+`/api/project` answered `{"slug":"001", ..., "raw_footage_count":17, "steps_completed":25, "total_steps":26}` and `/api/footage/search/status` answered 200 - the footage search this unblocked.
+
+`tests/test_cli_ml_preflight.py` holds all three, and blocks the ML packages in a CHILD interpreter rather than reloading `library.dashboard` in process - the first attempt did reload it, and handed the rest of the session a second copy of the module the other dashboard tests key their global state off, turning 27 unrelated tests red.
+
 ---
 
 ## Section 10 - cross-cutting rules

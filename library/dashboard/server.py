@@ -270,9 +270,41 @@ async def get_projects():
 
     registered = list_projects()
     registered_paths = {str(p.project_root) for p in registered}
-    
+
     projects = []
-    
+
+    # 0. The project this server was STARTED on, first and always.
+    #
+    # PROJECTS_ROOT is not exclusive - manage_project.py dashboard takes
+    # a path, and the captain's own main project lives outside the root.
+    # Everything below enumerates the root, so a project served from
+    # outside it was absent from its own picker: the dropdown showed
+    # some other project as selected while the page rendered this one,
+    # and navigating away left no way back.
+    served = _project_dir
+    if served and str(served) not in registered_paths:
+        served_path = Path(served)
+        try:
+            served_config = _load_project_config(served)
+        except Exception:
+            served_config = None
+        state = _load_pipeline_state(served)
+        completed = step_ledger.all_completed(state)
+        projects.append(ProjectInfo(
+            slug=_project_slug or served_path.name,
+            name=(served_config or {}).get("name") or served_path.name,
+            client=(served_config or {}).get("client", ""),
+            status=(served_config or {}).get("status", "unregistered"),
+            resolution=((served_config or {}).get("source") or {}).get(
+                "resolution", "1080x1920"),
+            fps=((served_config or {}).get("source") or {}).get("fps", 30),
+            raw_footage_count=0,
+            steps_completed=len(completed),
+            total_steps=0,
+            project_root=str(served_path),
+        ))
+        registered_paths.add(str(served))
+
     # 1. Add registered
     for config in registered:
         state = _load_pipeline_state(str(config.project_root))

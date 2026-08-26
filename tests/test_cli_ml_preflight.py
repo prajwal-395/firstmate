@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""The ML preflight belongs to the commands that need it.
+
+The captain could not open the review dashboard on 2026-08-26 because
+`manage_project.py` checked for `mlx_vlm`, `whisperx`, `easyocr` and
+`torch` at IMPORT time, before argparse had seen the command.  The
+dashboard needs none of them, and the error then told the captain to
+run `source .venv/bin/activate` in a checkout that has no `.venv`.
+
+These tests hold the three halves of the fix:
+
+  1. Every command except the ones in ML_DEPENDENT_COMMANDS is served
+     with the whole ML stack unimportable, and the dashboard server is
+     constructible and serves in that state.
+  2. The advice names a path that is really on disk.
+  3. A project kept outside PROJECTS_ROOT is openable by path, and a
+     slug that is not there says which root was searched and what was
+     in it.
+"""
+
+import builtins
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
+def _load_cli():
+    """Import manage_project.py under its own name.
+
+    The point of the fix is that this import performs no dependency
+    check, so importing it here is itself part of the assertion.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "manage_project_under_test", REPO_ROOT / "manage_project.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+cli = _load_cli()
+
+
+# ── The ML stack, made unimportable ─────────────────────────────
+
+ML_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch", "torchaudio")
+
+
+@pytest.fixture
+def ml_stack_absent(monkeypatch):
+    """Make every ML package raise ImportError, present or not.
+
+    This machine really does have torch, easyocr and mlx_vlm installed,
+    so removing whisperx alone would not exercise the case the fix is
+    about.  Blocking all of them proves the CLI reaches none of them.
+    """
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        root = name.split(".")[0]
+        if root in ML_PACKAGES:
+            raise ImportError(f"blocked by test: {root}")
+        return real_import(name, *args, **kwargs)
+
+    for pkg in ML_PACKAGES:
+        for mod in [m for m in list(sys.modules) if m.split(".")[0] == pkg]:
+            monkeypatch.delitem(sys.modules, mod, raising=False)
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    return blocked
+
+
+# ── 1. Only the ML-dependent commands are checked ───────────────
+
+def test_run_is_the_whole_ml_dependent_list():
+    """`run` launches the steps; nothing else in this CLI reaches them."""
+    assert cli.ML_DEPENDENT_COMMANDS == ("run",)
+
+
+def test_all_commands_matches_the_parser():
+    """A subcommand added without listing it fails loudly, not quietly.
+
+    main() asserts this too; asserting it here means the drift is caught
+    without invoking a command.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "manage_project.py"), "--help"],
+        capture_output=True, encoding="utf-8", cwd=str(REPO_ROOT))
+    assert proc.returncode == 0, proc.stderr
+    for command in cli.ALL_COMMANDS:
+        assert command in proc.stdout, f"{command} is not in --help"
+
+
+@pytest.mark.parametrize(
+    "command", [c for c in cli.ALL_COMMANDS if c not in cli.ML_DEPENDENT_COMMANDS])
+def test_non_ml_commands_are_not_checked(command, ml_stack_absent):
+    """preflight_check returns rather than exiting, for every other command."""
+    cli.preflight_check(command)
+
+
+def test_run_still_refuses_when_the_stack_is_absent(ml_stack_absent, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.preflight_check("run")
+    assert exit_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "whisperx" in out
+    # It says which commands still work, so a reader is not stuck.
+    assert "dashboard" in out
+
+
+# ── 2. The advice names something real ──────────────────────────
+
+def test_advice_names_the_activate_script_that_exists(tmp_path):
+    venv_bin = tmp_path / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "activate").write_text("# activate\n", encoding="utf-8")
+
+    lines = cli._venv_advice(tmp_path)
+    named = [tok for line in lines for tok in line.split() if ".venv" in tok]
+    assert named, lines
+    for token in named:
+        assert Path(token).exists(), f"advice names a path that does not exist: {token}"
+
+
+def test_advice_says_so_when_there_is_no_venv(tmp_path):
+    """The old message told the captain to source a file that is not there."""
+    lines = cli._venv_advice(tmp_path)
+    text = "\n".join(lines)
+    assert "no virtual environment" in text
+    assert "python3 -m venv" in text
+    assert "requirements.txt" in text
+    # It must NOT hand over a bare `source .venv/bin/activate`: that is
+    # the instruction that produced the captain's second error.
+    assert "    source .venv/bin/activate" not in text
+
+
+def test_run_advice_is_true_of_this_checkout(ml_stack_absent, capsys):
+    """Whatever this checkout is, the printed advice describes it."""
+    with pytest.raises(SystemExit):
+        cli.preflight_check("run")
+    out = capsys.readouterr().out
+    has_venv = (REPO_ROOT / ".venv" / "bin" / "activate").is_file()
+    if has_venv:
+        assert str(REPO_ROOT / ".venv" / "bin" / "activate") in out
+    else:
+        assert "no virtual environment" in out
+
+
+# ── 3. The dashboard really starts without the ML stack ─────────
+
+# The guard the child interpreters install, as the first thing they run.
+#
+# NOT a sitecustomize.py on PYTHONPATH: that shadows the interpreter's
+# own sitecustomize, and on a Homebrew python that is the module which
+# puts /opt/homebrew/lib/pythonX.Y/site-packages on sys.path - so the
+# blocker silently took fastapi away with it and the test failed for a
+# reason that had nothing to do with the ML stack.
+#
+# A meta path finder rather than a wrapped builtins.__import__, because
+# it covers importlib.import_module too.
+_BLOCKER = textwrap.dedent(f"""
+    import sys
+    _blocked = {ML_PACKAGES!r}
+    class _Block:
+        def find_spec(self, name, path=None, target=None):
+            if name.split(".")[0] in _blocked:
+                raise ImportError("blocked by test: " + name)
+            return None
+    sys.meta_path.insert(0, _Block())
+    for _m in [m for m in list(sys.modules) if m.split(".")[0] in _blocked]:
+        del sys.modules[_m]
+""")
+
+
+def _child(code: str, *argv, cwd=None, env=None):
+    """Run `code` in a fresh interpreter with the ML stack unimportable."""
+    child_env = dict(env or os.environ)
+    child_env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT), child_env.get("PYTHONPATH", "")])
+    return subprocess.run(
+        [sys.executable, "-c", _BLOCKER + textwrap.dedent(code), *argv],
+        capture_output=True, encoding="utf-8", env=child_env,
+        cwd=str(cwd or REPO_ROOT), timeout=180)
+
+
+def test_the_blocker_really_blocks():
+    """Guard the guard: a blocker that stopped working would pass everything."""
+    for package in ML_PACKAGES:
+        proc = _child(f"import {package}")
+        assert proc.returncode != 0, package
+        assert f"blocked by test: {package}" in proc.stderr, proc.stderr
+
+
+def test_the_blocker_leaves_everything_else_importable():
+    """And it must not take the dashboard's own dependencies with it."""
+    proc = _child("import fastapi, uvicorn; print('ok')")
+    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    assert proc.stdout.strip().splitlines()[-1] == "ok"
+
+
+def test_dashboard_server_is_constructible_without_the_ml_stack():
+    """The import the captain's command performs, with nothing installed."""
+    proc = _child(
+        "from library.dashboard.server import start_server\n"
+        "print(callable(start_server))")
+    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    assert proc.stdout.strip().splitlines()[-1] == "True"
+
+
+def _write_project(project_dir: Path, slug: str) -> None:
+    yaml = pytest.importorskip("yaml")
+    (project_dir / "raw").mkdir(parents=True, exist_ok=True)
+    (project_dir / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.yaml").write_text(yaml.safe_dump({
+        "name": slug.upper(),
+        "slug": slug,
+        "status": "in_progress",
+        "source": {"type": "iphone_mov", "resolution": "1080x1920", "fps": 30},
+        "pipeline": {"brand_template": "default_brand"},
+        "resolve": {"project_name": slug, "timeline_name": "Main Edit"},
+    }), encoding="utf-8")
+    (project_dir / "pipeline_data.json").write_text(
+        json.dumps({"preflight_completed": {}, "edit_completed": {},
+                    "step_outputs": {}}), encoding="utf-8")
+
+
+def test_dashboard_serves_a_project_with_the_ml_stack_unimportable(tmp_path):
+    """End to end, in a fresh interpreter, exactly as a person runs it.
+
+    The child blocks the ML packages before anything is imported, so
+    this fails if any part of the dashboard path reaches one of them -
+    which is what an in-process fixture cannot fully prove, because
+    pytest has already imported plenty.
+    """
+    project_dir = tmp_path / "001"
+    _write_project(project_dir, "001")
+
+    env = dict(os.environ)
+    env["PIPELINE_PROJECTS_ROOT"] = str(tmp_path / "empty-root")
+
+    proc = _child("""
+        import sys, threading, time, urllib.request
+        import uvicorn
+        from library.dashboard import server
+        server._project_dir = sys.argv[1]
+        server._project_slug = "001"
+        config = uvicorn.Config(server.app, host="127.0.0.1", port=0,
+                                log_level="error")
+        srv = uvicorn.Server(config)
+        threading.Thread(target=srv.run, daemon=True).start()
+        for _ in range(400):
+            if srv.started and srv.servers:
+                break
+            time.sleep(0.05)
+        assert srv.started, "server never started"
+        port = srv.servers[0].sockets[0].getsockname()[1]
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/project") as r:
+            body = r.read().decode("utf-8")
+        srv.should_exit = True
+        print(body)
+    """, str(project_dir), env=env)
+    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["slug"] == "001"
+
+
+# ── 4. A project outside PROJECTS_ROOT ──────────────────────────
+
+def test_project_outside_the_root_is_openable_by_path(tmp_path):
+    from library.tools.project_registry import get_project
+
+    outside = tmp_path / "somewhere else" / "001"
+    _write_project(outside, "001")
+
+    config = get_project(str(outside))
+    assert config.slug == "001"
+    assert Path(config.project_root) == outside
+
+
+def test_failed_lookup_names_the_root_and_what_it_found(tmp_path):
+    from library.tools.project_registry import get_project
+
+    root = tmp_path / "video_projects"
+    for slug in ("4th-wall", "test-proof"):
+        _write_project(root / slug, slug)
+
+    with pytest.raises(FileNotFoundError) as err:
+        get_project("001", root=root)
+    message = str(err.value)
+    assert str(root) in message, message
+    assert "4th-wall" in message and "test-proof" in message, message
+    # And how to reach one that is kept elsewhere.
+    assert "path" in message, message
+
+
+def test_the_picker_names_the_project_being_served(tmp_path, monkeypatch):
+    """A project served from outside PROJECTS_ROOT is in its own picker.
+
+    /api/projects enumerated PROJECTS_ROOT only, so the dropdown showed
+    some other project as selected while the page rendered this one, and
+    navigating away left no route back to it.
+    """
+    from fastapi.testclient import TestClient
+
+    from library.dashboard import server
+
+    outside = tmp_path / "somewhere else" / "001"
+    _write_project(outside, "001")
+    root = tmp_path / "video_projects"
+    _write_project(root / "4th-wall", "4th-wall")
+
+    monkeypatch.setattr(server, "_project_dir", str(outside))
+    monkeypatch.setattr(server, "_project_slug", "001")
+    monkeypatch.setattr("library.tools.paths.PROJECTS_ROOT", root)
+    monkeypatch.setattr("library.tools.project_registry.PROJECTS_ROOT", root)
+
+    with TestClient(server.app) as client:
+        listed = client.get("/api/projects").json()
+
+    assert listed[0]["project_root"] == str(outside), listed
+    assert listed[0]["slug"] == "001"
+    assert listed[0]["name"] == "001".upper()
+    # And it appears exactly once, not twice.
+    roots = [p["project_root"] for p in listed]
+    assert roots.count(str(outside)) == 1, roots

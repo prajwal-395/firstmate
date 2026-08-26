@@ -115,7 +115,9 @@ The run summary reports `SUCCESS` only when the whole DAG is complete and `faile
 
 ## 4. Dashboard
 
-Launch with `python3 manage_project.py dashboard <slug>`.
+Launch with `python3 manage_project.py dashboard <slug-or-path>`.
+It needs none of the ML stack (§9), and a project kept outside `PIPELINE_PROJECTS_ROOT` is opened by passing its path.
+**The picker lists the project the server is SERVING, first**, even when that project is outside the root - `/api/projects` otherwise enumerated only the root, named a different project as selected, and left no route back to the one on screen.
 It serves a pipeline view, a footage library, a footage SEARCH, a transcript view and a timeline view, and it is the human-in-the-loop review layer.
 
 - Review gates pause execution for inspection. Reviewers approve, reject or revise. A rejected gate halts the pipeline entirely; a revised gate applies the reviewer's modifications directly to the step output in `pipeline_data.json`.
@@ -451,7 +453,12 @@ The captain's footage and renders cannot be re-shot and this machine has no Time
 
 ## 9. Environment and dependencies
 
-- **Run from the dedicated `.venv`**, which holds all ML dependencies: `source .venv/bin/activate` before `manage_project.py`, which enforces this with a preflight check.
+- **`run` needs the dedicated `.venv`; nothing else in the CLI does.**
+  The venv is per checkout and gitignored - `python3 -m venv .venv && pip install -r requirements.txt` makes one.
+  `manage_project.py` checks for `mlx_vlm`/`whisperx`/`easyocr`/`torch` only for the commands in `ML_DEPENDENT_COMMANDS`, which is `run` alone: the ML packages are imported by pipeline STEPS, and `run` launches them with `sys.executable`, so the interpreter running the CLI is the one that must carry them.
+  `dashboard`, `list`, `status`, `info`, `trace`, `organize`, `archive`, `relink` and `new` reach none of them and are served without them. Never move that check back to import time. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
+  The refusal names the activate script if this checkout really has one, and says how to make one if it does not - the old message printed a bare `source .venv/bin/activate` into a checkout with no `.venv`.
+  `tests/test_cli_ml_preflight.py`.
 - Set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to your DaVinci Resolve installation.
 - Set `HF_TOKEN` for HuggingFace models like Audio Flamingo Next.
 - Set `PIPELINE_SFX_LIBRARY`, `PIPELINE_MUSIC_LIBRARY` and `PIPELINE_PROJECTS_ROOT` to absolute paths.

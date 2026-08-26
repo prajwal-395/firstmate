@@ -50,11 +50,16 @@ An end-to-end automated video editing pipeline for shortform (30–60s, vertical
 
 ## Project Management CLI
 
-The pipeline must be run from its dedicated virtual environment, which contains all ML dependencies.
+`run` needs the dedicated virtual environment, which contains all ML dependencies.
+Every other command - including `dashboard` - does not, and is served without it.
+
+The venv is per checkout and is gitignored, so a fresh clone has none:
 
 ```bash
-# Activate the virtual environment
+# Make the virtual environment (once per checkout), for `run`
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 
 # Initialize the projects root directory
 python3 manage_project.py init-root
@@ -76,8 +81,9 @@ python3 manage_project.py info <slug>
 python3 manage_project.py run <slug> \
     [--from STEP] [--step STEP] [--dry-run] [--auto] [--review]
 
-# Start dashboard
-python3 manage_project.py dashboard [<slug>] [--port PORT]
+# Start dashboard - <slug> or a path, for a project kept outside
+# PIPELINE_PROJECTS_ROOT. Needs no ML dependencies.
+python3 manage_project.py dashboard [<slug-or-path>] [--port PORT]
 
 # Relink and archive
 python3 manage_project.py relink [<slug>] [--scan]

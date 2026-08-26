@@ -18,16 +18,59 @@ Usage:
     python3 manage_project.py status "/abs/path/to/a/project"
     python3 manage_project.py run geo-podcast
     python3 manage_project.py run geo-podcast --from creative_direction
+    python3 manage_project.py dashboard geo-podcast
+    python3 manage_project.py dashboard "/abs/path/to/a/project"
     python3 manage_project.py archive geo-podcast
     python3 manage_project.py init-root
+
+Only `run` needs the ML virtual environment; see ML_DEPENDENT_COMMANDS.
 """
 
 import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
-def _preflight_check():
+# Add repo root to path
+REPO_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(REPO_ROOT))
+
+
+# ─── The ML preflight, and the commands it is for ─────────────
+#
+# The heavy ML packages are imported by PIPELINE STEPS
+# (step_1_04_temporal_index, and the analysis tools under
+# library/tools/analysis/), never by this CLI.  Everything else this
+# file does - listing projects, reading a project.yaml, regenerating a
+# traceback, serving the review dashboard - reaches none of them.
+#
+# So the check belongs to the commands that need it, and `run` is the
+# whole list: it launches library/processes/edit_video/run_pipeline.py
+# with sys.executable, so the interpreter running THIS process is the
+# one the steps will import from, and checking it here is a real check
+# of the child rather than a guess about it.
+#
+# It used to run at import time, before argparse had seen the command.
+# `dashboard` needs none of these packages - the server is fully
+# constructible with whisperx absent - and the captain could not open
+# the dashboard because of a missing transcription library.
+ML_DEPENDENT_COMMANDS = ("run",)
+
+# Every subcommand main() registers, so the message above can say which
+# ones still work. main() asserts this against the parser it built, so
+# adding a subcommand without listing it here fails loudly rather than
+# leaving the advice quietly wrong.
+ALL_COMMANDS = (
+    "init-root", "list", "new", "status", "info", "trace", "organize",
+    "run", "dashboard", "archive", "relink",
+)
+
+ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
+
+
+def _missing_ml_packages():
+    """Return the ML packages this interpreter cannot import."""
     try:
         import torchaudio
         if not hasattr(torchaudio, 'set_audio_backend'):
@@ -36,26 +79,63 @@ def _preflight_check():
             torchaudio.get_audio_backend = lambda: "soundfile"
     except ImportError:
         pass
-    required = ["mlx_vlm", "whisperx", "easyocr", "torch"]
     missing = []
-    for pkg in required:
+    for pkg in ML_REQUIRED_PACKAGES:
         try:
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-    if missing:
-        print(f"ERROR: Missing ML dependencies: {', '.join(missing)}")
-        print("The pipeline must be run from its virtual environment.")
-        print("Run this to activate it:")
-        print("    source .venv/bin/activate")
-        sys.exit(1)
+    return missing
 
-_preflight_check()
-from pathlib import Path
 
-# Add repo root to path
-REPO_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(REPO_ROOT))
+def _venv_advice(repo_root: Path) -> list[str]:
+    """Say what to actually do, naming only paths that exist.
+
+    The old message printed `source .venv/bin/activate` unconditionally.
+    There is no .venv in a fresh checkout, so following the instruction
+    produced a second and more confusing error than the first.  An
+    activate script that is really on disk is named by its absolute
+    path; when there is none, this says so and gives the two commands
+    that make one.
+    """
+    activate = repo_root / ".venv" / "bin" / "activate"
+    if activate.is_file():
+        return [
+            "This checkout has a virtual environment. Activate it and try again:",
+            f"    source {activate}",
+        ]
+    return [
+        f"This checkout has no virtual environment: {repo_root / '.venv'} does not exist.",
+        "Create one and install the pipeline's dependencies:",
+        f"    python3 -m venv {repo_root / '.venv'}",
+        f"    source {repo_root / '.venv' / 'bin' / 'activate'}",
+        f"    pip install -r {repo_root / 'requirements.txt'}",
+    ]
+
+
+def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
+    """Exit with an explanation when `command` cannot reach its ML stack.
+
+    A command outside ML_DEPENDENT_COMMANDS is not checked at all.
+    """
+    if command not in ML_DEPENDENT_COMMANDS:
+        return
+    missing = _missing_ml_packages()
+    if not missing:
+        return
+    print(f"ERROR: '{command}' needs ML dependencies this interpreter "
+          f"cannot import: {', '.join(missing)}")
+    print(f"  Interpreter: {sys.executable}")
+    print("")
+    for line in _venv_advice(repo_root):
+        print(line)
+    print("")
+    others = ", ".join(c for c in ALL_COMMANDS if c not in ML_DEPENDENT_COMMANDS)
+    print(f"Only {', '.join(ML_DEPENDENT_COMMANDS)} needs them. These still "
+          f"work from this interpreter:")
+    print(f"    {others}")
+    sys.exit(1)
+
 
 from library.tools.paths import PROJECTS_ROOT, PILOT_ROOT
 from library.tools.project_registry import (
@@ -505,10 +585,20 @@ def main():
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
 
+    registered = tuple(sub.choices)
+    if registered != ALL_COMMANDS:
+        raise AssertionError(
+            f"ALL_COMMANDS is out of step with the parser: "
+            f"registered={registered} listed={ALL_COMMANDS}")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # After argparse, so the check is asked only of the command that
+    # needs it. See ML_DEPENDENT_COMMANDS.
+    preflight_check(args.command)
 
     args.func(args)
 
