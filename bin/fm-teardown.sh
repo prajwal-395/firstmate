@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # Tear down a finished task: return the treehouse worktree, release the Orca
 # worktree, or retire a secondmate home; kill the recorded runtime endpoint,
-# clear volatile state, refresh/prune the project's clone for PR-based ship
-# tasks, then print a backlog-refresh reminder for ship and scout teardowns
-# (a secondmate teardown prints none, since secondmates are not backlog items).
+# close the task's GitHub tracker ticket, clear volatile state, refresh/prune the
+# project's clone for PR-based ship tasks, then print a backlog-refresh reminder
+# for ship and scout teardowns (a secondmate teardown prints none, since
+# secondmates are not backlog items).
+# The ticket close is the mirror of the dispatch that filed it (bin/fm-spawn.sh),
+# runs after every refusal below has passed so a live task's ticket is never
+# closed, and reads its outcome from the task's own record: a PR, a scout report,
+# or a local-only landing closes it as completed, while a ship task with none of
+# those closes it as NOT PLANNED rather than leaving an open ticket that reports
+# READY forever with nobody working it. bin/fm-tracker.sh's `complete` never
+# fails and the call is time-bounded, so an unreachable GitHub costs a stale
+# ticket and never a stranded worktree.
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
 # hard-resets/removes the worktree and kills its processes. Also REFUSES when
 # another LIVE task's metadata still claims the same worktree: returning the
@@ -182,6 +191,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-tracker-lib.sh
+. "$SCRIPT_DIR/fm-tracker-lib.sh"
 # shellcheck source=bin/fm-public-followup-lib.sh
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
@@ -2671,6 +2682,45 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
+# Close this task's GitHub task ticket, HERE because this is the one path every
+# cleanup takes - the mirror of the dispatch that filed it. It runs after every
+# refusal above has passed, so a ticket is never closed for work that is still
+# live, and before the task's durable records are removed, so the outcome is read
+# from the record rather than guessed.
+#
+# WHAT AN UNSHIPPED CLEANUP DOES. A ship task cleaned up with no PR and no local
+# landing is closed as NOT PLANNED rather than left open. An open ticket with no
+# worker behind it reports READY on the frontier forever and reads as queued work
+# that nobody is doing - the confident wrong answer this layer exists to prevent -
+# while a not-planned close keeps the record, renders differently from a completed
+# one, and carries the reason. If the work is dispatched again, the next sync
+# reopens that same ticket rather than filing a second one.
+#
+# Non-fatal and bounded for the same reason the dispatch side is: a cleanup that
+# could not finish because GitHub is unreachable would strand a worktree over a
+# ticket. bin/fm-tracker.sh's `complete` always exits 0; the bound covers a
+# connection that hangs instead of failing.
+if [ "$KIND" != secondmate ]; then
+  TRACKER_OUTCOME=not-shipped
+  TRACKER_DETAIL=
+  if [ "$KIND" = scout ]; then
+    TRACKER_OUTCOME=shipped
+    TRACKER_DETAIL="Investigation reported in data/$ID/report.md."
+  elif [ -n "$PR_URL" ]; then
+    TRACKER_OUTCOME=shipped
+  elif [ "$MODE" = local-only ]; then
+    TRACKER_OUTCOME=shipped
+    TRACKER_DETAIL='Landed on the local default branch; this project has no remote.'
+  else
+    TRACKER_DETAIL='No PR was recorded for this work, so it is closed as unfinished rather than as delivered.'
+  fi
+  if ! fm_tracker_run_bounded "$FM_TRACKER_DISPATCH_TIMEOUT" \
+    "$FM_ROOT/bin/fm-tracker.sh" complete --project "$(basename "$PROJ")" --task "$ID" \
+    --outcome "$TRACKER_OUTCOME" ${PR_URL:+--pr "$PR_URL"} ${TRACKER_DETAIL:+--detail "$TRACKER_DETAIL"} \
+    >/dev/null; then
+    echo "TRACKER: could not close the task ticket for $ID within ${FM_TRACKER_DISPATCH_TIMEOUT}s; cleanup stands and the ticket is still open" >&2
+  fi
+fi
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.stopped" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \

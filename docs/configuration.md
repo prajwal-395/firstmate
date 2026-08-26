@@ -146,6 +146,24 @@ It is deliberately configured rather than derived: `gh api /user` returns the lo
 When it is absent no login is the captain's and every assignment reads as a claim, which is the behavior before the distinction existed; `frontier` says so in a closing note rather than looking like a working classifier.
 It is inherited into secondmate homes, because the captain is one person across the whole fleet and a secondmate reading the same repository must classify a ticket the same way.
 
+## Tracker repositories (config/tracker-repos)
+
+`config/tracker-repos` maps a project to the GitHub repository whose Issues carry its firstmate project state, and it is what makes the task half of that tracker mechanical rather than a convention.
+With a mapping in place, `bin/fm-spawn.sh` files a task's ticket on every dispatch and `bin/fm-teardown.sh` closes it on every cleanup, so a ticket is never something firstmate has to remember.
+The file is local and gitignored, and is inherited into secondmate homes so a secondmate working the same project files into the same repository.
+
+One line per tracker, `<name>[,<alias>...] <owner/repo>`, with `#` starting a comment.
+The name list is the project's alias set and is matched against both the project directory a dispatch names and the `(repo: <name>)` annotation on a task-list row, because `data/projects.md` already registers a project under more than one spelling.
+Matching a single spelling would leave half a project's work off the frontier while reporting the other half as the whole.
+
+Having no mapping is the ordinary state of a project and never blocks anything: an unconfigured project, an absent `gh`, an unreachable GitHub and a hung connection all report the ticket that was not filed and let the work proceed.
+Most projects have no tracker, so a missing entry means firstmate's own task list is that project's only record - which it is anyway, since the tracker mirrors that list rather than replacing it.
+
+The repository must already have been initialised with `bin/fm-tracker.sh init`, because a task ticket hangs off that destination.
+Without a single open destination no task ticket is filed at all, rather than an orphan `bin/fm-tracker.sh validate` would then report.
+
+Run `bin/fm-tracker.sh sync --project <name>` to reconcile a project's whole open queue by hand; it is the same path a dispatch takes and is safe to re-run.
+
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
 Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.

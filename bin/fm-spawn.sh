@@ -28,6 +28,14 @@
 #   scope fields empty, on the same read-the-brief pattern; bin/fm-brief-lib.sh owns
 #   those field names and the emptiness test, only emptiness refuses, and a brief
 #   scaffolded before the fields existed warns once and launches.
+#   A ship or scout spawn also files that task's GitHub tracker ticket, because
+#   this is the one path a dispatch cannot route around and a ticket firstmate has
+#   to REMEMBER to file is one that does not get filed. bin/fm-tracker.sh's `sync`
+#   owns which repository, which rows, and every degraded path; it never fails, and
+#   the call is time-bounded here, so an unconfigured project, an absent gh, an
+#   unreachable GitHub and a hung connection all cost a ticket and never a
+#   dispatch. A secondmate spawn files nothing: it is a persistent direct report
+#   rather than a work item. bin/fm-teardown.sh closes the ticket at cleanup.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
@@ -301,6 +309,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-agy-ladder-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-tracker-lib.sh
+. "$SCRIPT_DIR/fm-tracker-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
@@ -3419,6 +3429,30 @@ if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
     else
       echo "CONFIG_REREAD: secondmate $ID: cleanup failed; pre-relaunch generations were force-cleared where possible (destination=$PROJ_ABS source=$FM_HOME)" >&2
     fi
+  fi
+fi
+
+# The task half of the GitHub tracker, filed HERE because this is the one path
+# every crewmate and scout launch takes: an ordinary dispatch cannot route around
+# it, which is the whole difference between a mechanism and a discipline. Intake
+# is where the task is really decided, but intake is firstmate's judgement rather
+# than a code path, and the defect being fixed is precisely that firstmate did
+# not remember. A secondmate is a persistent direct report rather than a work
+# item and never appears in a backlog, so it files nothing.
+#
+# Everything about this step is non-fatal and bounded. The agent is already
+# launched and the task's durable records are already published by the time it
+# runs, so a tracker failure costs a missing ticket that the next sync refiles -
+# never a dispatch. bin/fm-tracker.sh's `sync` owns the degraded paths and always
+# exits 0; the bound here is against the one failure a non-zero exit cannot cover,
+# a connection that hangs instead of failing.
+if [ "$KIND" != secondmate ]; then
+  if fm_tracker_run_bounded "$FM_TRACKER_DISPATCH_TIMEOUT" \
+    "$FM_ROOT/bin/fm-tracker.sh" sync --project "$(basename "$PROJ_ABS")" --task "$ID" \
+    >/dev/null; then
+    :
+  else
+    echo "TRACKER: could not file a task ticket for $ID within ${FM_TRACKER_DISPATCH_TIMEOUT}s; the dispatch stands and the next sync will refile it" >&2
   fi
 fi
 

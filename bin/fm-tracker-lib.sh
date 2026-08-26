@@ -765,8 +765,13 @@ fm_tracker_render_frontier() {  # <owner/repo> [captain-login]
         "${assignees// /, }")
 "
     elif [ -n "$assignees" ]; then
-      claimed="$claimed$(printf '  #%-5s [%-11s] %s\n            claimed by %s\n' \
-        "$number" "$type" "$title" "${assignees// /, }")"
+      # The trailing newline is restored outside the substitution, which strips
+      # it: without this every claimed ticket ran onto the end of the previous
+      # one, and the section that reports what the fleet is working on is
+      # unreadable exactly when the fleet is working on more than one thing.
+      claimed="$claimed$(printf '  #%-5s [%-11s] %s\n            claimed by %s' \
+        "$number" "$type" "$title" "${assignees// /, }")
+"
       continue
     fi
     if [ -n "$blockers" ]; then
@@ -941,4 +946,409 @@ EOF
   else
     printf 'nothing was blocked on #%s\n' "$closed"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# The task half: which repository a project's tickets live in
+# ---------------------------------------------------------------------------
+#
+# A tracker repository is a per-project choice, not a fleet-wide one: most
+# projects have no tracker at all, and the ones that do are not all on the same
+# forge account. The mapping is local operating configuration for the same
+# reason config/captain-github is - it names the captain's own repositories -
+# so it lives in config/tracker-repos and is inherited by secondmate homes.
+#
+# One line per tracker, "<name>[,<alias>...] <owner/repo>". The name list is the
+# project's alias set, and it is the SAME set the backlog's "(repo: <name>)"
+# annotation is matched against: data/projects.md already registers a project
+# under more than one spelling (video-editing-pilot and video_editing_pilot are
+# one project), and a backlog row may use either. Matching one spelling only
+# would leave half a project's work off the frontier while reporting the other
+# half as the whole - the confident wrong answer this layer exists to prevent.
+FM_TRACKER_PROJECT_CONFIG='tracker-repos'
+
+# Resolve a project's tracker repository into FM_TRACKER_PROJECT_REPO, and that
+# project's whole alias set into FM_TRACKER_PROJECT_NAMES, so a caller matching
+# backlog rows never has to re-read the file to learn the other spellings.
+# Returns non-zero when the project has no tracker; an absent file, an absent
+# project, and a malformed line are all "no tracker", because having none is the
+# ordinary state of a project and must never read as a failure.
+#
+# Globals rather than a printed value, and the reason is the same one the type
+# count carries above: a command substitution runs in a subshell, so a caller
+# that captured the repository would then read an empty alias set and match no
+# backlog row at all.
+FM_TRACKER_PROJECT_REPO=''
+FM_TRACKER_PROJECT_NAMES=''
+fm_tracker_repo_for_project() {  # <config-dir> <project-name>
+  local dir=${1-} want=${2-} file line names spec n
+  FM_TRACKER_PROJECT_REPO=
+  FM_TRACKER_PROJECT_NAMES=
+  [ -n "$dir" ] && [ -n "$want" ] || return 1
+  file="$dir/$FM_TRACKER_PROJECT_CONFIG"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [ -n "$line" ] || continue
+    names=${line%%[[:space:]]*}
+    spec=${line#*[[:space:]]}
+    spec=${spec#"${spec%%[![:space:]]*}"}
+    [ -n "$names" ] && [ -n "$spec" ] && [ "$names" != "$spec" ] || continue
+    fm_tracker_repo_parse "$spec" || continue
+    for n in ${names//,/ }; do
+      if [ "$n" = "$want" ]; then
+        FM_TRACKER_PROJECT_REPO=$spec
+        FM_TRACKER_PROJECT_NAMES=${names//,/ }
+        return 0
+      fi
+    done
+  done < "$file"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Binding a ticket to a firstmate task
+# ---------------------------------------------------------------------------
+#
+# A task ticket has to be findable from the task id alone, from any session, with
+# no local record: the spawn that created it and the cleanup that closes it are
+# different processes, days apart, and a local sidecar that goes missing would
+# make the next dispatch open a SECOND ticket for the same work. The binding is
+# therefore carried in the ticket body, where GitHub keeps it, and read back out
+# of the same graph query the frontier already runs.
+#
+# It is an HTML comment so a reader never sees it, and it is exact-matched rather
+# than pattern-matched, so a task id that is a prefix of another one cannot bind
+# to its neighbour's ticket.
+FM_TRACKER_TASK_MARKER_OPEN='<!-- fm-task: '
+FM_TRACKER_TASK_MARKER_CLOSE=' -->'
+
+fm_tracker_task_marker() {  # <task-id>
+  printf '%s%s%s\n' "$FM_TRACKER_TASK_MARKER_OPEN" "${1-}" "$FM_TRACKER_TASK_MARKER_CLOSE"
+}
+
+# ---------------------------------------------------------------------------
+# What a task ticket says
+# ---------------------------------------------------------------------------
+#
+# The writer owns exactly TWO things in a task body - the marker line binding it
+# to a firstmate task, and the canonical blocked-by section - and preserves
+# everything else verbatim on every later pass.
+#
+# The narrow ownership is deliberate and was corrected by evidence. Owning the
+# whole body is simpler and was the first design; the first live run then filed
+# duplicates of task tickets that had already been written by hand, and those
+# hand-written bodies turned out to carry the measurements, the captain's own
+# words, and the definition of done for that work. A convergent rewrite would
+# have deleted all of it. A mirror that destroys what someone wrote into it is
+# not a mirror.
+#
+# NOTHING THE CALLER SUPPLIES IS EVER COMPOSED INTO A BODY, which is a different
+# rule and still holds. A task's own description is written for firstmate, and
+# firstmate's nouns include "blocked on", "depends on" and "waiting on" - the
+# exact wording the prose-blocker guard refuses - so passing a task list note or
+# a brief through as a body would make an ordinary dispatch fail to get a ticket
+# because of how its summary happened to be worded. A brief also carries the
+# captain's private strategy, and an issue body is public to everyone who can
+# read the repository. The summary goes in the TITLE, which no guard reads and
+# which says only what the work is called.
+#
+# So a body this script CREATES is its own short note, and a body it FINDS is the
+# author's. The prose-blocker guard refuses what this script writes; a prose
+# blocker already present in an author's body is reported by `validate`, which is
+# the standing guard for exactly that, and never blocks the pass that would give
+# the ticket its real edge.
+# shellcheck disable=SC2016 # The backticks are markdown code spans, not shell.
+fm_tracker_task_default_note() {  # <task-id> <kind> <project> [hold-note]
+  local task=$1 kind=${2-} project=${3-} hold=${4-}
+  printf 'Firstmate task `%s`' "$task"
+  [ -z "$kind" ] || printf ' (%s)' "$kind"
+  [ -z "$project" ] || printf ' in project `%s`' "$project"
+  printf '.\n\n'
+  printf 'This ticket mirrors one item of firstmate execution state so the frontier\n'
+  printf 'shows the fleet as well as the horizon. The execution record itself stays in\n'
+  printf "firstmate's own task list, which this does not replace.\n"
+  if [ -n "$hold" ]; then
+    printf '\n## On hold\n\n%s\n' "$hold"
+  fi
+}
+
+# Everything in a body that this script does not own: the marker line and the
+# canonical blocked-by section removed, surrounding blank lines trimmed. Printing
+# nothing means the body was ours alone and a fresh note replaces it.
+fm_tracker_task_body_author_part() {  # <body>
+  local body=${1-} line in_section=0 out=''
+  while IFS= read -r line; do
+    case $line in
+      "$FM_TRACKER_TASK_MARKER_OPEN"*"$FM_TRACKER_TASK_MARKER_CLOSE") continue ;;
+    esac
+    if [ "$line" = "$FM_TRACKER_BLOCKED_HEADING" ]; then
+      in_section=1
+      continue
+    fi
+    if [ "$in_section" -eq 1 ]; then
+      case $line in
+        '#'*) in_section=0 ;;
+        *) continue ;;
+      esac
+    fi
+    out="$out$line
+"
+  done <<EOF
+$body
+EOF
+  printf '%s' "$out" | awk '
+    { lines[NR] = $0 }
+    END {
+      first = 1; last = NR
+      while (first <= NR && lines[first] ~ /^[[:space:]]*$/) first++
+      while (last >= first && lines[last] ~ /^[[:space:]]*$/) last--
+      for (i = first; i <= last; i++) print lines[i]
+    }'
+}
+
+# The one-line outcome recorded on a ticket as it closes. Kept here rather than
+# at the call site so the shipped and unshipped wordings cannot drift apart, and
+# so both stay clear of the prose-blocker vocabulary.
+fm_tracker_task_outcome_comment() {  # <outcome> [pr-url] [detail]
+  local outcome=$1 pr=${2-} detail=${3-}
+  case "$outcome" in
+    shipped) printf '**Shipped.** Firstmate finished this work and cleaned up its copy.\n' ;;
+    *) printf '**Closed without shipping.** Firstmate cleaned this work up before it landed.\n' ;;
+  esac
+  [ -z "$pr" ] || printf '\nPR: %s\n' "$pr"
+  [ -z "$detail" ] || printf '\n%s\n' "$detail"
+}
+
+fm_tracker_outcome_valid() {  # <outcome>
+  case "${1-}" in
+    shipped|not-shipped) return 0 ;;
+  esac
+  return 1
+}
+
+# GitHub's own two closed states. "completed" and "not planned" render
+# differently, so the distinction survives in the UI without a reader having to
+# open the comment.
+fm_tracker_outcome_state_reason() {  # <outcome>
+  case "${1-}" in
+    shipped) printf 'completed\n' ;;
+    *) printf 'not_planned\n' ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Reading the task half back out of the issue graph
+# ---------------------------------------------------------------------------
+
+# Print "<task-id> <number> <state> <parent> <assignees>" for every ticket
+# carrying a task marker, from graph records on stdin. This is the whole index a
+# writer needs: whether a task already has a ticket, whether that ticket is open,
+# whether it hangs off the destination, and whether anyone holds it.
+fm_tracker_task_index() {
+  local number state labels assignees parent blockers title_b64 body_b64
+  local body line id
+  while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
+    [ -n "$number" ] || continue
+    body=$(fm_tracker_b64_decode "$body_b64")
+    id=
+    while IFS= read -r line; do
+      case $line in
+        "$FM_TRACKER_TASK_MARKER_OPEN"*"$FM_TRACKER_TASK_MARKER_CLOSE")
+          id=${line#"$FM_TRACKER_TASK_MARKER_OPEN"}
+          id=${id%"$FM_TRACKER_TASK_MARKER_CLOSE"}
+          break
+          ;;
+      esac
+    done <<EOF
+$body
+EOF
+    [ -n "$id" ] || continue
+    printf '%s %s %s %s %s\n' "$id" "$number" "$state" "$parent" "${assignees// /,}"
+    : "$labels" "$blockers" "$title_b64"
+  done
+}
+
+# The destination every task ticket hangs off: the one OPEN fm:destination that
+# is itself a root. Printed only when there is exactly ONE - zero means this
+# repository was never initialised as a tracker, and more than one means the
+# right parent is a judgement rather than a lookup. Both print nothing, because
+# attaching to a guessed parent is worse than reporting that no attachment could
+# be made: validate reports an orphan either way, and a wrong parent additionally
+# rolls the work up under a destination it does not serve.
+fm_tracker_destination_number() {
+  local number state labels assignees parent blockers title_b64 body_b64
+  local found='' count=0
+  while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
+    [ -n "$number" ] || continue
+    [ "$state" = OPEN ] || continue
+    [ "$parent" = '-' ] || continue
+    fm_tracker_type_of_labels "$labels"
+    [ "$FM_TRACKER_TYPE_COUNT" -eq 1 ] && [ "$FM_TRACKER_TYPE" = destination ] || continue
+    found=$number
+    count=$((count + 1))
+    : "$assignees" "$blockers" "$title_b64" "$body_b64"
+  done
+  [ "$count" -eq 1 ] || return 1
+  printf '%s\n' "$found"
+}
+
+# Print "<number> <state> <parent> <assignees>" for one issue, from graph records
+# on stdin - the same shape fm_tracker_task_index emits, so a ticket adopted by
+# number enters the writer's index exactly like one found by its marker.
+fm_tracker_index_row_for_number() {  # <number>
+  local want=$1
+  local number state labels assignees parent blockers title_b64 body_b64
+  while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
+    : "$labels" "$blockers" "$title_b64" "$body_b64"
+    [ "$number" = "$want" ] || continue
+    printf '%s %s %s %s\n' "$number" "$state" "$parent" "${assignees// /,}"
+    return 0
+  done
+  return 1
+}
+
+# Print the body of one issue, from graph records on stdin. Used to decide
+# whether a convergent rewrite would change anything, so a sync that changes
+# nothing writes nothing.
+fm_tracker_body_of() {  # <number>
+  local want=$1
+  local number state labels assignees parent blockers title_b64 body_b64
+  while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
+    : "$state" "$labels" "$assignees" "$parent" "$blockers" "$title_b64"
+    [ "$number" = "$want" ] || continue
+    fm_tracker_b64_decode "$body_b64"
+    return 0
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# The backlog rows a tracker mirrors
+# ---------------------------------------------------------------------------
+#
+# The queue is read straight out of data/backlog.md rather than through
+# tasks-axi. Both configured backends write that same file (docs/configuration.md
+# "Backlog backend"), so reading it works under either, and it keeps a missing or
+# broken tasks-axi from being able to stop a dispatch.
+#
+# WHAT IS DELIBERATELY NOT MIRRORED. Three kinds of row are skipped, and each
+# skip is a decision rather than a limitation:
+#
+#   kind: captain          A captain-held question is a decision, not a task.
+#                          The decision half of this tracker already has its own
+#                          type and its own answerable-cold contract; pushing
+#                          these through the task path would file them as work
+#                          nobody can do and strip the structure that makes them
+#                          answerable.
+#   hold-kind: future      Deliberately parked, and parked rows are parked FROM
+#                          the captain as much as from the fleet. Surfacing one
+#                          on a board the captain reads is re-raising it.
+#   hold-kind: external    Rows that exist only to give a standing mechanism a
+#                          durable identity. They are not work and never finish.
+#
+# Emits one record per eligible row, US-separated:
+#   <task-id>  <kind>  <repo>  <hold-kind>  <blocked-by-csv>  <section>  <summary>
+# where section is "flight" or "queued".
+fm_tracker_backlog_rows() {  # <backlog-file>
+  local file=${1-}
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  awk -v sep=$'\037' '
+    /^## / {
+      section = ""
+      if ($0 == "## In flight") section = "flight"
+      else if ($0 == "## Queued") section = "queued"
+      next
+    }
+    section == "" { next }
+    /^- \[[ xX]\] / {
+      line = $0
+      done_row = (substr(line, 4, 1) != " ")
+      if (done_row) next
+      rest = substr(line, 7)
+      sp = index(rest, " - ")
+      if (sp == 0) next
+      id = substr(rest, 1, sp - 1)
+      rest = substr(rest, sp + 3)
+
+      kind = ""; repo = ""; holdkind = ""
+      if (match(line, /\(kind: [^)]*\)/)) kind = substr(line, RSTART + 7, RLENGTH - 8)
+      if (match(line, /\(repo: [^)]*\)/)) repo = substr(line, RSTART + 7, RLENGTH - 8)
+      if (match(line, /\(hold-kind: [^)]*\)/)) holdkind = substr(line, RSTART + 12, RLENGTH - 13)
+
+      if (kind != "ship" && kind != "scout") next
+      if (holdkind == "future" || holdkind == "external") next
+      if (repo == "") next
+
+      # The summary is everything before the annotation run; every row carries
+      # (repo: ...), so that is where the run starts.
+      cut = index(rest, " (repo: ")
+      if (cut > 0) rest = substr(rest, 1, cut - 1)
+
+      # A dependency is written into the summary as "blocked-by: <ids>". Lifting
+      # it out here is what lets the writer turn it into a real queryable edge
+      # instead of shipping the words to GitHub, where they would be exactly the
+      # prose blocker this layer refuses.
+      blocked = ""
+      if (match(rest, / blocked-by: [^ ]+/)) {
+        blocked = substr(rest, RSTART + 13, RLENGTH - 13)
+        rest = substr(rest, 1, RSTART - 1) substr(rest, RSTART + RLENGTH)
+      }
+      gsub(/^[ \t]+|[ \t]+$/, "", rest)
+      if (rest == "") next
+      print id sep kind sep repo sep holdkind sep blocked sep section sep rest
+    }
+  ' "$file"
+}
+
+# True when a backlog row's "(repo: <name>)" names this project. The alias set
+# comes from the tracker configuration, which is the same list data/projects.md
+# registers the project under.
+fm_tracker_project_matches() {  # <row-repo> <alias-list>
+  local want=${1-} names=${2-} n
+  [ -n "$want" ] || return 1
+  for n in $names; do
+    [ "$n" = "$want" ] && return 0
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# A bound on the one call a dispatch makes
+# ---------------------------------------------------------------------------
+#
+# The tracker step runs on the spawn path, and a spawn must survive GitHub being
+# unreachable. An error is easy - it returns and the dispatch reports a missing
+# ticket. A HANG is the dangerous case: a blackholed connection returns nothing
+# and never fails, and an unbounded call there would wedge the dispatch just as
+# completely as a refusal would, which is the worse defect this must not trade
+# for the lesser one.
+#
+# Same three-runner ladder as bin/fm-agy-lib.sh's probe bound, and for the same
+# reason: a stock macOS has neither timeout nor gtimeout, and perl ships with
+# every platform the fleet runs on. With no runner at all the call is DECLINED
+# rather than run unbounded - a declined tracker step costs a missing ticket,
+# and an unbounded one costs the dispatch.
+FM_TRACKER_DISPATCH_TIMEOUT=${FM_TRACKER_DISPATCH_TIMEOUT:-45}
+
+fm_tracker_run_bounded() {  # <seconds> <command> [args...]
+  local secs=$1 runner=none
+  shift
+  case "$secs" in
+    ''|*[!0-9]*|0) return 125 ;;
+  esac
+  if command -v timeout >/dev/null 2>&1; then runner=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then runner=gtimeout
+  elif command -v perl >/dev/null 2>&1; then runner=perl
+  fi
+  case "$runner" in
+    timeout|gtimeout) "$runner" "$secs" "$@" </dev/null ;;
+    perl)
+      perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' \
+        "$secs" "$@" </dev/null
+      ;;
+    *) return 125 ;;
+  esac
 }
