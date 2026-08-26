@@ -8,7 +8,10 @@
 # otherwise, so a crew that finishes (or stops and waits) without a current
 # working signal is never silently swallowed. A declared external-wait pause is
 # the separate idle absorb case and re-surfaces only on its long bounded cadence,
-# although its initial no-verb status signal still surfaces in normal mode.
+# although its initial no-verb status signal still surfaces in normal mode. A
+# worker firstmate ITSELF stopped is the one absorb with no cadence at all: its
+# endpoint is agent-free by design and firstmate holds both the reason and the
+# resume decision, so there is no question left to re-ask (declared_stop_absorb).
 # While state/.afk exists, the daemon owns triage and this watcher queues and exits
 # on every wake. Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
@@ -20,8 +23,10 @@
 #                          line, since the crew's own log gets no new entry once
 #                          firstmate hands it to a no-mistakes validation. A declared
 #                          external-wait pause is absorbed instead with its own long
-#                          re-surface cadence, never as a wedge. Only when neither
-#                          absorb class applies does the log's last line decide:
+#                          re-surface cadence, never as a wedge, and a worker
+#                          firstmate itself stopped is absorbed silently, in every
+#                          supervision mode. Only when no absorb class applies
+#                          does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
 #                          wedge threshold also surfaces, with an "escalation N"
@@ -110,6 +115,11 @@ mkdir -p "$STATE"
 # process subtree instead and is the one owner of that contract.
 # shellcheck source=bin/fm-progress-lib.sh
 . "$SCRIPT_DIR/fm-progress-lib.sh"
+# The declared-stop record: the one durable statement that an endpoint is
+# agent-free BY DESIGN, and the incarnation binding that keeps it from outliving
+# the agent it describes.
+# shellcheck source=bin/fm-stopped-lib.sh
+. "$SCRIPT_DIR/fm-stopped-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -535,10 +545,63 @@ clear_pause_tracking() {  # <window>
   key=${key//./_}
   clear_pause_state "$win"
   rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key" \
+    "$STATE/.stopped-$key" \
     "$STATE/.progress-suppressed-$key" "$STATE/.busy-stall-surfaced-$key"
   # A pane whose supervision bookkeeping restarts measures from now, not from a
   # baseline recorded before whatever just resumed it.
   fm_progress_reset "$STATE" "$key"
+}
+
+# Absorb the stale pane of a worker firstmate ITSELF stopped.
+#
+# The 2026-08-25 case this exists for: two workers hit zero model quota with
+# about four hours to reset, firstmate stopped them through the sanctioned
+# bin/fm-control.sh exit path - which preserves the endpoint, the local copy and
+# every uncommitted change - and both went on raising a stale event every few
+# minutes for the whole window, now because the endpoint was agent-free. Some
+# forty alerts, each indistinguishable at arrival from the one that reports a
+# genuinely dead worker on captain-facing work. That is how a reader learns to
+# skim the alert that matters.
+#
+# The discriminator is NOT that the task is held. A task can be legitimately held
+# for a captain decision while its worker is genuinely wedged, and that must
+# still surface - which it does, because a wedged worker's agent is ALIVE and
+# this path is reachable only through a verdict that requires it gone.
+#
+# Unlike a declared pause, this absorbs SILENTLY with no re-surface cadence. A
+# cadence exists to re-ask a question that may have answered itself; a stop
+# firstmate performed and recorded answers nothing by being asked again, and
+# firstmate holds both the reason and the resume decision. Everything that could
+# change the answer - a relaunch, a rebind, an agent appearing in the endpoint -
+# stops the declaration binding or makes the pane busy, and ordinary supervision
+# resumes from the next poll.
+#
+# Cheap by construction: the record's absence costs one stat, and the
+# authoritative crew-state read runs once per distinct stale hash, never per
+# poll, exactly as every other costly decision in this loop.
+# 0 when the pane was absorbed as an intentional stop, 1 when it was not.
+declared_stop_absorb() {  # <window> <task> <hash>
+  local win=$1 task=$2 h=$3 key sf df
+  [ -n "$task" ] || return 1
+  # The cheap gate, and the one that spends a declaration a relaunch superseded:
+  # no record, or a record bound to an incarnation this task no longer runs, and
+  # nothing here applies. Only a still-binding record is worth a crew-state read.
+  fm_stopped_declared "$STATE" "$task" || return 1
+  key=$(printf '%s' "$win" | tr ':/.' '___')
+  sf="$STATE/.stale-$key"
+  df="$STATE/.stopped-$key"
+  if [ "$(cat "$df" 2>/dev/null || true)" != "$h" ]; then
+    # First sight of this hash: confirm through the one source that pairs the
+    # declaration with a verified-gone agent. A declaration alone never absorbs.
+    crew_is_declared_stopped "$task" || { rm -f "$df"; return 1; }
+    printf '%s' "$h" > "$df"
+    rm -f "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key" \
+      "$STATE/.terminal-mtime-$key" "$STATE/.terminal-resurfaced-$key"
+    clear_pause_state "$win"
+  fi
+  printf '%s' "$h" > "$sf"
+  triage_log "absorbed stale (intentionally stopped by firstmate): $win"
+  return 0
 }
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
@@ -1235,6 +1298,13 @@ EOF
             paused) handle_paused_stale "$w" "$task" "$h" ;;
             *)      clear_pause_tracking "$w" ;;
           esac
+        elif declared_stop_absorb "$w" "$task" "$h"; then
+          # A worker firstmate itself stopped: agent-free by design, in every
+          # supervision mode. Checked ahead of the away-mode branch on purpose -
+          # away mode is exactly the long unattended stretch this noise was
+          # measured across, and the daemon has no cheaper way to tell an
+          # intentional stop from a wedge than the verdict already read here.
+          :
         elif afk_present; then
           # Daemon owns triage: one-shot per distinct stale hash, as before.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then

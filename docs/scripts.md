@@ -97,6 +97,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-send.sh`             | Send one verified literal line or supported key through the target's recorded backend |
 | `fm-control.sh`          | Agent lifecycle control plane: allowlisted `interrupt`, `exit`, and transactional `relaunch` verbs for an exact task id ([agent-control.md](agent-control.md)) |
 | `fm-control-lib.sh`      | One executable owner of the control-plane verb allowlist, per-harness interrupt/exit mechanics, and per-backend capability |
+| `fm-stopped-lib.sh`      | Single owner of the declared-stop record that says an endpoint is agent-free by design, and of the incarnation binding that keeps it from silencing a later worker ([agent-control.md](agent-control.md)) |
 | `fm-busy-lib.sh`         | Single owner of the semantic busy-state contract: verdicts, source attribution, and per-harness sources |
 | `fm-busy-event.sh`       | The only writer of a task's semantic busy-state record; arms an incarnation and applies lifecycle events |
 | `fm-progress-lib.sh`     | Single owner of the positive progress measurement behind the wedge decision: accumulated subtree CPU and subtree membership, sampled twice and compared |

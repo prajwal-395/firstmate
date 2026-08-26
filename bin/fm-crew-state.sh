@@ -16,7 +16,7 @@
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
 # token-tight line firstmate can read every heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|exited|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|stopped|exited|unknown> · source: <run-step|pane|status-log|declared-stop|remote-endpoint|none> · <detail>
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta. A meta
@@ -49,9 +49,10 @@
 #   4. No run for this crew (pre-validation, or kind=scout): ask the endpoint
 #      what is actually there before believing any record about it. A readable
 #      target proves only that the SHELL survives, so a frozen agent reports
-#      suspended and an agent that EXITED with no terminal status line reports
-#      `exited` - neither may fall through to a record its own writer is no
-#      longer around to advance. An agent that is merely idle or unreachable is
+#      suspended, an agent firstmate itself stopped through the control plane
+#      reports `stopped`, and an agent that EXITED with no terminal status line
+#      reports `exited` - none of them may fall through to a record its own
+#      writer is no longer around to advance. An agent that is merely idle or unreachable is
 #      never reported gone, and neither is one whose record was published so
 #      recently that its harness cannot be expected to have started yet (the
 #      registration grace at within_spawn_grace, below). Then the recorded
@@ -81,6 +82,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-stopped-lib.sh
+. "$SCRIPT_DIR/fm-stopped-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -724,8 +727,34 @@ fi
 # terminal line was never written at all. That distinction is the whole
 # defect - not the exit, which is normal, but the missing line, which is what
 # leaves firstmate unable to tell a finished worker from a stopped one.
-if [ "$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET" \
-    "$EXPECTED_LABEL" "$WT" 2>/dev/null)" = dead ] \
+AGENT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET" \
+  "$EXPECTED_LABEL" "$WT" 2>/dev/null) || AGENT_STATE=unknown
+
+# A worker FIRSTMATE ITSELF stopped is separated here, before `exited`, because
+# the two are byte-identical from the outside and mean opposite things. An
+# endpoint that is agent-free because bin/fm-control.sh exit emptied it on
+# purpose is not a worker that needs attention; it is a worker that is
+# intentionally not running, and until this verdict existed there was no way to
+# say so. The declaration is only ever believed alongside a dead agent, and only
+# while it still binds to the incarnation it was written for
+# (bin/fm-stopped-lib.sh), so an agent that died on its own writes nothing and
+# still reports `exited`, an agent that is alive is never called stopped, and a
+# relaunch's replacement is supervised normally from its first read.
+#
+# It outranks the status log deliberately. Whatever the worker last appended, it
+# was appended BEFORE firstmate stopped it, so it describes the run rather than
+# the present; the stop is the newer fact and the one that explains the empty
+# endpoint.
+if [ "$AGENT_STATE" = dead ] && fm_stopped_declared "$STATE" "$ID"; then
+  STOP_REASON=$(fm_stopped_field "$STATE" "$ID" reason)
+  STOP_AGE=$(fm_stopped_age "$STATE" "$ID") || STOP_AGE=
+  STOP_DETAIL="stopped by firstmate on purpose"
+  [ -z "$STOP_AGE" ] || STOP_DETAIL="$STOP_DETAIL ${STOP_AGE}s ago"
+  [ -z "$STOP_REASON" ] || STOP_DETAIL="$STOP_DETAIL: $STOP_REASON"
+  emit stopped declared-stop "$STOP_DETAIL; its work is intact at $WT and nothing is running - resume it with bin/fm-control.sh $ID relaunch"
+fi
+
+if [ "$AGENT_STATE" = dead ] \
   && ! status_is_terminal_verb "$LOG_LINE"; then
   # ... unless the record is still inside its registration window, where the
   # same emptiness is equally consistent with a harness that has not started.

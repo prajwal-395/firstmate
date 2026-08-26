@@ -184,7 +184,7 @@ family_for_basename() {
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
-    fm-subagent-pretool-check.test.sh|\
+    fm-stopped-lib.test.sh|fm-subagent-pretool-check.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
     fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|\
     fm-transition-lib.test.sh|\
@@ -1081,6 +1081,15 @@ families_for_changed_path() {
       # identification and refusal contract.
       printf '%s\n' session-bootstrap
       printf '%s\n' pr-forge
+      ;;
+    bin/fm-stopped-lib.sh)
+      # The declared-stop record has three readers in three families: its own
+      # contract cases, the current-state verdict that pairs it with a
+      # verified-gone agent, and the supervision path that absorbs on that
+      # verdict. A change to the record's shape or binding breaks any of them.
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' watcher-wake-lock
+      printf '%s\n' backend-dispatch
       ;;
     bin/fm-nm-run-lib.sh)
       # Shared no-mistakes run-attribution primitives, sourced by both
