@@ -510,6 +510,44 @@ Known disagreements, kept as the worked examples:
 
 `tests/test_dashboard_captured_state.py` is the standing guard, and it runs against `tests/fixtures/captured_run/`, a 77KB capture from a real broken run.
 
+### the-brief-is-paid-seven-times
+
+The `creative_brief` channel was repaired in `61d17b9` and no project pointed at a document, so nobody had measured what one costs.
+Issue #214 settled which document 001 gets - the channel-level `PLAN/series portfolio '26 planning/overall_branding_creative_direction.md`, ruled 2026-08-28 - and the measurement came with it.
+
+The brief is **47,903 bytes**, and it arrives at every declaring step, so the cost is per step:
+
+| step | context, no brief | context, with brief | delta |
+| --- | ---: | ---: | ---: |
+| `creative_direction` | 31,321 | 79,869 | +48,548 (2.55x) |
+| `speech_sequence` | 63,232 | 111,780 | +48,548 (1.77x) |
+| `music_selection` | 8,991 | 57,539 | +48,548 (6.40x) |
+| `select_broll` | 72,617 | 121,165 | +48,548 (1.67x) |
+| `plan_transitions` | 51,188 | 99,736 | +48,548 (1.95x) |
+| `plan_vfx` | 44,175 | 92,723 | +48,548 (2.10x) |
+| `plan_sfx` | 41,134 | 89,682 | +48,548 (2.18x) |
+
+Measured with `library/tools/replay_bench` at `2abeea9`, on two snapshots of 001 whose only difference is that one line of `project.yaml`; the other nineteen DAG steps came out byte-identical.
+The +645 bytes over the document's own size is the TOON key and the two-space indent of the `|` block.
+It is a `|` block and not an escaped line: the 480 lines recover byte for byte out of the context.
+
+Across the seven the brief adds **339,836 bytes** to a combined 312,658, so those seven contexts go to 652,494 and the brief is 52.1% of everything they read.
+The context work that landed before it took all ten steps down 11.4%; this gives that back many times over, and it is a deliberate trade rather than drift.
+
+**It moved the answer.** The same prompt answered twice, blind, one session per arm, at `gemini-3.1-pro-high` through the `agy` backend the project really runs on:
+
+| | no brief | with brief |
+| --- | --- | --- |
+| `target_energy` | "Medium-high and dynamic (bridging the raw, conversational footage with the brand's 'high' energy constraint)." | `"building"` |
+| `energy_reading.read_energy` | `high` | `moderate` |
+| `target_mood` | "Authentic and vulnerable, yet highly motivational and forward-moving." | "Raw and vulnerable, transitioning into resolute and liberating" |
+| register | a motivational manifesto pushed against the footage | the brief's "anti-guru" voice, held to the footage |
+
+That is not a wording difference: `read_energy` decides which transitions `transition_selector` draws, so the two directions produce different pictures.
+Worth the captain knowing: the with-brief rationale cites *Through the 4th Wall* by name.
+The channel document names all eight series - the model reached for the nearest one, which is the series #214 established 001 is NOT.
+A brief specific to 001 is what closes that, and it is the captain's writing.
+
 ### compile-manifest-read-an-empty-catalog
 
 The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export.

@@ -517,6 +517,15 @@ Nothing is broadcast. A step gets brand data because its manifest asked.
 - The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
 - `tests/test_brand_constraints_reach_the_prompt.py`.
 
+**The captain's creative brief is one per-project declaration that reaches SEVEN steps, whole.**
+`project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file.
+`load_pipeline_state` reads the PATH into state; `gather_step_inputs` reads the FILE, so a step receives the document's CONTENT and only if its own manifest declares the input.
+A relative path resolves against the project, an absolute one is taken as given so the captain's read-only planning tree is cited in place and never copied, and a path that cannot be read or is empty RAISES rather than leaving a filename in the prompt.
+
+- The seven are `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - exactly the seven whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+- It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
+- **The cost is per step, not per run**, and a channel-level document is large. Measure before assuming a brief is free. [why - 001's measured before and after](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+
 **Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
 Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `deterministic_with_llm` step's `step.py` keep receiving the unprojected inputs - only the prompt narrows. A step declaring none is handed every byte it was routed. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
 

@@ -70,7 +70,45 @@ def _load_tree(tree: Path):
         "project_fields": project_fields,
         "json_to_toon": json_to_toon,
         "project_step_context": getattr(runner, "project_step_context", None),
+        # The runner assembles state in TWO halves and the bench read only
+        # the first.  See `_run_level_state` below.
+        "load_pipeline_state": getattr(runner, "load_pipeline_state", None),
     }
+
+
+def _run_level_state(api, state: dict, project_dir: str, notes: list) -> dict:
+    """Add the half of state the runner reads off project.yaml and the env.
+
+    `load_pipeline_state` is the runner's whole state assembly: it parses
+    `pipeline_data.json` and then overlays the values that belong to the
+    RUN rather than to any upstream step - `creative_brief` and
+    `brand_template` off `project.yaml`, `sfx_library` and `music_library`
+    off the environment.  The bench used to `json.load` the frozen state
+    file and stop there, which is a MODEL of that assembly missing its
+    second half, and it fails in the one direction that matters: a project
+    declaring a brief reconstructs as a project declaring none, so a
+    routing change reads as a no-op.  Measured on 001 the day it was
+    pointed at the channel brief - seven steps declare `creative_brief`
+    and all seven replayed without it.
+
+    The frozen bytes stay authoritative: only keys the snapshot does not
+    already carry are added, so a `--state` override still governs
+    everything it names.
+    """
+    loader = api.get("load_pipeline_state")
+    if loader is None:
+        notes.append("this tree has no load_pipeline_state: the run-level "
+                     "half of state (creative_brief, brand_template, the "
+                     "asset libraries) is not reconstructed")
+        return state
+    overlaid = loader(project_dir)
+    added = sorted(k for k in overlaid if k not in state)
+    for key in added:
+        state[key] = overlaid[key]
+    if added:
+        notes.append("run-level state read off project.yaml and the "
+                     f"environment, as the runner reads it: {added}")
+    return state
 
 
 def _brand_constraints(project_folder: str, node_id: str) -> str:
@@ -145,10 +183,12 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
     state = dict(state)
     state["project_folder"] = project_dir
 
+    notes = []
+    state = _run_level_state(api, state, project_dir, notes)
+
     inputs = api["gather_step_inputs"](node_id, dag, state, manifest=manifest,
                                        step_type=step_type)
 
-    notes = []
     bridge_ran = False
     bridge_supplied: set = set()
     withheld = []

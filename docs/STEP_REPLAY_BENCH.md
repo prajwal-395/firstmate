@@ -23,12 +23,26 @@ store and reused across steps.
 ## What it replays, and what it does not
 
 The reconstruction is the runner's own code, not a model of it:
+`load_pipeline_state` (state as the runner assembles it, see below),
 `gather_step_inputs` (the real DAG edge walk, the real brand block), the
 step's own `bridge.py` as a subprocess over JSON stdin,
 `project_step_context` - the runner's own projection, allow-list, `-` drop
 paths, view builders, restored globals and restored pre-bridge tables
 together - `json_to_toon`, the handoff with the schema injected from the
 manifest, and `TemplateLoader.get_brand_constraints`.
+
+**State has two halves and both are reconstructed.** `pipeline_data.json`
+is what the steps wrote; on top of it the runner overlays what belongs to
+the RUN and to no step - `creative_brief` and `brand_template` off the
+project's own `project.yaml`, `sfx_library` and `music_library` off the
+environment. The bench read the frozen file and stopped there until
+#214, and that omission failed in the one direction that matters: a
+project pointing at a creative brief reconstructed as a project pointing
+at none, so the routing change under measurement read as a no-op. Seven
+steps declare `creative_brief` and all seven replayed without it. The
+frozen bytes stay authoritative - the overlay only adds keys the snapshot
+does not already carry - and any key it contributes is named in the
+result's `notes`.
 
 A tree that predates that function's extraction has the same logic inlined
 in `present_llm_step`, which cannot be called without calling an LLM, so

@@ -552,6 +552,40 @@ steps while leaving `project.yaml` empty. It would improve this one run
 and leave the pipeline exactly as blind as it is now, and the next run
 would not reproduce it. If the brief should be read, it should be wired.
 
+### Update, 2026-08-28: 001 declares the channel brief (#214)
+
+The document proposed in (a) above is NOT the one 001 got, and the reason
+is worth keeping. `1_through_the_4th_wall` is defined as "A Warm Room in a
+Quiet World" - a 2:15 AM indoor monologue, red clock glowing in the dark.
+**001 is a daylight outdoor walk-and-talk in a Topgolf parking lot.** The
+subject matter matches and the whole form contradicts the footage, so that
+brief would have told the model to make a piece the source cannot support.
+None of the eight planned series is 001; it sits outside the portfolio.
+
+Captain's ruling, recorded verbatim on #214: point 001 at the
+channel-level `overall_branding_creative_direction.md` - the document
+`001/project.yaml` already cites for its duration rule, series-neutral so
+it cannot contradict the footage. That is now the project's declaration,
+absolute, so the `PLAN/` tree stays read-only and in place.
+
+What it costs and what it moved is in
+`docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times`: 47,903 bytes at
+every one of the seven declaring steps, and a `creative_direction` answer
+that reads `moderate` rather than `high` through
+`library/tools/energy_reading.py` - which is a different set of drawn
+transitions, not a different set of words.
+
+Two things the ruling does not settle, and neither was fixed quietly:
+
+- The channel document names all eight series, and the with-brief answer
+  reached for *Through the 4th Wall* by name - the series this issue
+  established 001 is not. A brief specific to 001 closes that; #214 says
+  in as many words that it is the captain's writing.
+- `review_rough_cut` and `creative_cohesion` judge creative work and
+  declare no brief. Neither handoff asks for one, so this is not the
+  handoff/manifest mismatch the seven had - it is an open question about
+  what a judge should be judging against.
+
 ---
 
 ## 6. The baseline export, and why it is not evidence about today's code

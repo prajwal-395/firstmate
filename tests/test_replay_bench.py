@@ -267,6 +267,50 @@ def test_verify_reproduces_a_qa_retry_rather_than_excusing_it(project, store):
     assert report["unaccounted"] == 0
 
 
+def test_a_declared_creative_brief_reaches_the_reconstructed_context(
+        project, store, tmp_path):
+    """The bench has to rebuild the RUN-LEVEL half of state as well.
+
+    `load_pipeline_state` is the runner's whole state assembly: it parses
+    `pipeline_data.json` and then overlays the values that belong to the
+    run rather than to any upstream step - `creative_brief` and
+    `brand_template` off `project.yaml`, the asset libraries off the
+    environment. The bench used to `json.load` the frozen state file and
+    stop there, and that omission fails in the one direction that matters:
+    a project pointing at a brief reconstructed as a project pointing at
+    none, so the routing change read as a no-op. Measured on 001 the day
+    it was pointed at the channel document (#214) - seven steps declare
+    `creative_brief` and all seven replayed without it.
+    """
+    brief = tmp_path / "planning" / "channel_brief.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("# Channel brief\n\nSENTINEL_BRIEF_IN_REPLAY_4c1e\n",
+                     encoding="utf-8")
+    yaml_path = project / "project.yaml"
+    yaml_path.write_text(
+        yaml_path.read_text(encoding="utf-8")
+        + f'creative_brief: "{brief}"\n', encoding="utf-8")
+
+    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    result = bench.replay("fx", "creative_direction", rev=trees.WORKTREE,
+                          store=store)
+
+    assert "creative_brief" in result["top_level_keys"]
+    assert "SENTINEL_BRIEF_IN_REPLAY_4c1e" in result["context"]
+    # And the reconstruction says where that key came from, so a reader
+    # can tell a routed input from a run-level one.
+    assert any("run-level state" in n for n in result["notes"]), result["notes"]
+
+
+def test_a_project_declaring_no_brief_reconstructs_without_one(project, store):
+    """The overlay adds what the project declares, and invents nothing."""
+    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    result = bench.replay("fx", "creative_direction", rev=trees.WORKTREE,
+                          store=store)
+    assert "creative_brief" not in result["top_level_keys"]
+
+
+
 # ── 3. Reading the difference ───────────────────────────────────────
 
 def test_sections_split_on_the_top_level_key_the_projector_selected():
