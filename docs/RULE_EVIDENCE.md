@@ -1581,3 +1581,29 @@ can as easily cost more than it recovers. Routing `plan_transitions` at its own 
 108 KB on one step. **The embedded JSON is mostly where the content is, not a
 tax on carrying it**; the large savings are in deciding what a step reads, and the format change
 is worth doing for legibility rather than for size.
+
+## unwired-steps-need-a-reason
+
+**2026-08-27 output audit, issue #187.** Steps 1.06 (`object_segmentation`, SAM 2.1) and 1.07
+(`ocr_extraction`, EasyOCR) were added in commits 3c4dd10 and 95affc1 (2026-08-08) with working
+tool code, manifests, and tests - but neither commit touched `dag.json`. The pipeline ran five
+preflight steps while presenting as seven, and nobody noticed until the Twelve Labs research
+grounded itself in the ingest.
+
+The output audit found a second symptom: `objects[].readable_text` was `null` 138 times across 17
+clips in the semantic analysis output. Investigation showed this is the VLM's field - step 1.03
+prompts for it directly - not step 1.07's. The local model (`gemma-4-12b-it-4bit`) returns `null`
+because it cannot reliably read on-screen text. Step 1.07 writes to a separate key
+(`ocr_extraction`), so wiring OCR would not fill `readable_text`.
+
+**The structural fix**: `StepDir.__post_init__` in `project_layout.py` now rejects `wired=False`
+without an `unwired_reason`. `tests/test_step_dag_coverage.py` scans every step directory on disk
+and fails if any has no DAG node and no documented unwired declaration. A step that exists but
+never runs is no longer silent.
+
+**EasyOCR measurement on 001** (17 clips, 807s footage, 2026-08-28): 445s wall-clock at 1fps
+sampling. 367 tracked text detections across 15/17 clips; 83 above 0.5 confidence. Real text
+found: street signs ("Chattahoochee", "PARK", "Tetta Blvd NW"), dashboard navigation ("Google",
+route numbers), and storefronts ("THROW AXES", "VALIDATE PARKING"). Signal-to-noise is 23% -
+most low-confidence detections are noise from foliage and textures. The real detections are text
+the VLM returned null for on every object.

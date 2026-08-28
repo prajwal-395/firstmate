@@ -114,6 +114,20 @@ class StepDir:
     (AGENTS.md section 3). Their directory appears only if the step is
     ever run; a normal pipeline run produces nothing there."""
 
+    unwired_reason: str = ""
+    """Non-empty when ``wired`` is False. Records WHY the step is not in
+    the DAG, so the next person does not have to re-investigate.
+    ``__post_init__`` enforces that ``wired=False`` without a reason is
+    an error - a step directory that exists but never runs is a trap
+    unless the absence is explained."""
+
+    def __post_init__(self):
+        if not self.wired and not self.unwired_reason:
+            raise ValueError(
+                f"StepDir {self.node_id!r} has wired=False but no "
+                f"unwired_reason. Every unwired step must document why."
+            )
+
 
 STEPS: tuple = (
     StepDir("validate_sfx_library", "0_01_validate_sfx_library"),
@@ -122,8 +136,20 @@ STEPS: tuple = (
     StepDir("semantic_analysis", "1_03_semantic_analysis"),
     StepDir("temporal_index", "1_04_temporal_index"),
     StepDir("prosody_analysis", "1_05_prosody_analysis"),
-    StepDir("object_segmentation", "1_06_object_segmentation", wired=False),
-    StepDir("ocr_extraction", "1_07_ocr_extraction", wired=False),
+    StepDir("object_segmentation", "1_06_object_segmentation", wired=False,
+            unwired_reason=(
+                "SAM 2.1 segmentation masks and bounding boxes have no "
+                "downstream consumer: planning steps operate on semantic "
+                "descriptions and time ranges, not spatial coordinates. "
+                "Wire when #162 decides what reads masks.")),
+    StepDir("ocr_extraction", "1_07_ocr_extraction", wired=False,
+            unwired_reason=(
+                "EasyOCR can read on-screen text the VLM (step 1.03) is "
+                "prompted to fill but provably cannot - readable_text is "
+                "null for every object on 001 (138 nulls across 17 clips). "
+                "No downstream step consumes ocr_extraction output yet. "
+                "Wire when a consumer is identified or to backfill "
+                "readable_text.")),
     StepDir("creative_direction", "2_01_creative_direction"),
     StepDir("speech_sequence", "2_02_speech_sequence"),
     StepDir("music_selection", "2_04_music_selection"),

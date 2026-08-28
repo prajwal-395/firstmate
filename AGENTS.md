@@ -59,7 +59,9 @@ The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/
 It groups 26 atomic steps into phases: 0 setup, PREFLIGHT analysis, 2 planning, 3 assembly, 4 post-production, 5 finishing/QA, 6 rendering.
 
 - Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`. `docs/PIPELINE_PLAN.md` uses Phase 0/1/2 for the quality-work programme and the two names collided.
-- `library/steps/` holds 28 step definitions. `object_segmentation` (1.06) and `ocr_extraction` (1.07) exist but are not wired into the DAG.
+- `library/steps/` holds 28 step definitions. `object_segmentation` (1.06) and `ocr_extraction` (1.07) exist but are not wired into the DAG. They were added in commit 3c4dd10 and 95affc1 (2026-08-08) without touching `dag.json`, and no downstream step consumes their output. Each carries a documented `unwired_reason` in `project_layout.STEPS` and `StepDir.__post_init__` rejects `wired=False` without one, so the next unwired step has to say why. `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration.
+- `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. It is null on 001 because the local model (`gemma-4-12b-it-4bit`) fails to read on-screen text. Step 1.07 (OCR) writes to a SEPARATE output key (`ocr_extraction`), not to `readable_text`. The two are independent: fixing the VLM's text reading or wiring EasyOCR are separate improvements, not the same fix. #162 tracks the design question of what consumes masks and OCR output.
+- **EasyOCR measurement on 001** (17 clips, 807s footage): 445s wall-clock, 367 tracked texts across 15/17 clips, 83 above 0.5 confidence. Real text found includes street signs ("Chattahoochee", "PARK", "Tetta Blvd NW"), dashboard navigation ("Google", route numbers), and storefronts ("THROW AXES", "VALIDATE PARKING"). Signal-to-noise is 23% - most low-confidence detections are noise from foliage and textures. The real detections are text the VLM returned null for.
 
 Run with `python3 manage_project.py run <slug>`:
 
