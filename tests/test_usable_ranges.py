@@ -153,9 +153,16 @@ class TestComplementRanges:
 
 class TestUnmeasured:
     def test_no_temporal_index(self):
+        """Nothing measured means NO usable range, not the whole clip.
+
+        `[[0, duration]]` beside `usable_ranges_method: "unmeasured"` is
+        one field contradicting the three next to it, and it is what the
+        B-roll selector read when it cut project 001's first interjection
+        out of a whip pan.
+        """
         usable, unusable, method, signals = _compute_usable_ranges(
             None, 10.0, "unknown")
-        assert usable == [[0, 10.0]]
+        assert usable == []
         assert unusable == []
         assert method == "unmeasured"
         assert signals == []
@@ -206,7 +213,7 @@ class TestUnmeasured:
         assert method == "unmeasured"
         assert signals == []
         assert unusable == []
-        assert usable == [[0, 10.0]]
+        assert usable == []
 
     def test_zero_duration_reports_nothing_usable(self):
         usable, unusable, method, signals = _compute_usable_ranges(
@@ -515,7 +522,8 @@ class TestDeterministicAssessmentIntegration:
     def test_no_temporal_index_returns_unmeasured(self):
         result = compute_deterministic_assessment(None, "hello", duration=5.0)
         assert result["usable_ranges_method"] == "unmeasured"
-        assert result["usable_ranges"] == [[0, 5.0]]
+        assert result["usable_ranges"] == []
+        assert result["usable_ranges_signals"] == []
 
     def test_high_motion_clip_narrowed(self):
         """A clip with sustained high motion gets narrowed usable ranges."""

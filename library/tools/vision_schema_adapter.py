@@ -254,19 +254,36 @@ def format_ranges(ranges) -> str:
     return ", ".join(out)
 
 
+# Rendered when the assessment says outright that nothing measured the
+# clip. A blank cell reads as "no bound", which is how the B-roll selector
+# came to treat 188 unmeasured seconds as free to cut from.
+UNMEASURED_SUMMARY = "unmeasured - nothing measured this clip"
+
+
 def usable_ranges_summary(assessment) -> str:
     """The usable ranges of a clip as one string, including "none at all".
 
-    An assessment that measured the clip and found nothing usable reports
-    ``usable_ranges: []``, which formats to the empty string - the same
-    thing an unmeasured clip renders as. A consumer reading that cell
-    cannot tell "no bound" from "no footage", so the fully-excluded case
-    is spelled out with the reasons that excluded it.
+    Three states, and a reader must be able to tell them apart:
+
+    - measured, ranges found -> ``0.0-45.9s``
+    - measured, nothing usable -> ``usable_ranges: []`` with a
+      ``deterministic_v1`` method, spelled out with the reasons that
+      excluded the clip;
+    - never measured -> ``usable_ranges_method: "unmeasured"``, said in
+      words.  It used to render as the empty string, indistinguishable
+      from a document that carries no such field at all.
+
+    A document with NO ``usable_ranges_method`` at all is a legacy one,
+    and renders empty so `semantic_index` can fall back to its
+    ``usable_portions`` prose.
     """
     if not isinstance(assessment, dict):
         return ""
+    method = assessment.get("usable_ranges_method")
     text = format_ranges(assessment.get("usable_ranges"))
-    if text or assessment.get("usable_ranges_method") != "deterministic_v1":
+    if not text and method == "unmeasured":
+        return UNMEASURED_SUMMARY
+    if text or method != "deterministic_v1":
         return text
     reasons = []
     for entry in assessment.get("unusable_ranges") or []:

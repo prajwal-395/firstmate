@@ -885,6 +885,54 @@ The files CACHED, so the next run skipped the clips.
 It DOES install on 3.14 now - `praat_parselmouth-0.4.7-cp314-cp314-macosx_11_0_arm64.whl`, measured 2026-08-28 - and it measures 001's parking-lot iPhone audio usefully: clip_011 came back `mean_f0_hz 119.5`, `voicing_percentage 40.8`, `hnr_db 6.3`.
 Two things still stand between that and a working step 1.05. It is handed the raw `.MOV` (`prosody.audio_file` is the path out of `raw/`) and Praat answers `PraatError: Not an audio file` - the audio has to be extracted first, with ffmpeg. And `intensity_contour_50ms` is capped at 1200 samples, which is the first 60 s of a 188.6 s clip.
 
+### usable-ranges-were-the-whole-clip
+
+Every one of the 17 vision documents from project 001's 2026-08-26 run carried this, together:
+
+```json
+"camera_stability": "unknown",
+"usable_ranges_method": "unmeasured",
+"usable_ranges_signals": [],
+"usable_ranges": [[0, 188.578]]
+```
+
+Three fields say nothing was measured and the fourth asserts the whole clip.
+`_unmeasured()` returned `[[0, duration]]`.
+
+Two causes, both structural:
+
+- **The DAG runs `semantic_analysis` (1.03) before `temporal_index` (1.04).**
+  `_compute_usable_ranges` read only temporal-index signals, so on a first run it had nothing to read and every clip came back unmeasured.
+- **`load_temporal_index` looked in `raw/analysis/temporal_index/`**, where the index lived before the project layout moved it to `pipeline_output/steps/1_04_temporal_index/index/`.
+  So even a re-run, with a complete index on disk, found nothing.
+
+**What it cost the cut.** The B-roll selector reads `usable_ranges` to pick which 2.5 seconds of a clip to cut.
+It chose `clip_006` (IMG_1811.MOV) source 1.65-4.15s for the first interjection, rationale *"a neutral observational wide, chosen for being unremarkable"*.
+The master at 25.0s - source 3.15s of that clip - is motion-blurred asphalt with no legible subject.
+The reasoning was sound; nothing had measured the window.
+
+**The measurement.** `library/tools/analysis/picture_quality.py`: variance of a 4-neighbour Laplacian on a greyscale frame, 5 Hz, short side bounded to 180px.
+A sample is soft below `max(80.0, 0.20 x p90-of-this-clip)`; three consecutive soft samples (0.6s) make a range.
+Relative alone would rate an end-to-end blurred clip's own mush as normal; absolute alone cannot tell flat asphalt from a missed focus.
+
+Measured on 001's own 17 clips: the threshold for clip_006 is 166.3, and the samples across the chosen window read
+4.6, 28.2, 310.3, 57.1, 19.5, 479.5, 19.2, 23.1, **73.7**, 130.4, 371.4, 265.3, 860.8.
+1.15s of the 2.50s window is flagged, the master's own frame at source 3.15s falls inside `2.8-3.6`, and `usable_ranges` for that clip becomes `[[2.0, 2.8], [3.6, 7.2], [8.2, 22.87]]` - the window is no longer offered.
+Verified by eye: clip_006 @3.15s and clip_008 @5.0s are unreadable blur and both fall inside a reported range; clip_006 @5.0s (a legible "THE WORKS" sign) and clip_008 @2.0s (a sharp brick wall) do not.
+8 of the 17 clips come back with no soft range at all.
+
+**Cost.** 47.4s for 17 clips / 807s of 1080p footage on a cold page cache: 2.79s per clip, 0.059x realtime.
+The vision pass beside it costs 140s per clip of model time, so this is ~2% on top.
+
+**What the sampling can and cannot resolve.** Samples are 0.2s apart, so a soft window shorter than 0.2s can fall entirely between two and is invisible.
+The 0.6s reporting floor means the shortest window guaranteed to be reported is 0.6s; below that a window may land on only two samples and be dropped.
+The measurement cannot tell motion blur from a missed focus pull from a genuinely low-texture subject, which is why the reason it records is `soft_picture` - what it measured - and not a cause it did not.
+
+**The rest of the assessment object, checked for the same pattern.**
+`speech_present`/`speech_coverage` carry `None` with `speech_coverage_method: "unmeasured"`, `camera_stability` says `unknown`, and `content_type` says `unknown` - all honest, and none of them was filled in to match the fix.
+One was not: `primary_subject_visible` was set to `[]` when the assessment model call produced nothing at all, which reads as "the subject appears nowhere in this clip" and reaches the B-roll prompt as that.
+It is now `None` on that branch - the same defect as `[[0, duration]]`, inverted.
+
 ### semantic-analysis-triggers-a-vision-run
 
 Any clip whose id is not already a `raw/analysis/clip_profile_<clip_id>.json` triggers a full local vision run when `step_1_03_semantic_analysis/step.py` is invoked.

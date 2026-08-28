@@ -93,10 +93,47 @@ def test_compute_deterministic_assessment(sample_temporal_index):
     assert assessment["speech_present"] is True
     assert assessment["speech_coverage"] == 0.15 # 1.5s / 10.0s
     assert assessment["camera_stability"] == "stable" # residual mean ~0.012 < 0.02
-    # With low motion values (residual ~0.012), the whole clip is usable
+    # No motion scale and no picture sample, so nothing measured the
+    # ranges - and an unmeasured clip claims nothing, not everything.
     assert assessment["usable_ranges_method"] == "unmeasured"  # only 12 motion samples < 30
-    assert isinstance(assessment["usable_ranges"], list)
-    assert isinstance(assessment["unusable_ranges"], list)
+    assert assessment["usable_ranges"] == []
+    assert assessment["unusable_ranges"] == []
+    assert assessment["usable_ranges_signals"] == []
+
+
+def test_a_failed_assessment_call_asserts_no_subject_visibility():
+    """`[]` would say "the subject appears nowhere", and nothing looked.
+
+    Same defect as `usable_ranges: [[0, duration]]`, inverted: an answer
+    written where the pass that would have produced it did not run.
+    """
+    analyzer = MagicMock()
+    analyzer.analyze_with_retry.return_value = (None, "", 0.0)
+
+    assessment, _ = vp.analyze_assessment(
+        analyzer, "clip.mov", 10.0,
+        {"speech_present": None, "camera_stability": "unknown"})
+
+    assert assessment["content_type"] == "unknown"
+    assert assessment["primary_subject_visible"] is None
+    assert assessment["usable_ranges_method"] == "unmeasured"
+    assert assessment["usable_ranges"] == []
+
+
+def test_a_successful_assessment_call_keeps_the_model_ranges():
+    analyzer = MagicMock()
+    analyzer.analyze_with_retry.return_value = (
+        {"content_type": "scenery", "primary_subject_visible": [[0, 9]]},
+        "", 0.0)
+
+    assessment, _ = vp.analyze_assessment(
+        analyzer, "clip.mov", 10.0, {"camera_stability": "unknown"},
+        soft_picture_ranges=[])
+
+    assert assessment["content_type"] == "scenery"
+    assert assessment["primary_subject_visible"] == [[0, 9]]
+    assert assessment["usable_ranges_method"] == "deterministic_v1"
+    assert assessment["usable_ranges"] == [[0, 10.0]]
 
 def test_parse_json_array():
     # Valid JSON

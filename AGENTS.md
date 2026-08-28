@@ -659,6 +659,14 @@ Judge a step by what it MEASURED.
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
 Exercise the collection half with an analysis dir of copied profiles and `raw_footage_files: []`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
 
+**`usable_ranges` is a measurement, and an absent one is EMPTY - never the whole clip.**
+`[[0, duration]]` beside `usable_ranges_method: "unmeasured"` is one field contradicting the three next to it, and the B-roll selector reads it to decide which 2.5 seconds of a clip to cut. [why](docs/RULE_EVIDENCE.md#usable-ranges-were-the-whole-clip)
+
+- `[]` with method `unmeasured` means nobody looked; `[]` with method `deterministic_v1` means the clip was measured and none of it is usable. `usable_ranges_summary` renders the two differently and neither as a blank cell.
+- The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
+- It samples at 5 Hz and reports runs of 0.6s or longer. **State that bound when you report a verdict**: shorter soft windows can fall between samples, and it cannot tell motion blur from a missed focus.
+- `camera_stability` stays `unknown` when nothing measured it. Do not fill it in to match.
+
 ### 10.4 Gates, and what counts as evidence
 
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**

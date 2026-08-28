@@ -34,6 +34,15 @@ from mlx_vlm.prompt_utils import apply_chat_template
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from model_lifecycle import managed_model
 
+# Step 1.03 runs this file as a SCRIPT, so sys.path[0] is this directory
+# and the repo root has to be put on the path by hand.  `parents[3]` is
+# <repo>, above `library/`; tests/test_picture_quality.py asserts the
+# index, because an off-by-one here still imports cleanly under pytest
+# (conftest already has the root on sys.path) and fails only in a run.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT))
+from library.tools.analysis import picture_quality
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Config
@@ -576,25 +585,43 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
 #  Temporal Index & Transcript Loading
 # ═══════════════════════════════════════════════════════════════════════
 
+def _temporal_index_dirs(clip_path):
+    """Where a per-clip temporal index may be found, newest layout first.
+
+    Step 1.04 writes to `Area.TEMPORAL_INDEX`, which the project layout
+    puts at `pipeline_output/steps/1_04_temporal_index/index/`.  This
+    function used to look only in `raw/analysis/temporal_index/`, where
+    the index lived before the layout moved it - so even on a re-run,
+    after 1.04 had written a full index, the vision pass found nothing
+    and rules 1-3 never fired.  The old location is still read, because a
+    project that predates the layout has its index there.
+    """
+    raw_dir = clip_path.parent           # <project>/raw
+    project = raw_dir.parent             # <project>
+    return [
+        project / "pipeline_output" / "steps" / "1_04_temporal_index" / "index",
+        raw_dir / "analysis" / "temporal_index",
+    ]
+
+
 def load_temporal_index(clip_path):
-    """Load temporal index data from raw/analysis/temporal_index/.
+    """Load this clip's temporal index, or None when there is not one.
 
     Returns the full index dict, or None if not found.
     """
-    temporal_dir = clip_path.parent / "analysis" / "temporal_index"
-    if not temporal_dir.is_dir():
-        return None
-
     clip_stem = clip_path.stem
-    for idx_file in sorted(temporal_dir.glob("clip_*.json")):
-        try:
-            with open(idx_file) as f:
-                idx = json.load(f)
-            source = idx.get("source_file", "")
-            if clip_stem in source:
-                return idx
-        except Exception:
+    for temporal_dir in _temporal_index_dirs(clip_path):
+        if not temporal_dir.is_dir():
             continue
+        for idx_file in sorted(temporal_dir.glob("clip_*.json")):
+            try:
+                with open(idx_file) as f:
+                    idx = json.load(f)
+                source = idx.get("source_file", "")
+                if clip_stem in source:
+                    return idx
+            except Exception:
+                continue
     return None
 
 
@@ -864,24 +891,43 @@ def _complement_ranges(unusable, duration, min_usable=MIN_USABLE_RANGE_S):
     return [r for r in usable if r[1] - r[0] >= min_usable]
 
 
-def _unmeasured(duration):
-    """The answer when no signal could measure the clip."""
-    whole = [[0, round(duration, 3)]] if duration > 0 else []
-    return whole, [], "unmeasured", []
+def _unmeasured():
+    """The answer when no signal could measure the clip.
+
+    `usable_ranges` is EMPTY, not `[[0, duration]]`.  Asserting the whole
+    clip is usable is a claim, and nothing made it: the three fields
+    beside it say `unmeasured`, `[]`, `unknown` and the fourth used to
+    contradict all three.  The B-roll selector read that fourth field and
+    cut project 001's first interjection out of a whip pan.  An absent
+    measurement reads as absent.
+    """
+    return [], [], "unmeasured", []
 
 
-def _compute_usable_ranges(temporal_index, duration, content_type):
-    """Derive usable/unusable ranges from temporal index signals.
+def _compute_usable_ranges(temporal_index, duration, content_type,
+                           soft_picture_ranges=None):
+    """Derive usable/unusable ranges from whatever really measured the clip.
 
     Rules:
       1. Sustained high motion (>1s of handling-grade motion) -> unusable
       2. Dead head/tail (no speech + high motion at clip boundaries) -> unusable
       3. Subject absence on A-roll clips (face_presence < 0.1 for >2s) -> unusable
+      4. Soft picture (blur, measured off the video file) -> unusable
+
+    Rules 1-3 read the temporal index, which step 1.04 writes AFTER this
+    step runs, so on a first run they have nothing to read.  Rule 4 needs
+    only the video file and is what measures a first run;
+    `library/tools/analysis/picture_quality.py` computes it and states
+    what its sampling rate can and cannot resolve.
 
     Rules 1 and 2 need the absolute motion scale; a temporal index written
     before `peak_mean_abs_diff` existed carries only a per-clip normalized
     curve, which cannot answer "is this a lot of motion", so those rules
     are skipped rather than answered wrongly.
+
+    `soft_picture_ranges` is None when the picture was never sampled and
+    `[]` when it was sampled and nothing was soft.  The two are different
+    answers: the second is a measurement.
 
     Returns (usable_ranges, unusable_ranges, method, signals_used).
     """
@@ -889,8 +935,20 @@ def _compute_usable_ranges(temporal_index, duration, content_type):
     unusable = []
     duration = float(duration or 0)
 
-    if not temporal_index or duration <= 0:
-        return _unmeasured(duration)
+    if duration <= 0:
+        return _unmeasured()
+
+    # Rule 4: Soft picture, measured off the file itself.
+    if soft_picture_ranges is not None:
+        signals_used.append(picture_quality.SIGNAL_NAME)
+        unusable += [dict(r) for r in soft_picture_ranges]
+
+    if not temporal_index:
+        if not signals_used:
+            return _unmeasured()
+        unusable = _normalize_unusable(unusable)
+        return (_complement_ranges(unusable, duration), unusable,
+                "deterministic_v1", signals_used)
 
     motion = temporal_index.get("motion_energy") or {}
     motion_sr = motion.get("sample_rate_hz") or 30
@@ -925,7 +983,7 @@ def _compute_usable_ranges(temporal_index, duration, content_type):
             MIN_FACE_ABSENT_RUN_S, duration, "subject_absent")
 
     if not signals_used:
-        return _unmeasured(duration)
+        return _unmeasured()
 
     unusable = _normalize_unusable(unusable)
     usable = _complement_ranges(unusable, duration)
@@ -933,10 +991,11 @@ def _compute_usable_ranges(temporal_index, duration, content_type):
     return usable, unusable, "deterministic_v1", signals_used
 
 
-def _set_usable_ranges(assessment, temporal_index, duration, content_type):
+def _set_usable_ranges(assessment, temporal_index, duration, content_type,
+                       soft_picture_ranges=None):
     """Write the four usable-range fields onto an assessment dict."""
     usable, unusable, method, signals = _compute_usable_ranges(
-        temporal_index, duration, content_type)
+        temporal_index, duration, content_type, soft_picture_ranges)
     assessment["usable_ranges"] = usable
     assessment["unusable_ranges"] = unusable
     assessment["usable_ranges_method"] = method
@@ -944,7 +1003,8 @@ def _set_usable_ranges(assessment, temporal_index, duration, content_type):
     return assessment
 
 
-def compute_deterministic_assessment(temporal_index, transcript, duration=None):
+def compute_deterministic_assessment(temporal_index, transcript, duration=None,
+                                     soft_picture_ranges=None):
     """Compute assessment fields that don't need the vision model.
 
     Returns dict with speech_present, speech_coverage, speech_coverage_method,
@@ -963,7 +1023,8 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None):
             "speech_coverage_method": "unmeasured",
             "camera_stability": "unknown",
         }
-        _set_usable_ranges(result, None, duration or 0, "unknown")
+        _set_usable_ranges(result, None, duration or 0, "unknown",
+                           soft_picture_ranges)
         return result
 
     result = {
@@ -1019,9 +1080,10 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None):
                 else:
                     result["camera_stability"] = "unstable"
 
-    # Usable ranges: Rules 1 & 2 (content_type not yet known; Rule 3
+    # Usable ranges: Rules 1, 2 & 4 (content_type not yet known; Rule 3
     # is deferred to analyze_assessment where the model provides it).
-    _set_usable_ranges(result, temporal_index, clip_duration, "unknown")
+    _set_usable_ranges(result, temporal_index, clip_duration, "unknown",
+                       soft_picture_ranges)
 
     return result
 
@@ -1361,7 +1423,7 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, durat
 
 
 def analyze_assessment(analyzer, video_path, duration, deterministic,
-                       temporal_index=None):
+                       temporal_index=None, soft_picture_ranges=None):
     """Assessment - model call for visual judgment fields.
 
     Merges with pre-computed deterministic fields.  Usable ranges come
@@ -1376,21 +1438,30 @@ def analyze_assessment(analyzer, video_path, duration, deterministic,
         max_tokens=MAX_TOKENS["assessment"], label="Assessment"
     )
 
-    # Merge deterministic fields into model results
+    # Merge deterministic fields into model results.
+    #
+    # When the call produced nothing, `primary_subject_visible` is None,
+    # not `[]`.  `[]` is a claim - "the subject appears nowhere in this
+    # clip" - and it reaches the B-roll prompt as one.  This is the same
+    # defect `usable_ranges: [[0, duration]]` was, inverted: an answer
+    # asserted where no pass ran.  `content_type` says "unknown" for the
+    # same reason.
     assessment = dict(deterministic)
     if result:
         assessment["content_type"] = result.get("content_type", "unknown")
-        assessment["primary_subject_visible"] = result.get("primary_subject_visible", [])
+        assessment["primary_subject_visible"] = result.get(
+            "primary_subject_visible", [])
     else:
         assessment["content_type"] = "unknown"
-        assessment["primary_subject_visible"] = []
+        assessment["primary_subject_visible"] = None
 
     # Usable ranges: deterministic measurement from temporal index signals.
     # Re-compute with the model's content_type so Rule 3 (subject absence)
     # can fire for A-roll clips.  Set AFTER the model merge above so the
     # model result cannot override.
     _set_usable_ranges(
-        assessment, temporal_index, duration, assessment["content_type"])
+        assessment, temporal_index, duration, assessment["content_type"],
+        soft_picture_ranges)
 
     return assessment, elapsed
 
@@ -1485,12 +1556,28 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # ── Group C: Final synthesis ─────────────────────────────────────
 
     # 6. Assessment — hybrid (deterministic + model)
+    #
+    # The picture is sampled ONCE here and handed to both calls below.
+    # `None` back means it could not be sampled, and that is carried
+    # through as an absent measurement rather than smoothed into "fine".
+    print(f"  [Picture] Sharpness at "
+          f"{picture_quality.SAMPLE_RATE_HZ:g}Hz...", end=" ", flush=True)
+    t_pic = time.time()
+    soft_ranges = picture_quality.measure_soft_picture(video_path, duration)
+    t_pic = time.time() - t_pic
+    if soft_ranges is None:
+        print(f"({t_pic:.1f}s) → unmeasured")
+    else:
+        soft_s = sum(r["end"] - r["start"] for r in soft_ranges)
+        print(f"({t_pic:.1f}s) → {len(soft_ranges)} soft range(s), {soft_s:.1f}s")
+
     deterministic = compute_deterministic_assessment(
-        temporal_index, transcript, duration=duration)
+        temporal_index, transcript, duration=duration,
+        soft_picture_ranges=soft_ranges)
     print(f"  [Assessment] Hybrid (1 call, video + deterministic)...", end=" ", flush=True)
     assessment, t = analyze_assessment(
         analyzer, video_path, duration, deterministic,
-        temporal_index=temporal_index)
+        temporal_index=temporal_index, soft_picture_ranges=soft_ranges)
     total_time += t
     total_calls += 1
     print(f"({t:.1f}s) → {assessment.get('content_type', '?')}")
@@ -1529,9 +1616,14 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
           f"Objects: {len(objects)}")
     _cov = assessment.get('speech_coverage')
     _cov_str = f"{_cov:.0%}" if _cov is not None else "unmeasured"
+    _signals = assessment.get("usable_ranges_signals") or []
     print(f"    Type: {assessment.get('content_type', '?')} | "
           f"Speech: {_cov_str} coverage | "
           f"Stability: {assessment.get('camera_stability', '?')}")
+    print(f"    Usable: {assessment.get('usable_ranges_method', '?')}"
+          f"{' (' + ', '.join(_signals) + ')' if _signals else ''} → "
+          f"{len(assessment.get('usable_ranges') or [])} range(s), "
+          f"{len(assessment.get('unusable_ranges') or [])} excluded")
 
     return profile
 

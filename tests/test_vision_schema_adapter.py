@@ -19,9 +19,11 @@ from library.tools.semantic_index import (
     describe_clip,
 )
 from library.tools.vision_schema_adapter import (
+    UNMEASURED_SUMMARY,
     adapt_semantic_document,
     adapt_semantic_documents,
     is_v3_profile,
+    usable_ranges_summary,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -186,7 +188,13 @@ def test_a_fully_excluded_clip_says_so_rather_than_rendering_blank():
     assert clip_observations(excluded)["usable_ranges"] == portions
 
 
-def test_an_unmeasured_clip_renders_no_usable_range_claim():
+def test_an_unmeasured_clip_says_it_was_never_measured():
+    """An absent measurement is said in words, not left blank.
+
+    Blank is what "no bound" looks like, and the B-roll selector reads
+    this cell to decide which seconds of a clip it may cut.  It has to be
+    able to tell "you may cut anywhere" from "nobody looked".
+    """
     unmeasured = dict(V3_PROFILE)
     unmeasured["assessment"] = dict(
         V3_PROFILE["assessment"],
@@ -197,8 +205,26 @@ def test_an_unmeasured_clip_renders_no_usable_range_claim():
     )
 
     assessment = adapt_semantic_document(unmeasured)["assessment"]
-    assert "usable_portions" not in assessment
-    assert clip_observations(unmeasured)["usable_ranges"] == ""
+    assert assessment["usable_portions"] == UNMEASURED_SUMMARY
+    assert clip_observations(unmeasured)["usable_ranges"] == UNMEASURED_SUMMARY
+    assert "0.0-45.9s" not in clip_observations(unmeasured)["usable_ranges"]
+
+
+def test_a_legacy_document_without_the_method_field_still_renders_blank():
+    """A document that predates the field is not an unmeasured verdict.
+
+    `semantic_index` falls back to the document's own `usable_portions`
+    prose when the summary is empty, and that fallback has to stay
+    reachable.
+    """
+    legacy = dict(V3_PROFILE)
+    legacy["assessment"] = {
+        k: v for k, v in V3_PROFILE["assessment"].items()
+        if not k.startswith("usable_ranges")
+    }
+    legacy["assessment"]["usable_portions"] = "0.0-12.0s"
+    assert usable_ranges_summary(legacy["assessment"]) == ""
+    assert clip_observations(legacy)["usable_ranges"] == "0.0-12.0s"
 
 
 def test_scenery_content_type_is_not_labelled_a_roll():
