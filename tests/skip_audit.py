@@ -137,6 +137,14 @@ ENVIRONMENT_CONDITIONS = (
                    "Templates.drfx is on disk to parse",
     ),
     EnvironmentCondition(
+        pattern=r"DaVinci Resolve is not running with a project whose media "
+                r"pool has a video clip",
+        false_when="DaVinci Resolve is running with a project open whose "
+                   "media pool holds a video clip long enough to trim - the "
+                   "state AGENTS.md 5 requires for any Resolve-dependent "
+                   "step, and the state the captain reviews a timeline in",
+    ),
+    EnvironmentCondition(
         pattern=r"PIPELINE_PROJECTS_ROOT was unset before pytest started",
         false_when="PIPELINE_PROJECTS_ROOT is configured, which it is on "
                    "any machine that has run the pipeline",

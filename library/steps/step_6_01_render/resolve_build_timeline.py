@@ -60,6 +60,12 @@ from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.execution.deliver_audio_mix import (  # noqa: E402
     PREMIX_SUFFIX, deliver_mix,
 )
+from library.tools.marker_feedback import (  # noqa: E402
+    UnpulledMarkers, guard_timeline_deletion,
+)
+from library.tools.resolve_locale import (  # noqa: E402
+    scriptapp_preserving_locale,
+)
 
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
@@ -113,7 +119,9 @@ def _connect_resolve():
     os.environ["RESOLVE_SCRIPT_LIB"] = lib_path
 
     import DaVinciResolveScript as dvr
-    resolve = dvr.scriptapp("Resolve")
+    # Through the wrapper: `scriptapp` leaves LC_CTYPE on `C`, and this
+    # step reads UTF-8 manifests and writes UTF-8 logs afterwards.
+    resolve = scriptapp_preserving_locale(dvr)
     if not resolve:
         raise ConnectionError("Cannot connect to DaVinci Resolve. Is it running?")
     return resolve
@@ -640,6 +648,24 @@ def build_timeline(
         # placement timeline under that name for the length of one
         # import, so a run killed mid-import leaves one behind.
         stale = {timeline_name, f"{timeline_name}{PREMIX_SUFFIX}"}
+        # A timeline the captain has annotated is the one thing this
+        # build destroys that no re-run reproduces, so the check happens
+        # BEFORE the first delete and REFUSES rather than warning: a
+        # warning forty minutes into an unattended build is read by
+        # nobody. Clearing it is one read-only command. See
+        # `marker_feedback.assert_markers_pulled`.
+        try:
+            guard_timeline_deletion(project_folder, project, stale)
+        except UnpulledMarkers as exc:
+            results["errors"].append(str(exc))
+            results["unpulled_markers"] = [
+                {"text": n.text, "timecode": n.timecode, "frame": n.frame,
+                 "source": n.source} for n in exc.notes
+            ]
+            # `results["success"]` is already False and nothing has set it
+            # true yet, so this returns a failed build without adding a
+            # second assignment for `test_qa_failure_visibility` to read.
+            return results
         for i in range(project.GetTimelineCount(), 0, -1):
             tl = project.GetTimelineByIndex(i)
             if tl and tl.GetName() in stale:

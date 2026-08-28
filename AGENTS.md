@@ -517,6 +517,7 @@ The captain's footage and renders cannot be re-shot and this machine has no Time
 - External tools: `ffmpeg` and `ffprobe`. Node.js for Remotion subtitle rendering.
 - GPU acceleration is required for Gemma 4, SAM 2, WhisperX and EasyOCR.
 - **Every `subprocess.run` capturing text must pass `encoding="utf-8"`.** `text=True` decodes with the locale codec, and this pipeline writes UTF-8 status glyphs. [why](docs/RULE_EVIDENCE.md#text-true-decodes-with-the-locale-codec)
+- **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. The same defect class as the rule above, arriving from the other side: there the caller chose the wrong codec, here the codec changed underneath a caller who chose none. Only `LC_CTYPE` is restored - `LC_NUMERIC` is untouched, because handing fusionscript a decimal comma would corrupt every number crossing the boundary. Measured on 21.0.0b.28: the import is harmless, `scriptapp` is what does it. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - `resolve_relinker`, `timeline_serializer`, `resolve_health`, `resolve_project_sync`, `qa/timeline_sync_qa`, `execution/resolve_render`, `execution/apply_fusion_comps` and `probe_resolve_capabilities`.
 
 ## 10. Cross-cutting rules
 
@@ -880,6 +881,47 @@ One enumeration, `library/tools/timed_text_overlay.py`.
 - `timed_text_render.py` renders each inside step 4.06, `compile_manifest` carries them as the `timed_text_overlay` manifest key, and `resolve_build_timeline` places them on **V6**.
 - The bookend route declares its artwork project-side by naming a `source:` under `content.bookends`; a line of copy has no file to point at, so timed text needs its own half. A project's `project.yaml` may carry its own `effect.timed_text_overlay`, and it replaces the brand template's whole slot - the same project-over-template precedence `delivery_format_name` uses. `timed_text_overlay.resolve_declaration` is that half, and step 4.06 calls it.
 - **The card states its own `y`**, because geometry is normalised against the whole delivery frame and not the picture area inside letterbox bars. Keep `y` in 0.35..0.65 to land over picture whether the source letterboxes or fills. [why - the measured rows, and the worked example](docs/RULE_EVIDENCE.md#the-night-card-y-band)
+
+## 15. Notes the captain types onto the timeline
+
+The captain reviews a built timeline **inside DaVinci Resolve** and drops markers on it carrying
+natural language - what looks wrong, what to change, what to go and find out.
+One enumeration, `library/tools/marker_feedback.py`, which reads them and writes them to disk.
+It is proved against a real running Resolve by `tests/test_marker_feedback_against_resolve.py`;
+its recorded per-call findings are in the module docstring, in the shape `neural_engine.py` uses.
+
+    python3 -m library.tools.marker_feedback pull  --project <dir>   # collect, durably
+    python3 -m library.tools.marker_feedback show                    # read, write nothing
+    python3 -m library.tools.marker_feedback check --project <dir>   # exit 2 if uncollected
+
+- **A MARKER CARRIES TWO PIECES OF TYPED TEXT AND BOTH ARE READ.** `GetMarkers()` returns `name`
+  (the Add Marker dialog's **Name** field, where the cursor lands) and `note` (its **Notes**
+  field). Reading only `note` loses everything typed into Name, silently, with the marker still
+  on the timeline. Both are kept verbatim; nothing is summarised, truncated or normalised.
+  `Timeline.AddMarker` REFUSES a marker whose name is empty, and returns False saying so.
+- **A timeline marker's frame is relative to `Timeline.GetStartFrame()`; `TimelineItem.GetStart()`
+  is absolute.** A clip marker's frame is a SOURCE frame, the same space as `GetLeftOffset()`, so
+  `timeline_frame = item.GetStart() + (key - item.GetLeftOffset())` and only inside the range the
+  clip plays. Resolve bounds-checks neither. A key outside that range is kept UNPLACED with the
+  reason, never clamped to the clip's head.
+- **`TimelineItem.GetProperty("Comments")` is always None.** Clip comments are a MEDIA POOL
+  property. A timeline item's property dict holds transform keys only - read it with no argument
+  (§5) before trusting a name.
+- **The record goes to `<project>/marker_feedback/`, and that is why `Kind.CAPTURED` exists.**
+  Everything under `pipeline_output/` is `Kind.OUTPUT` - safe to delete because a re-run
+  reproduces it. A typed note is the opposite: irreproducible, and destroyed by precisely a
+  re-run. One file per pull, never overwritten, safe to run repeatedly and while Resolve is open.
+- **The build path REFUSES to delete a timeline carrying uncollected notes.** Step 6.01 deletes
+  any timeline whose name matches before rebuilding, so a re-render used to take the captain's
+  markers with it. `guard_timeline_deletion` runs before the first delete and fails the build,
+  naming the notes and the one command that clears it. It refuses rather than warning because a
+  warning forty minutes into an unattended `--full-auto` build is read by nobody, and clearing
+  the refusal costs one read-only command. `PIPELINE_DISCARD_TIMELINE_MARKERS=1` is the explicit
+  override.
+- **Read, preserve, present - nothing else.** No colour vocabulary: the captain chose typed notes
+  over colour codes, so colour is recorded and read by nothing. No acknowledgement marker is
+  written back and no marker is deleted. This is not wired into the dashboard; the whole point is
+  that the editor stays in Resolve.
 
 ## Maintaining this file
 

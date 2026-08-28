@@ -76,6 +76,13 @@ class Kind(str, Enum):
     """Working files with no reader after the step that wrote them.
     Safe to discard at any moment, including mid-run."""
 
+    CAPTURED = "captured"
+    """The captain's own material, RECORDED off somewhere the pipeline
+    cannot re-read - a note typed onto a DaVinci Resolve timeline.  Like
+    an input it is irreproducible, and unlike an input the pipeline is
+    what writes it.  A re-run must never delete it: the thing that
+    destroys the original is precisely a re-run."""
+
     UNSORTED = "unsorted"
     """Files whose purpose could not be determined.  Nothing writes here
     at run time; the migration puts admitted unknowns here rather than
@@ -218,7 +225,8 @@ def node_id_for(step_identifier: str) -> str:
 RUNNER = "runner"
 DASHBOARD = "dashboard"
 ORGANIZE = "organize"
-NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE)
+MARKER_PULL = "marker_feedback"
+NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -326,6 +334,8 @@ class Area(str, Enum):
     BACKUPS = "backups"
     SCRATCH = "scratch"
     UNSORTED = "unsorted"
+
+    MARKER_FEEDBACK = "marker_feedback"
 
 
 AREAS: dict[Area, AreaSpec] = {
@@ -538,6 +548,15 @@ AREAS: dict[Area, AreaSpec] = {
         "Files whose purpose could not be established. Nothing writes here at "
         "run time. An admitted unknown, never a guess and never a deletion.",
         produced_by=(ORGANIZE,)),
+    Area.MARKER_FEEDBACK: AreaSpec(
+        "marker_feedback", Kind.CAPTURED,
+        "Notes the captain typed onto a Resolve timeline, pulled off it by "
+        "library/tools/marker_feedback.py. One file per pull, never "
+        "overwritten. It sits at the project root and NOT under "
+        "pipeline_output/ because everything there is reproducible by a "
+        "re-run, and these are the one thing a re-run destroys: step 6.01 "
+        "deletes the timeline before rebuilding it.",
+        produced_by=(MARKER_PULL,)),
 }
 
 # The areas a given step owns, in table order.
@@ -548,6 +567,7 @@ for _area, _spec in AREAS.items():
 
 WRITABLE_KINDS = frozenset({
     Kind.OUTPUT, Kind.DELIVERABLE, Kind.BACKUP, Kind.SCRATCH, Kind.UNSORTED,
+    Kind.CAPTURED,
 })
 
 
@@ -1048,6 +1068,10 @@ class ProjectLayout:
             f"  `pipeline_data.json` per run, newest {MAX_PIPELINE_DATA_BACKUPS} kept,",
             "  pruned automatically. Hand-made backups from before that policy are in",
             f"  `{LEGACY_BACKUP_SUBDIR}/` beside them and are never pruned.",
+            f"- `{AREAS[Area.MARKER_FEEDBACK].relpath}/` is the captain's own typed",
+            "  notes, pulled off a Resolve timeline. It is the one computed thing a",
+            "  re-run must never delete, which is why it is not under",
+            f"  `{_OUT}/`. One file per pull, never overwritten.",
             f"- `{_OUT}/unsorted/` is where a file goes when nobody could say",
             "  what it was. An admitted unknown beats a confident wrong guess, and",
             "  beats deleting it.",

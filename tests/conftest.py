@@ -65,8 +65,23 @@ if not os.environ.get(SANDBOX_ESCAPE_HATCH_ENV):
 # sorting before "test_resolve_..." failed on CI while passing locally.
 #
 # Only stubbed when the real module is absent, so a machine with Resolve
-# still exercises the real bindings.
+# still exercises the real bindings. That promise needs the module's own
+# directory on the path first: Resolve ships DaVinciResolveScript.py under
+# Application Support and nothing else puts it on sys.path, so the bare
+# import failed on a machine that HAS Resolve and the stub went in anyway.
+# `tests/test_marker_feedback_against_resolve.py` is the suite that needs
+# the real bindings; without this it skipped everywhere.
 if "DaVinciResolveScript" not in sys.modules:
+    _resolve_modules = os.path.join(
+        os.environ.get(
+            "RESOLVE_SCRIPT_API",
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/"
+            "Developer/Scripting",
+        ),
+        "Modules",
+    )
+    if os.path.isdir(_resolve_modules) and _resolve_modules not in sys.path:
+        sys.path.append(_resolve_modules)
     try:
         import DaVinciResolveScript  # noqa: F401
     except ImportError:

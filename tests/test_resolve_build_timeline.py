@@ -3,14 +3,32 @@ import sys
 import pytest
 from unittest.mock import MagicMock, patch
 
-# Mock DaVinciResolveScript before importing the module
+# This file's tests drive a FAKE Resolve. The fake used to be installed
+# into sys.modules unconditionally at IMPORT time, and pytest imports
+# every test file before it runs any of them - so the fake reached the
+# whole session and displaced the real module on a machine that has
+# Resolve. Eighteen tests that need a real connection skipped because of
+# it, reporting "Resolve is not running" on a machine where it was.
+# `setdefault` is the import-time fallback (apply_fusion_comps imports
+# DaVinciResolveScript at module level, so SOMETHING has to be there);
+# the autouse fixture below is what makes the fake this file's own.
 mock_dvr = MagicMock()
-sys.modules['DaVinciResolveScript'] = mock_dvr
+sys.modules.setdefault('DaVinciResolveScript', mock_dvr)
 
 # Add library path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/steps/step_6_01_render')))
 
 from resolve_build_timeline import build_timeline, _preflight_check, _allocate_sfx_tracks
+
+@pytest.fixture(autouse=True)
+def _the_fake_resolve_is_this_files_own(monkeypatch):
+    """Swap the fake in for the length of one test, and back out after.
+
+    `monkeypatch.setitem` restores whatever was there - the real module
+    on a machine with Resolve, the session stub on one without.
+    """
+    monkeypatch.setitem(sys.modules, 'DaVinciResolveScript', mock_dvr)
+
 
 @pytest.fixture
 def mock_resolve():
