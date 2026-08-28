@@ -772,6 +772,20 @@ four templates should ship at all.
   against the template and nothing acts. Either feed the score back into a
   re-cut, or stop pretending pacing is controlled. **Medium.**
 
+- **P4.3 CLOSED by rescope (#238).** `creative_cohesion`'s only finding on
+  001's 2026-08-26 run was `speech_sequence.segment_order`, which
+  `compile_manifest` correctly refused; `applied_adjustments` was empty on
+  every run. The review cannot move upstream of what it reviews - it reads
+  the 4.02-4.04 plans - so it is scoped where it runs instead:
+  `library/tools/cohesion_scope.py` splits findings into the ones the
+  manifest compiler applies (`adjustments`) and the ones a step upstream
+  owns (`observations`, naming the owner and the re-run that would act).
+  Two further dead readings went with it: the colour check read
+  `color_grade_spec["mood"]`, a key step 5.01 does not emit, and
+  `cohesion_score` was 100 minus hand-picked weights that nothing outside
+  the step read. Both removed. See
+  `docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do`.
+
 ### Phase 4.5: the perceptual quality gate. Ahead of Phase 5, by ruling.
 
 **Q8 answered (2026-08-16), and not with the answer that was asked for.**

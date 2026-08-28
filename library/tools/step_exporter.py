@@ -484,14 +484,42 @@ def _summary_audio_mix(name: str, out: dict) -> str:
 
 
 def _summary_creative_cohesion(name: str, out: dict) -> str:
+    """What the review found, split by who can act on it.
+
+    This used to read `passed`/`cohesive`/`notes`/`feedback`, and step
+    5.03 emits none of the four - so project 001's summary.md was the
+    title and nothing else, beside an output.json carrying a warning and
+    an adjustment (#238).  It now reads the keys the step really writes.
+    """
     review = out.get("cohesion_review", out)
     lines = [f"# {name}", ""]
-    passed = review.get("passed", review.get("cohesive", None))
-    if passed is not None:
-        lines.append(f"**Result**: {'COHESIVE' if passed else 'NEEDS REVISION'}")
-    notes = review.get("notes", review.get("feedback", ""))
-    if notes:
-        lines.append(f"\n{notes}")
+    duration = review.get("timeline_duration_seconds")
+    if duration:
+        lines.append(f"**Timeline**: {duration}s")
+    warnings = review.get("warnings") or []
+    adjustments = review.get("adjustments") or []
+    observations = review.get("observations") or []
+    lines.append(
+        f"\n**{len(warnings)} finding(s)**, "
+        f"{len(adjustments)} applicable here, "
+        f"{len(observations)} owned upstream")
+    for warning in warnings:
+        lines.append(f"- {warning}")
+    if adjustments:
+        lines.append(
+            f"\n## Applied by {review.get('applied_by', 'the compiler')}")
+        for adj in adjustments:
+            lines.append(
+                f"- `{adj.get('target_step')}.{adj.get('field')}` -> "
+                f"{adj.get('suggested_value')}")
+    if observations:
+        lines.append("\n## Owned by a step that has already run")
+        for obs in observations:
+            lines.append(
+                f"- `{obs.get('state_key')}.{obs.get('field')}` belongs to "
+                f"{obs.get('owner_step')}: {obs.get('finding')}")
+            lines.append(f"  - {obs.get('reason')}")
+            lines.append(f"  - act on it with: `{obs.get('how_to_act')}`")
     return "\n".join(lines)
 
 

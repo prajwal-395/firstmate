@@ -6,6 +6,7 @@ Reviews creative decisions across plans for cohesion and consistency.
 import json
 import sys
 
+from library.tools import cohesion_scope
 from library.tools.energy_reading import read_energy
 from library.tools.passage_engagement import (
     NO_ENGAGEMENT_BASIS,
@@ -112,13 +113,15 @@ def review_creative_cohesion(inputs: dict) -> dict:
     else:
         sfx = sfx_spec_raw if isinstance(sfx_spec_raw, list) else []
 
-    color_grade_spec = inputs.get("color_grade_spec", {})
     speech_sequence = inputs.get("speech_sequence", {})
-    project_config = inputs.get("project_config", {})
 
     warnings = []
-    adjustments = []
-    score = 100
+    # Every finding this step makes, before it is routed. A proposal is
+    # either something `compile_manifest` really applies or something a
+    # step upstream owns, and `cohesion_scope.split` is what decides
+    # which - see the module docstring for why the two cannot be one
+    # list.
+    proposals = []
 
     # 1. Energy Alignment Check
     #
@@ -137,6 +140,10 @@ def review_creative_cohesion(inputs: dict) -> dict:
         )
 
     # Transition Check
+    #
+    # The one finding this step can act on where it runs: a duration is a
+    # number the compiler rewrites, and nothing that is timed off the
+    # timeline moves when it does.
     for t in transitions if energy else []:
         # A transition that declares no duration is not measured. Assuming
         # 15 frames invented the very number this check then judged.
@@ -153,13 +160,14 @@ def review_creative_cohesion(inputs: dict) -> dict:
 
         if energy == "high":
             if dur_ms >= 500 and not is_cut(ttype):
-                warnings.append(f"High energy but found slow transition ({dur_ms}ms)")
-                score -= 5
-                adjustments.append({
+                finding = f"High energy but found slow transition ({dur_ms}ms)"
+                warnings.append(finding)
+                proposals.append({
                     "target_step": "transition_spec",
                     "field": "duration_frames",
                     "current_value": dur_frames,
                     "suggested_value": 10, # ~333ms
+                    "finding": finding,
                     "reason": "High energy requires faster transitions (<500ms)",
                     "target_index": transitions.index(t)
                 })
@@ -169,13 +177,14 @@ def review_creative_cohesion(inputs: dict) -> dict:
             # longer exist - "cross_dissolve" here matched nothing the
             # planner could emit.
             if dur_ms <= 1000 and canonical_type(ttype) in SOFT_TRANSITIONS:
-                warnings.append(f"Calm energy but found fast dissolve ({dur_ms}ms)")
-                score -= 5
-                adjustments.append({
+                finding = f"Calm energy but found fast dissolve ({dur_ms}ms)"
+                warnings.append(finding)
+                proposals.append({
                     "target_step": "transition_spec",
                     "field": "duration_frames",
                     "current_value": dur_frames,
                     "suggested_value": 30, # 1000ms
+                    "finding": finding,
                     "reason": "Calm energy should have slower dissolves (>=1000ms)",
                     "target_index": transitions.index(t)
                 })
@@ -200,54 +209,52 @@ def review_creative_cohesion(inputs: dict) -> dict:
 
     sfx_density_per_min = (len(sfx) / total_duration) * 60 if total_duration > 0 else 0
     if energy == "high" and total_duration and sfx_density_per_min < 10:
-        warnings.append(f"High energy but sparse SFX ({sfx_density_per_min:.1f} per min)")
-        score -= 5
-        adjustments.append({
+        finding = f"High energy but sparse SFX ({sfx_density_per_min:.1f} per min)"
+        warnings.append(finding)
+        proposals.append({
             "target_step": "sfx_spec",
             "field": "density",
             "current_value": "sparse",
             "suggested_value": "dense",
+            "finding": finding,
             "reason": "High energy requires dense SFX"
         })
     elif energy == "calm" and total_duration and sfx_density_per_min > 15:
-        warnings.append(f"Calm energy but dense SFX ({sfx_density_per_min:.1f} per min)")
-        score -= 5
-        adjustments.append({
+        finding = f"Calm energy but dense SFX ({sfx_density_per_min:.1f} per min)"
+        warnings.append(finding)
+        proposals.append({
             "target_step": "sfx_spec",
             "field": "density",
             "current_value": "dense",
             "suggested_value": "sparse",
+            "finding": finding,
             "reason": "Calm energy requires sparse SFX"
         })
 
-    # Color Grade Check
-    color_mood = str(color_grade_spec.get("mood", color_grade_spec.get("grade_name", ""))).lower()
-    if energy == "high" and any(w in color_mood for w in ["soft", "muted", "faded", "calm"]):
-        warnings.append("High energy but color grade is soft/muted")
-        score -= 5
-    elif energy == "calm" and any(w in color_mood for w in ["high contrast", "vibrant", "punchy", "saturated"]):
-        warnings.append("Calm energy but color grade is highly saturated/contrasty")
-        score -= 5
-
-    # The pacing consistency check used to sit here. It is REMOVED, not
-    # disabled - see docs/PIPELINE_PLAN.md P4.2. Three reasons, any one of
-    # which is sufficient:
+    # The colour grade check used to sit here, and it is REMOVED for the
+    # same three reasons the pacing check was (#238, and P4.2 in
+    # docs/PIPELINE_PLAN.md):
     #
-    #   1. It read `creative_direction["pacing"]["cuts_per_minute"]`, a
-    #      singular key no producer has ever emitted, so the target was
-    #      always None and the check never ran. The tests that covered it
-    #      supplied the key themselves.
-    #   2. The brand templates' pacing blocks - the thing a target would
-    #      have come from - had no reader anywhere in the repository, and
-    #      spelled themselves two different ways across four files.
-    #   3. Even had it run, it emitted no adjustment, and it runs at 5.03,
-    #      after the spine, the speech sequence and the transitions have
-    #      fixed the cut. Changing pacing means re-cutting, which is a
-    #      re-plan; `apply_cohesion_adjustments` refuses those by design
-    #      and the DAG has no edge back to the planning steps.
+    #   1. It read `color_grade_spec["mood"]` and `["grade_name"]`.
+    #      Step 5.01 emits neither. Its real spec carries
+    #      `grade_pipeline`, `per_clip_adjustments`, `fusion_look`,
+    #      `house_look`, `house_look_title`, `look_notes`, `withdrawn`,
+    #      `output_color_space` and `consistency_notes` - measured on
+    #      project 001's own 2026-08-26 output - so the substring match
+    #      ran against "" on every real run and the check never fired.
+    #      The tests that covered it supplied `mood` themselves.
+    #   2. The values that ARE there are numbers, not moods:
+    #      `library/tools/house_look.py` gives every look a `saturation`
+    #      and a `contrast`. Turning either into "soft" or "punchy"
+    #      against an energy word means choosing a threshold, and a
+    #      threshold nobody measured is a creative value this file would
+    #      be inventing (AGENTS.md 10.5).
+    #   3. It emitted no adjustment even when it fired, so there was
+    #      never a route from the finding to the picture.
     #
-    # A score nobody can act on reads as coverage. If pacing control is
-    # wanted it is a re-cut loop, and that is a design job.
+    # The grade IS still changeable at 5.03 - it is a CDL and a set of
+    # Fusion values, and moves no frame. A check on it is welcome; it
+    # needs a declared target to judge against, which no step emits yet.
 
     # Engagement check
     #
@@ -276,6 +283,10 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # strongest passage is a DIFFERENT moment from the hook - which is
     # the case #246 describes, the piece's own emotional floor landing at
     # 48.065s of a 59.437s cut with nothing able to weigh it.
+    #
+    # It is an OBSERVATION, not an adjustment. Re-ordering the narrative
+    # is step 2.02's decision and eleven steps of timing rest on it; see
+    # library/tools/cohesion_scope.py.
     if isinstance(speech_sequence, dict):
         hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence") or []
@@ -295,8 +306,8 @@ def review_creative_cohesion(inputs: dict) -> dict:
                        if engagement_rank(b) is not None]
 
         if hook_rank is None or not ranked_body:
-            # Stated, not silent, and it costs no score: an absent
-            # judgement is not a defect in the edit.
+            # Stated, not silent: an absent judgement is not a defect in
+            # the edit, and it produces no finding of any kind.
             warnings.append(
                 "Engagement not compared: " + NO_ENGAGEMENT_BASIS)
         else:
@@ -307,19 +318,15 @@ def review_creative_cohesion(inputs: dict) -> dict:
                 ranked_body, key=lambda entry: (entry[0], entry[1]))
             if top_rank < hook_rank and not _is_the_hooks_moment(hook, top_passage):
                 where = _passage_label(top_passage, top_index)
-                warnings.append(
+                finding = (
                     f"Hook ranks {hook_rank} of the sequence; the passage "
                     f"the model ranked strongest ({top_rank}) is "
                     f"{where}{_composite_note(top_passage, hook)}")
-                score -= 10
-                adjustments.append({
+                warnings.append(finding)
+                proposals.append({
                     "target_step": "speech_sequence",
                     "field": "segment_order",
-                    "current_value": "current",
-                    "suggested_value": "front_loaded",
-                    "reason": (
-                        f"The strongest passage by the model's own ranking "
-                        f"is {where}, not the hook"),
+                    "finding": finding,
                 })
 
     # 3. Duration Warning
@@ -342,48 +349,55 @@ def review_creative_cohesion(inputs: dict) -> dict:
             f"Duration warning: actual duration ({timeline_duration:.1f}s) "
             f"exceeds the maximum target zone ({max_dur:.1f}s)"
         )
-        score -= 3
     elif timeline_duration < min_dur:
         warnings.append(
             f"Duration warning: actual duration ({timeline_duration:.1f}s) "
             f"is below the minimum target zone ({min_dur:.1f}s)"
         )
-        score -= 3
 
-    # 4. Output Adjustments
-    score = max(0, score)
+    # 4. Route every finding.
+    #
+    # A finding is an ADJUSTMENT only where the manifest compiler has a
+    # branch that applies it; everything else is an OBSERVATION naming the
+    # step that owns the decision. `split` raises on a pair declared in
+    # neither list, so a new finding cannot quietly become an adjustment
+    # that is then quietly dropped.
+    adjustments, observations = cohesion_scope.split(proposals)
 
-    # 5. Apply Adjustments (optional)
-    applied_adjustments = []
-    if score < 70:
-        for adj in adjustments:
-            if adj["target_step"] == "transition_spec" and "target_index" in adj:
-                idx = adj["target_index"]
-                transitions[idx][adj["field"]] = adj["suggested_value"]
-                applied_adjustments.append(f"Adjusted transition {idx} {adj['field']} to {adj['suggested_value']}")
-            elif adj["target_step"] == "sfx_spec" and adj["field"] == "density":
-                # We can't really generate new SFX here, but we can set a flag
-                applied_adjustments.append("Flagged SFX density adjustment needed")
-            elif adj["target_step"] == "speech_sequence" and adj["field"] == "segment_order":
-                applied_adjustments.append("Flagged speech sequence for reordering (too destructive to auto-apply)")
-
-    # Construct review output
+    # `cohesion_score` used to be reported here. It is REMOVED (#238), and
+    # not because it was hard to compute:
+    #
+    #   1. It was 100 minus a hand-picked weight per finding - 5 for a
+    #      transition, 5 for SFX density, 5 for the grade, 10 for the
+    #      hook, 3 for the duration. Nothing measured those weights and
+    #      nothing could; the 90 on project 001's 2026-08-26 run was
+    #      100 minus one 10.
+    #   2. Nothing outside this step read it. Not compile_manifest, not
+    #      render_qa, not the dashboard, not the step exporter.
+    #   3. Its one internal reader, `if score < 70`, gated a block that
+    #      mutated `transitions` in place and appended sentences to an
+    #      `applied_adjustments` list - and this step emits only
+    #      `cohesion_review`, so neither the mutation nor the list ever
+    #      left the process. It reported "applied" about nothing.
+    #
+    # A number nobody acts on, made of weights nobody measured, reads as
+    # a verdict on the edit (AGENTS.md 10.4). What this step really has
+    # is a list of findings; that is what it reports.
     cohesion_review = {
-        "cohesion_score": score,
         "timeline_duration_seconds": round(timeline_duration, 2),
         "warnings": warnings,
+        # Every entry here is one `apply_cohesion_adjustments` applies.
         "adjustments": adjustments,
-        "applied_adjustments": applied_adjustments,
-        # This step's edits above are a local preview: it emits only
-        # cohesion_review, so nothing it changes reaches pipeline state.
-        # `applied_adjustments` therefore said nothing was applied while
-        # compile_manifest was applying three things. The authoritative
-        # record of what happened to each adjustment is
-        # assembly_manifest.cohesion_adjustments.
+        # Findings a step upstream owns: stated, with who owns them and
+        # what re-run would act on them. Never presented as changes.
+        "observations": observations,
+        # The authoritative record of what happened to each adjustment is
+        # assembly_manifest.cohesion_adjustments, written by the applier.
         "applied_by": "step_5_04_compile_manifest",
     }
 
     return cohesion_review
+
 
 def main():
     data = json.loads(sys.stdin.read())

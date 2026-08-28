@@ -116,7 +116,6 @@ def _inputs(**kw):
         "creative_direction": {"target_energy": "moderate"},
         "transition_spec": [],
         "sfx_spec": [],
-        "color_grade_spec": {},
         "speech_sequence": SPEECH_001,
         "audio_spine": SPINE_001,
     }
@@ -201,8 +200,23 @@ def test_a_buried_hook_is_now_detected():
         f"the engagement gate still cannot fire: {review['warnings']}")
     assert "clip_016" in joined and "48.065" in joined, joined
     assert "composite 92 against the hook's 55" in joined, joined
-    assert any(a["target_step"] == "speech_sequence"
-               for a in review["adjustments"])
+
+    # It is an OBSERVATION, not an adjustment. Re-ordering the
+    # narrative is step 2.02's decision and eleven steps of timing
+    # rest on it, so `compile_manifest` refuses it - and a
+    # recommendation nobody can apply, reported in an array named
+    # `adjustments`, reads as a change that was made (#238).
+    assert not any(a["target_step"] == "speech_sequence"
+                   for a in review["adjustments"])
+    ordering = [o for o in review["observations"]
+                if o["state_key"] == "speech_sequence"]
+    assert len(ordering) == 1, review["observations"]
+    assert ordering[0]["owner_step"] == "step_2_02_speech_sequence"
+    assert ordering[0]["finding"] == [w for w in review["warnings"]
+                                      if "ranked strongest" in w][0]
+    # No `suggested_value`: "front_loaded" was a word this step
+    # invented about an ordering it never computed.
+    assert "suggested_value" not in ordering[0]
 
 
 def test_a_strong_hook_is_not_flagged():

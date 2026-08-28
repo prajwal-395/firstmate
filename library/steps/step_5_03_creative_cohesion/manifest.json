@@ -19,12 +19,6 @@
         "description": "State input: audio_spine - the timeline the duration gate measures"
       },
       {
-        "name": "color_grade_spec",
-        "type": "object",
-        "required": true,
-        "description": "State input: color_grade_spec"
-      },
-      {
         "name": "creative_direction",
         "type": "object",
         "required": true,
@@ -59,7 +53,7 @@
       {
         "name": "cohesion_review",
         "type": "object",
-        "description": "State output: cohesion_review"
+        "description": "State output: cohesion_review - warnings, the adjustments step_5_04 applies, and the observations a step upstream owns (library/tools/cohesion_scope.py)"
       },
       {
         "name": "step",
@@ -70,8 +64,7 @@
     "preconditions": [
       "'creative_direction' exists in state",
       "'transition_spec' exists in state",
-      "'sfx_spec' exists in state",
-      "'color_grade_spec' exists in state"
+      "'sfx_spec' exists in state"
     ],
     "postconditions": [
       "'cohesion_review' is written to state"
@@ -90,8 +83,7 @@
     "step_2_02_speech_sequence",
     "step_4_02_plan_transitions",
     "step_4_03_plan_vfx",
-    "step_4_04_plan_sfx",
-    "step_5_01_color_grade"
+    "step_4_04_plan_sfx"
   ],
   "tags": [
     "creative",

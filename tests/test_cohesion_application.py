@@ -82,7 +82,8 @@ def test_every_adjustment_is_accounted_for():
 
 
 def test_no_review_is_an_empty_record():
-    assert apply_cohesion_adjustments([], {}) == {"applied": [], "not_applied": []}
+    assert apply_cohesion_adjustments([], {}) == {
+        "applied": [], "not_applied": [], "observed": []}
 
 
 def test_the_review_step_names_who_applies_its_adjustments():
@@ -93,3 +94,37 @@ def test_the_review_step_names_who_applies_its_adjustments():
         "sfx_spec": [],
     })
     assert review["applied_by"] == "step_5_04_compile_manifest"
+
+
+def test_the_reviews_observations_reach_the_manifest_record():
+    """A finding the compiler cannot act on still has to be visible in
+    the manifest, or removing it from `adjustments` would just hide
+    it somewhere quieter."""
+    record = apply_cohesion_adjustments([], {
+        "adjustments": [],
+        "observations": [{
+            "finding": "the strongest passage is not the hook",
+            "state_key": "speech_sequence",
+            "field": "segment_order",
+            "owner_step": "step_2_02_speech_sequence",
+        }],
+    })
+    assert record["observed"] == [{
+        "finding": "the strongest passage is not the hook",
+        "state_key": "speech_sequence",
+        "field": "segment_order",
+        "owner_step": "step_2_02_speech_sequence",
+    }]
+
+
+def test_the_refusal_reasons_come_from_the_one_enumeration():
+    """The reason a reader is given at 5.03 and the reason logged at
+    5.04 are the same string, or they drift."""
+    from library.tools import cohesion_scope
+    for (target, field), owner in cohesion_scope.OWNED_UPSTREAM.items():
+        record = apply_cohesion_adjustments([], _review({
+            "target_step": target, "field": field,
+            "suggested_value": "whatever",
+        }))
+        assert record["applied"] == []
+        assert record["not_applied"][0]["reason"] == owner.reason

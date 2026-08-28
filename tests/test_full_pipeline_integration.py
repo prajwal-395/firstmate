@@ -28,7 +28,9 @@ def test_full_brand_template_flow():
         "brand_template": asdict(template)
     }
     result = review_creative_cohesion(inputs)
-    assert "cohesion_score" in result
+    # The review reports findings, not a score: `cohesion_score` was
+    # 100 minus weights nobody measured, read by nothing (#238).
+    assert "warnings" in result and "adjustments" in result
 
 def test_color_grade_look_match_chain():
     cdl = compute_match_cdl(
@@ -117,10 +119,12 @@ def test_cohesion_review_end_to_end():
     inputs = {
         "creative_direction": {"target_energy": "high"},
         "transition_spec": [
-            {"type": "cross_dissolve", "duration_frames": 60}
+            {"transition_type": "defocus", "duration_frames": 60}
         ]
     }
     result = review_creative_cohesion(inputs)
-    assert result["cohesion_score"] < 100
     assert len(result["warnings"]) > 0
-    assert len(result["adjustments"]) > 0
+    # A duration is the one finding the manifest compiler applies where
+    # this step runs, so it is the one that reaches `adjustments`.
+    assert [(a["target_step"], a["field"]) for a in result["adjustments"]] == [
+        ("transition_spec", "duration_frames")]

@@ -202,18 +202,33 @@ def test_the_cohesion_review_states_the_absence():
     assert not any(a["target_step"] == "speech_sequence"
                    for a in review["adjustments"]), (
         "the review recommended a re-order off scores that do not exist")
+    assert not any(o["state_key"] == "speech_sequence"
+                   for o in review["observations"]), (
+        "the review observed a re-order off scores that do not exist")
 
 
-def test_stating_the_absence_costs_no_cohesion_score():
-    """An unmeasured signal is not a defect in the edit."""
+def test_stating_the_absence_produces_no_finding():
+    """An unmeasured signal is not a defect in the edit.
+
+    This used to compare `cohesion_score`, which was 100 minus weights
+    nobody measured and which nothing outside the step read (#238).  What
+    it really has to hold is that an absence produces no recommendation
+    of either kind.
+    """
     unscored = review_creative_cohesion(_inputs(
         {"hook_segment": {}, "body_sequence": [{}, {}]}))
+    # Composites without ranks: the ordering is what the finding is
+    # derived from, so this is still nothing to compare.
     scored = review_creative_cohesion(_inputs({
         "hook_segment": {"engagement": {"composite": 92}},
         "body_sequence": [{"engagement": {"composite": 60}},
                           {"engagement": {"composite": 70}}],
     }))
-    assert unscored["cohesion_score"] == scored["cohesion_score"]
+    for review in (unscored, scored):
+        assert not any(a["target_step"] == "speech_sequence"
+                       for a in review["adjustments"])
+        assert not any(o["state_key"] == "speech_sequence"
+                       for o in review["observations"])
 
 
 def test_a_half_scored_sequence_is_not_compared_either():
@@ -347,8 +362,14 @@ class TestTheCohesionReviewReadsTheJudgement:
         assert "ranked strongest" in joined, joined
         assert "clip_016" in joined and "48.065" in joined, joined
         assert "composite 92 against the hook's 61" in joined, joined
-        assert any(a["target_step"] == "speech_sequence"
-                   for a in review["adjustments"])
+        # Reported as an OBSERVATION owned by step 2.02, never as an
+        # adjustment: eleven steps of timing rest on the ordering and
+        # `compile_manifest` refuses to change it (#238).
+        assert not any(a["target_step"] == "speech_sequence"
+                       for a in review["adjustments"])
+        assert [o["owner_step"] for o in review["observations"]
+                if o["state_key"] == "speech_sequence"] == [
+            "step_2_02_speech_sequence"]
 
     def test_a_hook_teasing_the_strongest_passage_is_not_a_finding(self):
         """The hook is CUT FROM the top-ranked passage. That is the

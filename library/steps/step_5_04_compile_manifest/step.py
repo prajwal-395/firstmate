@@ -42,6 +42,7 @@ from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_index, match_sfx_file
 from tools.beat_grid import assert_music_starts_at_timeline_zero
 from tools.bookends import block_bookend
+from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
 from tools.spine_contract import (
     MAX_DECLARED_BLACK_BEAT_SECONDS,
@@ -78,10 +79,26 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> 
     creative_cohesion's own `applied_adjustments` stayed empty, so neither
     the acting step nor the recording step told the truth.
 
-    Returns {"applied": [...], "not_applied": [{"adjustment", "reason"}]}.
+    Step 5.03 now routes its findings through
+    `library/tools/cohesion_scope.py` and sends only the applicable ones
+    here, so a refusal below is a backstop rather than the normal path: a
+    `cohesion_review` recorded by an older run, or supplied from outside,
+    still gets refused out loud instead of vanishing.  The refusal
+    SENTENCES come from that same enumeration, so what the review tells a
+    reader and what this function logs cannot drift apart.
+
+    Returns {"applied": [...], "not_applied": [{"adjustment", "reason"}],
+    "observed": [...]}, where `observed` is what the review found and did
+    NOT ask for - carried through so the manifest's record is the whole
+    picture rather than half of it.
     """
-    record = {"applied": [], "not_applied": []}
-    if not cohesion_review or not cohesion_review.get("adjustments"):
+    record = {"applied": [], "not_applied": [], "observed": []}
+    if not cohesion_review:
+        return record
+    observed = cohesion_review.get("observations")
+    if isinstance(observed, list):
+        record["observed"] = list(observed)
+    if not cohesion_review.get("adjustments"):
         return record
 
     def skip(adj, reason):
@@ -114,17 +131,11 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> 
                 f"{old_val} -> {adj['suggested_value']}",
                 file=sys.stderr,
             )
-        elif target == "sfx_spec" and field == "density":
-            # SFX are chosen and placed in step 4.04. Honouring a density
-            # change here would mean inventing or deleting sound effects
-            # the planner never picked, which is a re-plan, not a compile.
-            skip(adj, "SFX density is decided in step_4_04_plan_sfx; the "
-                      "manifest compiler cannot add or remove SFX")
-        elif target == "speech_sequence":
-            skip(adj, "re-ordering the narrative would invalidate every "
-                      "downstream timing; it belongs in step_2_02")
         else:
-            skip(adj, "no consumer in the manifest compiler")
+            # One enumeration of what this function can and cannot act on
+            # (library/tools/cohesion_scope.py), so the reason a reader
+            # is given upstream is the reason logged here.
+            skip(adj, cohesion_scope.refusal_reason(target, field))
 
     return record
 

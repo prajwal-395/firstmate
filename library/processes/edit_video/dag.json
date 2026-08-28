@@ -525,13 +525,6 @@
       }
     },
     {
-      "from": "color_grade",
-      "to": "creative_cohesion",
-      "data_mapping": {
-        "color_grade_spec": "color_grade_spec"
-      }
-    },
-    {
       "from": "assign_aroll",
       "to": "compile_manifest",
       "data_mapping": {

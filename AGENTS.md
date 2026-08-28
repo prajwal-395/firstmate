@@ -739,6 +739,15 @@ One enumeration, `library/tools/passage_engagement.py`. Step 2.02's handoff asks
 
 `tests/test_passage_engagement.py`.
 
+**A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.**
+One enumeration, `library/tools/cohesion_scope.py`. `creative_cohesion` (5.03) runs next to last and reads the transition, SFX and VFX plans, so it cannot be moved upstream of the decisions it reviews - it would arrive before its own inputs exist. It is scoped where it runs instead. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
+
+- `ACTIONABLE_AT_COHESION` is the (state key, field) pairs `compile_manifest.apply_cohesion_adjustments` really rewrites - today `transition_spec.duration_frames` alone, because a duration moves no cut point, clip boundary or subtitle. Only these reach `adjustments`.
+- `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. It carries **no `suggested_value`**: `"front_loaded"` was a word 5.03 invented about an ordering it never computed (§10.5).
+- A pair in neither list RAISES, so a new finding has to say which side it is on.
+- **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/test_cohesion_scope.py` drives the real applier against both lists.
+- **`cohesion_score` is REMOVED, not recomputed.** It was 100 minus a hand-picked weight per finding, nothing outside the step read it, and its one internal reader gated a block whose mutations never left the process. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
+
 **A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
 `tests/skip_audit.py` is the enumeration and `tests/test_no_unfailable_tests.py` runs it; the runtime half is the session hook in the repo-root `conftest.py`, which FAILS a run reporting a skip no `EnvironmentCondition` declares.
 

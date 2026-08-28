@@ -1122,6 +1122,92 @@ Fixed by reading the composite - and then the composite itself turned out to be 
 
 A gate that cannot fail is worse than no gate, because it reads as coverage.
 
+### the-review-recommended-what-it-could-not-do
+
+`creative_cohesion` runs at step 5.03, next to last. On project 001's 2026-08-26 run its whole
+output was:
+
+```json
+{
+  "cohesion_score": 90,
+  "warnings": ["Hook engagement (49) is lower than peak body engagement (62)"],
+  "adjustments": [{
+    "target_step": "speech_sequence", "field": "segment_order",
+    "suggested_value": "front_loaded",
+    "reason": "Highest engagement segments should be front-loaded for hooks"
+  }],
+  "applied_adjustments": [],
+  "applied_by": "step_5_04_compile_manifest"
+}
+```
+
+and the run log recorded step 5.04 refusing it: *"re-ordering the narrative would invalidate every
+downstream timing; it belongs in step_2_02"*. The refusal is correct - the subtitle timings, the
+transition placements, the B-roll windows, the music behaviour map and every rendered overlay are
+computed from timeline positions. `applied_adjustments` was empty on that run and on every run
+before it.
+
+**The review cannot move upstream of what it reviews.** Its inputs are `transition_spec` (4.02),
+`enhancement_spec` (4.03), `sfx_spec` (4.04) and the spine, all made after the ordering it was
+complaining about. Moving it to 2.02 would place it before its own inputs exist. So it is scoped
+where it runs: `library/tools/cohesion_scope.py` splits every finding into one the manifest
+compiler applies and one that names the step that owns it, and
+`tests/test_cohesion_scope.py` drives the real applier against both halves rather than believing
+either.
+
+**What the review actually measures now, checked on 001's own state rather than on a fixture.**
+Three of its five checks could not fire on real data:
+
+| check | reads | on 001 |
+|---|---|---|
+| transitions | `target_energy` high/calm | `"building"` reads as `moderate` (§10.1), so it is inert |
+| SFX density | same | inert |
+| colour grade | `color_grade_spec["mood"]` / `["grade_name"]` | step 5.01 emits **neither**; its spec carries `grade_pipeline`, `grade_pipeline_delivery`, `per_clip_adjustments`, `fusion_look`, `house_look`, `house_look_title`, `look_notes`, `withdrawn`, `output_color_space`, `consistency_notes` |
+| engagement | the model's ranking | fires - and this was the one finding |
+| duration | the spine | fires; 59.44s, inside the zone |
+
+The colour check is REMOVED for the same three reasons the pacing check was (`PIPELINE_PLAN.md`
+P4.2): it read a key no producer emits, the tests that covered it supplied `mood` themselves, and
+it emitted no adjustment even when it fired. The values that ARE in the spec are numbers -
+`house_look.py` gives every look a `saturation` and a `contrast` - and turning one into "soft" or
+"punchy" against an energy word means choosing a threshold nobody measured, which is AGENTS.md
+10.5's line. The step's now-dead `color_grade_spec` input declaration and its DAG edge went with
+it.
+
+**`cohesion_score` was a constant of the same family as the engagement numbers.** It is 100 minus
+a hand-picked weight per finding - 5 for a transition, 5 for SFX density, 5 for the grade, 10 for
+the hook, 3 for the duration - and the 90 above is 100 minus one 10. Nothing measured those
+weights. Nothing outside the step read the result: not `compile_manifest`, not `render_qa`, not
+the dashboard, not `step_exporter`. Its one internal reader, `if score < 70`, gated a block that
+mutated `transitions` in place and appended sentences to `applied_adjustments` - and the step
+emits only `cohesion_review`, so neither the mutation nor the list ever left the process. It
+reported "applied" about nothing. Removed rather than recomputed.
+
+**Measured before and after, on 001's real state**, with step 2.02 re-run so the passages carry
+the `{rank, composite, basis}` judgement PR #257 asked for. Same state, same runner input
+assembly, both revisions:
+
+```
+BEFORE  cohesion_score: 90
+        adjustments:          1  (speech_sequence.segment_order -> "front_loaded")
+        applied_adjustments:  0
+        5.04:  applied 0, not_applied 1
+
+AFTER   (no score)
+        adjustments:          0
+        observations:         1  (speech_sequence.segment_order, owner step_2_02_speech_sequence,
+                                  act on it with --rerun edit)
+        5.04:  applied 0, not_applied 0, observed 1
+```
+
+The finding itself is unchanged and still reported: *"Hook ranks 3 of the sequence; the passage
+the model ranked strongest (1) is body passage 9 (clip_017 at 31.454s) (composite 92 against the
+hook's 68)"*. What changed is that it is no longer presented as a change that was made.
+
+`step_exporter._summary_creative_cohesion` was reading `passed`/`cohesive`/`notes`/`feedback`,
+four keys the step has never emitted, so 001's `summary.md` was the title and nothing else beside
+an `output.json` carrying a warning and an adjustment. It now reads the keys the step writes.
+
 ### five-tests-skipped-in-every-environment
 
 The same shape as `gates-that-cannot-fail` above, in the suite rather than in the pipeline, and
