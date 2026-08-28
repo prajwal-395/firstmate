@@ -109,7 +109,6 @@
     "semantic_analysis_documents.*.assessment.speech_coverage",
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "semantic_analysis_documents.*.assessment.unusable_ranges",
-    "temporal_index.*.clip_id",
-    "temporal_index.*.scene_boundaries"
+    "temporal_index.*.clip_id"
   ]
 }

@@ -109,7 +109,6 @@
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "view:picture",
     "view:transcript",
-    "temporal_index.*.scene_boundaries",
     "view:prosody",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds"

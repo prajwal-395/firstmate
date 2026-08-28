@@ -153,6 +153,6 @@
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "semantic_analysis_documents.*.assessment.primary_subject_visible",
     "temporal_event_indices.*.clip_id",
-    "temporal_event_indices.*.scene_boundaries"
+    "view:picture"
   ]
 }
