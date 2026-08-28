@@ -1543,6 +1543,14 @@ def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> l
                 issues.append(f"Step '{node_id}' output '{key}' expected type {expected_type_str}, got {type(val).__name__}")
                 
         if is_required:
+            # A step may declare that an empty output is a legitimate
+            # creative answer (e.g. "no visual effects needed").  The
+            # flag is per-key, not per-step, because only certain keys
+            # on a step may legitimately be empty.  When absent, the
+            # check fires - the safe direction.
+            if spec.get("may_be_empty"):
+                continue
+
             is_empty = False
             if isinstance(val, (list, dict, str)) and len(val) == 0:
                 is_empty = True

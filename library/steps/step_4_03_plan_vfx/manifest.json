@@ -79,6 +79,7 @@
         "name": "vfx_creative",
         "type": "list",
         "required": true,
+        "may_be_empty": true,
         "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, intensity (subtle|moderate|strong), rationale"
       }
     ]

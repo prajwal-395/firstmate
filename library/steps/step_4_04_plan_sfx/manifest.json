@@ -96,6 +96,7 @@
         "name": "sfx_creative",
         "type": "list",
         "required": true,
+        "may_be_empty": true,
         "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_type (whoosh|swish|bass_impact|riser|click|tick|reverse_cymbal|swell), volume_level, rationale"
       }
     ]
