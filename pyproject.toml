@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+# Every test root in the repository.  `pytest` (no args) collects from
+# all of them; `pytest tests/` - which CI currently runs - sees only the
+# first.  When the workflow file is unparked (September 2026), change the
+# CI command from `python -m pytest tests/` to `python -m pytest` so it
+# honours this list.
+#
+# tests/test_no_orphan_test_files.py fails when a test_*.py exists
+# outside these roots, so a new directory cannot slip in unnoticed.
+testpaths = [
+    "tests",
+    "library/tools/fusion/tests",
+]
