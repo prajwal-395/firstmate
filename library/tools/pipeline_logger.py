@@ -13,7 +13,7 @@ class PipelineLogger:
         self.log_file = ProjectLayout(project_dir).write_path(
             Area.LOGS, "pipeline_log.jsonl")
         
-    def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None):
+    def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None, detail: dict = None):
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "step_id": step_id,
@@ -31,6 +31,11 @@ class PipelineLogger:
             entry["backend"] = backend
         if latency is not None:
             entry["latency"] = latency
+        # Whatever else the event carries.  An event that is neither a
+        # duration, a token count nor an error had nowhere to record
+        # what it observed, so it recorded only that it happened.
+        if detail is not None:
+            entry["detail"] = detail
             
         json_line = json.dumps(entry)
         

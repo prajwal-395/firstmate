@@ -522,6 +522,15 @@ Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `d
 - `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps and are an open captain decision; `tests/test_llm_context_routing.py` holds that exemption list.
 - **A pre-bridge's own table is never projected away, and you do not have to list it.** `run_pipeline.project_step_context` - the ONE place the projection happens, called by `present_llm_step` and by the replay bench - restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
+**A table the prompt names, arriving with zero rows, is reported on the run that sends it.**
+`library/tools/empty_table_guard.py`, called from `present_llm_step`: it reads the serialised context and the handoff, and names every TOP-LEVEL key whose value is `[0]{...}` or `[]`, marking the ones the prompt mentions by name.
+It never fails a run - an empty table can be the honest answer - and it catches the zero-row half of the family only: rows that are PRESENT but hollow go past it, which is what `cuts_toon` was. [why](docs/RULE_EVIDENCE.md#a-prompt-that-described-an-empty-table)
+
+    python3 -m library.tools.empty_table_guard <project_folder>   # a run that already happened
+
+- The same reader serves both, because the `llm_requests/<step>.json` archive keeps the prompt and the context exactly as the run sent them.
+- **Build a pre-bridge table on a key the DAG really routes, and key its rows on the identifier the answer has to name.** `sfx_candidates_toon` was built from an `a_roll_assignments` no edge carries, so it had no rows at all - and its rows would have been `unknown` even routed, because A-roll entries are keyed `spine_block_position` and not `segment_id`.
+
 **Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
 `library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 

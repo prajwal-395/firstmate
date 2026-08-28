@@ -1029,7 +1029,28 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         
     with open(prompt_path) as f:
         prompt = f.read()
-        
+
+    # A table the prompt describes, arriving with zero rows, is reported
+    # HERE - on the run that produces it - rather than found by an audit
+    # weeks later.  Twice now it has been the second: `cuts_toon` (#218)
+    # and `sfx_candidates_toon` (#223).  It is a report and never a gate:
+    # an empty table can be the correct answer, and a gate that fails
+    # correct output is not coverage (AGENTS.md 10.4).
+    from library.tools.empty_table_guard import report_step_context
+    _empty_tables = report_step_context(node_id, toon_str, prompt)
+    if _empty_tables and logger:
+        logger.log(
+            step_id=node_id,
+            event_type="empty_context_table",
+            detail={
+                "tables": [
+                    {"key": t.key, "columns": list(t.columns),
+                     "named_in_prompt": t.named_in_prompt}
+                    for t in _empty_tables
+                ]
+            },
+        )
+
     project_folder = inputs.get("project_folder", "")
     # TemplateLoader resolves by NAME against library/templates/.  Ask the
     # PROJECT for the name rather than fishing it out of `inputs`, for the

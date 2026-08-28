@@ -1132,6 +1132,112 @@ Four more list entries would have fixed these four steps and left the fifth new 
 `tests/test_llm_context_routing.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
 Both fail on the parent revision for exactly the four steps above and pass for `select_broll`.
 
+### a-prompt-that-described-an-empty-table
+
+**2026-08-27, on the clean run of project 001 of 2026-08-26** (issue #223). The second
+occurrence of the defect fixed for `cuts_toon` in #218, found the same way: by an audit, weeks
+after the run.
+
+`step_4_04_plan_sfx/handoff.md` spends a paragraph on a table, column by column:
+
+> The `sfx_candidates_toon` table provides a summarized list of clips and events with the
+> following fields: `segment_id`... `text`... `action_sfx_suggested`: Pre-computed suggestion
+> on whether SFX are needed based on audio transients.
+
+What `pipeline_output/llm_requests/plan_sfx.json` carried:
+
+```
+sfx_candidates_toon: |
+  [0]{segment_id,text,action_sfx_suggested}
+```
+
+#### Three failures in the same six lines of bridge
+
+The table was built from `data.get("a_roll_assignments", {})`, and:
+
+* **no DAG edge carries `a_roll_assignments` into `plan_sfx`.** The eight edges into the node
+  route `music_analysis`, `semantic_analysis_documents`, `creative_direction`,
+  `full_indices`->`temporal_event_indices`, `b_roll_assignments`, `rough_cut_review`,
+  `timed_spine` and `project_fps`. The `.get()` answered `{}` and the loop body never ran once;
+* had it been routed, `assign_aroll` emits entries keyed **`spine_block_position`**, not
+  `segment_id`, so every row would have read `unknown` - `cuts_toon`'s exact symptom;
+* and those entries carry **no `text` key at all**, so the second column would have been blank.
+
+A fourth thing was wrong above the keys: `segment_id` off an A-roll slot is not the identifier
+the step's answer has to name. `interface.llm_outputs` asks for `spine_block_position`. The
+table is now one row per SPINE BLOCK, keyed on the position the answer uses, which is also the
+only enumeration that includes the non-speech beats.
+
+`action_sfx_suggested` was the literal string `"No"` on every row it would have produced. It
+now carries the measurement the handoff says it is derived from - the count of step 1.04's
+energy peaks inside the block's own source range - and not a verdict. Whether a moment earns a
+sound is the model's call (section 10.5); a pre-computed "Yes" is the bridge voting on it. A
+block with no source clip reads `not measured (no source clip)` rather than as a measured zero.
+The handoff's own wording, "suggestion", is now narrower than what the column carries; rewording
+it is the captain's call and the prompt files are reserved.
+
+Rebuilt off snapshot `001-2026-08-26T1058Z`, the fourteen rows the run should have had:
+
+```
+sfx_candidates_toon: |
+  [14]{segment_id,text,action_sfx_suggested}
+  hook	i can feel the silent judgment of the people behind me.	0 audio transients
+  1	The breath after the hook and the first B-roll of the video. The walk in - pa...	not measured (no source clip)
+  2	today is march 25th, 2026.	3 audio transients
+  ...
+  13	i almost didn't do this again i've been literally this week i've quit every s...	9 audio transients
+```
+
+The hook is the one speech block on which nothing was measured, and it is a real
+discrimination rather than an artefact: clip_011's energy peaks start at 7.833 s and the hook
+plays 0.836-3.234 s.
+
+#### The step was also handed its own empty output
+
+The same bridge emitted `sfx_spec: {"sfx_list": [], "fairlight_preset": "default"}`, and a
+pre-bridge key is restored past the projection by name, so it reached the prompt on every run.
+It answered nothing the model was asked and read as a plan that had already decided to place
+no sounds. Deleted; the post-bridge writes the real `sfx_spec` after the model answers.
+
+#### Why the guard reports and does not fail
+
+Two occurrences found weeks later by an audit is the actual defect, so
+`library/tools/empty_table_guard.py` reads the context `present_llm_step` is about to send and
+names the top-level keys arriving with no rows, marking the ones the prompt mentions. It is a
+report: an empty collection can be the correct answer, and a gate that fails correct output is
+not coverage (section 10.4).
+
+Measured on 001's ten archived requests, this is why it scans TOP-LEVEL keys only:
+
+| depth | `[0]{...}` or `[]` markers | what they are |
+|---|---:|---|
+| any | 42 | `violations: []`, `gaps: []`, `errors: []` - legitimately empty fields of a passing check |
+| top level | 2 | `sfx_candidates_toon` (named in the prompt) and `render`'s `visual_qa` (not named) |
+
+Reporting all 42 buries the one that matters.
+
+**What it misses**, stated so nobody reads it as more coverage than it is: rows that are
+present but HOLLOW - `cuts_toon` had thirteen of them, all `unknown-to-unknown`, and this guard
+would have said nothing; a table described in prose without its key name; a table nested inside
+a routed document; and a table projected away entirely, which arrives as no key at all.
+**What it falsely flags**: a collection that is legitimately empty and whose key the prompt
+happens to name - which is why it prints a count and never a verdict.
+
+#### Two more sightings, not fixed here
+
+The same sweep over the other nine requests found two, both reported rather than changed:
+
+* **`plan_vfx`'s `vfx_candidates_toon` has eleven rows and every one is hollow** - `text` empty
+  on all eleven, `vfx_suggested` the literal `"No"` on all eleven - and its bridge additionally
+  fabricates `enhancement_spec.visual_effects = [{"effect_type": "color_wash", "intensity":
+  0.5}]` on the first segment and hands it to the model as its own prior plan. 001's prompt
+  carried `color_wash,0.5,hook`. That is a creative value invented where no step ran
+  (section 10.5), and it survived the #192 and #212 audits.
+* **`speech_sequence`'s two tables are keyed in two incompatible vocabularies in one prompt**:
+  `transcripts_toon` by `clip_id` (`clip_008`), `topics_toon` by file stem (`IMG_1806_v3`).
+  Nothing joins them. `library/tools/semantic_index.py` is the join that exists for exactly
+  this.
+
 ### the-crop-was-narrower-than-the-face
 
 **2026-08-26.** Two consecutive full runs of project 001 - PRs #192 and #201 - independently
