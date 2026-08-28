@@ -119,6 +119,10 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
+from library.tools import marker_payload  # noqa: E402
+from library.tools.marker_capture import (  # noqa: E402
+    project_folder_from_timeline,
+)
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
@@ -219,6 +223,40 @@ class ClipPlacement:
 
 
 @dataclass
+class Attachment:
+    """A file this note points at, that a reader can open.
+
+    Two things reach this list and they are told apart, never merged.
+    `custom_data` is a file a WRITER attached - the capture button's
+    still - recorded in the marker's `customData` where the UI cannot
+    show it.  `note_text` is a path the captain TYPED into the marker
+    themselves, which worked before this and goes on working: it is
+    reported here so a reader has one list of openable things rather
+    than two, and the note text itself is never rewritten or stripped.
+
+    `exists` is measured on disk at read time.  A path that is not there
+    is reported as absent, not dropped - the captain naming a file that
+    has moved is something the reader should say out loud.
+    """
+
+    kind: str
+    """`still` for a written record, `typed_path` for one they typed."""
+
+    origin: str
+    """`custom_data` or `note_text` - which of the two above."""
+
+    path: str
+    """As recorded.  Project-relative for a written record (see
+    `marker_payload`); exactly as typed for a typed one."""
+
+    resolved_path: str = ""
+    exists: bool = False
+    record_id: str = ""
+    writer: str = ""
+    detail: dict = field(default_factory=dict)
+
+
+@dataclass
 class MarkerNote:
     """One thing the captain typed, with enough context to start from.
 
@@ -251,6 +289,12 @@ class MarkerNote:
     duration_frames: int = 1
     custom_data: dict = field(default_factory=dict)
     custom_data_raw: str = ""
+    attachments: list = field(default_factory=list)
+    """Files this note points at - see `Attachment`. A note WITH one and a
+    note without are deliberately different: the whole point of the
+    capture button is that a reader stops guessing which of four stacked
+    clips the captain meant."""
+
     clips: list = field(default_factory=list)
     read_at: str = ""
 
@@ -309,6 +353,57 @@ def _parse_custom_data(raw: str) -> dict:
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 
+def _resolve_attachment_path(raw: str, project_folder) -> tuple:
+    """(absolute path or "", exists).  Never invents a location."""
+    if not raw:
+        return "", False
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        if not project_folder:
+            return "", False
+        path = Path(project_folder) / path
+    return str(path), path.exists()
+
+
+def read_attachments(name: str, note: str, custom_data: dict,
+                     project_folder=None) -> list:
+    """Every file this note points at, written or typed.
+
+    Written ones come out of the `marker_payload` envelope and are
+    project-relative; typed ones are absolute paths appearing in the text
+    the captain typed, matched conservatively (`marker_payload.typed_paths`)
+    so prose is not mistaken for a filename.
+    """
+    out: list = []
+    for record in marker_payload.attachments_of(custom_data):
+        raw = str(record.get("path") or "")
+        resolved, exists = _resolve_attachment_path(raw, project_folder)
+        if not resolved and record.get("path_absolute"):
+            resolved, exists = _resolve_attachment_path(
+                str(record["path_absolute"]), project_folder)
+        out.append(Attachment(
+            kind=str(record.get("kind") or "file"),
+            origin="custom_data",
+            path=raw,
+            resolved_path=resolved,
+            exists=exists,
+            record_id=str(record.get("id") or ""),
+            writer=str(record.get("writer") or ""),
+            detail={k: v for k, v in record.items()
+                    if k not in ("path", "path_absolute")},
+        ))
+    written = {a.resolved_path for a in out if a.resolved_path}
+    for typed in marker_payload.typed_paths("\n".join((name or "", note or ""))):
+        resolved, exists = _resolve_attachment_path(typed, project_folder)
+        if resolved in written:
+            continue  # the captain typed the path the button had written
+        out.append(Attachment(
+            kind="typed_path", origin="note_text", path=typed,
+            resolved_path=resolved, exists=exists,
+        ))
+    return out
+
+
 def _placement(item, track_type: str, track_index: int) -> ClipPlacement:
     pool_item = item.GetMediaPoolItem()
     return ClipPlacement(
@@ -345,16 +440,23 @@ def _clips_at(placements: list, frame: Optional[int]) -> list:
     ]
 
 
-def read_notes(timeline) -> list:
+def read_notes(timeline, project_folder=None) -> list:
     """Every typed note on `timeline`, in timeline order.
 
     Takes the Resolve timeline object so a caller can drive this against a
     scratch timeline without changing what Resolve has open.
+
+    `project_folder` is what an attachment's project-relative path is
+    resolved against.  Left out, it is MEASURED off the timeline's own
+    footage the same way the capture button measures it, so `show` and
+    `pull` report the same paths without the caller having to say.
     """
     read_at = datetime.now(timezone.utc).isoformat()
     fps = _timeline_fps(timeline)
     start_frame = int(timeline.GetStartFrame())
     placements = _all_placements(timeline)
+    if project_folder is None:
+        project_folder = project_folder_from_timeline(timeline)
     notes: list = []
 
     def add(**kw):
@@ -362,6 +464,9 @@ def read_notes(timeline) -> list:
         notes.append(MarkerNote(
             timecode=frames_to_timecode(frame, fps),
             clips=[asdict(c) for c in _clips_at(placements, frame)],
+            attachments=[asdict(a) for a in read_attachments(
+                kw.get("name", ""), kw.get("note", ""),
+                kw.get("custom_data") or {}, project_folder)],
             read_at=read_at,
             **kw,
         ))
@@ -488,10 +593,11 @@ def read_notes(timeline) -> list:
     return notes
 
 
-def read_current_timeline_notes() -> tuple:
+def read_current_timeline_notes(project_folder=None) -> tuple:
     """(notes, timeline_name, project_name) for whatever Resolve has open."""
     timeline, project = current_timeline()
-    return read_notes(timeline), timeline.GetName(), project.GetName()
+    return (read_notes(timeline, project_folder), timeline.GetName(),
+            project.GetName())
 
 
 # ── The durable record ──────────────────────────────────────────────
@@ -505,13 +611,34 @@ def read_current_timeline_notes() -> tuple:
 # `--rerun` and no step directory rewrite reaches them.
 
 
+def _attachment_identity(attachments) -> tuple:
+    """The WRITTEN attachments, as an ordered tuple of paths.
+
+    Only `custom_data` ones: a path the captain typed is already part of
+    the note text, so counting it twice would make one change look like
+    two.  A pull file written before attachments existed has none and
+    yields `()`, which is what a note with none yields now - so nothing
+    already collected is retroactively unpulled.
+    """
+    return tuple(sorted(
+        str(a.get("path") or "") for a in (attachments or [])
+        if isinstance(a, dict) and a.get("origin") == "custom_data"
+        and a.get("path")
+    ))
+
+
 def note_identity(note: MarkerNote) -> tuple:
     """What makes two readings of the same note the same note.
 
-    The TEXT and where it was typed - deliberately not the colour, and
-    not the mapped timeline frame, which moves when the edit is re-cut.
+    The TEXT, where it was typed, and what has been ATTACHED to it -
+    deliberately not the colour, and not the mapped timeline frame, which
+    moves when the edit is re-cut.  A still captured onto a note that was
+    already collected makes it a note worth collecting again: the pull
+    file is what survives the timeline, and without the attachment it no
+    longer says everything the marker does.
     """
-    return (note.source, note.name, note.note, note.frame_in_timeline_space)
+    return (note.source, note.name, note.note, note.frame_in_timeline_space,
+            _attachment_identity(note.attachments))
 
 
 def pull(project_folder, timeline=None, project=None) -> dict:
@@ -523,7 +650,7 @@ def pull(project_folder, timeline=None, project=None) -> dict:
     """
     if timeline is None:
         timeline, project = current_timeline()
-    notes = read_notes(timeline)
+    notes = read_notes(timeline, project_folder)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe = "".join(
         c if c.isalnum() or c in "-_." else "_" for c in timeline.GetName()
@@ -581,6 +708,7 @@ def _pulled_identities(project_folder, timeline_name: str) -> set:
             seen.add((
                 raw.get("source", ""), raw.get("name", ""),
                 raw.get("note", ""), raw.get("frame_in_timeline_space"),
+                _attachment_identity(raw.get("attachments")),
             ))
     return seen
 
@@ -588,7 +716,8 @@ def _pulled_identities(project_folder, timeline_name: str) -> set:
 def unpulled_notes(project_folder, timeline) -> list:
     """Notes on `timeline` that no pull file for it already carries."""
     seen = _pulled_identities(project_folder, timeline.GetName())
-    return [n for n in read_notes(timeline) if note_identity(n) not in seen]
+    return [n for n in read_notes(timeline, project_folder)
+            if note_identity(n) not in seen]
 
 
 # ── The guard the build path calls ──────────────────────────────────
@@ -676,6 +805,14 @@ def _render(notes: list) -> str:
         lines.append(f"  {where}  frame {n.frame}  [{n.source}]")
         for line in (n.text or "(no text)").splitlines():
             lines.append(f"      {line}")
+        for att in n.attachments:
+            where = att.get("resolved_path") or att.get("path") or ""
+            if att.get("origin") == "note_text":
+                mark = "typed by hand"
+            else:
+                mark = f"{att.get('kind') or 'file'} from {att.get('writer') or '?'}"
+            state = "" if att.get("exists") else "  (NOT ON DISK)"
+            lines.append(f"      ATTACHED [{mark}]: {where}{state}")
         for clip in n.clips:
             lines.append(
                 f"      under: {clip['name']} "
@@ -697,7 +834,13 @@ def main(argv=None) -> int:
     p_pull.add_argument("--project", required=True,
                         help="the project folder to write the record into")
 
-    sub.add_parser("show", help="print the notes without writing anything")
+    p_show = sub.add_parser(
+        "show", help="print the notes without writing anything")
+    p_show.add_argument(
+        "--project", default=None,
+        help="the project folder an attachment's relative path resolves "
+             "against. Left out, it is measured off the timeline's own "
+             "footage.")
 
     p_check = sub.add_parser(
         "check", help="exit 2 if the open timeline has uncollected notes")
@@ -712,8 +855,10 @@ def main(argv=None) -> int:
         return 3
 
     if args.command == "show":
-        notes = read_notes(timeline)
-        print(f"{timeline.GetName()}: {len(notes)} note(s)")
+        notes = read_notes(timeline, args.project)
+        attached = sum(1 for n in notes if n.attachments)
+        print(f"{timeline.GetName()}: {len(notes)} note(s), "
+              f"{attached} with an attachment")
         print(_render(notes))
         return 0
 
@@ -728,7 +873,9 @@ def main(argv=None) -> int:
         return 2
 
     result = pull(args.project, timeline, project)
-    print(f"✓ {len(result['notes'])} note(s) -> {result['path']}")
+    attached = sum(1 for n in result["notes"] if n.attachments)
+    print(f"✓ {len(result['notes'])} note(s), {attached} with an "
+          f"attachment -> {result['path']}")
     print(_render(result["notes"]))
     return 0
 

@@ -918,10 +918,53 @@ its recorded per-call findings are in the module docstring, in the shape `neural
   warning forty minutes into an unattended `--full-auto` build is read by nobody, and clearing
   the refusal costs one read-only command. `PIPELINE_DISCARD_TIMELINE_MARKERS=1` is the explicit
   override.
-- **Read, preserve, present - nothing else.** No colour vocabulary: the captain chose typed notes
-  over colour codes, so colour is recorded and read by nothing. No acknowledgement marker is
-  written back and no marker is deleted. This is not wired into the dashboard; the whole point is
-  that the editor stays in Resolve.
+- **The reader READS. The one thing that writes to a marker is the capture button below.** No
+  colour vocabulary: the captain chose typed notes over colour codes, so colour is recorded and
+  read by nothing. No acknowledgement marker is written back and no marker is deleted. This is not
+  wired into the dashboard; the whole point is that the editor stays in Resolve.
+
+### The button that captures the frame
+
+Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the
+frame plus whatever the captain typed is captured. `library/tools/marker_capture.py` is the whole
+of it; `resolve_scripts/` is the entry point Resolve calls.
+
+    scripts/install_resolve_scripts.sh              # the one command that installs it
+    scripts/install_resolve_scripts.sh --uninstall
+
+- **The repository is the source of truth.** The installer COPIES the entry point into the Scripts
+  folder with this checkout's path stamped in, so the copy imports `library/` and cannot drift.
+  Re-run it only when the checkout moves. **Nothing else may write into the application support
+  folder**, and never as a side effect of another command.
+- **`GrabStill` returns the GRADED, CONFORMED frame** - measured against a Deliver render of the
+  same timecode at a mean absolute difference of 0.36-0.38/255, while the raw source frame is a
+  different resolution and 54 points more saturated. The page it is taken on does not matter. The
+  numbers, and every other call's measured return, are in `marker_capture`'s module docstring.
+- **The still goes to `<project>/marker_feedback/stills/`**, the `Kind.CAPTURED` area, and the
+  project is MEASURED by walking up from the timeline's own footage to `project.yaml`. The captain
+  is never asked to name a file or a folder. A timeline whose footage sits under no project is
+  REFUSED, never guessed at.
+- **The gallery is put back.** `GrabStill` leaves the still in the current album and Resolve saves
+  it; the button deletes it again and reports the before/after count.
+- **A marker that is already there is UPDATED, never replaced** - `AddMarker` refuses an occupied
+  frame anyway, and the captain's `name` and `note` are what must survive. The playhead inside a
+  marker with a duration resolves to that marker's start frame.
+
+### What goes in `customData`
+
+One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying a list of
+self-describing records, with the reasoning for that shape in the module docstring.
+
+- `schema` versions the ENVELOPE, `writer_version` versions one writer's own keys, and they move
+  independently so a second writer can grow without every reader relearning the envelope.
+- **An attachment is a record with a `path`, not a record of a particular kind**, so a writer
+  pointing at a file gets "a reader can open this" for free.
+- **`customData` this module did not write is kept under `foreign`, never overwritten.** The UI
+  does not show the field, so nobody would notice it going missing.
+- `pull` and `show` surface attachments, and a note with one prints differently from one without.
+  **A path the captain TYPED into a note is surfaced too**, told apart by `origin`, matched
+  conservatively (absolute POSIX path or `file://`) and never rewritten out of the text.
+- `tests/test_marker_payload.py`, `tests/test_marker_capture_against_resolve.py`.
 
 ## Maintaining this file
 

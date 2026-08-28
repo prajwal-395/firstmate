@@ -226,7 +226,8 @@ RUNNER = "runner"
 DASHBOARD = "dashboard"
 ORGANIZE = "organize"
 MARKER_PULL = "marker_feedback"
-NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL)
+MARKER_CAPTURE = "marker_capture"
+NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL, MARKER_CAPTURE)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -555,8 +556,11 @@ AREAS: dict[Area, AreaSpec] = {
         "overwritten. It sits at the project root and NOT under "
         "pipeline_output/ because everything there is reproducible by a "
         "re-run, and these are the one thing a re-run destroys: step 6.01 "
-        "deletes the timeline before rebuilding it.",
-        produced_by=(MARKER_PULL,)),
+        "deletes the timeline before rebuilding it. Two writers: the pull "
+        "records the notes, and the Workspace > Scripts capture button "
+        "(library/tools/marker_capture.py) writes the frame the captain "
+        "was looking at into stills/.",
+        produced_by=(MARKER_PULL, MARKER_CAPTURE)),
 }
 
 # The areas a given step owns, in table order.

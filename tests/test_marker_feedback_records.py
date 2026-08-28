@@ -12,17 +12,22 @@ from __future__ import annotations
 import json
 import os
 import sys
+from dataclasses import asdict
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from library.tools import marker_payload  # noqa: E402
 from library.tools.marker_feedback import (  # noqa: E402
     PULL_FILE_SUFFIX,
     MarkerNote,
+    _pulled_identities,
+    _render,
     frames_to_timecode,
     note_identity,
     pulled_files,
+    read_attachments,
 )
 from library.tools.project_layout import (  # noqa: E402
     AREAS, Area, Kind, ProjectLayout, ProjectLayoutViolation, WRITABLE_KINDS,
@@ -147,3 +152,149 @@ def test_an_unreadable_pull_file_is_skipped_not_fatal(tmp_path):
 
 def test_no_pull_directory_is_not_an_error(tmp_path):
     assert pulled_files(str(tmp_path)) == []
+
+
+# ── Attachments ─────────────────────────────────────────────────────
+#
+# The Resolve half - a still really landing on a real marker - is proved
+# in `tests/test_marker_capture_against_resolve.py`. What is checked here
+# is the reader's own arithmetic against real files on disk.
+
+
+def _still_envelope(relpath, **extra):
+    env = marker_payload.new_envelope()
+    marker_payload.merge_record(env, dict({
+        "kind": marker_payload.KIND_STILL, "writer": "capture_frame",
+        "writer_version": 1, "id": "still_x", "at": "t",
+        "path": relpath,
+    }, **extra))
+    return env
+
+
+def test_a_written_attachment_resolves_against_the_project(tmp_path):
+    relpath = "marker_feedback/stills/Edit.f000040.png"
+    still = tmp_path / relpath
+    still.parent.mkdir(parents=True)
+    still.write_bytes(b"png")
+
+    got = read_attachments("", "", _still_envelope(relpath), str(tmp_path))
+    assert len(got) == 1
+    assert got[0].kind == "still"
+    assert got[0].origin == "custom_data"
+    assert got[0].resolved_path == str(still)
+    assert got[0].exists is True
+    assert got[0].writer == "capture_frame"
+
+
+def test_a_written_attachment_whose_file_is_gone_is_reported_absent(tmp_path):
+    got = read_attachments(
+        "", "", _still_envelope("marker_feedback/stills/gone.png"),
+        str(tmp_path))
+    assert got[0].exists is False
+    assert got[0].path == "marker_feedback/stills/gone.png"
+
+
+def test_a_path_the_captain_typed_is_still_read(tmp_path):
+    """The channel that worked before this button, unchanged."""
+    typed = tmp_path / "ref.png"
+    typed.write_bytes(b"png")
+    got = read_attachments(
+        "GRADE", f"compare against {typed}", {}, str(tmp_path))
+    assert [(a.origin, a.kind, a.exists) for a in got] == \
+        [("note_text", "typed_path", True)]
+    assert got[0].resolved_path == str(typed)
+
+
+def test_a_typed_path_in_the_name_field_counts_too(tmp_path):
+    typed = tmp_path / "in_the_name.jpg"
+    got = read_attachments(str(typed), "", {}, str(tmp_path))
+    assert [a.origin for a in got] == ["note_text"]
+    assert got[0].exists is False
+
+
+def test_the_captain_typing_the_path_the_button_wrote_is_not_two_things(
+        tmp_path):
+    relpath = "marker_feedback/stills/a.png"
+    still = tmp_path / relpath
+    still.parent.mkdir(parents=True)
+    still.write_bytes(b"png")
+    got = read_attachments(
+        "", f"see {still}", _still_envelope(relpath), str(tmp_path))
+    assert [a.origin for a in got] == ["custom_data"]
+
+
+def test_without_a_project_folder_a_relative_path_is_not_invented():
+    got = read_attachments("", "", _still_envelope("stills/a.png"), None)
+    assert got[0].resolved_path == ""
+    assert got[0].exists is False
+
+
+def test_prose_is_not_mistaken_for_a_path():
+    assert read_attachments(
+        "", "the cut lands a beat early - hold it six frames", {}, None) == []
+
+
+# ── What an attachment does to identity ─────────────────────────────
+
+
+def _attachment(path):
+    return asdict(read_attachments("", "", _still_envelope(path), None)[0])
+
+
+def test_a_note_that_has_gained_a_still_is_a_note_worth_collecting_again():
+    plain = _note()
+    withstill = _note(attachments=[_attachment("marker_feedback/stills/a.png")])
+    assert note_identity(plain) != note_identity(withstill)
+
+
+def test_a_typed_path_does_not_change_identity_twice():
+    """It is already in the note text, which identity reads."""
+    text = "see /vol/refs/a.png"
+    typed = _note(note=text,
+                  attachments=[asdict(a) for a in
+                               read_attachments("", text, {}, None)])
+    assert note_identity(typed) == note_identity(_note(note=text))
+
+
+def test_a_pull_file_written_before_attachments_existed_still_matches(tmp_path):
+    """Old records carry no `attachments` key. A note with none must read
+    as already collected, or every previously-pulled note comes back."""
+    layout = ProjectLayout(tmp_path)
+    _write_pull(layout, "Edit.20260828T090000Z", "Edit", [{
+        "source": "timeline_marker", "name": "Q", "note": "n",
+        "frame_in_timeline_space": 10,
+    }])
+    seen = _pulled_identities(str(tmp_path), "Edit")
+    assert note_identity(_note()) in seen
+
+
+# ── What the reader prints ──────────────────────────────────────────
+
+
+def test_a_note_with_an_attachment_reads_differently_from_one_without():
+    plain = _render([_note(note="why is this here")])
+    assert "ATTACHED" not in plain
+
+    shown = _render([_note(
+        note="why is this here",
+        attachments=[dict(_attachment("marker_feedback/stills/a.png"),
+                          resolved_path="/p/001/marker_feedback/stills/a.png",
+                          exists=True)])])
+    assert "ATTACHED [still from capture_frame]: " \
+           "/p/001/marker_feedback/stills/a.png" in shown
+    assert "NOT ON DISK" not in shown
+
+
+def test_a_missing_attachment_says_so_rather_than_disappearing():
+    shown = _render([_note(attachments=[dict(
+        _attachment("marker_feedback/stills/a.png"),
+        resolved_path="/p/001/marker_feedback/stills/a.png", exists=False)])])
+    assert "NOT ON DISK" in shown
+
+
+def test_a_typed_attachment_is_labelled_as_typed():
+    shown = _render([_note(
+        note="see /vol/refs/ref.png",
+        attachments=[asdict(a) for a in
+                     read_attachments("", "see /vol/refs/ref.png", {}, None)])])
+    assert "ATTACHED [typed by hand]: /vol/refs/ref.png" in shown
