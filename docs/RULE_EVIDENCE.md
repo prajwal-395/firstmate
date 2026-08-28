@@ -1985,3 +1985,87 @@ simply deselect it from the pipeline for now." The step is therefore WIRED - nod
 its 445 seconds. `--with ocr_extraction` turns it on. It is safe to leave out because no edge
 leaves it: nothing consumes `ocr_extraction`, so no dependency is stranded, and
 `tests/test_run_scope.py` asserts that rather than assuming it.
+
+## sam-2-1-was-asked-for-a-config-that-does-not-exist
+
+**2026-08-28, issue #162.** `library/tools/analysis/object_segmentation.py` had been in the
+repository since commit 3c4dd10 (2026-08-08) with `sam2>=1.0.0` in `requirements.txt`, and had
+never once run. Every attempt died before the model existed:
+
+    hydra.errors.MissingConfigException: Cannot find primary config
+    'sam2.1_hiera_small.yaml'. Check that it's in your config search path.
+
+    Config search path:
+        provider=hydra, path=pkg://hydra.conf
+        provider=main, path=pkg://sam2
+        provider=schema, path=structured://
+
+This was recorded on the issue as "a hydra configuration problem in the environment, not a
+pipeline defect". It is neither environmental nor a packaging gap in `sam2`. **The string in our
+code named a file that exists under no name.** The installed package ships the config:
+
+    site-packages/sam2/configs/sam2.1/sam2.1_hiera_s.yaml
+
+and `sam2.build_sam.HF_MODEL_ID_TO_FILENAMES` maps `facebook/sam2.1-hiera-small` to exactly that
+path plus `sam2.1_hiera_small.pt`. Two independent mistakes were folded into one string:
+
+- **The name.** The CONFIG is named for the size, `_s`. The CHECKPOINT is named for the word,
+  `_small`. `sam2.1_hiera_small.yaml` is the checkpoint's stem wearing the config's extension.
+- **The path.** `sam2/__init__.py` calls `initialize_config_module("sam2")`, which makes the
+  package the search root, so any config inside it must be addressed from `configs/`. Even
+  spelled `sam2.1_hiera_s.yaml` the bare name would not have resolved.
+
+The checkpoint half was wrong in the same style - `ckpt = "sam2.1_hiera_small.pt"` is a bare
+relative path resolved against the process CWD, and nothing in this repository ever downloaded
+it. Both halves are now answered by `sam2`'s own table, by naming the MODEL:
+`build_sam2_video_predictor_hf(SAM2_MODEL_ID)`. Loading takes 19.0s including the first
+download. No config was vendored and no model was substituted.
+
+**Two further defects were in the same function and would have bitten on the first real run.**
+The predictor was used AFTER its `managed_model` block closed - `add_new_mask` and
+`propagate_in_video` sat outside the `with`, and `unload_model` moves the model to the CPU while
+`inference_state` still holds MPS tensors. And `avg_area_ratio` was summed over BOUNDING BOX
+areas on a dataclass whose whole product is a mask, which overstates a limbed subject several
+times over.
+
+### MPS returns worse masks and says nothing
+
+Once it ran, MPS was measured against the CPU on 001's clip_001 first frame, same model, same
+image, same seed prompts:
+
+| grid | device | masks kept | masks before filtering | predicted IoU min/median/max | stability min/median/max |
+|---|---|---|---|---|---|
+| 16x16 | MPS | 1 | 351 | 0.002 / **0.092** / 0.965 | 0.000 / 0.607 / 0.968 |
+| 16x16 | CPU | 5 | 175 | 0.000 / **0.333** / 0.974 | 0.000 / 0.718 / 0.982 |
+| 32x32 | MPS | 1 | - | - | - |
+| 32x32 | CPU | 7 | - | - | - |
+
+The maxima agree to within 1%, so a prompt landing squarely on an object still scores on MPS.
+The MEDIAN over the same prompt grid is 3.6x lower, and the generator's default
+`pred_iou_thresh=0.8` / `stability_score_thresh=0.95` then discard nearly everything. Nothing
+raises. The caller gets a short list and has no way to tell a plain frame from a degraded
+backend - the same shape as a Resolve call that returns a plausible value without doing anything.
+
+Propagation is NOT degraded. Handed identical seed masks on clip_008 and asked to track them:
+
+    MPS  1.57 s/frame     per-object IoU against CPU, on every frame the track holds: 0.88 - 0.98
+    CPU  5.98 s/frame     (reference)
+
+They diverge only on which frame each abandons an object, which is past the point the track is
+usable. So `GENERATOR_DEVICE = "cpu"` and `PROPAGATION_DEVICE = "mps"`: the generator runs once
+per clip on one frame for a bounded 15-35s, and the 3.8x is kept where it is paid per frame.
+
+### Denser sampling does not rescue a lost track
+
+clip_008 (IMG_1813, 9.1s), the same clip three ways:
+
+| sample_fps | frames | wall | per frame | largest object | small objects last seen |
+|---|---|---|---|---|---|
+| 2.0 | 18 | 75.2s | 4.18s | held 12/18, to 8.5s | 2.0 - 5.5s |
+| 6.0 | 54 | 202.2s | 3.74s | held 18/54, to 5.7s | 0.2 - 4.3s |
+| 15.0 | 136 | 528.0s | 3.88s | held 94/136, to 9.0s | 2.3 - 4.5s |
+
+Cost per frame is flat, so cost is linear in `sample_fps` - 15 fps is 7x the bill of 2 fps for
+the same clip. And the small tracks die at 2 to 4.5 seconds at EVERY rate. Denser sampling buys
+temporal resolution on the tracks that survive and does not extend the ones that do not: these
+objects are lost to the footage, not to the gap between samples.

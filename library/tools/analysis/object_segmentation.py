@@ -13,14 +13,63 @@ from model_lifecycle import managed_model
 
 try:
     import torch
-    from sam2.build_sam import build_sam2_video_predictor, build_sam2
+    from sam2.build_sam import build_sam2_hf, build_sam2_video_predictor_hf
     from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 except ImportError:
     # Allow import when running tests without sam2 installed
     torch = None
-    build_sam2_video_predictor = None
-    build_sam2 = None
+    build_sam2_hf = None
+    build_sam2_video_predictor_hf = None
     SAM2AutomaticMaskGenerator = None
+
+
+SAM2_MODEL_ID = "facebook/sam2.1-hiera-small"
+"""The model, named the way `sam2` itself names it.
+
+`sam2.build_sam.HF_MODEL_ID_TO_FILENAMES` is the package's own table mapping
+this id to the config that ships inside the package
+(`configs/sam2.1/sam2.1_hiera_s.yaml`) and to the checkpoint file. Pass the id
+and let that table answer, rather than spelling either half here: the config is
+named for the SIZE (`_s`) while the checkpoint is named for the WORD
+(`_small`), and a hand-written `sam2.1_hiera_small.yaml` is neither - it is the
+checkpoint stem, and hydra's search root is the package, so it also lacked the
+`configs/sam2.1/` prefix. That string is what raised
+`MissingConfigException: Cannot find primary config` and stopped this module
+ever running. See docs/RULE_EVIDENCE.md#sam-2-1-was-asked-for-a-config-that-does-not-exist
+"""
+
+GENERATOR_DEVICE = "cpu"
+"""The automatic mask generator runs on the CPU, and that is a measurement.
+
+On MPS the generator returns a fraction of the regions it finds on the CPU -
+on 001's clip_001 first frame, 1 mask against 5, and with the confidence
+filters removed the MEDIAN predicted IoU over the same 256 point prompts was
+0.092 on MPS against 0.333 on the CPU. The maxima agree (0.965 / 0.974), so a
+prompt landing squarely on an object still scores; it is the broad sweep that
+degrades, and the default `pred_iou_thresh=0.8` / `stability_score_thresh=0.95`
+then discard nearly all of it. Nothing raises - the generator returns a short
+list and says nothing about it.
+
+It runs ONCE per clip on ONE frame, so the cost of being right is bounded:
+15-35s per clip, against propagation which is per frame. See
+docs/RULE_EVIDENCE.md#sam-2-1-was-asked-for-a-config-that-does-not-exist
+"""
+
+PROPAGATION_DEVICE = "mps"
+"""Propagation runs on MPS, and that is the same measurement read the other way.
+
+Handed IDENTICAL seed masks, MPS and CPU propagation agree on every frame where
+the track holds - per-object IoU 0.88 to 0.98 over 001's clip_008 - and MPS is
+3.8x faster (1.57s against 5.98s per frame). They diverge only on WHICH frame
+each gives up on an object, which is past the point the track is usable. Resolved
+against availability by `_resolve_device`."""
+
+MAX_TRACKED_OBJECTS = 10
+"""How many of the first frame's automatic masks are propagated.
+
+The generator returns every region it can find - a few hundred on real footage,
+most of them foliage and texture. Tracking all of them costs propagation time
+per object with nothing to show for it, so the largest ones are kept."""
 
 @dataclass
 class TrackedObject:
@@ -87,6 +136,16 @@ class SegmentationResult:
             sample_fps=data["sample_fps"],
             objects=objects
         )
+
+
+def _resolve_device(name: str) -> "torch.device":
+    """The named device if this machine has it, else the CPU.
+
+    Only MPS can be absent, and falling back is the safe direction: the CPU is
+    where the generator is trusted anyway."""
+    if name == "mps" and not torch.backends.mps.is_available():
+        return torch.device("cpu")
+    return torch.device(name)
 
 
 def encode_rle(mask: np.ndarray) -> str:
@@ -173,15 +232,14 @@ class ObjectSegmenter:
         """Samples frames from the video, runs auto-mask generation, tracks objects across frames."""
         
         def _load_sam2():
-            if build_sam2_video_predictor is None:
+            if build_sam2_video_predictor_hf is None:
                 raise ImportError("sam2 is not installed.")
-            print("Loading sam2.1-hiera-small...")
-            device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-            model_cfg = "sam2.1_hiera_small.yaml"
-            ckpt = "sam2.1_hiera_small.pt"
-            predictor = build_sam2_video_predictor(model_cfg, ckpt, device=device)
-            sam2 = build_sam2(model_cfg, ckpt, device=device)
-            generator = SAM2AutomaticMaskGenerator(sam2)
+            print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
+            predictor = build_sam2_video_predictor_hf(
+                SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))
+            generator = SAM2AutomaticMaskGenerator(
+                build_sam2_hf(SAM2_MODEL_ID,
+                              device=_resolve_device(GENERATOR_DEVICE)))
             return predictor, generator
 
         # We need to extract frames to a temporary directory for SAM 2 predictor
@@ -213,78 +271,87 @@ class ObjectSegmenter:
                 # 1. Run automatic mask generation on the first frame to find objects
                 masks = generator.generate(first_frame_img)
                 
-                # Filter masks based on area or just take top N (to avoid tracking hundreds of tiny grains)
-                # Sort by area descending, take top 10 for performance
-                masks = sorted(masks, key=lambda x: x["area"], reverse=True)[:10]
+                masks = sorted(masks, key=lambda x: x["area"],
+                               reverse=True)[:MAX_TRACKED_OBJECTS]
                 
-                # 2. Init video predictor state
-                # Convert tmpdir path to str, sam2 expects string path to dir with JPEGs
+                # 2. Init video predictor state. Everything that touches the
+                # predictor stays INSIDE this block: managed_model moves the
+                # model to CPU on exit, and inference_state holds MPS tensors,
+                # so propagating after the block is a device mismatch.
                 inference_state = predictor.init_state(video_path=str(tmpdir_path))
             
-            objects_dict = {}
-            for i, mask_data in enumerate(masks):
-                obj_id = f"obj_{i+1}"
-                seg_mask = mask_data["segmentation"] # boolean numpy array
+                objects_dict = {}
+                for i, mask_data in enumerate(masks):
+                    obj_id = f"obj_{i+1}"
+                    seg_mask = mask_data["segmentation"] # boolean numpy array
                 
-                # Add mask to predictor
-                _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
-                    inference_state=inference_state,
-                    frame_idx=0,
-                    obj_id=i+1,
-                    mask=seg_mask
-                )
+                    # Add mask to predictor
+                    _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
+                        inference_state=inference_state,
+                        frame_idx=0,
+                        obj_id=i+1,
+                        mask=seg_mask
+                    )
                 
-                objects_dict[i+1] = TrackedObject(
-                    object_id=obj_id,
-                    label=f"auto_object_{i+1}",
-                    category="unknown",
-                    frames=[],
-                    masks_rle={},
-                    bboxes={},
-                    avg_area_ratio=0.0
-                )
+                    objects_dict[i+1] = TrackedObject(
+                        object_id=obj_id,
+                        label=f"auto_object_{i+1}",
+                        category="unknown",
+                        frames=[],
+                        masks_rle={},
+                        bboxes={},
+                        avg_area_ratio=0.0
+                    )
             
-            # 3. Propagate masks across frames
-            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-                for i, obj_id in enumerate(out_obj_ids):
-                    logits = out_mask_logits[i].cpu().numpy().squeeze()
-                    # Apply threshold (typically > 0 for logits)
-                    binary_mask = (logits > 0.0).astype(np.uint8)
+                # 3. Propagate masks across frames
+                mask_areas: Dict[int, List[int]] = {i: [] for i in objects_dict}
+                for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                    for i, obj_id in enumerate(out_obj_ids):
+                        logits = out_mask_logits[i].cpu().numpy().squeeze()
+                        # Apply threshold (typically > 0 for logits)
+                        binary_mask = (logits > 0.0).astype(np.uint8)
                     
-                    if binary_mask.sum() == 0:
-                        continue
+                        mask_area = int(binary_mask.sum())
+                        if mask_area == 0:
+                            continue
                         
-                    # Calculate bbox (x, y, w, h)
-                    y_indices, x_indices = np.where(binary_mask > 0)
-                    if len(x_indices) > 0 and len(y_indices) > 0:
+                        # Calculate bbox (x, y, w, h). Width and height count
+                        # PIXELS, so a one-pixel-wide mask is 1 and not 0.
+                        y_indices, x_indices = np.where(binary_mask > 0)
                         x_min, x_max = x_indices.min(), x_indices.max()
                         y_min, y_max = y_indices.min(), y_indices.max()
-                        bbox = (int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min))
-                        
+                        bbox = (int(x_min), int(y_min),
+                                int(x_max - x_min) + 1, int(y_max - y_min) + 1)
+                    
                         rle = encode_rle(binary_mask)
-                        
+                    
                         tr_obj = objects_dict[obj_id]
                         tr_obj.frames.append(out_frame_idx)
                         tr_obj.masks_rle[out_frame_idx] = rle
                         tr_obj.bboxes[out_frame_idx] = bbox
+                        mask_areas[obj_id].append(mask_area)
             
-            # Calculate avg_area_ratio for each object
-            final_objects = []
-            frame_area = width * height
-            for tr_obj in objects_dict.values():
-                if not tr_obj.frames:
-                    continue
-                total_area = sum(tr_obj.bboxes[f][2] * tr_obj.bboxes[f][3] for f in tr_obj.frames)
-                tr_obj.avg_area_ratio = total_area / (len(tr_obj.frames) * frame_area)
-                final_objects.append(tr_obj)
+                # 4. avg_area_ratio is the share of the frame the MASK covers,
+                # not the share its bounding box covers. A person with an arm
+                # out has a box several times the area of the silhouette, and
+                # this number is read as "how much of the picture is this
+                # object".
+                final_objects = []
+                frame_area = width * height
+                for obj_id, tr_obj in objects_dict.items():
+                    if not tr_obj.frames:
+                        continue
+                    areas = mask_areas[obj_id]
+                    tr_obj.avg_area_ratio = sum(areas) / (len(areas) * frame_area)
+                    final_objects.append(tr_obj)
             
-            return SegmentationResult(
-                video_path=video_path,
-                frame_count=len(frame_files),
-                resolution=resolution,
-                sample_fps=sample_fps,
-                objects=final_objects
-            )
+                return SegmentationResult(
+                    video_path=video_path,
+                    frame_count=len(frame_files),
+                    resolution=resolution,
+                    sample_fps=sample_fps,
+                    objects=final_objects
+                )
 
 def get_segmenter() -> ObjectSegmenter:
     """Return the ObjectSegmenter singleton instance."""

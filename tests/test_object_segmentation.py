@@ -64,8 +64,8 @@ def test_find_match_cut_candidates():
     assert candidates[0].score == 1.0
     assert (candidates[0].frame_a == 1 and candidates[0].frame_b == 10) or (candidates[0].frame_a == 2 and candidates[0].frame_b == 11)
 
-@patch('library.tools.analysis.object_segmentation.build_sam2_video_predictor')
-@patch('library.tools.analysis.object_segmentation.build_sam2')
+@patch('library.tools.analysis.object_segmentation.build_sam2_video_predictor_hf')
+@patch('library.tools.analysis.object_segmentation.build_sam2_hf')
 @patch('library.tools.analysis.object_segmentation.SAM2AutomaticMaskGenerator')
 @patch('library.tools.analysis.object_segmentation.torch')
 @patch('subprocess.run')

@@ -147,8 +147,21 @@ STEPS: tuple = (
             unwired_reason=(
                 "SAM 2.1 segmentation masks and bounding boxes have no "
                 "downstream consumer: planning steps operate on semantic "
-                "descriptions and time ranges, not spatial coordinates. "
-                "Wire when #162 decides what reads masks.")),
+                "descriptions and time ranges, not spatial coordinates, and "
+                "no Fusion node here reads a matte - nodes.py has no Loader "
+                "and EffectMask is wired in one place, the vignette. "
+                "MEASURED on 001 (2026-08-28, #162, 17 clips / 807s): it "
+                "works better than assumed - all 10 clips with a person in "
+                "shot held that person for the WHOLE clip, including 188.5s "
+                "and 139.0s unbroken and the shakiest walking selfies; the 7 "
+                "with no person seed on arbitrary regions and lose them in a "
+                "median 3.5s. Cost is 6.1x realtime and 58.3 MB of masks for "
+                "807s, both at the 2 fps that would chatter on a 30 fps "
+                "timeline. So the blocker is no longer quality: it is that "
+                "nothing consumes masks (#162 question 3), and that the "
+                "tracker seeds on the ten largest blobs rather than on the "
+                "face box step 1.04 already measures. "
+                "docs/SUBJECT_MASKING_MEASURED.md has the per-clip numbers.")),
     StepDir("ocr_extraction", "1_07_ocr_extraction"),
     StepDir("creative_direction", "2_01_creative_direction"),
     StepDir("speech_sequence", "2_02_speech_sequence"),
