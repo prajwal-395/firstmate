@@ -34,7 +34,7 @@ from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
-from library.tools import run_scope
+from library.tools import external_inputs, run_scope
 
 logger = logging.getLogger(__name__)
 
@@ -641,15 +641,48 @@ def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
     return delta
 
 
-def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None, step_type: str = "unknown") -> dict:
+_EXTERNAL_STATE_CACHE = {}
+
+
+def _verified_external_state(state: dict) -> dict:
+    """Verified external state for the project this run is on.
+
+    Cached per project folder because verification touches the disk -
+    the `render_output` check runs ffprobe - and `gather_step_inputs` is
+    called once per step. The runner loads it once up front and passes
+    it down; this is the fallback for callers that do not, and for the
+    replay bench, which reconstructs a context without a run.
+    """
+    project_folder = (state or {}).get("project_folder", "")
+    if not project_folder:
+        return {}
+    if project_folder not in _EXTERNAL_STATE_CACHE:
+        _EXTERNAL_STATE_CACHE[project_folder] = external_inputs.load(
+            project_folder, state)
+    return _EXTERNAL_STATE_CACHE[project_folder]
+
+
+def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = None, step_type: str = "unknown", external: dict = None) -> dict:
     """Gather inputs for a step from upstream outputs using edge data_mappings.
 
     Raises RuntimeError when a declared data_mapping source key is missing
     from the upstream step's outputs, unless the step's manifest marks that
     input as optional (required: false).  This prevents silent contract
     violations from propagating incomplete dicts downstream.  (Fix H3)
+
+    `external` is verified state the captain supplied from outside the
+    pipeline (#260, `library/tools/external_inputs.py`), keyed by the
+    state key it stands in for.  It is consulted only where the upstream
+    output does not carry the key, so a step that really ran always
+    wins, and the value handed over is the SAME value `run_scope`
+    checked before agreeing to the selection - the resolver cannot
+    believe something the run then cannot use.  Loaded once per run and
+    passed in; None means "look it up", which the replay bench and the
+    tests rely on.
     """
     inputs = {}
+    if external is None:
+        external = _verified_external_state(state)
 
     # Build a set of optional input names from the step manifest so we can
     # tolerate missing source keys for those inputs only.
@@ -670,6 +703,12 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 for src_key, dst_key in mapping.items():
                     if src_key in source_outputs:
                         inputs[dst_key] = source_outputs[src_key]
+                    elif src_key in external:
+                        # State the captain produced outside the pipeline
+                        # and this run verified. It reaches the step as
+                        # the step's own input, so nothing downstream has
+                        # to know it was not computed here.
+                        inputs[dst_key] = external[src_key].value
                     elif dst_key not in optional_inputs:
                         # Fix H3: Raise on missing required mapped input
                         # instead of silently skipping, so contract
@@ -1574,6 +1613,22 @@ def run_pipeline(
         skip=tuple(skip or ()),
         with_steps=tuple(with_steps or ()),
     )
+    # State the captain produced outside the pipeline, VERIFIED once for
+    # the whole run: the resolver counts it and `gather_step_inputs`
+    # hands the step the same value, so the two cannot disagree. A file
+    # that does not check out refuses the run here, before anything is
+    # deleted or written (#260).
+    try:
+        external = external_inputs.load(project_dir, state)
+    except external_inputs.ExternalStateError as exc:
+        print("\n  ✗ REFUSED - external state does not check out\n",
+              file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("", file=sys.stderr)
+        summary = {"status": "REFUSED", "reason": str(exc)}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
+
     try:
         scope = run_scope.resolve(
             selection, dag=dag, manifests=manifests, state=state,
@@ -1583,6 +1638,8 @@ def run_pipeline(
             # A --rerun target's output is about to be thrown away, so it
             # cannot be what makes it safe to leave a producer out.
             invalidated=_rerun_invalidates(rerun, stage_by_node),
+            external={key: entry.value
+                      for key, entry in external.items()},
         )
     except run_scope.ScopeError as exc:
         print(f"\n  \u2717 REFUSED\n", file=sys.stderr)
@@ -1618,6 +1675,8 @@ def run_pipeline(
     print(f"  Project: {project_dir}", file=sys.stderr)
     print(f"  Steps: {len(universe)}", file=sys.stderr)
     print(f"  Order: {' → '.join(universe)}", file=sys.stderr)
+    for line in external_inputs.describe(external):
+        print(line, file=sys.stderr)
     for line in run_scope.describe(scope):
         print(line, file=sys.stderr)
     print(f"{'═'*60}\n", file=sys.stderr)
@@ -1671,6 +1730,8 @@ def run_pipeline(
             "skip_reasons": dict(scope.reasons),
             "satisfied_from_previous_run": {
                 k: list(v) for k, v in scope.from_cache.items()},
+            "satisfied_from_outside": {
+                k: list(v) for k, v in scope.from_external.items()},
             "estimated_seconds": estimate,
         }
         json.dump(summary, sys.stdout, indent=2)
@@ -1791,7 +1852,7 @@ def run_pipeline(
 
         
         # Gather inputs from upstream (pass manifest for optional-input checking)
-        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"))
+        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"), external=external)
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
         
         try:

@@ -49,12 +49,27 @@ def _resolve(selection, dag, manifests, state=None, **kw):
                              state=state, **kw)
 
 
+def _recorded_keys(node_id):
+    """Every key the DAG says this step sends to somebody."""
+    keys = set()
+    for edge in run_scope.load_dag()["edges"]:
+        if edge["from"] == node_id:
+            keys |= set(edge.get("data_mapping") or {})
+    return keys or {"some_key"}
+
+
 def _state_with(*node_ids):
-    """A project ledger in which each named step finished and left an
-    output.  Both halves, because `satisfied_steps` requires both."""
+    """A project ledger in which each named step finished and left the
+    output the DAG says it produces.
+
+    All three halves, because a prerequisite names a KEY: the ledger
+    entry says the step finished, the `step_outputs` entry is what
+    `gather_step_inputs` will read, and the KEY inside it is what that
+    function actually raises on."""
     return {
         "edit_completed": {n: {"at": "now"} for n in node_ids},
-        "step_outputs": {n: {"some_key": True} for n in node_ids},
+        "step_outputs": {n: {k: True for k in _recorded_keys(n)}
+                         for n in node_ids},
     }
 
 
@@ -95,6 +110,73 @@ def test_an_edge_is_hard_exactly_when_the_runner_would_raise(dag, manifests):
         assert is_hard == would_raise, (
             f"{producer} -> {consumer}: hard={is_hard} but the runner "
             f"would{'' if would_raise else ' not'} raise")
+
+
+def test_a_prerequisite_exists_exactly_when_the_runner_would_raise(
+        dag, manifests):
+    """The per-KEY form of the edge agreement above, and now the
+    primitive `hard_requirements` is derived from.
+
+    `gather_step_inputs` raises per mapped key, so the condition has to
+    be read per key too: an edge carrying one required key and three
+    optional ones is one prerequisite, not four and not one-per-edge.
+    """
+    needs = {(need.consumer, need.producer, need.state_key, need.input_name)
+             for need in run_scope.prerequisites(dag, manifests)}
+    expected = set()
+    for edge in dag["edges"]:
+        consumer, producer = edge["to"], edge["from"]
+        mapping = edge.get("data_mapping") or {}
+        optional = run_scope.optional_inputs(manifests[consumer])
+        if not mapping:
+            expected.add((consumer, producer, "", ""))
+            continue
+        for source_key, destination in mapping.items():
+            if destination not in optional:
+                expected.add((consumer, producer, source_key, destination))
+    assert needs == expected
+
+
+def test_hard_requirements_is_the_prerequisites_collapsed(dag, manifests):
+    """Two readings of "hard", one computation. The closure walks
+    producers and the refusal walks keys, and they must not drift."""
+    requirements = run_scope.hard_requirements(dag, manifests)
+    from_needs = {}
+    for need in run_scope.prerequisites(dag, manifests):
+        keys = from_needs.setdefault(need.consumer, {}).setdefault(
+            need.producer, set())
+        if need.input_name:
+            keys.add(need.input_name)
+    assert requirements == from_needs
+
+
+def test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs(
+        dag, manifests):
+    """The guarantee this module exists for, asserted against the real
+    runner rather than against a model of it.
+
+    For every step of a full run, with a state carrying exactly what the
+    ledger says each producer recorded, `gather_step_inputs` must not
+    raise - and with a producer's key removed, it must.
+    """
+    from library.processes.edit_video.run_pipeline import gather_step_inputs
+
+    producers = [n["id"] for n in dag["nodes"]]
+    state = _state_with(*producers)
+    scope = _resolve(Selection(), dag, manifests, state)
+    for node_id in scope.steps_to_run:
+        gather_step_inputs(node_id, dag, state,
+                           manifest=manifests[node_id], external={})
+
+    for need in run_scope.prerequisites(dag, manifests):
+        if not need.names_a_key:
+            continue
+        thinned = _state_with(*producers)
+        thinned["step_outputs"][need.producer].pop(need.state_key)
+        with pytest.raises(RuntimeError):
+            gather_step_inputs(need.consumer, dag, thinned,
+                               manifest=manifests[need.consumer],
+                               external={})
 
 
 def test_a_soft_parent_is_not_dragged_in_by_a_target(dag, manifests):
@@ -177,11 +259,24 @@ def test_excluding_a_producer_refuses_and_names_the_missing_output(
     with pytest.raises(ScopeError) as exc:
         _resolve(Selection(skip=("plan_vfx",)), dag, manifests)
     message = str(exc.value)
-    assert "compile_manifest" in message
+    assert "render_motion_graphics" in message
     assert "plan_vfx" in message
     assert "enhancement_spec" in message, (
         "the refusal must name the OUTPUT that is missing, not just the "
         "step")
+
+
+def test_compile_manifest_no_longer_holds_the_decoration_planners(
+        dag, manifests):
+    """#260. `enhancement_spec` used to be `compile_manifest`'s too, so
+    dropping `plan_vfx` stranded the compiler as well. The compiler
+    compiles without it - measured in
+    tests/test_compile_manifest_without_the_decoration.py - so the only
+    hard consumer left is the one that really cannot draw without it."""
+    requirements = run_scope.hard_requirements(dag, manifests)
+    assert "plan_vfx" not in requirements.get("compile_manifest", {})
+    assert "enhancement_spec" in (
+        requirements["render_motion_graphics"]["plan_vfx"])
 
 
 def test_the_refusal_says_how_to_fix_it(dag, manifests):
@@ -197,7 +292,25 @@ def test_a_recorded_output_satisfies_an_excluded_dependency(dag, manifests):
     state = _state_with("plan_vfx")
     scope = _resolve(Selection(skip=("plan_vfx",)), dag, manifests, state)
     assert "plan_vfx" not in scope.steps_to_run
-    assert "compile_manifest" in scope.from_cache["plan_vfx"]
+    assert "render_motion_graphics" in scope.from_cache["plan_vfx"]
+
+
+def test_a_recorded_output_missing_the_KEY_does_not_satisfy(dag, manifests):
+    """A prerequisite is a condition on STATE, so the key is what has to
+    be there. A step that finished and recorded something else would let
+    the selection pass and die in `gather_step_inputs`, which raises on
+    the key and not on the step."""
+    state = {
+        "edit_completed": {"plan_vfx": {"at": "now"}},
+        "step_outputs": {"plan_vfx": {"vfx_candidates_toon": "..."}},
+    }
+    with pytest.raises(ScopeError) as exc:
+        _resolve(Selection(skip=("plan_vfx",)), dag, manifests, state)
+    message = str(exc.value)
+    assert "enhancement_spec" in message
+    assert "vfx_candidates_toon" in message, (
+        "the refusal must say what the producer DID record, or the "
+        "captain cannot tell a missing step from a missing key")
 
 
 def test_a_ledger_entry_with_no_output_does_not_satisfy(dag, manifests):

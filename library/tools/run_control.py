@@ -223,6 +223,13 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
     parts.append("review gates on" if review_mode else "review gates off")
     if rerun:
         parts.append("re-running " + " + ".join(rerun))
+    supplied = sorted(getattr(scope, "from_external", None) or ())
+    if supplied:
+        # A run that skipped work because the captain supplied the state
+        # has to say so on its own record. Reading `pipeline_run.json`
+        # and seeing "1 of 26 steps" with no explanation is the report
+        # this line prevents (#260).
+        parts.append("state supplied from outside: " + ", ".join(supplied))
     return ", ".join(parts)
 
 

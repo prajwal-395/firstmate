@@ -45,8 +45,8 @@
       {
         "name": "temporal_index",
         "type": "array",
-        "required": true,
-        "description": "State input: temporal_index"
+        "required": false,
+        "description": "State input: temporal_index. OPTIONAL, and nothing reads it: the post_bridge never names it and `context_fields` does not select it, so the projection deletes it before the prompt. Declaring it required made a step that cannot use it refuse to run without it. Surveyed by library/tools/input_contract.py."
       }
     ],
     "outputs": [
@@ -69,7 +69,6 @@
     "preconditions": [
       "'speech_sequence' exists in state",
       "'music_selection' exists in state",
-      "'temporal_index' exists in state",
       "'music_analysis' exists in state",
       "'semantic_analysis_documents' exists in state",
       "'clip_catalog' exists in state"

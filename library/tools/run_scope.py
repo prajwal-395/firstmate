@@ -64,6 +64,23 @@ output is on file.
 "I just want the rough cut" is expressed by naming a GOAL, not by
 excluding twelve steps - which is what targets are for.
 
+A prerequisite is a condition on STATE, not on lineage
+------------------------------------------------------
+The captain, #260, 2026-08-28: "we need to refactor the system to have
+the pipeline be customizable with prereqs ... so we can continue to have
+strong contract enforcment but still have the pipeline configuration
+ability".
+
+So a step declares what must EXIST for it to run - a `Prerequisite`,
+one per required key - and this asks whether that state exists, by any
+of three means: a step in this run makes it, a previous run recorded it,
+or the captain supplied it from outside and it CHECKED OUT
+(`library/tools/external_inputs.py`).  Which step would normally have
+made it is one of the three answers, not the question.
+
+That is also why a producer that finished and recorded a DIFFERENT key
+does not satisfy: `gather_step_inputs` raises on the key.
+
 A cached artifact satisfies an excluded dependency
 --------------------------------------------------
 That is what makes a scoped re-run fast, and it is the ledger's job
@@ -206,25 +223,71 @@ def optional_inputs(manifest: Optional[dict]) -> Set[str]:
     return names
 
 
-def hard_requirements(dag: dict,
-                      manifests: Mapping[str, dict]) -> Dict[str, Dict[str, Set[str]]]:
-    """`{consumer: {producer: {input keys the consumer cannot run without}}}`.
+@dataclass(frozen=True)
+class Prerequisite:
+    """One thing that must EXIST for a step to run.
 
-    A producer appears only when at least one key it sends is required.
-    An edge with no `data_mapping` merges the producer's whole output, so
-    it is hard: there is no key to judge optional.
+    Named after the state it is about rather than the step that usually
+    makes it, because that is the captain's model (#260): "given that all
+    necessary prerequisties have been fulfilled".  `producer` is where
+    the DAG says the value normally comes from, and it is one of three
+    ways the condition can be met - not the condition itself.
     """
-    out: Dict[str, Dict[str, Set[str]]] = {}
+
+    consumer: str
+    producer: str
+    state_key: str
+    """The key under `step_outputs[producer]`.  Empty for an edge with no
+    `data_mapping`, which merges the producer's whole output: there is no
+    key to name, so nothing but the producer can satisfy it."""
+
+    input_name: str
+    """What the consumer's manifest calls it.  Empty for the whole-output
+    case, for the same reason."""
+
+    @property
+    def names_a_key(self) -> bool:
+        return bool(self.state_key)
+
+
+def prerequisites(dag: dict,
+                  manifests: Mapping[str, dict]) -> List[Prerequisite]:
+    """Every HARD condition in the pipeline, one per required key.
+
+    Hard means exactly what `run_pipeline.gather_step_inputs` raises on:
+    a mapped key the consumer did not declare optional, or an unmapped
+    edge, where there is no key to judge.  Nothing here guesses - the
+    refusal and the crash it prevents read the same two declarations.
+    """
+    out: List[Prerequisite] = []
     for edge in dag.get("edges", []):
         consumer, producer = edge.get("to"), edge.get("from")
         mapping = edge.get("data_mapping") or {}
         optional = optional_inputs(manifests.get(consumer))
         if not mapping:
-            out.setdefault(consumer, {}).setdefault(producer, set())
+            out.append(Prerequisite(consumer, producer, "", ""))
             continue
-        needed = {dst for dst in mapping.values() if dst not in optional}
-        if needed:
-            out.setdefault(consumer, {}).setdefault(producer, set()).update(needed)
+        for source_key, destination in mapping.items():
+            if destination not in optional:
+                out.append(Prerequisite(consumer, producer, source_key,
+                                        destination))
+    return out
+
+
+def hard_requirements(dag: dict,
+                      manifests: Mapping[str, dict]) -> Dict[str, Dict[str, Set[str]]]:
+    """`{consumer: {producer: {input keys the consumer cannot run without}}}`.
+
+    The same facts as `prerequisites`, collapsed to producers - which is
+    what the closure walks. Derived rather than computed a second time,
+    so the two readings of "hard" cannot drift apart.
+    """
+    out: Dict[str, Dict[str, Set[str]]] = {}
+    for need in prerequisites(dag, manifests):
+        keys = out.setdefault(need.consumer, {}).setdefault(
+            need.producer, set())
+        if need.input_name:
+            keys.add(need.input_name)
     return out
 
 
@@ -254,22 +317,60 @@ def topological_order(dag: dict) -> List[str]:
 
 # ── What the project already has on file ─────────────────────────────
 
-def satisfied_steps(state: Optional[Mapping]) -> Set[str]:
-    """Steps whose output an excluded run can still be handed.
+def recorded_outputs(state: Optional[Mapping]) -> Dict[str, Mapping]:
+    """`{node_id: what it recorded}` for steps a run can still be handed.
 
     BOTH halves are required.  A ledger entry says the step finished; the
     `step_outputs` entry is the artifact `gather_step_inputs` will
     actually read.  A ledger entry with no output would let a selection
     pass here and die in the runner, which is the whole failure this
     module exists to move earlier.
+
+    The output is returned rather than just the name, because a
+    prerequisite names a KEY: a step that finished and recorded
+    something else is not a step that recorded THIS.
     """
     if not state:
-        return set()
+        return {}
     from library.tools import step_ledger
 
     outputs = state.get("step_outputs") or {}
     completed = step_ledger.all_completed(state)
-    return {node_id for node_id in completed if node_id in outputs}
+    return {node_id: (outputs[node_id] if isinstance(outputs[node_id], dict)
+                      else {})
+            for node_id in completed if node_id in outputs}
+
+
+def satisfied_steps(state: Optional[Mapping]) -> Set[str]:
+    """The names alone, for callers that only need "did it finish"."""
+    return set(recorded_outputs(state))
+
+
+IN_THIS_RUN = "in this run"
+RECORDED = "recorded by a previous run"
+SUPPLIED = "supplied from outside the pipeline"
+
+
+def satisfaction(need: Prerequisite,
+                 run_set: Set[str],
+                 recorded: Mapping[str, Mapping],
+                 external: Mapping[str, object]) -> Optional[str]:
+    """How this prerequisite is met, or None.
+
+    Three ways, asked of the STATE rather than of the lineage, which is
+    the whole of #260's second half.  An unmapped edge merges a
+    producer's whole output and so names no key; nothing but that
+    producer can stand in for it, and the refusal says so.
+    """
+    if need.producer in run_set:
+        return IN_THIS_RUN
+    if not need.names_a_key:
+        return RECORDED if need.producer in recorded else None
+    if need.state_key in (recorded.get(need.producer) or {}):
+        return RECORDED
+    if need.state_key in external:
+        return SUPPLIED
+    return None
 
 
 # ── The selection ────────────────────────────────────────────────────
@@ -312,6 +413,11 @@ class ResolvedScope:
     """`{skipped producer: (consumers it is still feeding from file,)}`.
     The evidence that leaving a step out was safe."""
 
+    from_external: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+    """`{state key supplied from outside: (consumers reading it,)}`.
+    The other evidence, and the one a reader is least likely to expect,
+    so it is reported on every run that uses it."""
+
     default_off: Tuple[str, ...] = ()
     """Steps that are in the DAG and off by default, so they are not in
     `universe` at all. Reported on EVERY run, including a plain full one:
@@ -335,7 +441,9 @@ def resolve(selection: Selection,
             manifests: Optional[Mapping[str, dict]] = None,
             state: Optional[Mapping] = None,
             always_include: Iterable[str] = (),
-            invalidated: Iterable[str] = ()) -> ResolvedScope:
+            invalidated: Iterable[str] = (),
+            project_folder: Optional[str] = None,
+            external: Optional[Mapping[str, object]] = None) -> ResolvedScope:
     """Turn a selection into a step list, or raise `ScopeError`.
 
     `always_include` is for a step named by a flag that predates this
@@ -346,6 +454,14 @@ def resolve(selection: Selection,
     discard - the `--rerun` targets.  They cannot satisfy an excluded
     dependency, because by the time the run reaches the consumer the
     output will be gone.
+
+    `project_folder` is read for VERIFIED external state - values the
+    captain produced outside the pipeline and put under `external/`.
+    Each is checked at the moment this asks, and a file that does not
+    check out raises here rather than being ignored
+    (`library/tools/external_inputs.py`).  `external` passes an already
+    verified mapping in instead, which is what the runner does so the
+    checks run once per run rather than once per step.
     """
     dag = dag if dag is not None else load_dag()
     manifests = manifests if manifests is not None else load_manifests(dag)
@@ -355,8 +471,15 @@ def resolve(selection: Selection,
 
     _reject_unknown(selection, known, always_include)
 
-    requirements = hard_requirements(dag, manifests)
-    satisfied = satisfied_steps(state) - set(invalidated)
+    needs = prerequisites(dag, manifests)
+    recorded = {node_id: output
+                for node_id, output in recorded_outputs(state).items()
+                if node_id not in set(invalidated)}
+    if external is None:
+        from library.tools import external_inputs
+        folder = project_folder or (state or {}).get("project_folder", "")
+        external = {key: entry.value for key, entry
+                    in external_inputs.load(folder, state).items()}
 
     # Which default-off steps this run turns back on. Naming a step in
     # --only, --with or --step is an explicit selection and outranks the
@@ -388,6 +511,18 @@ def resolve(selection: Selection,
     #    consumer that declares an input optional has said it can run
     #    without it, and a target should not drag in a step nothing it
     #    wants actually needs.
+    #
+    #    A producer whose every hard output for this consumer is SUPPLIED
+    #    is left behind too, and that is the point of supplying it: the
+    #    captain who cut the rough on the timeline by hand did it so the
+    #    pipeline would not cut it again. A recorded output does NOT do
+    #    this - history is not a request - so a re-run still rebuilds
+    #    what it is asked to.
+    needs_by_consumer: Dict[str, Dict[str, List[Prerequisite]]] = {}
+    for need in needs:
+        needs_by_consumer.setdefault(need.consumer, {}).setdefault(
+            need.producer, []).append(need)
+
     wanted: Set[str] = set()
     queue = deque(goals)
     while queue:
@@ -395,7 +530,11 @@ def resolve(selection: Selection,
         if node_id in wanted:
             continue
         wanted.add(node_id)
-        for producer in requirements.get(node_id, {}):
+        for producer, producer_needs in needs_by_consumer.get(
+                node_id, {}).items():
+            if all(need.names_a_key and need.state_key in external
+                   for need in producer_needs):
+                continue
             if producer not in wanted:
                 queue.append(producer)
 
@@ -411,8 +550,8 @@ def resolve(selection: Selection,
     run_set = {node_id for node_id in wanted if node_id not in excluded}
 
     # 4. Refuse a selection that strands a consumer.
-    _assert_dependencies_met(run_set, requirements, satisfied, excluded,
-                             selection, order)
+    _assert_dependencies_met(run_set, needs, recorded, external, excluded,
+                             order)
 
     steps_to_run = tuple(sorted(run_set, key=lambda n: rank[n]))
     skipped = tuple(node_id for node_id in universe if node_id not in run_set)
@@ -428,20 +567,29 @@ def resolve(selection: Selection,
             reasons[node_id] = _SKIP_UNNEEDED
 
     from_cache: Dict[str, Tuple[str, ...]] = {}
-    for node_id in skipped:
-        consumers = sorted(
-            (consumer for consumer in run_set
-             if node_id in requirements.get(consumer, {})),
-            key=lambda n: rank[n])
-        if consumers and node_id in satisfied:
-            from_cache[node_id] = tuple(consumers)
+    from_external: Dict[str, List[str]] = {}
+    for need in needs:
+        if need.consumer not in run_set or need.producer in run_set:
+            continue
+        how = satisfaction(need, run_set, recorded, external)
+        if how == RECORDED:
+            from_cache.setdefault(need.producer, [])
+            if need.consumer not in from_cache[need.producer]:
+                from_cache[need.producer].append(need.consumer)
+        elif how == SUPPLIED:
+            from_external.setdefault(need.state_key, [])
+            if need.consumer not in from_external[need.state_key]:
+                from_external[need.state_key].append(need.consumer)
 
     return ResolvedScope(
         steps_to_run=steps_to_run,
         universe=tuple(universe),
         skipped=skipped,
         reasons=reasons,
-        from_cache=from_cache,
+        from_cache={producer: tuple(sorted(consumers, key=lambda n: rank[n]))
+                    for producer, consumers in from_cache.items()},
+        from_external={key: tuple(sorted(consumers, key=lambda n: rank[n]))
+                       for key, consumers in from_external.items()},
         default_off=tuple(node_id for node_id in order
                           if node_id in off_by_default),
         selection=selection,
@@ -471,42 +619,67 @@ def _reject_unknown(selection: Selection, known: Set[str],
 
 
 def _assert_dependencies_met(run_set: Set[str],
-                             requirements: Mapping[str, Mapping[str, Set[str]]],
-                             satisfied: Set[str],
+                             needs: Sequence[Prerequisite],
+                             recorded: Mapping[str, Mapping],
+                             external: Mapping[str, object],
                              excluded: Set[str],
-                             selection: Selection,
                              order: Sequence[str]) -> None:
-    """Refuse before the run starts, naming the missing outputs.
+    """Refuse before the run starts, naming the missing state.
 
     A run that begins and dies forty minutes in because a producer was
     excluded is worse than one that refuses in a second.
+
+    The question asked of each prerequisite is whether the STATE exists -
+    from a step in this run, from a recorded output, or from a verified
+    external supply - and not which step is scheduled to make it.  That
+    is why a producer that ran, recorded an output and did not record
+    THIS KEY is refused here: `gather_step_inputs` raises on the key, so
+    accepting the step's name would move the crash back into the run.
     """
     rank = {node_id: i for i, node_id in enumerate(order)}
-    unmet: List[Tuple[str, str, Tuple[str, ...]]] = []
-    for consumer in sorted(run_set, key=lambda n: rank.get(n, 0)):
-        for producer, keys in sorted(requirements.get(consumer, {}).items()):
-            if producer in run_set or producer in satisfied:
-                continue
-            unmet.append((consumer, producer, tuple(sorted(keys))))
+    unmet: Dict[Tuple[str, str], Set[str]] = {}
+    for need in needs:
+        if need.consumer not in run_set:
+            continue
+        if satisfaction(need, run_set, recorded, external) is not None:
+            continue
+        unmet.setdefault((need.consumer, need.producer), set()).add(
+            need.state_key)
 
     if not unmet:
         return
 
     lines = ["This selection cannot run. Refusing before the run starts.", ""]
-    for consumer, producer, keys in unmet:
-        what = ", ".join(keys) if keys else "its whole output"
+    for (consumer, producer), keys in sorted(
+            unmet.items(), key=lambda kv: (rank.get(kv[0][0], 0),
+                                           rank.get(kv[0][1], 0))):
+        named = sorted(key for key in keys if key)
+        what = ", ".join(named) if named else "its whole output"
         state_of_producer = ("excluded by this run"
                              if producer in excluded
                              else "not in this run")
-        lines.append(
-            f"  {consumer} needs {what} from {producer}, which is "
-            f"{state_of_producer} and has no recorded output in this "
-            f"project."
-        )
-    stranded = sorted({consumer for consumer, _, _ in unmet},
+        recorded_but_not_this = (
+            producer in recorded and named
+            and not any(key in recorded[producer] for key in named))
+        if recorded_but_not_this:
+            has = sorted(recorded[producer]) or ["nothing"]
+            lines.append(
+                f"  {consumer} needs {what} from {producer}, which is "
+                f"{state_of_producer}. Its recorded output has "
+                f"{', '.join(has)} and not {what}."
+            )
+        else:
+            lines.append(
+                f"  {consumer} needs {what} from {producer}, which is "
+                f"{state_of_producer} and has no recorded output in this "
+                f"project."
+            )
+    stranded = sorted({consumer for consumer, _ in unmet},
                       key=lambda n: rank.get(n, 0))
-    producers = sorted({producer for _, producer, _ in unmet},
+    producers = sorted({producer for _, producer in unmet},
                        key=lambda n: rank.get(n, 0))
+    suppliable = sorted({key for keys in unmet.values() for key in keys
+                         if key in _checkable_keys()})
     lines += [
         "",
         "Either:",
@@ -515,7 +688,21 @@ def _assert_dependencies_met(run_set: Set[str],
         f"  - or run the producers once so their output is on file: "
         f"--only {' --only '.join(producers)}",
     ]
+    if suppliable:
+        lines.append(
+            f"  - or supply the state yourself, if you already have it: "
+            f"{', '.join(suppliable)} can be put under "
+            f"<project>/external/ and is CHECKED before it counts. See "
+            f"library/tools/external_inputs.py.")
     raise ScopeError("\n".join(lines))
+
+
+def _checkable_keys() -> Set[str]:
+    """State keys that CAN be supplied from outside. Read off the check
+    table, so the refusal never advertises a route that does not exist."""
+    from library.tools import external_inputs
+
+    return set(external_inputs.CHECKS)
 
 
 # ── Reporting ────────────────────────────────────────────────────────
@@ -540,6 +727,10 @@ def describe(scope: ResolvedScope) -> List[str]:
     for producer, consumers in scope.from_cache.items():
         lines.append(f"  Satisfied from a previous run: {producer} "
                      f"(feeding {', '.join(consumers)})")
+    for key, consumers in scope.from_external.items():
+        lines.append(f"  Satisfied from outside the pipeline: {key} "
+                     f"(feeding {', '.join(consumers)}) - verified, see "
+                     f"the lines above")
     return lines
 
 

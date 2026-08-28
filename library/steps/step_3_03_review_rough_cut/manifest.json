@@ -51,8 +51,8 @@
       {
         "name": "temporal_index",
         "type": "array",
-        "required": true,
-        "description": "State input: temporal_index"
+        "required": false,
+        "description": "State input: temporal_index. OPTIONAL, and nothing reads it: step.py never names it and `context_fields` does not select it, so the projection deletes it before the prompt. The handoff's State Interaction table still lists it and is stale. Surveyed by library/tools/input_contract.py."
       }
     ],
     "outputs": [
@@ -72,7 +72,6 @@
       "'b_roll_interjections' exists in state",
       "'audio_spine' exists in state",
       "'speech_sequence' exists in state",
-      "'temporal_index' exists in state",
       "'creative_direction' exists in state"
     ],
     "postconditions": [

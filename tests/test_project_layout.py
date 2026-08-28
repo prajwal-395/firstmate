@@ -408,10 +408,14 @@ def test_no_two_areas_claim_the_same_directory():
 
 
 def test_the_input_areas_are_the_captains_material():
+    """`external_state` is here for the same reason `raw` is: the
+    captain made it and no step may write it. It carries state produced
+    outside the pipeline and offered to a step that would otherwise need
+    the step that makes it - see library/tools/external_inputs.py."""
     inputs = {a.value for a, s in AREAS.items() if s.kind is Kind.INPUT}
     assert inputs == {
         "project_root", "raw", "music", "assets",
-        "brand_assets", "compositions",
+        "brand_assets", "compositions", "external_state",
     }
 
 

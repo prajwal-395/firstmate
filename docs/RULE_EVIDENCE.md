@@ -74,6 +74,108 @@ list is walked every run. Measured on the DAG as it stands, that leaves out `val
 `compile_manifest` on OPTIONAL inputs, the SFX-library check nothing routes, and the render QA
 that judges a master nobody is shipping yet.
 
+### a-prerequisite-is-a-statement-about-state
+
+**#260, the captain on 2026-08-28**, reframing an issue that had been raised as a product call:
+
+> it should be possible to have as much or as little in the number of steps in the pipeline (given
+> that all necessary prerequisties have been fulfilled -- like for example you should not be able
+> to add transitions or effects when there exists no roughcut either already on the timeline
+> manually or automated by the LLM during the process) so i think if it doesn't already exist we
+> need to refactor the system to have the pipeline be customizable with prereqs and what ever else
+> is needed so we can continue to have strong contract enforcment but still have the pipeline
+> configuration ability so that a run that does not need all steps to fire does not fire all the
+> steps
+
+Both halves of that sentence are load-bearing. Configurability bought by weakening the contract
+would have been worse than leaving it alone.
+
+**The lie that started it.** `compile_manifest`'s manifest declared `transition_spec`,
+`enhancement_spec`, `sfx_spec` and `color_grade_spec` required, while its own code called three of
+them "optional enhancement specs" and read them off state with `.get(..., {})`. The declaration is
+what `gather_step_inputs` raises on and what `run_scope` derives its refusal from, so the stricter
+of the two won: the `rough_cut_subtitles` target had to run four planners it did not need.
+
+Measured by running the step. `tests/test_compile_manifest_without_the_decoration.py` builds a
+project under `tmp_path`, drops one recorded key at a time, and compiles:
+
+    transition_spec absent  -> transitions: [],  the edit cuts
+    enhancement_spec absent -> vfx: [],          no comp is written for an effect nobody planned
+    sfx_spec absent         -> A3 empty
+    color_grade_spec absent -> color_grade: {},  no CDL, no house-look values, ungraded picture
+
+All four are section 10.5's "nothing is drawn": the absence of decoration, not a choice of it. They
+are now optional. What that saves, in the seconds 001's own ledger recorded for its 2026-08-26 run:
+
+    plan_vfx           320.2s
+    plan_sfx            70.7s
+    plan_transitions    50.7s
+    color_grade          4.9s
+    ------------------------
+                       446.5s
+
+`--target rough_cut_subtitles` went from 22 of 26 steps to 18, and 3183.7s of measured work to
+2737.0s - 14.0% shorter.
+
+**Why the same measurement did not relax everything else.** `compile_manifest` also compiles
+without `audio_mix_spec`, `music_selection`, `subtitle_plan`, `subtitle_overlay`,
+`semantic_analysis`, `a_roll_assignments` and (for an all-speech spine)
+`b_roll_assignments`. Those are not decoration: an absent mix drops every dB the spine's declared
+`music_behavior` asked for, an absent `semantic_analysis` stabilises nothing, an absent
+`subtitle_overlay` ships a caption list with nothing on screen. Each is recorded in
+`input_contract.REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go missing, and the test
+checks the record both ways - an entry for an input the step actually refuses without is stale and
+fails. `audio_spine` was recorded first and the staleness check deleted it.
+
+**The survey of the other twenty-five steps.** The captain's known unknown was whether
+`compile_manifest` was the only one. `library/tools/input_contract.py` reads all 128 declared
+inputs of the DAG's 27 steps and asks who refuses when each is absent. The answer, which was not
+the expected one: almost every step reads its required inputs with `.get(k, default)`, and that is
+harmless, because for an edge-routed required input `gather_step_inputs` has already raised and the
+default is dead code. 69 are refused by the runner, 22 by the step's own code with a file and a
+line, and 37 are declared optional. Nothing was declared required that nothing refuses on.
+
+Two genuine findings, both the same shape: `mesh_spine` and `review_rough_cut` declared
+`temporal_index` required while neither the step's code nor its `context_fields` reads it - the
+projection deletes it before the prompt. Both are now optional and recorded in
+`UNCONSUMED_DECLARATIONS`. They are still ROUTED, because unrouting would leave their `handoff.md`
+documenting a read that no longer happens and those files were reserved.
+
+**The third way to satisfy a prerequisite, and why it is not a flag.** "already on the timeline
+manually" had no expression at all: `enhancement_spec` could only be satisfied by running
+`plan_vfx` now or having run it before. Both are statements about lineage. The fix is
+`library/tools/external_inputs.py`: the captain SUPPLIES the value, in
+`<project>/external/<state_key>.json`, and it is checked at the moment the resolver asks. The same
+verified value is what `gather_step_inputs` hands the step, so there is no state of the world where
+the resolver believed something the run could not then use.
+
+An unchecked "trust me, it exists" flag was the obvious alternative and would have dissolved
+exactly the enforcement the captain asked to keep. What is checkable is enumerated, and a key that
+is not in the table is refused by name - `a_roll_assignments` (files on disk, ranges, and the
+catalog's measured durations), `audio_spine` (`spine_contract`), `assembly_manifest`
+(`manifest_validator` both halves, plus every placed clip), `render_output` (ffprobe finds a video
+stream).
+
+The captain's own example is the one thing that could NOT be honestly checked. A DaVinci Resolve
+timeline lives in a project database, reading it means copying that database and opening it as
+SQLite (section 5), and nothing maps its clips back onto a typed pipeline key at resolve time. So
+it is recorded in `WITHDRAWN` rather than believed, and the answer given there is to supply the
+artifact that describes the cut, which is checkable.
+
+Measured end to end: a project with a hand-assembled `assembly_manifest` and a hand-rendered
+`render_output` resolves `--only validate` to **one step of twenty-six**, and the same selection
+with the render's path pointed at a file that is not there is refused by name before the run
+starts.
+
+**What replaced the 104-edge agreement test.** It still passes unchanged. Beside it,
+`test_a_prerequisite_exists_exactly_when_the_runner_would_raise` asserts the same condition per
+KEY rather than per edge - which is the granularity `gather_step_inputs` really raises at - and
+`test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs` drives the real runner over
+a full run and then removes each required key in turn to confirm it raises. The resolver is
+therefore strictly stricter than before: a producer that finished and recorded a DIFFERENT key used
+to satisfy an excluded dependency and now does not, because the runner would have raised on the
+key.
+
 ### per-clip-index-in-a-worktree
 
 Step 1.04 wrote the per-clip index to `--output-dir`'s default of `./pipeline_output`, which is the runner's current working directory.

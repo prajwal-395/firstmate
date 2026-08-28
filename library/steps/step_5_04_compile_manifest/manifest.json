@@ -51,14 +51,14 @@
       {
         "name": "color_grade_spec",
         "type": "object",
-        "required": true,
-        "description": "State input: color_grade_spec"
+        "required": false,
+        "description": "State input: color_grade_spec, from step 5.01. OPTIONAL: an absent grade compiles to `color_grade: {}`, the renderer applies no CDL and no house-look Fusion values, and the picture ships ungraded. That is house_look.NEUTRAL_CDL's case: nothing drawn, not a look chosen."
       },
       {
         "name": "enhancement_spec",
         "type": "object",
-        "required": true,
-        "description": "State input: enhancement_spec"
+        "required": false,
+        "description": "State input: enhancement_spec, from step 4.03. OPTIONAL: an absent VFX plan compiles to `vfx: []` and no per-clip Fusion comp is written for an effect nobody planned. The absence of decoration is not a choice of decoration (AGENTS.md section 10.5)."
       },
       {
         "name": "motion_graphics_overlay",
@@ -87,8 +87,8 @@
       {
         "name": "sfx_spec",
         "type": "object",
-        "required": true,
-        "description": "State input: sfx_spec"
+        "required": false,
+        "description": "State input: sfx_spec, from step 4.04. OPTIONAL: an absent sound plan compiles to an empty A3, and no sound is substituted - `sfx_type` is still a decision step 4.04 makes, and a planned entry that names none still fails the step."
       },
       {
         "name": "subtitle_overlay",
@@ -111,8 +111,8 @@
       {
         "name": "transition_spec",
         "type": "array",
-        "required": true,
-        "description": "State input: transition_spec"
+        "required": false,
+        "description": "State input: transition_spec, from step 4.02. OPTIONAL: a cut the plan did not decorate is a hard cut (AGENTS.md section 5), so an absent transition plan compiles to `transitions: []` and the edit cuts. Measured in tests/test_compile_manifest_without_the_decoration.py."
       }
     ],
     "outputs": [
@@ -126,10 +126,6 @@
       "'a_roll_assignments' exists in state",
       "'b_roll_assignments' exists in state",
       "'subtitle_plan' exists in state",
-      "'transition_spec' exists in state",
-      "'enhancement_spec' exists in state",
-      "'sfx_spec' exists in state",
-      "'color_grade_spec' exists in state",
       "'audio_mix_spec' exists in state",
       "'music_selection' exists in state",
       "'clip_catalog' exists in state",

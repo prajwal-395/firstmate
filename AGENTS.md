@@ -85,13 +85,42 @@ Run with `python3 manage_project.py run <slug>`:
 One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags from it.
 
 - **A selection is resolved against the DAG before the run starts, or refused.** A selection that strands a consumer names the consumer, the producer and the missing output keys, and exits 2 having written nothing. A run that dies forty minutes in because a producer was excluded is the failure this removes. [why](docs/RULE_EVIDENCE.md#a-selection-that-died-forty-minutes-in)
+- **A prerequisite is a condition on STATE, not on lineage.** `run_scope.Prerequisite` is one required KEY, and the resolver asks whether that key exists by any of three means: a step in this run makes it, a previous run recorded it, or it was supplied from outside and CHECKED. Which step would normally make it is one of the three answers, not the question. [why](docs/RULE_EVIDENCE.md#a-prerequisite-is-a-statement-about-state)
 - **An edge is HARD when it carries a key the consumer does not declare optional** - the same condition `gather_step_inputs` raises on. Soft parents are not pulled in by a target.
 - **Excluding a producer REFUSES its consumers; it never drops them silently.** There is no "let downstream cope": a required input has no absent-value code path (section 10.1). Say "I just want the rough cut" by naming a GOAL, not by excluding twelve steps.
-- **A recorded output satisfies an excluded dependency** - ledger entry AND a `step_outputs` value, both halves. That is what makes a scoped re-run fast. A `--rerun` target is about to be discarded, so it satisfies nothing.
+- **A recorded output satisfies an excluded dependency** - ledger entry, a `step_outputs` value, AND the KEY inside it. All three, because `gather_step_inputs` raises on the key: a step that finished and recorded something else is not a step that recorded this. That is what makes a scoped re-run fast. A `--rerun` target is about to be discarded, so it satisfies nothing.
+- **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain putting a value under `external/` is saying "do not make this", so the closure stops at that producer.
 - **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
 - `--step` and `--from` narrow the scope further and behave exactly as they always have. `--step <id>` names a step outright and outranks the default-off list.
 - **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
 - `tests/test_run_scope.py`.
+
+### State the pipeline did not produce
+
+**A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.**
+One enumeration, `library/tools/external_inputs.py`. [why - what was measured, and what could not honestly be checked](docs/RULE_EVIDENCE.md#a-prerequisite-is-a-statement-about-state)
+
+- The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
+- **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
+- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes. Today: `a_roll_assignments` (every source file on disk, every range non-empty, and within the catalog's measured duration where the catalog is on file), `audio_spine` (`spine_contract`), `assembly_manifest` (`manifest_validator`, both halves, plus every placed clip resolving to a file) and `render_output` (ffprobe finds a video stream).
+- `WITHDRAWN` records what cannot be asserted and why. **A Resolve timeline built by hand is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead. Do not add a flag that believes a claim.
+- `source` is RECORDED, never trusted. The verdict comes from the check.
+- A file that does not check out REFUSES the run, before anything is deleted or written. It is not skipped.
+- `tests/test_external_inputs.py`.
+
+### A declaration must be true
+
+**No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
+`library/tools/input_contract.py` surveys all 128 declared inputs of the DAG's 27 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
+
+    python3 -m library.tools.input_contract          # the survey
+    python3 -m library.tools.input_contract --bad    # disagreements only
+
+- **Enforcement is not warrant.** `compile_manifest` enforced four specs perfectly and did not need any of them, at a measured 446.5s on 001 (#260). [why](docs/RULE_EVIDENCE.md#a-prerequisite-is-a-statement-about-state) Establishing warrant means RUNNING the step without the input; `tests/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
+- A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
+- The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
+- `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt. Two exist. Widening either table is not a way to make the survey quiet.
+- `tests/test_input_declarations_are_true.py`.
 
 Steps come in three implementation types:
 
@@ -407,7 +436,7 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 
 - Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
 - **A step never composes a project path.** It names an `Area` and gets a path: `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state. All sixteen steps that used to join `project_folder` with a name of their own choosing now do this. [why](docs/RULE_EVIDENCE.md#nothing-owned-the-project-folder)
-- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/` and `compositions/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
+- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/` and `external/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
 - `assert_writable(path)` is the guard for a path that arrives from outside the layout - a manifest key, a CLI flag. Outside the project, at the bare project root, or inside an input area all raise.
 - **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads - the steps in run order, what each reads and what each writes - and runs on `manage_project.py new` and at step 1.01 of every run.
 - **`classification.per_clip_artifacts` names an AREA, not a directory**: `{area:temporal_index}/{clip_id}.json`. Spelling the path out is what left steps 1.03 and 1.07 pointing at `raw/analysis/` after the layout moved it, so `--rerun semantic_analysis:clip_007` deleted nothing. [why](docs/RULE_EVIDENCE.md#a-declaration-that-went-stale)
@@ -497,6 +526,7 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 
 **Key-name mismatches are the dominant bug class.**
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
+The declaration side of the same rule - that no step may declare an input required which nothing refuses on, and none may refuse one it declared optional - is surveyed by `library/tools/input_contract.py` (section 3, "A declaration must be true").
 Join semantic documents to the catalog with `library/tools/semantic_index.py`: the documents are keyed by FILE STEM, the catalog by `clip_XXX`.
 A per-clip summary table built without that join comes out full of `none` and says nothing; the transition planner shipped one for months. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 

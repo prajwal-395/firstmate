@@ -267,6 +267,7 @@ class Area(str, Enum):
     ASSETS = "assets"
     BRAND_ASSETS = "brand_assets"
     COMPOSITIONS = "compositions"
+    EXTERNAL_STATE = "external_state"
 
     # The output root, and the steps/ directory that is most of it.
     OUTPUT_ROOT = "output_root"
@@ -334,6 +335,13 @@ AREAS: dict[Area, AreaSpec] = {
         "compositions", Kind.INPUT,
         "Project-owned Remotion compositions, staged verbatim. The engine "
         "renders them and never edits one."),
+    Area.EXTERNAL_STATE: AreaSpec(
+        "external", Kind.INPUT,
+        "State the captain produced OUTSIDE the pipeline, offered to a "
+        "step that would otherwise need the step that makes it. One "
+        "file per state key, each CHECKED before it satisfies anything - "
+        "see library/tools/external_inputs.py. Written by hand, never by "
+        "a step."),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,
@@ -1004,7 +1012,10 @@ class ProjectLayout:
             "  returns the path, so no two steps can disagree about where something goes.",
             "- A step writes only inside its own directory. Everything else raises.",
             "- Inputs are structurally protected: asking the layout to write into",
-            "  `raw/`, `music/`, `assets/`, `brand_assets/` or `compositions/` raises.",
+            "  " + ", ".join(
+                f"`{AREAS[area].relpath}/`" for area in Area
+                if AREAS[area].kind is Kind.INPUT
+                and AREAS[area].relpath != ".") + " raises.",
             f"- `{_OUT}/backups/{BACKUP_SUBDIR}/` holds one backup of",
             f"  `pipeline_data.json` per run, newest {MAX_PIPELINE_DATA_BACKUPS} kept,",
             "  pruned automatically. Hand-made backups from before that policy are in",
