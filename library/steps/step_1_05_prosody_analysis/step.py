@@ -50,7 +50,8 @@ def main():
             regions = idx.get("speech_regions", [])
             if clip_id and regions:
                 speech_boundaries[clip_id] = [
-                    {"start": r.get("start", 0), "end": r.get("end", 0)}
+                    {"start": r.get("start", 0), "end": r.get("end", 0),
+                     "words": r.get("words", [])}
                     for r in regions
                 ]
     elif isinstance(temporal_index, dict):
@@ -65,7 +66,8 @@ def main():
                     regions = ti_data.get("speech_regions", [])
                     if regions:
                         speech_boundaries[clip_id] = [
-                            {"start": r.get("start", 0), "end": r.get("end", 0)}
+                            {"start": r.get("start", 0), "end": r.get("end", 0),
+                             "words": r.get("words", [])}
                             for r in regions
                         ]
                 except (json.JSONDecodeError, IOError):
@@ -79,7 +81,8 @@ def main():
                 regions = idx.get("speech_regions", [])
                 if clip_id and regions:
                     speech_boundaries[clip_id] = [
-                        {"start": r.get("start", 0), "end": r.get("end", 0)}
+                        {"start": r.get("start", 0), "end": r.get("end", 0),
+                         "words": r.get("words", [])}
                         for r in regions
                     ]
 
@@ -92,19 +95,49 @@ def main():
         }, sys.stdout, indent=2)
         return
 
-    # Resolve audio files from footage
+    # Resolve audio files from the temporal index's audio cache.
+    # Praat cannot read raw .MOV containers ("PraatError: Not an audio
+    # file") so we need the WAV files that the temporal index step already
+    # extracted.  The temporal index is a required dependency in the DAG,
+    # so its audio cache exists by the time this step runs.  Reusing it
+    # avoids a second extraction path - two places extracting the same
+    # audio would be a defect of its own.
+    audio_cache_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.AUDIO_CACHE, step="temporal_index"))
     audio_files = []
+    no_audio_clips = []
     for i, item in enumerate(raw_footage_files):
         path = item["path"] if isinstance(item, dict) else item
-        if os.path.exists(path):
-            clip_id = item.get("clip_id", f"clip_{i + 1:03d}") if isinstance(item, dict) else f"clip_{i + 1:03d}"
-            audio_files.append({"path": path, "clip_id": clip_id})
+        if not os.path.exists(path):
+            continue
+        clip_id = item.get("clip_id", f"clip_{i + 1:03d}") if isinstance(item, dict) else f"clip_{i + 1:03d}"
+        cached_wav = os.path.join(audio_cache_dir, f"{clip_id}.wav")
+        if os.path.exists(cached_wav) and os.path.getsize(cached_wav) > 0:
+            audio_files.append({"path": cached_wav, "clip_id": clip_id})
+        else:
+            no_audio_clips.append(clip_id)
+    if no_audio_clips:
+        print(f"Prosody Analysis: no cached audio for {len(no_audio_clips)} "
+              f"clip(s): {', '.join(no_audio_clips[:5])}"
+              f"{'...' if len(no_audio_clips) > 5 else ''}",
+              file=sys.stderr)
 
     if not audio_files:
+        causes = []
+        if no_audio_clips:
+            causes.append(
+                f"no cached WAV in {audio_cache_dir} for "
+                f"{', '.join(no_audio_clips[:5])}"
+                f"{'...' if len(no_audio_clips) > 5 else ''}"
+                f" (temporal index may not have run)")
+        if not raw_footage_files:
+            causes.append("no raw footage files provided")
+        if not causes:
+            causes.append("no source files exist on disk")
         json.dump({
             "prosody_analysis": {
                 "available": False,
-                "error": "No valid audio files found"
+                "error": "; ".join(causes),
             }
         }, sys.stdout, indent=2)
         return

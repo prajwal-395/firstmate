@@ -98,11 +98,12 @@ class TestProfileDefect:
 
 # ── The analyser raises rather than writing an error record ───────────
 
-def _audio(tmp_path: Path) -> Path:
+def _audio(tmp_path: Path, name: str = "clip_001.wav") -> Path:
     """A tiny valid WAV, written without any audio dependency."""
     import struct
     import wave
-    path = tmp_path / "clip_001.wav"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / name
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
@@ -146,12 +147,23 @@ def test_the_analyser_writes_no_profile_when_it_cannot_measure(tmp_path):
 def _run_step(tmp_path: Path, project: Path = None):
     project = project or (tmp_path / "project")
     project.mkdir(exist_ok=True)
+    # The step now reads WAV files from the temporal index's audio cache
+    # (Area.AUDIO_CACHE), not directly from raw_footage_files.  Place the
+    # WAV there so the step finds it.
+    from library.tools.project_layout import Area, ProjectLayout
+    audio_cache = ProjectLayout(project).write_dir(
+        Area.AUDIO_CACHE, step="temporal_index")
+    wav = _audio(audio_cache, name="clip_001.wav")
+    # raw_footage_files still needs a real path on disk (the step checks
+    # os.path.exists), but it is NOT opened by Praat any more.
+    source = tmp_path / "clip_001.MOV"
+    source.write_bytes(b"\x00" * 64)  # a dummy - never read by Praat
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.run(
         [sys.executable, str(STEP / "step.py")],
         input=json.dumps({
-            "raw_footage_files": [{"path": str(_audio(tmp_path)),
+            "raw_footage_files": [{"path": str(source),
                                    "clip_id": "clip_001"}],
             "project_folder": str(project),
             "temporal_index": {},
@@ -301,3 +313,98 @@ def test_a_stale_error_record_does_not_block_re_analysis(tmp_path):
     else:
         assert out["available"] is False
         assert out["unmeasured_clips"] == ["clip_001"]
+
+
+# ── Container files that Praat cannot read ────────────────────────────
+
+def test_mov_container_uses_cached_audio_not_raw_file(tmp_path):
+    """The step must read from the temporal index's audio cache, not the
+    raw .MOV.  Praat raises ``PraatError: Not an audio file`` on a .MOV
+    container, and this was the inner failure hidden behind the missing
+    parselmouth dependency for weeks.
+
+    The test creates a .MOV file that is NOT valid audio, places a valid
+    WAV in the audio cache where the temporal index would have left it,
+    and asserts the step uses the WAV - not the .MOV.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    # A non-audio file pretending to be a .MOV - Praat would reject this.
+    source = tmp_path / "clip_001.MOV"
+    source.write_bytes(b"\x00\x00\x00\x20ftypqt  " + b"\x00" * 56)
+
+    # Place valid WAV in the audio cache (where the temporal index puts it).
+    audio_cache = ProjectLayout(project).write_dir(
+        Area.AUDIO_CACHE, step="temporal_index")
+    _audio(audio_cache, name="clip_001.wav")
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, str(STEP / "step.py")],
+        input=json.dumps({
+            "raw_footage_files": [{"path": str(source),
+                                   "clip_id": "clip_001"}],
+            "project_folder": str(project),
+            "temporal_index": {},
+        }),
+        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO),
+        env=env,
+    )
+    out = json.loads(proc.stdout)["prosody_analysis"]
+
+    if parselmouth_installed:
+        assert out["available"] is True, (
+            f"with cached audio the step must succeed: {out.get('error')}")
+        assert "clip_001" in out["profiles"]
+        # The profile must reference the WAV, not the MOV.
+        profile = out["profiles"]["clip_001"]
+        audio_ref = profile.get("audio_file", "")
+        assert audio_ref.endswith(".wav"), (
+            f"the step opened the raw file instead of the cached WAV: "
+            f"{audio_ref}")
+    else:
+        # Without parselmouth, the step correctly reports failure -
+        # but NOT "Not an audio file", because the step never opened the
+        # .MOV.  The error must be about parselmouth, not about the format.
+        assert out["available"] is False
+        assert "parselmouth" in (out.get("error") or "").lower(), (
+            f"expected a parselmouth error, not a format error: "
+            f"{out.get('error')}")
+
+
+def test_mov_without_cached_audio_reports_the_cause(tmp_path):
+    """When no cached audio exists, the step must report WHY it cannot
+    measure, naming the missing audio cache rather than swallowing a
+    PraatError from the raw file.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+
+    source = tmp_path / "clip_001.MOV"
+    source.write_bytes(b"\x00" * 64)
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, str(STEP / "step.py")],
+        input=json.dumps({
+            "raw_footage_files": [{"path": str(source),
+                                   "clip_id": "clip_001"}],
+            "project_folder": str(project),
+            "temporal_index": {},
+        }),
+        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO),
+        env=env,
+    )
+    out = json.loads(proc.stdout)["prosody_analysis"]
+    assert out["available"] is False
+    # The error must mention the missing cached audio, not just
+    # "No valid audio files found".
+    assert "cached" in (out.get("error") or "").lower() or \
+           "audio_cache" in (out.get("error") or ""), (
+        f"the error did not mention the missing audio cache: "
+        f"{out.get('error')}")

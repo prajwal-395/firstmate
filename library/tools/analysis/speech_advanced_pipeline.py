@@ -70,8 +70,6 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     try:
         import parselmouth
         from parselmouth.praat import call
-        print(f"DEBUG call is {call} with id {id(call)}", file=sys.stderr)
-
 
         print("  Analyzing prosody (parselmouth)...", file=sys.stderr)
 
@@ -86,7 +84,6 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
         t = 0
         while t < duration:
             f0 = call(pitch, "Get value at time", t, "Hertz", "Linear")
-            print(f"DEBUG f0 for {t} is {f0} (type {type(f0)})", file=sys.stderr)
             pitch_values.append({
                 "time": round(t, 3),
                 "f0_hz": round(float(f0), 1) if not np.isnan(f0) else None,
@@ -279,20 +276,24 @@ def main():
         data = json.loads(sys.stdin.read())
         audio_files = data.get("audio_files", [])
         output_dir = data.get("output_dir")
+        speech_boundaries = data.get("speech_boundaries", {})
 
         results = []
         failures = []
         for af in audio_files:
+            clip_id = af.get("clip_id")
+            regions = speech_boundaries.get(clip_id) if clip_id else None
             try:
                 results.append(analyze_speech_advanced(
                     af["path"],
+                    speech_regions=regions,
                     output_dir=output_dir,
-                    clip_id=af.get("clip_id"),
+                    clip_id=clip_id,
                 ))
             except ProsodyUnavailable as exc:
-                failures.append({"clip_id": af.get("clip_id"),
+                failures.append({"clip_id": clip_id,
                                  "error": str(exc)})
-                print(f"  ✗ {af.get('clip_id')}: {exc}", file=sys.stderr)
+                print(f"  ✗ {clip_id}: {exc}", file=sys.stderr)
 
         json.dump({"results": results, "failures": failures},
                   sys.stdout, indent=2)
