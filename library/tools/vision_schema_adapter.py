@@ -216,10 +216,18 @@ def framing_summary(doc: dict) -> str:
 
 
 def stability_summary(doc: dict) -> str:
-    """Clip-level stability, preferring the assessment's own verdict."""
+    """Clip-level stability, preferring the assessment's own verdict.
+
+    The assessment's ``camera_stability`` stays ``"unknown"`` when nothing
+    measured it (AGENTS.md 10.3, line 725).  Treating the literal as
+    absent lets the summary fall through to ``camera[].stability``, which
+    the vision pass DID measure per segment.  This is a READ of existing
+    measurements, not a write to the assessment field.
+    """
     assessment = doc.get("assessment") or {}
-    if assessment.get("camera_stability"):
-        return str(assessment["camera_stability"])
+    verdict = assessment.get("camera_stability")
+    if verdict and str(verdict).lower() != "unknown":
+        return str(verdict)
     seen = []
     for seg in doc.get("camera") or []:
         if isinstance(seg, dict) and seg.get("stability") and seg["stability"] not in seen:

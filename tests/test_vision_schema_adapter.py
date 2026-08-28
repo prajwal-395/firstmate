@@ -23,6 +23,7 @@ from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     adapt_semantic_documents,
     is_v3_profile,
+    stability_summary,
     usable_ranges_summary,
 )
 
@@ -351,3 +352,45 @@ def test_clip_observations_excludes_legacy_chain_of_thought_objects():
     
     observed = clip_observations(profile_with_cot)
     assert observed["subjects"] == ""
+
+
+def test_stability_summary_unknown_falls_through_to_camera_segments():
+    """The literal "unknown" in assessment.camera_stability is treated as
+    absent, so the summary reads the per-segment values the vision pass
+    actually measured.  This is reading a measurement, not filling in the
+    assessment field (AGENTS.md 10.3).
+    """
+    doc = {
+        "scene": [{"start": 0, "end": 20, "type": "outdoor"}],
+        "camera": [
+            {"start": 0, "end": 20, "mode": "handheld", "framing": "wide",
+             "stability": "stable", "movement": "stationary"},
+        ],
+        "assessment": {"camera_stability": "unknown"},
+        "analysis_metadata": {"pipeline_version": "v3"},
+    }
+    assert stability_summary(doc) == "stable"
+
+
+def test_stability_summary_real_assessment_still_wins():
+    """When the assessment carries a real verdict (not "unknown"), it is
+    still preferred over the per-segment values."""
+    assert stability_summary(V3_PROFILE) == "unstable"
+
+
+def test_stability_summary_unknown_multi_segment():
+    """When camera[] has multiple segments with different stability, and
+    assessment says "unknown", the summary joins them with arrows."""
+    doc = {
+        "scene": [{"start": 0, "end": 9, "type": "outdoor"}],
+        "camera": [
+            {"start": 0, "end": 5, "mode": "handheld", "framing": "wide",
+             "stability": "stable", "movement": "stationary"},
+            {"start": 5, "end": 9, "mode": "handheld", "framing": "wide",
+             "stability": "shaky", "movement": "walking"},
+        ],
+        "assessment": {"camera_stability": "unknown"},
+        "analysis_metadata": {"pipeline_version": "v3"},
+    }
+    assert stability_summary(doc) == "stable -> shaky"
+
