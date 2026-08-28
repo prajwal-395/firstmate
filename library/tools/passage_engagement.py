@@ -1,4 +1,4 @@
-"""Passage engagement: the pipeline measures none, and may not invent one.
+"""Passage engagement: the model JUDGES it, and nothing else invents one.
 
 `speech_sequence` (step 2.02) used to attach an `engagement` dict to every
 passage - `{hook, flow, value, composite, rationale}` - produced by
@@ -9,10 +9,11 @@ ordering rested on was a constant.
 
 The scorers are withdrawn rather than repaired, because none of the three
 was reading a measurement this pipeline produces.  `WITHDRAWN_SCORERS`
-records why for each, so nobody re-derives it.  What is left here is the
+records why for each, so nobody re-derives it.  What survived them is the
 READER half: `engagement_of` answers "does this passage carry a score",
 and `NO_ENGAGEMENT_BASIS` is the sentence a reader prints when nothing
-does.
+does - which is still the right answer for a sequence that carries no
+judgement, and is why the arithmetic never has to come back.
 
 **A missing measurement must never resolve to a value that reads as a real
 one.**  That is the whole rule this module exists to hold.  `engagement_of`
@@ -22,6 +23,24 @@ must say it has no basis rather than compare Nones coerced to zero.
 Restoring a real signal means a step that MEASURES or JUDGES one and writes
 it onto the passage.  `engagement_of` reads the composite off whatever
 lands there, so a future scored judgement needs no change here.
+
+That judgement now exists: step 2.02's handoff asks the model that already
+reads every passage to place it in ONE ordering against the others, and to
+say plainly when it cannot.  So the shape that lands is
+`{"rank": 1..N, "composite": 0-100, "basis": "one sentence"}`, and this
+module is the whole reading of it - `engagement_of` for the magnitude,
+`engagement_rank` for the ordering, and `unjudged_summary` for the line a
+reader prints about the passages that were NOT judged.
+
+**Compare RANKS, and only near the top.  The composite is reported, not
+acted on.**  `MEASURED_SPREAD` is the measurement that settles it: three
+answers to the identical prompt, at one revision, against project 001's
+frozen snapshot.  The two strongest passages came back in the same order
+all three times; ranks in the middle of the list moved by up to two
+places, and the composite on those same passages moved by up to twenty
+points.  So "which passage is strongest" is a real signal and "is passage
+five better than passage seven" is not, and a reader that gates on the
+number is gating on run-to-run noise.
 """
 
 # Why each scorer is withdrawn, in the terms of what it actually read.
@@ -60,6 +79,30 @@ WITHDRAWN_SCORERS = {
     ),
 }
 
+# What three answers to the identical prompt did on 001's frozen
+# snapshot, at one revision.  Recorded here because the shape of the
+# reader - rank near the top, composite reported only - is derived from
+# it, and a later widening should be argued against a new measurement
+# rather than against nothing.  Method: replay_bench reconstructs the
+# 2.02 prompt, the answers come from one model, and the passages are
+# matched across runs by their normalised text.
+MEASURED_SPREAD = {
+    "snapshot": "001-2026-08-26T1058Z",
+    "answers": 3,
+    "passages_present_in_all_three": 7,
+    "passages_selected_per_answer": [9, 9, 10],
+    "rank_1_identical_across_all_three": True,
+    "rank_2_identical_across_all_three": True,
+    "rank_spread": {"min": 0, "median": 2, "max": 2},
+    "composite_spread": {"min": 1, "median": 7, "max": 20},
+    "note": (
+        "The selection itself moves between answers at ONE revision - "
+        "nine, nine and ten passages, seven of them common - so a "
+        "between-revision difference in what 2.02 selects means nothing "
+        "until it exceeds this."
+    ),
+}
+
 # What a reader says instead of comparing scores that are not there.
 NO_ENGAGEMENT_BASIS = (
     "no passage carries an engagement score, and the pipeline measures "
@@ -74,8 +117,8 @@ def engagement_of(passage) -> float:
     to 0 - a hook that scored nothing is not a hook that scored zero, and
     the gate in step 5.03 read exactly that way for months.
 
-    Both shapes are accepted: the `{..., "composite": n}` dict a scored
-    judgement would write, and a bare number.  Nothing emits either today.
+    Both shapes are accepted: the `{rank, composite, basis}` dict step
+    2.02's handoff asks for, and a bare number, which nothing emits.
     """
     if not isinstance(passage, dict):
         return None
@@ -89,3 +132,78 @@ def engagement_of(passage) -> float:
         if isinstance(composite, (int, float)) and not isinstance(composite, bool):
             return float(composite)
     return None
+
+
+def engagement_rank(passage) -> int:
+    """This passage's place in its sequence's own ordering, or None.
+
+    1 is the strongest.  The ordering is the model's, over the passages
+    it selected and nothing else, so a rank is only ever comparable
+    inside one speech_sequence - never across projects or across runs.
+
+    None means "not judged", exactly as `engagement_of` does, and a
+    reader must say so rather than sort the passage to the bottom.
+    """
+    if not isinstance(passage, dict):
+        return None
+    value = passage.get("engagement")
+    if not isinstance(value, dict):
+        return None
+    rank = value.get("rank")
+    if isinstance(rank, bool) or not isinstance(rank, int):
+        return None
+    return rank if rank >= 1 else None
+
+
+def engagement_basis(passage) -> str:
+    """The one sentence the judgement gave for itself, or None.
+
+    On a judged passage it says what makes it strong or weak.  On an
+    UNJUDGED one it says why the model could not judge it, which is the
+    half that makes an absence reportable rather than blank.
+    """
+    if not isinstance(passage, dict):
+        return None
+    value = passage.get("engagement")
+    if not isinstance(value, dict):
+        return None
+    basis = value.get("basis")
+    if isinstance(basis, str) and basis.strip():
+        return basis.strip()
+    return None
+
+
+def is_unjudged(passage) -> bool:
+    """Did this passage carry a judgement that declined to judge it?
+
+    Distinct from carrying nothing at all.  A passage the model looked at
+    and could not place is a stated absence with a reason attached; a
+    passage with no `engagement` key was never asked about.  Both read as
+    absent to `engagement_of`, and only this one has something to report.
+    """
+    if not isinstance(passage, dict):
+        return False
+    if not isinstance(passage.get("engagement"), dict):
+        return False
+    return engagement_of(passage) is None and engagement_rank(passage) is None
+
+
+def unjudged_summary(passages) -> str:
+    """ONE line naming how many passages were not judged, and why.
+
+    The same shape `view:prosody` uses for a clip nothing measured: state
+    the absence, never hide it and never let it read as a low score.
+    Returns None when every passage was judged - there is nothing to say.
+    """
+    if not isinstance(passages, (list, tuple)):
+        return None
+    unjudged = [p for p in passages if is_unjudged(p)]
+    if not unjudged:
+        return None
+    reasons = sorted({engagement_basis(p) or "no reason given"
+                      for p in unjudged})
+    return (
+        f"{len(unjudged)} of {len(passages)} passage(s) were not judged for "
+        f"engagement: " + "; ".join(reasons[:3])
+        + ("; ..." if len(reasons) > 3 else "")
+    )

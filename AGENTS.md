@@ -729,10 +729,14 @@ Exercise the collection half with an analysis dir of copied profiles and `raw_fo
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
-**There is no passage engagement score, and a reader says so rather than comparing zeros.**
-One enumeration, `library/tools/passage_engagement.py`: `engagement_of` returns the composite a passage carries or **None**, and `WITHDRAWN_SCORERS` records why each of the three scorers was not a measurement.
-Never coerce that None to 0 - a passage nobody measured is not a passage that scored nothing, and `creative_cohesion` compared exactly that way. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
-A step that MEASURES or JUDGES engagement and writes it onto the passage needs no change to the reader.
+**Passage engagement is a JUDGEMENT the model writes, and a reader acts on the ORDERING, not the number.**
+One enumeration, `library/tools/passage_engagement.py`. Step 2.02's handoff asks for `engagement` on every passage it selects - `{rank, composite, basis}`, ranked against that sequence and nothing else - and this module is the whole reading of it: `engagement_of`, `engagement_rank`, `engagement_basis`, `unjudged_summary`.
+
+- **Compare ranks, and only near the top.** Across three answers to the identical prompt at one revision on 001's frozen snapshot, the two strongest passages came back in the same order every time; mid-list ranks moved two places and the composite on those same passages moved up to twenty points. `MEASURED_SPREAD` records it. Report the composite; never fire on it. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+- **A rank is comparable only inside ONE speech_sequence.** It is the model's ordering over the passages it chose, not a scale.
+- **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated rather than blanked - the same rule `view:prosody` follows. `engagement_of` and `engagement_rank` return **None**; never coerce either to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
+- The selection itself moves between answers at one revision, so a between-revision difference in what 2.02 picks means nothing until it exceeds that.
+
 `tests/test_passage_engagement.py`.
 
 **A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**

@@ -9,11 +9,12 @@ rationale}`. So `hook_eng` was permanently 0 and `eng_values` permanently
 this one now compares composites where they exist.
 
 The scorer that produced those composites is itself withdrawn (#236): it
-gave nine of project 001's eleven passages an identical 49. Nothing emits
-an engagement score today, so on a real project this gate now STATES that
-it has no basis - see tests/test_passage_engagement.py. The tests below
-supply composites of their own and cover the comparison itself, which is
-what a future measured or judged score would land on.
+gave nine of project 001's eleven passages an identical 49. What writes a
+judgement now is step 2.02's own model, asked in the handoff to place the
+passages it selected in ONE ordering - so the gate compares RANKS, and
+reports the composite beside the finding without ever firing on it. Where
+a sequence carries no judgement at all the gate still STATES that it has
+no basis; see tests/test_passage_engagement.py.
 
 **The duration check measured the wrong quantity.** It used
 `body_sequence[-1]["end_time"]`, a SOURCE timestamp - where the last
@@ -52,10 +53,18 @@ def engagement_score(passage):
 STEP_DIR = REPO / "library" / "steps" / "step_5_03_creative_cohesion"
 
 
-def _engagement(composite):
-    """The dict shape `engagement_of` reads a composite out of."""
-    return {"hook": 50, "flow": 60, "value": 70, "composite": composite,
-            "rationale": "Hook:50, Flow:60, Value:70"}
+def _engagement(rank, composite):
+    """The shape step 2.02's handoff asks for: a place in the sequence's
+    own ordering, a magnitude, and one sentence for itself."""
+    return {"rank": rank, "composite": composite,
+            "basis": "a judgement of this passage against the others"}
+
+
+def _passage(clip_id, start, rank, composite):
+    """A passage the gate can locate, so a finding can name where it is."""
+    return {"clip_id": clip_id, "source_start": start,
+            "source_end": start + 3.0,
+            "engagement": _engagement(rank, composite)}
 
 
 # ── The duration gate measures the timeline ───────────────────────────
@@ -69,7 +78,8 @@ SPINE_001 = {"structure": [
      "timeline_start": 3.4, "timeline_end": 54.77},
 ]}
 SPEECH_001 = {"body_sequence": [
-    {"start_time": 33.0, "end_time": 40.1, "engagement": _engagement(60)},
+    {"start_time": 33.0, "end_time": 40.1,
+     "engagement": _engagement(1, 60)},
 ]}
 
 
@@ -165,7 +175,7 @@ def test_the_dag_routes_the_spine_into_the_step():
 
 class TestEngagementScore:
     def test_the_real_dict_shape_is_read(self):
-        assert engagement_score({"engagement": _engagement(71)}) == 71.0
+        assert engagement_score({"engagement": _engagement(2, 71)}) == 71.0
 
     def test_a_bare_number_is_still_accepted(self):
         assert engagement_score({"engagement": 71}) == 71.0
@@ -179,17 +189,18 @@ class TestEngagementScore:
 def test_a_buried_hook_is_now_detected():
     """The gate's whole purpose: the strongest passage is not the hook."""
     speech = {
-        "hook_segment": {"engagement": _engagement(55)},
+        "hook_segment": _passage("clip_002", 1.0, rank=3, composite=55),
         "body_sequence": [
-            {"engagement": _engagement(60)},
-            {"engagement": _engagement(92)},
+            _passage("clip_007", 20.0, rank=2, composite=60),
+            _passage("clip_016", 48.065, rank=1, composite=92),
         ],
     }
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
-    assert any("Hook engagement" in w for w in review["warnings"]), (
+    joined = " ".join(review["warnings"])
+    assert "ranked strongest" in joined, (
         f"the engagement gate still cannot fire: {review['warnings']}")
-    assert "(55)" in " ".join(review["warnings"])
-    assert "(92)" in " ".join(review["warnings"])
+    assert "clip_016" in joined and "48.065" in joined, joined
+    assert "composite 92 against the hook's 55" in joined, joined
     assert any(a["target_step"] == "speech_sequence"
                for a in review["adjustments"])
 
@@ -197,17 +208,17 @@ def test_a_buried_hook_is_now_detected():
 def test_a_strong_hook_is_not_flagged():
     """It must not fire on a correct edit either."""
     speech = {
-        "hook_segment": {"engagement": _engagement(92)},
+        "hook_segment": _passage("clip_016", 48.065, rank=1, composite=92),
         "body_sequence": [
-            {"engagement": _engagement(60)},
-            {"engagement": _engagement(70)},
+            _passage("clip_007", 20.0, rank=3, composite=60),
+            _passage("clip_009", 30.0, rank=2, composite=70),
         ],
     }
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
-    assert not any("Hook engagement" in w for w in review["warnings"])
+    assert not any("ranked strongest" in w for w in review["warnings"])
 
 
 def test_a_speech_sequence_with_no_scores_at_all_is_silent():
     speech = {"hook_segment": {}, "body_sequence": [{}, {}]}
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
-    assert not any("Hook engagement" in w for w in review["warnings"])
+    assert not any("ranked strongest" in w for w in review["warnings"])

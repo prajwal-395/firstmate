@@ -1217,7 +1217,39 @@ The scorers are withdrawn, with the reason for each recorded in `library/tools/p
 
 Two dead readers went with it. `plan_sfx` passed an `engagement_scores` mapping into `audio_reactive_sfx.align_sfx_to_prosody` to pull "rise"/"build" SFX 1.5 s before an engagement peak: no step has ever emitted that key, no DAG edge carried one, and the threshold was `> 0.8` against a 0-100 composite.
 
-The route not taken: having the model score each passage, which `speech_sequence` is already positioned to do - it reads every passage and already writes a prose `flow_note` per segment. That needs a new field in `library/steps/step_2_02_speech_sequence/handoff.md`, and the twelve `handoff.md` prompt files are the captain's to change.
+The route not taken at the time: having the model score each passage, which `speech_sequence` is already positioned to do - it reads every passage and already writes a prose `flow_note` per segment. That needed a new field in `library/steps/step_2_02_speech_sequence/handoff.md`, and the twelve `handoff.md` prompt files are the captain's to change.
+
+#### what replaced it, and what the replacement is worth
+
+On #246 the captain unreserved that one file for that one field, and nothing else in it.
+Step 2.02 now asks for `engagement` on every passage it selects: a `rank` over that sequence, a `composite`, and one sentence of `basis`.
+
+**A rank is what the consumer wanted; a score alone would have been false precision.**
+`creative_cohesion`'s only question is whether the strongest moment is at the front, and the withdrawn scorer's failure was that its numbers could not order anything.
+The composite is kept because it carries magnitude a rank cannot, and because `engagement_of` was already built to read it - but it is reported beside a finding and never fires one.
+
+**The measurement #243 could not make.** Three answers to the identical reconstructed prompt, at one revision, against snapshot `001-2026-08-26T1058Z`, matched across runs by normalised passage text. Seven passages appear in all three answers:
+
+| rank per answer | rank spread | composite per answer | composite spread | passage |
+|---|---:|---|---:|---|
+| 1, 1, 1 | 0 | 95, 94, 94 | 1 | i almost didn't do this again... i've quit every single day |
+| 2, 2, 2 | 0 | 92, 90, 91 | 2 | i can feel the silent judgment of the people behind me |
+| 4, 3, 3 | 1 | 80, 78, 83 | 5 | and so my very, very small announcement is... |
+| 3, 5, 4 | 2 | 86, 71, 80 | 15 | and a lot of the stuff i ended up doing was not really... |
+| 8, 8, 6 | 2 | 54, 48, 68 | 20 | today is march 25th, 2026. |
+| 6, 6, 8 | 2 | 68, 66, 58 | 10 | i really have no expectations. |
+| 7, 7, 9 | 2 | 61, 55, 54 | 7 | you know, i finished up school about three and a half years ago |
+
+Rank spread: min 0, median 2, max 2. Composite spread: min 1, median 7, max 20.
+
+So the ordering is exactly stable where a reader acts on it - the same passage came first in all three answers, and the same passage came second - and unstable in the middle, where the composite is worse still.
+That is why the gate compares the TOP rank against the hook and nothing else, and why `MEASURED_SPREAD` is recorded in `library/tools/passage_engagement.py` rather than left as a claim.
+
+**The instruction did not visibly change what 2.02 selects, because the selection was already unstable.** The three answers picked nine, nine and ten passages, seven of them common, at ONE revision. A between-revision difference smaller than that means nothing.
+
+**One answer of three named the hook `hook` and the body `body`** rather than `hook_segment`/`body_sequence`. That key naming was never pinned - the schema injected from the manifest is `"speech_sequence": {}` with no sub-keys - and it is not caused by this field, but it is what a reader of these numbers should know about the run they came from.
+
+Two further honesty notes on the figures. The answers came from ONE model driven through the `agy` route (a headless agent reading the reconstructed request), which is not necessarily the model a given run uses; a different model's spread has not been measured. And the bench rebuilds the QUESTION, not the answer - `docs/STEP_REPLAY_BENCH.md` says so directly - so these are three fresh answers to a frozen prompt, not three recorded runs.
 
 ### gates-that-fail-correct-output
 

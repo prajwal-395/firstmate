@@ -65,6 +65,14 @@ Each passage needs:
 - source_start / source_end (source timestamps from the temporal index)
 - role ("opening" | "development" | "climax" | "resolution")
 - flow_note (how this passage connects to the next)
+- engagement (how strongly this passage holds a viewer, judged ONLY
+  against the other passages in this sequence - rank the hook segment
+  in the same ordering, and give it this field too):
+  `{"rank": 1..N, 1 is the strongest, no ties; "composite": 0-100;
+  "basis": "one sentence naming what makes it strong or weak"}`.
+  If you genuinely cannot judge a passage, set `rank` and `composite`
+  to null and say why in `basis`. An unjudged passage must read as
+  unjudged, never as a low score.
 
 The hook segment needs the same `clip_id`, `text`, `source_start` and
 `source_end` fields.
