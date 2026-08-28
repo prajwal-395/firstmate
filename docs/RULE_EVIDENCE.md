@@ -38,6 +38,42 @@ The fingerprint carries the path for that reason: a renumber must invalidate the
 Deliberately NOT built alongside it: a caching framework, or a content-addressed artifact store.
 The whole mechanism is one declared field, one split ledger, one re-run flag and one identity check.
 
+### a-selection-that-died-forty-minutes-in
+
+**#250, the captain on 2026-08-28.** "we should have that ability to be able to quickly deselect
+and select what specific steps we want to fire off for a run - like for example if i just need the
+roughcut with subtitles and nothing else then many intermediate steps can just be skipped instead
+of having unecessary processing wasted."
+
+What existed reached one step (`--step`) or a suffix (`--from`), and neither consulted the DAG
+about the selection itself. A selection that dropped a producer got as far as the consumer and
+then raised inside `gather_step_inputs`:
+
+    RuntimeError: Step 'compile_manifest': data_mapping expects key 'enhancement_spec' from
+    upstream step 'plan_vfx', but it is missing from that step's outputs.
+
+On 001 that consumer is 22 steps and a measured 27 minutes downstream of the exclusion. The
+refusal now reads the same two declarations the crash reads - the edge's `data_mapping` and the
+consumer manifest's `required` flags - so the two cannot disagree;
+`tests/test_run_scope.py::test_an_edge_is_hard_exactly_when_the_runner_would_raise` asserts that
+edge by edge over all 104.
+
+**Why excluding a producer refuses rather than dropping its consumers.** #250 left it open. There
+is no "let downstream cope" available: a required input has no absent-value code path, because
+section 10.1 forbids `.get()`-ing a default for a key a contract promises. So the only two honest
+outcomes are refuse, or cascade the exclusion downstream - and cascading silently is how "I just
+wanted the rough cut" turns into a run that quietly did not compile a manifest. The refusal names
+both ways out and the captain picks. Wanting a smaller run is expressed by naming a GOAL, which is
+what a target is.
+
+**Why a target names goals rather than steps.** The DAG carries 104 edges. A hand-written step
+list for "the rough cut with subtitles" would have been wrong the first time a step was inserted,
+and a target nobody trusts is a target nobody uses. `rough_cut_subtitles` names `render` and the
+list is walked every run. Measured on the DAG as it stands, that leaves out `validate_sfx_library`,
+`render_motion_graphics`, `creative_cohesion` and `validate` - the two that reach
+`compile_manifest` on OPTIONAL inputs, the SFX-library check nothing routes, and the render QA
+that judges a master nobody is shipping yet.
+
 ### per-clip-index-in-a-worktree
 
 Step 1.04 wrote the per-clip index to `--output-dir`'s default of `./pipeline_output`, which is the runner's current working directory.
@@ -1714,11 +1750,25 @@ tool code, manifests, and tests - but neither commit touched `dag.json`. The pip
 preflight steps while presenting as seven, and nobody noticed until the Twelve Labs research
 grounded itself in the ingest.
 
-The output audit found a second symptom: `objects[].readable_text` was `null` 138 times across 17
-clips in the semantic analysis output. Investigation showed this is the VLM's field - step 1.03
-prompts for it directly - not step 1.07's. The local model (`gemma-4-12b-it-4bit`) returns `null`
-because it cannot reliably read on-screen text. Step 1.07 writes to a separate key
-(`ocr_extraction`), so wiring OCR would not fill `readable_text`.
+The output audit found a second symptom: `objects[].readable_text` was mostly `null` in the
+semantic analysis output. Investigation showed this is the VLM's field - step 1.03 prompts for it
+directly - not step 1.07's. Step 1.07 writes to a separate key (`ocr_extraction`), so wiring OCR
+would not fill `readable_text`.
+
+**Correction, 2026-08-28.** The audit recorded that field as null **138 times, for every object on
+every clip**, and #187, #224 and #245 all repeated it as "the local model provably cannot read
+on-screen text". That is wrong, and it was the stated basis for wiring the OCR step. Re-counted
+off the same 2026-08-26 artifacts
+(`<001>/pipeline_output/steps/1_03_semantic_analysis/clip_profile_*_v3.json`, 17 files):
+
+    objects total: 159    readable_text filled: 10    null: 149
+
+The ten are legible and correct - `Chattahoochee Ave NW` on a road sign (IMG_1810),
+`SCUFFLEWA BREWING CO` on a brewery sign (IMG_1820), `L PARK`, `P.P.S.U.`, `RED`, `SPECIALS`,
+`SPARK`, `MARKET & T`, `Credit`, and one mangled street sign. So the vision model reads on-screen
+text **sparsely and imperfectly, not never**, and the argument for the OCR step is a coverage
+argument (10 of 159), not an impossibility one. The reason recorded in
+`library/tools/run_scope.DESELECTED_BY_DEFAULT` states it that way.
 
 **The structural fix**: `StepDir.__post_init__` in `project_layout.py` now rejects `wired=False`
 without an `unwired_reason`. `tests/test_step_dag_coverage.py` scans every step directory on disk
@@ -1730,4 +1780,13 @@ sampling. 367 tracked text detections across 15/17 clips; 83 above 0.5 confidenc
 found: street signs ("Chattahoochee", "PARK", "Tetta Blvd NW"), dashboard navigation ("Google",
 route numbers), and storefronts ("THROW AXES", "VALIDATE PARKING"). Signal-to-noise is 23% -
 most low-confidence detections are noise from foliage and textures. The real detections are text
-the VLM returned null for on every object.
+the VLM returned null for - on 149 of its 159 objects, not on all of them (see the correction
+above).
+
+**The ruling, #245, 2026-08-28.** The captain: "i want you to finish flushing it out and then
+simply deselect it from the pipeline for now." The step is therefore WIRED - node
+`ocr_extraction`, fed `raw_footage_files` by `scan` and an optional `temporal_index` by step
+1.04 - and listed in `run_scope.DESELECTED_BY_DEFAULT`, which is why a default run does not pay
+its 445 seconds. `--with ocr_extraction` turns it on. It is safe to leave out because no edge
+leaves it: nothing consumes `ocr_extraction`, so no dependency is stranded, and
+`tests/test_run_scope.py` asserts that rather than assuming it.

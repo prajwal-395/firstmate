@@ -193,12 +193,14 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
                   review_mode: bool = False, resume_mode: bool = False,
                   single_step: Optional[str] = None,
                   from_step: Optional[str] = None,
-                  rerun: Optional[List[str]] = None) -> str:
+                  rerun: Optional[List[str]] = None,
+                  scope: Any = None) -> str:
     """A one-line human description of how this run was launched.
 
     The dashboard prints this back so the captain can see that Start
     really did launch `--full-auto agy` and really did not force review
-    gates on all 26 steps.
+    gates on all 26 steps - and, since #250, exactly how much of the DAG
+    a scoped run left out.
     """
     parts = []
     if single_step:
@@ -207,6 +209,12 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
         parts.append("resume")
     elif from_step:
         parts.append(f"from {from_step}")
+    elif scope is not None and getattr(scope, "is_scoped", False):
+        selection = getattr(scope, "selection", None)
+        target = getattr(selection, "target", None)
+        parts.append(f"target {target}" if target else "scoped run")
+        parts.append(f"{len(scope.steps_to_run)} of "
+                     f"{len(scope.universe)} steps")
     else:
         parts.append("full run")
     parts.append(f"full-auto {full_auto}" if full_auto else "manual LLM")

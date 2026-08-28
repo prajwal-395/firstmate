@@ -110,9 +110,16 @@ class StepDir:
 
     wired: bool = True
     """False for a step that is implemented but that no DAG node runs.
-    `object_segmentation` (1.06) and `ocr_extraction` (1.07) are the two
-    (AGENTS.md section 3). Their directory appears only if the step is
-    ever run; a normal pipeline run produces nothing there."""
+    `object_segmentation` (1.06) is the one (AGENTS.md section 3). Its
+    directory appears only if the step is ever run; a normal pipeline run
+    produces nothing there.
+
+    Not to be confused with a step that IS wired and is DESELECTED BY
+    DEFAULT - `ocr_extraction` (1.07). That step has a DAG node, runs
+    whenever a selection names it, and its reason lives in
+    `library/tools/run_scope.DESELECTED_BY_DEFAULT`. Unwired means no
+    node exists; deselected means the node exists and this run declined
+    it."""
 
     unwired_reason: str = ""
     """Non-empty when ``wired`` is False. Records WHY the step is not in
@@ -142,14 +149,7 @@ STEPS: tuple = (
                 "downstream consumer: planning steps operate on semantic "
                 "descriptions and time ranges, not spatial coordinates. "
                 "Wire when #162 decides what reads masks.")),
-    StepDir("ocr_extraction", "1_07_ocr_extraction", wired=False,
-            unwired_reason=(
-                "EasyOCR can read on-screen text the VLM (step 1.03) is "
-                "prompted to fill but provably cannot - readable_text is "
-                "null for every object on 001 (138 nulls across 17 clips). "
-                "No downstream step consumes ocr_extraction output yet. "
-                "Wire when a consumer is identified or to backfill "
-                "readable_text.")),
+    StepDir("ocr_extraction", "1_07_ocr_extraction"),
     StepDir("creative_direction", "2_01_creative_direction"),
     StepDir("speech_sequence", "2_02_speech_sequence"),
     StepDir("music_selection", "2_04_music_selection"),
@@ -375,8 +375,9 @@ AREAS: dict[Area, AreaSpec] = {
         step="object_segmentation"),
     Area.OCR: AreaSpec(
         _step_path("ocr_extraction"), Kind.OUTPUT,
-        "Per-clip on-screen text. The step is implemented but NOT wired into "
-        "the DAG, so a run produces nothing here.",
+        "Per-clip on-screen text. The step is wired into the DAG but "
+        "DESELECTED BY DEFAULT, so a run produces nothing here unless it "
+        "was asked to - see library/tools/run_scope.DESELECTED_BY_DEFAULT.",
         step="ocr_extraction"),
     Area.ACQUIRED_MEDIA: AreaSpec(
         _step_path("music_selection", "downloads"), Kind.OUTPUT,

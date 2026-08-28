@@ -1120,13 +1120,21 @@ def _run_log_path(project_dir: str) -> Path:
 
 
 def _step_order() -> List[str]:
-    """The DAG in execution order."""
+    """The DAG in execution order, as a DEFAULT run would attempt it.
+
+    Steps that are off by default are left out, because `Step` presses
+    forward through a default run and must not advance into one the
+    pipeline declined.  See library/tools/run_scope.py.
+    """
     sys.path.insert(0, str(REPO_ROOT / "library" / "processes" / "edit_video"))
+    from library.tools.run_scope import DESELECTED_BY_DEFAULT
     try:
         from library.processes.edit_video.run_pipeline import topological_sort
-        return topological_sort(_load_dag())
+        order = topological_sort(_load_dag())
     except Exception:
-        return [n["id"] for n in _load_dag().get("nodes", [])]
+        order = [n["id"] for n in _load_dag().get("nodes", [])]
+    return [node_id for node_id in order
+            if node_id not in DESELECTED_BY_DEFAULT]
 
 
 def _resolve_next_step(project_dir: str) -> Optional[str]:

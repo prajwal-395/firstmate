@@ -369,6 +369,15 @@ def cmd_run(args):
         cmd.append("--resume")
     for target in getattr(args, "rerun", None) or []:
         cmd.extend(["--rerun", target])
+    # The scope. See library/tools/run_scope.py.
+    if getattr(args, "target", None):
+        cmd.extend(["--target", args.target])
+    for step_id in getattr(args, "only", None) or []:
+        cmd.extend(["--only", step_id])
+    for step_id in getattr(args, "skip", None) or []:
+        cmd.extend(["--skip", step_id])
+    for step_id in getattr(args, "with_steps", None) or []:
+        cmd.extend(["--with", step_id])
     if getattr(args, "full_auto", None):
         cmd.extend(["--full-auto", args.full_auto])
     if getattr(args, "llm_timeout", None):
@@ -560,6 +569,10 @@ def main():
              "(preflight|edit), a step (temporal_index), or one clip of one "
              "step (temporal_index:clip_007). Preflight work is skipped once "
              "done, so this is how you ask for it again")
+    # The scoping flags come from library/tools/run_scope.py, so this
+    # wrapper and the runner it launches accept exactly the same words.
+    from library.tools.run_scope import add_scope_arguments
+    add_scope_arguments(p_run)
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
     p_run.add_argument("--full-auto", choices=["agy", "api"],

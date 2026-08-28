@@ -71,10 +71,15 @@ def load_dag(path=None) -> dict:
 def unwired_step_ids(dag=None) -> set:
     """Steps the layout gives a directory that no DAG node runs.
 
-    Two do: `object_segmentation` (1.06) and `ocr_extraction` (1.07) are
-    implemented and unwired (AGENTS.md section 3). They still get a
-    directory, because they still have somewhere their output would land
-    - and the reader has to be told nothing puts anything there.
+    One does: `object_segmentation` (1.06) is implemented and unwired
+    (AGENTS.md section 3). It still gets a directory, because it still
+    has somewhere its output would land - and the reader has to be told
+    nothing puts anything there.
+
+    `ocr_extraction` (1.07) is NOT here. It has a DAG node; it is
+    deselected by default, which is a property of a RUN and not of the
+    pipeline. `library/tools/run_scope.DESELECTED_BY_DEFAULT` carries
+    that, and the run summary reports it on every run.
     """
     dag = dag or load_dag()
     return ({s.node_id for s in STEPS}

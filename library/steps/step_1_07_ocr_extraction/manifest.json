@@ -2,10 +2,23 @@
   "id": "step_1_07_ocr_extraction",
   "name": "OCR Extraction",
   "version": "1.0.0",
-  "description": "Extracts exact on-screen text with bounding boxes and temporal tracking using EasyOCR.",
+  "description": "Extracts exact on-screen text with bounding boxes and temporal tracking using EasyOCR. Wired into the DAG but deselected by default - see library/tools/run_scope.DESELECTED_BY_DEFAULT.",
   "level": "step",
   "interface": {
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "raw_footage_files",
+        "type": "array",
+        "required": true,
+        "description": "Source clips to read text off, from step 1.01."
+      },
+      {
+        "name": "temporal_index",
+        "type": "array",
+        "required": false,
+        "description": "Per-clip temporal index. Used only to sample at scene boundaries; the step falls back to the layout's own index directory, and to a plain 1fps sample, when it is absent."
+      }
+    ],
     "outputs": [
       {
         "name": "ocr_extraction",
@@ -30,7 +43,7 @@
     ]
   },
   "dependencies": [
-    "step_1_01_ingest_raw"
+    "step_1_01_scan_project"
   ],
   "tags": [
     "extraction",

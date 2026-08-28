@@ -56,12 +56,13 @@ measured score floor that lets it answer "not in this footage", and the 66x redu
 ## 3. Pipeline execution
 
 The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`, ordered by topological sort.
-It groups 26 atomic steps into phases: 0 setup, PREFLIGHT analysis, 2 planning, 3 assembly, 4 post-production, 5 finishing/QA, 6 rendering.
+It groups 27 atomic steps into phases: 0 setup, PREFLIGHT analysis, 2 planning, 3 assembly, 4 post-production, 5 finishing/QA, 6 rendering. A default run does 26 of them - see "Scoping a run" below.
 
 - Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`. `docs/PIPELINE_PLAN.md` uses Phase 0/1/2 for the quality-work programme and the two names collided.
-- `library/steps/` holds 28 step definitions. `object_segmentation` (1.06) and `ocr_extraction` (1.07) exist but are not wired into the DAG. They were added in commit 3c4dd10 and 95affc1 (2026-08-08) without touching `dag.json`, and no downstream step consumes their output. Each carries a documented `unwired_reason` in `project_layout.STEPS` and `StepDir.__post_init__` rejects `wired=False` without one, so the next unwired step has to say why. `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration.
-- `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. It is null on 001 because the local model (`gemma-4-12b-it-4bit`) fails to read on-screen text. Step 1.07 (OCR) writes to a SEPARATE output key (`ocr_extraction`), not to `readable_text`. The two are independent: fixing the VLM's text reading or wiring EasyOCR are separate improvements, not the same fix. #162 tracks the design question of what consumes masks and OCR output.
-- **EasyOCR measurement on 001** (17 clips, 807s footage): 445s wall-clock, 367 tracked texts across 15/17 clips, 83 above 0.5 confidence. Real text found includes street signs ("Chattahoochee", "PARK", "Tetta Blvd NW"), dashboard navigation ("Google", route numbers), and storefronts ("THROW AXES", "VALIDATE PARKING"). Signal-to-noise is 23% - most low-confidence detections are noise from foliage and textures. The real detections are text the VLM returned null for.
+- `library/steps/` holds 28 step definitions. `object_segmentation` (1.06) exists but is not wired into the DAG: it was added in commit 3c4dd10 (2026-08-08) without touching `dag.json`, and nothing consumes masks. It carries a documented `unwired_reason` in `project_layout.STEPS` and `StepDir.__post_init__` rejects `wired=False` without one, so the next unwired step has to say why. `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration.
+- **UNWIRED and DESELECTED are different things, and only one is a property of the pipeline.** Unwired means no DAG node exists (1.06). Deselected means the node exists and a RUN declined it - `ocr_extraction` (1.07), off by default under #245. The two lists are `project_layout.STEPS` and `run_scope.DESELECTED_BY_DEFAULT`; a step is in one or the other, never both.
+- `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**: on 001's 2026-08-26 run it filled 10 of 159 objects (`Chattahoochee Ave NW`, `SCUFFLEWA BREWING CO`, eight more) and left 149 null. A recorded claim that it "provably cannot" read text was wrong. [why](docs/RULE_EVIDENCE.md#unwired-steps-need-a-reason) Step 1.07 (OCR) writes to a SEPARATE output key (`ocr_extraction`), not to `readable_text`. The two are independent: improving the VLM's text reading and selecting the OCR step are separate improvements, not the same fix. #162 tracks the design question of what consumes masks and OCR output.
+- **EasyOCR measurement on 001** (17 clips, 807s footage): 445s wall-clock, 367 tracked texts across 15/17 clips, 83 above 0.5 confidence. Real text found includes street signs ("Chattahoochee", "PARK", "Tetta Blvd NW"), dashboard navigation ("Google", route numbers), and storefronts ("THROW AXES", "VALIDATE PARKING"). Signal-to-noise is 23% - most low-confidence detections are noise from foliage and textures. The real detections are text the VLM returned null for, on 149 of its 159 objects. The step is WIRED and DESELECTED BY DEFAULT (#245): `--with ocr_extraction` turns it on.
 
 Run with `python3 manage_project.py run <slug>`:
 
@@ -74,6 +75,23 @@ Run with `python3 manage_project.py run <slug>`:
 | `--resume` | continue after a review gate is approved or revised |
 | `--dry-run` | print the execution plan without running steps |
 | `--rerun <target>` | redo finished work; repeatable, and the ONLY supported way to re-run a completed step |
+| `--target <name>` | run only what a named destination needs |
+| `--only <step_id>` | run this step and whatever it cannot run without; repeatable |
+| `--skip <step_id>` | leave a step out; repeatable |
+| `--with <step_id>` | turn on a step that is off by default; repeatable |
+
+### Scoping a run
+
+One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags from it.
+
+- **A selection is resolved against the DAG before the run starts, or refused.** A selection that strands a consumer names the consumer, the producer and the missing output keys, and exits 2 having written nothing. A run that dies forty minutes in because a producer was excluded is the failure this removes. [why](docs/RULE_EVIDENCE.md#a-selection-that-died-forty-minutes-in)
+- **An edge is HARD when it carries a key the consumer does not declare optional** - the same condition `gather_step_inputs` raises on. Soft parents are not pulled in by a target.
+- **Excluding a producer REFUSES its consumers; it never drops them silently.** There is no "let downstream cope": a required input has no absent-value code path (section 10.1). Say "I just want the rough cut" by naming a GOAL, not by excluding twelve steps.
+- **A recorded output satisfies an excluded dependency** - ledger entry AND a `step_outputs` value, both halves. That is what makes a scoped re-run fast. A `--rerun` target is about to be discarded, so it satisfies nothing.
+- **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
+- `--step` and `--from` narrow the scope further and behave exactly as they always have. `--step <id>` names a step outright and outranks the default-off list.
+- **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
+- `tests/test_run_scope.py`.
 
 Steps come in three implementation types:
 

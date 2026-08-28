@@ -294,7 +294,7 @@ video_editing_pilot/
 │   ├── local_video_analysis_guide.md
 │   └── sfx_analysis_guide.md
 ├── library/
-│   ├── steps/                    ← 28 step definitions with manifests (26 wired into the DAG)
+│   ├── steps/                    ← 28 step definitions with manifests (27 wired into the DAG, 26 selected by default)
 │   │   ├── step_0_01_validate_sfx_library/   ← Pre-flight SFX index check
 │   │   ├── step_1_01_scan_project/
 │   │   ├── step_1_02_catalog_footage/

@@ -50,6 +50,13 @@
       "estimated_duration_seconds": 60
     },
     {
+      "id": "ocr_extraction",
+      "name": "OCR Extraction",
+      "step_ref": "steps/step_1_07_ocr_extraction",
+      "type": "step",
+      "estimated_duration_seconds": 445
+    },
+    {
       "id": "creative_direction",
       "name": "Creative Direction",
       "step_ref": "steps/step_2_01_creative_direction",
@@ -224,6 +231,20 @@
       "to": "prosody_analysis",
       "data_mapping": {
         "raw_footage_files": "raw_footage_files"
+      }
+    },
+    {
+      "from": "scan",
+      "to": "ocr_extraction",
+      "data_mapping": {
+        "raw_footage_files": "raw_footage_files"
+      }
+    },
+    {
+      "from": "temporal_index",
+      "to": "ocr_extraction",
+      "data_mapping": {
+        "full_indices": "temporal_index"
       }
     },
     {
@@ -932,7 +953,8 @@
         ],
         [
           "temporal_index",
-          "prosody_analysis"
+          "prosody_analysis",
+          "ocr_extraction"
         ]
       ],
       "error_policy": {

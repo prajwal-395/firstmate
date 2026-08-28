@@ -34,6 +34,7 @@ from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
+from library.tools import run_scope
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +470,31 @@ def _delete_clip_artifacts(project_dir: str, manifest: dict, clip_id: str,
                     print(f"     ⚠ could not remove {path}: {e}",
                           file=sys.stderr)
     return removed
+
+
+def _rerun_invalidates(targets, stage_by_node: dict) -> set:
+    """The steps whose recorded output the --rerun targets will discard.
+
+    Read WITHOUT side effects, so the scope can be refused before
+    `apply_rerun_requests` deletes anything.  A clip-level target leaves
+    the step's output in place until the step re-runs, but the step is
+    re-running either way, so counting it here costs nothing and keeps
+    the reading conservative.
+    """
+    invalidated = set()
+    for raw in targets or []:
+        try:
+            kind, value = step_ledger.parse_rerun_target(raw, stage_by_node)
+        except step_ledger.LedgerError:
+            continue  # apply_rerun_requests reports it properly
+        if kind == "stage":
+            invalidated |= {node_id for node_id, stage in stage_by_node.items()
+                            if stage == value}
+        elif kind == "step":
+            invalidated.add(value)
+        elif kind == "clip":
+            invalidated.add(value.split(":", 1)[0])
+    return invalidated
 
 
 def apply_rerun_requests(project_dir: str, state: dict, targets: list,
@@ -1509,8 +1535,18 @@ def run_pipeline(
     full_auto: str = None,
     llm_timeout: int = 300,
     rerun: list = None,
+    target: str = None,
+    only: list = None,
+    skip: list = None,
+    with_steps: list = None,
 ):
-    """Execute the pipeline DAG."""
+    """Execute the pipeline DAG.
+
+    `target`/`only`/`skip`/`with_steps` scope the run.  They are resolved
+    against the DAG BEFORE anything is deleted, saved or executed, so a
+    selection that cannot be met refuses in a second rather than dying
+    forty minutes in.  See library/tools/run_scope.py.
+    """
     # Initialize logger
     get_logger(project_dir)
 
@@ -1529,6 +1565,33 @@ def run_pipeline(
               f"'steps_completed' ledger into preflight/edit",
               file=sys.stderr)
 
+    # The scope, resolved first.  --rerun below DELETES artifacts, and
+    # apply_source_identity WRITES state, so a selection that cannot be
+    # met has to be refused before either of them runs.
+    selection = run_scope.Selection(
+        target=target,
+        only=tuple(only or ()),
+        skip=tuple(skip or ()),
+        with_steps=tuple(with_steps or ()),
+    )
+    try:
+        scope = run_scope.resolve(
+            selection, dag=dag, manifests=manifests, state=state,
+            # `--step <id>` names one step outright, and naming a step is
+            # a stronger statement than any default.
+            always_include=[single_step] if single_step else [],
+            # A --rerun target's output is about to be thrown away, so it
+            # cannot be what makes it safe to leave a producer out.
+            invalidated=_rerun_invalidates(rerun, stage_by_node),
+        )
+    except run_scope.ScopeError as exc:
+        print(f"\n  \u2717 REFUSED\n", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("", file=sys.stderr)
+        summary = {"status": "REFUSED", "reason": str(exc)}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
+
     # --rerun deletes artifacts and clears ledger entries, so a dry run
     # reports the request rather than performing it.
     if rerun and dry_run:
@@ -1544,14 +1607,25 @@ def run_pipeline(
         apply_source_identity(project_dir, state, stage_by_node, manifests)
         save_pipeline_state(project_dir, state)
 
+    # The steps a DEFAULT run of this pipeline would attempt: the whole
+    # DAG minus what is off by default.  Completeness is measured against
+    # this and not against `order`, or a step that is deselected by
+    # default would hold every run at PARTIAL forever.
+    universe = list(scope.universe)
+
     print(f"\n{'═'*60}", file=sys.stderr)
     print(f"  Pipeline: edit_video", file=sys.stderr)
     print(f"  Project: {project_dir}", file=sys.stderr)
-    print(f"  Steps: {len(order)}", file=sys.stderr)
-    print(f"  Order: {' → '.join(order)}", file=sys.stderr)
+    print(f"  Steps: {len(universe)}", file=sys.stderr)
+    print(f"  Order: {' → '.join(universe)}", file=sys.stderr)
+    for line in run_scope.describe(scope):
+        print(line, file=sys.stderr)
     print(f"{'═'*60}\n", file=sys.stderr)
-    
-    # Determine which steps to run
+
+    # Determine which steps to run.  The scope has already decided which
+    # steps this run may touch; --from and --step narrow that further and
+    # behave exactly as they always have.
+    selected = list(scope.steps_to_run)
     steps_to_run = []
     if from_step:
         # Fix H2: Ancestor-aware --from skip logic.
@@ -1562,7 +1636,7 @@ def run_pipeline(
         # from_step will still execute, preserving required data for
         # downstream steps.
         ancestors = _get_ancestors(from_step, dag)
-        for node_id in order:
+        for node_id in selected:
             if single_step and node_id != single_step:
                 continue
             # Skip the target step's ancestors (they are presumed complete)
@@ -1572,7 +1646,7 @@ def run_pipeline(
                 continue
             steps_to_run.append(node_id)
     else:
-        for node_id in order:
+        for node_id in selected:
             if single_step and node_id != single_step:
                 continue
             steps_to_run.append(node_id)
@@ -1586,7 +1660,19 @@ def run_pipeline(
             stage = stage_by_node[node_id]
             print(f"    {'[done] ' if done else '       '}{node_id} "
                   f"({impl['type']}, {stage})", file=sys.stderr)
-        summary = {"status": "DRY_RUN", "steps_to_run": steps_to_run}
+        estimate = run_scope.estimated_seconds(scope, dag=dag,
+                                               steps=steps_to_run)
+        print(f"    ({estimate['selected']}s of estimated work selected, "
+              f"{estimate['skipped']}s skipped)", file=sys.stderr)
+        summary = {
+            "status": "DRY_RUN",
+            "steps_to_run": steps_to_run,
+            "skipped": list(scope.skipped),
+            "skip_reasons": dict(scope.reasons),
+            "satisfied_from_previous_run": {
+                k: list(v) for k, v in scope.from_cache.items()},
+            "estimated_seconds": estimate,
+        }
         json.dump(summary, sys.stdout, indent=2)
         return summary
 
@@ -1600,7 +1686,7 @@ def run_pipeline(
     run_mode = run_control.describe_mode(
         full_auto=full_auto, auto_mode=auto_mode, review_mode=review_mode,
         resume_mode=resume_mode, single_step=single_step, from_step=from_step,
-        rerun=rerun,
+        rerun=rerun, scope=scope,
     )
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
                                  argv=sys.argv[1:])
@@ -1951,15 +2037,17 @@ def run_pipeline(
     # SUCCESS.
     outstanding_failures = sorted(set(state.get("failed_steps", [])))
     never_run = [
-        node_id for node_id in order
+        node_id for node_id in universe
         if not step_ledger.is_completed(state, node_id)
         and node_id not in awaiting_llm
     ]
-    # `--step`, `--from` and a review-gate pause all leave DAG steps unrun
-    # on purpose.  Those runs are incomplete, not broken, and must not
-    # report the same status as a run whose steps blew up.
+    # `--step`, `--from`, a scoped selection and a review-gate pause all
+    # leave DAG steps unrun on purpose.  Those runs are incomplete, not
+    # broken, and must not report the same status as a run whose steps
+    # blew up.  A step that is off BY DEFAULT is not in `universe` at
+    # all, so it does not make an ordinary run look partial.
     partial_invocation = (
-        list(steps_to_run) != list(order)
+        list(steps_to_run) != list(universe)
         or paused_at_gate is not None
         or held_before_step is not None
     )
@@ -2028,6 +2116,8 @@ def run_pipeline(
         "paused_at_gate": paused_at_gate,
         "held_before_step": held_before_step,
         "run_mode": run_mode,
+        "skipped": list(scope.skipped),
+        "skip_reasons": dict(scope.reasons),
         "state_file": str(ProjectLayout(project_dir).pipeline_data_path),
     }
     # The run's own account of how it ended.  `held` is not overwritten:
@@ -2116,6 +2206,7 @@ def main():
              "one step (temporal_index:clip_007). This is the only "
              "supported way to re-run a completed step; --from only "
              "trims the plan.")
+    run_scope.add_scope_arguments(parser)
     parser.add_argument("--full-auto", choices=["agy", "api", "mock"], help="Run full pipeline autonomously using specified LLM backend")
     parser.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agy backend")
@@ -2142,7 +2233,14 @@ def main():
         full_auto=args.full_auto,
         llm_timeout=args.llm_timeout,
         rerun=args.rerun,
+        target=args.target,
+        only=args.only,
+        skip=args.skip,
+        with_steps=args.with_steps,
     )
+    # A refused selection never started, and must not look like a run.
+    if (summary or {}).get("status") == "REFUSED":
+        sys.exit(2)
     # A failed run must look failed to whatever invoked us. Printing
     # "Status: FAILED" and exiting 0 is how a hollow timeline shipped as a
     # green CI job.

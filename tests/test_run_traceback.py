@@ -201,9 +201,9 @@ def test_every_declared_producer_is_a_real_step_or_a_named_non_step():
 # ── Unknown stays unknown ───────────────────────────────────────────
 
 def test_a_step_that_is_not_in_the_dag_is_named_as_not_wired(project):
-    """`object_segmentation` and `ocr_extraction` are implemented and
-    unwired (AGENTS.md section 3). Their areas declare them, which is
-    true - and the reader has to be told nothing runs them."""
+    """`object_segmentation` is implemented and unwired (AGENTS.md
+    section 3). Its area declares it, which is true - and the reader has
+    to be told nothing runs it."""
     layout = ProjectLayout(project)
     _write(layout, Area.SEGMENTATION, "clip_001_segmentation.json", {"a": 1})
     md = render_artifact_index(build_traceback(project, dag=DAG))
@@ -211,10 +211,16 @@ def test_a_step_that_is_not_in_the_dag_is_named_as_not_wired(project):
     assert "`object_segmentation`" in md
 
 
-def test_the_two_unwired_steps_are_exactly_the_ones_agents_md_names():
+def test_the_unwired_steps_are_exactly_the_ones_agents_md_names():
+    """One step is UNWIRED. `ocr_extraction` is not it any more: since
+    #245 it has a DAG node and is DESELECTED BY DEFAULT instead, which is
+    a property of a run rather than of the pipeline."""
     from library.tools.run_traceback import unwired_step_ids
+    from library.tools.run_scope import DESELECTED_BY_DEFAULT
 
-    assert unwired_step_ids() == {"object_segmentation", "ocr_extraction"}
+    assert unwired_step_ids() == {"object_segmentation"}
+    assert "ocr_extraction" not in unwired_step_ids()
+    assert "ocr_extraction" in DESELECTED_BY_DEFAULT
 
 
 def test_an_unsorted_file_reads_as_unknown_not_as_organizes_work(project):
