@@ -142,8 +142,6 @@
     "clip_catalog.*.frame_rate",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.duration_s",
-    "semantic_analysis_documents.*.analysis.scene",
-    "semantic_analysis_documents.*.analysis.motion",
     "semantic_analysis_documents.*.assessment.interest_score",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.clip_type",

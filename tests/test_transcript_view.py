@@ -36,11 +36,21 @@ from library.tools.toon_serializer import json_to_toon
 
 STEPS = REPO / "library" / "steps"
 
-# The two steps the view replaced the word-level regions in.
+# The two steps the view replaced the word-level regions in.  Both are
+# still checked for word timings; only 2.01 still reads the VIEW.
 TRANSCRIPT_STEPS = {
     "creative_direction": "step_2_01_creative_direction",
     "speech_sequence": "step_2_02_speech_sequence",
 }
+
+# 2.02's own pre-bridge builds `transcripts_toon` off the per-clip index
+# files, with the same content and a deliberate `clip_id,start,end,text`
+# header, and its handoff tells the model to read that table by name.
+# Declaring the view as well put all 110 lines in the prompt twice, in two
+# different column orders - 19,844 characters, a quarter of the context.
+# So the view is the route for the step that has no bridge.
+# `tests/test_context_ships_it_once.py` holds the pair of them together.
+VIEW_STEPS = {"creative_direction": "step_2_01_creative_direction"}
 
 # The two steps handed their whole input set on a standing decision
 # (tests/test_llm_context_routing.py NO_PROJECTION).  They carried word
@@ -114,10 +124,10 @@ def test_no_word_timing_reaches_the_prompt(node_id):
     )
 
 
-@pytest.mark.parametrize("node_id", sorted(TRANSCRIPT_STEPS))
+@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
 def test_what_was_said_survives(node_id):
     """A saving bought by blinding the step is not a saving."""
-    cf = manifest(TRANSCRIPT_STEPS[node_id])["context_fields"]
+    cf = manifest(VIEW_STEPS[node_id])["context_fields"]
     projected = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
 
     assert projected["transcript"] == [{
@@ -128,10 +138,10 @@ def test_what_was_said_survives(node_id):
     assert CONTRACTION in json_to_toon(projected)
 
 
-@pytest.mark.parametrize("node_id", sorted(TRANSCRIPT_STEPS))
+@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
 def test_the_view_declares_the_input_it_reads(node_id):
     """A view is not routing. The step still has to be sent the input."""
-    m = manifest(TRANSCRIPT_STEPS[node_id])
+    m = manifest(VIEW_STEPS[node_id])
     assert "view:transcript" in m["context_fields"]
     assert "temporal_index" in declared_inputs(m), (
         f"'{node_id}' asks for the transcript view and no longer declares "
@@ -185,7 +195,7 @@ def test_a_view_whose_source_is_not_routed_contributes_nothing():
 
 
 @pytest.mark.parametrize("name", sorted(CONTEXT_VIEWS))
-@pytest.mark.parametrize("node_id", sorted(TRANSCRIPT_STEPS))
+@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
 def test_projecting_an_already_projected_tree_keeps_the_view(node_id, name):
     """An `llm_only` step is projected TWICE on every run.
 
@@ -195,7 +205,7 @@ def test_projecting_an_already_projected_tree_keeps_the_view(node_id, name):
     would delete the section it had just built - which is exactly what
     happened the first time this was wired.
     """
-    cf = manifest(TRANSCRIPT_STEPS[node_id])["context_fields"]
+    cf = manifest(VIEW_STEPS[node_id])["context_fields"]
     once = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
     twice = project_fields(once, cf)
     # `.get`, because a view whose source this fixture does not route
@@ -293,7 +303,7 @@ def test_a_recorded_request_carries_the_transcript_and_no_word_timings(tmp_path)
         "creative_direction",
         manifest={
             "context_fields": manifest(
-                TRANSCRIPT_STEPS["creative_direction"])["context_fields"],
+                VIEW_STEPS["creative_direction"])["context_fields"],
             "interface": {"outputs": [{"name": "creative_direction"}]},
         },
         full_auto="agy", llm_timeout=30,

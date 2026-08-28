@@ -41,6 +41,45 @@ def _format_csv_row(vals: list[str]) -> str:
     writer.writerow(vals)
     return writer_file.getvalue()
 
+# ── The order the columns come out in ─────────────────────────────────
+#
+# A table's columns are emitted in the order the DATA declares them -
+# first-seen across the rows - and never sorted.
+#
+# Sorting them alphabetically was the default here and it is wrong twice
+# over.  It puts the END of a range before its START: the 110-row
+# transcript reached two prompts as `clip_id,end,start,text`, so its
+# first row read `clip_006,16.085,14.68,...`, which under the
+# conventional reading is a range that finishes before it begins.  And it
+# destroys reading priority: the 18-column spine table led with
+# `alignment_method` and `block_type` and put `content` - the actual line
+# of dialogue - in column four.
+#
+# The order in the data is not arbitrary.  A spine block is written
+# `position, block_type, duration_seconds, ... content, clip_id,
+# source_start, source_end, ...`; a music section is written `type,
+# start, end, duration, ...`; the transcript view is built `clip_id,
+# start, end, text`.  Every one of those is a deliberate reading order
+# that alphabetising threw away.  A projected tree carries the order of
+# the manifest's own `context_fields`, which is the same kind of
+# statement.
+#
+# This is what the hand-built tables (`cuts_toon`, `transcripts_toon`,
+# `broll_candidates_toon`) already did by passing their headers
+# explicitly, and they were the only tables in the pipeline that were not
+# alphabetical.  Deliberate order is now the rule rather than the
+# exception, so a new table gets it without a hand-written header.
+
+
+def _column_order(data: list) -> list[str]:
+    """Every key across the rows, in the order the rows first present it."""
+    keys = {}
+    for item in data:
+        for k in item:
+            keys[k] = None
+    return list(keys)
+
+
 def _is_uniform_dict_list(data: list) -> tuple[bool, list[str]]:
     if not data:
         return False, []
@@ -50,23 +89,19 @@ def _is_uniform_dict_list(data: list) -> tuple[bool, list[str]]:
     # Require that they share at least 50% of the possible keys on average,
     # or just strictly the same keys. Let's do: all dicts must have at least one common key
     # if len > 1, or just same keys.
-    all_keys = set()
-    for item in data:
-        all_keys.update(item.keys())
-        
-    if len(all_keys) == 0:
+    keys = _column_order(data)
+
+    if not keys:
         return True, []
         
     # Check if they are "mostly same"
-    total_keys = len(all_keys)
+    total_keys = len(keys)
     sum_keys = sum(len(item) for item in data)
     avg_keys = sum_keys / len(data)
     
     if avg_keys / total_keys < 0.51:
         return False, []
     
-    keys = list(all_keys)
-    keys.sort()
     return True, keys
 
 # A multi-line string under a dict key is emitted as an indented BLOCK,
@@ -237,10 +272,18 @@ def toon_to_json(toon_str: str) -> any:
             keys = table_match.group(2).split(',') if table_match.group(2) else []
             result = []
             idx = start_idx + 1
+            # Exactly the header's indent, never `lstrip`: a row is
+            # written at the header's indent, and the first cell may
+            # itself begin with a space.  Stripping greedily ate those,
+            # which only showed once a column with leading whitespace
+            # could be the first one.
+            row_indent = len(first_line) - len(first_line.lstrip(' '))
             for _ in range(count):
                 if idx >= len(lines):
                     break
-                row_line = lines[idx].lstrip(' ')
+                row_line = lines[idx]
+                eaten = len(row_line) - len(row_line.lstrip(' '))
+                row_line = row_line[min(row_indent, eaten):]
                 vals = _parse_csv_line(row_line)
                 row_dict = {}
                 for k, v in zip(keys, vals):

@@ -117,6 +117,80 @@ def _prosody(data: dict) -> dict:
     return {"prosody": view}
 
 
+def _picture(data: dict) -> dict:
+    """What the footage SHOWS, across the WHOLE clip, one row per record.
+
+    The creative director chose the story from `analysis.scene`, which is
+    `scene[]` rendered as prose - and `scene[]` is one segment per clip on
+    001, so `IMG_1816_v3` (188.6s, and the source of seven of the ten
+    spoken lines in the cut) was described as "[0.0-18.9s] Outdoor urban
+    area with a parking lot and construction site...".  That is 10% of the
+    clip.  The step that decides what the video is about was deciding it
+    from the first nineteen seconds.
+
+    The material was already there and going to other steps: the vision
+    pass writes one action window per ~10 seconds - 19 of them for that
+    clip, 86 across 001's seventeen, covering 95% of the footage - and
+    `vision_schema_adapter` renders them as `blocks`.  `speech_sequence`
+    is routed them; `creative_direction` was not.
+
+    One row per record, not the raw records: `body_language` restates the
+    same moment as posture and expression and costs 2.4x the bytes of
+    `visual`, and `label` is `scene[]`'s location, which is the field that
+    is degenerate in the first place.  `visual` is the reading that
+    answers "what happens in this clip, and when".
+
+    A clip the vision pass described no action for is NAMED rather than
+    silently absent - the same rule `_prosody` follows.
+    """
+    docs = data.get("semantic_analysis_documents")
+    if isinstance(docs, dict):
+        docs = list(docs.values())
+    if not isinstance(docs, list):
+        return {}
+
+    rows, undescribed = [], []
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        clip_id = doc.get("clip_id")
+        described = False
+        for block in doc.get("blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            visual = (block.get("visual") or "").strip()
+            if not visual:
+                continue
+            described = True
+            rows.append({
+                "clip_id": clip_id,
+                "start": _seconds(block.get("start")),
+                "end": _seconds(block.get("end")),
+                "visual": visual,
+            })
+        if not described and clip_id:
+            undescribed.append(str(clip_id))
+
+    if not rows:
+        return {}
+
+    view = {"observed": rows}
+    if undescribed:
+        view["not_described"] = (
+            f"{len(undescribed)} clip(s) have no observed action to show: "
+            + ", ".join(sorted(undescribed))
+        )
+    return {"picture": view}
+
+
+def _seconds(value):
+    """A time in seconds, or None when the record carries no time."""
+    try:
+        return round(float(value), 1)
+    except (TypeError, ValueError):
+        return None
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -127,6 +201,7 @@ def _prosody(data: dict) -> dict:
 CONTEXT_VIEWS = {
     "transcript": _transcript,
     "prosody": _prosody,
+    "picture": _picture,
 }
 
 

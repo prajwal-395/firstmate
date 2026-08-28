@@ -37,7 +37,10 @@ def main():
     
     transcript_rows = []
     if ti_dir and os.path.isdir(ti_dir):
-        for fname in os.listdir(ti_dir):
+        # Sorted: this table IS the transcript the prompt carries, and
+        # `os.listdir` order is the filesystem's, so the same project
+        # could present its clips in a different order on every run.
+        for fname in sorted(os.listdir(ti_dir)):
             if fname.endswith(".json"):
                 clip_id = fname[:-5]
                 with open(os.path.join(ti_dir, fname)) as f:
@@ -50,6 +53,15 @@ def main():
                             "text": region.get("text", "").replace("\n", " ")
                         })
     
+    transcript_rows.sort(key=lambda r: (r["clip_id"], float(r["start"])))
+
+    # `clip_id, start, end, text`, once. The same 110 lines also reached
+    # this step as `view:transcript`, in a different column order and a
+    # different sort - 19,844 characters, a quarter of the context, and
+    # the two copies disagreed about which column was the start time.
+    # This is the copy the handoff names, so the view was withdrawn from
+    # 2.02's `context_fields`; `creative_direction`, which has no bridge,
+    # still reads it.
     transcript_toon = format_toon(["clip_id", "start", "end", "text"], transcript_rows)
     
     # Extract scene-level topic summaries

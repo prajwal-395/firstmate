@@ -128,6 +128,8 @@
     "-music_selection.candidates_evaluated",
     "-music_selection.direction_justification.why_not_forbidden",
     "music_analysis",
+    "-music_analysis.tempo.beats",
+    "-music_analysis.tempo.downbeats",
     "-music_analysis.energy_dynamics.energy_curve_1hz",
     "brand_content",
     "clip_catalog.*.clip_id",

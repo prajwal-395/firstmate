@@ -199,3 +199,46 @@ def test_table_with_nested_objects():
     assert '{"x": 1}' in toon
     parsed = toon_to_json(toon)
     assert parsed == data
+
+
+# ── The order the columns come out in ─────────────────────────────────
+#
+# The columns were sorted alphabetically, which put the END of a range
+# before its START in five tables across four steps: the 110-row
+# transcript reached `creative_direction` and `speech_sequence` as
+# `clip_id,end,start,text`, so its first row read
+# `clip_006,16.085,14.68,...` - a range that finishes before it begins,
+# under the only reading a reader has.  The same sort led the 18-column
+# spine table with `alignment_method` and put `content` - the line of
+# dialogue - in column four.
+
+def test_the_columns_are_the_order_the_data_declares():
+    data = [{"type": "chorus", "start": 1.0, "end": 5.0, "energy": 0.8}]
+    assert "[1]{type,start,end,energy}" in json_to_toon(data)
+
+
+def test_a_range_never_ends_before_it_begins():
+    """The shapes that were actually wrong, in the order they are stored."""
+    for row in (
+        {"clip_id": "clip_006", "start": 14.68, "end": 16.085, "text": "hi"},
+        {"type": "verse", "start": 0.0, "end": 8.4, "duration": 8.4,
+         "energy": 0.6, "relative_energy": 0.9},
+        {"start": 14.0, "end": 23.0, "duration": 9.0, "intensity": 0.4},
+    ):
+        header = json_to_toon([row]).split("\n")[0]
+        columns = header[header.index("{") + 1:header.index("}")].split(",")
+        assert columns.index("start") < columns.index("end"), header
+
+
+def test_a_key_a_later_row_introduces_lands_where_it_first_appears():
+    data = [{"a": 1, "b": 2}, {"a": 3, "b": 4, "c": 5}]
+    assert "[2]{a,b,c}" in json_to_toon(data)
+
+
+def test_the_columns_are_not_sorted():
+    """Named so the alphabetical default cannot come back unremarked."""
+    data = [{"zebra": 1, "apple": 2}, {"zebra": 3, "apple": 4}]
+    toon = json_to_toon(data)
+    assert "[2]{zebra,apple}" in toon
+    assert "[2]{apple,zebra}" not in toon
+    assert toon_to_json(toon) == data

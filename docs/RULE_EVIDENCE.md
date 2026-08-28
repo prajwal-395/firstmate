@@ -601,6 +601,113 @@ Both are deliberately unprojected on a standing decision, so they take a drop-on
 
 The first wiring of the view deleted itself. An `llm_only` step is projected TWICE on every run - `gather_step_inputs` projects it and `present_llm_step` projects the result again - and the second pass ran against a tree the first had already taken `speech_regions` out of, so the builder found nothing and the section vanished. That is why a view's NAME is the key it writes.
 
+### alphabetical-columns-put-end-before-start
+
+`_is_uniform_dict_list` sorted a table's columns with `keys.sort()`, so every table the serializer built came out alphabetical.
+
+Measured on the ten LLM request payloads the 2026-08-26 clean run of 001 wrote to `pipeline_output/llm_requests/`.
+Five tables presented the end of a range before its start:
+
+| step | table | header as sent |
+|---|---|---|
+| `creative_direction`, `speech_sequence` | transcript, 110 rows | `clip_id,end,start,text` |
+| `mesh_spine`, `plan_sfx`, `plan_transitions` | music sections, 14 rows | `duration,end,energy,relative_energy,start,type` |
+| `mesh_spine`, `plan_sfx`, `plan_transitions` | energy builds, 10 rows | `duration,end,intensity,start` |
+
+The first transcript row therefore read `clip_006,16.085,14.68,...`, which under the only reading a reader has is a range that finishes before it begins.
+The same sort put `content` - the line of dialogue - in column four of the 18-column spine table, behind `alignment_method` and `block_type`.
+
+The order in the data was right all along and was being thrown away.
+A spine block is stored `position, block_type, duration_seconds, music_behavior, visual_note, content, clip_id, source_clip_id, source_start, source_end, ...`; a music section is stored `type, start, end, duration, energy, relative_energy`; an energy build is stored `start, end, duration, intensity`; the transcript view builds `clip_id, start, end, text`.
+A projected tree carries the order of the manifest's own `context_fields`, which is the same kind of statement.
+So first-seen order needs no repair rule bolted on top: after the change every table in all ten contexts reads start-before-end and in-before-out, with nothing else touched.
+
+The hand-built tables (`cuts_toon`, `transcripts_toon`, `broll_candidates_toon`) pass their headers explicitly and were the only tables in the pipeline that were not alphabetical. Deliberate order is now what a table gets by default.
+
+One latent reader bug surfaced with it and is fixed in the same place: `toon_to_json` read a table row with `lstrip(' ')`, which ate a first cell's own leading whitespace as if it were indentation. It could only bite once a column with leading spaces could be column one. The reader now strips exactly the header's indent.
+
+### the-transcript-shipped-twice
+
+`speech_sequence` (2.02) received all 110 transcript lines twice in the same context:
+
+| | `transcript` (the view) | `transcripts_toon` (its own pre-bridge) |
+|---|---|---|
+| header | `clip_id,end,start,text` | `clip_id,start,end,text` |
+| separator | comma, backtick-quoted | tab, unquoted |
+| sort | by clip | `os.listdir` order |
+
+19,844 characters, 25% of that step's context, and the two copies disagreed about which column was the start time.
+
+`transcripts_toon` is the copy kept: 2.02's handoff tells the model, by name, to "look up the `transcripts_toon` data", and it is built straight off the per-clip index files.
+`creative_direction` has no pre-bridge, so it keeps the view.
+The bridge's sort was also `os.listdir` order, which is the filesystem's - the same project could present its clips differently on two runs - and is now sorted by clip and start time.
+
+`semantic_analysis_documents.*.transcript` went in the same pass: it is `""` for all seventeen of 001's clips, and where a legacy document fills it, it is the same words a third time.
+
+### the-summary-and-its-own-source
+
+`vision_schema_adapter.scene_prose` renders `scene[]` into `analysis.scene`; `camera_prose` renders `camera[]` into `analysis.motion`.
+Five steps declared the prose AND the structure it was rendered from, in the same table row: `creative_direction`, `speech_sequence`, `select_broll`, `plan_sfx` and `plan_vfx`.
+
+Measured across 001's seventeen documents:
+
+| | prose | the structure it renders |
+|---|---:|---:|
+| `analysis.scene` / `scene[]` | 3,462 B | 4,920 B |
+| `analysis.motion` / `camera[]` | 982 B | 2,063 B |
+
+The prose is not a lossy summary of either: `scene_prose` renders every field of a scene segment (`start`, `end`, `location`, `type`, `lighting`, `notable_features`) and `camera_prose` every field of a camera segment (`start`, `end`, `framing`, `mode`, `stability`, `movement`).
+It is the same content, 30% and 52% smaller, so the prose is what four of the five keep.
+
+`select_broll` is the exception and keeps the STRUCTURE, because its handoff names it: "Use the scene segment bounds in the semantic documents (`scene[]` `start`/`end`) and the per-range `camera[]` entries to pick the stretch".
+A step told to read segment bounds must be sent segment bounds.
+
+Still outstanding, and blocked on a handoff the captain has reserved: `broll_candidates_toon`'s `description` column is `scene_prose` again, so 3.02 reads the prose and the structure in two different tables. Removing either means editing 3.02's handoff, which names both.
+
+### the-beat-grid-in-the-prompt
+
+001's `music_analysis` carries 274 beat times, 69 downbeats and a 198-point energy curve, rendered one value per line as `[0] 0.557 / [1] 1.207 / ...`.
+
+Measured as a share of each step's whole reconstructed context, at `origin/main` (5cee65f):
+
+| array | rows | bytes | `mesh_spine` | `plan_sfx` | `plan_transitions` |
+|---|---:|---:|---:|---:|---:|
+| `tempo.beats` | 274 | 5,183 | 17.9% | 10.3% | 9.6% |
+| `tempo.downbeats` | 69 | 1,255 | 4.3% | 2.5% | 2.3% |
+| `energy_dynamics.energy_curve_1hz` | 198 | 3,427 | already dropped | 6.8% | 6.4% |
+
+Nothing reads them.
+Beat proximity is decided in `plan_transitions`' post-bridge, which reads the grid through `library/tools/beat_grid.beat_positions` off the UNPROJECTED inputs, before any model sees a context - and the model is separately handed the answer, as `cuts_toon`'s `beat_near_cut` column.
+
+Demonstrated rather than argued. 4.02's recorded answer was replayed through the real pre-bridge and post-bridge against the frozen snapshot at `origin/main` (5cee65f) and at the change: all 13 transitions came back with the same `beat_aligned` verdict (3 true), the same `placement_method`, the same `cut_point_timeline` and the same `snap_delta_seconds` - the whole `transition_spec` byte-identical, and identical to the one the run recorded.
+
+The three arrays go out with `-` drop paths rather than an allow-list, for the reason section 10.1 gives: naming the twenty keys to keep stops delivering the twenty-first. `mesh_spine` already dropped the energy curve that way.
+
+### the-director-saw-the-first-nineteen-seconds
+
+`creative_direction` was handed `analysis,assessment,camera,clip_id,duration_s,scene`.
+For `IMG_1816_v3` - 188.578 seconds, and the source of seven of the ten spoken lines in 001's final cut - `analysis.scene` read, in full:
+
+    [0.0-18.9s] Outdoor urban area with a parking lot and construction site. outdoor.
+    Daylight with soft shadows. notable: Modern multi-story buildings; Construction
+    scaffolding and fencing; Parking lot with cars; Paved walkway
+
+That is 10% of the clip. `scene[]` holds ONE segment for fifteen of 001's seventeen clips, so the prose has nothing more to render. The step that chooses the story was choosing it from the opening.
+
+The material to fix it was already measured and already reaching other steps. The vision pass writes an action window per ~10 seconds - 19 for that clip, 86 across the seventeen, covering 95% of the footage - and `vision_schema_adapter._blocks_from_actions` renders them as `blocks`, which `speech_sequence` is routed and `creative_direction` was not.
+
+`view:picture` is one row per record: `clip_id, start, end, visual`. `IMG_1816_v3` now runs 0.0 -> 188.6s across 19 rows.
+
+What the view leaves out, and why:
+
+- `body_language` restates the same moment as posture and expression ("The person is walking towards the right side of the frame" / "The person is walking with a neutral posture, looking forward, and arms at their side"). It is 11,861 B against `visual`'s 8,092 B, and shipping both is the defect the rest of this change removes.
+- `label` is `_scene_location_at`, which reads `scene[]` - the field that is degenerate in the first place, and reads "action" for most rows.
+- The raw records: `timestamp_range` duplicates `start`/`end` in another unit, and `speech_cue` is null on all 86.
+
+Cost: `creative_direction`'s context 26,668 B -> 31,321 B, +17.4%. It is the one context of the ten that grows, and it buys the step 170 seconds of a clip it was blind to.
+
+What a scene boundary should MEAN is a separate, open captain decision (#225) and this does not touch `scene[]`.
+
 ### the-apostrophe-was-doubled-in-every-prompt
 
 `toon_serializer` quoted table cells with `'` and left `csv`'s `doublequote` on, so a cell holding a comma was quoted and every apostrophe inside it was then doubled, SQL-style.
