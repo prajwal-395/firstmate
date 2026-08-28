@@ -881,7 +881,9 @@ A series that wants bars declares 0.0, and `cinematic_narrative.yaml` does.
 Step 1.05 counted seventeen files as seventeen profiles, reported `available: true` in 0.1s, and 4.2 KB of identical error records went into the creative-direction prompt.
 The files CACHED, so the next run skipped the clips.
 
-`praat-parselmouth` is in `requirements.txt`; CI filters it, because there is no cp314 wheel.
+`praat-parselmouth` is in `requirements.txt`; CI filters it with the heavy ML deps.
+It DOES install on 3.14 now - `praat_parselmouth-0.4.7-cp314-cp314-macosx_11_0_arm64.whl`, measured 2026-08-28 - and it measures 001's parking-lot iPhone audio usefully: clip_011 came back `mean_f0_hz 119.5`, `voicing_percentage 40.8`, `hnr_db 6.3`.
+Two things still stand between that and a working step 1.05. It is handed the raw `.MOV` (`prosody.audio_file` is the path out of `raw/`) and Praat answers `PraatError: Not an audio file` - the audio has to be extracted first, with ffmpeg. And `intensity_contour_50ms` is capped at 1200 samples, which is the first 60 s of a 188.6 s clip.
 
 ### semantic-analysis-triggers-a-vision-run
 
@@ -891,10 +893,46 @@ Any clip whose id is not already a `raw/analysis/clip_profile_<clip_id>.json` tr
 
 `timeline_qa.verify_fusion_comps` had `pass` as its only loop body and reported the Fusion pass healthy whatever the timeline held.
 
-`creative_cohesion`'s engagement check tested `isinstance(engagement, (int, float))` on the DICT that `engagement_scorer` emits, so it read every real passage as unscored.
-Read `engagement["composite"]`.
+`creative_cohesion`'s engagement check tested `isinstance(engagement, (int, float))` on the DICT that `engagement_scorer` emitted, so it read every real passage as unscored.
+Fixed by reading the composite - and then the composite itself turned out to be a constant, which is the entry below.
 
 A gate that cannot fail is worse than no gate, because it reads as coverage.
+
+### every-line-scored-the-same
+
+On project 001's 2026-08-26 run, nine of eleven speech passages scored an identical composite of **49**, and the `hook` component was **30 for ten of eleven**.
+The recorded `rationale` was the string `"Hook:30, Flow:60, Value:60"` - the numbers restated, not a reason.
+This was the only ranking signal the edit's ordering rested on, and `creative_cohesion` drew its one finding from it: `"Hook engagement (49) is lower than peak body engagement (62)"`.
+
+| role | hook | flow | value | composite | text |
+|---|---:|---:|---:|---:|---|
+| hook | 30 | 60 | 60 | 49 | i can feel the silent judgment of the people behind me. |
+| opening | 30 | 60 | 60 | 49 | and i have an announcement to make. |
+| opening | 15 | 60 | 60 | 44 | um, not really an announcement... |
+| development | 30 | 60 | 60 | 49 | and so my very, very small announcement is... |
+| development | 30 | 80 | 80 | 62 | i get caught up in all the numbers and metrics... |
+| development | 30 | 60 | 60 | 49 | the goal of all this is just to get momentum going. |
+| development | 30 | 60 | 60 | 49 | it doesn't matter what i'm using to record. |
+| development | 30 | 60 | 60 | 49 | it doesn't matter if it's even edited. |
+| development | 30 | 60 | 60 | 49 | it just matters that it gets posted. |
+| climax | 30 | 60 | 80 | 56 | i've been literally this week i've quit every single day... |
+| resolution | 30 | 60 | 60 | 49 | even if it's bad, even if i hate it, i will post it. |
+
+`score_hook` was `50`, minus 20 whenever `prosody_data.get("energy_rms", 0)` came back under 0.3.
+Installing the missing prosody dependency would not have moved one point of it, for three independent reasons, each sufficient on its own:
+
+1. **No producer.** `energy_rms` is emitted nowhere in this repository. `analyze_prosody` returns `method`, `accuracy`, `pitch_stats`, `pitch_contour_10ms`, `voice_quality`, `speaking_rate`, `intensity_contour_50ms` and `duration_s`, and no key of any of them is called `energy_rms`. Measured with praat-parselmouth 0.4.7 installed, against 001's own `IMG_1816.MOV` audio.
+2. **No routing.** `prosody_data` was `data.get("prosody_analysis", {})` in step 2.02's post-bridge, and the DAG carries three edges into `speech_sequence` - `semantic_analysis_documents`, `full_indices`, `creative_direction`. `prosody_analysis` is not among them, so the value was `{}` on every run and the `if prosody_data else 0` guard took the constant branch before `.get` was ever reached.
+3. **Wrong granularity.** Step 1.05's output is `{"available": ..., "profiles": {clip_id: ...}}` - one record per RUN. Even with a real per-clip `energy_rms`, every passage would have been handed the same number, so the constant would have stayed a constant.
+
+The other two scorers were not measurements either. `score_flow` carried the comment `# Dummy flow scoring logic for scaffolding` and was 60, +20 for the substrings "first"/"then"/"finally", -30 under five words. `score_value` was 60, +20 over twenty words, +15 for the literal substrings "important"/"key"/"insight".
+
+The scorers are withdrawn, with the reason for each recorded in `library/tools/passage_engagement.py`, and `speech_sequence` attaches no `engagement` key.
+`engagement_of` returns **None** for a passage that carries no score, and `creative_cohesion` now says `"Engagement not compared: no passage carries an engagement score, and the pipeline measures none"` - at no cost to the cohesion score, because an unmeasured signal is not a defect in the edit.
+
+Two dead readers went with it. `plan_sfx` passed an `engagement_scores` mapping into `audio_reactive_sfx.align_sfx_to_prosody` to pull "rise"/"build" SFX 1.5 s before an engagement peak: no step has ever emitted that key, no DAG edge carried one, and the threshold was `> 0.8` against a 0-100 composite.
+
+The route not taken: having the model score each passage, which `speech_sequence` is already positioned to do - it reads every passage and already writes a prose `flow_note` per segment. That needs a new field in `library/steps/step_2_02_speech_sequence/handoff.md`, and the twelve `handoff.md` prompt files are the captain's to change.
 
 ### gates-that-fail-correct-output
 

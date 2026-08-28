@@ -1,6 +1,7 @@
 import json
 import pytest
 from library.steps.step_5_03_creative_cohesion.step import review_creative_cohesion
+from library.tools.passage_engagement import NO_ENGAGEMENT_BASIS
 
 # The timeline the duration gate measures. It used to read
 # `body_sequence[-1]["end_time"]` - a SOURCE timestamp - so these fixtures
@@ -85,7 +86,12 @@ def test_creative_cohesion_aligned_specs():
     
     review = review_creative_cohesion(inputs)
     assert review["cohesion_score"] == 100
-    assert len(review["warnings"]) == 0
+    # The passages carry no engagement score, and nothing emits one - see
+    # library/tools/passage_engagement.py. The review states that rather
+    # than comparing zeros, and it costs no score.
+    assert review["warnings"] == [
+        "Engagement not compared: " + NO_ENGAGEMENT_BASIS,
+    ]
     assert len(review["adjustments"]) == 0
 
 def test_creative_cohesion_missing_inputs():
@@ -100,6 +106,7 @@ def test_creative_cohesion_missing_inputs():
         "Energy not checked: the creative direction declares no "
         "target_energy, so there is nothing to judge the transitions and "
         "SFX density against",
+        "Engagement not compared: " + NO_ENGAGEMENT_BASIS,
         "Duration not checked: neither audio_spine nor a_roll_assignments "
         "reached creative_cohesion, so the timeline length is unknown",
     ]

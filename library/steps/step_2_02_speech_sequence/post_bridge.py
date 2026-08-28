@@ -27,10 +27,15 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from library.tools.project_layout import Area, ProjectLayout
-try:
-    from engagement_scorer import compute_engagement
-except ImportError:
-    compute_engagement = None
+
+# No engagement score is attached here any more.  `engagement_scorer` read
+# `prosody_data.get("energy_rms", 0)` off step 1.05's whole output - a key
+# nothing emits, on an object that is one record per RUN - so nine of
+# project 001's eleven passages scored an identical 49.  The scorers are
+# withdrawn, with the reason for each, in
+# library/tools/passage_engagement.py.  This import was also wrapped in a
+# try/except that set the name to None, so a scorer that failed to import
+# left no trace at all: absence must be stated, not swallowed.
 
 
 def _require_keys(obj, keys, context):
@@ -319,8 +324,6 @@ def _align_words_to_text(
 def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
-    semantic_data: dict = None,
-    prosody_data: dict = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
@@ -504,10 +507,6 @@ def enrich_speech_sequence(
         passage["duration_seconds"] = round(
             enrichment["end_time"] - enrichment["start_time"], 3
         )
-        if compute_engagement:
-            passage["engagement"] = compute_engagement(
-                passage, prosody_data, semantic_data, result
-            )
 
     result = dict(speech_sequence)
     failures = []
@@ -649,10 +648,7 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    semantic_data = data.get("semantic_analysis_documents", {})
-    prosody_data = data.get("prosody_analysis", {})
-
-    enriched = enrich_speech_sequence(speech_sequence, ti_dir, semantic_data, prosody_data)
+    enriched = enrich_speech_sequence(speech_sequence, ti_dir)
 
     body = enriched.get("body_sequence", [])
     if len(body) < 8 or len(body) > 20:

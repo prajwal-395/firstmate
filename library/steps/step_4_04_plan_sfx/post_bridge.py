@@ -317,7 +317,6 @@ def resolve_sfx(
     frame_rate: float = 30.0,
     creative_direction: dict = None,
     prosody_analysis: dict = None,
-    engagement_scores: dict = None,
     brand_audio: dict = None,
 ) -> dict:
     """Resolve creative SFX plan to execution specs.
@@ -366,7 +365,7 @@ def resolve_sfx(
 
     # Align to prosody if available
     if prosody_analysis:
-        creative_plan = align_sfx_to_prosody(creative_plan, prosody_analysis, engagement_scores)
+        creative_plan = align_sfx_to_prosody(creative_plan, prosody_analysis)
 
     block_by_position = {str(b["position"]): b for b in spine_blocks}
 
@@ -536,7 +535,6 @@ def main():
     
     cd = data.get("creative_direction", {})
     prosody = data.get("prosody_analysis", {})
-    eng = data.get("engagement_scores", {})
     brand_audio = data.get("brand_audio", {})
     
     available = set(data.get("available_sfx_types") or available_sfx_types())
@@ -557,7 +555,7 @@ def main():
     # `_assert_sfx_distributed` stays: it catches a COLLAPSE (every SFX on
     # one frame), which is a broken plan, not a sparse one.
 
-    result = resolve_sfx(creative, spine, temporal, music, fps, cd, prosody, eng, brand_audio)
+    result = resolve_sfx(creative, spine, temporal, music, fps, cd, prosody, brand_audio)
     
     json.dump({"sfx_spec": result}, sys.stdout, indent=2)
 

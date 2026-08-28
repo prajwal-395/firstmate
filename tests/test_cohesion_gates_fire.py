@@ -3,11 +3,17 @@ that measured the wrong quantity.
 
 **The engagement check could not fire.** It tested
 `isinstance(hook["engagement"], (int, float))`, and `speech_sequence`
-writes `engagement` as the DICT `engagement_scorer.compute_engagement`
-returns - `{hook, flow, value, composite, rationale}`. So `hook_eng` was
-permanently 0 and `eng_values` permanently `[]` on every real project. A
-gate that cannot fail reads as coverage; this one now compares the
-composite scores the scorer exists to produce.
+wrote `engagement` as a DICT - `{hook, flow, value, composite,
+rationale}`. So `hook_eng` was permanently 0 and `eng_values` permanently
+`[]` on every real project. A gate that cannot fail reads as coverage;
+this one now compares composites where they exist.
+
+The scorer that produced those composites is itself withdrawn (#236): it
+gave nine of project 001's eleven passages an identical 49. Nothing emits
+an engagement score today, so on a real project this gate now STATES that
+it has no basis - see tests/test_passage_engagement.py. The tests below
+supply composites of their own and cover the comparison itself, which is
+what a future measured or judged score would land on.
 
 **The duration check measured the wrong quantity.** It used
 `body_sequence[-1]["end_time"]`, a SOURCE timestamp - where the last
@@ -47,7 +53,7 @@ STEP_DIR = REPO / "library" / "steps" / "step_5_03_creative_cohesion"
 
 
 def _engagement(composite):
-    """The exact shape `engagement_scorer.compute_engagement` returns."""
+    """The dict shape `engagement_of` reads a composite out of."""
     return {"hook": 50, "flow": 60, "value": 70, "composite": composite,
             "rationale": "Hook:50, Flow:60, Value:70"}
 

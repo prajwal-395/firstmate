@@ -9,7 +9,6 @@ from library.tools.brand_registry import load_brand_template
 from library.steps.step_5_01_color_grade.step import define_color_grade
 from library.tools.house_look import HOUSE_LOOKS
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
-from library.tools.engagement_scorer import compute_engagement
 
 class TestIntegration(unittest.TestCase):
     
@@ -216,25 +215,13 @@ class TestIntegration(unittest.TestCase):
         # but the prompt asks to "Verify directives appear in both compile_manifest() and compile_manifest_from_inputs() output".
         # If the code uses the same inner function, we can just assert they share it or assume the implementation is shared.
 
-    def test_engagement_scoring(self):
-        segment = {"text": "Hello world", "speaker_id": "S1"}
-        prosody_data = {"S1": [{"words": [{"word": "hello"}], "wpm": 150}]}
-        semantic_data = {"description": "test"}
-        speech_sequence = []
-        
-        res = compute_engagement(segment, prosody_data, semantic_data, speech_sequence)
-        self.assertIn("hook", res)
-        self.assertIn("flow", res)
-        self.assertIn("value", res)
-        self.assertIn("composite", res)
-        
-        self.assertTrue(0 <= res["composite"] <= 100)
-        
-        res2 = compute_engagement({"text": None, "speaker_id": "S1"}, prosody_data, semantic_data, speech_sequence)
-        self.assertIsNotNone(res2)
-        
-        res3 = compute_engagement(segment, {}, semantic_data, speech_sequence)
-        self.assertIsNotNone(res3)
+    def test_a_passage_carries_no_invented_engagement_score(self):
+        """`compute_engagement` is withdrawn: it scored every passage off
+        `prosody_data.get("energy_rms", 0)`, a key nothing emits, on an
+        object no DAG edge routed. See tests/test_passage_engagement.py
+        and library/tools/passage_engagement.py."""
+        from library.tools.passage_engagement import engagement_of
+        self.assertIsNone(engagement_of({"text": "Hello world"}))
 
 if __name__ == '__main__':
     unittest.main()

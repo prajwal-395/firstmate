@@ -663,7 +663,12 @@ Exercise the collection half with an analysis dir of copied profiles and `raw_fo
 
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
-Read `engagement["composite"]`, not the dict itself, when scoring a passage.
+
+**There is no passage engagement score, and a reader says so rather than comparing zeros.**
+One enumeration, `library/tools/passage_engagement.py`: `engagement_of` returns the composite a passage carries or **None**, and `WITHDRAWN_SCORERS` records why each of the three scorers was not a measurement.
+Never coerce that None to 0 - a passage nobody measured is not a passage that scored nothing, and `creative_cohesion` compared exactly that way. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+A step that MEASURES or JUDGES engagement and writes it onto the passage needs no change to the reader.
+`tests/test_passage_engagement.py`.
 
 **A gate that FAILS correct output is no more coverage than one that cannot fail.**
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)

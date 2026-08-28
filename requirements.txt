@@ -35,9 +35,14 @@ librosa>=0.10
 # Step 1.05's only measuring instrument. Its manifest has listed it as a
 # precondition since the step was written and this file never carried it,
 # so every run of every project produced one "parselmouth not installed"
-# record per clip and reported success. There are no cp314 wheels, which
-# is why CI filters it out - build the pipeline env on 3.12, as the note
-# above says.
+# record per clip and reported success. Build the pipeline env on 3.12, as
+# the note above says; CI filters this out with the heavy ML deps.
+#
+# A cp314 wheel now exists - praat_parselmouth 0.4.7 installs on 3.14 and
+# measures 001's footage (measured 2026-08-28, see
+# docs/RULE_EVIDENCE.md#hollow-prosody-files-cached). Installing it does
+# not on its own make step 1.05 work: it is handed the raw .MOV and Praat
+# cannot read one.
 praat-parselmouth>=0.4.3
 numpy>=1.24
 scipy>=1.10

@@ -19,6 +19,7 @@ Two halves, and the second is the worse one:
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -142,9 +143,9 @@ def test_the_analyser_writes_no_profile_when_it_cannot_measure(tmp_path):
 
 # ── The step reports failure, and the runner sees it ──────────────────
 
-def _run_step(tmp_path: Path):
-    project = tmp_path / "project"
-    project.mkdir()
+def _run_step(tmp_path: Path, project: Path = None):
+    project = project or (tmp_path / "project")
+    project.mkdir(exist_ok=True)
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.run(
@@ -159,6 +160,37 @@ def _run_step(tmp_path: Path):
         env=env,
     )
     return proc, json.loads(proc.stdout)["prosody_analysis"]
+
+
+def _seed_stale_record(project: Path) -> Path:
+    """Write the literal record project 001 shipped, where the step READS.
+
+    The area is named, not composed. This test used to hand-write
+    `pipeline_output/prosody` while the step resolves
+    `Area.PROSODY` to `pipeline_output/steps/1_05_prosody_analysis`, so
+    the step reported `0 cached, 1 to analyze` and never opened the record
+    at all - the assertion below was passing on the missing dependency and
+    not on the stale record. A test composes a project path no more freely
+    than a step does; see AGENTS.md 8.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    prosody_dir = ProjectLayout(project).write_dir(
+        Area.PROSODY, step="prosody_analysis")
+    path = prosody_dir / "clip_001_prosody.json"
+    path.write_text(json.dumps({
+        "clip_id": "clip_001",
+        "prosody": {"method": None, "error": "parselmouth not installed"},
+        "analysis_time_s": 0.0,
+    }), encoding="utf-8")
+    return path
+
+
+def _cached_count(stderr: str) -> int:
+    """What the step said it was reusing off disk."""
+    match = re.search(r"(\d+) cached", stderr)
+    assert match, f"the step printed no cache line: {stderr[-400:]}"
+    return int(match.group(1))
 
 
 @pytest.mark.skipif(parselmouth_installed,
@@ -205,32 +237,67 @@ def test_the_step_succeeds_when_the_dependency_is_installed(tmp_path):
 def test_a_stale_error_record_on_disk_is_rejected(tmp_path):
     """A profile left by an earlier broken run must not read as data.
 
-    This one runs whether or not parselmouth is installed: the cache is
-    read before anything is analysed.
+    This runs whether or not parselmouth is installed, so it asserts the
+    thing that is true either way: the record is never carried forward as
+    a measurement. It used to assert `available is False`, which is not
+    that - it is a statement about the ENVIRONMENT. With the dependency
+    absent the step reports `available: false` for its own reasons, and
+    with it present the clip is re-analysed and correctly reports
+    `available: true`, so the assertion broke the moment somebody
+    installed parselmouth (2026-08-28) despite nothing changing about the
+    stale record or the step's treatment of it.
     """
     project = tmp_path / "project"
-    prosody_dir = project / "pipeline_output" / "prosody"
-    prosody_dir.mkdir(parents=True)
-    (prosody_dir / "clip_001_prosody.json").write_text(json.dumps({
-        "clip_id": "clip_001",
-        "prosody": {"method": None, "error": "parselmouth not installed"},
-        "analysis_time_s": 0.0,
-    }), encoding="utf-8")
+    project.mkdir()
+    _seed_stale_record(project)
 
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, str(STEP / "step.py")],
-        input=json.dumps({
-            "raw_footage_files": [{"path": str(_audio(tmp_path)),
-                                   "clip_id": "clip_001"}],
-            "project_folder": str(project),
-            "temporal_index": {},
-        }),
-        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO),
-        env=env,
-    )
-    out = json.loads(proc.stdout)["prosody_analysis"]
-    assert out["available"] is False
-    assert out["profiles"] == {}
-    assert "clip_001" in out["unmeasured_clips"]
+    _proc, out = _run_step(tmp_path, project=project)
+
+    profiles = out.get("profiles") or {}
+    for clip_id, profile in profiles.items():
+        assert profile_defect(profile) == "", (
+            f"{clip_id} was reported as a profile while measuring nothing: "
+            f"{profile_defect(profile)}")
+    assert "parselmouth not installed" not in json.dumps(profiles), (
+        "the stale record reached the output as a measurement")
+
+    measured = "clip_001" in profiles
+    unmeasured = "clip_001" in (out.get("unmeasured_clips") or [])
+    assert measured != unmeasured, (
+        f"clip_001 must be reported as measured or as unmeasured, exactly "
+        f"one: profiles={list(profiles)} unmeasured={out.get('unmeasured_clips')}")
+    assert out["available"] is measured, (
+        f"available={out['available']} disagrees with what was measured")
+
+
+def test_a_stale_error_record_does_not_block_re_analysis(tmp_path):
+    """The other half of "a profile file IS the cache".
+
+    The record was rejected at collection - correctly - and then its mere
+    existence counted as "already analysed", so it permanently prevented
+    the measurement that would have replaced it. One run made without
+    parselmouth poisoned every later run that had it. Measured 2026-08-28
+    on a working parselmouth: `1 cached, 0 to analyze`, `available:
+    false`. The cache check now runs the same `profile_defect` the
+    collection half does.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    stale = _seed_stale_record(project)
+
+    proc, out = _run_step(tmp_path, project=project)
+
+    assert _cached_count(proc.stderr) == 0, (
+        f"a profile that measured nothing was reused as cached data: "
+        f"{proc.stderr[-400:]}")
+
+    if parselmouth_installed:
+        assert out["available"] is True, (
+            f"the dependency is installed and the clip was re-analysed, so "
+            f"it must measure: {out.get('error')}")
+        assert profile_defect(out["profiles"]["clip_001"]) == ""
+        assert "parselmouth not installed" not in stale.read_text(
+            encoding="utf-8"), "the stale record was not replaced on disk"
+    else:
+        assert out["available"] is False
+        assert out["unmeasured_clips"] == ["clip_001"]

@@ -131,10 +131,29 @@ def main():
         }, sys.stdout, indent=2)
         return
 
-    # Check which clips already have prosody data
+    # Check which clips already have prosody data.
+    #
+    # A HOLLOW profile is not data, so it does not count as cached.
+    # `profile_defect` is the same predicate the collection half below
+    # rejects on, and it has to run HERE too or the rejection is the only
+    # thing that ever happens: a file whose existence alone means "already
+    # analysed" blocks its own repair, so one run made without parselmouth
+    # poisons every later run that has it. That is the second half of the
+    # defect this step was written for - the error record was correctly
+    # refused as a measurement and then permanently prevented a real one.
+    # Measured 2026-08-28: with a stale `{"method": null, "error":
+    # "parselmouth not installed"}` in the area, a working parselmouth
+    # still reported `1 cached, 0 to analyze` and `available: false`.
     existing = set()
     for f in glob.glob(os.path.join(output_dir, "*_prosody.json")):
         clip_id = os.path.basename(f).replace("_prosody.json", "")
+        try:
+            with open(f) as fp:
+                cached = json.load(fp)
+        except (json.JSONDecodeError, IOError):
+            continue  # unreadable is not analysed either
+        if profile_defect(cached):
+            continue  # measured nothing: analyse it again
         existing.add(clip_id)
 
     missing = [af for af in audio_files if af["clip_id"] not in existing]

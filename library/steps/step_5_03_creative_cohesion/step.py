@@ -7,6 +7,7 @@ import json
 import sys
 
 from library.tools.energy_reading import read_energy
+from library.tools.passage_engagement import NO_ENGAGEMENT_BASIS, engagement_of
 from library.tools.timeline_duration import measure_timeline_duration
 from library.tools.transition_vocabulary import canonical_type, is_cut
 
@@ -28,25 +29,10 @@ def map_energy(energy_str):
 def engagement_score(passage) -> float:
     """The composite engagement of one passage, or None if it has none.
 
-    `speech_sequence` writes `engagement` as the dict
-    `engagement_scorer.compute_engagement` returns, and the gate below
-    used to accept only an int or a float - so it read every real passage
-    as having no score at all. A bare number is still accepted: nothing
-    emits one today, but rejecting it would be the same mistake in the
-    other direction.
+    One reader: library/tools/passage_engagement.py. Kept as a name here
+    because this step is where the gate lives.
     """
-    if not isinstance(passage, dict):
-        return None
-    value = passage.get("engagement")
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, dict):
-        composite = value.get("composite")
-        if isinstance(composite, (int, float)) and not isinstance(composite, bool):
-            return float(composite)
-    return None
+    return engagement_of(passage)
 
 
 def review_creative_cohesion(inputs: dict) -> dict:
@@ -202,12 +188,16 @@ def review_creative_cohesion(inputs: dict) -> dict:
 
     # Engagement score check
     #
-    # `engagement` is the DICT `engagement_scorer.compute_engagement`
-    # emits - {hook, flow, value, composite, rationale} - and this gate
-    # tested `isinstance(..., (int, float))` on it, so `hook_eng` was
-    # permanently 0 and `eng_values` permanently empty: it could not fire
-    # on any real speech_sequence. The composite is the score the scorer
-    # exists to produce, so that is what is compared.
+    # This compares scores that are THERE. It used to coerce both sides to
+    # 0 when they were absent, which is how it read a passage that was
+    # never measured as one that scored nothing - and since the withdrawn
+    # `engagement_scorer` gave nine of project 001's eleven passages an
+    # identical 49, the one finding this step reported was arithmetic on a
+    # constant. Nothing writes an engagement score today
+    # (library/tools/passage_engagement.py records why each scorer is
+    # withdrawn), so this now says it has no basis rather than reporting
+    # one. A step that MEASURES or JUDGES engagement and writes it onto
+    # the passage needs no change here.
     if isinstance(speech_sequence, dict):
         hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence", [])
@@ -215,10 +205,17 @@ def review_creative_cohesion(inputs: dict) -> dict:
         hook_eng = engagement_score(hook)
         eng_values = [engagement_score(b) for b in body
                       if engagement_score(b) is not None]
-        max_body_eng = max(eng_values) if eng_values else 0
-        hook_eng = hook_eng if hook_eng is not None else 0
 
-        if max_body_eng > hook_eng + 10:
+        if hook_eng is None or not eng_values:
+            # Stated, not silent, and it costs no score: an absent
+            # measurement is not a defect in the edit.
+            warnings.append(
+                "Engagement not compared: " + NO_ENGAGEMENT_BASIS)
+            max_body_eng = None
+        else:
+            max_body_eng = max(eng_values)
+
+        if max_body_eng is not None and max_body_eng > hook_eng + 10:
             warnings.append(
                 f"Hook engagement ({hook_eng:g}) is lower than peak body "
                 f"engagement ({max_body_eng:g})")

@@ -1,25 +1,29 @@
-def align_sfx_to_prosody(sfx_spec: list, prosody_data: dict, engagement_scores: dict) -> list:
+def align_sfx_to_prosody(sfx_spec: list, prosody_data: dict) -> list:
     """
     Adjust SFX event timing based on prosody analysis:
     - Whoosh/transition SFX on detected pause boundaries
     - Impact SFX on prosody emphasis peaks
-    - Rise SFX before engagement score peaks (hook moments)
     - Returns adjusted sfx_spec with refined timestamps
+
+    There was a third branch here that pulled "rise"/"build" SFX to land
+    1.5 s before an engagement peak, off an `engagement_scores` mapping.
+    It is removed rather than left unwired: no step has ever emitted an
+    `engagement_scores` key, no DAG edge carried one into plan_sfx, and
+    the threshold it compared against was `> 0.8` while the only
+    engagement number the pipeline ever produced was a 0-100 composite.
+    So it could not fire on any project, by three independent routes at
+    once. The composite itself is withdrawn - see
+    library/tools/passage_engagement.py - so there is nothing left for it
+    to read.
+
+    An SFX that names no time of its own keeps the time the plan gave it.
+    Nothing here invents one.
     """
     adjusted_sfx = []
-    
+
     pauses = prosody_data.get("pauses", []) if prosody_data else []
     peaks = prosody_data.get("emphasis_peaks", []) if prosody_data else []
-    high_engagement = []
-    
-    if engagement_scores:
-        for t, score in engagement_scores.items():
-            if score > 0.8:  # threshold for peak
-                try:
-                    high_engagement.append(float(t))
-                except ValueError:
-                    pass
-    
+
     for sfx in sfx_spec:
         new_sfx = dict(sfx)
         sfx_type = new_sfx.get("type", "").lower()
@@ -49,20 +53,6 @@ def align_sfx_to_prosody(sfx_spec: list, prosody_data: dict, engagement_scores: 
                     nearest = peak
             if nearest is not None:
                 new_sfx["start_time"] = nearest
-                
-        elif "rise" in sfx_type or "build" in sfx_type:
-            # Align to end before an engagement peak
-            nearest = None
-            min_diff = float("inf")
-            for hook in high_engagement:
-                # We want the rise to end at the hook, so it starts maybe 1.5s before
-                target_start = hook - 1.5
-                diff = abs(original_time - target_start)
-                if diff < min_diff and diff < 3.0:
-                    min_diff = diff
-                    nearest = target_start
-            if nearest is not None:
-                new_sfx["start_time"] = max(0.0, nearest)
                 
         adjusted_sfx.append(new_sfx)
         
