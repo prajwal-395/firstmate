@@ -316,6 +316,8 @@ class Area(str, Enum):
     LLM_REQUESTS = "llm_requests"
     LLM_RESPONSES = "llm_responses"
     LLM_RESPONSES_BAK = "llm_responses_bak"
+    REASONING = "reasoning"
+    RUN_ARCHIVES = "run_archives"
     LOGS = "logs"
     PROVENANCE = "provenance"
     MIGRATIONS = "migrations"
@@ -478,6 +480,19 @@ AREAS: dict[Area, AreaSpec] = {
     Area.LLM_RESPONSES_BAK: AreaSpec(
         f"{_OUT}/llm_responses_bak", Kind.OUTPUT,
         "The previous response for a step being re-run, kept for comparison.",
+        produced_by=(RUNNER,)),
+    Area.REASONING: AreaSpec(
+        f"{_OUT}/reasoning", Kind.OUTPUT,
+        "Per-step reasoning traces: what the agent read, rejected, was "
+        "missing, its confidence, and what happened after the answer. "
+        "Last-write-wins per step, so run_archives/ preserves them.",
+        produced_by=(RUNNER,)),
+    Area.RUN_ARCHIVES: AreaSpec(
+        f"{_OUT}/run_archives", Kind.OUTPUT,
+        "Per-run snapshots of the last-write-wins directories "
+        "(llm_requests, llm_responses, reasoning) taken at the start "
+        "of each run before any step can overwrite them. One "
+        "subdirectory per run_id.",
         produced_by=(RUNNER,)),
     Area.LOGS: AreaSpec(
         f"{_OUT}/logs", Kind.OUTPUT,

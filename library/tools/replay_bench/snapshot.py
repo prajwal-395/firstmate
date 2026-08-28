@@ -55,7 +55,8 @@ REFERENCED_AREAS = ("raw", "music", "assets", "brand_assets", "compositions",
 
 # The archive of what the runner really wrote, when there is one.  This is
 # what the byte-for-byte gate compares against.
-ARCHIVE_DIRS = ("pipeline_output/llm_requests", "pipeline_output/llm_responses")
+ARCHIVE_DIRS = ("pipeline_output/llm_requests", "pipeline_output/llm_responses",
+                "pipeline_output/reasoning")
 
 DEFAULT_STORE = Path(
     os.environ.get("PIPELINE_REPLAY_SNAPSHOTS",
@@ -312,7 +313,7 @@ def capture(project_folder: str, snapshot_id: str | None = None, store: Path | N
             continue
         dst = archive_root / Path(rel).name
         dst.mkdir(parents=True, exist_ok=True)
-        for f in sorted(src.glob("*.json")):
+        for f in sorted(p for p in src.iterdir() if p.is_file()):
             shutil.copy2(f, dst / f.name)
             files.append({"path": f"archive/{Path(rel).name}/{f.name}",
                           "sha256": _sha256(dst / f.name),

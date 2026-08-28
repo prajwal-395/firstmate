@@ -34,7 +34,7 @@ from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
-from library.tools import external_inputs, run_scope
+from library.tools import external_inputs, run_scope, run_archive
 
 logger = logging.getLogger(__name__)
 
@@ -1762,6 +1762,13 @@ def run_pipeline(
     _provenance.start_run(_run_id, mode=run_mode)
     _steps_this_run = []
     print(f"  Run:  {_run_id}", file=sys.stderr)
+
+    # Archive last-write-wins directories (reasoning traces,
+    # llm_requests, llm_responses) from any previous run before this
+    # run's steps overwrite them.
+    archived = run_archive.archive_previous_run(project_dir, _run_id)
+    if archived:
+        print(f"  Archived previous run traces to {archived}", file=sys.stderr)
 
     current_phase = None
     
