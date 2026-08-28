@@ -201,7 +201,8 @@ def analyze_key(audio_path: str) -> dict:
         
     except ImportError:
         print("  essentia not available, skipping key detection", file=sys.stderr)
-        return {"method": None, "key": None, "scale": None}
+        return {"method": None, "key": None, "scale": None,
+                "note": "essentia not installed"}
     except Exception as e:
         print(f"  ERROR: key detection failed: {e}", file=sys.stderr)
         return {"method": None, "key": None, "scale": None, "error": str(e)}
@@ -527,7 +528,8 @@ def analyze_chord_progression(audio_path: str) -> dict:
         
     except ImportError:
         print("  essentia not available for chord analysis", file=sys.stderr)
-        return {"method": None, "chord_progression": []}
+        return {"method": None, "chord_progression": [],
+                "note": "essentia not installed"}
     except Exception as e:
         print(f"  ERROR: chord analysis failed: {e}", file=sys.stderr)
         return {"method": None, "chord_progression": [], "error": str(e)}

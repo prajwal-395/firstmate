@@ -39,15 +39,42 @@ CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S",
 # rather than repaired: the stem is the key, in both places.
 
 
+# Collision-avoidance suffix appended by _unique() in project_migration.py.
+# These are byte-identical duplicates and must be filtered out wherever the
+# step globs for profiles, or the output lists phantom clips.
+_COLLISION_SUFFIX_RE = __import__('re').compile(r'__\d+$')
+
+
+def _is_collision_duplicate(filename):
+    """True when *filename* was created by the collision-avoiding writer.
+
+    The migration tool appends ``__2``, ``__3``, ... to avoid overwriting.
+    These are byte-identical copies of the originals and should never be
+    treated as distinct profiles.
+    """
+    stem = os.path.splitext(filename)[0]
+    # strip the `clip_profile_` prefix and the optional `_v3` suffix
+    name = stem
+    if name.startswith('clip_profile_'):
+        name = name[len('clip_profile_'):]
+    if name.endswith('_v3'):
+        name = name[:-len('_v3')]
+    return bool(_COLLISION_SUFFIX_RE.search(name))
+
+
 def _profile_stems(analysis_dir):
     """File stems that already have a profile in `analysis_dir`.
 
     Tolerates the two suffixes the analyser has used (`_v3`, and none) and
-    ignores the partial `_video_only` documents.
+    ignores the partial `_video_only` documents and collision-avoidance
+    duplicates (``__2``, ``__3``, ...).
     """
     stems = set()
     for path in glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json')):
-        name = os.path.basename(path)[len('clip_profile_'):-len('.json')]
+        basename = os.path.basename(path)
+        if _is_collision_duplicate(basename):
+            continue
+        name = basename[len('clip_profile_'):-len('.json')]
         if not name or name.endswith('_video_only'):
             continue
         if name.endswith('_v3'):
@@ -150,6 +177,8 @@ def main():
     for f in sorted(glob.glob(os.path.join(analysis_dir, 'clip_profile_*.json'))):
         if '_video_only' in f:
             continue  # Skip partial profiles
+        if _is_collision_duplicate(os.path.basename(f)):
+            continue  # Skip __N collision-avoidance duplicates
         with open(f) as fp:
             try:
                 profile_data = json.load(fp)

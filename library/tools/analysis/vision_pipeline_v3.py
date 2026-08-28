@@ -947,18 +947,31 @@ def _set_usable_ranges(assessment, temporal_index, duration, content_type):
 def compute_deterministic_assessment(temporal_index, transcript, duration=None):
     """Compute assessment fields that don't need the vision model.
 
-    Returns dict with speech_present, speech_coverage, camera_stability,
-    usable_ranges, unusable_ranges, usable_ranges_method, usable_ranges_signals.
+    Returns dict with speech_present, speech_coverage, speech_coverage_method,
+    camera_stability, usable_ranges, unusable_ranges, usable_ranges_method,
+    usable_ranges_signals.
+
+    When ``temporal_index`` is absent the speech fields are set to ``None``
+    with ``speech_coverage_method = "unmeasured"`` rather than asserting no
+    speech.  The vision model has no audio, so it cannot determine whether
+    speech is present; ``False`` / ``0.0`` would be a fabricated claim.
     """
+    if not temporal_index:
+        result = {
+            "speech_present": None,
+            "speech_coverage": None,
+            "speech_coverage_method": "unmeasured",
+            "camera_stability": "unknown",
+        }
+        _set_usable_ranges(result, None, duration or 0, "unknown")
+        return result
+
     result = {
         "speech_present": bool(transcript and transcript.strip()),
         "speech_coverage": 0.0,
+        "speech_coverage_method": "temporal_index",
         "camera_stability": "unknown",
     }
-
-    if not temporal_index:
-        _set_usable_ranges(result, None, duration or 0, "unknown")
-        return result
 
     # Support both key names: older temporal indices use "duration",
     # newer ones may use "duration_s"
@@ -1514,8 +1527,10 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     print(f"    Scene: {len(scene)} | Camera: {len(camera)} | "
           f"Actions: {total_action_count} across {len(actions)} windows | "
           f"Objects: {len(objects)}")
+    _cov = assessment.get('speech_coverage')
+    _cov_str = f"{_cov:.0%}" if _cov is not None else "unmeasured"
     print(f"    Type: {assessment.get('content_type', '?')} | "
-          f"Speech: {assessment.get('speech_coverage', 0):.0%} coverage | "
+          f"Speech: {_cov_str} coverage | "
           f"Stability: {assessment.get('camera_stability', '?')}")
 
     return profile
