@@ -113,10 +113,13 @@ class TestPrecedence:
 
 class TestMalformedDeclarationsRaise:
 
-    @pytest.mark.parametrize("bad", ["1.0", None, True, [1.0], {}])
+    # `None` is deliberately absent: it means "not declared", which is
+    # tested above and is not a malformed declaration.  It used to be a
+    # parameter with a `pytest.skip` inside the body, which is a case
+    # that skips in every environment - see
+    # `tests/test_no_unfailable_tests.py`.
+    @pytest.mark.parametrize("bad", ["1.0", True, [1.0], {}])
     def test_non_numeric(self, bad):
-        if bad is None:
-            pytest.skip("None means 'not declared', tested above")
         with pytest.raises(TypeError):
             validate_framing_intent(bad, "a test")
 

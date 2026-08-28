@@ -15,7 +15,10 @@ import sys
 
 import pytest
 
-from library.steps.step_3_02_select_broll.post_bridge import find_best_segment
+from library.steps.step_3_02_select_broll.post_bridge import (
+    find_best_segment,
+    resolve_broll,
+)
 from tests.test_vision_schema_adapter import LEGACY_PROFILE, V3_PROFILE
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -212,3 +215,148 @@ def test_scene_segment_is_scored_against_the_block_covering_it():
     video_in, _ = find_best_segment(
         "slicing bread", {"blocks": V3_BLOCKS}, temporal, 40.0, 3.0)
     assert video_in < 20.0
+
+
+# ── resolve_broll: the post-bridge's own half ─────────────────────────
+#
+# `tests/test_bridges.py` claimed to cover this by importing a
+# `post_bridge` function that has never existed, so the assertions below
+# are the first this half has had.  They are the invariants the manifest
+# validator and `_assert_timeline_fully_covered` go on to enforce, caught
+# where they are decided instead of where they blow up.
+
+SPINE = {"structure": [
+    {"position": 1, "block_type": "speech", "clip_id": "clip_009",
+     "timeline_start": 0.0, "timeline_end": 4.0},
+    {"position": 2, "block_type": "speech", "clip_id": "clip_009",
+     "timeline_start": 4.0, "timeline_end": 8.0},
+]}
+
+RESOLVE_CATALOG = [
+    dict(CATALOG[0], width=1920, height=1080, rotation=0),
+    dict(CATALOG[1], width=1080, height=1920, rotation=0),
+]
+
+RESOLVE_DOCS = [V3_PROFILE, _second_clip_doc()]
+
+
+def _resolve(creative, interjections=(), spine=None, catalog=None):
+    return resolve_broll(
+        list(creative), list(interjections),
+        catalog if catalog is not None else RESOLVE_CATALOG,
+        RESOLVE_DOCS, [], spine if spine is not None else SPINE,
+    )
+
+
+def test_a_cutaway_is_resolved_to_a_source_range_and_a_timeline_range():
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1,
+                     "preferred_moment": "wide street"}])
+    assert len(out["b_roll_assignments"]) == 1
+    entry = out["b_roll_assignments"][0]
+    assert entry["clip_id"] == "clip_001"
+    assert entry["source_file"] == "/footage/IMG_1806.MOV"
+    assert entry["timeline_start"] == 0.0
+    assert entry["video_out"] > entry["video_in"]
+    assert entry["duration_seconds"] == round(
+        entry["video_out"] - entry["video_in"], 3)
+
+
+def test_broll_audio_is_never_linked():
+    """A cutaway that carries its own sound talks over the narration."""
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
+    assert out["b_roll_assignments"][0]["video_only"] is True
+
+
+def test_a_cutaway_never_claims_more_timeline_than_its_source_can_fill():
+    """clip_001 is 3.567s of footage under a 4.0s block.
+
+    Claiming the whole block would leave V2 showing a frozen or absent
+    frame for the remainder - a hole `_assert_timeline_fully_covered`
+    fails the build on.
+    """
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
+    entry = out["b_roll_assignments"][0]
+    played = round(entry["video_out"] - entry["video_in"], 3)
+    claimed = round(entry["timeline_end"] - entry["timeline_start"], 3)
+    assert claimed <= played + 0.001, (
+        f"claimed {claimed}s of timeline from {played}s of source")
+    assert claimed < 4.0
+
+
+def test_broll_matching_its_own_aroll_is_substituted_not_placed():
+    """Cutting to the clip already on screen reads as a glitch, not a cut."""
+    out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1}])
+    entry = out["b_roll_assignments"][0]
+    assert entry["clip_id"] == "clip_001"
+    assert "auto-substituted" in entry["selection_rationale"]
+
+
+def test_broll_matching_its_own_aroll_is_dropped_when_nothing_replaces_it():
+    """With no describable alternative there is no honest substitution."""
+    out = _resolve(
+        [{"clip_id": "clip_009", "spine_block_position": 1}],
+        catalog=[RESOLVE_CATALOG[0]],
+    )
+    assert out["b_roll_assignments"] == []
+
+
+def test_only_one_cutaway_reaches_a_block():
+    """Two selections on one block claim the same stretch of V2."""
+    out = _resolve([
+        {"clip_id": "clip_001", "spine_block_position": 1},
+        {"clip_id": "clip_001", "spine_block_position": 1},
+    ])
+    assert len(out["b_roll_assignments"]) == 1
+
+
+def test_a_selection_naming_a_clip_the_catalog_does_not_have_is_dropped():
+    out = _resolve([{"clip_id": "clip_404", "spine_block_position": 1}])
+    assert out["b_roll_assignments"] == []
+
+
+def test_a_selection_targeting_a_block_that_does_not_exist_is_dropped():
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 99}])
+    assert out["b_roll_assignments"] == []
+
+
+def test_conform_is_flagged_on_a_clip_that_is_not_the_delivery_shape():
+    """clip_009 is 1920x1080 landscape; the frame is 1080x1920."""
+    out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1}],
+                   spine={"structure": [dict(SPINE["structure"][0],
+                                             clip_id="clip_001")]})
+    entry = out["b_roll_assignments"][0]
+    assert entry["clip_id"] == "clip_009"
+    assert entry["needs_conform"] is True
+
+
+def test_an_interjection_is_trimmed_around_broll_already_on_v2():
+    """Two clips cannot share frames of a track.
+
+    The interjection asks for 0-4s, which the block-1 assignment already
+    holds; it must be trimmed into what is left rather than displacing it.
+    """
+    out = _resolve(
+        [{"clip_id": "clip_001", "spine_block_position": 1}],
+        [{"clip_id": "clip_001", "over_spine_block_position": 2,
+          "timeline_start": 0.0, "timeline_end": 6.0}],
+    )
+    assignment = out["b_roll_assignments"][0]
+    interjection = out["b_roll_interjections"][0]
+    assert interjection["timeline_start"] >= assignment["timeline_end"]
+    assert interjection["timeline_end"] <= 6.0
+
+
+def test_an_interjection_with_no_free_window_is_dropped_not_placed_over():
+    out = _resolve(
+        [{"clip_id": "clip_001", "spine_block_position": 1}],
+        [{"clip_id": "clip_001", "over_spine_block_position": 1,
+          "timeline_start": 0.0, "timeline_end": 0.4}],
+    )
+    assert out["b_roll_assignments"] != []
+    assert out["b_roll_interjections"] == []
+
+
+def test_nothing_selected_resolves_to_nothing_placed():
+    """There is no creative floor: an empty plan is an empty plan."""
+    out = _resolve([])
+    assert out == {"b_roll_assignments": [], "b_roll_interjections": []}

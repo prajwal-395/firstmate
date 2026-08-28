@@ -11,6 +11,7 @@ Verifies:
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,14 +33,162 @@ COMP_DIR = os.path.join(
 )
 
 
+# A hook comp as the generators author one: a MediaIn feeding a Transform
+# whose Size is driven by a BezierSpline, a graded and glowed chain, a
+# vignette built from a Background and an inverted EllipseMask, and a
+# transition Merge on its own spline.  It exercises every parser feature
+# the class below asserts on - RenderRange, SourceOp wiring, keyframe
+# handles, ViewInfo positions.
+#
+# This class used to read `library/steps/step_6_01_render/fusion_comps/
+# hook_1.comp`, which is in no commit in this repository's history, so
+# `self.skipTest("hook_1.comp not found")` fired in every environment and
+# all nine tests below have never run (issue #249).  The subject is the
+# PARSER, not that file: the input is supplied here so the assertions -
+# unchanged - are made against something that exists.
+HOOK_COMP = """\
+Composition {
+	CurrentTime = 0,
+	RenderRange = { 0, 71 },
+	GlobalRange = { 0, 71 },
+	Tools = {
+		MediaIn1 = MediaIn {
+			ViewInfo = OperatorInfo { Pos = { 0, 0 } },
+		},
+		Transform1 = Transform {
+			CtrlWZoom = false,
+			Inputs = {
+				Size = Input {
+					SourceOp = "Transform1Size",
+					Source = "Value",
+				},
+				Input = Input {
+					SourceOp = "MediaIn1",
+					Source = "Output",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 110, 0 } },
+		},
+		Transform1Size = BezierSpline {
+			SplineColor = { Red = 225, Green = 0, Blue = 0 },
+			KeyFrames = {
+				[0] = { 1.0, RH = { 24, 1.0133 } },
+				[36] = { 1.04, LH = { 24, 1.0267 }, RH = { 47.6667, 1.0367 } },
+				[71] = { 1.03, LH = { 59.3333, 1.0333 } },
+			}
+		},
+		BrightnessContrast1 = BrightnessContrast {
+			Inputs = {
+				Gain = Input { Value = 1.05, },
+				Input = Input {
+					SourceOp = "Transform1",
+					Source = "Output",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 220, 0 } },
+		},
+		SoftGlow1 = SoftGlow {
+			Inputs = {
+				Gain = Input { Value = 5.0, },
+				Input = Input {
+					SourceOp = "BrightnessContrast1",
+					Source = "Output",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 330, 0 } },
+		},
+		Background1 = Background {
+			Inputs = {
+				GlobalOut = Input { Value = 71, },
+				Width = Input { Value = 1080, },
+				Height = Input { Value = 1920, },
+			},
+			ViewInfo = OperatorInfo { Pos = { 330, 110 } },
+		},
+		Ellipse1 = EllipseMask {
+			Inputs = {
+				Inverted = Input { Value = 1, },
+				MaskWidth = Input { Value = 1080, },
+				MaskHeight = Input { Value = 1920, },
+				PixelAspect = Input { Value = { 1, 1 } },
+			},
+			ViewInfo = OperatorInfo { Pos = { 440, 110 } },
+		},
+		Merge1 = Merge {
+			Inputs = {
+				Blend = Input { Value = 0.35, },
+				Background = Input {
+					SourceOp = "SoftGlow1",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "Background1",
+					Source = "Output",
+				},
+				EffectMask = Input {
+					SourceOp = "Ellipse1",
+					Source = "Mask",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 550, 0 } },
+		},
+		BgTrans1 = Background {
+			Inputs = {
+				GlobalOut = Input { Value = 71, },
+				TopLeftAlpha = Input { Value = 1, },
+			},
+			ViewInfo = OperatorInfo { Pos = { 550, 110 } },
+		},
+		MergeTrans1 = Merge {
+			Inputs = {
+				Blend = Input {
+					SourceOp = "MergeTrans1Blend",
+					Source = "Value",
+				},
+				Background = Input {
+					SourceOp = "Merge1",
+					Source = "Output",
+				},
+				Foreground = Input {
+					SourceOp = "BgTrans1",
+					Source = "Output",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 660, 0 } },
+		},
+		MergeTrans1Blend = BezierSpline {
+			SplineColor = { Red = 0, Green = 225, Blue = 0 },
+			KeyFrames = {
+				[0] = { 1.0, RH = { 4, 0.6667 } },
+				[12] = { 0.0, LH = { 8, 0.3333 } },
+			}
+		},
+		MediaOut1 = MediaOut {
+			Inputs = {
+				Input = Input {
+					SourceOp = "MergeTrans1",
+					Source = "Output",
+				},
+			},
+			ViewInfo = OperatorInfo { Pos = { 770, 0 } },
+		},
+	},
+}
+"""
+
+
 class TestParseHook1(unittest.TestCase):
-    """Parse the existing hook_1.comp and verify structure."""
+    """Parse a hook comp off disk and verify structure."""
 
     def setUp(self):
-        self.comp_path = os.path.join(COMP_DIR, "hook_1.comp")
-        if not os.path.exists(self.comp_path):
-            self.skipTest("hook_1.comp not found")
+        self._dir = tempfile.mkdtemp()
+        self.comp_path = os.path.join(self._dir, "hook_1.comp")
+        with open(self.comp_path, "w", encoding="utf-8") as f:
+            f.write(HOOK_COMP)
         self.comp = parse_comp_file(self.comp_path)
+
+    def tearDown(self):
+        shutil.rmtree(self._dir, ignore_errors=True)
 
     def test_duration(self):
         """RenderRange { 0, 71 } -> duration = 72."""

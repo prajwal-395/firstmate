@@ -735,6 +735,13 @@ Never coerce that None to 0 - a passage nobody measured is not a passage that sc
 A step that MEASURES or JUDGES engagement and writes it onto the passage needs no change to the reader.
 `tests/test_passage_engagement.py`.
 
+**A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
+`tests/skip_audit.py` is the enumeration and `tests/test_no_unfailable_tests.py` runs it; the runtime half is the session hook in the repo-root `conftest.py`, which FAILS a run reporting a skip no `EnvironmentCondition` declares.
+
+- `ENVIRONMENT_CONDITIONS` is measuring instruments and external applications only - ffmpeg, cv2, parselmouth, npx, Resolve's own templates. A condition that reads THIS REPOSITORY'S contents is not an environment: five tests skipped everywhere for months because the symbol they imported does not exist, and nine more because a fixture file has never been in any commit. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
+- The source half also fails a test whose body is `pass`, or whose whole body is a `try` swallowing every exception. Four of those reported PASS, which reads worse than a skip.
+- Run it alone with `python3 -m pytest tests/test_no_unfailable_tests.py -q`.
+
 **A gate that FAILS correct output is no more coverage than one that cannot fail.**
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 

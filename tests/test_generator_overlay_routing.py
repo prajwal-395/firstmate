@@ -145,21 +145,23 @@ class TestResolveGeneratorOverlays:
         overlays = resolve_generator_overlays(plan, _spine(1, 2))
         assert overlays == []
 
-    def test_aliased_generator_resolved(self):
-        """An aliased effect_type that resolves to a generator is routed."""
-        # Find an alias that maps to a generator, if any exist
-        generators = list_generator_effects()
-        aliased_generators = [
-            (alias, target) for alias, target in EFFECT_ALIASES.items()
-            if target in generators
-        ]
-        if not aliased_generators:
-            pytest.skip("No aliases map to generators")
-        alias, target = aliased_generators[0]
-        plan = [{"target_block_position": 1, "effect_type": alias}]
+    def test_aliased_generator_resolved(self, monkeypatch):
+        """An aliased effect_type that resolves to a generator is routed.
+
+        This used to search `EFFECT_ALIASES` for an entry pointing at a
+        generator and skip when it found none.  It never finds one: the
+        only alias is `push_in -> zoom_emphasis`, a clip effect, and an
+        alias may only RENAME a capability, never choose one - so the
+        test skipped in every environment and always would have.  The
+        routing it is about is real either way, so the alias is supplied
+        here instead of hunted for.
+        """
+        assert "fireworks" in list_generator_effects()
+        monkeypatch.setitem(EFFECT_ALIASES, "firework_burst", "fireworks")
+        plan = [{"target_block_position": 1, "effect_type": "firework_burst"}]
         overlays = resolve_generator_overlays(plan, _spine(1, 2))
         assert len(overlays) == 1
-        assert overlays[0]["effect_name"] == target
+        assert overlays[0]["effect_name"] == "fireworks"
 
 
 # ── Layer 2: Rejection still works ────────────────────────────────

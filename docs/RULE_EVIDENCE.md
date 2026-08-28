@@ -1122,6 +1122,67 @@ Fixed by reading the composite - and then the composite itself turned out to be 
 
 A gate that cannot fail is worse than no gate, because it reads as coverage.
 
+### five-tests-skipped-in-every-environment
+
+The same shape as `gates-that-cannot-fail` above, in the suite rather than in the pipeline, and
+harder to see because a skip LOOKS like a considered decision.
+
+Five tests guarded an import with `pytest.skip`, and the symbol did not exist:
+
+```
+tests/test_bridges.py:9    from ...step_2_02_speech_sequence.bridge      import pre_bridge
+tests/test_bridges.py:36   from ...step_2_02_speech_sequence.post_bridge import post_bridge
+tests/test_bridges.py:57   from ...step_3_02_select_broll.bridge         import pre_bridge
+tests/test_bridges.py:71   from ...step_3_02_select_broll.post_bridge    import post_bridge
+tests/test_step_runners.py:45  from ...step_1_05_prosody_analysis.step   import analyze_prosody
+```
+
+Both bridges are SUBPROCESSES - `run_pipeline.run_subprocess` hands them JSON on stdin - so
+neither has ever had a `pre_bridge` or `post_bridge` function; `analyze_prosody` lives in
+`library/tools/analysis/speech_advanced_pipeline.py`, not in step 1.05. These are not the
+dependency-absence trap #243 fixed. They skipped whatever was installed, on every machine, in CI
+and locally, since they were written, and pytest printed all five in its summary every run
+without anything objecting.
+
+Six more in the same two files reported a result nothing had measured. `test_temporal_index` and
+`test_prosody_analysis` had `pass` as their entire body. `test_assign_aroll`,
+`test_render_subtitles`, `test_render_motion_graphics` and `test_creative_cohesion` wrapped an
+import and a call in `except Exception: pass` - and none of those four symbols exists either, so
+all four reported PASS. A green dot reads worse than a skip.
+
+Two subtler ones, found with the tooling out. `tests/test_generator_overlay_routing.py` searched
+`EFFECT_ALIASES` for an entry pointing at a generator and skipped when it found none: the only
+alias is `push_in -> zoom_emphasis`, a clip effect, and an alias may only RENAME a capability
+(10.5), so it never finds one. `tests/test_framing_intent.py` parametrised `None` into a
+malformed-declaration test and skipped that case in the body, `None` meaning "not declared".
+
+And nine in `library/tools/fusion/tests/test_parser.py`, which read
+`library/steps/step_6_01_render/fusion_comps/hook_1.comp` and called
+`self.skipTest("hook_1.comp not found")`. `git log --all -- '*hook_1.comp'` is empty: the file is
+in no commit in this repository's history, so those nine assertions have never run. Their subject
+is the PARSER, not that file, so the input is now supplied by the test and every assertion is
+unchanged.
+
+**What was restored, and what was deleted.** 2.02's pre-bridge and 3.02's `resolve_broll` had no
+coverage anywhere and got real tests - `tests/test_speech_sequence_bridge.py` and the second half
+of `tests/test_select_broll_bridge.py`, both mutation-checked. The other three named tests were
+deleted, because 3.02's pre-bridge, 2.02's `enrich_speech_sequence` and step 1.05 are all covered
+properly elsewhere (`tests/test_select_broll_bridge.py`, `tests/test_captured_run_regression.py`
+and `tests/test_passage_engagement.py`, `tests/test_prosody_failure_is_loud.py`). Step 3.01
+`assign_aroll` is left with no direct test and that is stated rather than papered over.
+
+**The check.** `tests/skip_audit.py` and `tests/test_no_unfailable_tests.py`, plus the session
+hook in the repo-root `conftest.py`. The source half is decidable from the tree - it reported all
+eleven of the `tests/` findings above against `origin/main` - and the runtime half requires every
+skip a run actually reports to match a declared `EnvironmentCondition`, because one environment
+cannot prove "skipped in every environment" but naming the environment that RUNS the test can.
+Both fail rather than report: reporting is exactly what pytest was already doing for months.
+
+**Measured, 2026-08-28.** System python (no heavy stack): 2309 passed, 1 skipped. A .venv with
+parselmouth, whisperx, easyocr, torch, mlx_vlm, librosa and cv2: 2307 passed, 3 skipped. Same
+2310 collected, and the two skip sets are complementary halves of one condition -
+`praat-parselmouth` installed or not.
+
 ### every-line-scored-the-same
 
 On project 001's 2026-08-26 run, nine of eleven speech passages scored an identical composite of **49**, and the `hook` component was **30 for ten of eleven**.

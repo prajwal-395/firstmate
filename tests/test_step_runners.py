@@ -1,9 +1,44 @@
-import json
-import pytest
-from unittest.mock import patch, MagicMock
+"""Step 1.02 catalogs footage from ffprobe metadata.
 
-# Import the main functions from the steps
+This file used to carry six more tests, all of which reported a result
+they had not measured (issue #249):
+
+* `test_temporal_index` and `test_prosody_analysis` guarded an import
+  with `pytest.skip`.  `build_temporal_index` resolves, so the first ran
+  and its whole body was `pass`; `analyze_prosody` is not in step 1.05 at
+  all - it lives in `library/tools/analysis/speech_advanced_pipeline.py` -
+  so the second skipped in every environment, always has, and its body
+  was `pass` too.
+* `test_assign_aroll`, `test_render_subtitles`, `test_render_motion_graphics`
+  and `test_creative_cohesion` wrapped an import and a call in
+  `except Exception: pass`.  None of the four symbols exists, so all four
+  reported PASS - a green dot for a step nothing had touched, which is
+  the same defect as the skips and reads worse.
+
+They are deleted rather than repaired, because the steps they named are
+covered where the coverage can be honest:
+
+* 1.04 - `tests/test_step_stdout_contract.py`, `tests/test_face_sample_aspect.py`,
+  `tests/test_face_presence_position.py`, `tests/test_subject_framing.py`
+* 1.05 - `tests/test_prosody_failure_is_loud.py`, `tests/test_prosody_view.py`
+* 4.05 - `tests/test_subtitle_style.py`, `tests/test_subtitle_emphasis.py`,
+  `tests/test_step_stdout_contract.py`
+* 4.06 - `tests/test_motion_graphics_empty_render.py`,
+  `tests/test_motion_graphics_template.py`
+* 5.03 - `tests/test_creative_cohesion.py`, `tests/test_cohesion_gates_fire.py`,
+  `tests/test_cohesion_application.py`
+
+Step 3.01 (`assign_aroll`) is the one that is left with no direct test.
+Saying so is the honest outcome: writing one is its own piece of work and
+is not what removing a false green is for.
+
+`tests/test_no_unfailable_tests.py` is what stops all six shapes coming
+back.
+"""
+from unittest.mock import patch
+
 from library.steps.step_1_02_catalog_footage.step import catalog_footage
+
 
 @patch("library.steps.step_1_02_catalog_footage.step.extract_metadata")
 @patch("os.path.isfile")
@@ -28,54 +63,3 @@ def test_catalog_footage(mock_isfile, mock_extract):
     assert "clip_catalog" in output
     assert len(output["clip_catalog"]) == 1
     assert output["clip_catalog"][0]["clip_id"] == "clip_001"
-
-@patch("subprocess.run")
-def test_temporal_index(mock_run):
-    try:
-        from library.steps.step_1_04_temporal_index.step import build_temporal_index
-    except ImportError:
-        pytest.skip("Step 1.04 not available or missing deps")
-    pass # Will implement fully if import passes, but prompt says mock heavy deps
-
-@patch("subprocess.run")
-def test_prosody_analysis(mock_run):
-    try:
-        from library.steps.step_1_05_prosody_analysis.step import analyze_prosody
-    except ImportError:
-        pytest.skip("Step 1.05 not available")
-    pass
-
-def test_assign_aroll():
-    try:
-        from library.steps.step_3_01_assign_aroll.step import assign_aroll
-        output = assign_aroll(
-            speech_sequence={"blocks": []},
-            clip_catalog=[{"clip_id": "clip_001"}]
-        )
-        assert isinstance(output, dict)
-    except Exception:
-        pass
-
-def test_render_subtitles():
-    try:
-        from library.steps.step_4_05_render_subtitles.step import render_subtitles
-        output = render_subtitles({})
-        assert isinstance(output, dict)
-    except Exception:
-        pass
-
-def test_render_motion_graphics():
-    try:
-        from library.steps.step_4_06_render_motion_graphics.step import render_motion_graphics
-        output = render_motion_graphics({})
-        assert isinstance(output, dict)
-    except Exception:
-        pass
-
-def test_creative_cohesion():
-    try:
-        from library.steps.step_5_03_creative_cohesion.step import review_cohesion
-        output = review_cohesion({})
-        assert isinstance(output, dict)
-    except Exception:
-        pass
