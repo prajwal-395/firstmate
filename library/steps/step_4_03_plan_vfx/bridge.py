@@ -1,12 +1,265 @@
 #!/usr/bin/env python3
+"""Step 4.3 pre-bridge: the VFX candidate table the handoff tells the
+model to read.
+
+One row per SPINE BLOCK, because `target_block_position` is what the
+step's `llm_outputs` schema asks the model to emit. A table keyed by
+anything else names identifiers the answer cannot use.
+
+This table used to be built from `data["a_roll_assignments"]` and it came
+out hollow on every run - three failures in the same six lines:
+
+  * `text` read `slot.get("text", "")` off a-roll assignment rows, which
+    carry no `text` key, so every row was blank;
+  * `vfx_suggested` was the literal string "No" on every row, described
+    to the model as a pre-computed measurement but based on nothing;
+  * `enhancement_spec` was pre-populated with a `color_wash` at
+    intensity 0.5 on the first segment, unconditionally - a creative
+    decision nobody made, presented to the model as a prior choice.
+
+The table now carries the MEASUREMENTS the handoff says it is derived
+from: per-block duration and camera movement, computed from `timed_spine`
+and `semantic_analysis_documents`. `enhancement_spec` is not emitted -
+the post-bridge writes it after the model answers.
+"""
+import os
 import sys
 import json
 
+from library.tools.vision_schema_adapter import (
+    adapt_semantic_document,
+    is_v3_profile,
+)
+
+# How much of a block's line reaches the summary column. The full text is
+# in `timed_spine`, which this step also routes; this table is an index
+# into it, not a second copy.
+TEXT_SUMMARY_CHARS = 80
+
+
 def format_toon(headers, rows):
+    if not rows:
+        return f"[0]{{{','.join(headers)}}}\n"
     out = f"[{len(rows)}]{{{','.join(headers)}}}\n"
     for row in rows:
         out += "\t".join(str(row.get(h, "")) for h in headers) + "\n"
     return out
+
+
+def _spine_blocks(data: dict) -> list:
+    """The timeline spine, whichever of its two shapes arrives."""
+    spine = data.get("timed_spine") or {}
+    if not isinstance(spine, dict):
+        return []
+    blocks = spine.get("structure")
+    if blocks is None:
+        blocks = (spine.get("audio_spine") or {}).get("structure", [])
+    return blocks if isinstance(blocks, list) else []
+
+
+def _stem(path: str) -> str:
+    return os.path.splitext(os.path.basename(path or ""))[0].lower()
+
+
+def _build_clip_id_to_stem(data: dict) -> dict:
+    """Map catalog clip_id to file stem from a_roll_assignments.
+
+    The spine speaks catalog ids (``clip_006``) and semantic analysis
+    documents speak file stems (``IMG_1806``). `a_roll_assignments`
+    carries both - each entry's `video_segments` list has `clip_id`
+    (catalog) and `source_file` (path) - so it is the join table.
+    """
+    mapping = {}
+    aroll_raw = data.get("a_roll_assignments", [])
+    if isinstance(aroll_raw, dict):
+        aroll_raw = (aroll_raw.get("a_roll_assignments")
+                     or aroll_raw.get("timeline_segments")
+                     or [])
+    for entry in aroll_raw or []:
+        if not isinstance(entry, dict):
+            continue
+        for seg in entry.get("video_segments") or []:
+            if not isinstance(seg, dict):
+                continue
+            cid = seg.get("clip_id")
+            sf = seg.get("source_file")
+            if cid and sf:
+                mapping[cid] = _stem(sf)
+    return mapping
+
+
+def _build_semantic_lookup(data: dict, clip_id_to_stem: dict) -> dict:
+    """Map catalog clip_id to its semantic analysis document.
+
+    The semantic documents arrive keyed by file stem; the spine speaks
+    catalog ids. `clip_id_to_stem` bridges the two vocabularies.
+    """
+    docs_raw = data.get("semantic_analysis_documents", [])
+    if isinstance(docs_raw, dict):
+        docs_raw = (docs_raw.get("semantic_analysis_documents")
+                    or docs_raw.get("semantic_analysis")
+                    or [])
+    if not isinstance(docs_raw, list):
+        return {}
+
+    # Key documents by every name they carry: file path stem, clip_id.
+    by_stem = {}
+    by_doc_id = {}
+    for doc in docs_raw:
+        if not isinstance(doc, dict):
+            continue
+        doc_id = doc.get("clip_id", "")
+        if doc_id:
+            by_doc_id[str(doc_id).lower()] = doc
+        for key in ("file_path", "path", "source_file"):
+            if doc.get(key):
+                by_stem[_stem(doc[key])] = doc
+
+    # Resolve each catalog clip_id to a document.
+    lookup = {}
+    for cid, stem in clip_id_to_stem.items():
+        doc = by_stem.get(stem) or by_doc_id.get(stem)
+        if doc:
+            lookup[cid] = doc
+    return lookup
+
+
+def _camera_segments_in_range(doc: dict, source_start, source_end) -> list:
+    """Camera segments that overlap the block's source range.
+
+    Returns the subset of the document's camera[] array whose time range
+    intersects [source_start, source_end]. When source bounds are None
+    (non-speech blocks with no source clip), falls back to the whole clip.
+    """
+    adapted = adapt_semantic_document(doc) if is_v3_profile(doc) else doc
+    camera = adapted.get("camera") or doc.get("camera") or []
+    if not isinstance(camera, list):
+        return []
+
+    if source_start is None or source_end is None:
+        return [s for s in camera if isinstance(s, dict)]
+
+    overlapping = []
+    for seg in camera:
+        if not isinstance(seg, dict):
+            continue
+        seg_start = seg.get("start")
+        seg_end = seg.get("end")
+        if seg_start is None or seg_end is None:
+            overlapping.append(seg)
+            continue
+        try:
+            if float(seg_end) > float(source_start) and float(seg_start) < float(source_end):
+                overlapping.append(seg)
+        except (TypeError, ValueError):
+            continue
+    return overlapping
+
+
+def _camera_description(doc: dict, source_start, source_end) -> str:
+    """What the camera is doing in this block's source range.
+
+    Returns a prose string like "stationary, steady" or
+    "panning_left, handheld" - what the analyser measured, not a verdict.
+    Returns "" when no camera data covers this range.
+    """
+    segs = _camera_segments_in_range(doc, source_start, source_end)
+    if not segs:
+        # Fall back to clip-level assessment.
+        assessment = doc.get("assessment") or {}
+        stability = assessment.get("camera_stability")
+        if stability:
+            return str(stability)
+        return ""
+
+    parts = []
+    movements = []
+    stabilities = []
+    for seg in segs:
+        m = seg.get("movement")
+        if m and m not in movements:
+            movements.append(str(m))
+        s = seg.get("stability")
+        if s and s not in stabilities:
+            stabilities.append(str(s))
+
+    if movements:
+        parts.append(" -> ".join(movements))
+    if stabilities:
+        parts.append(" -> ".join(stabilities))
+    return ", ".join(parts) if parts else ""
+
+
+def _summary_text(block: dict) -> str:
+    """What this segment says, in one line.
+
+    The spoken line where there is one; otherwise the spine's own note
+    for the beat, which is the only description a non-speech block has.
+    """
+    content = block.get("content")
+    text = ""
+    if isinstance(content, dict):
+        text = content.get("text") or ""
+    if not text:
+        text = block.get("visual_note") or ""
+    text = " ".join(str(text).split())
+    if len(text) > TEXT_SUMMARY_CHARS:
+        text = text[:TEXT_SUMMARY_CHARS - 3] + "..."
+    return text
+
+
+def _vfx_suggested(block: dict, camera_desc: str) -> str:
+    """What the measurement says about this block, not a verdict.
+
+    Reports block duration and camera movement - the two signals the
+    handoff's criterion ("long AND static") is built from. A block with
+    no source clip reads "not measured (no source clip)" rather than
+    reading as a measured absence.
+    """
+    clip_id = block.get("clip_id")
+    if not clip_id:
+        return "not measured (no source clip)"
+
+    duration = None
+    tl_start = block.get("timeline_start")
+    tl_end = block.get("timeline_end")
+    if tl_start is not None and tl_end is not None:
+        try:
+            duration = round(float(tl_end) - float(tl_start), 1)
+        except (TypeError, ValueError):
+            pass
+
+    parts = []
+    if duration is not None:
+        parts.append(f"{duration}s")
+    if camera_desc:
+        parts.append(camera_desc)
+    elif clip_id:
+        parts.append("no camera data")
+    return ", ".join(parts) if parts else "no data"
+
+
+def build_vfx_candidates(data: dict) -> list:
+    """One row per spine block, keyed by the position the answer names."""
+    clip_id_to_stem = _build_clip_id_to_stem(data)
+    semantic_lookup = _build_semantic_lookup(data, clip_id_to_stem)
+    rows = []
+    for block in _spine_blocks(data):
+        if not isinstance(block, dict):
+            continue
+        clip_id = block.get("clip_id")
+        doc = semantic_lookup.get(clip_id, {}) if clip_id else {}
+        source_start = block.get("source_start")
+        source_end = block.get("source_end")
+        camera_desc = _camera_description(doc, source_start, source_end)
+
+        rows.append({
+            "segment_id": block.get("position"),
+            "text": _summary_text(block),
+            "vfx_suggested": _vfx_suggested(block, camera_desc),
+        })
+    return rows
+
 
 def main():
     try:
@@ -15,36 +268,23 @@ def main():
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
 
-    # Simplified pre-bridge context extraction for VFX planning
-    vfx_rows = []
-    
-    # In a real implementation we would look at semantic_analysis and timed_spine.
-    # Here we just pass an empty list or basic summary to the LLM.
-    aroll_data = data.get("a_roll_assignments", [])
-    aroll = aroll_data if isinstance(aroll_data, list) else aroll_data.get("a_roll_assignments", aroll_data.get("timeline_segments", []))
-    for slot in aroll:
-        vfx_rows.append({
-            "segment_id": slot.get("segment_id", slot.get("spine_block_position", "unknown")),
-            "text": slot.get("text", "")[:50],
-            "vfx_suggested": "No"
-        })
-        
-    vfx_toon = format_toon(["segment_id", "text", "vfx_suggested"], vfx_rows)
-    
-    vfx = []
-    if vfx_rows:
-        vfx.append({
-            "segment_id": vfx_rows[0]["segment_id"],
-            "effect_type": "color_wash",
-            "intensity": 0.5
-        })
+    rows = build_vfx_candidates(data)
+    vfx_toon = format_toon(
+        ["segment_id", "text", "vfx_suggested"],
+        rows,
+    )
 
+    # No `enhancement_spec` stub. This bridge used to emit
+    # `{"motion_graphics": [], "visual_effects": [{"effect_type":
+    # "color_wash", "intensity": 0.5}]}` - a creative decision nobody made,
+    # presented to the model as a prior choice. The post-bridge writes
+    # the real `enhancement_spec` after the model answers.
     compressed = {
         "vfx_candidates_toon": vfx_toon,
-        "enhancement_spec": {"motion_graphics": [], "visual_effects": vfx}
     }
-    
+
     print(json.dumps(compressed))
+
 
 if __name__ == "__main__":
     main()
