@@ -810,6 +810,75 @@ The chroma floor is an open captain decision and the mix has no delivery route, 
 
 `min_sat: 10` is GONE, replaced and not supplemented: frame-mean saturation cannot be the statistic, because the captain's two reference frames differ 9.3x in it and that floor would have rejected the one they chose for Punch Card.
 
+### a-dim-shot-is-not-a-letterbox-bar
+
+Issue #221. Test: `tests/test_baseline_craft_properties.py`.
+
+P1 called a row "lit" at or above `LIT_LUMA_THRESHOLD` and read every other row as letterbox bar.
+That measures DARKNESS, and darkness does not separate a black bar from a night shot.
+Project 001's master of 2026-08-26 is correctly framed and the gate failed it on every run since:
+
+    [framing] picture occupies 100.0% of the frame (spread 0.31 over 119 samples)
+     - the picture changes size within the video: 69.2% at 50.0s vs 100.0% at 0.0s
+       (spread 0.31, bound 0.05) - one video has one geometry
+
+The 50.0s frame is a car interior. Its top 100 rows measure min/max/mean luma 0/23/4.3, and
+boosting them 4x shows a headliner, a window with light streaking across it and the top of the
+subject's cap. 53.0s is the same shot at 0/40/6.8; 30s and 36s are the dark lower half of a
+dashboard shot read as a bottom bar.
+
+**Two properties separate a bar from a dark picture, and 001 needs both.**
+Of the 621 dark rows in the 50.0s frame, 506 are INTERIOR - not against either boundary, where a
+letterbox bar cannot be - so contiguity from the frame edge disposes of those on its own. The
+remaining 115 run from the top edge and are picture because they have STRUCTURE: their
+within-row standard deviation is 3.95 at minimum and 5.28 at the median.
+
+**Both bounds are measured on real encoded bars, not chosen.**
+The same master padded to 1080x608 inside a 1080x1920 frame and re-encoded gives bar rows of
+exactly 0.0 standard deviation and 0.0 difference between adjacent rows. At crf 30 with noise
+added before the encode it is still 0.0 everywhere except the single ringing row against the
+picture edge, at 2.9. `BAR_ROW_MAX_STD = 2.0` therefore sits between every measured bar row and
+every measured false-positive picture row.
+
+| what | measured on 001's master | measured on the letterboxed copy |
+|---|---|---|
+| occupancy, dark-row method | median 100%, min 69.2%, spread 0.31 | 31.7% |
+| occupancy, bar method | median 100%, min 99.6%, spread 0.0042 | 31.7% |
+| verdict | PASS | FAIL, "letterboxed and nothing asked for bars" |
+
+**The bound is not knife-edge, and the answer does not turn on it.**
+Sweeping `BAR_ROW_MAX_STD` over 0.5, 1.0, 2.0, 3.0 and 3.9 moves 001's spread through 0.0000,
+0.0000, 0.0042, 0.0318 and 0.0458 against a bound of 0.05, and moves the letterboxed copy's
+occupancy not at all - 0.317 at every value. Detection of a real bar is invariant to the choice;
+only the false-failure side responds, and 2.0 is in its flat region.
+
+**The manifest was available as a second source and is not used.**
+`5_04_compile_manifest/output.json` records `source_width`, `source_height`, `needs_conform` and
+`fill_zoom` per clip, so an expected occupancy could be computed and compared. It is not needed:
+the pixel measurement clears the consistency bound by 12x and the fill floor by 20x, in both
+directions, so a second source would add a coupling to the manifest's own correctness without
+changing a verdict. The intent the gate checks against still comes from the manifest -
+`framing_intent`, as before.
+
+**The reported keys say what they now measure.** `median_lit_fraction` / `min_lit_fraction` /
+`max_lit_fraction` became `median_picture_fraction` / `min_picture_fraction` /
+`max_picture_fraction`, because the number is the picture's share of the frame height and no
+longer a count of lit rows. Nothing outside the test read them.
+
+**Sampling is untouched.** `DEFAULT_SAMPLE_FPS` is still 2.0 and the change is a per-frame
+reduction, so the short-cutaway hole 2 Hz exists to close is exactly as closed as it was.
+Measured on 001 at 1, 2 and 4 Hz the spread is 0.0000, 0.0042 and 0.0083.
+
+**What it still cannot do.** A picture row that is genuinely dark AND genuinely featureless - an
+unlit ceiling with no detail in it - is indistinguishable from bar by any pixel method, and is
+counted as bar. 001 spends at most 8 of its 1920 rows that way, 0.4%, which is what the 0.95
+fill floor and the 0.05 spread bound leave room for. The check also measures rows only, so a
+pillarboxed but full-height picture passes; that was true before this change too.
+
+**Only 001 is available locally.** The behaviour is established on that master plus the
+letterboxed copies built from it and the synthetic fixtures in the test. Whether another
+project's master would newly pass or newly fail is not established.
+
 ### no-creative-floors
 
 A B-roll minimum and an SFX minimum both existed.

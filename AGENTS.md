@@ -655,6 +655,11 @@ A seventh, a face cut by the frame edge, is measured on the render and gates thr
 `render_qa.py` measures the RENDER:
 
 - the picture fills the delivery frame and keeps ONE geometry (`measure_frame_occupancy`);
+  **a letterbox bar is FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make one.**
+  A row joins a bar only while it is dark, has near-zero variance along itself and matches the
+  row before it; the walk runs inward from the top and bottom boundaries and stops at the first
+  row that is picture. Reading every dark row as bar cannot tell a night shot from a black bar
+  and failed a correctly-framed master. [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 - colour exists somewhere in the frame (`measure_chroma_presence`);
 - speech sits above the bed (`measure_speech_above_bed`);
 - the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`).

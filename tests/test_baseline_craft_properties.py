@@ -63,6 +63,79 @@ def _gray_frame(lit_fraction: float):
     return frame
 
 
+def _dark_textured_picture(h: int = H, w: int = W):
+    """A frame that is genuinely dark AND genuinely full-bleed.
+
+    This is the case the old darkness-only method got wrong, and it is
+    built to project 001's own numbers.  Its 50.0s frame is a car
+    interior: the top 100 rows measure min/max/mean luma 0/23/4.3 with a
+    minimum within-row standard deviation of 3.95 and a median of 5.28,
+    and boosting them 4x shows a headliner, a window with light across
+    it, and the top of the subject's cap.  This returns 0/27/6.6 with a
+    row std of 3.80 to 5.47 - the same shape, from a sine along each row,
+    a gentle gradient down the frame, and a diagonal highlight standing
+    in for the window.
+
+    EVERY row of it is below `LIT_LUMA_THRESHOLD`, so the old method
+    measured this picture at 0% occupancy.  Not one row is flat, so it is
+    all picture.
+    """
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    luma = (np.sin(x / 5.0) + 1.0) * 3.2
+    luma += (y / h) * 3.0
+    luma += np.clip(18.0 - np.abs(x - 0.62 * w - 0.22 * y) * 1.7, 0.0, None)
+    return np.clip(luma, 0, 255)
+
+
+def _frame(luma):
+    return np.round(luma).astype(np.uint8)[None, :, :]
+
+
+def _dark_frame():
+    """The whole delivery frame, dark and textured, edge to edge."""
+    return _frame(_dark_textured_picture())
+
+
+def _shot_with_a_dark_top(dark_rows: int = 80):
+    """001's 50.0s shape: a dark textured top, then lit picture.
+
+    The dark rows run from the frame edge - so contiguity alone would
+    still call them a bar - and they are picture because they have
+    structure.
+    """
+    luma = _dark_textured_picture()
+    luma[dark_rows:, :] += 130.0
+    return _frame(np.clip(luma, 0, 255))
+
+
+def _lit_frame_with_an_interior_black_band(top: int, bottom: int):
+    """A lit picture carrying a FLAT black band in its middle.
+
+    The other half of 001's 50.0s frame: 506 of its 621 dark rows were
+    interior, not against an edge.  This band is as flat as a real bar,
+    so only contiguity from the frame boundary separates them.
+    """
+    frame = np.full((1, H, W), 170, dtype=np.uint8)
+    frame[0, top:bottom, :] = 0
+    return frame
+
+
+def _letterboxed_frame(picture_rows: int, bar_luma: int = 0, noise: float = 0.0):
+    """A real letterbox: flat bars from both edges around a picture band.
+
+    `noise` puts a per-row wobble into the bars, because an encoded bar
+    is not always pristine - measured at crf 30 it is 0.0 everywhere
+    except one ringing row against the picture edge, at 2.9.
+    """
+    luma = np.zeros((H, W), dtype=np.float32)
+    if bar_luma or noise:
+        rows = np.arange(H, dtype=np.float32)
+        luma += bar_luma + noise * np.sin(rows / 3.0)[:, None]
+    top = (H - picture_rows) // 2
+    luma[top:top + picture_rows, :] = _dark_textured_picture(picture_rows, W) + 150.0
+    return _frame(np.clip(luma, 0, 255))
+
+
 def _yuv_frame(chroma: float, accent_rows: int = 0, accent_chroma: float = 0.0):
     """A lit yuv444p frame at a uniform chroma, optionally with an accent band."""
     y = np.full((H, W), 180, dtype=np.uint8)
@@ -75,11 +148,22 @@ def _yuv_frame(chroma: float, accent_rows: int = 0, accent_chroma: float = 0.0):
 
 
 def _occupancy(fractions, framing_intents=None, **kwargs):
-    frames = [_gray_frame(f) for f in fractions]
+    return _occupancy_of([_gray_frame(f) for f in fractions],
+                         framing_intents=framing_intents, **kwargs)
+
+
+def _occupancy_of(frames, framing_intents=None, **kwargs):
+    """Measure occupancy over frames the caller built pixel by pixel."""
     with patch.object(render_qa, "_probe_video_size", return_value=(W, H)), \
             patch.object(render_qa, "_stream_raw_frames", return_value=iter(frames)):
         return measure_frame_occupancy("master.mp4", framing_intents=framing_intents,
                                        sample_fps=1.0, **kwargs)
+
+
+def _dark_row_fraction(frame):
+    """What the OLD darkness-only method would have measured on a frame."""
+    row_mean = frame[0].astype(np.float32).mean(axis=1)
+    return float((row_mean >= LIT_LUMA_THRESHOLD).sum()) / frame.shape[1]
 
 
 def _chroma(frames, **kwargs):
@@ -95,7 +179,7 @@ class TestP1FrameOccupancy:
     def test_a_filled_frame_with_one_geometry_passes(self):
         result = _occupancy([1.0] * 10)
         assert result.passed, result.detail
-        assert result.value["median_lit_fraction"] == 1.0
+        assert result.value["median_picture_fraction"] == 1.0
         assert result.value["spread"] == 0.0
 
     def test_a_letterboxed_picture_fails_when_nothing_declared_bars(self):
@@ -154,6 +238,142 @@ class TestP1FrameOccupancy:
 
     def test_the_lit_threshold_is_the_pipelines_own_black(self):
         assert LIT_LUMA_THRESHOLD == 12.0
+
+    # ── black is not the same thing as dark (issue #221) ──
+    # The check called a row "lit" above a luma threshold and read every
+    # other row as bar, which fails any render carrying a dim shot - most
+    # of them.  These are the cases that separates, in both directions.
+
+    def test_a_dark_but_full_bleed_frame_is_not_letterboxed(self):
+        """The exact defect: a dark picture read as a frame full of bars.
+
+        Every row of this frame is below the lit threshold, so the old
+        method measured it at 0% occupancy and failed the render. Not one
+        row is flat, so all of it is picture.
+        """
+        frames = [_dark_frame()] * 10
+        assert _dark_row_fraction(frames[0]) == 0.0, \
+            "the fixture must be genuinely dark, or it proves nothing"
+        result = _occupancy_of(frames)
+        assert result.passed, result.detail
+        assert result.value["median_picture_fraction"] == 1.0
+        assert result.value["max_top_bar_rows"] == 0
+        assert result.value["max_bottom_bar_rows"] == 0
+
+    def test_a_dark_shot_among_lit_ones_does_not_read_as_a_geometry_change(self):
+        """001's whole failure, in the shape it actually took.
+
+        A master that is lit for most of its length and dark at 50s used
+        to report the picture changing size by 31 points of frame height.
+        Nothing moved; one shot was in a car at night.
+        """
+        frames = [_gray_frame(1.0)] * 8 + [_dark_frame()] * 2 + \
+                 [_shot_with_a_dark_top()] * 2
+        result = _occupancy_of(frames)
+        assert result.passed, result.detail
+        assert result.value["spread"] == 0.0
+
+    def test_a_dark_region_inside_the_picture_is_not_a_bar(self):
+        """Contiguity from the frame edge, on its own.
+
+        This band is as flat as any real bar - it IS black - and it is in
+        the middle of a lit picture, where a letterbox bar cannot be. 506
+        of the 621 dark rows in 001's 50.0s frame were interior like this.
+        """
+        frames = [_lit_frame_with_an_interior_black_band(60, 130)] * 10
+        assert _dark_row_fraction(frames[0]) < 0.65, \
+            "the fixture must look letterboxed to a darkness-only method"
+        result = _occupancy_of(frames)
+        assert result.passed, result.detail
+        assert result.value["median_picture_fraction"] == 1.0
+
+    def test_a_genuine_letterbox_still_fails(self):
+        """The defect the gate exists for, measured the new way.
+
+        Project 001's own shape - 608 picture rows of 1920 - built as
+        real flat bars rather than as an absence of light.
+        """
+        frames = [_letterboxed_frame(round(H * 608 / 1920))] * 10
+        result = _occupancy_of(frames)
+        assert not result.passed
+        assert result.severity == "error"
+        assert "letterboxed and nothing asked for bars" in result.detail
+        assert result.value["median_picture_fraction"] < 0.35
+        assert result.value["max_top_bar_rows"] > 0
+        assert result.value["max_bottom_bar_rows"] > 0
+
+    def test_a_letterbox_appearing_mid_video_still_fails_one_geometry(self):
+        """The subtler half: the picture must not change size mid-cut.
+
+        Half the frames fill and half are barred, so the fill floor's
+        median is borderline; the consistency half carries this on its own.
+        """
+        frames = [_gray_frame(1.0)] * 6 + [_letterboxed_frame(round(H * 0.6))] * 4
+        result = _occupancy_of(frames)
+        assert not result.passed
+        assert "changes size within the video" in result.detail
+
+    def test_an_imperfectly_encoded_bar_is_still_a_bar(self):
+        """A bar is not always pristine, and the bound is measured for that.
+
+        At crf 30 with noise added before the encode, real bar rows still
+        measure a within-row standard deviation of 0.0 everywhere except
+        the one ringing row against the picture edge, at 2.9. A wobbling,
+        slightly-lifted bar must not read as picture.
+        """
+        frames = [_letterboxed_frame(round(H * 0.32), bar_luma=3, noise=1.5)] * 10
+        result = _occupancy_of(frames)
+        assert not result.passed
+        assert "letterboxed and nothing asked for bars" in result.detail
+
+    def test_the_bar_bounds_sit_between_a_real_bar_and_a_dark_picture(self):
+        """Both bounds are measured, and the gap they sit in is real.
+
+        Below: every row of a real encoded bar, 0.0 to 2.9. Above: every
+        dark PICTURE row this gate used to fail, 3.80 and up here and 3.95
+        on 001's own master. Widening the bound past the picture side is
+        how the false failure comes back.
+        """
+        assert render_qa.BAR_ROW_MAX_STD == 2.0
+        assert render_qa.BAR_ROW_MAX_STEP == 2.0
+        dark = _dark_textured_picture()
+        assert dark.std(axis=1).min() > render_qa.BAR_ROW_MAX_STD
+        assert dark.mean(axis=1).max() < LIT_LUMA_THRESHOLD
+
+    def test_a_dark_row_is_only_a_bar_while_the_run_holds(self):
+        """`_bar_rows` stops at the first row that is picture.
+
+        Three ways a row leaves the bar, and each must end the walk where
+        it occurs rather than skipping past it.
+        """
+        flat = np.zeros(20, dtype=np.float32)
+        assert render_qa._bar_rows(flat, flat) == 20
+        lit = flat.copy(); lit[7] = 200.0                    # a lit row
+        assert render_qa._bar_rows(lit, flat) == 7
+        textured = flat.copy(); textured[5] = 9.0            # structure along the row
+        assert render_qa._bar_rows(flat, textured) == 5
+        stepped = flat.copy(); stepped[11] = 9.0             # a step down the frame
+        assert render_qa._bar_rows(stepped, flat) == 11
+
+    def test_an_entirely_black_frame_carries_no_geometry(self):
+        """A black frame has no picture whose size could have changed.
+
+        `detect_black_frames` judges black against the beats the plan
+        declared; entering it here as an occupancy of zero would report a
+        declared fade as the picture changing size.
+        """
+        black = np.zeros((1, H, W), dtype=np.uint8)
+        result = _occupancy_of([_gray_frame(1.0)] * 8 + [black] * 2)
+        assert result.passed, result.detail
+        assert result.value["black_frames_skipped"] == 2
+        assert result.value["frames_sampled"] == 8
+
+    def test_a_render_of_nothing_but_black_is_an_error_not_a_pass(self):
+        black = np.zeros((1, H, W), dtype=np.uint8)
+        result = _occupancy_of([black] * 5)
+        assert not result.passed
+        assert result.severity == "error"
+        assert "entirely black" in result.detail
 
     def test_a_render_with_no_readable_frame_is_an_error_not_a_pass(self):
         with patch.object(render_qa, "_probe_video_size", return_value=(W, H)), \

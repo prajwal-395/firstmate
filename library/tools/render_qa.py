@@ -369,6 +369,33 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
 # means "black" means one thing across this module.
 LIT_LUMA_THRESHOLD = 12.0
 
+# ── What a letterbox bar IS, as opposed to a dark picture ──
+# Darkness alone cannot tell one from the other, and reading it as if it
+# could failed a correctly-framed master (issue #221,
+# docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar). A bar is
+# rendered black: it has no content, so its rows are FLAT, and it is laid
+# against the frame boundary, so it is CONTIGUOUS FROM AN EDGE. A dark
+# picture row has structure and a dark picture region sits wherever the
+# subject is.
+#
+# Both bounds are measured, not chosen. On a real 1080x1920 master padded
+# into 1080x608 bars and re-encoded, every bar row measures a
+# within-row standard deviation of exactly 0.0; at crf 30 with noise
+# added before the encode, 0.0 everywhere except the one ringing row
+# against the picture edge, at 2.9. The dark PICTURE rows that this gate
+# used to call bars measure 3.95 and up (project 001 at 50.0s: rows 0-114
+# are a car headliner and a lit window, min row std 3.95, median 5.28).
+# 2.0 sits in that gap with margin on both sides, and detection of a real
+# bar is invariant to the choice across the whole 0.5-3.9 sweep.
+BAR_ROW_MAX_STD = 2.0
+
+# ...and consecutive bar rows are the same row. This is the second half
+# of "flat": a dark vertical GRADIENT - a night sky, a vignette - can
+# have low variance along each row while still being picture, and it is
+# picture because it changes down the frame. A real bar's adjacent-row
+# means differ by 0.0.
+BAR_ROW_MAX_STEP = 2.0
+
 # 1 Hz is enough to ESTABLISH a defect at the magnitudes measured on 001,
 # but a gate wants finer: a single filled B-roll cutaway shorter than a
 # second must not slip between two samples.  2 Hz is the compromise -
@@ -378,8 +405,11 @@ DEFAULT_SAMPLE_FPS = 2.0
 # ── P1 targets ──
 # The frame FILLS by default (library/tools/framing_intent.py), so a
 # master whose picture occupies a third of the delivery frame is a
-# defect. 0.95 rather than 1.00 leaves room for a genuinely dark row at
-# the very top or bottom of a correctly filled picture.
+# defect. 0.95 rather than 1.00 leaves room for a picture row at the very
+# top or bottom that is genuinely both dark and featureless - an unlit
+# ceiling, a shadow with no detail in it - which the bar test cannot
+# distinguish from bar and should not pretend to. Project 001's master
+# spends at most 8 of its 1920 rows that way, 0.4%.
 MIN_FILL_ROW_FRACTION = 0.95
 
 # One video, one geometry. This half is sourced from the ABSENCE of any
@@ -508,6 +538,35 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
         proc.wait(timeout=30)
 
 
+def _bar_rows(row_mean, row_std,
+              lit_threshold: float = LIT_LUMA_THRESHOLD,
+              max_std: float = BAR_ROW_MAX_STD,
+              max_step: float = BAR_ROW_MAX_STEP) -> int:
+    """How many rows of letterbox bar run inward from index 0.
+
+    A row joins the bar only while all three hold, and the walk stops at
+    the first row that fails any of them - which is what makes the answer
+    a BAR rather than a count of dark rows scattered through the picture.
+
+    * dark - mean luma below `lit_threshold`;
+    * flat along the row - standard deviation below `max_std`, so a dim
+      row carrying a window highlight is picture;
+    * flat against the row before it - the means differ by less than
+      `max_step`, so a dark vertical gradient is picture.
+
+    Call it on a reversed pair of arrays to measure the bottom bar.
+    """
+    n = int(row_mean.shape[0])
+    i = 0
+    while i < n:
+        if row_mean[i] >= lit_threshold or row_std[i] >= max_std:
+            break
+        if i and abs(float(row_mean[i]) - float(row_mean[i - 1])) >= max_step:
+            break
+        i += 1
+    return i
+
+
 def measure_frame_occupancy(
         video_path: str,
         framing_intents: Optional[Sequence[float]] = None,
@@ -516,10 +575,24 @@ def measure_frame_occupancy(
         max_spread: float = MAX_ROW_FRACTION_SPREAD) -> RenderQAResult:
     """P1: the picture fills the delivery frame, and one video has one geometry.
 
-    Samples the master, takes the per-row mean luma of each frame, and
-    counts the rows at or above `LIT_LUMA_THRESHOLD`.  That count over the
-    frame height is the fraction of the delivery frame the picture
-    occupies.
+    Samples the master and, on each frame, measures the letterbox BARS -
+    the runs of rows contiguous from the top and bottom edges that are
+    dark AND flat, as `_bar_rows` defines it.  What is left between them
+    is the picture, and its height over the frame height is the fraction
+    of the delivery frame the picture occupies.
+
+    Counting DARK rows instead is what this check used to do, and it
+    cannot tell a black bar from a dark picture: on project 001's
+    correctly-framed master it read a car interior at 50.0s as a 32% bar
+    and failed the render (issue #221).  Requiring flatness discards a
+    dim row that carries structure; requiring contiguity from an edge
+    discards a dark region in the MIDDLE of the picture, which is where
+    506 of that frame's 621 dark rows were.
+
+    A frame whose two bar runs meet carries no picture at all.  That is a
+    black frame, which `detect_black_frames` judges against the beats the
+    plan declared; there is no geometry to measure on it, so it is
+    counted out rather than entered as an occupancy of zero.
 
     Two assertions, and they fail for different reasons:
 
@@ -554,18 +627,29 @@ def measure_frame_occupancy(
 
         fractions = []
         bands = []
+        bars = []
+        black_frames = 0
         for frame in _stream_raw_frames(video_path, 'gray', 1,
                                         width, height, sample_fps):
-            row_mean = frame[0].astype(np.float32).mean(axis=1)
-            lit = np.flatnonzero(row_mean >= LIT_LUMA_THRESHOLD)
-            fractions.append(lit.size / height)
-            bands.append((int(lit.min()), int(lit.max())) if lit.size
-                         else (None, None))
+            luma = frame[0].astype(np.float32)
+            row_mean = luma.mean(axis=1)
+            row_std = luma.std(axis=1)
+            top = _bar_rows(row_mean, row_std)
+            bottom = _bar_rows(row_mean[::-1], row_std[::-1])
+            if top + bottom >= height:
+                black_frames += 1
+                continue
+            fractions.append((height - top - bottom) / height)
+            bands.append((top, height - 1 - bottom))
+            bars.append((top, bottom))
 
         if not fractions:
-            return RenderQAResult("frame_occupancy", False, None, None,
-                                  "error",
-                                  "Could not sample any frame from the render")
+            return RenderQAResult(
+                "frame_occupancy", False, None, None, "error",
+                f"Could not measure a picture in any sampled frame "
+                f"({black_frames} sampled frames were entirely black)"
+                if black_frames else
+                "Could not sample any frame from the render")
 
         declared = sorted({float(i) for i in framing_intents}) if framing_intents \
             else [float(DEFAULT_FRAMING_INTENT)]
@@ -603,17 +687,22 @@ def measure_frame_occupancy(
             metric="frame_occupancy",
             passed=not faults,
             value={
-                "median_lit_fraction": round(median_fraction, 4),
-                "min_lit_fraction": round(float(min(fractions)), 4),
-                "max_lit_fraction": round(float(max(fractions)), 4),
+                "median_picture_fraction": round(median_fraction, 4),
+                "min_picture_fraction": round(float(min(fractions)), 4),
+                "max_picture_fraction": round(float(max(fractions)), 4),
                 "spread": round(spread, 4),
                 "frames_sampled": len(fractions),
+                "black_frames_skipped": black_frames,
                 "picture_band_first_frame": bands[0],
+                "max_top_bar_rows": max(t for t, _ in bars),
+                "max_bottom_bar_rows": max(b for _, b in bars),
                 "declared_framing_intents": declared,
             },
             threshold={"min_fill_fraction": min_fill_fraction,
                        "max_spread": max_spread,
                        "lit_luma_threshold": LIT_LUMA_THRESHOLD,
+                       "bar_row_max_std": BAR_ROW_MAX_STD,
+                       "bar_row_max_step": BAR_ROW_MAX_STEP,
                        "fill_floor_applies": fill_applies,
                        "consistency_applies": one_geometry},
             severity="error" if faults else "info",
