@@ -830,6 +830,17 @@ The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` an
 The post-bridge judges source, catalogue membership, duration plausibility and a justification naming the registers the creative direction forbids.
 Choosing from OUTSIDE the library is legitimate and stays allowed.
 
+**Every candidate is MEASURED, and nothing about it is classified.**
+`library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
+A mood, a genre or an energy word computed here would be the taste fabrication §10.5 forbids - numbers and one curve go to the model, the model decides.
+
+- **The measurements ship with `MEASUREMENT_LEGEND`**, because step 2.04's `handoff.md` is under a captain freeze and cannot name the columns. It defines what a key IS; it never says what to conclude.
+- **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way - and it is what keeps 001's two compilations from costing 325s of `loudnorm` to learn nothing.
+- `DECLINED_MEASUREMENTS` records what was left out and why, BPM included (2.06 measures tempo properly, after the choice). Widening the table is not a way to improve the prompt - every column is paid on every candidate. On 001, candidate data went from 3.8% of this step's context to 28.0%, and the room for it came from #295 no longer copying the brief in.
+- The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4 on 001's music arriving 8.6 dB hotter than its speech.
+- **Where the candidates come from, and why there are seven**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md). Fetching a NAMED external track is wired; SEARCHING for one never has been, and what blocks it is a licensing decision, not code.
+- `tests/test_music_measurement.py`.
+
 ## 11. Third-Party Asset Licenses
 
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**

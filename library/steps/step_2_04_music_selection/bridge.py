@@ -21,13 +21,32 @@ measures each one, and states the target duration the choice has to serve.
 The verdict happens in post_bridge.py, through
 `library/tools/music_selection_contract.py`.
 
+Captain's question 2026-08-28: *"why is it that we are not ... stuck
+choosing from 7 filenames?"*  Because a duration was the only thing this
+bridge opened the files for.  The run of record recorded the consequence -
+"on the filenames alone the 'rise' track reads as forbidden and Sickick
+reads as neutral - i.e. the context as supplied points at the wrong
+answer" - and got it right only by shelling out to ffmpeg itself.  So the
+catalogue now carries what that agent had to generate: integrated
+loudness, loudness range, RMS spread, the envelope over the part that
+actually plays, true peak and the share of energy sitting in the speech
+band.  `library/tools/music_measurement.py` is the whole of it, and it
+measures without classifying - no mood, no genre, no ranking.
+
 Input:  { "creative_direction": {...}, "project_folder": "..." }
 Output: { "music_candidates": {
             "target_duration_seconds": 60.0,
             "max_track_duration_seconds": 600.0,
+            "measurement_legend": { "<key>": "what it is" },
             "searched": [{ "source", "directory", "exists", "count" }],
             "candidates": [{ "title", "audio_path", "duration_seconds",
-                             "source", "duration_ok", "duration_note" }],
+                             "source", "duration_ok", "duration_note",
+                             "measured", "measurement_note",
+                             "integrated_lufs", "loudness_range_lu",
+                             "true_peak_dbtp", "rms_spread_db",
+                             "window_seconds", "window_spread_db",
+                             "window_envelope_dbfs",
+                             "speech_band_ratio_db" }],
         } }
 """
 import json
@@ -45,6 +64,10 @@ REPO_ROOT = STEP_DIR.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from library.tools.music_measurement import (  # noqa: E402
+    MEASUREMENT_LEGEND,
+    measure_candidates,
+)
 from library.tools.music_selection_contract import (  # noqa: E402
     AUDIO_EXTENSIONS,
     DURATION_SLACK_SECONDS,
@@ -179,11 +202,28 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
             file=sys.stderr,
         )
 
+    measured = measure_candidates(candidates, target_duration)
+    for entry in measured:
+        if entry.get("measured"):
+            print(
+                f"    measured {entry['title'][:48]}: "
+                f"{entry.get('integrated_lufs')} LUFS, "
+                f"LRA {entry.get('loudness_range_lu')} LU, "
+                f"spread {entry.get('rms_spread_db')} dB, "
+                f"first {target_duration:.0f}s "
+                f"{entry.get('window_spread_db')} dB",
+                file=sys.stderr,
+            )
+
     return {
         "target_duration_seconds": round(target_duration, 3),
         "max_track_duration_seconds": round(ceiling, 3),
+        # Shipped with the numbers because step 2.04's handoff.md is under
+        # a captain freeze and cannot name the new columns. A definition,
+        # never a conclusion.
+        "measurement_legend": dict(MEASUREMENT_LEGEND),
         "searched": searched,
-        "candidates": candidates,
+        "candidates": measured,
     }
 
 
