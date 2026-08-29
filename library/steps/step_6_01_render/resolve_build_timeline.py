@@ -63,6 +63,7 @@ from library.tools.execution.deliver_audio_mix import (  # noqa: E402
 from library.tools.marker_feedback import (  # noqa: E402
     UnpulledMarkers, guard_timeline_deletion,
 )
+from library.tools import timeline_decisions  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
@@ -1333,6 +1334,51 @@ def build_timeline(
 
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
+
+    # ══════════════════════════════════════════════════════════
+    # RECORD WHAT DECIDED EACH CLIP
+    # ══════════════════════════════════════════════════════════
+    # The producer side of the captain's note loop (AGENTS.md 15). It
+    # reads the manifest and writes a ledger - no Resolve call, nothing
+    # visible, and it is what lets a note typed on a clip reach the step
+    # whose decision put that clip there.
+    #
+    # IT CREATES NO MARKER. A marker is drawn on the timeline ruler, and
+    # thirty of them nobody asked for would be a visible change to the
+    # captain's timeline in exchange for a payload the UI cannot show.
+    # Markers that ARE there get the decision merged into their
+    # customData, which leaves name, note, colour and duration alone.
+    #
+    # It never fails the build: the ledger is an audit artifact, and a
+    # render that is otherwise correct is not made wrong by one.
+    if project_folder:
+        try:
+            ledger_file = timeline_decisions.write_ledger(
+                project_folder, manifest)
+            ledger = timeline_decisions.read_ledger(project_folder)
+            stamped = timeline_decisions.stamp_timeline(timeline, ledger)
+            results["decision_ledger"] = {
+                "path": str(ledger_file),
+                "placements": len(ledger.get("placements") or []),
+                "unstamped": len(ledger.get("unstamped") or []),
+                "markers_seen": stamped.markers_seen,
+                "markers_stamped": stamped.markers_stamped,
+                "records_written": stamped.records_written,
+            }
+            print(f"\n── Decision ledger: "
+                  f"{len(ledger.get('placements') or [])} placements, "
+                  f"{len(ledger.get('unstamped') or [])} with no deciding "
+                  f"step; {stamped.markers_stamped}/{stamped.markers_seen} "
+                  f"existing markers stamped ──", file=sys.stderr)
+            for refusal in stamped.refused:
+                msg = (f"Resolve refused the decision stamp at frame "
+                       f"{refusal['frame']}: {refusal['reason']}")
+                results["warnings"].append(msg)
+                print(f"  ⚠ {msg}", file=sys.stderr)
+        except Exception as exc:
+            msg = f"decision ledger not written: {exc}"
+            results["warnings"].append(msg)
+            print(f"  ⚠ {msg}", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # APPLY FUSION .comp FILES (animated VFX + transitions per clip)

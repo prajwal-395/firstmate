@@ -9,9 +9,10 @@ without touching the two fields they DID type into (§15: `name` and
 
 This module owns the shape of that string, and nothing else does.  It has
 no Resolve dependency and no I/O: it is the envelope, its readers, and
-one merge.  `marker_capture.py` is the writer, `marker_feedback.py` is
-the reader, and a later writer stamping pipeline decision provenance is
-expected to be a third caller of `merge_record` and nothing more.
+one merge.  `marker_capture.py` is one writer, `marker_feedback.py` is
+the reader, and `timeline_decisions.py` - which stamps each clip with the
+step whose decision produced it - is the second writer, a caller of
+`merge_record` and nothing more, exactly as this module expected.
 
 ── The envelope ────────────────────────────────────────────────────────
 

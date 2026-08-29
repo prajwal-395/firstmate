@@ -121,7 +121,7 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
-from library.tools import marker_payload  # noqa: E402
+from library.tools import marker_payload, timeline_decisions  # noqa: E402
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 WRITER = "capture_frame"
@@ -438,18 +438,24 @@ class CaptureResult:
     envelope_id: str
     custom_data: str
     gallery_note: str = ""
+    decisions: list = field(default_factory=list)
+    """The decision behind everything playing at this frame, stamped onto
+    the marker beside the still.  Empty when the project has no decision
+    ledger, or when nothing is placed there - never a guess."""
 
     def summary(self) -> str:
         what = "created a marker" if self.marker_created else "updated the marker"
         typed = " / ".join(
             part for part in (self.marker_name, self.marker_note) if part
         ) or "(nothing typed yet)"
+        decided = "\n".join(f"        {d}" for d in self.decisions)
         return (
             f"{self.playhead.timecode}  frame {self.playhead.absolute_frame}\n"
             f"{what} on {self.timeline_name}\n"
             f"typed:  {typed}\n"
             f"still:  {self.still.path}\n"
             f"marker: {self.record_id}"
+            + (f"\nplaying:\n{decided}" if self.decisions else "")
         )
 
 
@@ -495,6 +501,17 @@ def capture(timeline, project, project_folder=None) -> CaptureResult:
         "carries": "graded_and_conformed",
     }
     marker_payload.merge_record(envelope, record)
+
+    # WHAT DECIDED THE PICTURE, beside the picture. The still says what
+    # the captain was looking at; this says which step's decision put it
+    # there, so the note they are about to type reaches that step without
+    # anything having to read their prose (AGENTS.md 15). Read off the
+    # ledger step 6.01 wrote; a project with none is stamped with nothing
+    # rather than with a guess.
+    decisions = timeline_decisions.placements_at_frame(
+        timeline_decisions.read_ledger(layout.root), playhead.marker_key)
+    timeline_decisions.stamp_envelope(envelope, decisions, timeline.GetName())
+
     payload = marker_payload.dumps(envelope)
 
     if existing is None:
@@ -536,4 +553,8 @@ def capture(timeline, project, project_folder=None) -> CaptureResult:
         marker_note=note, record_id=record["id"],
         envelope_id=envelope["id"], custom_data=payload,
         gallery_note=gallery_note,
+        decisions=[
+            f"{d.get('track')} {d.get('label')} <- {d.get('step')}"
+            for d in decisions
+        ],
     )

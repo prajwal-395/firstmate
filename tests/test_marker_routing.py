@@ -7,6 +7,14 @@ same fields, same frames, same clip lists, same words.  A routing test
 written against invented notes proves the router agrees with whoever
 wrote the fixture.
 
+The clip lists were re-checked against that pull file on 2026-08-29, when
+`timeline_decisions` began matching them back to the placements of 001's
+own manifest.  Three transcription errors came out: the moment note's V1
+clip read source 2457..2529 where the pull file says 25..97, its caption
+read 15..87 where the file says 0..72, and the music bed - a fourth clip
+under all three notes - had been dropped, which is why the first test
+below said "four clips" over a list of three.
+
 No Resolve, and no fake of one: everything here is the disk half, the
 same line `tests/test_marker_feedback_records.py` draws.  Nothing in this
 file reaches a real project - the project is built under `tmp_path`.
@@ -60,20 +68,27 @@ MOMENT_NOTE = {
     "clips": [
         {"name": "IMG_1816.MOV", "track_type": "video", "track_index": 1,
          "timeline_start": 0, "timeline_end": 72,
-         "source_start": 2457, "source_end": 2529,
+         "source_start": 25, "source_end": 97,
          "source_file": "/p/001/raw/IMG_1816.MOV", "clip_color": "",
          "flags": []},
         {"name": "sub_block_hook.mov", "track_type": "video",
          "track_index": 3, "timeline_start": 0, "timeline_end": 72,
-         "source_start": 15, "source_end": 87,
+         "source_start": 0, "source_end": 72,
          "source_file": "/p/001/pipeline_output/steps/"
                         "4_05_render_subtitles/sub_block_hook.mov",
          "clip_color": "", "flags": []},
         {"name": "IMG_1816.MOV", "track_type": "audio", "track_index": 1,
          "timeline_start": 0, "timeline_end": 72,
-         "source_start": 2457, "source_end": 2529,
+         "source_start": 25, "source_end": 97,
          "source_file": "/p/001/raw/IMG_1816.MOV", "clip_color": "",
          "flags": []},
+        {"name": "_background music_ rise - uplifting piano _inspiring "
+                 "_ beautiful_ _ _ motivation.wav", "track_type": "audio",
+         "track_index": 2, "timeline_start": 0, "timeline_end": 1782,
+         "source_start": 0, "source_end": 1782,
+         "source_file": "/p/001/music/_background music_ rise - uplifting "
+                        "piano _inspiring _ beautiful_ _ _ motivation.wav",
+         "clip_color": "", "flags": []},
     ],
     "read_at": "2026-08-28T22:12:38.729517+00:00",
 }
@@ -115,6 +130,13 @@ CLIP_NOTE = {
          "source_start": 3016, "source_end": 3495,
          "source_file": "/p/001/raw/IMG_1816.MOV", "clip_color": "",
          "flags": []},
+        {"name": "_background music_ rise - uplifting piano _inspiring "
+                 "_ beautiful_ _ _ motivation.wav", "track_type": "audio",
+         "track_index": 2, "timeline_start": 0, "timeline_end": 1782,
+         "source_start": 0, "source_end": 1782,
+         "source_file": "/p/001/music/_background music_ rise - uplifting "
+                        "piano _inspiring _ beautiful_ _ _ motivation.wav",
+         "clip_color": "", "flags": []},
     ],
     "read_at": "2026-08-28T22:12:38.729517+00:00",
 }
@@ -153,6 +175,13 @@ AMBIGUOUS_NOTE = {
          "source_start": 654, "source_end": 725,
          "source_file": "/p/001/raw/IMG_1817.MOV", "clip_color": "",
          "flags": []},
+        {"name": "_background music_ rise - uplifting piano _inspiring "
+                 "_ beautiful_ _ _ motivation.wav", "track_type": "audio",
+         "track_index": 2, "timeline_start": 0, "timeline_end": 1782,
+         "source_start": 0, "source_end": 1782,
+         "source_file": "/p/001/music/_background music_ rise - uplifting "
+                        "piano _inspiring _ beautiful_ _ _ motivation.wav",
+         "clip_color": "", "flags": []},
     ],
     "read_at": "2026-08-28T22:12:38.729517+00:00",
 }
@@ -188,8 +217,9 @@ def test_a_timeline_marker_is_attached_to_a_moment_not_to_a_clip():
     target = marker_routing.resolve_target(MOMENT_NOTE)
     assert target.kind == TARGET_MOMENT
     assert target.clip is None
-    assert [c["name"] for c in target.clips_under] == [
+    assert [c["name"] for c in target.clips_under][:3] == [
         "IMG_1816.MOV", "sub_block_hook.mov", "IMG_1816.MOV"]
+    assert len(target.clips_under) == 4
     assert "context" in target.reason
 
 

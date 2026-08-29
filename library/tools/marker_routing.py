@@ -59,11 +59,36 @@ Two bases, in this order:
   `marker_payload`).  A declaration is authoritative and stops here.
 * `vocabulary` - the note's own words name EXACTLY ONE step's decision.
 
+* `stamped` - the words name nothing, and the ONE clip the note is
+  typed on carries the decision that produced it, written into its
+  `customData` at build time or looked up in the project's decision
+  ledger (`library/tools/timeline_decisions.py`).  This is the producer
+  side of the loop: where it answers, nothing is inferred at all.
+
 and two non-answers, which are outcomes and not failures:
 
 * `ambiguous` - the words name more than one step's decision.  Every
   candidate is reported.  Nothing breaks the tie.
 * `unrouted` - the words name none.
+
+THE STAMP RANKS BELOW THE WORDS, and this is the one ordering worth
+arguing about.  A stamp says what PRODUCED the picture; the captain's
+words say what the note is ABOUT.  Measured on their own three notes off
+001's timeline: *"why is this fully blurry, is it the zoom blur applied
+wrong?"* is typed on a V1 A-roll clip whose stamp is `speech_sequence`,
+while its words are ambiguous between `plan_transitions` and `plan_vfx` -
+and a blur that held for a whole clip is decided in one of those two.  A
+stamp that outranked the words would have sent that note to the step that
+chose the passage.  So the stamp answers only where the words answer
+nothing, which on those three notes changes none of them.  That is the
+point: it closes the UNROUTED case without touching the routed ones.
+
+It is also not `WITHDRAWN_ROUTERS['the_clip_under_the_playhead_decides']`
+coming back.  That one read the STACK at a frame, which on this pipeline
+is always a V1 clip, a caption card and a music bed.  The stamp reads the
+ONE clip the captain selected and typed on, and a MOMENT note never
+reaches it - the decisions under a moment are recorded as
+`decision_context` and route nothing.
 
 This is a ROUTER, not a chooser, and the difference from the SFX word
 list AGENTS.md section 10.5 deleted is the refusal rule.  That one scored
@@ -124,7 +149,7 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
-from library.tools import marker_payload  # noqa: E402
+from library.tools import marker_payload, timeline_decisions  # noqa: E402
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 ROUTING_FORMAT = "marker_routing/1"
@@ -452,6 +477,11 @@ def matched_terms(text: str) -> dict:
 
 BASIS_DECLARED = "declared"
 BASIS_VOCABULARY = "vocabulary"
+BASIS_STAMPED = "stamped"
+"""The clip this note is attached to carries the decision that produced
+it - `library/tools/timeline_decisions.py`, the producer side of this
+loop.  It ranks BELOW the words on purpose; `STAMP_RANKS_BELOW_THE_WORDS`
+there has the captain's own note that measures why."""
 
 OUTCOME_ROUTED = "routed"
 OUTCOME_AMBIGUOUS = "ambiguous"
@@ -516,6 +546,19 @@ class RoutedNote:
     unknown_names: list = field(default_factory=list)
     reason: str = ""
     attachments: list = field(default_factory=list)
+
+    decision: dict = field(default_factory=dict)
+    """The decision that PRODUCED the clip this note is attached to, when
+    there is one - `{step, decision_id, basis, locator, routes, source}`.
+    `source` is `custom_data` where the marker carries the stamp itself
+    and `ledger` where it was looked up in the project's decision ledger.
+    A dict carrying only `reason` says why there is none."""
+
+    decision_context: list = field(default_factory=list)
+    """For a MOMENT note: the decision behind everything playing at that
+    frame.  CONTEXT for a reader, exactly like `clips_under`, and it
+    routes nothing - `WITHDRAWN_ROUTERS['the_clip_under_the_playhead_decides']`
+    is why."""
 
 
 def _note_id(raw: dict, timeline: str, pull_file: str) -> str:
@@ -611,7 +654,82 @@ def resolve_target(raw: dict) -> NoteTarget:
     )
 
 
-def route_note(raw: dict, timeline: str = "", pull_file: str = "") -> RoutedNote:
+# ── The decision that produced the clip ─────────────────────────────
+
+def _record_matches_clip(record: dict, clip: dict) -> bool:
+    """Is this stamped record about THIS placement?
+
+    Compared on the two things both sides record - the source file's
+    name and where the clip starts on the timeline.  A record that names
+    neither is not assumed to match."""
+    basename = Path(str(clip.get("source_file") or "")).name
+    named = str(record.get("source") or "")
+    if named and basename and named != basename:
+        return False
+    frame = record.get("timeline_in_frame")
+    start = clip.get("timeline_start")
+    if frame is not None and start is not None and int(frame) != int(start):
+        return False
+    return bool(named or frame is not None)
+
+
+def _decision_from(record: dict, source: str) -> dict:
+    return {
+        "step": str(record.get("step") or ""),
+        "decision_id": str(record.get("decision_id") or ""),
+        "basis": str(record.get("basis") or ""),
+        "locator": str(record.get("locator") or ""),
+        "track": str(record.get("track") or ""),
+        "label": str(record.get("label") or ""),
+        "routes": dict(record.get("routes") or {}),
+        "source": source,
+    }
+
+
+def stamped_decision(target: dict, custom_data=None, ledger=None) -> dict:
+    """What decided the ONE clip this note is attached to, or why nothing.
+
+    Two sources, in this order and both reported: the marker's own
+    `customData`, which is what the timeline was stamped with and travels
+    with the Resolve project; and the project's decision ledger, looked
+    up by the placement, for a marker nothing stamped.  Never a guess -
+    an unresolved attachment, a moment note or a placement no step
+    decided all come back as a stated reason.
+    """
+    if target.get("kind") != TARGET_CLIP:
+        return {"reason": "a timeline marker is about a MOMENT, and every "
+                          "frame here has a V1 clip, a caption and a music "
+                          "bed under it; the stamp of each is recorded as "
+                          "context and decides nothing"}
+    clip = target.get("clip")
+    if not clip:
+        return {"reason": target.get("reason")
+                or "the clip this note is attached to is unresolved"}
+    hits = [r for r in marker_payload.records_of(
+                custom_data or {}, timeline_decisions.KIND_DECISION)
+            if _record_matches_clip(r, clip)]
+    if len(hits) == 1:
+        return _decision_from(hits[0], "custom_data")
+    if len(hits) > 1:
+        return {"reason": f"the marker carries {len(hits)} decision records "
+                          f"for this placement and nothing here chooses "
+                          f"between them"}
+    placement = timeline_decisions.placement_for_clip(ledger or {}, clip)
+    if placement:
+        return _decision_from(placement, "ledger")
+    if not (ledger or {}).get("placements"):
+        return {"reason": "the marker carries no decision stamp and this "
+                          "project has no decision ledger; build one with "
+                          "`python3 -m library.tools.timeline_decisions "
+                          "ledger --project <dir>`"}
+    return {"reason": "no placement in the decision ledger is this clip - "
+                      "the ledger describes a different build, or nothing "
+                      "decided this placement (see "
+                      "timeline_decisions.UNSTAMPED_PLACEMENTS)"}
+
+
+def route_note(raw: dict, timeline: str = "", pull_file: str = "",
+               ledger=None) -> RoutedNote:
     """Route ONE collected note.  Never raises on the note's content."""
     text = raw.get("text") or "\n\n".join(
         p for p in (raw.get("name") or "", raw.get("note") or "") if p)
@@ -631,6 +749,14 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "") -> RoutedNote
         target=asdict(resolve_target(raw)),
         attachments=list(raw.get("attachments") or []),
     )
+    routed.decision = stamped_decision(
+        routed.target, raw.get("custom_data"), ledger)
+    if routed.target.get("kind") == TARGET_MOMENT:
+        routed.decision_context = [
+            _decision_from(p, "ledger") for p in
+            timeline_decisions.placements_at_frame(
+                ledger or {}, raw.get("frame"))
+        ]
 
     declared, unknown = declared_steps(text, raw.get("custom_data"))
     routed.unknown_names = list(unknown)
@@ -680,11 +806,41 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "") -> RoutedNote
               f"`step: <name>` to the marker to decide it."
         )
     else:
-        routed.outcome = OUTCOME_UNROUTED
-        routed.reason = (
-            "the note's words name no step's decision. Add a line "
-            "`step: <name>` to the marker to route it."
-        )
+        # THE STAMP, and this is the only place it decides anything. The
+        # words have named nothing, so the best remaining fact is which
+        # decision produced the clip the captain selected and typed on.
+        # That is not "the clip under the playhead decides" - a clip
+        # marker is the captain's own selection, not the stack at a
+        # frame, and a moment note never reaches here.
+        step = routed.decision.get("step")
+        if step and step in BY_NODE_ID:
+            routed.basis = BASIS_STAMPED
+            routed.outcome = OUTCOME_ROUTED
+            routed.steps = [step]
+            routed.evidence = {"stamped": dict(routed.decision)}
+            routed.reason = (
+                f"the note's words name no step's decision, and the clip "
+                f"it is typed on carries the decision that produced it: "
+                f"{routed.decision.get('decision_id') or step} "
+                f"({routed.decision.get('basis') or 'unstated basis'}, "
+                f"from the {routed.decision.get('source')})"
+            )
+        elif step:
+            routed.outcome = OUTCOME_UNKNOWN_STEP
+            routed.unknown_names = [step]
+            routed.reason = (
+                f"the clip is stamped {step!r}, which is not a step this "
+                f"pipeline can route to. Run `python3 -m "
+                f"library.tools.marker_routing steps` for the whole list."
+            )
+        else:
+            routed.outcome = OUTCOME_UNROUTED
+            routed.reason = (
+                "the note's words name no step's decision, and "
+                + (routed.decision.get("reason")
+                   or "the clip carries no decision stamp")
+                + ". Add a line `step: <name>` to the marker to route it."
+            )
     return routed
 
 
@@ -705,6 +861,9 @@ def route_project(project_folder) -> list:
     """
     from library.tools.marker_feedback import _attachment_identity
 
+    # Read once for the whole project: the ledger is one file and every
+    # note is looked up in the same one.
+    ledger = timeline_decisions.read_ledger(project_folder)
     seen: dict = {}
     order: list = []
     for path, payload in _pull_payloads(project_folder):
@@ -714,7 +873,8 @@ def route_project(project_folder) -> list:
                 raw.get("note", ""), raw.get("frame_in_timeline_space"),
                 _attachment_identity(raw.get("attachments")),
             )
-            routed = route_note(raw, payload.get("timeline", ""), str(path))
+            routed = route_note(raw, payload.get("timeline", ""), str(path),
+                                ledger=ledger)
             if identity not in seen:
                 order.append(identity)
             seen[identity] = routed
@@ -735,11 +895,34 @@ PROMPT_LEGEND = (
     "this step because this step owns the decision each note is about. "
     "`attached_to` says whether the note was typed on a specific CLIP or "
     "at a MOMENT on the timeline - a clip note is about that clip, a "
-    "moment note is about what is happening then. Read them as context "
+    "moment note is about what is happening then. `clip_decided_by` and "
+    "`clip_decision_id` name the decision that PRODUCED that clip, and "
+    "`clip_decision_written_in` says where in that step's own output it "
+    "is written down; they describe the picture, not what the note "
+    "means. Read them as context "
     "for the decision you are about to make. They do not replace any "
     "input you were given, and a note you cannot act on is one to leave "
     "alone rather than to guess at."
 )
+
+
+def _decision_summary(decision: dict) -> dict:
+    """The stamp, as the prompt block carries it.
+
+    Present whether or not it did the routing: a step reading a note
+    about its own decision is better off knowing WHICH of its decisions
+    the captain was looking at, and that is what `decision_id` is.
+    """
+    if not decision or not decision.get("step"):
+        return {"clip_decided_by": "",
+                "clip_decision_absent": decision.get("reason", "")
+                if decision else ""}
+    return {
+        "clip_decided_by": decision.get("step", ""),
+        "clip_decision_id": decision.get("decision_id", ""),
+        "clip_decision_basis": decision.get("basis", ""),
+        "clip_decision_written_in": decision.get("locator", ""),
+    }
 
 
 def _target_summary(target: dict) -> dict:
@@ -789,6 +972,7 @@ def prompt_block(routed_notes) -> dict:
                 timeline=n.timeline,
                 routed_because=n.reason,
                 **_target_summary(n.target),
+                **_decision_summary(n.decision),
             )
             for n in routed_notes
         ],
@@ -1054,6 +1238,24 @@ def render_report(project_folder, routed_notes=None) -> str:
                 f"- **Routed to**: nothing ({note.outcome})",
                 f"- **Why**: {note.reason}",
             ]
+        if note.decision.get("step"):
+            d = note.decision
+            lines.append(
+                f"- **That clip was produced by**: `{d['step']}` "
+                f"- {d.get('decision_id') or '(unnamed decision)'} "
+                f"({d.get('basis') or 'unstated basis'}, read from the "
+                f"{d.get('source')})")
+            routes = d.get("routes") or {}
+            if routes:
+                lines.append("  - Why: " + ", ".join(
+                    f"`{value}`" for value in routes.values()))
+        elif note.decision.get("reason"):
+            lines.append(f"- **No decision stamp**: {note.decision['reason']}")
+        for entry in note.decision_context:
+            lines.append(
+                f"- **Playing at that moment**: {entry.get('track')} "
+                f"`{entry.get('label')}` - decided by `{entry.get('step')}` "
+                f"({entry.get('decision_id')}). Context; it routes nothing.")
         if note.note_id in delivered:
             lines.append("- **Delivered**: "
                          + "; ".join(delivered[note.note_id]))

@@ -1213,10 +1213,12 @@ its recorded per-call findings are in the module docstring, in the shape `neural
   warning forty minutes into an unattended `--full-auto` build is read by nobody, and clearing
   the refusal costs one read-only command. `PIPELINE_DISCARD_TIMELINE_MARKERS=1` is the explicit
   override.
-- **The reader READS. The one thing that writes to a marker is the capture button below.** No
-  colour vocabulary: the captain chose typed notes over colour codes, so colour is recorded and
-  read by nothing. No acknowledgement marker is written back and no marker is deleted. This is not
-  wired into the dashboard; the whole point is that the editor stays in Resolve.
+- **The reader READS, and the two things that write to a marker write only `customData`** -
+  the capture button and the decision stamp, both below. Neither creates a
+  marker the captain did not make, neither touches `name`, `note`, colour or duration, and no
+  marker is ever deleted. No colour vocabulary: the captain chose typed notes over colour
+  codes, so colour is recorded and read by nothing. No acknowledgement marker is written back.
+  This is not wired into the dashboard; the whole point is that the editor stays in Resolve.
 
 ### Where a note goes
 
@@ -1263,6 +1265,51 @@ One enumeration, `library/tools/marker_routing.py`.
   not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
   never hand-edited.
 - `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
+
+### What decided the clip the note is on
+
+**Every clip on the built timeline carries the decision that produced it, and the routing
+reads that instead of inferring - but only where inference has nothing.**
+One enumeration, `library/tools/timeline_decisions.py`, and it is the producer half of the
+loop above.
+
+    python3 -m library.tools.timeline_decisions ledger --project <dir>   # build and write it
+    python3 -m library.tools.timeline_decisions show   --project <dir>   # read, write nothing
+    python3 -m library.tools.timeline_decisions stamp  --project <dir>   # onto a live timeline
+
+- **`TRACK_DECISIONS` is one row per track of the manifest, and a track with no row is
+  REPORTED, never attributed to the nearest step.** Two rows are worth stating outright:
+  **V1 A-roll is `speech_sequence` (2.02), not `assign_aroll` (3.01)** - 3.01 is
+  deterministic and reads `block["clip_id"]` and `block["source_start"]` straight off the
+  spine, so it chooses no clip and no range; and **a bookend card is not stamped at all**,
+  because it is a brand template's DECLARATION (§13) that no step weighed against an
+  alternative. `UNSTAMPED_PLACEMENTS` records both. A stamp naming a step that decided
+  nothing reads as an answer.
+- `DECISION_BASES` keeps `chosen` and `declared` apart, the same line §10.5 draws.
+- **A1 is not a placement.** `LINKED_AUDIO_OF` says so: `compile_manifest` builds A1 from the
+  same V1 clip dicts, and surveying it would stamp two records where the timeline has one clip.
+- **The build writes a LEDGER and creates NO marker.** A marker is drawn on the timeline
+  ruler, so thirty the captain did not ask for would be a visible change to their timeline in
+  exchange for a payload the UI cannot show. Step 6.01 writes
+  `pipeline_output/steps/6_01_render/timeline_decisions.json` from the manifest alone, and
+  merges the decision into any marker ALREADY on the timeline through
+  `UpdateMarkerCustomData`, which leaves `name`, `note`, colour and duration untouched. The
+  capture button stamps the marker it makes, beside the still.
+- **The stamp ranks BELOW the captain's own words.** A stamp says what PRODUCED the picture;
+  their words say what the note is ABOUT. Measured on their own notes: *"why is this fully
+  blurry, is it the zoom blur applied wrong?"* sits on a V1 A-roll clip stamped
+  `speech_sequence`, while its words are ambiguous between `plan_transitions` and `plan_vfx` -
+  where a blur holding for a whole clip is really decided. So the order is declared >
+  vocabulary > stamped, and the stamp closes the UNROUTED case without touching the routed
+  ones. `STAMP_RANKS_BELOW_THE_WORDS` is the record.
+- **A MOMENT note is never routed by the stamp**, only a note attached to ONE clip. That is
+  the captain's own selection, not the stack at a frame, so it is not
+  `marker_routing.WITHDRAWN_ROUTERS["the_clip_under_the_playhead_decides"]` coming back. What
+  was playing under a moment is recorded as `decision_context` and routes nothing.
+- A marker's own stamp outranks the ledger, because it was written when the marker was made
+  and the ledger describes the LAST build. Neither is guessed at: a placement that matches no
+  row comes back as a stated reason.
+- `tests/test_timeline_decisions.py`.
 
 ### The button that captures the frame
 
