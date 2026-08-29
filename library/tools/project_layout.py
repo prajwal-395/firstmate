@@ -306,6 +306,7 @@ class Area(str, Enum):
     OCR = "ocr"
     ACQUIRED_MEDIA = "acquired_media"
     MUSIC_ANALYSIS = "music_analysis"
+    WINDOW_FRAMES = "window_frames"
     SFX_CATALOGUE = "sfx_catalogue"
     SUBTITLE_SEGMENTS = "subtitle_segments"
     MOTION_GRAPHICS_SEGMENTS = "motion_graphics_segments"
@@ -423,6 +424,12 @@ AREAS: dict[Area, AreaSpec] = {
         _step_path("music_analysis"), Kind.OUTPUT,
         "Tempo, beat grid and structure of the CHOSEN track.",
         step="music_analysis"),
+    Area.WINDOW_FRAMES: AreaSpec(
+        _step_path("select_broll", "window_frames"), Kind.OUTPUT,
+        "One frame strip per candidate cutaway window, so the step that "
+        "chooses a picture is shown one instead of only prose about it. "
+        "See library/tools/window_frames.py.",
+        step="select_broll"),
     Area.SFX_CATALOGUE: AreaSpec(
         _step_path("plan_sfx"), Kind.OUTPUT,
         "The SFX library written out as one document per run, so the "

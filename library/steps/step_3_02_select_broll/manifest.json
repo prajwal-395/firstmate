@@ -76,6 +76,11 @@
           "broll_creative": "list",
           "b_roll_interjections": "list"
         }
+      },
+      {
+        "name": "broll_window_frames",
+        "type": "string",
+        "description": "A map of the frame strips the pre-bridge drew, one per candidate cutaway window, with the directory holding them. Prompt-only: it shows the model what a window LOOKS like beside the prose that says what it does. See library/tools/window_frames.py."
       }
     ],
     "preconditions": [
@@ -135,6 +140,7 @@
   },
   "context_fields": [
     "broll_candidates_toon",
+    "broll_window_frames",
     "a_roll_assignments",
     "creative_direction",
     "timed_spine",

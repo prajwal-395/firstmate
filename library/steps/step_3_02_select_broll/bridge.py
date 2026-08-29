@@ -17,12 +17,21 @@ The row order carries NO relevance ranking. A slot-relevance score would
 need a matching rule this pipeline has never settled, and inventing one
 would repeat the mistake in a subtler form; the table says so explicitly
 so the model does not read list order as preference.
+
+It also draws ONE FRAME STRIP PER CANDIDATE CUTAWAY WINDOW and puts a
+reference to them in the prompt (`broll_window_frames`). The table above
+is prose about what a clip DOES; a strip is a picture of what the window
+LOOKS like, which is the half no step choosing a picture has ever been
+shown. See `library/tools/window_frames.py`.
 """
+import os
 import sys
 import json
 
 from library.tools.pipeline_validation import require_keys
+from library.tools.project_layout import Area, ProjectLayout
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
+from library.tools import window_frames as wf
 
 # Upper bound on the candidate table. One row per clip, so this only binds
 # on unusually large catalogs; whatever it drops is reported, never
@@ -63,6 +72,99 @@ def _slot_aroll_clip(slot: dict) -> str:
     if vsegs and vsegs[0].get("clip_id"):
         return vsegs[0]["clip_id"]
     return slot.get("source_clip_id") or slot.get("clip_id") or ""
+
+
+def cutaway_slot_seconds(timed_spine: dict) -> list:
+    """The lengths of the spine blocks a cutaway covers.
+
+    A window's length IS the slot's length (`post_bridge` passes
+    `block_duration` straight to `choose_window`), so these come off the
+    spine rather than from a constant. Speech blocks are left out: a
+    cutaway covers a non-speech block, which is the coverage requirement
+    `compile_manifest._assert_timeline_fully_covered` enforces.
+    """
+    blocks = timed_spine.get("structure") or (
+        timed_spine.get("audio_spine") or {}).get("structure") or []
+    seconds = set()
+    for block in blocks:
+        if block.get("block_type") in ("speech", "hook"):
+            continue
+        start, end = block.get("timeline_start"), block.get("timeline_end")
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            length = round(float(end) - float(start), 3)
+            if length > 0:
+                seconds.add(length)
+    return sorted(seconds)
+
+
+def build_window_frames(data: dict, catalog_entries: list,
+                        semantic: dict) -> str:
+    """Draw a strip for every candidate cutaway window, and map them.
+
+    Nothing is ranked, filtered or shortlisted - whatever selects a
+    shortlist becomes the chooser (AGENTS.md 10.5). A window whose strip
+    could not be drawn is NAMED, never dropped from the map.
+    """
+    project_folder = data.get("project_folder") or ""
+    if not project_folder:
+        print("  No project_folder: no window frames drawn", file=sys.stderr)
+        return ""
+
+    slots = cutaway_slot_seconds(data.get("timed_spine") or {})
+    if not slots:
+        print("  The spine has no non-speech block, so there is no cutaway "
+              "slot and no window to draw", file=sys.stderr)
+        return ""
+
+    temporal_raw = data.get("temporal_event_indices") or []
+    if isinstance(temporal_raw, dict):
+        temporal_raw = temporal_raw.get("temporal_event_indices", [])
+    index_lookup = {i.get("clip_id"): i for i in temporal_raw
+                    if isinstance(i, dict)}
+
+    directory = ProjectLayout(project_folder).write_dir(
+        Area.WINDOW_FRAMES, step="select_broll")
+
+    rows, missing, drawn = [], [], 0
+    for clip in catalog_entries:
+        clip_id = clip.get("clip_id")
+        source_file = clip.get("source_file") or clip.get("path") or \
+            clip.get("file_path")
+        duration = clip.get("duration_seconds") or 0.0
+        if not clip_id or not source_file or not os.path.exists(source_file):
+            continue
+        fps = clip.get("frame_rate") or 0.0
+        anchors = wf.window_anchors(
+            semantic.get(clip_id, {}), index_lookup.get(clip_id, {}),
+            float(duration), slots,
+        )
+        for anchor in anchors:
+            if drawn >= wf.MAX_STRIPS:
+                missing.append(
+                    f"{clip_id}@{anchor['video_in']:.3f}s (past the "
+                    f"{wf.MAX_STRIPS}-strip bound)")
+                continue
+            times = wf.sample_times(
+                anchor["video_in"], anchor["strip_end"], float(fps))
+            name = wf.strip_filename(clip_id, anchor["video_in"])
+            drawn += 1
+            if not wf.draw_strip(source_file, times, str(directory / name)):
+                missing.append(f"{clip_id}@{anchor['video_in']:.3f}s")
+                continue
+            rows.append({
+                "clip_id": clip_id,
+                "video_in": anchor["video_in"],
+                "strip_end": anchor["strip_end"],
+                "frames": len(times),
+                "file": name,
+            })
+
+    print(f"  {len(rows)} window frame strip(s) at {directory}"
+          + (f"; {len(missing)} not drawn" if missing else ""),
+          file=sys.stderr)
+    if not rows:
+        return ""
+    return wf.build_block(str(directory), rows, missing)
 
 
 def main():
@@ -155,7 +257,13 @@ def main():
 
     candidates_toon = format_toon(CANDIDATE_HEADERS, candidates_rows)
 
-    print(json.dumps({"broll_candidates_toon": candidates_toon}))
+    out = {"broll_candidates_toon": candidates_toon}
+
+    frames_block = build_window_frames(data, catalog_entries, semantic)
+    if frames_block:
+        out["broll_window_frames"] = frames_block
+
+    print(json.dumps(out))
 
 
 if __name__ == "__main__":

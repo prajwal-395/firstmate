@@ -1093,6 +1093,50 @@ Demonstrated rather than argued. 4.02's recorded answer was replayed through the
 
 The three arrays go out with `-` drop paths rather than an allow-list, for the reason section 10.1 gives: naming the twenty keys to keep stops delivering the twenty-first. `mesh_spine` already dropped the energy curve that way.
 
+### no-step-that-chose-a-picture-had-seen-one
+
+At `75d3e84`, **0 of the 12 assembled LLM contexts contained `data:image`, `base64`, or an image part of any kind**. Not one step that chooses a picture had ever been shown one.
+
+The prose coverage was not the problem. `view:picture` reaches 6 of 12 steps and describes 766.9 s of 001's 807.0 s (95.0%), up from `scene[]`'s 46.4%. What it carries is ACTION - *"The vehicle is driving forward along a road lined with trees"* - which says what happens and nothing about what it looks like. That is how the captain's marked cutaway could be selected and described accurately at the same time: *"this clip is honestly like broll of nothing"*.
+
+The captain's ruling, 2026-08-29: *"fix the window rule and show the model a frame of the window it will actually receive"*. `cutaway_window.py` (#322) was the first half.
+
+**What the picture shows that the prose did not.** 001's recorded answer put `clip_002` under spine block 13, and at HEAD `choose_window` resolves its `preferred_moment` to 10.000-11.918 s. The candidate table calls that clip *"car interior, dashboard, steering wheel"*, which is true. `clip_002__0010.000.jpg` is six frames from 10.000 s, of which that 1.918 s slot plays the first three: a close, motion-blurred swing across a steering wheel boss and a door card, with the view out of the windscreen not reaching the frame until the last of the six - which this slot never gets to. Nothing in the prose distinguishes that from a usable interior shot. The picture does, at a glance.
+
+**A strip runs to the longest slot that anchors there, and the prompt says so.** One strip per (anchor, slot length) would be exact and would cost five times the strips on 001; instead the row carries `video_in`, `strip_end` and `frames`, and the header states that a shorter slot plays a prefix. It is a real cost - a reader has to do the division - and it is the trade that keeps the table at 100 rows rather than 500.
+
+**The window is enumerable before the answer.** Step 3.02 does not name seconds. It names a clip and a `preferred_moment`, and the post-bridge passes the covered block's own duration to `choose_window` as the target, so a window's start is a candidate span's start and its length is the slot's. `window_anchors` therefore computes the distinct `video_in` values the selector can return, across the spine's real slot lengths - 1.382, 1.918, 2.256, 3.662 and 4.186 s on 001, giving 100 anchors on the vision documents `001-pre-repass-20260829` froze. It is computed rather than taken as the span list because `fit_to_clip` pulls the anchor earlier where a long slot would run off the end of a clip: `clip_006` yields anchors at 18.684, 19.208 and 20.000 s for exactly that reason.
+
+**Checked against 001's own answer.** All five recorded B-roll selections, re-resolved at HEAD and looked up in the strip table:
+
+    clip      block  slot s  video_in video_out  basis                strip
+    clip_008  1       3.662     0.000     3.662  single_span          clip_008__0000.000.jpg
+    clip_014  4       2.256     0.000     2.256  single_span          clip_014__0000.000.jpg
+    clip_001  6       1.382     0.000     1.382  single_span          clip_001__0000.000.jpg
+    clip_005  8       4.186     0.000     4.186  moment_match         clip_005__0000.000.jpg
+    clip_002  13      1.918    10.000    11.918  moment_match         clip_002__0010.000.jpg
+
+Five of five present, each a non-empty JPEG on disk.
+
+**Why a strip and not a frame.** A close dashboard shot that pans up to nothing looks correct in its first frame; it is the last frame that says otherwise. The ends of the window are not a choice - they are the first and last thing the viewer sees, and the window is defined by them. What is chosen is how much of the middle travels with them, and that is a resolution: no more than `SECONDS_UNSEEN_BETWEEN_SAMPLES` (1.0 s) passes unseen. A 1.382 s slot gets 3 frames, a 4.186 s slot gets 6. The number is stated in the prompt beside the strips, so the model knows a shot can still change between two of them. `WITHDRAWN_DELIVERIES` records the three shapes that were rejected and why.
+
+**The harness, established rather than assumed.** `agy` writes a request file that an AGENT answers - *"the agent IS the LLM"* (`docs/RUN_001_END_TO_END.md` §4) - and an agent with file tools opens a JPEG. Established on 2026-08-29 by drawing a strip with this module's own ffmpeg command and reading it back: the four tiles of 001's `IMG_1816.MOV` at 150.0-152.466 s came back as a walking shot swinging past a storefront. `api` is `LLMClient.generate`, which takes one string and posts it - no image part exists in that call - so it is False, the same verdict `HARNESS_READS_FILES` gives it for the opposite reason. The two enumerations are separate because reading a text file and perceiving an image are different capabilities.
+
+Base64 in the context was rejected outright. No harness here decodes it: `api` charges it as characters and shows nobody a picture, and `agy` would write ~55 KB per strip into a JSON file an agent reads as text. That is a fake image part, and the task that commissioned this said so in advance.
+
+**Cost, measured 2026-08-29 on 001 through the replay bench** (`001-pre-repass-20260829`, `--rev WORKTREE`):
+
+| | before | after |
+|---|---|---|
+| 3.02 context | 88,475 B | **94,994 B** (+6,519, +7.4%) |
+| strips | - | 100, 13 MB, in the step's own directory |
+| first build | - | 54.6 s wall clock |
+| rebuild, strips on disk | - | 3.1 s |
+
+For scale, the same context already spends **60.7%** of itself on three prose views of one vision analysis (`semantic_analysis_documents` 40.5% + `picture` 11.6% + `broll_candidates_toon` 8.6%). Nothing was deleted to make room: whether prose plus a frame beats a frame alone is unmeasured, and removing the prose on a guess would be the change this evidence cannot support.
+
+**The degradation path, measured on the same context.** Withholding under `api` gives 88,742 B - the 88,475 baseline plus a 267-byte line saying the frames were drawn and are not shown - with no `FRAMES:` path, and `broll_candidates_toon` and `view:picture` untouched. A picture has no smaller textual form, so there is nothing to put back in its place; saying so is what stops a reconstructed context reading as a run where no frames existed.
+
 ### the-director-saw-the-first-nineteen-seconds
 
 `creative_direction` was handed `analysis,assessment,camera,clip_id,duration_s,scene`.

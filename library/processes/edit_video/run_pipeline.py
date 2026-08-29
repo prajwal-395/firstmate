@@ -1178,6 +1178,19 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             print(f"  [llm] {node_id}: harness {full_auto!r} cannot read "
                   f"a file - carrying {_key} inline", file=sys.stderr)
 
+        # The same clause from the other side, for a PICTURE.  A frame
+        # strip has no smaller textual form to fall back to, so a
+        # harness that cannot be shown one is handed nothing and the
+        # step decides from its prose - which is what it did before the
+        # strips existed.  The withheld key carries a line saying so, so
+        # a reconstructed context never reads as a run where no frames
+        # were drawn.  See library/tools/window_frames.py.
+        from library.tools.window_frames import withhold_for_harness
+        inputs, _withheld = withhold_for_harness(inputs, full_auto)
+        for _key in _withheld:
+            print(f"  [llm] {node_id}: harness {full_auto!r} cannot be "
+                  f"shown a picture - withholding {_key}", file=sys.stderr)
+
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     inputs = project_step_context(inputs, manifest, bridge_supplied)
 
