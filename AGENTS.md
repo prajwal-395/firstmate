@@ -273,6 +273,15 @@ The Python timeline builder plus Fusion IS the architecture, not a workaround.
 - Adding a transition means adding a builder to `library/tools/fusion/effects.py` first.
 - No per-clip Fusion comp can mix two clips, so there is no cross dissolve or wipe on this route.
 
+**A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
+One enumeration, `library/tools/transition_carriers.py`.
+
+- `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech` or `hook` block - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
+- Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
+- `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. `CUTS_LEGEND` defines both columns as DATA, because `handoff.md` is frozen - the same route `music_measurement.MEASUREMENT_LEGEND` takes for step 2.04.
+- **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5). [why - the run it failed, and the measured A/B](docs/RULE_EVIDENCE.md#the-menu-contained-cuts-that-cannot-be-built)
+- `tests/test_transition_carriers.py`.
+
 ### Stabilization is the memory ceiling, and it runs last
 
 `neural_engine_directives` is applied AFTER every clip, comp, overlay and SFX is placed, so a build that dies inside it loses ALL of them. [why](docs/RULE_EVIDENCE.md#stabilization-oom-87gb)

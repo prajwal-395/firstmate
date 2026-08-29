@@ -232,6 +232,53 @@ Both were measured; the corrected table is at `research/drp_reverse_engineering.
 `library/tools/execution/apply_native_transitions.py` and its test remain in the tree unused.
 Do not wire either route back in.
 
+### the-menu-contained-cuts-that-cannot-be-built
+
+Step 4.02 is asked to choose from every cut in the spine.  On 001's run of record five of the fifteen could not carry a drawn transition, nothing said so, and the run died in `compile_manifest`:
+
+```
+ValueError: Transition trans_009 at 38.801s does not sit at the end of any V1 clip
+```
+
+**Why five.** Every B-roll placement goes on V2, and the spine's `transition_slot` blocks are what B-roll fills.  So V1 has a hole where a transition slot plays, and no V1 clip ends at the far side of it.  Cuts 2, 5, 7, 9 and 14 are all `transition_slot-to-speech`.
+
+**The prompt pointed at exactly those five.** `handoff.md` line 82 says *"Prefer placing major creative transitions on cuts with a nearby beat"*, and on 001's own spine, measured off the frozen snapshot `001-degradation-20260828`:
+
+| | count of 15 | which |
+|---|---|---|
+| can carry a drawn transition | 10 | 1, 3, 4, 6, 8, 10, 11, 12, 13, 15 |
+| a beat within 0.10 s | 8 | 2, 3, 4, 5, 7, 9, 14, 15 |
+| beat within 0.10 s **and** buildable | 3 | 3 (0.035 s), 4 (0.073 s), 15 (0.042 s) |
+| beat at **0.000 s** | 5 | 2, 5, 7, 9, 14 - **every one unbuildable** |
+
+Every cut that lands exactly on a beat is a cut that cannot carry the effect, because `mesh_spine` beat-snaps the gaps and the gaps are the transition slots.  Following the stated criterion is following it into the wall.  The answering agent's own postscript: *"This was not bad luck. … Following the prompt's beat-alignment guidance steers directly at the cuts that cannot carry the effect."*
+
+**Cost to the finished video.** One wasted round trip, and both defocus transitions moved to the other side of their seam - cut 9 to cut 8 (34.394 s), cut 14 to cut 13 (46.147 s).  The agent's verdict on the second: *"a small loss - the ideal version blurs directly into his face in the car."*  And neither surviving transition sits near a beat.
+
+**The A/B, measured.** Six independent answers to the replayed 4.02 prompt off the same frozen snapshot, three at HEAD and three with `can_carry_drawn_transition` / `carry_basis` in `cuts_toon`.  Each answerer was given the reconstructed prompt and nothing else, and forbidden to read this repository - a model with a shell can discover the rule the way the run of record did, and that is the route the column exists to make unnecessary.  Drawn cuts were then put through `compile_manifest`'s own `_v1_index_ending_at` over the V1 track its own `block_reaches_v1` builds:
+
+| | drawn on | refused by the compiler | verdict |
+|---|---|---|---|
+| HEAD, answer 1 | 8, 9, 14 | 9, 14 | **FAILS** |
+| HEAD, answer 2 | 7, 8 | 7 | **FAILS** |
+| HEAD, answer 3 | 5, 9, 14 | 5, 9, 14 | **FAILS** |
+| with the column, answer 1 | 8 | - | compiles |
+| with the column, answer 2 | 8, 13 | - | compiles |
+| with the column, answer 3 | 8, 13 | - | compiles |
+| with both columns, answer 4 | 8, 13 | - | compiles |
+
+Three of three fail at HEAD; three of three compile with the column, and all three chose cut 8, which no answer at HEAD chose alone.  Of the eight drawn transitions across the three HEAD answers, six sat on a cut that cannot carry one.  Not one of the five drawn transitions across the three informed answers did.
+
+**Beat alignment and buildability are genuinely in conflict on this spine, and telling the truth does not resolve it.**  All three informed answers put both drawn transitions on cuts with no beat near them, and said so unprompted - *"the beat rule and the drawability rule pull in opposite directions … if beat alignment matters more than placement, the fix is upstream in the spine, not here."*  Three beat-near buildable cuts do exist (3, 4, 15) and all three answers declined them on editorial grounds: 3 and 10 are labelled `jump_cut`, which draws nothing, 4 is the deadpan punchline and 15 is the closing line.  So the column buys a plan that builds, and it makes the conflict legible; it does not make the conflict go away.  Moving the beat-snapped gaps is a `mesh_spine` decision, not a `plan_transitions` one.
+
+**The informed model then found the next omission, which is why `carry_basis` names both halves.** One answerer, reading only the buildability column, worked out that `after_clip + 1` indexes the V1 list and a cutaway is not in it - so on a `speech-to-transition_slot` cut the tail draws on the outgoing speech clip and the head on the speech clip that RESUMES after the cutaway.  *"So a drawn transition there brackets the B-roll rather than drawing through the cut … Only cuts 3, 10, 11, 12 and 15 are true through-the-cut drawable ones."*  That is right, it is derivable from the same placement logic, and it was the second thing the step had not been told.  `carry_basis` now says which of the two shapes each buildable cut is; the buildability verdict is unchanged, so the A/B above stands, and it was measured before that sentence was added.  Answer 4 in the table is a spot check against the finished table, and it reads the new half back: *"On both of my drawn cuts the effect brackets a cutaway rather than drawing through the cut - tail at 34.62s, head at 38.80s, four seconds apart. I think that is the right gesture for a breath and for a blackout, but it is a different gesture."*
+
+**Cost of the columns.** Measured against the pre-merge baseline `ef3b8f8`, before #304 added `view:picture` to this step - so a replay on today's tree reads 68,199 B and the difference is that view, not these columns. Step 4.02's replayed context goes 55,458 B -> 57,948 B, +2,490 B (+4.5%): `cuts_toon` 6,284 B -> 7,601 B (+1,317 B) for the two columns, and `cuts_legend` 1,173 B for their definition.  The legend is data because `handoff.md` is frozen and cannot name a column - the route `music_measurement.MEASUREMENT_LEGEND` takes for step 2.04.
+
+**Bench visibility, checked before the result was trusted.** `replay_bench verify 001-degradation-20260828` names its differences by section.  Before the change it reported `cuts_toon -34 B` for `plan_transitions`; after it reports `cuts_toon` and `cuts_legend` as positive deltas of their own, and `project untouched by this run: True`.  It sees the columns, so a null result would have been a null result and not a blind tool.
+
+**A hazard this does not model.** `_v1_index_ending_at` matches within 0.25 s, and 4.02's post-bridge may relocate a cut back to a beat-coincident word end up to `MAX_WORD_END_BACKTRACK` (0.35 s).  A cut backtracked further than 0.25 s would be refused even where the column says yes.  On 001 all 11 speech blocks end exactly at their last word (gap 0.000 s measured 2026-08-28), so the two bounds have never disagreed there.  It is a post-bridge defect, not a property of the menu.
+
 ### hasattr-is-always-true
 
 `hasattr` returns True on Resolve's scripting proxies for invented method names as readily as for real ones.

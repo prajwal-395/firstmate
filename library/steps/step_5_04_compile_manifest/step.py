@@ -44,6 +44,7 @@ from tools.beat_grid import assert_music_starts_at_timeline_zero
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
+from library.tools.transition_carriers import block_reaches_v1
 from tools.spine_contract import (
     MAX_DECLARED_BLACK_BEAT_SECONDS,
     is_speech_block,
@@ -1251,7 +1252,12 @@ def compile_manifest(out_dir: str) -> dict:
             v1_clips.append(clip)
             continue
 
-        if block["block_type"] in ("speech", "hook"):
+        # `block_reaches_v1` is the one statement of V1 membership, and
+        # step 4.02's bridge reads the same predicate off the spine to
+        # tell the model which cuts can carry a drawn transition at all.
+        # The two must not drift: a transition planned where no V1 clip
+        # ends fails this step outright (see the fusion transition loop).
+        if block_reaches_v1(block):
             content = block.get("content") or {}
             lgid = (block.get("link_group_id")
                     or content.get("link_group_id"))

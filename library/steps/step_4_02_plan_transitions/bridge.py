@@ -68,6 +68,17 @@ def main():
         return (block.get("clip_id")
                 or broll_by_position.get(str(block.get("position"))))
 
+    # Which cuts can carry a DRAWN transition at all, read off the same
+    # V1-membership rule compile_manifest builds its V1 track from. Every
+    # B-roll placement goes on V2, so a cut whose outgoing block is a
+    # transition slot has no V1 clip ending on it and compile_manifest
+    # refuses a drawn transition there - it failed 001's run of record
+    # that way. This states the fact per cut; nothing is filtered,
+    # re-ordered or chosen for the model (AGENTS.md 10.5).
+    from library.tools.transition_carriers import CUTS_LEGEND, cut_carriers
+
+    carriers = {str(row["position"]): row for row in cut_carriers(spine_blocks)}
+
     cut_rows = []
     
     # We will output a cuts table
@@ -119,19 +130,30 @@ def main():
                 parts.append(f"Tags: {', '.join(tags)}")
             return " | ".join(parts) if parts else "measured nothing"
 
+        # Beside `type`, which is what it is derived from, and ahead of
+        # the beat column - because the beat guidance is what steered at
+        # these cuts when nothing said they were unbuildable.
+        carrier = carriers.get(str(curr_block.get("position", i)), {})
+
         cut_rows.append({
             "cut_point_position": curr_block.get("position", i),
             "cut_time": f"{cut_time:.2f}",
             "type": cut_type,
+            "can_carry_drawn_transition": carrier.get("verdict", ""),
+            "carry_basis": carrier.get("basis", ""),
             "beat_near_cut": beat_near_cut,
             "outgoing_footage": get_desc(prev_sem),
             "incoming_footage": get_desc(curr_sem)
         })
         
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
     
     compressed = {
-        "cuts_toon": cuts_toon
+        "cuts_toon": cuts_toon,
+        # The handoff is frozen and cannot name the two derived columns,
+        # so their definition travels as data - the route step 2.04 takes
+        # for MEASUREMENT_LEGEND.
+        "cuts_legend": dict(CUTS_LEGEND),
     }
     
     print(json.dumps(compressed))

@@ -77,7 +77,12 @@
       {
         "name": "cuts_toon",
         "type": "string",
-        "description": "State output: cuts_toon"
+        "description": "State output: cuts_toon. Built by bridge.py. Carries can_carry_drawn_transition / carry_basis, derived from library/tools/transition_carriers.py - which cuts have a V1 clip ending on them and can therefore carry a drawn transition."
+      },
+      {
+        "name": "cuts_legend",
+        "type": "object",
+        "description": "What the two derived columns of cuts_toon ARE, from library/tools/transition_carriers.CUTS_LEGEND. handoff.md is frozen and cannot name them, so the definition travels as data - the route step 2.04 takes for MEASUREMENT_LEGEND."
       },
       {
         "name": "transition_spec",
