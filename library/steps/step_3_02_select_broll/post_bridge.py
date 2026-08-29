@@ -6,8 +6,10 @@ Takes the LLM's creative B-roll selections (clip_id + preferred_moment +
 rationale) and resolves them to execution-ready data using the temporal
 event index for precision placement:
   - clip_id → source_file (from catalog)
-  - preferred_moment → video_in/video_out (from temporal index scene
-    boundaries, energy peaks, and motion energy)
+  - preferred_moment → video_in/video_out, resolved against what the
+    vision pass OBSERVED in the picture - see
+    `library/tools/cutaway_window.py`.  A cutaway plays `video_only`, so
+    its audio is never heard and may never choose its window.
   - Resolution comparison → needs_conform flag
 
 Classification: Deterministic / Data Transformation
@@ -30,6 +32,7 @@ import sys
 
 from library.tools.semantic_index import build_semantic_lookup, describe_clip
 from library.tools.delivery_format import resolve_delivery_format
+from library.tools.cutaway_window import choose_window
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -63,304 +66,20 @@ def find_best_segment(
     clip_duration: float,
     target_duration: float,
 ) -> tuple:
+    """The (video_in, video_out) of a cutaway, chosen from the PICTURE.
+
+    Thin wrapper over `library.tools.cutaway_window.choose_window`, kept
+    because callers only want the pair.  `resolve_broll` calls the chooser
+    directly so it can record WHAT chose the window.
+
+    This function used to hold three strategies of its own, and the one
+    that ran centred the window on the clip's **audio energy peak** - on
+    a clip placed `video_only: True`, whose audio is never heard.
     """
-    Find the best video_in/video_out for a B-roll clip using the temporal
-    index (scene boundaries, energy curve, motion energy) and semantic
-    analysis blocks.
-
-    Strategy:
-    1. If temporal index has scene boundaries, select the scene segment
-       that best matches the preferred moment + has highest energy/motion
-    2. If no temporal index, fall back to block-based estimation from
-       semantic analysis
-    3. Snap in/out points to scene boundaries for clean cuts
-
-    Returns (video_in, video_out).
-    """
-    scenes = temporal_index.get("scene_boundaries", [])
-    energy = temporal_index.get("energy_curve", {})
-    motion = temporal_index.get("motion_energy", {})
-
-    # ── Strategy 1: Scene-boundary-aware selection ──
-    if len(scenes) >= 2:
-        # Build scene segments as (start, end) pairs
-        scene_times = sorted(s["time"] for s in scenes)
-        # Add clip end as final boundary
-        if scene_times[-1] < clip_duration - 0.5:
-            scene_times.append(clip_duration)
-
-        segments = []
-        for i in range(len(scene_times) - 1):
-            seg_start = scene_times[i]
-            seg_end = scene_times[i + 1]
-            seg_dur = seg_end - seg_start
-
-            # Score segment by energy + motion
-            energy_score = _avg_energy_in_range(
-                energy, seg_start, seg_end
-            )
-            motion_score = _avg_energy_in_range(
-                motion, seg_start, seg_end
-            )
-
-            # Score by keyword match with preferred moment
-            text_score = 0.0
-            if preferred_moment:
-                text_score = _text_match_score(
-                    preferred_moment, clip_analysis, i, len(scene_times) - 1,
-                    seg_start, seg_end,
-                )
-
-            # Combined score: energy + motion + text relevance
-            combined = (
-                energy_score * 0.3
-                + motion_score * 0.3
-                + text_score * 0.4
-            )
-
-            segments.append({
-                "start": seg_start,
-                "end": seg_end,
-                "duration": seg_dur,
-                "score": combined,
-                "energy": energy_score,
-                "motion": motion_score,
-            })
-
-        # Filter segments that can fit the target duration
-        # First: try segments >= target_duration
-        viable = [s for s in segments if s["duration"] >= target_duration]
-        if not viable:
-            # Fall back to all segments, we'll use what we can
-            viable = segments
-
-        # Pick the highest-scoring segment
-        best = max(viable, key=lambda s: s["score"])
-
-        # Trim to target duration, centered on the highest-energy moment
-        if best["duration"] >= target_duration:
-            # Find the peak energy point within this segment
-            peak_time = _peak_energy_in_range(
-                energy, best["start"], best["end"]
-            )
-            if peak_time is not None:
-                # Center around peak
-                half = target_duration / 2
-                video_in = max(best["start"], peak_time - half)
-                video_out = min(best["end"], video_in + target_duration)
-                # Adjust if we hit the end
-                if video_out - video_in < target_duration:
-                    video_in = max(
-                        best["start"], video_out - target_duration
-                    )
-            else:
-                video_in = best["start"]
-                video_out = best["start"] + target_duration
-        else:
-            # The best-scoring scene is shorter than the slot. Start there
-            # and run past the boundary rather than returning a clip that
-            # cannot fill its slot - a short B-roll clip leaves a hole on
-            # V2 and trips the rough-cut duration invariant.
-            video_in = best["start"]
-            video_out = best["start"] + target_duration
-
-        # Snap to nearest scene boundary (within 0.2s tolerance)
-        video_in = _snap_to_boundary(video_in, scene_times, tolerance=0.2)
-        video_out = _snap_to_boundary(video_out, scene_times, tolerance=0.2)
-
-        return _fit_to_clip(video_in, video_out, target_duration, clip_duration)
-
-    # ── Strategy 2: Energy/motion-based selection (no scene boundaries) ──
-    if energy.get("values") or motion.get("values"):
-        peak = _peak_energy_in_range(energy, 0, clip_duration)
-        if peak is not None:
-            half = target_duration / 2
-            return _fit_to_clip(
-                max(0, peak - half), max(0, peak - half) + target_duration,
-                target_duration, clip_duration,
-            )
-
-    # ── Strategy 3: Fallback — block-based estimation from semantic analysis ──
-    blocks = clip_analysis.get("blocks", [])
-    if blocks and preferred_moment:
-        moment_words = set(preferred_moment.lower().split())
-        best_idx = 0
-        best_score = -1
-        for i, block in enumerate(blocks):
-            block_text = " ".join([
-                block.get("label", ""),
-                block.get("visual", ""),
-            ]).lower()
-            overlap = len(moment_words & set(block_text.split()))
-            if overlap > best_score:
-                best_score = overlap
-                best_idx = i
-
-        block_start = _block_start_seconds(
-            blocks, best_idx, clip_duration
-        )
-        return _fit_to_clip(
-            block_start, block_start + target_duration,
-            target_duration, clip_duration,
-        )
-
-    # ── Ultimate fallback: start of clip ──
-    return _fit_to_clip(0.0, target_duration, target_duration, clip_duration)
-
-
-def _fit_to_clip(
-    video_in: float, video_out: float,
-    target_duration: float, clip_duration: float,
-) -> tuple:
-    """Clamp a window into the clip while keeping it target_duration long.
-
-    A B-roll clip must be able to fill the slot it covers. Returning a
-    window shorter than the slot leaves a gap on V2 where the A-roll shows
-    through mid-cutaway.
-    """
-    if clip_duration <= 0:
-        return 0.0, round(target_duration, 3)
-
-    span = min(target_duration, clip_duration)
-    video_in = max(0.0, video_in)
-    video_out = video_in + span
-    if video_out > clip_duration:
-        video_out = clip_duration
-        video_in = max(0.0, video_out - span)
-    return round(video_in, 3), round(video_out, 3)
-
-
-def _avg_energy_in_range(
-    curve_data: dict, start: float, end: float
-) -> float:
-    """Compute average energy/motion in a time range from a curve."""
-    values = curve_data.get("values", [])
-    sr = curve_data.get("sample_rate_hz", 2)
-    if not values or sr <= 0:
-        return 0.0
-
-    i_start = max(0, int(start * sr))
-    i_end = min(len(values), int(end * sr))
-    segment = values[i_start:i_end]
-    return sum(segment) / len(segment) if segment else 0.0
-
-
-def _peak_energy_in_range(
-    curve_data: dict, start: float, end: float
-) -> float | None:
-    """Find the time of peak energy within a range."""
-    values = curve_data.get("values", [])
-    sr = curve_data.get("sample_rate_hz", 2)
-    if not values or sr <= 0:
-        return None
-
-    i_start = max(0, int(start * sr))
-    i_end = min(len(values), int(end * sr))
-    segment = values[i_start:i_end]
-    if not segment:
-        return None
-
-    peak_idx = segment.index(max(segment))
-    return (i_start + peak_idx) / sr
-
-
-def _block_time_bounds(block: dict) -> tuple:
-    """A block's measured (start, end), or (None, None) when it has none.
-
-    Blocks derived from the v3 analyser carry the time window the action
-    was actually observed in; blocks from the retired schema carry only
-    their position in the list.
-    """
-    start, end = block.get("start"), block.get("end")
-    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-        return float(start), float(end)
-    return None, None
-
-
-def _block_start_seconds(
-    blocks: list, block_idx: int, clip_duration: float
-) -> float:
-    """Where in the clip a block sits.
-
-    Reads the block's measured start when it has one; only a block with
-    no time bounds falls back to estimating its position from how far
-    down the list it is.
-    """
-    start, _ = _block_time_bounds(blocks[block_idx])
-    if start is not None:
-        return start
-    return (block_idx / len(blocks)) * clip_duration
-
-
-def _block_for_segment(
-    blocks: list,
-    segment_idx: int,
-    total_segments: int,
-    seg_start=None,
-    seg_end=None,
-) -> dict:
-    """The block describing a scene segment.
-
-    Picked by time overlap when the blocks carry measured bounds, so the
-    segment is scored against what was observed while it was on screen.
-    Blocks without bounds keep the index-proportion mapping, which is all
-    a retired-schema document supports.
-    """
-    if seg_start is not None and seg_end is not None:
-        best, best_overlap = None, 0.0
-        for block in blocks:
-            start, end = _block_time_bounds(block)
-            if start is None:
-                continue
-            overlap = min(seg_end, end) - max(seg_start, start)
-            if overlap > best_overlap:
-                best, best_overlap = block, overlap
-        if best is not None:
-            return best
-
-    block_idx = int(segment_idx / max(total_segments, 1) * len(blocks))
-    return blocks[min(block_idx, len(blocks) - 1)]
-
-
-def _text_match_score(
-    preferred_moment: str,
-    clip_analysis: dict,
-    segment_idx: int,
-    total_segments: int,
-    seg_start=None,
-    seg_end=None,
-) -> float:
-    """Score how well a segment matches the preferred moment description."""
-    blocks = clip_analysis.get("blocks", [])
-    if not blocks:
-        return 0.0
-
-    block = _block_for_segment(
-        blocks, segment_idx, total_segments, seg_start, seg_end
-    )
-
-    block_text = " ".join([
-        block.get("label", ""),
-        block.get("visual", ""),
-        block.get("broll_context", ""),
-    ]).lower()
-
-    moment_words = set(preferred_moment.lower().split())
-    block_words = set(block_text.split())
-    overlap = len(moment_words & block_words)
-    return min(1.0, overlap / max(len(moment_words), 1))
-
-
-def _snap_to_boundary(
-    time_point: float, boundaries: list, tolerance: float = 0.2
-) -> float:
-    """Snap a time point to the nearest boundary if within tolerance."""
-    if not boundaries:
-        return time_point
-    nearest = min(boundaries, key=lambda b: abs(b - time_point))
-    if abs(nearest - time_point) <= tolerance:
-        return nearest
-    return time_point
+    return choose_window(
+        preferred_moment, clip_analysis, temporal_index,
+        clip_duration, target_duration,
+    ).as_tuple()
 
 
 # A cutaway shorter than this is a flicker, not a shot. An interjection
@@ -510,14 +229,15 @@ def resolve_broll(
         clip_index = index_lookup.get(clip_id, {})
         clip_duration = clip.get("duration_seconds", 10.0)
 
-        # Resolve preferred moment to video in/out using temporal index
-        video_in, video_out = find_best_segment(
+        # Resolve the preferred moment to video in/out from the picture.
+        choice = choose_window(
             preferred_moment,
             clip_analysis,
             clip_index,
             clip_duration,
             block_duration,
         )
+        video_in, video_out = choice.as_tuple()
 
         # A cutaway can be shorter than the block it covers - we simply
         # return to A-roll early. It must never CLAIM more timeline than
@@ -547,6 +267,11 @@ def resolve_broll(
             "timeline_end": timeline_end,
             "needs_conform": needs_conform,
             "selection_rationale": rationale,
+            # What chose these seconds, recorded beside them. A window
+            # picked on `undiscriminated` is the absence of a decision,
+            # not a decision, and a reviewer must be able to tell.
+            "window_basis": choice.basis,
+            "window_basis_detail": choice.basis_detail,
             "video_only": True,  # B-roll audio should NOT be linked
         })
         covered_positions.add(str(spine_pos))
@@ -621,9 +346,11 @@ def resolve_broll(
         clip_index = index_lookup.get(clip_id, {})
         clip_duration = clip.get("duration_seconds", 10.0)
 
-        video_in, video_out = find_best_segment(
-            preferred_moment, clip_analysis, clip_index, clip_duration, block_duration
+        choice = choose_window(
+            preferred_moment, clip_analysis, clip_index, clip_duration,
+            block_duration,
         )
+        video_in, video_out = choice.as_tuple()
 
         # Same invariant the assignment path enforces: a cutaway may end
         # early, but it must never claim more timeline than its source can
@@ -663,6 +390,8 @@ def resolve_broll(
                 "duration_seconds": round(video_out - video_in, 3),
                 "needs_conform": needs_conform,
                 "selection_rationale": rationale,
+                "window_basis": choice.basis,
+                "window_basis_detail": choice.basis_detail,
                 "video_only": True,
             }
         })

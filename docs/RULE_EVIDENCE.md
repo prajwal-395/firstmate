@@ -3173,6 +3173,114 @@ constraint stops being the box and becomes `split_into_groups`' `max_words = 6`,
 cards hit. This is the PLAN's arithmetic on 001's frozen spine; 001 has not been re-run or
 re-rendered.
 
+## the-cutaway-window-came-from-a-muted-waveform
+
+`AGENTS.md` §10.5, "Which SECONDS of a chosen cutaway play".
+
+**The captain, on a marker dropped on 001's own timeline at 00:00:24:24:** *"this clip is honestly
+like broll of nothing, im confused why it was chosen and added here."* And, asked to expand: *"did
+it actually see the clip or did it make that choice blind?"*
+
+It made the choice blind. It did not make the choice at all - code did.
+
+### What chose the seven windows
+
+`find_best_segment` in `library/steps/step_3_02_select_broll/post_bridge.py` had three strategies.
+Strategy 1 required `len(scene_boundaries) >= 2`; **15 of 001's 17 clips carry exactly 1**, so it
+almost never ran. Strategy 2 therefore ran, and it centred the window on
+`temporal_index.energy_curve` - per-second RMS of the clip's **audio**, on clips `compile_manifest`
+places `video_only: True`, so that audio is never heard. Five of the seven shipped windows are
+centred within **0.000 s** of the nearest audio peak; the other two at 0.124 s and 0.190 s, clipped
+at the clip edge by `_fit_to_clip`.
+
+Strategy 1 was not a visual strategy either. On the one clip it did run (clip_002, 2 boundaries) it
+scored segments 30% on that same audio curve and then centred the window on
+`_peak_energy_in_range(energy, ...)` - the audio peak again, at 13.233 s.
+
+**31.0% of the finished picture** was placed this way.
+
+### The disconfirming check: a motion rule picks the same seven?
+
+Run first, because it could have closed the whole question. Strategy 2's arithmetic, unchanged, with
+`motion_energy` substituted for `energy_curve`, over 001's own candidate windows:
+
+| window | clip | shipped (audio peak) | motion peak | same? |
+|---|---|---|---|---|
+| block 1 assignment | clip_008 | 1.602-5.264 | 5.136-8.798 | MOVED |
+| block 4 assignment | clip_014 | 1.339-3.595 | 2.105-4.361 | MOVED |
+| block 6 assignment | clip_001 | 2.185-3.567 | 1.642-3.024 | MOVED |
+| block 8 assignment | clip_005 | 3.717-7.903 | 0.000-4.186 | MOVED |
+| block 13 assignment | clip_002 | 12.274-14.192 | 9.108-11.026 | MOVED |
+| block 7 interjection 1 | clip_006 | 1.650-4.150 | 1.817-4.317 | MOVED |
+| block 7 interjection 2 | clip_004 | 22.750-25.250 | 10.683-13.183 | MOVED |
+
+**0 of 7.** The audio peak was not accidentally fine, and the task stood.
+
+It also establishes the opposite of what it might look like: **a motion rule disagreeing with an
+audio rule on 7 of 7 is not evidence that motion is right.** Nothing on 001 says a busier window is
+a better cutaway, which is why `DECLINED_TO_RANK` measures motion and refuses to rank on it.
+
+### Relaxing the two-boundary requirement - measured before choosing
+
+The known unknown was whether strategy 1's `>= 2` should simply be relaxed. Taking span points as
+scene boundaries UNION the vision pass's time-bounded `blocks`, over all 17 of 001's clips:
+
+| | clips with >= 2 candidate spans |
+|---|---|
+| scene boundaries alone | **2 of 17** |
+| union with timed blocks | **13 of 17** |
+
+The four that stay at one span are clip_001 (3.57 s), clip_008 (9.07 s), clip_010 (6.30 s) and
+clip_014 (4.70 s) - clips where one window is most of the clip.
+
+### The seven windows, re-derived
+
+Against 001's frozen state at this revision. Nothing was re-run and nothing was re-rendered.
+
+| window | clip | before | after | what chose it |
+|---|---|---|---|---|
+| block 1 assignment | clip_008 | 1.602-5.264 | **0.000-3.662** | `single_span` - one span, 0-9.068 |
+| block 4 assignment | clip_014 | 1.339-3.595 | **0.000-2.256** | `single_span` |
+| block 6 assignment | clip_001 | 2.185-3.567 | **0.000-1.382** | `single_span` |
+| block 8 assignment | clip_005 | 3.717-7.903 | **0.000-4.186** | `single_span` |
+| block 13 assignment | clip_002 | 12.274-14.192 | **10.000-11.918** | `moment_match_tie` 0.43 over 3 spans |
+| block 7 interjection 1 | clip_006 | 1.650-4.150 | **0.000-2.500** | `moment_match` 0.58 over 3 spans |
+| block 7 interjection 2 | clip_004 | 22.750-25.250 | **0.000-2.500** | `moment_match` 0.44 over 3 spans |
+
+All seven moved. Four moved to `single_span`, which is the honest reading of a clip that offers one
+candidate: **nothing chose the window, the clip did.** Recording that as `moment_match` would report
+a decision that was never available, so it has its own basis word.
+
+The one clearly-improved window is clip_004. Its 20.0-26.777 span - where the audio peak put it - is
+observed as *"the vehicle is driving forward along a road lined with trees and power lines"*, and
+the model had asked for *"dashboard and instrument cluster, road and buildings passing beyond the
+windscreen"*, which the vision pass observed at 0-10 s. The audio peak had put the window in the
+span the model did not ask for.
+
+### The captain's own complaint clip: honestly, no
+
+The marker at 00:00:24:24 lands on the V2 clip `IMG_1811.MOV` at timeline frames 705-780, source
+frames 50-125 - **block 7 interjection 1, clip_006, 1.650-4.150 s**. The change moves it to
+0.000-2.500 s. Both windows sit inside the same candidate span, which the vision pass describes as
+*"the camera captures a view from inside a vehicle moving forward through an intersection"*, and
+clip_006's other two spans are the same shot continuing (*"driving forward in a lane"*, *"driving
+forward in traffic"*). **The window cannot fix this one.** 22.87 s of one driving plate contains no
+better 2.5 s.
+
+The model said so itself when it chose the clip: *"the picture's job here is to let the ear keep
+working rather than to illustrate: a neutral observational wide, chosen for being unremarkable."*
+The captain is objecting to the CLIP, and which clip is chosen is a different decision from which
+seconds of it play.
+
+### What is not established
+
+- No window was judged against a render. The re-derivation is the PLAN's arithmetic on frozen state.
+- `usable_ranges` is wired into the chooser and contributes nothing on 001, because all 17 documents
+  carry `usable_ranges_method: "unmeasured"` (report R5). It will start filtering after 1.03 re-runs.
+- Whether starting an undiscriminated window at the head of its span is better than anywhere else in
+  it is unmeasured. It is the same reading `music_section` gives a track with no declared section:
+  the absence of a decision, stated rather than dressed up.
+
 ## seven-reads-of-a-key-that-cannot-exist
 
 The pipeline decision map (2026-08-25) counted ten code sites reading

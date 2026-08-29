@@ -948,6 +948,35 @@ Where a track came from is RECORDED as `provenance` - the query, the URL, the ch
 - `UNSUPPORTED_BY_THE_MEASUREMENTS` records what a section choice cannot yet see - the SHAPE of a non-zero section, the bar lines, whether it has vocals. Say what is missing; do not fill it with a rule.
 - `tests/test_music_section.py`.
 
+**Which SECONDS of a chosen cutaway play is decided from the PICTURE, never from its audio.**
+One enumeration, `library/tools/cutaway_window.py`. A cutaway is placed `video_only: True`, so the
+clip's own audio is never heard - and the post-bridge chose the window by centring it on that muted
+clip's audio RMS peak. On 001's run of record that decided **7 of 7 windows, 31.0% of the finished
+picture**. [why - the seven windows, and the motion rule that disconfirmed nothing](docs/RULE_EVIDENCE.md#the-cutaway-window-came-from-a-muted-waveform)
+
+- `AUDIO_SIGNALS` is the enumeration of what may not reach the decision, and
+  `tests/test_cutaway_window.py` reads the SOURCE of both the module and step 3.02's post-bridge and
+  fails if one of those keys is indexed or `.get()`'d there. A behavioural test alone would not have
+  caught the strategy that shipped, because it only ran on clips with fewer than two scene boundaries.
+- **The candidate spans are scene boundaries UNION the vision pass's time-bounded `blocks`.** The
+  old visual strategy needed >= 2 scene boundaries and got them on 2 of 001's 17 clips; the union
+  gives a real choice on **13 of 17**, and the four that stay at one span are 3.6-9.1 s clips.
+- **The model's own `preferred_moment` chooses**, matched against what the vision pass observed
+  during each span - the same shape `speech_sequence` uses to resolve a passage to a source range.
+  The engine resolves words to seconds; it does not decide that a busier or brighter span is better.
+- **`DECLINED_TO_RANK` records every signal that is measured and deliberately not ranked on**, with
+  the reason. `motion_energy`, `camera_motion`, brightness, saturation and face presence are all in
+  it: that a moving shot makes better B-roll than a still one is taste, and 001's evidence supports
+  neither side.
+- **Every basis is recorded on the placement** as `window_basis`. `single_span` and `undiscriminated`
+  are the ABSENCE of a decision, not a decision, and are spelled differently from `moment_match` so a
+  reviewer can tell - four of 001's seven cutaways are `single_span`.
+- **`usable_ranges` is read through its METHOD** (§10.3): a measured range excludes a window outside
+  it, an `unmeasured` one filters nothing. 001 carries the stale `[[0, duration]]` on 17 of 17.
+- The candidate rows plus `CANDIDATE_LEGEND` are the shape a prompt would carry, so letting the model
+  name the window itself needs no edit to the step's frozen `handoff.md`.
+- `tests/test_cutaway_window.py`.
+
 **Every candidate is MEASURED, and nothing about it is classified.**
 `library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
 A mood, a genre or an energy word computed here would be the taste fabrication §10.5 forbids - numbers and one curve go to the model, the model decides.
