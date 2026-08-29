@@ -2872,7 +2872,7 @@ the same reasons independently:
 
 `library/steps/step_4_04_plan_sfx/handoff.md` is frozen. Its System Context (line 25) and toolkit
 table (lines 28-33) still name `foley`, `ambient` and `reverse_cymbal`. After this change they name
-nothing the model can emit - the schema asks for an `sfx_id` out of `sfx_catalog_toon` - but the
+nothing the model can emit - the schema asks for an `sfx_id` out of `sfx_catalog_reference` - but the
 table reads as a menu and should be corrected by whoever holds that file.
 
 ## no-assessment-field-reports-a-default
@@ -3422,6 +3422,124 @@ The full re-measurement of all eight families the map listed, with a
 recommendation per remaining field, is in
 [`docs/UNREAD_DECISIONS_INVENTORY.md`](UNREAD_DECISIONS_INVENTORY.md).
 
+---
+
+## the-plan-could-not-say-how-long-a-sound-plays
+
+**The regression.**  On 001's run of record (2026-08-26) `sfx_spec` carried two
+sounds and each carried its own length: `sfx_001` at block 8 ran **0.25 s**, and
+`sfx_002` at block 13 ran **3.0 s**.  The entry named a `sfx_type` and a keyword
+matcher turned `"swish"` into `whoosh_impact.mp3` - which is one of the two
+defects `#298` fixed by having the model name the FILE.
+
+`#298` also removed `DURATION_DEFAULTS`, and it was right to: that table said a
+`bass_impact` runs 0.5 s while the file the matcher handed it was a 5.317-second
+riser, so the manifest asserted a length the audio did not have.  But the schema
+that replaced it was `{spine_block_position, sfx_id, volume_level, rationale}`,
+with nowhere to put a length at all, and `_entry_duration` played the file's
+whole measured remainder.  **The same `whoosh_impact.mp3` the run of record
+played for 0.25 s plays for 8.04 s.**  Both numbers reach the timeline without
+anybody choosing them; the rule *"a duration is a property of the sound"* was
+applied one step too far, past *not inventing* a length and into *not asking*
+for one.
+
+**Why the library makes it matter.**  Measured over the captain's 78 entries
+(2026-08-28): median duration **3.94 s**, only **9 of 78** at or under 1.0 s,
+only **4** at or under 0.5 s, **30** over 3 s, longest **76.14 s**; envelope
+**42 swelling, 17 fading, 8 sustained, 9 punchy**.  Without a length, "put a
+short accent on this cut" is expressible only by choosing one of nine files.
+
+**What the bound is, and why there is only one.**  The upper bound is
+arithmetic: a file cannot play longer than it is, less whatever the `punchy`
+transient trim already skipped.  A request past it is refused by name - a clamp
+would hand back a different length from the one the plan asked for, and a plan
+asking for four seconds of a two-second sound is a plan written against a sound
+it has not read.  The lower bound is **two frames of the run's own timebase**,
+which at 30 fps is 0.067 s: one frame at level plus one frame of de-click ramp,
+below which the keyframe grid cannot express the thing at all.  That is the
+timebase, not taste.  How short a sound *should* be is the plan's call and
+section 10.5 forbids the engine holding an opinion about it.
+
+**The click is measured, not assumed.**  `whoosh_impact.mp3` decoded from its
+0.714 s transient for 0.25 s, 48 kHz mono, 12,000 samples: peak **13,209**,
+final sample **-2,185** - **16.5% of the slice's peak**, and the RMS of the last
+millisecond is 1,810 against 3,991 for the slice.  That is a discontinuity, not
+a decay, so honouring a length includes ending it cleanly.  The ramp is **one
+frame** because the mix reaches Fairlight as OTIO volume keyframes and a
+keyframe is addressed by FRAME (section 5): a conventional 5-10 ms de-click has
+no representation on a 30 fps grid, so 33 ms is the floor the FORMAT sets rather
+than a number picked for feel.
+
+**The run of record, replayed at HEAD.**  Its own entry, with `sfx_id`
+substituted for the withdrawn `sfx_type` and its 0.25 carried in the new field:
+
+    sfx_id             whoosh_impact.mp3
+    source_in          0.714          (punchy, so the transient trim applies)
+    timeline_in        34.615
+    timeline_out       34.865
+    duration_seconds   0.25
+    fade_out_seconds   0.0333
+    played length      0.25 s
+
+`timeline_in` and `timeline_out` are the shipped video's own two numbers.  The
+same entry with no `duration_seconds` plays 7.326 s and carries no ramp; the
+same entry asking for 12.0 s exits 1 with *"A sound cannot play longer than it
+is. Ask for at most 7.326s ... Nothing is clamped."*
+
+`library/tools/sfx_duration.py`, `tests/test_sfx_duration.py`.
+
+## the-catalogue-was-copied-into-the-prompt
+
+`#298` put the whole SFX library in step 4.04's prompt, and that was the fix: a
+model that cannot read `avoid_when` cannot decline a sound the library says to
+decline.  As one TOON table it measured **44,397 B**, **44,575 B** serialised
+into the context - and once `#295` stopped copying the creative brief into seven
+prompts, that was **44.1% of step 4.04's entire 101,093 B context** and 6.5% of
+the 684,120 B the pipeline's twelve contexts total.  `#299` named it.
+
+**The mechanism existed and had not been applied.**  `#295` built exactly this:
+a large document is written to disk, the prompt carries a map of headings with
+sizes, line ranges and ledes, and the model follows a `sed -n 'a,bp'` for the
+part it needs.  Nothing about it is brief-specific except two sentences of
+header, which are now parameters.
+
+**The document was adapted to the mechanism, not the other way round.**
+`build_reference` splits on `##` headings and lifts each section's first line of
+prose as its lede, so `sfx_library.catalog_document` writes **one `##` section
+per sound, titled with the exact `sfx_id` an answer must name**, opening with
+that sound's measured facts on one line.  The map therefore names every sound by
+id and carries its category, length, envelope and emotional temperature inline;
+the library's prose - description, source object, evokes, `works_when`,
+`avoid_when`, which is **38,975 of the table's 44,397 B** - sits behind a line
+range.
+
+**Measured on the captain's 78-entry library, 2026-08-29:**
+
+| | bytes |
+|---|---|
+| catalogue as an inline TOON table | 44,397 |
+| ...serialised into the context | 44,575 |
+| catalogue document written to disk | 54,080 |
+| the map, in the prompt | 12,960 |
+| ...serialised into the context | **13,351** |
+| saved | **31,224** (70.0% of the catalogue) |
+| step 4.04's whole context | 101,093 -> **69,869** (30.9% off) |
+| catalogue's share of that context | 44.1% -> **19.1%** |
+
+**All 78 sounds are still reachable**: 78 of 78 named in the map by exact
+`sfx_id`, 78 of 78 carrying a line range, and 78 of 78 of those ranges resolving
+to their own section in the document.  A reference that narrowed the menu would
+be the shortlist problem in a third disguise - whatever picks the shortlist
+becomes the chooser, which is what the deleted word list was.
+
+Two side effects worth recording.  The document is markdown, so a description
+full of commas and apostrophes needs no escaping at all, where a TOON cell had
+to be backtick-quoted (section 10.1).  And the bridge REFUSES a run that reaches
+it with no `project_folder`: there would be nowhere to write the document, and
+carrying 44 KB inline instead is the degraded mode that ships quietly.
+
+`library/tools/brief_reference.py`, `library/tools/sfx_library.catalog_document`,
+`tests/test_sfx_catalogue_by_reference.py`.
 ---
 
 ## the-motion-graphics-that-were-planned-and-absent

@@ -1133,27 +1133,22 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     """
     raw_input_tokens = len(str(inputs).split()) * 1.3
 
-    # Clause 5 of the brief rule: a harness that cannot follow a path
+    # Clause 5 of the reference rule: a harness that cannot follow a path
     # gets the document whole.  `gather_step_inputs` reads the brief and
-    # has no idea which backend will answer; this is the one place that
+    # step 4.04's `bridge.py` writes the SFX catalogue, and neither has
+    # any idea which backend will answer; this is the one place that
     # does, so the restore happens here rather than the reference being
     # built conditionally somewhere that would have to guess.
     #
-    # The path comes back out of the reference by reading the SAME line
-    # the model reads, so a harness that cannot follow it and a test that
-    # can are following exactly the same string.
-    if isinstance(inputs.get("creative_brief"), str) and full_auto:
-        from library.tools.brief_reference import (
-            harness_reads_files, reference_path)
-        if not harness_reads_files(full_auto):
-            _brief_path = reference_path(inputs["creative_brief"])
-            if _brief_path:
-                inputs = dict(inputs)
-                with open(_brief_path, "r", encoding="utf-8") as _bf:
-                    inputs["creative_brief"] = _bf.read()
-                print(f"  [llm] {node_id}: harness {full_auto!r} cannot read "
-                      f"a file - carrying the creative brief inline",
-                      file=sys.stderr)
+    # `brief_reference.REFERENCED_INPUTS` is the enumeration of what can
+    # come back, and the path comes out of the reference by reading the
+    # SAME line the model reads.
+    if full_auto:
+        from library.tools.brief_reference import restore_for_harness
+        inputs, _restored = restore_for_harness(inputs, full_auto)
+        for _key in _restored:
+            print(f"  [llm] {node_id}: harness {full_auto!r} cannot read "
+                  f"a file - carrying {_key} inline", file=sys.stderr)
 
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     inputs = project_step_context(inputs, manifest, bridge_supplied)

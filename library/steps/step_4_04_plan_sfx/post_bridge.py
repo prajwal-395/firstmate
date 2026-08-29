@@ -35,9 +35,16 @@ distinction that does not exist in the library is not a strategy, so the
 word-end-snap and last-word-end branches are withdrawn rather than
 re-keyed. Speech-gap avoidance below still keeps a sound off a word.
 
-A sound's DURATION is now its own measured length, not a per-type
-constant. `DURATION_DEFAULTS` said a `bass_impact` runs 0.5s while the
-file the matcher handed it was a 5.3-second riser.
+A sound's DURATION is bounded by its own measured length and chosen by
+the PLAN inside it. `DURATION_DEFAULTS` said a `bass_impact` runs 0.5s
+while the file the matcher handed it was a 5.3-second riser, so the
+table went; but the schema then had nowhere to put a length at all, and
+the same `whoosh_impact.mp3` the run of record played for 0.25s played
+for its full 8.04s. Both are a number nobody chose. `duration_seconds`
+is optional - declaring none plays the whole sound - and a request past
+what the file measures is REFUSED BY NAME, never clamped. A truncated
+sound also carries a one-frame de-click ramp, because cutting a
+waveform mid-cycle clicks. See `library/tools/sfx_duration.py`.
 
 All placements are cross-referenced against:
   1. Onset times (transient anchors, ~23ms precision)
@@ -58,6 +65,12 @@ import sys
 from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.audio_reactive_sfx import align_sfx_to_prosody
 from library.tools.pipeline_validation import require_keys, require_type
+from library.tools.sfx_duration import (
+    SfxDurationRefused,
+    declick_fade_seconds,
+    full_playable_seconds,
+    resolve_played_seconds,
+)
 from library.tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
@@ -335,7 +348,8 @@ def assert_plan_is_playable(creative_plan: list, catalog: list) -> dict:
             f"{len(problems)} of {len(creative_plan)} planned sound(s) "
             f"cannot be played from the {len(catalog)}-entry SFX library:"
             "\n  - " + "\n  - ".join(problems)
-            + "\nChoose an sfx_id from the sfx_catalog_toon table."
+            + "\nChoose an sfx_id out of the catalogue at the path in "
+              "sfx_catalog_reference."
         )
     return resolved
 
@@ -362,29 +376,19 @@ def _entry_source_in(entry: dict) -> float:
     return float(transient)
 
 
-def _entry_duration(entry: dict, source_in: float = 0.0) -> float:
-    """How much of the chosen sound plays, as the library measured it.
+def _entry_duration(entry: dict, source_in: float = 0.0,
+                    requested=None, fps: float = 30.0) -> tuple:
+    """How much of the chosen sound plays, and its de-click ramp.
 
-    The file's own length, less whatever `source_in` skipped. Raises
-    rather than substituting a number: a sound whose length nothing
-    measured cannot be given a timeline_out that is true, and the
-    catalogue publishes it as `unmeasured` so the model can see it.
+    Returns `(played_seconds, fade_out_seconds)`. The plan's own
+    `duration_seconds` decides, bounded by what the library measured;
+    an entry declaring none plays the whole remainder, which is the
+    ABSENCE of a decision. Everything about the bound, the refusal and
+    the ramp is in `library/tools/sfx_duration.py`.
     """
-    duration = entry.get("duration_seconds")
-    if not isinstance(duration, (int, float)) or duration <= 0:
-        raise UnplayableSfxPlan(
-            f"{entry['sfx_id']!r} has no measured duration - the SFX "
-            f"library index records none and ffprobe could not read the "
-            f"file, so no true timeline_out can be written for it."
-        )
-    playable = float(duration) - float(source_in)
-    if playable <= 0:
-        raise UnplayableSfxPlan(
-            f"{entry['sfx_id']!r} measures {duration}s with its transient "
-            f"at {source_in}s, so trimming to the transient leaves nothing "
-            f"to play."
-        )
-    return playable
+    playable = full_playable_seconds(entry, source_in)
+    played = resolve_played_seconds(entry, source_in, requested, fps)
+    return played, declick_fade_seconds(played, playable, fps)
 
 
 def resolve_sfx(
@@ -494,7 +498,11 @@ def resolve_sfx(
             continue
         volume_db = VOLUME_MAP[volume]
         source_in = _entry_source_in(entry)
-        duration = _entry_duration(entry, source_in)
+        # How long it plays is the PLAN's decision, bounded by the
+        # sound's measured length. A request past that is refused by
+        # name in `sfx_duration`, never clamped.
+        duration, fade_out = _entry_duration(
+            entry, source_in, sfx.get("duration_seconds"), frame_rate)
 
         # Signal-driven placement
         refined_start = find_sfx_placement(
@@ -535,6 +543,10 @@ def resolve_sfx(
             "timeline_in_frame": tl_in_frame,
             "timeline_out_frame": tl_out_frame,
             "duration_seconds": duration,
+            "played_whole_sound": fade_out == 0.0,
+            # A truncated sound stops mid-waveform, and that step to
+            # silence clicks. 0.0 where the sound ends by itself.
+            "fade_out_seconds": round(fade_out, 4),
             "volume_db": volume_db,
             "volume_level": volume,
             "rationale": sfx.get("rationale", ""),
@@ -649,7 +661,7 @@ def main():
     try:
         result = resolve_sfx(creative, spine, temporal, music,
                              music_selection, fps, cd, prosody, brand_audio)
-    except UnplayableSfxPlan as unplayable:
+    except (UnplayableSfxPlan, SfxDurationRefused) as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)
 

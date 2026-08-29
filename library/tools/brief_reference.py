@@ -1,4 +1,4 @@
-"""The channel creative brief reaches a step as a REFERENCE, not a copy.
+"""A large document reaches a step as a REFERENCE, not as a copy.
 
 `#256` wired the captain's channel brief into seven prompts on
 2026-08-28 and it immediately became the largest single item in the
@@ -56,6 +56,27 @@ Nothing here decides anything creative.  The brief is prompt-only: no
 `bridge.py`, no `step.py` and no post-bridge reads `creative_brief`, so
 reshaping it changes what a model READS and never what the pipeline
 computes.
+
+## The documents it carries
+
+`REFERENCED_INPUTS` is the enumeration, and it is what `present_llm_step`
+walks when clause 5 has to put one back inline:
+
+  * `creative_brief` - the captain's channel brief, seven steps, the
+    document this rule was written for.
+  * `sfx_catalog_reference` - step 4.04's SFX catalogue, 44,575 B and
+    **44.1% of that step's whole context** once the brief stopped being
+    copied (#299).  Step 4.04's `bridge.py` writes the catalogue to the
+    step's own directory and builds the reference; the shape of the
+    document is `sfx_library.catalog_document`, which fits the mechanism
+    rather than forking it - one `##` section per sound, titled with the
+    exact `sfx_id` an answer has to name, opening with the sound's
+    measured facts so that line becomes the map's lede.
+
+**A second document costs a row here and nothing else.**  The rule, the
+map, the line ranges and the harness clause are all the same; only the
+two sentences of header naming the document differ, and they are
+parameters (`document_name`, `why_referenced`).
 """
 
 from __future__ import annotations
@@ -202,13 +223,30 @@ def _normalise(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip().casefold()
 
 
-def build_reference(path: str, content: str, pinned=(), harness: str = "agy") -> str:
-    """The text a step receives in place of the brief's 47,903 bytes.
+# What the brief is, in the two places the header names it.  A DEFAULT
+# rather than a constant, because the rule above is about documents and
+# the brief is the first one it was applied to - step 4.04's 44,575-byte
+# SFX catalogue is the second (#299), and it is the same mechanism with
+# its own two sentences rather than a second mechanism.
+DEFAULT_DOCUMENT_NAME = "The captain's channel creative brief"
+DEFAULT_WHY_REFERENCED = ("most of it is about the channel rather than "
+                          "about this video")
+
+
+def build_reference(path: str, content: str, pinned=(), harness: str = "agy",
+                    document_name: str = DEFAULT_DOCUMENT_NAME,
+                    why_referenced: str = DEFAULT_WHY_REFERENCED) -> str:
+    """The text a step receives in place of the document's own bytes.
 
     `path` is recorded exactly as the step will have to use it, so it is
     the caller's job to hand an ABSOLUTE one.  A harness that cannot read
     a file (clause 5) gets `content` back unchanged, with a line saying
     why - so a prompt never claims a route it does not have.
+
+    `document_name` and `why_referenced` are the only two things the
+    header says about WHICH document this is; everything else - the map,
+    the line ranges, the inline clauses - is the same for any markdown
+    document with `##` sections.
     """
     if not harness_reads_files(harness):
         return content
@@ -219,9 +257,9 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agy") ->
     lines_total = content.count("\n") + 1
 
     out = [
-        f"The captain's channel creative brief is NOT copied into this prompt.",
-        f"It is {total:,} bytes across {lines_total:,} lines, and most of it is "
-        f"about the channel rather than about this video.",
+        f"{document_name} is NOT copied into this prompt.",
+        f"It is {total:,} bytes across {lines_total:,} lines, and "
+        f"{why_referenced}.",
         "",
         f"  {PATH_MARKER} {path}",
         "",
@@ -329,3 +367,43 @@ def project_pinned_sections(project_folder: str) -> list:
             f"of headings, got {type(declared).__name__}."
         )
     return [str(d) for d in declared]
+
+
+# ── Clause 5, applied ───────────────────────────────────────────────
+
+REFERENCED_INPUTS = ("creative_brief", "sfx_catalog_reference")
+"""Every step input that travels as a reference built here.
+
+`present_llm_step` walks this to put a document back inline for a
+harness that cannot follow a path.  An input NOT in this tuple is never
+restored, so a step that happens to carry a `FILE:` line in some other
+string is left alone.
+"""
+
+
+def restore_for_harness(inputs: dict, harness: str) -> tuple:
+    """Carry every referenced document inline when the harness cannot read.
+
+    Returns `(inputs, restored_keys)`.  `inputs` is copied only if
+    something changed.  The path comes back out of the reference by
+    reading the SAME line the model reads, so a harness that cannot
+    follow it and a test that can are following exactly the same string.
+    """
+    if not harness or harness_reads_files(harness):
+        return inputs, []
+
+    restored = []
+    for key in REFERENCED_INPUTS:
+        value = inputs.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        path = reference_path(value)
+        if not path:
+            continue
+        with open(path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+        if not restored:
+            inputs = dict(inputs)
+        inputs[key] = content
+        restored.append(key)
+    return inputs, restored

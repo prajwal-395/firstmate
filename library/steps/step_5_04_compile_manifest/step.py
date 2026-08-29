@@ -1577,6 +1577,12 @@ def compile_manifest(out_dir: str) -> dict:
                 "timeline_in_frame": seconds_to_frame(tl_start_sec, fps),
                 "timeline_out_frame": seconds_to_frame(tl_end_sec, fps),
                 "volume_db": vol_db,
+                # A sound the plan cut short stops mid-waveform, and that
+                # step to silence clicks. Step 4.04 measured the ramp;
+                # `otio_mix` is what turns it into volume keyframes. 0.0
+                # where the sound plays to its own end.
+                "fade_out_seconds": float(
+                    sfx_entry.get("fade_out_seconds") or 0.0),
                 "label": sfx_entry.get("label", f"sfx_{si+1:03d}"),
                 "sfx_id": sfx_id or os.path.basename(source_file),
             })

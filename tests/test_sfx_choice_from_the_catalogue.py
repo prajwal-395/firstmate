@@ -30,8 +30,8 @@ SFX_STEP = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 from library.tools import sfx_library  # noqa: E402
 from library.tools.sfx_library import (  # noqa: E402
     CATALOG_COLUMNS,
+    catalog_document,
     catalog_rows,
-    catalog_toon,
     load_sfx_catalog,
     resolve_sfx_id,
 )
@@ -137,33 +137,47 @@ def test_an_id_resolves_exactly_or_not_at_all(tmp_path):
             f"{near_miss!r} resolved - a nearest match is a chooser")
 
 
-def test_the_catalogue_table_keeps_its_declared_column_order(tmp_path):
+def test_the_catalogue_keeps_its_declared_column_order(tmp_path):
     catalog = load_sfx_catalog(str(_library(tmp_path)))
     assert list(catalog_rows(catalog)[0]) == list(CATALOG_COLUMNS)
 
-    header = catalog_toon(catalog).splitlines()[0]
-    assert header == "[2]{" + ",".join(CATALOG_COLUMNS) + "}", header
 
+def test_every_sound_gets_its_own_section_titled_with_its_id(tmp_path):
+    """The heading IS the string an answer has to name.
 
-def test_a_description_with_a_comma_and_an_apostrophe_stays_one_cell(tmp_path):
-    """Rendered through the serializer, so a cell is quoted with a backtick.
-
-    A tab-joined row would put "and it doesn't ring on" into the next
-    column, and the apostrophe would be doubled by any dialect quoting on
-    `'` (AGENTS.md 10.1).
+    That is what lets `brief_reference`'s map name all 78 of the
+    captain's sounds without the body being read.
     """
-    toon = catalog_toon(load_sfx_catalog(str(_library(tmp_path))))
-    assert "doesn't" in toon
-    assert "doesn''t" not in toon
-    row = toon.splitlines()[1]
-    assert "`A dry, close snap, and it doesn't ring on.`" in row
+    catalog = load_sfx_catalog(str(_library(tmp_path)))
+    document = catalog_document(catalog)
+    for entry in catalog:
+        assert f"\n## {entry['sfx_id']}\n" in document, entry["sfx_id"]
+    assert document.count("\n## ") == len(catalog)
 
 
-def test_an_empty_catalogue_still_names_its_columns(tmp_path):
+def test_a_description_with_a_comma_and_an_apostrophe_needs_no_escaping(
+        tmp_path):
+    """Every field is its own line, so nothing is quoted at all.
+
+    As a TOON table this had to be quoted with a backtick, because a
+    tab-joined row would put "and it doesn't ring on" into the next
+    column and the apostrophe would be doubled by any dialect quoting on
+    `'` (AGENTS.md 10.1). A markdown line has no cell to break.
+    """
+    document = catalog_document(load_sfx_catalog(str(_library(tmp_path))))
+    assert "doesn't" in document
+    assert "doesn''t" not in document
+    assert ("- description: A dry, close snap, and it doesn't ring on."
+            in document)
+
+
+def test_an_empty_catalogue_says_so_rather_than_pretending(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
     assert load_sfx_catalog(str(empty)) == []
-    assert catalog_toon([]).startswith("[0]{sfx_id,")
+    document = catalog_document([])
+    assert "0 playable sounds" in document
+    assert "\n## " not in document
 
 
 # ── Nothing maps a word to a sound any more ───────────────────────────
@@ -181,7 +195,7 @@ def test_the_keyword_chooser_is_gone(tmp_path):
 # are still named in step_4_04_plan_sfx/handoff.md's toolkit table, which
 # is under a captain freeze - that file is the one place they survive,
 # and after this change they name nothing the model can emit: the schema
-# asks for an `sfx_id` out of `sfx_catalog_toon`.
+# asks for an `sfx_id` out of `sfx_catalog_reference`.
 UNDELIVERABLE_TYPES = ("foley", "ambient", "reverse_cymbal")
 FROZEN_PROMPT = SFX_STEP / "handoff.md"
 
@@ -226,7 +240,7 @@ def test_the_schema_asks_for_a_library_id_not_a_type():
         encoding="utf-8"))
     described = manifest["interface"]["llm_outputs"][0]["description"]
     assert "sfx_id" in described
-    assert "sfx_catalog_toon" in described
+    assert "sfx_catalog_reference" in described
     assert "sfx_type" not in described
 
 

@@ -290,21 +290,118 @@ def catalog_rows(catalog: list) -> list:
     return rows
 
 
-def catalog_toon(catalog: list) -> str:
-    """The catalogue as ONE TOON table, ready for a prompt.
+# The document's filename inside the step's own directory.  One name,
+# because the step writes it and the prompt points at it.
+CATALOG_DOCUMENT_NAME = "sfx_catalogue.md"
 
-    Rendered through ``library.tools.toon_serializer``, not by a
-    hand-rolled joiner: these cells carry the library's own English
-    prose, full of commas and apostrophes, and the serializer is the one
-    place that knows a cell is quoted with a BACKTICK (AGENTS.md 10.1).
-    A tab-joined row would put a description's comma into the next
-    column.
+# How each catalogue column is labelled in the document.  The four
+# measurable ones open the section as its identity line - which is also
+# what `brief_reference` lifts as the section's lede, so the map names
+# every sound with its category, length, envelope and temperature
+# without the body being read.
+_IDENTITY_COLUMNS = ("category", "duration_s", "envelope",
+                     "emotional_temperature")
+"""The columns `_identity_line` carries, and the whole of what the map
+names without the body being read."""
+_BODY_LABELS = (
+    ("description", "description"),
+    ("source_object", "source object"),
+    ("evokes", "evokes"),
+    ("works_when", "works when"),
+    ("avoid_when", "avoid when"),
+)
 
-    Columns come out in ``CATALOG_COLUMNS`` order because ``catalog_rows``
-    builds each row in that order and the serializer never sorts.
+
+def catalog_document(catalog: list) -> str:
+    """The whole catalogue as ONE markdown document, one section per sound.
+
+    This is what step 4.04 writes to disk and hands the model a
+    REFERENCE to, through the mechanism ``library/tools/brief_reference.py``
+    already built for the captain's channel brief (#295, AGENTS.md 10.1).
+    The catalogue was 44,575 B and 44.1% of that step's whole context -
+    the biggest single item in the pipeline after the brief stopped
+    being copied - and #299 named it.  Measured on the captain's library
+    2026-08-29: 54,080 B of document on disk, 13,351 B of map in the
+    context, a 31,224 B saving and 30.9% off the whole step.
+
+    The shape is chosen to fit the mechanism rather than to fork it.
+    ``build_reference`` splits a document on its ``##`` headings and
+    prints, per section, the heading, its size, its LINE RANGE and its
+    first line of prose.  So:
+
+      * one ``##`` section per sound, titled with the ``sfx_id`` - which
+        is the exact string the answer has to name, so the map alone
+        names all 78 of them;
+      * the section opens with its MEASURABLE facts on one line, so that
+        line becomes the lede and the map carries category, length,
+        envelope and emotional temperature inline for every sound;
+      * the library's prose - description, source object, evokes,
+        works_when, avoid_when, which is 38,975 of the table's 44,397 B -
+        is the body, behind a line range one ``sed`` reaches.
+
+    Nothing is shortlisted, filtered, ranked or truncated: every sound
+    the library can play has a section, and the whole document is at the
+    path.  A reference that narrowed the menu would be the shortlist
+    problem wearing a third hat (AGENTS.md 10.5).
+
+    The prose is markdown, not TOON, and that is the second reason this
+    replaces ``catalog_toon``: a TOON cell has to quote a description
+    full of commas and apostrophes, and here every field is its own
+    line, so nothing is escaped at all.
     """
-    from library.tools.toon_serializer import json_to_toon
     rows = catalog_rows(catalog)
-    if not rows:
-        return "[0]{" + ",".join(CATALOG_COLUMNS) + "}\n"
-    return json_to_toon(rows)
+    out = [
+        "# The SFX library",
+        "",
+        f"{len(rows)} playable sound{'' if len(rows) == 1 else 's'}. Every "
+        f"one of them is on disk, and the heading of each section below is "
+        f"exactly the `sfx_id` a plan must name - there is no other "
+        f"spelling and no near match.",
+        "",
+        "Nothing here is shortlisted or ranked. One section per sound, in "
+        "the library's own order. Each opens with what was MEASURED about "
+        "the file - its folder category, its length in seconds, the "
+        "envelope shape the profiler measured, and the emotional "
+        "temperature the library's semantic index recorded - and then "
+        "carries what the library says the sound means and when it says "
+        "to use it or not.",
+        "",
+        "A length is the plan's to choose inside the number below: a sound "
+        "may be asked to play for less than it measures, never more.",
+        "",
+    ]
+    for row in rows:
+        out.append(f"## {row['sfx_id']}")
+        out.append(_identity_line(row))
+        missing = []
+        for column, label in _BODY_LABELS:
+            value = " ".join(str(row[column]).split())
+            if value:
+                out.append(f"- {label}: {value}")
+            else:
+                missing.append(label)
+        if missing:
+            # An absence is STATED. A field the library records nothing
+            # for is not the same as a field nobody looked at, and a
+            # blank line would read as either.
+            out.append(f"- the library records no {', '.join(missing)}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def _identity_line(row: dict) -> str:
+    """The measured facts, on the one line that becomes the map's lede.
+
+    An unmeasured value SAYS SO rather than being left out: a sound the
+    profiler never finished is a different thing from one the map had no
+    room for.
+    """
+    duration = row["duration_s"]
+    parts = [
+        f"category {row['category'] or 'uncategorised'}",
+        ("length unmeasured" if duration == "unmeasured"
+         else f"plays for {duration} s"),
+        f"envelope {row['envelope'] or 'unmeasured'}",
+        f"temperature {row['emotional_temperature'] or 'not recorded'}",
+    ]
+    return " | ".join(parts)

@@ -306,6 +306,7 @@ class Area(str, Enum):
     OCR = "ocr"
     ACQUIRED_MEDIA = "acquired_media"
     MUSIC_ANALYSIS = "music_analysis"
+    SFX_CATALOGUE = "sfx_catalogue"
     SUBTITLE_SEGMENTS = "subtitle_segments"
     MOTION_GRAPHICS_SEGMENTS = "motion_graphics_segments"
     TIMED_TEXT_SEGMENTS = "timed_text_segments"
@@ -422,6 +423,12 @@ AREAS: dict[Area, AreaSpec] = {
         _step_path("music_analysis"), Kind.OUTPUT,
         "Tempo, beat grid and structure of the CHOSEN track.",
         step="music_analysis"),
+    Area.SFX_CATALOGUE: AreaSpec(
+        _step_path("plan_sfx"), Kind.OUTPUT,
+        "The SFX library written out as one document per run, so the "
+        "prompt can point at it instead of carrying 44,575 B of "
+        "catalogue. See library/tools/sfx_library.catalog_document.",
+        step="plan_sfx"),
     Area.SUBTITLE_SEGMENTS: AreaSpec(
         _step_path("render_subtitles"), Kind.OUTPUT,
         "Rendered per-block subtitle overlays, ProRes 4444 with alpha, plus "

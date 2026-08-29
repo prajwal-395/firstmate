@@ -313,7 +313,8 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
     `audio_mix.music_automation` planned.  Every other planned audio clip
     carries its static `volume_db` - which until now reached nothing,
     because `SetProperty("Volume", ...)` is one of the calls Resolve
-    declines.
+    declines - plus, where step 4.04 cut a sound short, the one-frame
+    de-click ramp `declick_curve` builds from its `fade_out_seconds`.
     """
     tracks = manifest.get("tracks", {}) or {}
     audio_mix = manifest.get("audio_mix", {}) or {}
@@ -348,15 +349,49 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
             level = clip.get("volume_db")
             if not source or level is None:
                 continue
+            start = _start_frame(clip, fps)
+            frames = max(0, _end_frame(clip, fps) - start)
             targets.append({
                 "role": "sfx",
                 "source_file": source,
-                "start_frame": _start_frame(clip, fps),
+                "start_frame": start,
                 "level_db": float(level),
-                "keyframes": {},
+                "keyframes": declick_curve(
+                    float(clip.get("fade_out_seconds") or 0.0),
+                    fps=fps, clip_frame_count=frames, level_db=float(level)),
                 "label": clip.get("label", os.path.basename(source)),
             })
     return targets
+
+
+def declick_curve(fade_seconds: float, *, fps: float, clip_frame_count: int,
+                  level_db: float) -> dict:
+    """The ramp at the out point of a sound the plan CUT SHORT.
+
+    A sound played to its own end has nothing to ramp and gets `{}` - a
+    static level, which is what every SFX carried before.  A sound the
+    plan asked to stop early stops mid-waveform, and that step to silence
+    is an audible click: measured on the run of record's own request,
+    `whoosh_impact.mp3` from its 0.714 s transient for 0.25 s ends at
+    16.5% of the slice's peak.
+
+    How long the ramp is, is decided in
+    `library/tools/sfx_duration.py` - one frame, because a keyframe is
+    addressed by FRAME and one is the shortest this format can carry.
+    Nothing is chosen here; this turns a measured number into the two
+    keys that deliver it.
+    """
+    if fade_seconds <= 0 or clip_frame_count <= 1:
+        return {}
+    last_frame = clip_frame_count - 1
+    ramp = max(1, int(round(fade_seconds * fps)))
+    hold = last_frame - ramp
+    if hold < 0:
+        hold = 0
+    if hold >= last_frame:
+        hold = last_frame - 1
+    return _tidy([(0, level_db), (hold, level_db),
+                  (last_frame, MIN_VOLUME_DB)], last_frame)
 
 
 def _start_frame(clip: dict, fps: float) -> int:

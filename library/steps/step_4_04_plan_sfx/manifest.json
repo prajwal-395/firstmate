@@ -87,10 +87,10 @@
     ],
     "outputs": [
       {
-        "name": "sfx_catalog_toon",
+        "name": "sfx_catalog_reference",
         "type": "string",
         "required": true,
-        "description": "Bridge output: the SFX library as a table - one row per playable sound, carrying category, measured duration and envelope, description, source object, what it evokes, and the library's own works_when / avoid_when. This is what the model chooses from, and the answer names an sfx_id out of it. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+        "description": "Bridge output: the SFX library as a REFERENCE - the whole catalogue written to this step's own directory as sfx_catalogue.md, and a map naming every playable sound by its exact sfx_id, with its measured category, length, envelope and emotional temperature, and the line range that holds the library's prose about it. This is what the model chooses from, and the answer names an sfx_id out of it. The mechanism is library/tools/brief_reference.py, the same one #295 built for the creative brief; as an inline TOON table the catalogue was 44,397 B and 44.1% of this step's context (#299). Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
         "name": "transitions_toon",
@@ -127,7 +127,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_id (an exact sfx_id from the sfx_catalog_toon table - no other value is playable), volume_level (subtle|low|medium|prominent), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
+        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_id (an exact sfx_id out of the catalogue sfx_catalog_reference points at - no other value is playable), volume_level (subtle|low|medium|prominent), duration_seconds (OPTIONAL - how long the sound plays for, which may be less than the sound's own measured length but never more; leave it out and the whole sound plays, which is the absence of a decision rather than a decision), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
       }
     ]
   },
@@ -163,7 +163,7 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
-    "sfx_catalog_toon",
+    "sfx_catalog_reference",
     "transitions_toon",
     "b_roll_assignments",
     "creative_direction",

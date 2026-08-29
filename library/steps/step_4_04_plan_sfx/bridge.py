@@ -40,26 +40,49 @@ the model re-derive that join out of `timed_spine`. The plan's per-cut
 `rationale` prose is deliberately left behind: it is 4.02 explaining
 itself, and it is three quarters of the spec's bytes.
 
-`sfx_catalog_toon` is the third table, and it is the SFX LIBRARY ITSELF:
-one row per playable sound, carrying what the library records about each
-- category, measured duration and envelope, description, source object,
-what it evokes, and the library's own `works_when` / `avoid_when`. That
-table is what the model chooses from, and the answer names an `sfx_id`
-out of it. Where `available_sfx_types` used to sit, offering eight
-abstract type names for a keyword matcher to turn back into a file.
+`sfx_catalog_reference` is the third thing, and it is the SFX LIBRARY
+ITSELF: what the library records about every playable sound - category,
+measured duration and envelope, description, source object, what it
+evokes, and the library's own `works_when` / `avoid_when`. That is what
+the model chooses from, and the answer names an `sfx_id` out of it.
+Where `available_sfx_types` used to sit, offering eight abstract type
+names for a keyword matcher to turn back into a file.
 
 **The whole library ships; nothing is shortlisted and nothing is
 truncated.** Measured on the captain's library on 2026-08-28 it is 78 of
-78 entries and 44,397 B, against a 45,930 B context - so the step that
-exists to choose sounds spends half its prompt on the sounds, where it
-used to spend 110 bytes. A shortlist was the alternative and it is the
-same defect wearing a new hat: whatever picks the shortlist becomes the
-chooser, which is exactly what the word list was.
+78 entries. A shortlist was the alternative and it is the same defect
+wearing a new hat: whatever picks the shortlist becomes the chooser,
+which is exactly what the word list was.
+
+**It ships BY REFERENCE.** As one TOON table it was 44,397 B - 44,575 B
+serialised into the context - which after #295 stopped copying the
+creative brief was 44.1% of this step's entire context and 6.5% of every
+byte the pipeline's twelve contexts send (#299). The map is 13,351 B in
+its place: a 31,224 B saving, 30.9% off the whole step, measured on the
+captain's 78-entry library 2026-08-29. So the bridge writes the catalogue to this step's own
+directory as a markdown document - `sfx_library.catalog_document` - and
+puts `brief_reference.build_reference`'s map in the prompt instead. That
+is the mechanism #295 built for the brief, applied to a second document;
+it is not a second mechanism, and the document is not a second
+catalogue.
+
+**Every one of the 78 sounds is still reachable, and the map names all
+78 by id.** A section is titled with the exact `sfx_id` an answer must
+name and opens with the sound's measured facts, so the map carries
+category, length, envelope and emotional temperature for every sound
+inline, with a LINE RANGE one `sed` reaches for the prose behind it. A
+reference that narrowed the menu would be the shortlist problem again.
 """
 import sys
 import json
 
-from library.tools.sfx_library import catalog_toon, load_sfx_catalog
+from library.tools.brief_reference import build_reference
+from library.tools.project_layout import Area, layout_for
+from library.tools.sfx_library import (
+    CATALOG_DOCUMENT_NAME,
+    catalog_document,
+    load_sfx_catalog,
+)
 from library.tools.transition_vocabulary import is_cut
 
 # How much of a block's line reaches the summary column. The full text is
@@ -234,6 +257,27 @@ def build_sfx_candidates(data: dict) -> list:
     return rows
 
 
+def write_catalog_reference(project_folder: str, catalog: list) -> str:
+    """Write the catalogue out, and return the map that points at it.
+
+    The path recorded is ABSOLUTE, because it is the path the model will
+    have to use and it runs from wherever the harness put it, not from
+    the project folder. Same reasoning as the brief's, and the same
+    function builds the map.
+    """
+    path = layout_for(project_folder).write_path(
+        Area.SFX_CATALOGUE, CATALOG_DOCUMENT_NAME, step="plan_sfx")
+    document = catalog_document(catalog)
+    path.write_text(document, encoding="utf-8")
+    return build_reference(
+        str(path.resolve()), document,
+        document_name=(f"The SFX library's catalogue of "
+                       f"{len(catalog)} playable sounds"),
+        why_referenced=("every sound in it is reachable from the map "
+                        "below and most decisions need only a few of them"),
+    )
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -258,6 +302,21 @@ def main():
         }))
         sys.exit(1)
 
+    project_folder = data.get("project_folder") or ""
+    if not project_folder:
+        # There is nowhere to put the document, and carrying the whole
+        # catalogue inline instead would be the degraded mode that ships
+        # quietly. The runner broadcasts `project_folder` on every run.
+        print(json.dumps({
+            "error": (
+                "No project_folder reached this bridge, so the SFX "
+                "catalogue has nowhere to be written and the prompt has "
+                "no path to point at"
+            ),
+            "step": "4.04_bridge",
+        }))
+        sys.exit(1)
+
 
     # No `sfx_spec` stub. This bridge used to emit
     # `{"sfx_list": [], "fairlight_preset": "default"}`, and because a
@@ -267,7 +326,8 @@ def main():
     # already decided to place no sounds. The post-bridge writes the real
     # `sfx_spec` after the model answers.
     compressed = {
-        "sfx_catalog_toon": catalog_toon(catalog),
+        "sfx_catalog_reference": write_catalog_reference(
+            project_folder, catalog),
         "sfx_candidates_toon": sfx_toon,
         "transitions_toon": format_toon(
             ["spine_block_position", "transition_type", "draws_on_screen",
