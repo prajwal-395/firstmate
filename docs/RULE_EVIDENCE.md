@@ -466,6 +466,53 @@ The drift threshold is a secondary aid only: the shipped case drifted 0.76s and 
 This is fixed in code and covered by tests, but the export at the reference project was NOT regenerated.
 The mp4 on disk still repeats "to post" at ~10.4s, so the fix is not verified in a render.
 
+### the-passage-opened-on-the-wrong-i
+
+**6.901 seconds of project 001's finished 59.437s export - 11.6% of the video - is audio nobody chose, with no caption over it.**
+Graded off the shipped mp4 on 2026-08-29 and reproduced exactly off frozen state at HEAD `89c796b`.
+
+The model's answer was right.
+`speech_sequence` asked for *"i get caught up in all the numbers and metrics ... where i don't do the thing in the first place"* on clip_011, hinting 92.07-118.23.
+The passage begins at 107.369s.
+What reached the timeline was `speech_7_seg0`, source 100.519-116.512 - so the viewer hears, from 18.622s to 25.572s, *"...want to do the goals i have, and really the goal of this is to take the pressure off posting, i think"*, and only then the intended line.
+
+The mechanism, in two stages, both of them the aligner doing what it was told:
+
+    full-clip alignment      88.366 -> 116.512    leading gap 19.043s
+    _hint_drift              3.704s > MAX_HINT_DRIFT (2.0)  -> re-anchor in the hint window
+    windowed alignment      100.519 -> 116.512    leading gap  6.901s   <- what shipped
+    faithfulness ratio       1.0    >= MIN_TEXT_OVERLAP (0.5)           <- passes
+
+`_align_words_to_text` anchored on the occurrence of the passage's FIRST WORD nearest the hint.
+The first word is *"i"*; clip_011 says *"i"* 26 times, 6 of them inside the hint window.
+The two-pointer then advanced over non-matching candidates with **no bound on the time it may skip**.
+
+Every gate that could have caught it is the right gate for a different failure:
+
+| gate | why it did not fire |
+|---|---|
+| `MAX_HINT_DRIFT` (2.0s) | it *did* fire, and re-anchored onto a second wrong *"i"* |
+| `MIN_TEXT_OVERLAP` (0.5) | set-based, so it returns **1.0** on a span that is 36.8% voiced |
+| `manifest_validator` overlapping-source | this passage overlaps no other |
+| `manifest_validator` round-number check | 100.519 is not a round number |
+| `render_qa` `subtitle_gaps` | **it fired.** `qa_report.json` has `[[13, 14, 6.25]]`, `passed: false`, `severity: "info"` - and nothing reads an `info` |
+
+**Why the fix is a search and not a threshold.**
+Across 001's eleven shipped blocks the leading gaps are 0.018-0.120s except two: body_3 at **6.901s** and body_0 at **1.121s**.
+body_0's is a real dramatic beat - *"and ... i have an announcement to make"* - so a gap ceiling that catches the defect destroys the creative decision, and a voiced-fraction floor fitted to the 61-86% the other blocks measure would flag body_0 at 48.5% too.
+Whether that band holds on other footage is unknown; it is a property of this recording until something else is measured, which is why nothing in the module compares against it.
+
+The anchor search needs no band.
+Every occurrence is tried, and the alignments are ranked by words aligned, then SPAN, then leading gap, then hint proximity.
+body_3's correct anchor aligns the same 37 words in 9.143s instead of 15.993s and wins; body_0 has no alternative that aligns its 7 words in less than 2.682s, so its pause is kept and reported as `held`.
+Ranking on the leading gap alone is not enough - it bounds the head and lets the same defect sit at the third word - which is what `test_the_ranking_puts_completeness_before_the_gap` pins.
+
+Two details cost a cycle each.
+The anchor must be tried **from the occurrence itself as well as backed up** by `ANCHOR_BACKUP_SECONDS`: backing up alone collapsed body_3's correct anchor onto the *"I"* of *"I think"* 0.58s earlier, giving 106.789s and a 0.660s gap instead of 107.369s and 0.040s.
+And the search fixes the earlier `to post` mis-anchor (`overlapping-source-ranges-play-twice`) at the alignment stage, so on 001 the overlap guard no longer has to re-anchor body_6 - it reaches 31.898s on its own.
+
+Measured on all eleven of 001's blocks off the frozen snapshot: **body_3 moves, nothing else does.**
+
 ---
 
 ## Section 8 - project management

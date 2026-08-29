@@ -346,11 +346,55 @@ def _two_passage_sequence(second_text=PASSAGE_5_TEXT):
     }
 
 
-def test_alignment_would_anchor_on_the_previous_passages_tail(
+def test_the_old_anchor_rule_lands_on_the_previous_passages_tail(
         repeated_phrase_index):
-    """Reproduce the mis-anchor: it is invisible to the drift guard."""
+    """The trap itself, still reachable, so the fixture keeps its teeth.
+
+    The rule that shipped anchored on the occurrence of the first passage
+    word NEAREST the hint and then backed the two-pointer up two seconds.
+    Here that back-up walks past passage 5's own opening and picks up
+    passage 4's trailing "to post" instead, and the drift guard cannot
+    see it.  `_align_from` is that rule's second half, driven directly.
+    """
     from library.steps.step_2_02_speech_sequence.post_bridge import (
         MAX_HINT_DRIFT,
+        _align_from,
+        _anchor_backed_up,
+        normalize,
+    )
+
+    with open(os.path.join(repeated_phrase_index, "clip_016.json")) as f:
+        regions = json.load(f)["speech_regions"]
+    candidates = regions[0]["words"]
+
+    passage_words = normalize(PASSAGE_5_TEXT).split()
+    nearest = min(
+        (i for i, c in enumerate(candidates)
+         if normalize(c["word"]) == passage_words[0]),
+        key=lambda i: abs(candidates[i]["start"] - 66.9),
+    )
+    old_rule = _align_from(
+        candidates, passage_words, _anchor_backed_up(candidates, nearest))
+
+    first_words = [w["word"] for w in old_rule[:3]]
+    assert first_words == ["to", "post", "a"], first_words
+    assert old_rule[0]["start"] == pytest.approx(65.890)
+    # ...which lands inside passage 4 (63.135-66.635): 0.745s replayed.
+    drift = max(abs(old_rule[0]["start"] - 66.9),
+                abs(old_rule[-1]["end"] - 71.0))
+    assert drift < MAX_HINT_DRIFT, (
+        "the threshold guard cannot see this mis-anchor - that is the point")
+
+
+def test_the_anchor_search_never_produces_that_alignment(
+        repeated_phrase_index):
+    """The aligner now refuses it outright, before any guard runs.
+
+    Anchoring from the occurrence itself as well as from two seconds
+    before it aligns all twelve of passage 5's words instead of eight,
+    so the tail alignment loses on completeness and is never returned.
+    """
+    from library.steps.step_2_02_speech_sequence.post_bridge import (
         collect_words_in_range,
     )
 
@@ -359,14 +403,12 @@ def test_alignment_would_anchor_on_the_previous_passages_tail(
 
     unguarded = collect_words_in_range(
         66.9, 71.0, regions, passage_text=PASSAGE_5_TEXT)
-    first_words = [w["word"] for w in unguarded["word_timestamps"][:3]]
-    assert first_words == ["to", "post", "a"], first_words
-    assert unguarded["start_time"] == pytest.approx(65.890)
-    # ...which lands inside passage 4 (63.135-66.635): 0.745s replayed.
-    drift = max(abs(unguarded["start_time"] - 66.9),
-                abs(unguarded["end_time"] - 71.0))
-    assert drift < MAX_HINT_DRIFT, (
-        "the threshold guard cannot see this mis-anchor - that is the point")
+    assert [w["word"] for w in unguarded["word_timestamps"][:3]] == \
+        ["I'm", "going", "to"]
+    assert unguarded["start_time"] == pytest.approx(67.200)
+    assert unguarded["alignment"]["event"] == "reanchored"
+    assert unguarded["alignment"]["hint_nearest_start"] == \
+        pytest.approx(65.890)
 
 
 def test_passage_is_reanchored_past_the_previous_one(repeated_phrase_index):

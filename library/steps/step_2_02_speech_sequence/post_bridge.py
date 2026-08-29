@@ -67,6 +67,11 @@ MAX_HOOK_BODY_IOU = 0.8
 MAX_HINT_DRIFT = 2.0
 HINT_WINDOW_SLACK = 1.0
 
+# How far back of a candidate anchor the two-pointer starts, so a passage
+# whose own first word was not transcribed can still align.  This is the
+# literal that used to sit inline in _align_words_to_text.
+ANCHOR_BACKUP_SECONDS = 2.0
+
 # Two body passages cut from one clip must not claim overlapping source
 # audio - the overlap is laid down twice, back to back. Sub-millisecond
 # slop is float noise, not a repeat.
@@ -114,17 +119,22 @@ def collect_words_in_range(
                 "end": w["end"],
             })
 
+    alignment = {}
+
     if not all_words:
-        return {"word_timestamps": [], "start_time": None, "end_time": None}
+        return {"word_timestamps": [], "start_time": None,
+                "end_time": None, "alignment": alignment}
 
     if passage_text:
         # Text alignment does the real work — finds the matching
-        # subsequence regardless of where it falls in the clip.
-        # If the same text appears multiple times, pick the match
-        # closest to the LLM's time hint.
+        # subsequence regardless of where it falls in the clip.  Every
+        # occurrence of the passage's first word is tried as an anchor;
+        # see _align_words_to_text for why the time hint is only the
+        # tie-break.
         words = _align_words_to_text(
             all_words, passage_text,
             hint_start=start, hint_end=end,
+            notes=alignment,
         )
     else:
         # No passage text — fall back to time-range filter
@@ -135,7 +145,8 @@ def collect_words_in_range(
         ]
 
     if not words:
-        return {"word_timestamps": [], "start_time": None, "end_time": None}
+        return {"word_timestamps": [], "start_time": None,
+                "end_time": None, "alignment": alignment}
 
     # Emit the spine contract's word shape (source_start/source_end), not
     # the temporal index's internal start/end. Every consumer downstream
@@ -151,6 +162,9 @@ def collect_words_in_range(
         ],
         "start_time": words[0]["start"],
         "end_time": words[-1]["end"],
+        # What the anchor search measured and did.  Recorded on every
+        # alignment, reported by enrich_passage; never a threshold.
+        "alignment": alignment,
     }
 
 def _hint_drift(enrichment: dict, start: float, end: float):
@@ -202,76 +216,83 @@ def _overlaps(enrichment: dict, claimed: tuple) -> bool:
     )
 
 
-def _align_words_to_text(
-    candidates: list,
-    passage_text: str,
-    hint_start: float = None,
-    hint_end: float = None,
-) -> list:
-    """Align candidate word timestamps to the passage text.
+def _leading_gap(words: list):
+    """Seconds of silence between a passage's first and second word.
 
-    Uses a two-pointer approach with lookahead to handle:
-      - Words the LLM included but WhisperX didn't transcribe (e.g. "2026")
-      - Contractions ("it's" vs "it is")
-      - Extra filler words in the candidate list
-
-    hint_start/hint_end are used to pick the right starting position
-    when searching through the full clip (in case the same text appears
-    multiple times).
-
-    Returns the aligned subset of candidates.
+    The mis-anchor's whole signature: the anchor is a word that really is
+    in the passage, and then nothing that follows it belongs until the
+    two-pointer picks the passage up again seconds later.
     """
-    passage_words = normalize(passage_text).split()
-    if not passage_words:
-        return candidates
+    if len(words) < 2:
+        return None
+    return words[1]["start"] - words[0]["end"]
 
-    # Find the best starting candidate index using the time hint.
-    # Start from the candidate nearest to (but before) hint_start.
-    first_passage_word = passage_words[0]
-    best_start_idx = 0
 
-    if hint_start is not None:
-        # Find all candidates that match the first passage word
-        first_word_indices = [
-            i for i, c in enumerate(candidates)
-            if normalize(c["word"]) == first_passage_word
-        ]
+def _largest_gap(words: list):
+    """The longest silence anywhere between consecutive aligned words."""
+    if len(words) < 2:
+        return None
+    return max(words[i + 1]["start"] - words[i]["end"]
+               for i in range(len(words) - 1))
 
-        if first_word_indices:
-            # Pick the one closest to hint_start
-            best_start_idx = min(
-                first_word_indices,
-                key=lambda i: abs(candidates[i]["start"] - hint_start),
-            )
-            # Back up by time (2s window), not fixed index count,
-            # to avoid crossing a large gap to an earlier occurrence
-            backup_time = candidates[best_start_idx]["start"] - 2.0
-            while (best_start_idx > 0 and
-                   candidates[best_start_idx - 1]["start"] >= backup_time):
-                best_start_idx -= 1
 
-    # Contraction expansion table
-    expanded = {
-        "its": ("it", "is"),
-        "im": ("i", "am"), "ive": ("i", "have"),
-        "dont": ("do", "not"), "didnt": ("did", "not"),
-        "cant": ("can", "not"), "wont": ("will", "not"),
-        "isnt": ("is", "not"), "wasnt": ("was", "not"),
-        "thats": ("that", "is"), "whats": ("what", "is"),
-        "hes": ("he", "is"), "shes": ("she", "is"),
-        "theyre": ("they", "are"), "were": ("we", "are"),
-        "youre": ("you", "are"), "youve": ("you", "have"),
-        "theres": ("there", "is"), "heres": ("here", "is"),
-        "lets": ("let", "us"), "wouldnt": ("would", "not"),
-        "couldnt": ("could", "not"), "shouldnt": ("should", "not"),
-        "havent": ("have", "not"), "hasnt": ("has", "not"),
-        "ill": ("i", "will"), "itll": ("it", "will"),
-        "well": ("we", "will"), "theyll": ("they", "will"),
-    }
+def _voiced_fraction(words: list):
+    """Share of the aligned span that the aligned words themselves cover.
 
+    A measurement, never a threshold.  Reported so a reader can see what
+    an alignment is made of; the anchor search below is what decides.
+    """
+    if len(words) < 2:
+        return None
+    span = words[-1]["end"] - words[0]["start"]
+    if span <= 0:
+        return None
+    return sum(w["end"] - w["start"] for w in words) / span
+
+
+def _anchor_backed_up(candidates: list, idx: int) -> int:
+    """Back an anchor up by TIME, not by a fixed number of candidates.
+
+    Backing up lets the two-pointer start before the anchor, so a passage
+    whose own first word was never transcribed can still align.  Backing
+    up by index instead would cross a long silence into an unrelated run
+    of speech.
+    """
+    backup_time = candidates[idx]["start"] - ANCHOR_BACKUP_SECONDS
+    while idx > 0 and candidates[idx - 1]["start"] >= backup_time:
+        idx -= 1
+    return idx
+
+
+# Contraction expansion table: candidate spellings WhisperX produces that
+# the passage text writes out in two words.
+_EXPANDED_CONTRACTIONS = {
+    "its": ("it", "is"),
+    "im": ("i", "am"), "ive": ("i", "have"),
+    "dont": ("do", "not"), "didnt": ("did", "not"),
+    "cant": ("can", "not"), "wont": ("will", "not"),
+    "isnt": ("is", "not"), "wasnt": ("was", "not"),
+    "thats": ("that", "is"), "whats": ("what", "is"),
+    "hes": ("he", "is"), "shes": ("she", "is"),
+    "theyre": ("they", "are"), "were": ("we", "are"),
+    "youre": ("you", "are"), "youve": ("you", "have"),
+    "theres": ("there", "is"), "heres": ("here", "is"),
+    "lets": ("let", "us"), "wouldnt": ("would", "not"),
+    "couldnt": ("could", "not"), "shouldnt": ("should", "not"),
+    "havent": ("have", "not"), "hasnt": ("has", "not"),
+    "ill": ("i", "will"), "itll": ("it", "will"),
+    "well": ("we", "will"), "theyll": ("they", "will"),
+}
+
+
+def _align_from(candidates: list, passage_words: list, c_idx: int) -> list:
+    """Two-pointer alignment of `passage_words` starting at `c_idx`.
+
+    Handles words the LLM included but WhisperX did not transcribe,
+    contractions, and filler words in the candidate list.
+    """
     aligned = []
-    p_idx = 0   # pointer into passage_words
-    c_idx = best_start_idx  # start near the time hint
+    p_idx = 0
 
     while p_idx < len(passage_words) and c_idx < len(candidates):
         p_word = passage_words[p_idx]
@@ -289,8 +310,8 @@ def _align_words_to_text(
             continue
 
         # Contraction match: "it's" in candidate vs "it is" in passage
-        if c_word in expanded and p_idx + 1 < len(passage_words):
-            exp = expanded[c_word]
+        if c_word in _EXPANDED_CONTRACTIONS and p_idx + 1 < len(passage_words):
+            exp = _EXPANDED_CONTRACTIONS[c_word]
             if (p_word == exp[0] and
                     passage_words[p_idx + 1] == exp[1]):
                 aligned.append(candidates[c_idx])
@@ -319,6 +340,211 @@ def _align_words_to_text(
         c_idx += 1
 
     return aligned
+
+
+def _align_words_to_text(
+    candidates: list,
+    passage_text: str,
+    hint_start: float = None,
+    hint_end: float = None,
+    notes: dict = None,
+) -> list:
+    """Align candidate word timestamps to the passage text.
+
+    EVERY occurrence of the passage's first word is tried as an anchor,
+    and the alignments are ranked - most passage words aligned first,
+    then the SHORTEST span, then the smallest leading gap, and only then
+    proximity to the LLM's time hint.  There is no threshold anywhere in
+    that ordering: a silence survives exactly when no equally complete
+    anchor removes it, which is the difference between a mis-anchor and
+    a real pause.
+
+    Anchoring on the occurrence NEAREST the hint is what put 6.901s of
+    unintended, uncaptioned audio into 001's finished video: the passage
+    opened on "i", the clip says "i" thirty-odd times, and the nearest
+    one was seven seconds before the one the passage actually starts on.
+    The correct anchor was FURTHER from the hint, so hint proximity can
+    only ever be the tie-break it is here.  `source_start` is a lookup
+    hint by contract (AGENTS.md section 6), not a timing.
+
+    `notes`, when given, is filled with what the search measured and
+    did: `leading_gap`, `largest_gap`, `voiced_fraction`,
+    `anchors_considered`, `hint_nearest_start`,
+    `hint_nearest_leading_gap`, `chosen_start` and `event`
+    (`reanchored` | `held` | `ok`).  Nothing here decides on those
+    numbers; they are recorded so a reader can see the alignment.
+
+    Returns the aligned subset of candidates.
+    """
+    passage_words = normalize(passage_text).split()
+    if not passage_words:
+        return candidates
+
+    first_passage_word = passage_words[0]
+    occurrences = [
+        i for i, c in enumerate(candidates)
+        if normalize(c["word"]) == first_passage_word
+    ]
+
+    if hint_start is None or not occurrences:
+        aligned = _align_from(candidates, passage_words, 0)
+        _record_alignment(notes, aligned, len(occurrences), None)
+        return aligned
+
+    # Each occurrence is tried TWICE: from the occurrence itself, and
+    # from ANCHOR_BACKUP_SECONDS before it.  The back-up alone is not
+    # enough - it makes an anchor's result depend on the nearest earlier
+    # occurrence, which on 001 collapsed the correct anchor for body_3
+    # onto the "I" of "I think" 0.58s before it.
+    start_indices = set(occurrences)
+    start_indices.update(_anchor_backed_up(candidates, i) for i in occurrences)
+
+    attempts = [
+        _align_from(candidates, passage_words, idx)
+        for idx in sorted(start_indices)
+    ]
+    attempts = [a for a in attempts if a]
+    if not attempts:
+        _record_alignment(notes, [], len(occurrences), None)
+        return []
+
+    def rank(aligned):
+        # Completeness first, then the SPAN the alignment drags in, then
+        # the leading gap, then the hint.
+        #
+        # Span before leading gap because bounding the head alone moves
+        # the defect rather than removing it: an anchor whose second word
+        # follows in 0.02s can still bridge five seconds of unrelated
+        # speech at its third.  Span is the direct measure of how much
+        # audio nobody chose an alignment carries, and it is arithmetic
+        # over this passage's own words - not a band fitted to one
+        # recording.
+        gap = _leading_gap(aligned)
+        return (
+            -len(aligned),
+            aligned[-1]["end"] - aligned[0]["start"],
+            float("inf") if gap is None else gap,
+            abs(aligned[0]["start"] - hint_start),
+        )
+
+    # What the rule that shipped - the occurrence nearest the hint -
+    # would have produced, so the report can name what it moved from.
+    nearest_idx = min(
+        occurrences, key=lambda i: abs(candidates[i]["start"] - hint_start))
+    hint_nearest = _align_from(
+        candidates, passage_words, _anchor_backed_up(candidates, nearest_idx))
+
+    aligned = min(attempts, key=rank)
+    _record_alignment(notes, aligned, len(occurrences), hint_nearest)
+    return aligned
+
+
+def _record_alignment(notes, aligned, anchors_considered, hint_nearest):
+    """Fill `notes` with what the anchor search measured and did."""
+    if notes is None:
+        return
+    gap = _leading_gap(aligned)
+    chosen_start = aligned[0]["start"] if aligned else None
+    nearest_start = hint_nearest[0]["start"] if hint_nearest else None
+    moved = (
+        nearest_start is not None
+        and chosen_start is not None
+        and abs(chosen_start - nearest_start) > SOURCE_OVERLAP_EPSILON
+    )
+    largest = _largest_gap(aligned)
+    if moved:
+        event = "reanchored"
+    elif (anchors_considered > 1 and gap is not None and gap > 0
+            and largest is not None and gap >= largest):
+        # The passage's LONGEST silence sits at its very head - the
+        # mis-anchor's own signature - and yet no alternative anchor
+        # aligns this passage as completely in a tighter span.  The
+        # silence is the speaker's, not the aligner's.  Held, and said
+        # so: this is where 001's body_0 dramatic pause lands - "and ...
+        # i have an announcement to make" - and flattening it would break
+        # a real creative decision.  The comparison is against this
+        # passage's own gaps; there is no threshold.
+        event = "held"
+    else:
+        event = "ok"
+    notes.update({
+        "leading_gap": gap,
+        "largest_gap": largest,
+        "voiced_fraction": _voiced_fraction(aligned),
+        "anchors_considered": anchors_considered,
+        "hint_nearest_start": nearest_start,
+        "hint_nearest_leading_gap": _leading_gap(hint_nearest or []),
+        "chosen_start": chosen_start,
+        "event": event,
+    })
+
+
+def _report_anchor(label: str, clip_id: str, enrichment: dict,
+                   report: list) -> None:
+    """Say out loud what the anchor search did to this passage.
+
+    A leading gap is either REMOVED by a better anchor or HELD because no
+    equally complete anchor removes it, and both are said - one silently
+    corrected mis-anchor is what put 6.901s of unintended audio into a
+    59.437s video, and one silently swallowed pause would flatten a real
+    dramatic beat.  The numbers are measurements of this passage, not a
+    verdict against a constant.
+    """
+    alignment = enrichment.get("alignment") or {}
+    if not alignment:
+        return
+
+    gap = alignment.get("leading_gap")
+    voiced = alignment.get("voiced_fraction")
+    entry = {
+        "block": label,
+        "clip_id": clip_id,
+        "event": alignment.get("event", "ok"),
+        "source_start": enrichment.get("start_time"),
+        "source_end": enrichment.get("end_time"),
+        "leading_gap_seconds": None if gap is None else round(gap, 3),
+        "hint_nearest_leading_gap_seconds": (
+            None if alignment.get("hint_nearest_leading_gap") is None
+            else round(alignment["hint_nearest_leading_gap"], 3)),
+        "largest_gap_seconds": (
+            None if alignment.get("largest_gap") is None
+            else round(alignment["largest_gap"], 3)),
+        "voiced_fraction": None if voiced is None else round(voiced, 3),
+        "anchors_considered": alignment.get("anchors_considered"),
+        "hint_nearest_start": alignment.get("hint_nearest_start"),
+        "chosen_start": alignment.get("chosen_start"),
+    }
+    report.append(entry)
+
+    if entry["event"] == "ok":
+        return
+
+    gap_text = "n/a" if gap is None else f"{gap:.3f}s"
+    voiced_text = "n/a" if voiced is None else f"{voiced * 100:.1f}%"
+    if entry["event"] == "reanchored":
+        nearest = alignment.get("hint_nearest_start")
+        chosen = alignment.get("chosen_start")
+        was = alignment.get("hint_nearest_leading_gap")
+        was_text = "n/a" if was is None else f"{was:.3f}s"
+        print(
+            f"  {label}: RE-ANCHORED on {clip_id} from {nearest:.3f}s "
+            f"(the occurrence nearest the LLM's hint, leading gap "
+            f"{was_text}) to {chosen:.3f}s (leading gap {gap_text}) - one "
+            f"of {alignment.get('anchors_considered')} occurrences of the "
+            f"passage's first word; it aligns at least as many words in a "
+            f"tighter span. The span is {voiced_text} voiced.",
+            file=sys.stderr,
+        )
+        return
+
+    print(
+        f"  {label}: leading gap of {gap_text} HELD on {clip_id} - it is "
+        f"this passage's longest silence, and none of "
+        f"{alignment.get('anchors_considered')} anchors for the passage's "
+        f"first word aligns it as completely in a tighter span, so the "
+        f"silence is the speaker's. The span is {voiced_text} voiced.",
+        file=sys.stderr,
+    )
 
 
 def enrich_speech_sequence(
@@ -352,6 +578,11 @@ def enrich_speech_sequence(
     # absent - it is allowed to tease a body passage, which
     # _drop_hook_duplicates bounds by IoU instead.
     claimed_by_clip = {}
+
+    # What the anchor search did to every passage, in order.  This is the
+    # durable half of "never correct silently": the stderr lines are read
+    # by whoever is watching the run, this is read by whoever is not.
+    alignment_report = []
 
     def enrich_passage(passage: dict, label: str,
                        prior_claim: tuple = None) -> dict:
@@ -492,6 +723,7 @@ def enrich_speech_sequence(
             f"(drift {hint_drift:.2f}s)",
             file=sys.stderr,
         )
+        _report_anchor(label, clip_id, enrichment, alignment_report)
         return enrichment
 
     def apply_enrichment(passage: dict, enrichment: dict) -> None:
@@ -545,6 +777,7 @@ def enrich_speech_sequence(
         )
 
     result["body_sequence"] = _drop_hook_duplicates(hook, aligned_body, result)
+    result["alignment_report"] = alignment_report
     return result
 
 
