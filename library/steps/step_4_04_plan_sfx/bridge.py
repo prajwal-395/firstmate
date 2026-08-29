@@ -25,11 +25,26 @@ should get a sound. How many sound effects a piece gets is the model's
 call (AGENTS.md 10.5); a pre-computed "Yes" would be this file voting.
 A block with no source clip reads `not measured (no source clip)` rather
 than reading as a measured absence.
+
+`transitions_toon` is the second table, and it is separate because it
+describes different things: a boundary BETWEEN two blocks, not a block.
+Pairing a sound with a transition is the first purpose the handoff names
+and its second evaluation criterion, and until now no DAG edge carried
+`transition_spec` into this step at all - so on the run of record the two
+sounds that shipped were placed at the two drawn transitions by an agent
+that had planned those transitions itself minutes earlier, out of its own
+memory rather than out of anything in this context. The table is keyed by
+the spine block the cut leads INTO, because `spine_block_position` is the
+identifier the answer names; a table keyed by timeline seconds would make
+the model re-derive that join out of `timed_spine`. The plan's per-cut
+`rationale` prose is deliberately left behind: it is 4.02 explaining
+itself, and it is three quarters of the spec's bytes.
 """
 import sys
 import json
 
 from library.tools.sfx_library import available_sfx_types
+from library.tools.transition_vocabulary import is_cut
 
 # How much of a block's line reaches the summary column. The full text is
 # in `timed_spine`, which this step also routes; this table is an index
@@ -115,6 +130,75 @@ def transient_count(block: dict, temporal_lookup: dict):
                if isinstance(t, (int, float)) and start <= t <= end)
 
 
+def _cut_into_block_position(cut_seconds, spine_blocks: list, fps: float):
+    """The spine block a cut at `cut_seconds` leads into.
+
+    Step 4.02 records `cut_point_original` as the incoming block's own
+    `timeline_start`, so this is a lookup and not a search. The one frame
+    of slack is for the rounding on either side of that record - it is a
+    timebase tolerance, not a judgement about which cut is meant - and a
+    cut that lands further out than that reads `unresolved` rather than
+    being attached to the nearest block.
+
+    The FIRST block is skipped: a cut is a boundary before a block, so
+    the opening block has no incoming cut and a transition resolving
+    onto it would put a sound at the top of the video that the plan
+    never asked for.
+    """
+    if cut_seconds is None or not spine_blocks:
+        return None
+    tolerance = 1.0 / fps if fps else 1.0 / 30.0
+    best = None
+    for block in spine_blocks[1:]:
+        start = block.get("timeline_start")
+        if not isinstance(start, (int, float)):
+            continue
+        delta = abs(float(start) - float(cut_seconds))
+        if best is None or delta < best[0]:
+            best = (delta, block.get("position"))
+    if best is None or best[0] > tolerance:
+        return None
+    return best[1]
+
+
+def build_transition_rows(data: dict) -> list:
+    """One row per planned cut, keyed by the block it cuts into."""
+    spine_blocks = _spine_blocks(data)
+    fps = data.get("project_fps") or 30.0
+    spec = data.get("transition_spec") or []
+    if isinstance(spec, dict):
+        spec = spec.get("transition_spec", [])
+    if not isinstance(spec, list):
+        return []
+
+    rows = []
+    for trans in spec:
+        if not isinstance(trans, dict):
+            continue
+        cut_seconds = trans.get("cut_point_original")
+        if cut_seconds is None:
+            cut_seconds = trans.get("cut_point_timeline")
+        position = _cut_into_block_position(cut_seconds, spine_blocks, fps)
+        ttype = trans.get("transition_type", "")
+        rows.append({
+            "spine_block_position": (
+                "unresolved" if position is None else position
+            ),
+            "transition_type": ttype,
+            # A hard cut, a jump cut and a match cut are the absence of
+            # decoration (AGENTS.md 10.5) - they are real editorial
+            # labels that put nothing on screen. The handoff's second
+            # criterion is about a CREATIVE transition, so the model has
+            # to be able to tell the two apart.
+            "draws_on_screen": "no" if is_cut(ttype) else "yes",
+            "duration_frames": trans.get("duration_frames", ""),
+            "cut_point_seconds": (
+                "" if cut_seconds is None else cut_seconds
+            ),
+        })
+    return rows
+
+
 def build_sfx_candidates(data: dict) -> list:
     """One row per spine block, keyed by the position the answer names."""
     temporal_lookup = _temporal_lookup(data)
@@ -167,6 +251,11 @@ def main():
     compressed = {
         "available_sfx_types": available,
         "sfx_candidates_toon": sfx_toon,
+        "transitions_toon": format_toon(
+            ["spine_block_position", "transition_type", "draws_on_screen",
+             "duration_frames", "cut_point_seconds"],
+            build_transition_rows(data),
+        ),
     }
 
     print(json.dumps(compressed))

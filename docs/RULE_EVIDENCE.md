@@ -1772,6 +1772,79 @@ Four more list entries would have fixed these four steps and left the fifth new 
 `tests/test_llm_context_routing.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
 Both fail on the parent revision for exactly the four steps above and pass for `select_broll`.
 
+### the-decision-that-was-remembered-not-sourced
+
+**2026-08-28**, from the creative-decision degradation report on the 001 run of 2026-08-26
+(findings F7 and F13). Two steps decided well with no access to the material their own prompts
+tell them to use, and the reason nobody noticed is that one agent answered all twelve LLM steps
+in sequence.
+
+**`mesh_spine` (2.05) never received the creative direction.** It places all five non-speech
+gaps, sets each one's length, and sets the `music_behavior` of every block - including `silent`
+across the climax, which is the strongest creative decision in the finished video. Its context
+keys on the run of record were `speech_sequence`, `semantic_analysis_documents`,
+`music_analysis`, `music_selection`, `clip_catalog`, `brand_content`, `project_folder`. Its own
+handoff opens by naming "the creative direction (the vision)" as one of three core reads, and
+its third evaluation criterion is "the spine follows the creative direction's energy arc".
+
+Its reasoning trace justified the silence by quoting step 2.01 - *"2.01 said the piece 'resolves
+by getting quieter and more certain, not louder', and dropping the music out and bringing it back
+quietly is that shape"*. That sentence is the `energy_arc` field of `creative_direction`, and it
+was in no part of 2.05's context. The agent had written 2.01 four steps earlier and was quoting
+itself.
+
+**`plan_sfx` (4.04) never received the transition plan.** Pairing sounds with transitions is the
+first purpose its System Context names and its second evaluation criterion is "every creative
+transition has at most one SFX". The two sounds in the finished video sit at `spine_block_position`
+8 and 13, which are exactly the two boundaries the transition plan decorated with a `defocus` -
+the only two of fifteen cuts that draw anything. Its first rationale opens *"Under the defocus
+transition at cut 8"*. Nothing in its context named a transition of any kind: the strings
+`defocus`, `dissolve`, `hard_cut` and `transition_type` each occurred zero times in it, both
+before and after the brief became a reference. The agent had planned those transitions itself,
+one step earlier.
+
+Measured with `replay_bench` against the frozen snapshot `001-degradation-20260828`, before and
+after the two edges:
+
+| step | context before | after | what appeared |
+|---|---:|---:|---|
+| `mesh_spine` | 23,625 B | 25,705 B | `creative_direction` +2,079 B |
+| `plan_sfx` | 45,438 B | 45,930 B | `transitions_toon` +491 B |
+
+Measured against `382ad8b`, the base after the brief became a reference. Against the base before
+it, `plan_sfx` read 88,717 B -> 89,209 B: the same +492, on a context twice the size. The two
+changes are independent - the brief is prompt-only and no bridge reads it, so re-measuring moved
+the denominator and not the delta.
+
+`verify` names the two additions by section and nothing else, against the same archived contexts
+it already accounts for six earlier changes in - which is how the instrument's visibility was
+established before its negative result was trusted.
+
+**What was deliberately left out.** `creative_direction.key_moments` (1,803 B) and
+`.rationale` (2,941 B) do not reach 2.05: `key_moments` names clips and source ranges that step
+2.02 has already turned into the passages 2.05 arranges, and `rationale` is 2.01's account of how
+it reached the direction, addressed to somebody auditing 2.01. The transition plan reaches 4.04
+as a five-column table, not as the 11,273-byte `transition_spec`: the per-cut `rationale` prose
+is three quarters of those bytes and is 4.02 explaining itself.
+
+The other two reads that handoff's State Interaction table names are not routed, and for
+different reasons. `subtitle_entries` is nested inside step 4.01's `subtitle_plan`, which is
+17,427 B on 001 - a per-word copy of speech text `timed_spine` already carries in full - against
+a `plan_sfx` context of 45,438 B of which the brief map is already 5,240; the case
+for click-on-caption sounds is real but it is a size decision of its own, not this edge.
+`vfx_plan` names no state key this pipeline writes at all: step 4.03 writes `enhancement_spec`,
+which was `{"vfx_creative": []}` on the run of record. Routing it is a rename on a frozen handoff,
+not a manifest edge.
+
+**The table is keyed by the spine block the cut leads INTO**, because `spine_block_position` is
+the identifier `sfx_creative` names. A table keyed by timeline seconds would make the model
+re-derive the join out of `timed_spine` first - the same defect that gave `sfx_candidates_toon`
+zero rows and `cuts_toon` before it.
+
+**Neither defect is visible in the output**, and that is the durable lesson. Both steps answered
+correctly. A single-agent run cannot distinguish a step that read its context from a step that
+remembered, so the check has to be made on the assembled context, not on the video.
+
 ### a-prompt-that-described-an-empty-table
 
 **2026-08-27, on the clean run of project 001 of 2026-08-26** (issue #223). The second

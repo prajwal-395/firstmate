@@ -13,6 +13,12 @@
         "description": "Brand template content slots. Only content.bookends is read: it declares the intro / outro / end card this template gets, and a template declaring none gets none."
       },
       {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "The vision, from step 2.01. This step decides where every non-speech gap goes, how long it is, and the music_behavior of every block - including a planned silence - and its own handoff names the creative direction as one of three core reads and scores it on 'the spine follows the creative direction's energy arc'. It was never routed: on the 2026-08-26 run of record the model justified the silent climax by quoting 2.01's energy_arc, and that sentence was in no part of this step's context. Only key_moments and rationale are projected away - see context_fields."
+      },
+      {
         "name": "clip_catalog",
         "type": "array",
         "required": true,
@@ -68,6 +74,7 @@
     ],
     "preconditions": [
       "'speech_sequence' exists in state",
+      "'creative_direction' exists in state",
       "'music_selection' exists in state",
       "'music_analysis' exists in state",
       "'semantic_analysis_documents' exists in state",
@@ -95,6 +102,7 @@
   "dependencies": [
     "step_1_02_catalog_footage",
     "step_1_03_semantic_analysis",
+    "step_2_01_creative_direction",
     "step_2_02_speech_sequence",
     "step_2_04_music_selection",
     "step_2_06_music_analysis"
@@ -120,6 +128,12 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
+    "creative_direction.narrative_theme",
+    "creative_direction.target_mood",
+    "creative_direction.target_energy",
+    "creative_direction.energy_arc",
+    "creative_direction.emotional_landscape",
+    "creative_direction.audience_emotion",
     "speech_sequence",
     "-speech_sequence.hook_segment.word_timestamps",
     "-speech_sequence.body_sequence.*.word_timestamps",

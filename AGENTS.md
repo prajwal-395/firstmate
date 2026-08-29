@@ -111,7 +111,7 @@ One enumeration, `library/tools/external_inputs.py`. [why - what was measured, a
 ### A declaration must be true
 
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
-`library/tools/input_contract.py` surveys all 128 declared inputs of the DAG's 27 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
+`library/tools/input_contract.py` surveys all 129 declared inputs of the DAG's 27 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
 
     python3 -m library.tools.input_contract          # the survey
     python3 -m library.tools.input_contract --bad    # disagreements only
@@ -589,6 +589,12 @@ Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `d
 
 - A path prefixed with `-` DROPS what the paths above it selected: `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`. Prefer it to enumerating the twenty keys you meant to keep, which stops delivering the twenty-first.
 - `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps and are an open captain decision; `tests/test_llm_context_routing.py` holds that exemption list.
+**A step's decision must be SOURCED from its own context, and one agent answering the whole run hides when it is not.**
+A run answered end to end by one context carries facts forward in the answering agent's head, so a step reading nothing at all still decides well and the missing edge leaves no trace in the output. Judge routing by the assembled context, never by whether the run came out right. [why - the two edges that were only ever answered from memory](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced)
+
+- `library/tools/replay_bench` is how you check it: rebuild the step's context off frozen state and look for the sentence the decision rests on. Absent means the next agent cannot make that decision.
+- The two found this way are now routed: `creative_direction` reaches `mesh_spine` (which sets every gap and every `music_behavior`), and `transition_spec` reaches `plan_sfx` (which is told to pair sounds with transitions). `tests/test_pacing_and_sfx_are_not_remembered.py`.
+
 - **A pre-bridge's own table is never projected away, and you do not have to list it.** `run_pipeline.project_step_context` - the ONE place the projection happens, called by `present_llm_step` and by the replay bench - restores any `bridge_supplied` key the allow-list dropped entirely, so a new hybrid step gets its table in the prompt for free. Listing it in `context_fields` is still allowed and is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
 **A table the prompt names, arriving with zero rows, is reported on the run that sends it.**

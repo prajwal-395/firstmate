@@ -673,6 +673,13 @@
       }
     },
     {
+      "from": "creative_direction",
+      "to": "mesh_spine",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
       "from": "music_analysis",
       "to": "mesh_spine",
       "data_mapping": {
@@ -880,6 +887,13 @@
       "to": "plan_sfx",
       "data_mapping": {
         "timed_spine": "timed_spine"
+      }
+    },
+    {
+      "from": "plan_transitions",
+      "to": "plan_sfx",
+      "data_mapping": {
+        "transition_spec": "transition_spec"
       }
     },
     {

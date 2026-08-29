@@ -49,6 +49,12 @@
         "description": "State input: timed_spine"
       },
       {
+        "name": "transition_spec",
+        "type": "array",
+        "required": true,
+        "description": "The resolved transition plan, from step 4.02. Pairing a sound with a transition is the first purpose this step's handoff names and its second evaluation criterion ('every creative transition has at most one SFX'), and no edge carried the plan here: on the 2026-08-26 run of record both sounds in the finished video were placed at the two drawn transitions by an agent that had planned those transitions itself minutes earlier. Read by the pre-bridge, which reduces it to transitions_toon; the raw spec is not projected into the prompt (see context_fields)."
+      },
+      {
         "name": "creative_brief",
         "type": "string",
         "required": false,
@@ -69,6 +75,11 @@
         "description": "Bridge output: the sound types the SFX library can actually play. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field on every run - a warning that fires on correct output."
       },
       {
+        "name": "transitions_toon",
+        "type": "string",
+        "description": "Bridge output: one row per PLANNED CUT, keyed by the spine block the cut leads INTO - which is the identifier `sfx_creative` names, so a sound can be paired with a transition without a join. Declared here because the bridge emits it on every run and validate_step_output would otherwise report it as an unexpected extra field."
+      },
+      {
         "name": "sfx_candidates_toon",
         "type": "string",
         "description": "State output: sfx_candidates_toon"
@@ -84,6 +95,7 @@
     ],
     "preconditions": [
       "'timed_spine' exists in state",
+      "'transition_spec' exists in state",
       "'creative_direction' exists in state",
       "'semantic_analysis_documents' exists in state",
       "'rough_cut_review.passed' is true in state"
@@ -109,7 +121,8 @@
   },
   "dependencies": [
     "step_2_05_mesh_spine",
-    "step_3_03_review_rough_cut"
+    "step_3_03_review_rough_cut",
+    "step_4_02_plan_transitions"
   ],
   "tags": [
     "content_generation",
