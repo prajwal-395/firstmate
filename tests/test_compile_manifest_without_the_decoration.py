@@ -110,7 +110,8 @@ def _step_outputs(a_roll: str, b_roll: str, music: str, sfx: str,
             {"effect_type": "glow", "timeline_start": 0.0,
              "timeline_end": 2.285, "params": {"glow_gain": 5.0}}]}},
         "plan_sfx": {"sfx_spec": {"sfx": [
-            {"sfx_type": "whoosh", "label": "sfx_1", "timeline_in": 2.285,
+            {"sfx_id": "whoosh.wav", "source_file": sfx, "source_in": 0.0,
+             "label": "sfx_1", "timeline_in": 2.285,
              "timeline_out": 2.785, "volume_db": -14}]}},
         "color_grade": {"color_grade_spec": {
             "house_look": "warm_street",
@@ -174,10 +175,11 @@ def project(tmp_path):
 def _compile(project, drop=None):
     """Run the real step against the project, with one recorded key gone.
 
-    The SFX library is the one thing stubbed: `match_sfx_file` resolves a
-    planned `sfx_type` against `PIPELINE_SFX_LIBRARY`, which a test may
-    not reach. Stubbing it keeps the measurement about the ABSENT INPUT
-    rather than about the machine the test runs on.
+    The SFX library is the one thing stubbed: `load_sfx_catalog` reads
+    `PIPELINE_SFX_LIBRARY`, which a test may not reach. Stubbing it keeps
+    the measurement about the ABSENT INPUT rather than about the machine
+    the test runs on. The plan itself carries the file it chose, so
+    nothing here has to resolve one.
     """
     from unittest.mock import patch
 
@@ -192,9 +194,9 @@ def _compile(project, drop=None):
         json.dumps({"step_outputs": outputs,
                     "project_folder": str(project_dir)}),
         encoding="utf-8")
-    with patch.object(step, "load_sfx_index", return_value=[{"x": 1}]), \
-         patch.object(step, "match_sfx_file",
-                      return_value=(sfx_file, 0.5, 0.0)):
+    with patch.object(step, "load_sfx_catalog", return_value=[
+            {"sfx_id": "whoosh.wav", "path": sfx_file,
+             "duration_seconds": 0.5, "transient_offset_sec": 0.0}]):
         return step.compile_manifest(str(layout.output_root))
 
 
@@ -253,7 +255,7 @@ def test_a_manifest_compiles_with_none_of_the_four(project):
     layout.pipeline_data_path.write_text(
         json.dumps({"step_outputs": outputs,
                     "project_folder": str(project_dir)}), encoding="utf-8")
-    with patch.object(step, "load_sfx_index", return_value=[]):
+    with patch.object(step, "load_sfx_catalog", return_value=[]):
         manifest = step.compile_manifest(str(layout.output_root))
 
     assert manifest["transitions"] == []

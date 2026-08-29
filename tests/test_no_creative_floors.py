@@ -75,10 +75,11 @@ TRANSITIONS = STEPS / "step_4_02_plan_transitions"
 CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH, TRANSITIONS)
 
 
-def _run_bridge(script: Path, payload: dict):
+def _run_bridge(script: Path, payload: dict, extra_env: dict = None):
     """Run a bridge the way the runner does: repo root on the path."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+    env.update(extra_env or {})
     return subprocess.run(
         [sys.executable, str(script)],
         input=json.dumps(payload),
@@ -88,6 +89,34 @@ def _run_bridge(script: Path, payload: dict):
         cwd=str(REPO),
         env=env,
     )
+
+
+# ── A sound library the SFX bridges can resolve against ───────────────
+#
+# Step 4.04 resolves an `sfx_id` against the real catalogue, so these
+# tests need a library of their own. It is two entries under tmp_path -
+# never the captain's, and never the shared one at PIPELINE_SFX_LIBRARY.
+
+SFX_ID = "test_whoosh.wav"
+
+
+@pytest.fixture(scope="module")
+def sfx_library(tmp_path_factory):
+    lib = tmp_path_factory.mktemp("sfx_library")
+    audio = lib / "test_whoosh.wav"
+    audio.write_bytes(b"RIFF....WAVEfmt ")
+    (lib / "sfx_index.json").write_text(json.dumps([{
+        "file": SFX_ID,
+        "path": str(audio),
+        "folder_category": "Accents",
+        "description": "a soft air movement",
+        "technical": {
+            "basic": {"duration": 0.4},
+            "energy_profile": {"envelope_shape": "fading"},
+        },
+        "transient_offset_sec": 0.05,
+    }]))
+    return {"PIPELINE_SFX_LIBRARY": str(lib)}
 
 
 # ── The prompts must not demand a count ───────────────────────────────
@@ -244,7 +273,7 @@ def _sfx_payload(n_sfx: int):
         "sfx_creative": [
             {
                 "spine_block_position": i + 1,
-                "sfx_type": "whoosh",
+                "sfx_id": SFX_ID,
                 "volume_level": "subtle",
                 "rationale": "marks the cut",
             }
@@ -255,14 +284,14 @@ def _sfx_payload(n_sfx: int):
         "music_analysis": {},
         "project_fps": 30.0,
         "creative_direction": {},
-        "available_sfx_types": ["whoosh"],
     }
 
 
 @pytest.mark.parametrize("n_sfx", [1, 2])
-def test_plan_sfx_accepts_a_sparse_plan(n_sfx):
+def test_plan_sfx_accepts_a_sparse_plan(n_sfx, sfx_library):
     """A one- or two-sound edit passes; there is no minimum."""
-    proc = _run_bridge(SFX / "post_bridge.py", _sfx_payload(n_sfx))
+    proc = _run_bridge(SFX / "post_bridge.py", _sfx_payload(n_sfx),
+                       sfx_library)
     assert proc.returncode == 0, (
         f"{n_sfx} SFX were rejected - a floor is back.\n"
         f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
@@ -583,20 +612,37 @@ def test_plan_vfx_drops_an_entry_that_names_no_intensity():
         assert effects == [], f"intensity was substituted for {entry}"
 
 
-def test_plan_sfx_drops_an_entry_that_names_no_sound_or_no_level():
+def test_plan_sfx_refuses_an_entry_that_names_no_playable_sound(sfx_library):
+    """WHICH sound plays is refused loudly, never substituted.
+
+    Naming no `sfx_id`, or one the library has no file for, fails the
+    step where the plan is written - not three steps later inside
+    `compile_manifest`, and not by quietly dropping the entry, which
+    ships an edit missing a sound nobody decided to cut.
+    """
     for entry in (
         {"spine_block_position": 1, "volume_level": "subtle",
          "rationale": "marks the cut"},
-        {"spine_block_position": 1, "sfx_type": "whoosh",
-         "rationale": "marks the cut"},
-        {"spine_block_position": 1, "sfx_type": "whoosh",
-         "volume_level": "deafening", "rationale": "marks the cut"},
+        {"spine_block_position": 1, "sfx_id": "not_in_the_library.wav",
+         "volume_level": "subtle", "rationale": "marks the cut"},
     ):
         payload = _sfx_payload(1)
         payload["sfx_creative"] = [entry]
-        proc = _run_bridge(SFX / "post_bridge.py", payload)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-        assert placed == [], (
-            f"a sound or a level was substituted for {entry}: {placed}"
-        )
+        proc = _run_bridge(SFX / "post_bridge.py", payload, sfx_library)
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        error = json.loads(proc.stdout)["error"]
+        assert "sfx_id" in error
+        assert "cannot be played" in error
+
+
+def test_plan_sfx_drops_an_entry_that_names_no_level(sfx_library):
+    """A level is a decision too, and no dB is substituted for one."""
+    payload = _sfx_payload(1)
+    payload["sfx_creative"] = [{
+        "spine_block_position": 1, "sfx_id": SFX_ID,
+        "volume_level": "deafening", "rationale": "marks the cut",
+    }]
+    proc = _run_bridge(SFX / "post_bridge.py", payload, sfx_library)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
+    assert placed == [], f"a level was substituted: {placed}"

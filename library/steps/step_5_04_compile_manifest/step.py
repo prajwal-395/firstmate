@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_subtitle_to_frames
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
-from tools.sfx_library import load_sfx_index, match_sfx_file
+from tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from tools.beat_grid import assert_music_starts_at_timeline_zero
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
@@ -1434,24 +1434,40 @@ def compile_manifest(out_dir: str) -> dict:
     )
     sfx_preset = (sfx_container if isinstance(sfx_container, dict) else sfx_data if isinstance(sfx_data, dict) else {}).get("fairlight_preset")
 
-    sfx_index = load_sfx_index()
+    sfx_catalog = load_sfx_catalog()
 
     # Compile SFX into builder-compatible format.
     # There is ONE representation of SFX in the manifest: tracks.A3.clips.
     # The old top-level `sfx` list held only the entries that failed to
     # resolve, so a healthy run wrote `sfx: []` next to a populated A3 and
     # nothing could tell whether SFX had been planned at all.
+    #
+    # WHICH FILE PLAYS IS CARRIED, NOT RE-DERIVED. This step used to call
+    # `match_sfx_file(sfx_type, ...)` and keyword-match the library all
+    # over again, so the sound step 4.04 chose and the sound that reached
+    # A3 were two separate answers to two different questions. It now
+    # reads the `source_file` step 4.04 resolved, and checks it is still
+    # on disk.
     a3_clips = []
     sfx_unresolved = []
     for si, sfx_entry in enumerate(sfx_list):
         # Which sound plays is a decision step 4.04 makes, not one this
         # step fills in. Defaulting to "whoosh" here put a sound on A3
         # that nothing had chosen.
-        sfx_type = sfx_entry.get("sfx_type")
-        if not sfx_type:
+        sfx_id = sfx_entry.get("sfx_id")
+        source_file = sfx_entry.get("source_file")
+        if not source_file and sfx_id:
+            catalog_entry = resolve_sfx_id(sfx_id, sfx_catalog)
+            if catalog_entry:
+                source_file = catalog_entry["path"]
+        if not source_file:
             raise ValueError(
-                f"SFX entry {sfx_entry.get('label', si)} names no sfx_type. "
-                f"No sound is substituted - fix the plan in step 4.04."
+                f"SFX entry {sfx_entry.get('label', si)} names no sound: it "
+                f"carries neither `source_file` nor an `sfx_id` in the SFX "
+                f"library catalogue. No sound is substituted. A plan "
+                f"written before the catalogue existed carries an "
+                f"`sfx_type` instead - re-run it with: "
+                f"manage_project.py run <slug> --rerun plan_sfx"
             )
         # step_4_04 emits timeline_in/timeline_out (seconds).
         tl_start_sec = sfx_entry.get("timeline_in",
@@ -1463,34 +1479,35 @@ def compile_manifest(out_dir: str) -> dict:
             )
         vol_db = sfx_entry.get("volume_db", -14)
 
-        source_file, lib_dur, trans_offset = match_sfx_file(sfx_type, sfx_index)
-
         tl_end_sec = sfx_entry.get("timeline_out",
                                    sfx_entry.get("timeline_end"))
         if not tl_end_sec:
-            tl_end_sec = tl_start_sec + (lib_dur if lib_dur else sfx_entry.get("duration_seconds", 0.5))
+            raise ValueError(
+                f"SFX entry {sfx_entry.get('label', si)} has no timeline_out. "
+                f"How long a sound runs is its own measured length, read in "
+                f"step 4.04 - nothing here invents one."
+            )
 
-        if source_file and os.path.exists(source_file):
-            src_in = 0.0
-            if trans_offset is not None and trans_offset != "unknown":
-                src_in = float(trans_offset)
+        if os.path.exists(source_file):
+            src_in = sfx_entry.get("source_in", 0.0)
+            if src_in in (None, "unknown"):
+                src_in = 0.0
 
             a3_clips.append({
                 "source_file": source_file,
-                "source_in": src_in,
+                "source_in": float(src_in),
                 "timeline_in": round(tl_start_sec, 3),
                 "timeline_out": round(tl_end_sec, 3),
                 "timeline_in_frame": seconds_to_frame(tl_start_sec, fps),
                 "timeline_out_frame": seconds_to_frame(tl_end_sec, fps),
                 "volume_db": vol_db,
-                "label": sfx_entry.get("label",
-                                       sfx_entry.get("sfx_id", f"sfx_{si+1:03d}")),
-                "sfx_type": sfx_type,
+                "label": sfx_entry.get("label", f"sfx_{si+1:03d}"),
+                "sfx_id": sfx_id or os.path.basename(source_file),
             })
         else:
             sfx_unresolved.append(
-                f"{sfx_entry.get('label', si)} (type={sfx_type}): no audio "
-                f"file in the SFX library matched"
+                f"{sfx_entry.get('label', si)} (sfx_id={sfx_id}): the file "
+                f"step 4.04 chose is no longer on disk: {source_file}"
             )
 
     # An SFX tail running past the last picture pads the export with

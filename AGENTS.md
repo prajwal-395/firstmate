@@ -825,6 +825,20 @@ The creative direction decides how many cutaways and how many sounds a piece get
 - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
 
+**Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
+`load_sfx_catalog` merges the library's three index files - `sfx_index.json` (path, category, measured duration, envelope, transient offset), `library_semantic.json` (`description`, `source_object`, `evokes`, `emotional_temperature`, `works_when`, `avoid_when`) and `profiles/*.json` - into one row per playable sound, and step 4.04's bridge puts the WHOLE catalogue in the prompt as `sfx_catalog_toon`.
+The answer names an `sfx_id` out of that table. [why - the two sounds 001 shipped, and what the library said about them](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
+
+- **There is no type vocabulary and no keyword matching.** `TYPE_KEYWORDS`, `match_sfx_file` and `available_sfx_types` are deleted, not unwired: eight hand-written word lists counted substring hits over each entry's `description` - which is EMPTY on 48 of the captain's 78 entries - and took the highest count.
+- **An entry that is not on disk is not in the catalogue**, and `resolve_sfx_id` matches EXACTLY. No nearest neighbour: a near match is a chooser.
+- **A plan naming a sound the library has not got fails in step 4.04**, whole and by name, not three steps later inside `compile_manifest` and never by dropping the entry - a dropped entry ships an edit missing a sound nobody decided to cut.
+- **Step 5.04 PLACES; it does not choose.** The plan carries `sfx_id`, `source_file` and `source_in`, and `compile_manifest` reads them. It used to keyword-match the library again, so the sound the model chose and the sound that played were two separate answers.
+- A sound's DURATION is its own measured length and its PLACEMENT is keyed on its measured `envelope_shape`. Neither is a per-type constant: `bass_impact: 0.5` sat in front of a 5.317s file.
+- **The whole library ships - 78 of 78, 44,411 B measured 2026-08-28 - and nothing is shortlisted.** Whatever selects a shortlist becomes the chooser, which is what the word list was. The library carries a FAISS index and a per-entry `embedding`; retrieval is what you need when you cannot show everything, and everything fits.
+- `library/steps/step_4_04_plan_sfx/handoff.md` is frozen and its toolkit table still names `foley`, `ambient` and `reverse_cymbal`, which the library cannot play. After this change they name nothing the model can emit - the schema asks for an `sfx_id` - but the table is the captain's to correct.
+- A sound and a transition are named by the SAME identifier, `spine_block_position`, so pairing them needs no join: that is why `transitions_toon` is keyed by the block a cut leads into.
+- `tests/test_sfx_choice_from_the_catalogue.py`.
+
 **Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
 The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` and picks nothing.
 The post-bridge judges source, catalogue membership, duration plausibility and a justification naming the registers the creative direction forbids.

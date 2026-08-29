@@ -22,8 +22,15 @@ What is checked, and why each one is a real failure:
   - the directory exists                  - nothing to read
   - the index loads to at least one entry - `load_sfx_index` returned []
   - at least one entry's file is on disk  - every placement would be silent
-  - at least one SFX type is matchable    - `match_sfx_file` can serve no
-                                            request the planner can make
+  - the CATALOGUE has at least one row    - `load_sfx_catalog` is what the
+                                            planner chooses from, and an
+                                            empty one leaves it nothing to
+                                            choose
+
+There used to be a fourth check, "at least one SFX type is matchable",
+and it is gone with the thing it checked: `match_sfx_file` counted
+keyword hits to turn one of eight abstract type names into a file, and
+the planner now names a real file out of the catalogue instead.
 
 Input:  { "sfx_library": "/path/to/sfx/library" }
 Output: { "sfx_library_status": { "valid": true, ... } }
@@ -36,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 
 from library.tools.sfx_library import (  # noqa: E402
-    available_sfx_types,
+    load_sfx_catalog,
     load_sfx_index,
 )
 
@@ -76,7 +83,6 @@ def main():
 
     playable = [e for e in entries
                 if e.get("path") and os.path.exists(e["path"])]
-    types = available_sfx_types(entries)
 
     # Compute and cache transient offsets
     index_updated = False
@@ -112,13 +118,20 @@ def main():
             except Exception as e:
                 print(f"Warning: could not update sfx_index.json with transients: {e}", file=sys.stderr)
 
+    # The catalogue is what step 4.04 puts in front of the model, so it
+    # is what "usable" means. It is built from this same library path and
+    # counts only entries whose file is on disk.
+    catalog = load_sfx_catalog(sfx_library)
+    described = sum(1 for e in catalog if e.get("description"))
+
     status = {
-        "valid": bool(playable) and bool(types),
+        "valid": bool(playable) and bool(catalog),
         "sfx_library_path": sfx_library,
         "entries": len(entries),
         "playable_entries": len(playable),
         "missing_files": len(entries) - len(playable),
-        "available_types": types,
+        "catalog_entries": len(catalog),
+        "catalog_entries_described": described,
     }
 
     if not playable:
@@ -127,14 +140,15 @@ def main():
         status["fix"] = "Re-run the SFX profiler against the library's current location."
         _fail(status)
 
-    if not types:
-        status["error"] = ("no indexed entry matches any SFX type the "
-                           "planner can request (see TYPE_KEYWORDS in "
-                           "library/tools/sfx_library.py)")
+    if not catalog:
+        status["error"] = ("the SFX catalogue is empty - step 4.04 would "
+                           "have nothing to offer the model (see "
+                           "load_sfx_catalog in library/tools/sfx_library.py)")
         _fail(status)
 
     print(f"SFX Library Validation: {len(entries)} entries, "
-          f"{len(playable)} playable, types={','.join(types)}, VALID",
+          f"{len(playable)} playable, {len(catalog)} in the catalogue, "
+          f"{described} described, VALID",
           file=sys.stderr)
 
     json.dump({"sfx_library_status": status}, sys.stdout, indent=2)

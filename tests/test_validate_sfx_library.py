@@ -56,7 +56,11 @@ def test_a_library_whose_files_exist_is_valid(tmp_path):
     assert code == 0, body
     assert body["valid"] is True
     assert body["playable_entries"] == 1
-    assert "whoosh" in body["available_types"]
+    # The catalogue is what step 4.04 offers the model, so it is what
+    # "valid" means. There is no `available_types` any more: nothing maps
+    # a type name to a file.
+    assert body["catalog_entries"] == 1
+    assert "available_types" not in body
 
 
 def test_profiles_without_audio_fail(tmp_path):

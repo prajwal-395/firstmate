@@ -39,11 +39,27 @@ identifier the answer names; a table keyed by timeline seconds would make
 the model re-derive that join out of `timed_spine`. The plan's per-cut
 `rationale` prose is deliberately left behind: it is 4.02 explaining
 itself, and it is three quarters of the spec's bytes.
+
+`sfx_catalog_toon` is the third table, and it is the SFX LIBRARY ITSELF:
+one row per playable sound, carrying what the library records about each
+- category, measured duration and envelope, description, source object,
+what it evokes, and the library's own `works_when` / `avoid_when`. That
+table is what the model chooses from, and the answer names an `sfx_id`
+out of it. Where `available_sfx_types` used to sit, offering eight
+abstract type names for a keyword matcher to turn back into a file.
+
+**The whole library ships; nothing is shortlisted and nothing is
+truncated.** Measured on the captain's library on 2026-08-28 it is 78 of
+78 entries and 44,397 B, against a 45,930 B context - so the step that
+exists to choose sounds spends half its prompt on the sounds, where it
+used to spend 110 bytes. A shortlist was the alternative and it is the
+same defect wearing a new hat: whatever picks the shortlist becomes the
+chooser, which is exactly what the word list was.
 """
 import sys
 import json
 
-from library.tools.sfx_library import available_sfx_types
+from library.tools.sfx_library import catalog_toon, load_sfx_catalog
 from library.tools.transition_vocabulary import is_cut
 
 # How much of a block's line reaches the summary column. The full text is
@@ -230,16 +246,18 @@ def main():
         build_sfx_candidates(data),
     )
 
-    available = available_sfx_types()
-    if not available:
+    catalog = load_sfx_catalog()
+    if not catalog:
         print(json.dumps({
             "error": (
-                "The SFX library resolves no usable sound types - check "
-                "PIPELINE_SFX_LIBRARY and its index"
+                "The SFX library resolves no playable sound - check "
+                "PIPELINE_SFX_LIBRARY, its index, and that the indexed "
+                "paths still exist on disk"
             ),
             "step": "4.04_bridge",
         }))
         sys.exit(1)
+
 
     # No `sfx_spec` stub. This bridge used to emit
     # `{"sfx_list": [], "fairlight_preset": "default"}`, and because a
@@ -249,7 +267,7 @@ def main():
     # already decided to place no sounds. The post-bridge writes the real
     # `sfx_spec` after the model answers.
     compressed = {
-        "available_sfx_types": available,
+        "sfx_catalog_toon": catalog_toon(catalog),
         "sfx_candidates_toon": sfx_toon,
         "transitions_toon": format_toon(
             ["spine_block_position", "transition_type", "draws_on_screen",

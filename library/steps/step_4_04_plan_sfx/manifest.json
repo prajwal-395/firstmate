@@ -69,10 +69,10 @@
     ],
     "outputs": [
       {
-        "name": "available_sfx_types",
-        "type": "array",
+        "name": "sfx_catalog_toon",
+        "type": "string",
         "required": true,
-        "description": "Bridge output: the sound types the SFX library can actually play. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field on every run - a warning that fires on correct output."
+        "description": "Bridge output: the SFX library as a table - one row per playable sound, carrying category, measured duration and envelope, description, source object, what it evokes, and the library's own works_when / avoid_when. This is what the model chooses from, and the answer names an sfx_id out of it. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
         "name": "transitions_toon",
@@ -109,7 +109,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_type (whoosh|swish|bass_impact|riser|click|tick|reverse_cymbal|swell), volume_level, rationale"
+        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_id (an exact sfx_id from the sfx_catalog_toon table - no other value is playable), volume_level (subtle|low|medium|prominent), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
       }
     ]
   },
@@ -145,7 +145,8 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
-    "available_sfx_types",
+    "sfx_catalog_toon",
+    "transitions_toon",
     "b_roll_assignments",
     "creative_direction",
     "rough_cut_review",

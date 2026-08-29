@@ -2320,3 +2320,165 @@ Cost per frame is flat, so cost is linear in `sample_fps` - 15 fps is 7x the bil
 the same clip. And the small tracks die at 2 to 4.5 seconds at EVERY rate. Denser sampling buys
 temporal resolution on the tracks that survive and does not extend the ones that do not: these
 objects are lost to the footage, not to the gap between samples.
+
+## the-sfx-chooser-was-a-word-list
+
+`AGENTS.md` §10.5, "Sound-effect selection is one enumeration".
+
+**The captain, 2026-08-28:** *"for the sfx, we literally have an indexing vector DB of sfx that the
+LLM should be choosing from no? im so confused why it seems like there is so much random hardcoding
+going on in this pipeline instead of the generalizing that should be going on."*
+
+They are right. The library records, per sound, a `description`, a `source_object`, an `evokes`
+array, an `emotional_temperature`, a `works_when` and an `avoid_when`. Nothing in the selection path
+read any of it.
+
+### What the model was offered, and what actually chose the file
+
+The prompt offered ten abstract type names. The output schema carried eight. The library could play
+seven. Only `available_sfx_types` - 110 bytes, 0.2% of the step's 53,309-byte context - reflected
+disk. `foley` and `ambient` were in neither the schema nor the library; `reverse_cymbal` was in the
+schema and not the library.
+
+The file behind a chosen name came from `match_sfx_file`, which counted substring hits from eight
+hand-written keyword lists over `f"{description} {folder_category} {file}"` and took the highest
+count, ties to whichever entry came first. Run against the captain's library on 2026-08-28, every
+one of the seven playable types resolved on a score of **one or two**:
+
+| type asked for | file it got | score | the word that matched |
+|---|---|---|---|
+| `swish` | `whoosh_impact.mp3` (8.04s) | 1 | `whoosh` |
+| `swell` | `Alien_racecar.wav` (5.69s) | 1 | `rise`, inside the folder name `Risers` |
+| `bass_impact` | `riser_2.mp3` (5.32s) | - | a riser, for an impact |
+| `riser` | `Alien_racecar.wav` | - | the same file `swell` got |
+| `reverse_cymbal` | nothing | 0 | - |
+
+**48 of the 78 entries carry an empty `description` in `sfx_index.json`**, which is the only text the
+matcher read. For `Alien_racecar.wav` the entire searchable string was `'risers alien_racecar.wav'`.
+The sound under the most exposed moment of the finished video was picked off nine characters of
+folder name.
+
+### The two sounds 001 shipped, against what the library says about them
+
+The video's direction: *"self-deprecating and quietly resolved - vulnerable, wry, awkward in public"*.
+A man in a public parking lot, handheld, talking about quitting.
+
+**`sfx_001`, block 8 @ 34.615s.** Under the first of two `defocus` transitions, at the end of a
+sixteen-second unbroken shaky selfie, music `prominent`. The plan asked for a `swish` and said
+*"deliberately 'subtle' rather than 'low': the music runs prominent through this slot and the sound
+must sit under it"*. It got `whoosh_impact.mp3`:
+
+> `evokes`: speed, impact, momentum, force, danger · `emotional_temperature`: cold tense
+> `avoid_when`: **"Avoid using this for subtle movements or slow, atmospheric transitions where the
+> sharp transient would be jarring."**
+
+The library forbade, in its own words, exactly the use it was picked for.
+
+**`sfx_002`, block 13 @ 46.147s.** A 1.918s pivot slot resolving into the only 8.67 seconds of
+planned silence in the video. The plan asked for a `swell` that *"builds across this slot and
+resolves at the cut"*. It got `Alien_racecar.wav`:
+
+> `evokes`: speed, sci-fi, acceleration, mechanical power, high-tech · `emotional_temperature`: cold tense
+> `description`: *"...a sustained, textured build that **decays into a low-frequency hum**"*
+> `avoid_when`: **"Avoid using this in organic, grounded scenes where the heavy synthetic texture
+> would break the realism."**
+
+5.69 seconds of file for a 1.918-second slot, decaying where it was asked to resolve, in a piece
+whose whole register is organic and grounded. `DURATION_DEFAULTS` declared `swell: 3.0`, so the
+manifest asserted a third length none of the other two agreed with.
+
+### What the catalogue offers instead, on the same two moments
+
+Chosen by reading `library_semantic.json` for those two slots, and resolved through the real
+post-bridge against 001's frozen state:
+
+| | before | after | why |
+|---|---|---|---|
+| block 8, 4.19s slot | `whoosh_impact.mp3`, cold tense, 8.04s | `06_Short_Super8_SFX.wav`, **warm tense**, 3.71s | `works_when`: *"establish a nostalgic atmosphere or as an overlay for **home-movie style footage**"* - which is what a handheld parking-lot selfie is. Fits inside the slot. Its `avoid_when` (*"high-fidelity modern action scenes"*) does not describe this piece. |
+| block 13, 1.92s slot | `Alien_racecar.wav`, cold tense, 5.69s | `08_Short_Super8_SFX.wav`, **warm tense**, 1.50s | Same source object, so the two sounds read as one texture rather than two unrelated effects - a decision eight type names could not express. `swelling`, so the placement resolves it at an energy peak, which is what the plan asked for and what `Alien_racecar` decays away from. |
+
+The shape of the answer changes, not just the filename: with the library visible, the best sound for
+a blur on home-movie footage is not a whoosh at all.
+
+### The measurement behind "the whole library ships"
+
+Measured on the captain's library, 2026-08-28:
+
+    catalogue entries reaching the model : 78
+    denominator (sfx_index.json entries) : 78
+    withheld (file missing from disk)    : 0
+    TOON bytes                           : 44,397
+    rows with a description              : 78 · evokes 74 · works_when/avoid_when 74
+    rows with a measured duration        : 78 · measured envelope 76
+
+Nothing is shortlisted and nothing is truncated. The alternatives, and why they lost:
+
+- **A shortlist** is the same defect in a new place. Whatever selects it becomes the chooser, which
+  is what the word list was.
+- **A reference the model reads off disk** makes the step depend on the answering agent having a
+  shell. The run of record only came out well because it had one; a model without one would see
+  nothing.
+- **An embedding search.** The library carries `sfx.faiss` and a per-entry `embedding`, and
+  `library/tools/analysis/sfx_query.py` can query them. Retrieval is what you need when you cannot
+  show everything. Everything fits, so it was not built.
+
+Column costs, if the size is ever revisited: `description` 15,155 B, `works_when` 8,274 B,
+`avoid_when` 8,233 B, `evokes` 4,390 B, `style_tags` 2,948 B (dropped - it overlaps `evokes`),
+`source_object` 2,923 B, `emotional_temperature` 758 B. Dropping `works_when` and `avoid_when` saves
+16.9 KB and removes the two fields that refuse both of 001's wrong choices.
+
+Step 4.04's context on 001 goes from 45,930 B to 90,395 B, reconstructed by the replay bench off the
+frozen snapshot 001-degradation-20260828, against the base that already carries #295's
+brief-by-reference and #294's transition edge. The whole delta is the catalogue, less the 110 bytes
+of `available_sfx_types` it replaces. The step that exists to choose sounds now spends half its
+prompt on the sounds; it used to spend 110 bytes.
+
+### The library's three index files do not agree, and now that is recorded
+
+| | count | the gap |
+|---|---|---|
+| `sfx_index.json` | 78 | all 78 paths exist on disk |
+| `library_semantic.json` | 74 | missing the four under `Generated/` |
+| `profiles/*.json` | 76 dicts + one stray copy of the index | missing `alarm_buzz.wav`, `clock_ticking.wav` |
+
+`load_sfx_catalog` reads all three and falls through semantic -> index -> profile for the
+description, which is why all 78 rows carry one. Two entries record no duration at all
+(`technical.basic` holds a sample rate and nothing else); both are real audio, so the duration is
+measured with ffprobe rather than invented, and an entry that still has none reads `unmeasured` and
+is refused by name. The stray `profiles/sfx_index.json` is why `_load_profiles` keeps only dicts.
+
+### The routing gap in the same step
+
+`plan_sfx`'s handoff names pairing sounds with transitions as its first purpose, and no DAG edge
+carried the transition plan to it. Both sounds in the finished video sit on transitions and both
+were placed from an agent's memory of having planned them four steps earlier. From that step's own
+reasoning trace:
+
+> *"Pairing SFX with transitions is the first purpose the prompt lists, and the transition plan is
+> not routed here. An agent without that memory could not place a sound under a transition, because
+> it cannot see the transitions."*
+
+**That edge landed in #294**, on a separate branch, while this one was in flight, and it is the
+better shape: the pre-bridge reduces `transition_spec` to a 491-byte `transitions_toon` keyed by the
+spine block the cut leads INTO, which is the same identifier `sfx_creative` names, so pairing a
+sound with a transition needs no join and the plan's 8 KB of per-cut rationale prose stays out. This
+branch carried a duplicate edge routing the raw 11,273-byte spec; it is dropped in favour of #294's,
+and `tests/test_sfx_choice_from_the_catalogue.py` holds the result in place from the sound side.
+
+The other two the frozen handoff's State Interaction table names are **not** routed, and #294 gives
+the same reasons independently:
+
+- **`vfx_plan`** - no instruction in the handoff asks the model to pair a sound with a visual effect;
+  it appears only in that table. Routing an input nothing tells the model to use is the
+  `UNCONSUMED_DECLARATIONS` defect.
+- **`subtitle_entries`** - the only instruction naming it is `click / tick -> Subtitle appearances`,
+  and `click` and `tick` resolved to the same file, so the distinction the prompt drew never existed
+  in the library. Card boundaries are already in `timed_spine`, which the step routes. 17,427 B on
+  001 to serve a vocabulary that is gone.
+
+### What is left for the captain
+
+`library/steps/step_4_04_plan_sfx/handoff.md` is frozen. Its System Context (line 25) and toolkit
+table (lines 28-33) still name `foley`, `ambient` and `reverse_cymbal`. After this change they name
+nothing the model can emit - the schema asks for an `sfx_id` out of `sfx_catalog_toon` - but the
+table reads as a menu and should be corrected by whoever holds that file.
