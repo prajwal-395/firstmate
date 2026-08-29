@@ -119,7 +119,7 @@ def _framing_spans(assembly_manifest: dict) -> list:
 
 
 def _music_bed(assembly_manifest: dict):
-    """(music file, automation windows) for the speech-above-bed measurement.
+    """(music file, automation windows, offset) for speech-above-bed.
 
     The bed is the first A2 clip. The plan is
     `audio_mix.music_automation`, because that is the half that carries a
@@ -127,6 +127,13 @@ def _music_bed(assembly_manifest: dict):
     the same vocabulary (both now resolve through
     `library/tools/music_behavior.py`) but no dB, and P3 judges the render
     against the plan's own numbers.
+
+    The OFFSET is the third thing P3 needs and used not to be passed at
+    all.  Step 2.04 chooses which SECTION of the track plays and the A2
+    clip carries that as `source_in`, so timeline second *t* is music
+    file second *t + (source_in - timeline_in)*.  P3 was fitting the
+    file from 0 against a render built from second 60 - see
+    docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second.
 
     It did not always name the same behaviour. `_spine_block_entry` used
     to recompute a two-word `full`/`ducked` value from `block_type`, in
@@ -137,8 +144,10 @@ def _music_bed(assembly_manifest: dict):
     music_path = clips[0].get("source_file") if clips else None
     automation = (assembly_manifest.get("audio_mix") or {}).get("music_automation") or []
     if not music_path or not os.path.exists(music_path):
-        return None, []
-    return music_path, automation
+        return None, [], None
+    offset = (float(clips[0].get("source_in", 0.0) or 0.0)
+              - float(clips[0].get("timeline_in", 0.0) or 0.0))
+    return music_path, automation, offset
 
 
 def validate_output(rendered_output: dict, assembly_manifest: dict,
@@ -178,7 +187,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
 
     # ── Run QA Toolkit ──
     qa_results = []
-    music_path, music_automation = _music_bed(assembly_manifest)
+    music_path, music_automation, music_offset = _music_bed(assembly_manifest)
     try:
         qa_results = run_full_render_qa(
             video_path, expected_duration,
@@ -194,6 +203,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             # exists. See render_qa.CHROMA_PRESENCE_GATES.
             music_path=music_path,
             music_automation=music_automation,
+            music_offset_seconds=music_offset,
             spine_blocks=assembly_manifest.get("_spine_blocks") or [],
         )
     except Exception as e:

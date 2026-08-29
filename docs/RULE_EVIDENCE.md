@@ -4903,3 +4903,57 @@ Moved out of that rule on 2026-08-29.
 `compile_manifest` used to write `source_in: 0.0` as a literal, so the `splices` that step 2.04's
 frozen `handoff.md` has always asked for reached nothing. That is AGENTS.md §10.2 exactly - a
 capability is only real where the renderer reads it - arriving on the audio side.
+
+## the-bed-was-fitted-from-the-wrong-second
+
+Evidence for AGENTS.md §10.4, "The bed is fitted at the SECTION that plays".
+
+Found on 2026-08-29 while rendering 001 for the captain to watch, from the render's own QA report.
+
+`measure_speech_above_bed` least-squares fits the music file against the master, per window. It
+sliced BOTH at the timeline time:
+
+    x = mix[a:b]        # a, b from the window's timeline_start / timeline_end
+    y = music[a:b]      # the same numbers, applied to the music FILE
+
+That holds only while the bed plays from the head of its own file, which is what every 001 render
+before this one did (`source_in: 0.0`). #F17 then gave step 2.04 a real choice of SECTION, the model
+chose one, and 001's bed now plays from **60.0 s** into a 198.6 s track. The fit was therefore
+correlating the render's first minute against the track's first minute, while the render actually
+carries the track's second minute.
+
+What that did to the reading, measured on the 2026-08-29 19:01 master:
+
+| window | corr, offset 0 | music, offset 0 | margin | corr, offset 60 | music, offset 60 | margin |
+|---|---|---|---|---|---|---|
+| 0.00-2.40 | -0.014 | -62.6 | 37.2 | **0.381** | -33.8 | **7.7** |
+| 5.40-8.38 | -0.002 | -74.1 | 53.6 | **0.241** | -32.9 | **12.1** |
+| 8.38-18.43 | -0.002 | -75.9 | 56.3 | **0.263** | -31.2 | **11.3** |
+| 21.93-32.08 | -0.004 | -68.3 | 47.1 | **0.215** | -34.5 | **13.2** |
+| 35.08-38.62 | -0.010 | -60.1 | 39.8 | **0.141** | -37.3 | **17.0** |
+| 38.62-41.32 | 0.021 | -54.0 | 33.5 | **0.239** | -32.9 | **12.2** |
+| 44.32-51.14 | 0.010 | -63.8 | 39.7 | **0.437** | -31.2 | **6.3** |
+| 51.14-52.60 | -0.030 | -52.7 | 30.5 | **0.296** | -32.7 | **10.2** |
+
+Every correlation was |r| <= 0.03 - the signature of fitting two unrelated stretches of music - the
+fitted bed collapsed to -53..-128 dB, and the check reported **8 of 8 speech windows meeting their
+18 dB target**. The true answer at the same revision, on the same file, is **0 of 8**, worst
++6.3 dB. The three `prominent` windows correlate 0.91-0.95 once the offset is applied, which is what
+establishes that the fit itself was always sound.
+
+This is a gate that cannot fail (AGENTS.md §10.4) reached by a new route: not a threshold nobody
+could trip, but a measurement quietly aimed at the wrong data. The correlation column was printed
+beside every window the whole time and nothing read it.
+
+The repair is the shape `beat_grid` already had. `beat_positions`/`downbeat_positions` take the
+section and return TIMELINE time, and their offset argument is required precisely because a default
+of "no offset" is the value that is silently wrong. `measure_speech_above_bed` now takes
+`music_offset_seconds` positionally with no default, records it on the result beside the windows,
+and `run_full_render_qa` declines to run P3 at all when it is None rather than assuming the head of
+the file. Step 6.02's `_music_bed` computes it as `source_in - timeline_in` off the first A2 clip -
+the same two numbers `compile_manifest` placed it with.
+
+`tests/test_baseline_craft_properties.py::TestP3SpeechAboveBed` keeps the defect executable: one
+test fits a master carrying the second half of an 8 s music file at the right offset and gets
+|r| > 0.5 with a 2 dB margin, and its sibling fits the same master from 0 and asserts the old
+reading - |r| < 0.1, a margin over 20 dB, and `meets_plan` True.

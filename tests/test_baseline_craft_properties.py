@@ -591,6 +591,7 @@ def _mix_fixture(music_db_under_speech):
 def _speech_above_bed(mix, music, automation, spine_blocks, **kwargs):
     with patch.object(render_qa, "_decode_mono", side_effect=[mix, music]):
         return measure_speech_above_bed("master.mp4", "music.wav", automation,
+                                        kwargs.pop("music_offset_seconds", 0.0),
                                         spine_blocks=spine_blocks,
                                         sample_rate=SR, **kwargs)
 
@@ -690,9 +691,75 @@ class TestP3SpeechAboveBed:
         assert result.value["silent_reference_db"] is not None
 
     def test_no_music_plan_means_nothing_to_measure(self):
-        result = measure_speech_above_bed("master.mp4", "music.wav", [])
+        result = measure_speech_above_bed("master.mp4", "music.wav", [], 0.0)
         assert result.passed
         assert "nothing to measure" in result.detail
+
+    # ── the bed does not start at the head of its own file ──
+    #
+    # Step 2.04 chooses which SECTION of the track plays and the A2 clip
+    # carries it as `source_in`, so timeline second t is music file
+    # second t + offset.  P3 sliced the music at the TIMELINE time, so on
+    # project 001 - whose bed plays from 60.0 s - it fitted the wrong
+    # minute of the track against the master: every correlation fell to
+    # |r| <= 0.03, the fitted bed collapsed to -53..-128 dB and 0 of 8
+    # speech windows meeting their target were reported as 8 of 8.
+    # A gate that cannot fail.
+    #
+    # The fixture is the shape of the defect rather than a copy of 001:
+    # the master carries the SECOND half of the music file, so fitting
+    # from 0 correlates two unrelated stretches.
+
+    def _offset_fixture(self, music_db_under_speech):
+        """An 8 s music file whose SECOND 4 s are what the master carries."""
+        speech = _tone(4.0, 220.0, 1.0)
+        early = _tone(4.0, 55.0, 1.0)               # never used in the mix
+        played = _tone(4.0, 350.0, 1.0, phase=0.7)  # the section that plays
+        music = np.concatenate([early, played]).astype(np.float32)
+        gain = 10 ** (-music_db_under_speech / 20.0)
+        mix = (speech + gain * played).astype(np.float32)
+        return mix, music
+
+    def test_the_bed_is_fitted_at_the_section_that_actually_plays(self):
+        mix, music = self._offset_fixture(2.0)   # a bed 2 dB under the voice
+        result = _speech_above_bed(mix, music, BACKGROUND_WINDOW, SPEECH_BLOCK,
+                                   music_offset_seconds=4.0)
+        window = result.value["windows"][0]
+        assert abs(window["correlation"]) > 0.5, (
+            "the fit must find the music that is really in the master")
+        assert window["margin_db"] == pytest.approx(2.0, abs=1.0)
+        assert window["meets_plan"] is False
+        assert result.value["music_offset_seconds"] == 4.0, (
+            "the offset the margin was fitted at must be on the record")
+
+    def test_fitting_from_zero_would_have_reported_a_bed_that_is_not_there(self):
+        """The defect, kept executable: the same master read at offset 0."""
+        mix, music = self._offset_fixture(2.0)
+        result = _speech_above_bed(mix, music, BACKGROUND_WINDOW, SPEECH_BLOCK,
+                                   music_offset_seconds=0.0)
+        wrong = result.value["windows"][0]
+        assert abs(wrong["correlation"]) < 0.1
+        assert wrong["margin_db"] > 20.0, (
+            "a bed fitted against the wrong minute reads as almost absent")
+        assert wrong["meets_plan"] is True, (
+            "which is how a failing mix passed: this is the reading the "
+            "required argument exists to stop being the default")
+
+    def test_the_offset_is_required_and_has_no_default(self):
+        """A default of 'no offset' is the value that is silently wrong -
+        the same reason `beat_grid.beat_positions` requires its own
+        (AGENTS.md 10.5)."""
+        import inspect
+        params = inspect.signature(measure_speech_above_bed).parameters
+        assert params["music_offset_seconds"].default is inspect.Parameter.empty
+
+    def test_p3_does_not_run_when_the_offset_is_unknown(self):
+        """`run_full_render_qa` has the file and the plan but no offset:
+        it must decline to measure rather than assume the head of the file."""
+        import inspect
+        from library.tools.render_qa import run_full_render_qa
+        src = inspect.getsource(run_full_render_qa)
+        assert "music_offset_seconds is not None" in src
 
 
 # ═══ P4: deliverable at platform loudness without clipping ═══
@@ -1043,17 +1110,18 @@ class TestTheGatesActuallyDecide:
         assert [(s.start, s.end, s.intent)
                 for s in validate._framing_spans(manifest)] == [
             (0.0, 1.0, 1.0), (1.0, 2.0, 1.0), (2.0, 3.0, 0.0)]
-        music, automation = validate._music_bed(manifest)
+        music, automation, offset = validate._music_bed(manifest)
         assert music == __file__
         assert len(automation) == 1
+        assert offset == 0.0
 
     def test_a_missing_music_file_disables_p3_rather_than_guessing(self):
         from library.steps.step_6_02_validate_output import step as validate
 
-        music, automation = validate._music_bed(
+        music, automation, offset = validate._music_bed(
             {"tracks": {"A2": {"clips": [{"source_file": "/nope/absent.wav"}]}},
              "audio_mix": {"music_automation": [{"timeline_start": 0.0}]}})
-        assert music is None and automation == []
+        assert music is None and automation == [] and offset is None
 
 
 # ═══ where P4's verdict lives, and where it must not ═══

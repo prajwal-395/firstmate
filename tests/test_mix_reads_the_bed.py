@@ -284,7 +284,7 @@ def test_the_check_names_a_clip_gain_when_that_is_what_it_judged(monkeypatch):
     _fake_master(monkeypatch, music_gain_db=-18.0, speech_db=-20.0)
 
     result = render_qa.measure_speech_above_bed(
-        "MASTER", "MUSIC", _automation(None), BLOCKS)
+        "MASTER", "MUSIC", _automation(None), 0.0, BLOCKS)
 
     window = result.value["windows"][0]
     assert window["required_margin_basis"] == "clip_gain_read_as_separation"
@@ -299,7 +299,7 @@ def test_a_declared_separation_target_is_what_the_check_uses(monkeypatch):
     _fake_master(monkeypatch, music_gain_db=-18.0, speech_db=-20.0)
 
     result = render_qa.measure_speech_above_bed(
-        "MASTER", "MUSIC", _automation(8.0), BLOCKS)
+        "MASTER", "MUSIC", _automation(8.0), 0.0, BLOCKS)
 
     window = result.value["windows"][0]
     assert window["required_margin_basis"] == "declared_separation_target"

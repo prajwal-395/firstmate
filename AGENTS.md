@@ -915,6 +915,10 @@ Do not flip the boolean without changing one of the two. [why - the per-window n
 `music_behavior.SEPARATION_TARGETS_DB` is the plan's half and is EMPTY - no behaviour declares a separation, and an engine-supplied one would be a strength nobody chose arriving one level up (§10.5).
 `measure_speech_above_bed` reads a declared target when the plan carries one and otherwise falls back to the clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result, so a reported margin can never be mistaken for one somebody chose.
 
+**The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
+Step 2.04 chooses which part of the track plays (§10.5) and the A2 clip carries it as `source_in`, so timeline second *t* is music file second *t + (source_in - timeline_in)*.
+`measure_speech_above_bed` takes `music_offset_seconds` positionally with no default, records it beside the windows, and `run_full_render_qa` declines to run P3 at all when it is None - the same shape `beat_grid` already has, and for the same reason: a default of "no offset" is the value that is silently wrong. [why - 001's bed plays from 60.0 s, and fitting from 0 turned 0 of 8 speech windows meeting their target into 8 of 8](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
+
 **The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
 Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN track's SCALARS onto `music_selection.measurements` through `music_measurement.selection_measurements`, and step 5.02 reads them and records `bed` plus a per-window `bed_level_after_gain_lufs` - the bed's integrated loudness plus the clip gain, which is arithmetic and not a decision.
 

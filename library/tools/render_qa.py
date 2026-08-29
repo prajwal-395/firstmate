@@ -1116,6 +1116,7 @@ def measure_speech_above_bed(
         video_path: str,
         music_path: str,
         music_automation: Sequence[dict],
+        music_offset_seconds: float,
         spine_blocks: Optional[Sequence[dict]] = None,
         sample_rate: int = 48000,
         silent_margin_db: float = SILENT_WINDOW_MARGIN_DB,
@@ -1136,6 +1137,21 @@ def measure_speech_above_bed(
     below the median of the non-silent windows - the gain column shows
     whether the automation ran, the contribution column shows whether the
     viewer can hear it, and the second is the one that matters.
+
+    **`music_offset_seconds` is required and has no default**, because
+    the bed does not have to start at the head of its file.  Step 2.04
+    chooses which SECTION of the track plays
+    (`library/tools/music_section.py`) and `compile_manifest` places the
+    A2 clip at that `source_in`, so timeline second *t* carries music
+    file second *t + offset*.  Fitting the file from 0 against a render
+    built from second 60 correlates two unrelated stretches of music:
+    on project 001 that drove every window's correlation to |r| <= 0.03,
+    collapsed the fitted music level to -53..-128 dB and turned 0 of 8
+    speech windows meeting their target into 8 of 8 - a gate that could
+    not fail.  The argument is required for the reason
+    `beat_grid.beat_positions` requires the same one: a default of "no
+    offset" is the value that is silently wrong (AGENTS.md 10.5).  The
+    offset is recorded on the result beside the windows.
 
     Only speech-bearing blocks are judged; the rest are measured and
     reported.  `spine_blocks` supplies `block_type` by position - read
@@ -1170,12 +1186,25 @@ def measure_speech_above_bed(
                                   "warning",
                                   "Could not decode the master or the music bed")
 
+        offset = float(music_offset_seconds)
+        if offset < 0:
+            return RenderQAResult(
+                "speech_above_bed", True, None, None, "warning",
+                f"The bed is placed at a negative offset ({offset} s) into "
+                f"its own file, which nothing can fit against")
+
         windows = []
         for w in music_automation:
-            a = int(float(w.get("timeline_start", 0.0)) * sample_rate)
-            b = int(float(w.get("timeline_end", 0.0)) * sample_rate)
+            start = float(w.get("timeline_start", 0.0))
+            end = float(w.get("timeline_end", 0.0))
+            a = int(start * sample_rate)
+            b = int(end * sample_rate)
+            # The bed's own clock, not the timeline's: the A2 clip starts
+            # `offset` seconds into the file (music_section, AGENTS.md 10.5).
+            ma = int((start + offset) * sample_rate)
+            mb = int((end + offset) * sample_rate)
             x = mix[a:min(b, mix.size)]
-            y = music[a:min(b, music.size)]
+            y = music[ma:min(mb, music.size)]
             n = min(x.size, y.size)
             if n < sample_rate // 10:  # under 100 ms: nothing to fit
                 continue
@@ -1288,6 +1317,9 @@ def measure_speech_above_bed(
             metric="speech_above_bed",
             passed=meets if gate else True,
             value={"windows": windows,
+                   # Recorded, so a reported margin can never be read
+                   # without the offset it was fitted at.
+                   "music_offset_seconds": round(offset, 3),
                    "judged": len(judged),
                    "failing": len(failures),
                    "silent_reference_db": (round(silent_reference, 2)
@@ -1436,6 +1468,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                        chroma_floor: Optional[float] = None,
                        music_path: Optional[str] = None,
                        music_automation: Optional[Sequence[dict]] = None,
+                       music_offset_seconds: Optional[float] = None,
                        spine_blocks: Optional[Sequence[dict]] = None) -> List[RenderQAResult]:
     """Run every render QA check.
 
@@ -1458,9 +1491,14 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     judged against the framing that was in force over it;
     `chroma_floor` is the colour floor, which has no default
     because it is an open captain decision; `music_path`,
-    `music_automation` and `spine_blocks` are what P3 needs to fit the
-    bed against the master, and without them P3 does not run at all
-    rather than guessing at a music file.
+    `music_automation`, `music_offset_seconds` and `spine_blocks` are
+    what P3 needs to fit the bed against the master, and without them P3
+    does not run at all rather than guessing at a music file or at where
+    in that file the bed starts.  `music_offset_seconds` is separate from
+    the other two and checked separately: a caller that has the file and
+    the plan but cannot say which SECTION of the track plays does not
+    have enough to fit anything, and a default of 0.0 there is the value
+    that is silently wrong - see `measure_speech_above_bed`.
     """
     results = []
 
@@ -1475,9 +1513,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))
-    if music_path and music_automation:
+    if music_path and music_automation and music_offset_seconds is not None:
         results.append(measure_speech_above_bed(
-            video_path, music_path, music_automation,
+            video_path, music_path, music_automation, music_offset_seconds,
             spine_blocks=spine_blocks))
     results.append(verify_resolution(video_path, expected_width=width,
                                      expected_height=height))
