@@ -276,7 +276,11 @@ def usable_ranges_summary(assessment) -> str:
     - measured, ranges found -> ``0.0-45.9s``
     - measured, nothing usable -> ``usable_ranges: []`` with a
       ``deterministic_v1`` method, spelled out with the reasons that
-      excluded the clip;
+      excluded the clip - or, when the producer recorded none, as
+      ``none - whole clip excluded (no reason recorded)``.  It must
+      never be the empty string: a blank cell is the vocabulary for
+      "nobody measured this clip", so rendering a measured exclusion
+      that way tells the reader the whole clip is fair game.
     - never measured -> ``usable_ranges_method: "unmeasured"``, said in
       words.  It used to render as the empty string, indistinguishable
       from a document that carries no such field at all.
@@ -311,7 +315,15 @@ def usable_ranges_summary(assessment) -> str:
         if reason and str(reason) not in reasons:
             reasons.append(str(reason))
     if not reasons:
-        return ""
+        # Measured, nothing usable, and no reason recorded. This used to
+        # render "", which the B-roll handoff defines as "the clip was
+        # never measured, so the whole clip is fair game but unvetted" -
+        # the OPPOSITE of what deterministic_v1 with no ranges says. It
+        # was survivable only while the raw `usable_ranges_method`
+        # travelled beside it in the prompt; once the summary is the one
+        # carrier of the measurement it has to say it itself. An absent
+        # reason is stated as absent, never filled in.
+        return "none - whole clip excluded (no reason recorded)"
     return "none - whole clip excluded (" + ", ".join(reasons) + ")"
 
 

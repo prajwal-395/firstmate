@@ -207,6 +207,23 @@ def test_no_picture_deciding_step_still_reads_the_raw_blocks():
         assert "semantic_analysis_documents.*.blocks" not in cf, step
 
 
+# A step whose PRE-BRIDGE renders the place axis into its own table, and
+# the source that must contain the renderer's name for that claim to hold.
+# The exemption is from the `context_fields` path, never from the axis:
+# `vision_schema_adapter.scene_prose` is the one renderer of `scene[]`, so
+# a bridge that stops calling it fails this test rather than passing it
+# by omission.
+PLACE_AXIS_VIA_PRE_BRIDGE = {
+    "step_4_02_plan_transitions": "library/steps/step_4_02_plan_transitions",
+    # 3.02's `broll_candidates_toon.description` is `scene_prose` verbatim,
+    # capped at 600 characters - a cap that binds on 0 of 001's 17 clips.
+    # The raw structure moved to a REFERENCE when the step was carrying
+    # three views of one analysis at 60.7% of its context; the place axis
+    # did not move with it.
+    "step_3_02_select_broll": "library/steps/step_3_02_select_broll",
+}
+
+
 def test_the_place_axis_is_not_dropped_for_the_action_axis():
     """`blocks[]` is not a substitute for `scene[]`.
 
@@ -214,11 +231,22 @@ def test_the_place_axis_is_not_dropped_for_the_action_axis():
     001 covers 374.2 s of 807.0 s; the action windows carry what happens
     and reach the last second of all seventeen clips. They are different
     axes, so the view is added beside `analysis.scene`, never in place of
-    it. `plan_transitions` reads the same measurements through its own
-    pre-bridge table instead.
+    it. Two steps read the same measurements through their own pre-bridge
+    table instead, and this checks that the table really renders them.
     """
     for step in PICTURE_DECIDING_STEPS:
-        if step == "step_4_02_plan_transitions":
+        if step in PLACE_AXIS_VIA_PRE_BRIDGE:
+            step_dir = REPO / PLACE_AXIS_VIA_PRE_BRIDGE[step]
+            source = "".join(
+                f.read_text(encoding="utf-8")
+                for f in sorted(step_dir.glob("*.py")))
+            reached = ("scene_prose" in source
+                       or "clip_observations" in source
+                       or "describe_clip" in source)
+            assert reached, (
+                f"{step} is exempted from declaring the place axis because "
+                f"its pre-bridge renders it, and nothing in its own source "
+                f"reaches scene_prose any more")
             continue
         cf = manifest(step)["context_fields"]
         assert any(p.endswith("analysis.scene") or p.endswith(".scene")

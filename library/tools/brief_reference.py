@@ -64,6 +64,11 @@ walks when clause 5 has to put one back inline:
 
   * `creative_brief` - the captain's channel brief, seven steps, the
     document this rule was written for.
+  * `footage_analysis_reference` - step 3.02's per-clip vision
+    analysis, 35,813 B and **40.5% of that step's whole context**, and
+    the third of three views of one analysis the step was carrying
+    (#F14). Step 3.02's `bridge.py` writes it and builds the reference;
+    the shape is `footage_reference.footage_document`.
   * `sfx_catalog_reference` - step 4.04's SFX catalogue, 44,575 B and
     **44.1% of that step's whole context** once the brief stopped being
     copied (#299).  Step 4.04's `bridge.py` writes the catalogue to the
@@ -371,7 +376,8 @@ def project_pinned_sections(project_folder: str) -> list:
 
 # ── Clause 5, applied ───────────────────────────────────────────────
 
-REFERENCED_INPUTS = ("creative_brief", "sfx_catalog_reference")
+REFERENCED_INPUTS = ("creative_brief", "sfx_catalog_reference",
+                     "footage_analysis_reference")
 """Every step input that travels as a reference built here.
 
 `present_llm_step` walks this to put a document back inline for a

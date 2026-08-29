@@ -18,6 +18,17 @@ need a matching rule this pipeline has never settled, and inventing one
 would repeat the mistake in a subtler form; the table says so explicitly
 so the model does not read list order as preference.
 
+`footage_analysis_reference` is the second thing this bridge builds. The
+step used to carry three views of one vision analysis - this table, the
+`view:picture` action rows, and the raw `semantic_analysis_documents`
+the other two are rendered from - at 60.7% of its whole context, of
+which the raw structure alone was 40.5%. The structure is not deleted:
+it is written to this step's own directory in full and the prompt gets
+`brief_reference.build_reference`'s map instead, the same mechanism #295
+built for the captain's brief and #299 applied to the SFX catalogue.
+`library/tools/footage_reference.py` holds the measurement, the shape
+and what each of the three views uniquely carries.
+
 It also draws ONE FRAME STRIP PER CANDIDATE CUTAWAY WINDOW and puts a
 reference to them in the prompt (`broll_window_frames`). The table above
 is prose about what a clip DOES; a strip is a picture of what the window
@@ -28,8 +39,15 @@ import os
 import sys
 import json
 
+from library.tools.brief_reference import build_reference
+from library.tools.footage_reference import (
+    DOCUMENT_NAME,
+    REFERENCE_DOCUMENT_NAME,
+    REFERENCE_WHY,
+    footage_document,
+)
 from library.tools.pipeline_validation import require_keys
-from library.tools.project_layout import Area, ProjectLayout
+from library.tools.project_layout import Area, ProjectLayout, layout_for
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
 from library.tools import window_frames as wf
 
@@ -72,6 +90,26 @@ def _slot_aroll_clip(slot: dict) -> str:
     if vsegs and vsegs[0].get("clip_id"):
         return vsegs[0]["clip_id"]
     return slot.get("source_clip_id") or slot.get("clip_id") or ""
+
+
+def write_footage_reference(project_folder: str, documents,
+                            catalog_entries) -> str:
+    """Write the analysis out, and return the map that points at it.
+
+    The path recorded is ABSOLUTE, because it is the path the model has
+    to use and it runs from wherever the harness put it, not from the
+    project folder. Same reasoning as the brief's and the SFX
+    catalogue's, and the same function builds the map.
+    """
+    path = layout_for(project_folder).write_path(
+        Area.FOOTAGE_ANALYSIS, DOCUMENT_NAME, step="select_broll")
+    document = footage_document(documents, catalog_entries)
+    path.write_text(document, encoding="utf-8")
+    return build_reference(
+        str(path.resolve()), document,
+        document_name=REFERENCE_DOCUMENT_NAME,
+        why_referenced=REFERENCE_WHY,
+    )
 
 
 def cutaway_slot_seconds(timed_spine: dict) -> list:
@@ -257,7 +295,29 @@ def main():
 
     candidates_toon = format_toon(CANDIDATE_HEADERS, candidates_rows)
 
-    out = {"broll_candidates_toon": candidates_toon}
+    project_folder = data.get("project_folder") or ""
+    if not project_folder:
+        # There is nowhere to put the document, and carrying the raw
+        # documents inline instead would be the degraded mode that ships
+        # quietly. The runner broadcasts `project_folder` on every run.
+        print(json.dumps({
+            "error": (
+                "No project_folder reached this bridge, so the vision "
+                "pass's per-clip analysis has nowhere to be written and "
+                "the prompt has no path to point at"
+            ),
+            "step": "3.02_bridge",
+        }))
+        sys.exit(1)
+
+    out = {
+        "broll_candidates_toon": candidates_toon,
+        "footage_analysis_reference": write_footage_reference(
+            project_folder,
+            data.get("semantic_analysis_documents", {}),
+            catalog_entries,
+        ),
+    }
 
     frames_block = build_window_frames(data, catalog_entries, semantic)
     if frames_block:

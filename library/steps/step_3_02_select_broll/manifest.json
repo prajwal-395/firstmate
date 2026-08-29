@@ -78,6 +78,12 @@
         }
       },
       {
+        "name": "footage_analysis_reference",
+        "type": "string",
+        "required": true,
+        "description": "Bridge output: the vision pass's per-clip analysis as a REFERENCE - every document written to this step's own directory as footage_analysis.md, and a map naming each clip by the catalogue id the rest of the prompt uses, with its scene, camera and object counts and the line range that holds the whole record. This step carried THREE views of one analysis - this structure, the candidate table rendered from it and the observed-action rows - at 60.7% of its context, of which the raw structure alone was 40.5% (35,813 B on 001). The mechanism is library/tools/brief_reference.py, the same one #295 built for the creative brief and #299 applied to the SFX catalogue; the shape is library/tools/footage_reference.footage_document. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
         "name": "broll_window_frames",
         "type": "string",
         "description": "A map of the frame strips the pre-bridge drew, one per candidate cutaway window, with the directory holding them. Prompt-only: it shows the model what a window LOOKS like beside the prose that says what it does. See library/tools/window_frames.py."
@@ -140,6 +146,7 @@
   },
   "context_fields": [
     "broll_candidates_toon",
+    "footage_analysis_reference",
     "broll_window_frames",
     "a_roll_assignments",
     "creative_direction",
@@ -153,19 +160,6 @@
     "clip_catalog.*.height",
     "clip_catalog.*.rotation",
     "clip_catalog.*.frame_rate",
-    "semantic_analysis_documents.*.clip_id",
-    "semantic_analysis_documents.*.duration_s",
-    "semantic_analysis_documents.*.assessment.interest_score",
-    "semantic_analysis_documents.*.assessment.keywords",
-    "semantic_analysis_documents.*.assessment.clip_type",
-    "semantic_analysis_documents.*.scene",
-    "semantic_analysis_documents.*.camera",
-    "semantic_analysis_documents.*.objects",
-    "semantic_analysis_documents.*.assessment.content_type",
-    "semantic_analysis_documents.*.assessment.camera_stability",
-    "semantic_analysis_documents.*.assessment.usable_ranges",
-    "semantic_analysis_documents.*.assessment.usable_ranges_method",
-    "semantic_analysis_documents.*.assessment.primary_subject_visible",
     "temporal_event_indices.*.clip_id",
     "view:picture"
   ]

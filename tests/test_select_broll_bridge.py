@@ -55,8 +55,18 @@ def _second_clip_doc():
     return doc
 
 
-def run_bridge(payload: dict):
-    """Invoke the bridge the way the orchestrator does: JSON on stdin."""
+def run_bridge(payload: dict, project_folder=None):
+    """Invoke the bridge the way the orchestrator does: JSON on stdin.
+
+    `project_folder` is broadcast by the runner on every run and the
+    bridge now writes the vision analysis into it (see
+    `library/tools/footage_reference.py`), so a test that omits it is
+    testing a run that cannot happen. It is always a `tmp_path`: no test
+    reaches a real project (AGENTS.md 8).
+    """
+    payload = dict(payload)
+    if project_folder is not None:
+        payload["project_folder"] = str(project_folder)
     env = dict(os.environ, PYTHONPATH=REPO_ROOT)
     proc = subprocess.run(
         [sys.executable, BRIDGE],
@@ -75,24 +85,24 @@ def parse_table(toon: str):
     return fields, rows
 
 
-def test_v3_documents_produce_a_candidate_table():
+def test_v3_documents_produce_a_candidate_table(tmp_path):
     """This exact input used to exit 1 with "no usable description"."""
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    })
+    }, tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert {r["clip_id"] for r in rows} == {"clip_001", "clip_009"}
 
 
-def test_candidate_rows_carry_measured_framing_and_bounds():
+def test_candidate_rows_carry_measured_framing_and_bounds(tmp_path):
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    })
+    }, tmp_path)
     fields, rows = parse_table(
         json.loads(proc.stdout)["broll_candidates_toon"])
     for expected in ("framing", "stability", "content_type", "usable_range",
@@ -110,59 +120,59 @@ def test_candidate_rows_carry_measured_framing_and_bounds():
     assert "Outdoor parking lot" in by_id["clip_009"]["description"]
 
 
-def test_one_row_per_clip_not_one_row_per_slot():
+def test_one_row_per_clip_not_one_row_per_slot(tmp_path):
     """Two slots used to mean two identical copies of the same list."""
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    })
+    }, tmp_path)
     _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert len(rows) == len(CATALOG)
     assert len(rows) == len({r["clip_id"] for r in rows})
 
 
-def test_clips_carrying_aroll_are_flagged_and_listed_last():
+def test_clips_carrying_aroll_are_flagged_and_listed_last(tmp_path):
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    })
+    }, tmp_path)
     _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert [r["used_as_aroll"] for r in rows] == ["no", "yes"]
     assert rows[-1]["clip_id"] == "clip_009"
 
 
-def test_legacy_documents_still_produce_a_table():
+def test_legacy_documents_still_produce_a_table(tmp_path):
     """The reference project's stored state is in the retired schema."""
     proc = run_bridge({
         "clip_catalog": [CATALOG[0]],
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [LEGACY_PROFILE],
-    })
+    }, tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert rows[0]["clip_id"] == "clip_009"
     assert "outdoor urban plaza" in rows[0]["description"]
 
 
-def test_no_describable_clip_still_fails_the_step():
+def test_no_describable_clip_still_fails_the_step(tmp_path):
     """An empty table means the model can only produce filler."""
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [],
-    })
+    }, tmp_path)
     assert proc.returncode == 1
     assert "usable semantic description" in json.loads(proc.stdout)["error"]
 
 
-def test_undescribed_clips_are_reported_not_silently_dropped():
+def test_undescribed_clips_are_reported_not_silently_dropped(tmp_path):
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
         "semantic_analysis_documents": [V3_PROFILE],
-    })
+    }, tmp_path)
     assert proc.returncode == 0
     assert "clip_001" in proc.stderr
 

@@ -3634,6 +3634,123 @@ carrying 44 KB inline instead is the degraded mode that ships quietly.
 `tests/test_sfx_catalogue_by_reference.py`.
 ---
 
+## three-views-of-one-analysis
+
+Step 3.02 `select_broll` carried **three readings of the same per-clip vision
+analysis in one prompt**.  Measured with the step-replay bench on 001's frozen
+snapshot `001-degradation-20260828` at 75d3e84, over a context of 88,475 B:
+
+| section | bytes | share |
+|---|---|---|
+| `semantic_analysis_documents` | 35,813 | 40.5% |
+| `view:picture` | 10,250 | 11.6% |
+| `broll_candidates_toon` | 7,613 | 8.6% |
+| **three views of one analysis** | **53,676** | **60.7%** |
+
+**The share had grown, not shrunk.**  The prior report measured 40.6%; `#295`
+stopped copying the captain's brief into seven prompts, so the denominator fell
+faster than the duplication did and the same redundancy came to dominate a
+smaller context.  This is the step whose cutaway choices the captain complained
+about, and the one about to be handed a real frame.
+
+**What each of the three carries, established rather than assumed.**
+
+`broll_candidates_toon` is the pre-bridge's table, and the handoff calls it "the
+primary source of WHAT is in each clip".  Its `description` is
+`vision_schema_adapter.scene_prose` - `scene[]` rendered - and its
+`framing`/`stability`/`camera_move` are the `camera[]` summaries.  On 001 that
+rendering is **lossless**: the 600-character cap binds on **0 of 17** clips, and
+**16 of 17** clips have exactly one `camera[]` segment, so the deduped
+`wide -> close-up` form loses nothing but the bounds.  It also carries two things
+the analysis has not got at all - the catalogue's `duration_s`, and
+`used_as_aroll`.
+
+`view:picture` is `actions[]`: one row per observed action window with its own
+bounds, covering 95.0% of 001's footage where `scene[]` covers 46.4%.  It is also
+**the view the ANSWER is resolved against** - `cutaway_window.choose_window`
+matches the model's `preferred_moment` against `blocks[].visual`/`label` - so a
+model that cannot see it is writing a moment into a matcher it cannot see.
+
+`semantic_analysis_documents` is the raw structure the other two were rendered
+from.  **62.8% of its cells are `objects[]` alone** (22,347 B), then `assessment`
+16.6%, `scene` 13.9%, `camera` 5.9%.  It is also the only one of the three keyed
+by the document's own file stem (`IMG_1806_v3`) rather than the catalogue id
+(`clip_001`) every other table in the context uses - so it is the one view the
+model could not join to the other two without a mapping (section 10.1).
+
+**So the raw structure moved, and the two renderings stayed.**  Same mechanism as
+`#295` and `#299`, third document, one row in `REFERENCED_INPUTS`.  Four things
+were only ever in the structure, and all four are at the path:
+
+  * `objects[]` past the four labels the `subjects` column keeps - **159 objects
+    on 001, of which 68 reach the table** - with role, category, time ranges and
+    `readable_text` (10 of the 159 carry text);
+  * `camera[]`'s per-segment time bounds;
+  * `scene[]` as fields rather than as one prose line;
+  * every assessment field the table has no column for.
+
+**Measured on 001, 2026-08-29:**
+
+| | bytes |
+|---|---|
+| raw structure, as the projection sent it | 35,813 |
+| document written to disk | 37,058 (629 lines) |
+| the map, in the context | **4,507** |
+| step 3.02's whole context | 88,475 -> **57,169** (35.4% off) |
+| ...and with `#340`'s frame strips in it | 94,994 -> **63,688** (33.0% off) |
+| the three readings, together | 53,676 -> **22,370** (58.3% off) |
+| their share of the context | 60.7% -> **39.1%** |
+| readings as a multiple of the structure they read | 1.499 -> **0.625** |
+
+That last ratio is what `tests/test_broll_context_share.py` guards, because it is
+the one number that does not depend on the fixture: both sides scale with the
+analysis.  Re-declaring `semantic_analysis_documents.*.objects` alone takes it to
+**1.309** against a ceiling of 0.80.  The structural half of the guard - no
+positive `context_fields` path back into the raw documents - is the thing that
+actually regrew.
+
+**Two shapes inside the document are chosen for the MAP, not for the page.**
+Nothing below a `##` is a heading, because `parse_sections` lifts every deeper
+heading into the map and four identical subheadings per clip is 68 lines of the
+prompt saying nothing - that alone was 3,176 B.  And the identity line carries no
+underscore, because `brief_reference._lede` strips markdown emphasis and turned
+`content_type` into `contenttype` and `IMG_1806_v3` into `IMG1806v3`: a corrupted
+identifier in the one line a model reads to decide whether to open a section.
+
+**One thing this measurement writes into the captain's project, and it is worth
+knowing.**  A replay-bench snapshot symlinks `pipeline_output` at the live
+project, so a bridge that WRITES - this one, and 4.04's whenever
+`PIPELINE_SFX_LIBRARY` is set - reaches the real tree despite the bench's "no
+project write".  Both write only into their own step's `Kind.OUTPUT` area, which
+a re-run reproduces, but the bench's claim is narrower than it reads.
+
+**Two things the collapse broke, found by the test that guarded the OLD route.**
+`tests/test_vision_schema_adapter.py::test_framing_and_usable_ranges_reach_the_broll_prompt`
+measured 3.02's allow-list slice of the documents; with no such path left it
+projected to `{}` and the assertion failed - correctly, on the letter, and the
+sibling `test_every_semantic_consumer_projects_all_three_document_shapes` went
+QUIET rather than red, because `"{}".strip()` is truthy. The test now measures
+the WHOLE assembled prompt, pre-bridge included, which is strictly harder to
+pass: dropping `framing` from the candidate table fails it, and so would the
+stale allow-list it was written for.
+
+And one real regression it exposed. `usable_ranges_summary` renders three states
+- a range, "measured and nothing usable", "never measured" - but returned `""`
+for the second whenever `unusable_ranges` recorded no reason. The B-roll
+handoff defines an empty cell as *"the clip was never measured, so the whole
+clip is fair game but unvetted"*, the OPPOSITE of what `deterministic_v1` with
+no ranges says. That was survivable only while the raw `usable_ranges_method`
+travelled beside it in the prompt; once the summary is the one carrier, it has
+to say it itself. It now renders `none - whole clip excluded (no reason
+recorded)` - an absence stated, never filled in. **Collapsing a structure into
+a summary makes that summary's blank cells load-bearing**, and 001 does not
+exercise this state (17 of 17 clips are `unmeasured`), so nothing on the run of
+record would have shown it.
+
+`library/tools/footage_reference.py`, `library/steps/step_3_02_select_broll/bridge.py`,
+`tests/test_broll_context_share.py`, `tests/test_vision_schema_adapter.py`.
+---
+
 ## the-motion-graphics-that-were-planned-and-absent
 
 The captain, 2026-08-21: *"the motion graphics don't load, there are not any

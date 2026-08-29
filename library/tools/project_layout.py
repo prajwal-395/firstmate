@@ -308,6 +308,7 @@ class Area(str, Enum):
     MUSIC_ANALYSIS = "music_analysis"
     WINDOW_FRAMES = "window_frames"
     SFX_CATALOGUE = "sfx_catalogue"
+    FOOTAGE_ANALYSIS = "footage_analysis"
     SUBTITLE_SEGMENTS = "subtitle_segments"
     MOTION_GRAPHICS_SEGMENTS = "motion_graphics_segments"
     TIMED_TEXT_SEGMENTS = "timed_text_segments"
@@ -424,6 +425,13 @@ AREAS: dict[Area, AreaSpec] = {
         _step_path("music_analysis"), Kind.OUTPUT,
         "Tempo, beat grid and structure of the CHOSEN track.",
         step="music_analysis"),
+    Area.FOOTAGE_ANALYSIS: AreaSpec(
+        _step_path("select_broll"), Kind.OUTPUT,
+        "The vision pass's per-clip analysis written out as one document "
+        "per run, so the prompt can point at it instead of carrying "
+        "35,813 B of a structure it already ships two renderings of. "
+        "See library/tools/footage_reference.footage_document.",
+        step="select_broll"),
     Area.WINDOW_FRAMES: AreaSpec(
         _step_path("select_broll", "window_frames"), Kind.OUTPUT,
         "One frame strip per candidate cutaway window, so the step that "

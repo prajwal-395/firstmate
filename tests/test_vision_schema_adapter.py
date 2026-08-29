@@ -297,46 +297,166 @@ CONSUMERS = [
 ]
 
 
+# A step whose measured values reach the prompt through its own
+# PRE-BRIDGE rather than through a `semantic_analysis_documents` path.
+# The document-path route and the pre-bridge route are both real routes,
+# and this file tests whichever one a step actually uses - what it must
+# never do is stop checking, which is what an allow-list slice of a step
+# with no such paths quietly becomes (it projects to `{}`, and `"{}"` is
+# a truthy string).
+PRE_BRIDGE_ROUTE = {"step_3_02_select_broll"}
+
+
 def _semantic_context(step_id, docs):
-    """Project + serialise docs exactly as the orchestrator would."""
+    """Project + serialise docs exactly as the orchestrator would.
+
+    The allow-list slice, for a step that reads the documents by path.
+    A step in `PRE_BRIDGE_ROUTE` has none, so asking this for one is a
+    programming error rather than an empty answer.
+    """
     from library.tools.context_projector import project_fields
     from library.tools.toon_serializer import json_to_toon
 
-    manifest_path = os.path.join(
-        REPO_ROOT, "library", "steps", step_id, "manifest.json")
-    with open(manifest_path) as f:
-        fields = json.load(f)["context_fields"]
-    fields = [f for f in fields if f.startswith("semantic_analysis_documents")]
+    fields = [f for f in _context_fields(step_id)
+              if f.startswith("semantic_analysis_documents")]
+    assert fields, (
+        f"{step_id} declares no semantic_analysis_documents path, so this "
+        f"helper measures nothing for it - use _assembled_context")
     return json_to_toon(
         project_fields({"semantic_analysis_documents": docs}, fields))
 
 
-def test_framing_and_usable_ranges_reach_the_broll_prompt():
-    """A real measured value, end to end: analyser -> allow-list -> prompt.
+def _context_fields(step_id):
+    manifest_path = os.path.join(
+        REPO_ROOT, "library", "steps", step_id, "manifest.json")
+    with open(manifest_path, encoding="utf-8") as f:
+        return json.load(f)["context_fields"]
+
+
+def _assembled_context(step_id, docs, project_folder):
+    """The step's WHOLE prompt context, the way the runner builds it.
+
+    The real `bridge.py` as a subprocess, the runner's own
+    `project_step_context` and the real serializer - so a value is
+    measured where the model reads it, whichever route carried it there.
+    """
+    import subprocess
+    import sys
+
+    from library.processes.edit_video.run_pipeline import project_step_context
+    from library.tools.toon_serializer import json_to_toon
+
+    step_dir = os.path.join(REPO_ROOT, "library", "steps", step_id)
+    inputs = {
+        "project_folder": str(project_folder),
+        "semantic_analysis_documents": docs,
+        "clip_catalog": [{"clip_id": "clip_009", "filename": "IMG_1814.MOV",
+                          "path": "/footage/IMG_1814.MOV",
+                          "duration_seconds": 45.943, "width": 1920,
+                          "height": 1080, "rotation": 0,
+                          "frame_rate": 30.0}],
+        "a_roll_assignments": [
+            {"segment_id": "block_1", "spine_block_position": 1,
+             "video_segments": [{"clip_id": "clip_009"}]}],
+        "temporal_event_indices": [{"clip_id": "clip_009"}],
+        "timed_spine": {"structure": []},
+        "creative_direction": {},
+    }
+    env = dict(os.environ)
+    env["PYTHONPATH"] = REPO_ROOT + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, os.path.join(step_dir, "bridge.py")],
+        input=json.dumps(inputs), capture_output=True, text=True,
+        encoding="utf-8", cwd=REPO_ROOT, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    pre = json.loads(proc.stdout)
+
+    merged = dict(inputs)
+    merged.update(pre)
+    with open(os.path.join(step_dir, "manifest.json"), encoding="utf-8") as f:
+        manifest = json.load(f)
+    return json_to_toon(project_step_context(merged, manifest, set(pre)))
+
+
+def test_framing_and_usable_ranges_reach_the_broll_prompt(tmp_path):
+    """A real measured value, end to end: analyser -> route -> prompt.
 
     The allow-list used to admit seven paths, none of which exists in v3.
     Every document projected to clip_id and duration and the model was
     told to reason about framing it could not see.
+
+    The route changed and the property did not.  3.02 no longer declares
+    a `semantic_analysis_documents` path at all - it carried THREE views
+    of one analysis at 60.7% of its context, so the raw structure moved
+    to a reference - and this now measures the WHOLE assembled prompt
+    instead of one allow-list slice of it.  That is strictly harder to
+    pass: the original defect still fails it (a stale allow-list leaves
+    the values nowhere), and so does a collapse that drops a value from
+    every route.
     """
-    context = _semantic_context(
-        "step_3_02_select_broll", adapt_semantic_documents([V3_PROFILE]))
+    context = _assembled_context(
+        "step_3_02_select_broll", adapt_semantic_documents([V3_PROFILE]),
+        tmp_path)
+
+    # The framing the vision pass measured for the SECOND camera segment.
+    # `wide` alone would pass off the first segment and prove nothing.
     assert "close-up" in context
     assert "unstable" in context
-    assert "usable_ranges" in context
     assert "person_talking_to_camera" in context
+
+    # The usable range as a BOUND a cutaway is cut against. The old
+    # assertion was the key name `usable_ranges`; the thing that has to
+    # reach the model is the measurement, and a key name is not one.
+    assert "0.0-45.9s" in context
+
+
+# Whether a clip was measured is itself a measurement, and the prompt has
+# to carry all three answers distinguishably: the B-roll handoff defines
+# an EMPTY cell as "never measured, so the whole clip is fair game but
+# unvetted", so a measured exclusion rendered blank tells the model the
+# opposite of the truth.
+USABLE_RANGE_STATES = [
+    ({"usable_ranges": [[0, 45.943]],
+      "usable_ranges_method": "deterministic_v1"}, "0.0-45.9s"),
+    ({"usable_ranges": [], "usable_ranges_method": "deterministic_v1"},
+     "none - whole clip excluded"),
+    ({"usable_ranges": [], "usable_ranges_method": "unmeasured"},
+     UNMEASURED_SUMMARY),
+]
+
+
+@pytest.mark.parametrize("assessment,expected", USABLE_RANGE_STATES)
+def test_the_three_usable_range_states_reach_the_broll_prompt(
+        assessment, expected, tmp_path):
+    doc = json.loads(json.dumps(V3_PROFILE))
+    doc["assessment"] = dict(doc["assessment"], **assessment)
+    context = _assembled_context(
+        "step_3_02_select_broll", adapt_semantic_documents([doc]), tmp_path)
+    assert expected in context
 
 
 @pytest.mark.parametrize("step_id", CONSUMERS)
-def test_every_semantic_consumer_projects_all_three_document_shapes(step_id):
+def test_every_semantic_consumer_projects_all_three_document_shapes(
+        step_id, tmp_path):
     """Adapted v3, raw v3 and retired-schema documents must all survive.
 
     `project_fields` raises when a non-empty list projects to nothing but
-    empty dicts, which is exactly what a stale allow-list produces.
+    empty dicts, which is exactly what a stale allow-list produces.  A
+    step on the pre-bridge route is checked on its assembled prompt, and
+    on the value rather than on the string being non-empty - `"{}"` is
+    non-empty, which is how this could have gone quiet.
     """
     for docs in (adapt_semantic_documents([V3_PROFILE]),
                  [V3_PROFILE],
                  [LEGACY_PROFILE]):
-        assert _semantic_context(step_id, docs).strip()
+        if step_id in PRE_BRIDGE_ROUTE:
+            context = _assembled_context(step_id, docs, tmp_path)
+            assert "clip_009" in context, (
+                f"{step_id} assembled a prompt that names no clip from "
+                f"these documents")
+            continue
+        context = _semantic_context(step_id, docs)
+        assert context.strip() and context.strip() != "{}", context
 
 
 def test_clip_observations_excludes_legacy_chain_of_thought_objects():
