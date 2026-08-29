@@ -639,6 +639,17 @@ The multi-writer audit that decided the shape, measured before any of it was bui
 - `exports/` is genuinely written by two steps, 6.01 the render and 6.02 the QA report. It stays at project level, because it is the deliverable rather than any step's workspace, and both writers are declared.
 - Step 6.02 wrote `qa_report.json` via `os.path.dirname(video_path)` - a sixteenth inline path composition, missed by the first pass because it composes from a path rather than from `project_folder`.
 
+**Moved out of the rule (AGENTS.md 8) on 2026-08-29.**
+Directory names use the STEP number rather than DAG position because numbering by DAG position would
+renumber every later directory whenever a step is inserted. The cost is that sorting diverges from run
+order in exactly two places - the DAG runs 2.06 before 2.05 and 5.04 before 5.03 - and
+`README-LAYOUT.md` renders true run order.
+
+Nesting `logs/`, `gates/`, `review/` and the rest under a step would be a lie about who wrote them.
+
+The scaffold drifted from the steps once, promising `pipeline_output/subtitles` while step 4.05 wrote
+`subtitle_segments`.
+
 ### a-declaration-that-went-stale
 
 `classification.per_clip_artifacts` used to spell the path out: `pipeline_output/temporal_index/{clip_id}.json`.
@@ -647,6 +658,10 @@ When the layout moved the vision profiles out of `raw/analysis/`, the declaratio
 Nothing failed. `--rerun semantic_analysis:clip_007` deleted nothing, so the step's own "already on disk?" check found the profile still there and re-ran nothing - silently, and reporting success.
 
 A declaration that can go stale is the exact failure the layout owner exists to remove, so the prefix is now the owner's to state (`{area:vision_analysis}/`) and only the filename is the step's.
+
+**Moved out of the rule (AGENTS.md 8) on 2026-08-29.**
+Spelling the path out rather than naming an AREA is what left steps 1.03 and 1.07 pointing at
+`raw/analysis/` after the layout moved it, so `--rerun semantic_analysis:clip_007` deleted nothing.
 
 ---
 
@@ -920,6 +935,20 @@ That is stricter than the degradation report's 41.9% by 7.9 points, and the diff
 
 The one thing that would help every step at once is the thing the entry above already says: **a brief specific to 001**, which is the captain's writing and not the engine's.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+Copying the brief inline put it at **37.0%-84.3% of those seven prompts - 46.9% of every byte the
+pipeline's replayable steps send**. The map is **5,086 bytes against 47,903**, and the same seven
+contexts fall from 57,539-130,692 B to 14,260-87,413 B.
+
+Why the map carries a LINE RANGE per heading rather than only a heading: a path a model *can* reach
+and a path a model *does* reach are different properties, and the range is what buys the second.
+
+Why `api` is not in `HARNESS_READS_FILES`: `LLMClient.generate` posts one string and has no tool loop.
+
+The other two documents `brief_reference.REFERENCED_INPUTS` carries, measured the same way:
+step 4.04's SFX catalogue at **44,575 B and 44.1% of its step's context** (#299), and step 3.02's
+per-clip vision analysis at **35,813 B and 40.5% of its step's context** (#F14).
+
 ### compile-manifest-read-an-empty-catalog
 
 The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export.
@@ -1011,6 +1040,9 @@ Both are deliberately unprojected on a standing decision, so they take a drop-on
 
 The first wiring of the view deleted itself. An `llm_only` step is projected TWICE on every run - `gather_step_inputs` projects it and `present_llm_step` projects the result again - and the second pass ran against a tree the first had already taken `speech_regions` out of, so the builder found nothing and the section vanished. That is why a view's NAME is the key it writes.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+`view:transcript` leaves **1,439 per-word records and 82.5% of 2.01's context** behind.
+
 ### alphabetical-columns-put-end-before-start
 
 `_is_uniform_dict_list` sorted a table's columns with `keys.sort()`, so every table the serializer built came out alphabetical.
@@ -1036,6 +1068,10 @@ The hand-built tables (`cuts_toon`, `transcripts_toon`, `broll_candidates_toon`)
 
 One latent reader bug surfaced with it and is fixed in the same place: `toon_to_json` read a table row with `lstrip(' ')`, which ate a first cell's own leading whitespace as if it were indentation. It could only bite once a column with leading spaces could be column one. The reader now strips exactly the header's indent.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+Alphabetising put `end` before `start` in five tables across four steps - the transcript reached two
+prompts as `clip_id,end,start,text` - and led the 18-column spine table with `alignment_method`.
+
 ### the-transcript-shipped-twice
 
 `speech_sequence` (2.02) received all 110 transcript lines twice in the same context:
@@ -1053,6 +1089,10 @@ One latent reader bug surfaced with it and is fixed in the same place: `toon_to_
 The bridge's sort was also `os.listdir` order, which is the filesystem's - the same project could present its clips differently on two runs - and is now sorted by clip and start time.
 
 `semantic_analysis_documents.*.transcript` went in the same pass: it is `""` for all seventeen of 001's clips, and where a legacy document fills it, it is the same words a third time.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+Declaring `view:transcript` on 2.02 alongside its own `transcripts_toon` put **all 110 lines** in the
+prompt twice, in two different column orders.
 
 ### the-summary-and-its-own-source
 
@@ -1074,6 +1114,9 @@ A step told to read segment bounds must be sent segment bounds.
 
 Still outstanding, and blocked on a handoff the captain has reserved: `broll_candidates_toon`'s `description` column is `scene_prose` again, so 3.02 reads the prose and the structure in two different tables. Removing either means editing 3.02's handoff, which names both.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+Five steps declared both halves of a pair.
+
 ### the-beat-grid-in-the-prompt
 
 001's `music_analysis` carries 274 beat times, 69 downbeats and a 198-point energy curve, rendered one value per line as `[0] 0.557 / [1] 1.207 / ...`.
@@ -1092,6 +1135,10 @@ Beat proximity is decided in `plan_transitions`' post-bridge, which reads the gr
 Demonstrated rather than argued. 4.02's recorded answer was replayed through the real pre-bridge and post-bridge against the frozen snapshot at `origin/main` (5cee65f) and at the change: all 13 transitions came back with the same `beat_aligned` verdict (3 true), the same `placement_method`, the same `cut_point_timeline` and the same `snap_delta_seconds` - the whole `transition_spec` byte-identical, and identical to the one the run recorded.
 
 The three arrays go out with `-` drop paths rather than an allow-list, for the reason section 10.1 gives: naming the twenty keys to keep stops delivering the twenty-first. `mesh_spine` already dropped the energy curve that way.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+`music_analysis.tempo.beats`, `.tempo.downbeats` and `.energy_dynamics.energy_curve_1hz` are
+**274, 69 and 198 numbers** on 001.
 
 ### no-step-that-chose-a-picture-had-seen-one
 
@@ -1136,6 +1183,18 @@ Base64 in the context was rejected outright. No harness here decodes it: `api` c
 For scale, the same context already spends **60.7%** of itself on three prose views of one vision analysis (`semantic_analysis_documents` 40.5% + `picture` 11.6% + `broll_candidates_toon` 8.6%). Nothing was deleted to make room: whether prose plus a frame beats a frame alone is unmeasured, and removing the prose on a guess would be the change this evidence cannot support.
 
 **The degradation path, measured on the same context.** Withholding under `api` gives 88,742 B - the 88,475 baseline plus a 267-byte line saying the frames were drawn and are not shown - with no `FRAMES:` path, and `broll_candidates_toon` and `view:picture` untouched. A picture has no smaller textual form, so there is nothing to put back in its place; saying so is what stops a reconstructed context reading as a run where no frames existed.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+The defect, stated: the captain's marked cutaway - a close dashboard shot swinging past nothing - was
+described accurately by the prose and chosen anyway. One frame would not have caught it either; a
+dashboard shot that pans up to nothing looks correct in its first frame.
+
+`SECONDS_UNSEEN_BETWEEN_SAMPLES` is a resolution, not a taste: one strip per (anchor, slot length)
+would be exact and costs **five times the strips on 001**.
+
+**Cost, measured on 001 (2026-08-29)**: 100 strips, 54.6 s of ffmpeg on the first build and 3.1 s once
+they are on disk, 13 MB in the step's own directory, and 3.02's context 88,475 -> 94,994 B (+7.4%)
+against the 60.7% it already spent on three prose views of one analysis.
 
 ### the-director-saw-the-first-nineteen-seconds
 
@@ -1233,6 +1292,19 @@ Handing 4.04 an 86-row table keyed `IMG_1816_v3` would have reproduced the `topi
 The view is 10,508 B and 86 rows.
 Three ways to make it smaller were considered and none is taken: dropping `visual` for a shorter field leaves nothing (it is already the only column of the four that is prose); restricting the rows to the clips a step actually places is a judgement about which clips matter that the view has no input to make and 2.01 could not make at all, since nothing is placed when it runs; and the path-plus-map route `brief_reference.py` uses needs a harness that reads files, which under `api` there is not - and it would trade 10.5 KB for a route the model may not follow.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+`analysis.scene` is `scene[]` as prose and `scene[]` is one segment per clip, so a **188.6s clip was
+described by its first 18.9 seconds**. The view is the vision pass's per-window `blocks`, which reach
+the last second of all seventeen of 001's clips and cover **95.0% of 807.0s**.
+
+`scene[]` covers **374.2s of 807.0s** on the same footage, which is why the view goes BESIDE it and
+never in place of it. Repairing `scene[]`'s own coverage is #302: it truncates at 13.9-18.9s on four
+long clips and described one 85.8s clip whole, so the cause is not a fixed cap.
+
+Raw `blocks` in an allow-list lands in a TOON cell as `json.dumps` - **33,098 B on 001 against the
+view's 10,508** - and carries `body_language`, which restates the same moment at 2.4x the bytes of
+`visual`. Step 2.02 was the last step reading it that way.
+
 ### the-apostrophe-was-doubled-in-every-prompt
 
 `toon_serializer` quoted table cells with `'` and left `csv`'s `doublequote` on, so a cell holding a comma was quoted and every apostrophe inside it was then doubled, SQL-style.
@@ -1254,6 +1326,13 @@ A backtick appears in neither, so neither is altered, and the only character thi
 The same reasoning produced the `|` block.
 Escaping a newline is correct inside a CELL, where a row IS a line.
 Under a dict KEY there is no such constraint, and the values that travel there are documents: the captain's creative brief is 47,903 B of markdown reaching two thirds of the LLM steps, and escaped it arrived as ONE line carrying 700-odd literal `\n`.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+`'` sent `we're` to every prompt as `we''re`, **180 times in one context**; `"` would do the same to
+every `json.dumps`'d cell.
+
+Escaping a newline under a KEY rather than in a CELL is what sent the creative brief - 47,903 bytes of
+markdown - as one line carrying 700-odd literal `\n`.
 
 ### thirty-three-thousand-tokens-for-three-bytes
 
@@ -1365,6 +1444,9 @@ Measuring a VARIABLE font requires setting its weight axis: Montserrat-Variable 
 A group split cannot fix one over-wide word, so such a card carries `fit_scale` and the render draws THAT CARD smaller.
 The style's font size is untouched, because caption size is an open captain decision.
 
+**Moved out of the rule (AGENTS.md 10.2) on 2026-08-29.**
+The progress bar sat at `bottom: 0`, `width: 100%` until #321.
+
 ### the-squashed-face-frame
 
 `compute_face_presence` extracted at `scale=320:180`, so a rotated iPhone clip - 1080x1920 after ffmpeg's autorotate - reached the frontal cascade squashed about 5.3x horizontally.
@@ -1457,6 +1539,11 @@ The measurement cannot tell motion blur from a missed focus pull from a genuinel
 `speech_present`/`speech_coverage` carry `None` with `speech_coverage_method: "unmeasured"`, `camera_stability` says `unknown`, and `content_type` says `unknown` - all honest, and none of them was filled in to match the fix.
 One was not: `primary_subject_visible` was set to `[]` when the assessment model call produced nothing at all, which reads as "the subject appears nowhere in this clip" and reaches the B-roll prompt as that.
 It is now `None` on that branch - the same defect as `[[0, duration]]`, inverted.
+
+**Moved out of the rule (AGENTS.md 10.3) on 2026-08-29.**
+A stored document written before the producer was fixed still carries the contradiction, and rendering
+its range makes the stale assertion read as a measurement. That is why the DISPLAY reads the method
+rather than the ranges.
 
 ### semantic-analysis-triggers-a-vision-run
 
@@ -1557,6 +1644,17 @@ hook's 68)"*. What changed is that it is no longer presented as a change that wa
 four keys the step has never emitted, so 001's `summary.md` was the title and nothing else beside
 an `output.json` carrying a warning and an adjustment. It now reads the keys the step writes.
 
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+`creative_cohesion` (5.03) runs next to last and reads the transition, SFX and VFX plans, which is why
+it cannot be moved upstream of the decisions it reviews.
+
+`OWNED_UPSTREAM` carries no `suggested_value` because `"front_loaded"` was a word 5.03 invented about
+an ordering it never computed.
+
+`cohesion_score` was 100 minus a hand-picked weight per finding, nothing outside the step read it, and
+its one internal reader gated a block whose mutations never left the process. It is REMOVED, not
+recomputed.
+
 ### five-tests-skipped-in-every-environment
 
 The same shape as `gates-that-cannot-fail` above, in the suite rather than in the pipeline, and
@@ -1617,6 +1715,14 @@ Both fail rather than report: reporting is exactly what pytest was already doing
 parselmouth, whisperx, easyocr, torch, mlx_vlm, librosa and cv2: 2307 passed, 3 skipped. Same
 2310 collected, and the two skip sets are complementary halves of one condition -
 `praat-parselmouth` installed or not.
+
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+A condition that reads THIS REPOSITORY'S contents is not an environment: five tests skipped everywhere
+for months because the symbol they imported does not exist, and nine more because a fixture file has
+never been in any commit.
+
+Four tests whose body was `pass`, or whose whole body was a `try` swallowing every exception, reported
+PASS - which reads worse than a skip.
 
 ### every-line-scored-the-same
 
@@ -1685,6 +1791,12 @@ That is why the gate compares the TOP rank against the hook and nothing else, an
 **One answer of three named the hook `hook` and the body `body`** rather than `hook_segment`/`body_sequence`. That key naming was never pinned - the schema injected from the manifest is `"speech_sequence": {}` with no sub-keys - and it is not caused by this field, but it is what a reader of these numbers should know about the run they came from.
 
 Two further honesty notes on the figures. The answers came from ONE model driven through the `agy` route (a headless agent reading the reconstructed request), which is not necessarily the model a given run uses; a different model's spread has not been measured. And the bench rebuilds the QUESTION, not the answer - `docs/STEP_REPLAY_BENCH.md` says so directly - so these are three fresh answers to a frozen prompt, not three recorded runs.
+
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+Across three answers to the identical prompt at one revision on 001's frozen snapshot, the two
+strongest passages came back in the same order every time; mid-list ranks moved two places and the
+composite on those same passages moved up to twenty points. That spread is what `MEASURED_SPREAD`
+records.
 
 ### gates-that-fail-correct-output
 
@@ -1776,6 +1888,10 @@ pillarboxed but full-height picture passes; that was true before this change too
 letterboxed copies built from it and the synthetic fixtures in the test. Whether another
 project's master would newly pass or newly fail is not established.
 
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+Reading every dark row as bar cannot tell a night shot from a black bar, and failed a correctly-framed
+master.
+
 ### no-creative-floors
 
 A B-roll minimum and an SFX minimum both existed.
@@ -1791,6 +1907,17 @@ That is how `plan_vfx`'s "at least 3-7 VFX items" plus "every talking head clip 
 It now guards every step in `CREATIVE_PLANNING_STEPS`.
 
 `_assert_sfx_distributed` catches a collapse - every SFX on one frame - not a sparse plan, which is why it is not a floor.
+
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+Reading only prompts is how the VFX pair survived (#192); listing only the steps the ruling named is
+how step 4.02's `min_trans` floor and its `defocus` injection survived longer still.
+
+The review-step floors, in full: `creative_cohesion` (5.03) demanded at least 10 SFX per minute of a
+"high" energy edit and at most 15 of a "calm" one, and required every drawn transition under 500 ms -
+proposing `duration_frames: 10`, the one field `compile_manifest` rewrites. All four are removed.
+
+`adjustments` is now empty for every input at every energy, not just at the `moderate` 001 declares
+(#272).
 
 ### the-pipeline-invented-taste-where-no-step-ran
 
@@ -1823,6 +1950,10 @@ Four plan-completion substitutions, all reachable, all now a loud drop with the 
 **Dead slots found and reported, not changed.** `StyleSlots.energy_profile` and `EffectSlots.sfx_density` both default to `"moderate"` and have NO reader anywhere in the pipeline - only `brand_registry.validate_template`'s own enum check. Two templates set them; nothing acts on them.
 
 `tests/test_no_creative_floors.py` now drives the real bridges and reads the modules, not only the prompts. It is deliberately narrow - a grep for the word "default" would fail on every legitimate frame rate in the tree - so it asserts on bridge OUTPUT and on the specific `.get(literal, creative_value)` shapes that were removed.
+
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+Dead code that states taste is removed, not left: step 2.01's `step.py` produced a fixed
+`target_mood`/`energy_arc` and could never run, because the manifest declares the step pure LLM.
 
 ### silence-lost-in-the-two-word-vocabulary
 
@@ -2016,6 +2147,11 @@ It is also where the previous run's `VFX family 'slow_zoom' covers all 8 V1 clip
 
 Both are gone, and `tests/test_no_creative_floors.py` now drives the post-bridge as well as reading the prompt.
 
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+The VFX post-bridge padded the plan up to every eligible block and failed the step when the plan was
+empty, and survived the creative-floors ruling by living in code rather than in a prompt.
+`tests/test_no_creative_floors.py` now drives the post-bridge itself.
+
 ### hard-cuts-are-not-an-effect-on-everything
 
 P7 failed a build for `Transition type 'hard_cut' covers all 8 cuts`. Two things were wrong.
@@ -2046,6 +2182,11 @@ On 001 the music sits about **8.6 dB hotter** than the iPhone speech - raw music
 Turning the gate on today would fail every project whose bed is mastered louder than its dialogue, which is most of them.
 Promoting it needs one of: a loudness-relative bed level in `audio_mix`, or a target here that is the planned dB minus the measured source difference.
 Either is a decision, not a fix.
+
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+The full run of 001 on 2026-08-26 did NOT pass `speech_above_bed` cleanly. The mix does reach the
+file - the planned silence measures 32 dB below the bed - but `background` means -18 dB of CLIP GAIN
+while the check reads it as SEPARATION.
 
 ### the-bridge-table-that-was-projected-away
 
@@ -2145,6 +2286,11 @@ zero rows and `cuts_toon` before it.
 **Neither defect is visible in the output**, and that is the durable lesson. Both steps answered
 correctly. A single-agent run cannot distinguish a step that read its context from a step that
 remembered, so the check has to be made on the assembled context, not on the video.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+What the two now-routed edges carry: `creative_direction` reaches `mesh_spine`, which sets every gap
+and every `music_behavior`; `transition_spec` reaches `plan_sfx`, which is told to pair sounds with
+transitions.
 
 ### a-prompt-that-described-an-empty-table
 
@@ -2252,6 +2398,17 @@ The same sweep over the other nine requests found two, both reported rather than
   Nothing joins them. `library/tools/semantic_index.py` is the join that exists for exactly
   this.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+The guard catches the zero-row half of the family only; rows that are PRESENT but hollow go past it,
+which is what `cuts_toon` was.
+
+The same reader serves a live run and a finished one because the `llm_requests/<step>.json` archive
+keeps the prompt and the context exactly as the run sent them.
+
+`sfx_candidates_toon` was built from an `a_roll_assignments` no edge carries, so it had no rows at
+all - and its rows would have been `unknown` even routed, because A-roll entries are keyed
+`spine_block_position` and not `segment_id`.
+
 ### the-crop-was-narrower-than-the-face
 
 **2026-08-26.** Two consecutive full runs of project 001 - PRs #192 and #201 - independently
@@ -2326,6 +2483,11 @@ Related: [the-squashed-face-frame](#the-squashed-face-frame) fixed the sampling 
 `face_center_x` available on this footage at all; [the-letterbox-default](#the-letterbox-default)
 is why the frame fills in the first place.
 
+**Moved out of the rule (AGENTS.md 10.3) on 2026-08-29.**
+`render_qa.measure_face_intact` is deliberately the weaker half: a face cropped hard enough stops
+being detectable at all, which is why 001's own master yielded nine detections in 118 samples and none
+touching an edge.
+
 ### the-transition-planner-read-the-raw-document
 
 **2026-08-26.** The context sweep across the other ten LLM steps, measured with the replay
@@ -2381,6 +2543,15 @@ Measured, same snapshot, same tokenizer: **161,958 B -> 53,952 B, a 67% reductio
 embedded-JSON share of that context falls from 73% to 13%.
 
 `tests/test_plan_transitions_context.py`.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+A per-clip summary table built without `semantic_index`'s file-stem-to-`clip_XXX` join comes out full of
+`none` and says nothing; the transition planner shipped one for months.
+
+The other half of the same rule is what the raw document costs. A manifest that declares
+`semantic_analysis`/`semantic_analysis_documents` with no sub-paths gets all fifteen columns -
+`file_path`, `fps`, `resolution`, `vision_schema_version` and `analysis_metadata` included - and that
+was **113 KB of `plan_transitions`' 162 KB**.
 
 ### seventeen-copies-of-an-error-are-not-a-measurement
 
@@ -2537,6 +2708,21 @@ simply deselect it from the pipeline for now." The step is therefore WIRED - nod
 its 445 seconds. `--with ocr_extraction` turns it on. It is safe to leave out because no edge
 leaves it: nothing consumes `ocr_extraction`, so no dependency is stranded, and
 `tests/test_run_scope.py` asserts that rather than assuming it.
+
+**Moved out of the rules (AGENTS.md 3) on 2026-08-29.**
+`object_segmentation` (1.06) was added in commit 3c4dd10 (2026-08-08) without touching `dag.json`, and
+nothing consumes masks.
+
+The `readable_text` measurement, in full: on 001's 2026-08-26 run the local VLM (`gemma-4-12b-it-4bit`)
+filled **10 of 159 objects** (`Chattahoochee Ave NW`, `SCUFFLEWA BREWING CO`, eight more) and left 149
+null. A recorded claim that it "provably cannot" read text was wrong.
+
+**EasyOCR measurement on 001** (17 clips, 807s footage): 445s wall-clock, 367 tracked texts across
+15/17 clips, 83 above 0.5 confidence. Real text found includes street signs ("Chattahoochee", "PARK",
+"Tetta Blvd NW"), dashboard navigation ("Google", route numbers), and storefronts ("THROW AXES",
+"VALIDATE PARKING"). Signal-to-noise is **23%** - most low-confidence detections are noise from
+foliage and textures. The real detections are text the VLM returned null for, on 149 of its 159
+objects. That is the evidence behind wiring the step and deselecting it by default (#245).
 
 ## sam-2-1-was-asked-for-a-config-that-does-not-exist
 
@@ -2805,6 +2991,13 @@ The two lists and the raise are kept because they are the guard on the NEXT chec
 and `tests/test_cohesion_scope.py` drives the applier with a proposal built in the test so the
 branch stays exercised. An always-empty `adjustments` is not a clean bill of health on the edit.
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+An empty brand declaration used to resolve to `library/templates/default_brand.yaml`. That file is now
+a template a project must NAME; naming it is what makes its values a brand decision.
+
+Nothing populated `project_config` before, so the captain's declared `target_duration_seconds`
+governed nothing and **four duration gates ran against a constant**.
+
 ## the-sfx-chooser-was-a-word-list
 
 `AGENTS.md` §10.5, "Sound-effect selection is one enumeration".
@@ -2967,6 +3160,22 @@ table (lines 28-33) still name `foley`, `ambient` and `reverse_cymbal`. After th
 nothing the model can emit - the schema asks for an `sfx_id` out of `sfx_catalog_reference` - but the
 table reads as a menu and should be corrected by whoever holds that file.
 
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+What `load_sfx_catalog` merges, field by field: `sfx_index.json` (path, category, measured duration,
+envelope, transient offset), `library_semantic.json` (`description`, `source_object`, `evokes`,
+`emotional_temperature`, `works_when`, `avoid_when`) and `profiles/*.json`.
+
+The word list it replaced: eight hand-written keyword lists counted substring hits over each entry's
+`description` - which is EMPTY on 48 of the captain's 78 entries - and took the highest count.
+
+Step 5.04 used to keyword-match the library a second time, so the sound the model chose and the sound
+that played were two separate answers.
+
+A per-type placement constant put `bass_impact: 0.5` in front of a 5.317s file, which is why placement
+is keyed on the measured `envelope_shape`.
+
+The whole library is **78 of 78** entries; nothing is shortlisted.
+
 ## no-assessment-field-reports-a-default
 
 Rule: AGENTS.md §10.3, "No assessment field reports a default as though it were measured".
@@ -3084,6 +3293,13 @@ The four manifests routing `assessment.usable_ranges` raw into a prompt now rout
 `usable_ranges_method` beside it, and 2.02 routes `speech_coverage_method` beside `speech_coverage`.
 An allow-list selects by name and cannot tell a measurement from a default; the method is what tells
 them apart, and on 001's stale documents it is present and says `unmeasured` on 17 of 17.
+
+**Moved out of the rule (AGENTS.md 10.3) on 2026-08-29.**
+`detect_speech_regions` returning `[]` both when WhisperX ran and heard nothing and when it raised
+makes the two indistinguishable downstream. Speech regions measure presence AND coverage; a transcript
+measures presence alone; neither measures nothing.
+
+The family was found one field at a time - `camera_stability`, then `usable_ranges`, then these.
 
 ## the-card-that-vanished-into-a-log-line
 
@@ -3243,6 +3459,14 @@ not the block: `_resolve_framing(broll)` reads the b_roll assignment's own `fram
 a cutaway is different footage from the block it covers and framing it by that block would be wrong.
 Nothing writes that either.
 
+**Moved out of the rules (AGENTS.md 10.3 and 10.4) on 2026-08-29.**
+001 declares `pipeline.framing_intent: 0.0` once: its **11 landscape A-roll placements deliver 0.0 and
+its 7 portrait cutaways deliver 1.0**, because that is what the footage can do. Whether the picture is
+inset at all is the captain's preference, and the project declaration is where they said it belongs.
+
+On the gate side: a video declaring more than one framing used to switch the consistency half off
+altogether, so declaring a framing per clip removed the only gate on geometry.
+
 ## the-caption-grouping-reconstruction-used-the-wrong-predicate
 
 **The rule:** AGENTS.md §10.2, "A card fits the BOX, not one line" - unchanged, and this is the
@@ -3273,6 +3497,10 @@ and against the 45 cards actually on screen:
 So there is no anomaly in the grouping path. `fitter.measured` is True on this project - the font
 file is found and PIL measures it - and 45 cards at a median display of 0.781 s is exactly what
 today's code produces from 001's spine at 160 px.
+
+**Moved out of the rule (AGENTS.md 10.2) on 2026-08-29.**
+On 001 the one-line predicate reports 100 cards where 45 shipped, and rejects 40 of the 45 that are on
+screen; the box predicate reproduces all 45 exactly.
 
 ## the-caption-size-that-governs-one-video
 
@@ -3311,6 +3539,11 @@ The size does move caption pacing, and by less than halving the card count: at 8
 constraint stops being the box and becomes `split_into_groups`' `max_words = 6`, which 14 of the 34
 cards hit. This is the PLAN's arithmetic on 001's frozen spine; 001 has not been re-run or
 re-rendered.
+
+**Moved out of the rule (AGENTS.md 10.2) on 2026-08-29.**
+Measured on 001's frozen spine: **45 cards at a median 0.781s on screen at 160px, 34 at a median
+0.952s at 85px**, with `max_words = 6` becoming the binding constraint on 14 of the 34. Re-measure
+rather than assuming a ratio.
 
 ## the-cutaway-window-came-from-a-muted-waveform
 
@@ -3420,6 +3653,26 @@ seconds of it play.
   it is unmeasured. It is the same reading `music_section` gives a track with no declared section:
   the absence of a decision, stated rather than dressed up.
 
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+The post-bridge chose the window by centring it on the muted clip's audio RMS peak. On 001's run of
+record that decided **7 of 7 windows, 31.0% of the finished picture**.
+
+A behavioural test alone would not have caught the strategy that shipped, because the visual branch
+only ran on clips with fewer than two scene boundaries.
+
+The old visual strategy needed >= 2 scene boundaries and got them on **2 of 001's 17 clips**; the
+union with the vision pass's `blocks` gives a real choice on **13 of 17**, and the four that stay at
+one span are 3.6-9.1 s clips.
+
+Matching `preferred_moment` against what the vision pass observed during each span is the same shape
+`speech_sequence` uses to resolve a passage to a source range.
+
+`DECLINED_TO_RANK` holds because 001's evidence supports neither side of "a moving shot makes better
+B-roll than a still one".
+
+**Four of 001's seven cutaways are `single_span`**, and 001 carries the stale `[[0, duration]]`
+`usable_ranges` on 17 of 17 clips.
+
 ## seven-reads-of-a-key-that-cannot-exist
 
 The pipeline decision map (2026-08-25) counted ten code sites reading
@@ -3514,6 +3767,16 @@ The full re-measurement of all eight families the map listed, with a
 recommendation per remaining field, is in
 [`docs/UNREAD_DECISIONS_INVENTORY.md`](UNREAD_DECISIONS_INVENTORY.md).
 
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+The seven sites: a title, a subtitle, a series name, an episode label, a visual style and an accent
+colour in step 4.06, and the Fairlight preset's `content_type` in step 4.04. Each returned its default
+on every run the pipeline has ever made.
+
+Which side was wrong was established from 2.01's handoff, which lists eight fields and says the
+direction "is NOT a script or shot list". Repairing the other side - adding `title` to the schema -
+looks identical and asks a creative director for artwork that AGENTS.md section 14 puts with the
+project.
+
 ---
 
 ## the-plan-could-not-say-how-long-a-sound-plays
@@ -3580,6 +3843,12 @@ is. Ask for at most 7.326s ... Nothing is clamped."*
 
 `library/tools/sfx_duration.py`, `tests/test_sfx_duration.py`.
 
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+Declaring no `duration_seconds` plays the whole sound, which is the ABSENCE of a decision - the same
+reading `music_section` gives a track that names no section.
+
+The de-click ramp exists because a truncated waveform steps to silence and clicks.
+
 ## the-catalogue-was-copied-into-the-prompt
 
 `#298` put the whole SFX library in step 4.04's prompt, and that was the fix: a
@@ -3632,6 +3901,12 @@ carrying 44 KB inline instead is the degraded mode that ships quietly.
 
 `library/tools/brief_reference.py`, `library/tools/sfx_library.catalog_document`,
 `tests/test_sfx_catalogue_by_reference.py`.
+
+**Moved out of the rule (AGENTS.md 10.5) on 2026-08-29.**
+Inline the catalogue was **44,575 B and 44.1% of step 4.04's whole context**; the map is **13,351 B, a
+30.9% reduction of the step** (measured 2026-08-29). The map names all 78 sounds by id with category,
+length, envelope and temperature, and a line range for the prose - nothing is filtered, ranked or
+truncated.
 ---
 
 ## three-views-of-one-analysis
@@ -3749,6 +4024,29 @@ record would have shown it.
 
 `library/tools/footage_reference.py`, `library/steps/step_3_02_select_broll/bridge.py`,
 `tests/test_broll_context_share.py`, `tests/test_vision_schema_adapter.py`.
+
+**Moved out of the rule (AGENTS.md 10.1) on 2026-08-29.**
+Step 3.02 carried THREE readings of one vision analysis - `semantic_analysis_documents` 40.5%,
+`view:picture` 11.6%, `broll_candidates_toon` 8.6%, **60.7% of its context** - and the share had
+GROWN, because #295 shrank the denominator faster than the duplication. The collapse is what pays for
+#340's frame strips: with them in, the step is 94,994 B -> **63,688 B**.
+
+The two renderings stayed and the STRUCTURE moved, because the table's `description` is `scene_prose`
+losslessly on 17 of 17 clips, and `view:picture` is the reading `cutaway_window.choose_window`
+resolves the answer's `preferred_moment` against. Deleting the largest would have taken the
+per-segment bounds, 91 of 159 object labels and every assessment field the table has no column for.
+
+`tests/test_broll_context_share.py` guards the ratio of readings to structure: **1.499 before, 0.625
+after**.
+
+The route-change trap, in full: `tests/test_vision_schema_adapter.py` used to measure 3.02's
+allow-list slice of the documents; with no such path it projected to `{}`, and `"{}"` is a truthy
+string, so the sibling gate went quiet rather than red.
+
+The blank-cell trap, in full: `usable_ranges_summary` rendered "measured, and none of it usable" as
+`""` whenever no reason was recorded, and the B-roll handoff defines an empty cell as "never measured,
+so the whole clip is fair game". That was survivable only while `usable_ranges_method` travelled
+beside it in the prompt.
 ---
 
 ## the-motion-graphics-that-were-planned-and-absent
@@ -3888,6 +4186,15 @@ The two share a FAMILY - a capability advertised, planned and never verified in
 pixels - and not a cause.  The remedy is the same shape in both cases and is
 what #202 itself asks for: a bounded fixture render that reads the frames back.
 `tests/test_motion_graphics_delivery.py` is that test for V4.
+
+**Moved out of the rules (AGENTS.md 10.2) on 2026-08-29.**
+Motion graphics were a `logger.warning` in `assert_overlay_segments_on_disk` while timed text raised.
+
+Step 4.06 reads neither of the two inputs it declares REQUIRED because 4.03 emits `visual_effects`
+alone and 2.01's eight fields are prose; no step emits a motion-graphics plan at all.
+
+`input_contract` could not see either declaration while a prompt-less step's absent `context_fields`
+read as "handed every byte".
 
 ---
 
@@ -4092,6 +4399,23 @@ row would read as an absent measurement (§10.3) rather than as "no reader had t
 runner against a COPY of 001's frozen `pipeline_data.json` and `exports/qa_report.json`, on one
 already-complete step.
 
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+Step 6.02 measured all four of the captain's named shortfalls on 001 - the **6.25 s caption gap**,
+**13 of 45 cards over 25 characters per second**, **10 of 11 mix windows missing the margin the plan
+itself declared**, and the **-20.94 LUFS master** - and wrote every one to `exports/qa_report.json`,
+which nothing opened.
+
+Step 6.02 still decides what fails; the summary block assigns nothing, and the test pins that ordering
+off the runner's own source so an edit that moves the block above the status fails rather than quietly
+starting to block runs.
+
+Advisory is read off `REPORT_ONLY_METRICS` and never off severity alone because a report already on
+disk cannot be re-severitied, and `subtitle_qa` used to stamp its failing severity on a passing
+result.
+
+A new check that forgets its reader cannot go quiet, and the table cannot go stale, because the test
+harvests metric names out of both producers and checks both directions.
+
 ## the-review-answered-and-nobody-read-it
 
 *(§10.4, "Every QA finding has a reader"; §3, "A declaration must be true")*
@@ -4223,6 +4547,24 @@ a redesign and was not taken here.
 `pipeline_data.json`. Whether a transitions plan made with the verdict column differs from one made
 without it is an answer-side question the bench does not answer.
 
+**Moved out of the rule (AGENTS.md 10.4) on 2026-08-29.**
+Until `cut_verdicts` existed, `cut_decisions` appeared once in the whole repository - in its own
+manifest, declared with a type and no description - so the injected schema was the bare line
+`"cut_decisions": []`. On 001's run of record the model answered it with **19 rows, 9,498 bytes**, and
+one of them diagnosed the passage mis-anchor by name, with its cause, its owning step and its fix. All
+of it was discarded.
+
+`plan_subtitles` (4.01) cannot be the reader because it is `deterministic` and has no `handoff.md`.
+
+A finding owned by step 2.02 is not made actionable by putting it in the transitions prompt - that is
+`cohesion_scope.OWNED_UPSTREAM`'s shape - which is why the no-cut half goes to the run summary.
+
+3.03's projection used to delete `temporal_index`, so the step whose Check 5 says the script "must be
+derived from actual temporal index data, not from the speech_sequence's intended text" was handed
+nothing but the plan it was reviewing. Its five other inputs are all upstream decisions, and
+`a_roll_assignments` is a field-for-field copy of the spine whose duration invariant step 3.01 already
+ran.
+
 ## the-guard-that-could-not-see-a-deterministic-step
 
 **The rule:** AGENTS.md §3, "A declaration must be true".
@@ -4309,6 +4651,15 @@ a prompt. `unread_by_a_prompt_less_step` is the report, printed loudly on every 
 86 of 148 rows - every row of all twelve prompt-carrying steps - are byte-identical before and
 after. The 62 that changed all belong to the fifteen prompt-less steps.
 
+**Moved out of the rule (AGENTS.md 3) on 2026-08-29.**
+Reading a prompt-less step's absent `context_fields` as "handed every byte" answered `prompt_reads`
+True for every input of all fifteen prompt-less steps, so `render_motion_graphics` declared two inputs
+REQUIRED, read neither, and surveyed clean.
+
+All ten findings of the `unread_by_a_prompt_less_step` report predate the change that made them
+visible, which is why that half reports rather than fails - escalating a pre-existing finding is the
+captain's call.
+
 ## The VFX plan that was always empty
 
 Step 4.03 `plan_vfx` has emitted `{"visual_effects": []}` on every run the repository can show,
@@ -4375,3 +4726,60 @@ should refuse the step the way an unplayable sound refuses 4.04 is recorded in
 candidate table is real. That needs a run of step 4.03, and 001 was not re-run, not re-rendered and
 its timeline not opened. Every number above is `replay_bench` reconstruction, a post-bridge
 subprocess, or arithmetic over frozen JSON.
+
+**Moved out of the rule (AGENTS.md 10.2) on 2026-08-29.**
+`{"visual_effects": []}` is what 4.03 has emitted on every run in the repository, and it read the same
+whether the planner chose stillness or named four effects the post-bridge discarded - the drop reasons
+went to stderr and nowhere else.
+
+`no_effects_planned` versus `every_entry_dropped` is the same distinction `cutaway_window.BASES` draws
+between `moment_match` and `single_span`.
+
+The vocabulary was never the problem: a planner naming one of the five toolkit effects at one of the
+three intensities resolves, reaches `manifest["vfx"]`, reaches the V1 clip's Fusion comp and draws
+nodes. What 001's run of record shows is a planner deciding none on the merits, with its reasoning in
+`docs/run-001-reasoning/plan_vfx.md`.
+
+## what-searching-for-music-costs
+
+Evidence for AGENTS.md §10.5, "Search is one enumeration" and "Every candidate is MEASURED".
+Moved out of those rules on 2026-08-29.
+
+**Cost, measured 2026-08-28**: two queries at six results, fetching three, was 3.5s of search, 10.5s
+of download and 46.2s for the whole bridge.
+
+Judging duration off the search metadata before downloading anything dropped four multi-hour
+compilations at no cost on the run of record.
+
+Not opening a candidate the duration check already rejected is what keeps 001's two compilations from
+costing 325s of `loudnorm` to learn nothing.
+
+**What the measurements cost the prompt.** On 001, candidate data went from 3.8% of step 2.04's
+context to 28.0%, and the room for it came from #295 no longer copying the creative brief in. Every
+column in `MEASUREMENT_LEGEND` is paid on every candidate, which is why widening the table is not a
+way to improve the prompt.
+
+## a-third-of-the-choice-set-was-a-copy
+
+Evidence for AGENTS.md §10.5, "Two candidates that are the same recording".
+Moved out of that rule on 2026-08-29.
+
+Two of 001's four surviving candidates were one recording, so a third of the choice set was a copy and
+nothing said so. The defect was that the model could not tell - which is why a duplicate is MARKED
+rather than dropped; removing a row would have the pipeline choosing which encode the captain gets.
+
+**The tolerance is measured, not picked.** 1.0 dB is twice the worst difference across mp3 128k/320k,
+opus 96k and aac 128k re-encodes of this repository's own tracks. The nearest non-duplicate pair - the
+same song's lyrics and instrumental versions - is an order of magnitude further apart.
+
+`true_peak_dbtp` is not compared, and `DECLINED_SIGNALS` says why: lossy coding moves it most and it
+says least.
+
+## the-splices-that-reached-nothing
+
+Evidence for AGENTS.md §10.5, "Which SECTION of the track plays".
+Moved out of that rule on 2026-08-29.
+
+`compile_manifest` used to write `source_in: 0.0` as a literal, so the `splices` that step 2.04's
+frozen `handoff.md` has always asked for reached nothing. That is AGENTS.md §10.2 exactly - a
+capability is only real where the renderer reads it - arriving on the audio side.
