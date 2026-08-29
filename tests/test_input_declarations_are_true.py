@@ -30,6 +30,7 @@ from library.tools import input_contract, run_scope
 from library.tools.input_contract import (
     REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT,
     UNCONSUMED_DECLARATIONS,
+    UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT,
 )
 
 
@@ -135,10 +136,29 @@ def test_the_recorded_tables_name_real_declarations(rows):
 
 def test_every_recorded_entry_carries_a_reason():
     for table in (REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT,
-                  UNCONSUMED_DECLARATIONS):
+                  UNCONSUMED_DECLARATIONS,
+                  UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT):
         for key, reason in table.items():
             assert len(reason.split()) >= 12, (
                 f"{key} is recorded with no real reason: {reason!r}")
+
+
+def test_an_unrouted_record_names_no_declared_input(rows):
+    """The other table's contract is the mirror image: an entry here
+    says the declaration has GONE while a frozen `handoff.md` still
+    documents the read. An entry naming a declared input is stale."""
+    declared = {(r.node_id, r.name) for r in rows}
+    stale = sorted(key for key in UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT
+                   if key in declared)
+    assert not stale, (
+        "recorded as unrouted, but declared again: %s" % (stale,))
+
+
+def test_an_unrouted_record_names_a_line_the_handoff_still_carries(rows):
+    """And the other side: once the captain edits the frozen line, the
+    disagreement is over and the entry must go. Read off the handoff
+    file itself, not asserted."""
+    assert input_contract.unrouted_but_documented(rows) == []
 
 
 def test_a_recorded_requirement_is_still_declared_required(rows):
@@ -210,12 +230,19 @@ def test_a_get_passed_into_a_call_is_not_a_binding(rows):
 
 
 def test_a_view_carries_its_source_input_to_the_prompt(rows):
-    """`creative_direction` declares `prosody_analysis` and selects
-    `view:prosody`, not the input's own name. A survey that read only
-    dot paths called it a declaration nothing consumes."""
-    assert "prosody_analysis" in input_contract.view_sources("prosody")
+    """`creative_direction` declares `temporal_index` and selects
+    `view:transcript`, not the input's own name - no `context_fields`
+    entry names `temporal_index` by a dot path. A survey that read only
+    dot paths called it a declaration nothing consumes.
+
+    This was written on `prosody_analysis` / `view:prosody`, which was
+    2.01's other view-only input until step 1.05 was unwired (#F5). The
+    view still exists; nothing declares its source any more, so the
+    property is tested on the one that does.
+    """
+    assert "temporal_index" in input_contract.view_sources("transcript")
     by_key = {(r.node_id, r.name): r for r in rows}
-    assert by_key[("creative_direction", "prosody_analysis")].prompt_reads
+    assert by_key[("creative_direction", "temporal_index")].prompt_reads
 
 
 def test_a_shared_tool_counts_as_the_step_reading_its_input(rows):

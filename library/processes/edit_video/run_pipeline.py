@@ -2254,7 +2254,16 @@ def run_pipeline(
     # step used to report "Failed: 0" while pipeline_data.json still held
     # 69 unresolved failures, and that is how a hollow timeline shipped as
     # SUCCESS.
-    outstanding_failures = sorted(set(state.get("failed_steps", [])))
+    recorded_failures = sorted(set(state.get("failed_steps", [])))
+    # A recorded failure naming a step this DAG no longer contains can
+    # never be cleared: `_record_step_failure` removes an entry only when
+    # that step SUCCEEDS, and a step with no node never runs.  Unwiring
+    # `prosody_analysis` (#F5) left exactly that on 001, and holding a
+    # project at FAILED forever on a step the pipeline has stopped
+    # running is not a verdict about this run.  It is REPORTED by name
+    # and first - never dropped - and it does not decide `status`.
+    stranded_failures = [n for n in recorded_failures if n not in nodes]
+    outstanding_failures = [n for n in recorded_failures if n in nodes]
     never_run = [
         node_id for node_id in universe
         if not step_ledger.is_completed(state, node_id)
@@ -2289,6 +2298,9 @@ def run_pipeline(
     print(f"  Failed now:   {len(failed)} steps", file=sys.stderr)
     print(f"  Outstanding failures (all runs): "
           f"{len(outstanding_failures)}", file=sys.stderr)
+    if stranded_failures:
+        print(f"  Recorded failures of steps no longer in this pipeline: "
+              f"{len(stranded_failures)}", file=sys.stderr)
     print(f"  Never completed: {len(never_run)} steps", file=sys.stderr)
     stage_totals = {stage: sum(1 for s in stage_by_node.values() if s == stage)
                     for stage in step_ledger.STAGES}
@@ -2309,6 +2321,11 @@ def run_pipeline(
         print(f"  ✓ {', '.join(completed)}", file=sys.stderr)
     if awaiting_llm:
         print(f"  ⏸ {', '.join(awaiting_llm)}", file=sys.stderr)
+    if stranded_failures:
+        print(f"  ! {', '.join(stranded_failures)}: recorded as failed by "
+              f"an earlier run, and no longer a step of this pipeline. No "
+              f"run can clear this, so it does not decide the status.",
+              file=sys.stderr)
     if outstanding_failures:
         print(f"  ✗ {', '.join(outstanding_failures)}", file=sys.stderr)
         for node_id in outstanding_failures:
@@ -2381,6 +2398,7 @@ def run_pipeline(
         "awaiting_llm": awaiting_llm,
         "failed": failed,
         "outstanding_failures": outstanding_failures,
+        "stranded_failures": stranded_failures,
         "never_completed": never_run,
         "partial_invocation": partial_invocation,
         "paused_at_gate": paused_at_gate,

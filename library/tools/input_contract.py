@@ -127,6 +127,38 @@ UNCONSUMED_DECLARATIONS = {
 }
 
 
+# ── Unrouted, though a frozen handoff still documents the read ───────
+#
+# The other side of the same disagreement.  Above, the input is still
+# DECLARED because unrouting it would leave the handoff documenting a
+# read that no longer happens.  Here the declaration has GONE and the
+# handoff line has stayed, because the two are owned by different
+# people: the declaration is this engine's, the `handoff.md` is the
+# captain's and is frozen.
+#
+# So an entry here is a record that a frozen file and the DAG disagree,
+# held open until the captain rules on the line.  It is NOT a way to go
+# quiet: `disagreements` fails it from BOTH sides - if the input is
+# declared again the entry is stale, and if the handoff stops naming
+# the key the captain has ruled and the entry is stale too.
+
+UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT = {
+    ("creative_direction", "prosody_analysis"):
+        "Step 1.05 refuses a hollow profile, so the key was absent from "
+        "`step_outputs` and `gather_step_inputs` raised - 2.01 could not "
+        "assemble at all, and prosody was one of the two entries holding "
+        "every 001 run at FAILED. The declaration was removed rather "
+        "than satisfied: `view:prosody` rendered one line reading "
+        "`not_measured: 17 of 17 clip(s)`, and 2.01's prompt never asks "
+        "the model to do anything with prosody - its only mention is the "
+        "State Interaction row. `handoff.md:127` `| Reads | "
+        "prosody_analysis |` is therefore a documented read that no "
+        "longer happens; the file is frozen and the captain has the open "
+        "decision. Measured in "
+        "data/vep-prosody-usefulness-test/report.md sections 5 and 5.1.",
+}
+
+
 # ── Required, though the step runs without it ────────────────────────
 #
 # Enforcement is not warrant.  A step can refuse an input it would in
@@ -941,6 +973,38 @@ def disagreements(rows: Sequence[InputContract]) -> List[str]:
             lines.append(
                 f"{node_id}.{name} is recorded in UNCONSUMED_DECLARATIONS "
                 f"and something now reads it. Delete the entry.")
+    lines.extend(unrouted_but_documented(rows))
+    return lines
+
+
+def unrouted_but_documented(rows: Sequence[InputContract]) -> List[str]:
+    """Both ways an `UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT` entry
+    goes stale: the declaration came back, or the frozen line went."""
+    lines = []
+    step_ref = {r.node_id: r.step_ref for r in rows}
+    declared = {(r.node_id, r.name) for r in rows}
+    for node_id, name in sorted(UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT):
+        if (node_id, name) in declared:
+            lines.append(
+                f"{node_id}.{name} is recorded in "
+                f"UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT and is a "
+                f"declared input again. Delete the entry.")
+            continue
+        ref = step_ref.get(node_id)
+        if ref is None:
+            lines.append(
+                f"{node_id} is recorded in "
+                f"UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT and is not a "
+                f"step of this DAG. Delete the entry.")
+            continue
+        handoff = _LIBRARY_ROOT / ref / "handoff.md"
+        if not handoff.is_file() or name not in handoff.read_text(
+                encoding="utf-8"):
+            lines.append(
+                f"{node_id}.{name} is recorded in "
+                f"UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT and the "
+                f"handoff no longer names it. The disagreement is over. "
+                f"Delete the entry.")
     return lines
 
 

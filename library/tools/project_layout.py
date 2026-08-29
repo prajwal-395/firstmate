@@ -117,9 +117,9 @@ class StepDir:
 
     wired: bool = True
     """False for a step that is implemented but that no DAG node runs.
-    `object_segmentation` (1.06) is the one (AGENTS.md section 3). Its
-    directory appears only if the step is ever run; a normal pipeline run
-    produces nothing there.
+    `prosody_analysis` (1.05) and `object_segmentation` (1.06) are the
+    two (AGENTS.md section 3). Their directories appear only if the step
+    is ever run; a normal pipeline run produces nothing there.
 
     Not to be confused with a step that IS wired and is DESELECTED BY
     DEFAULT - `ocr_extraction` (1.07). That step has a DAG node, runs
@@ -149,7 +149,36 @@ STEPS: tuple = (
     StepDir("catalog", "1_02_catalog_footage"),
     StepDir("semantic_analysis", "1_03_semantic_analysis"),
     StepDir("temporal_index", "1_04_temporal_index"),
-    StepDir("prosody_analysis", "1_05_prosody_analysis"),
+    StepDir("prosody_analysis", "1_05_prosody_analysis", wired=False,
+            unwired_reason=(
+                "The step has never measured anything, on any project: "
+                "grep for a parselmouth-method profile across this "
+                "machine returns only the source file and its test, so "
+                "not one profile has ever carried a measurement. "
+                "MEASURED on 001 (2026-08-29, #F5, 17 clips): its two "
+                "contours are capped at the first 30 s (pitch) and 60 s "
+                "(intensity) of a clip, which is 22.1% and 51.7% of the "
+                "46.03 s of speech the edit actually uses - every "
+                "passage 2.01 and 2.02 agonised over is outside both "
+                "caps on clip_011 (188.6 s), the same first-N-seconds "
+                "defect as scene[]. Everything else it emits is a "
+                "WHOLE-CLIP aggregate - one WPM, one mean F0 for 188.6 s "
+                "of which the edit used 27 - where every question asked "
+                "of it is per-passage. Of the 86 recorded decisions, 1 "
+                "named it (D05), and 3 of the 4 questions it was wanted "
+                "for are answered by temporal_index's energy_curve, "
+                "speech_activity and WhisperX word timings at 30 Hz over "
+                "100% of all 17 clips: a 2.08x spread in per-passage WPM "
+                "and 2.30x in voiced level, and the mid-breath verdict "
+                "3.03 recorded as unobtainable. What is given up is F0, "
+                "voice quality (jitter/shimmer/HNR) and absolute dB, and "
+                "no recorded decision needs them - absolute speech "
+                "loudness is already recorded as missing at "
+                "step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED. "
+                "The step, speech_advanced_pipeline.py, prosody_profile."
+                "py and context_views' view:prosody all STAY: this says "
+                "nothing consumes it, not that the capability is gone. "
+                "docs/PROSODY_MEASURED.md has the per-passage numbers.")),
     StepDir("object_segmentation", "1_06_object_segmentation", wired=False,
             unwired_reason=(
                 "SAM 2.1 segmentation masks and bounding boxes have no "

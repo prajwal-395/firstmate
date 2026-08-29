@@ -160,15 +160,17 @@ def test_replay_rebuilds_a_real_step_off_frozen_state(project, store):
     assert result["step_type"] == "llm_only"
     # The projector really ran: creative_direction declares context_fields,
     # so the context carries the routed keys and not the whole state.
-    # `prosody`, `transcript` and `picture` rather than `prosody_analysis`
-    # and `temporal_index`: all three are declared as `view:` readings of
-    # a routed input (library/tools/context_views.py), and a view's name
-    # is the key it writes.  `temporal_index` itself is no longer in the
-    # projection since scene_boundaries was retired (#225) and the views
-    # are the only consumers.
+    # `transcript` and `picture` rather than `temporal_index`: both are
+    # declared as `view:` readings of a routed input
+    # (library/tools/context_views.py), and a view's name is the key it
+    # writes.  `temporal_index` itself is no longer in the projection
+    # since scene_boundaries was retired (#225) and the views are the
+    # only consumers.  `prosody` was the third such reading until #F5
+    # unwired step 1.05 and dropped the declaration
+    # (docs/PROSODY_MEASURED.md).
     assert set(result["top_level_keys"]) >= {
-        "clip_catalog", "prosody", "semantic_analysis_documents",
-        "transcript"}
+        "clip_catalog", "semantic_analysis_documents", "transcript"}
+    assert "prosody" not in result["top_level_keys"]
     assert "step_outputs" not in result["top_level_keys"]
     # The serializer really ran, on real content from the frozen state.
     assert "clip_001" in result["context"]

@@ -13,12 +13,6 @@
         "description": "State input: clip_catalog"
       },
       {
-        "name": "prosody_analysis",
-        "type": "object",
-        "required": true,
-        "description": "State input: prosody_analysis"
-      },
-      {
         "name": "semantic_analysis_documents",
         "type": "array",
         "required": true,
@@ -63,7 +57,6 @@
     "preconditions": [
       "'semantic_analysis_documents' exists in state",
       "'temporal_index' exists in state",
-      "'prosody_analysis' exists in state",
       "'clip_catalog' exists in state"
     ],
     "postconditions": [
@@ -116,7 +109,6 @@
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "view:picture",
     "view:transcript",
-    "view:prosody",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds"

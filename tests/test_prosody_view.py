@@ -10,6 +10,11 @@ A path allow-list cannot fix that: `context_fields` selects by NAME and
 these records have the right names.  `view:prosody` selects by
 `profile_defect` - the same predicate step 1.05 refuses to write a hollow
 profile with - and reports the absence in one line instead of hiding it.
+
+Step 1.05 is UNWIRED as of #F5 and nothing declares `prosody_analysis` any
+more (docs/PROSODY_MEASURED.md).  The view and its predicate are untouched,
+so what is tested here is the view's own contract rather than one step's
+manifest - and `test_no_step_declares_prosody_any_more` holds the other end.
 """
 import json
 import sys
@@ -90,27 +95,53 @@ def test_the_view_and_the_step_agree_on_what_a_measurement_is():
     assert profile_defect(HOLLOW["clip_001"]) == "parselmouth not installed"
 
 
-# ── The step still runs ───────────────────────────────────────────────
+# ── Nothing consumes it, and the view is intact for whatever does ────
+#
+# Step 1.05 is UNWIRED since #F5 and 2.01 declares neither the input nor
+# the view (docs/PROSODY_MEASURED.md).  The view itself is untouched, so
+# what these assert is the view's own contract - the shape any future
+# consumer would declare - rather than one step's manifest.
 
-def test_creative_direction_declares_the_view_and_its_source():
-    """A view is not routing. The step still has to be sent the input."""
-    m = manifest()
-    assert "view:prosody" in m["context_fields"]
-    assert not any(f.startswith("prosody_analysis.")
-                   for f in m["context_fields"]), (
-        "the raw paths are what carried the seventeen error records")
-    names = [i["name"] for i in m["interface"]["inputs"]]
-    assert "prosody_analysis" in names
+CONSUMER_FIELDS = [
+    "view:prosody",
+    "clip_catalog.*.filename",
+    "clip_catalog.*.duration_seconds",
+]
 
 
-def test_projecting_creative_direction_carries_no_error_records():
+def test_no_step_declares_prosody_any_more():
+    """The declaration that held every 001 run at FAILED. 2.01 could not
+    assemble at all once step 1.05 correctly refused a hollow profile."""
+    for path in sorted((REPO / "library" / "steps").glob("*/manifest.json")):
+        if path.parent.name == "step_1_05_prosody_analysis":
+            continue
+        m = json.loads(path.read_text())
+        names = [i.get("name") for i in
+                 (m.get("interface") or {}).get("inputs") or []]
+        assert "prosody_analysis" not in names, path.parent.name
+        assert "view:prosody" not in (m.get("context_fields") or []), \
+            path.parent.name
+
+
+def test_projecting_through_the_view_carries_no_error_records():
+    """The defect itself, on the fields a consumer would declare: the
+    seventeen error records collapse to one stated absence, and the rest
+    of the projection is untouched."""
     inputs = {
         "prosody_analysis": {"profiles": HOLLOW, "total_clips": 17},
         "clip_catalog": [{"filename": "IMG_1816.MOV", "duration_seconds": 70.1}],
     }
-    context = json_to_toon(project_fields(inputs, manifest()["context_fields"]))
+    context = json_to_toon(project_fields(inputs, CONSUMER_FIELDS))
     assert context.count("parselmouth not installed") == 1
     assert "IMG_1816.MOV" in context, "the rest of the projection is unchanged"
+
+
+def test_the_raw_paths_are_what_carried_the_seventeen_error_records():
+    """Why the view exists at all: an allow-list selects by NAME and
+    these records have the right names."""
+    inputs = {"prosody_analysis": {"profiles": HOLLOW, "total_clips": 17}}
+    raw = json_to_toon(project_fields(inputs, ["prosody_analysis"]))
+    assert raw.count("parselmouth not installed") == 17
 
 
 def test_a_step_with_no_prosody_routed_gets_nothing_rather_than_an_error():
@@ -121,7 +152,7 @@ def test_a_step_with_no_prosody_routed_gets_nothing_rather_than_an_error():
 @pytest.mark.parametrize("name", sorted(CONTEXT_VIEWS))
 def test_every_view_survives_a_second_projection(name):
     """`llm_only` steps are projected twice on every run."""
-    fields = manifest()["context_fields"]
+    fields = manifest()["context_fields"] + ["view:prosody"]
     once = project_fields(
         {"prosody_analysis": {"profiles": {**HOLLOW, **REAL}}}, fields)
     twice = project_fields(once, fields)

@@ -212,13 +212,16 @@ def test_a_step_that_is_not_in_the_dag_is_named_as_not_wired(project):
 
 
 def test_the_unwired_steps_are_exactly_the_ones_agents_md_names():
-    """One step is UNWIRED. `ocr_extraction` is not it any more: since
-    #245 it has a DAG node and is DESELECTED BY DEFAULT instead, which is
-    a property of a run rather than of the pipeline."""
+    """Two steps are UNWIRED - `object_segmentation` (1.06), and
+    `prosody_analysis` (1.05) since #F5 removed its one consumer's
+    declaration (docs/PROSODY_MEASURED.md). `ocr_extraction` is not one
+    of them: since #245 it has a DAG node and is DESELECTED BY DEFAULT
+    instead, which is a property of a run rather than of the
+    pipeline."""
     from library.tools.run_traceback import unwired_step_ids
     from library.tools.run_scope import DESELECTED_BY_DEFAULT
 
-    assert unwired_step_ids() == {"object_segmentation"}
+    assert unwired_step_ids() == {"object_segmentation", "prosody_analysis"}
     assert "ocr_extraction" not in unwired_step_ids()
     assert "ocr_extraction" in DESELECTED_BY_DEFAULT
 
