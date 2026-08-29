@@ -38,6 +38,66 @@ The fingerprint carries the path for that reason: a renumber must invalidate the
 Deliberately NOT built alongside it: a caching framework, or a content-addressed artifact store.
 The whole mechanism is one declared field, one split ledger, one re-run flag and one identity check.
 
+### a-preflight-cache-that-predates-its-own-fix
+
+**Measured on project 001, 2026-08-29,** on the first end-to-end run after twenty fixes landed on
+2026-08-28/29.
+
+The `temporal_index` ledger entry read `2026-08-17T17:09:28` and the 17 per-clip index files on
+disk were written `2026-08-21`. Three commits after that date changed what step 1.04 EMITS:
+
+- **#152 (2026-08-25)** stopped sampling face frames at a fixed 320x180 and read the clip's own
+  display aspect instead, which changes every `face_center_x` VALUE.
+- **#207 (2026-08-26)** added `face_width` beside it.
+- **#248 (2026-08-28)** measured usable ranges.
+
+Nothing noticed. The footage was untouched, so `footage_identity` re-confirmed all 17 fingerprints
+and preflight was skipped, exactly as designed. The identity check answers "is this the same
+footage", and the question that had gone stale was "is this the same code".
+
+**What the stale cache made inert.** `subject_framing.subject_box` returns None on an index with no
+widths - it says so in its own docstring - and None is also what it returns when the footage
+genuinely cannot support an answer. So the whole of #207 (`manifest_validator` P8, `subject_safe_zoom`,
+the `framing_backdrop` route) read a code-staleness as a measurement of the footage. Over 001's own
+11 A-roll placements:
+
+    subject_box answerable over the real A-roll windows:  before 0/11   after 10/11
+
+**What the re-run cost and changed.** 573.6s for 17 clips. `face_width` present in 0/17 files
+before, 17/17 after. Face detections across the project rose 1887 -> 2604 (+38%), and the split
+says where #152 mattered:
+
+    rotated portrait (display 1080x1920), 7 clips:  1 detection  ->  105
+    landscape (display 1920x1080), 10 clips:     1886 detections -> 2499
+
+All seven rotated clips were effectively face-blind: squashing a 1080x1920 display frame into
+320x180 distorts a face past what the Haar cascade recognises. Those seven are precisely the clips
+that COVER a 9:16 delivery frame, so they are the ones a crop actually applies to.
+
+**Why the catalog did not need the same treatment,** checked the same way: the two commits touching
+step 1.02 since its 2026-08-19 cache are #124 and #127, and neither adds a field to `clip_catalog` -
+the step's current output construction writes exactly the keys the cache already carries.
+
+**The related misconception, checked before the run and disproved.** The brief for this run assumed
+`scan_project`'s 2026-08-17 cache would make 001 render with the OLD framing, because PR #311 added
+`pipeline.framing_intent: 0.0` and `pipeline.subtitle_typography.size: 85` to its project.yaml after
+that date. It does not. `project_config` carries only `brand_registry.PROJECT_CONFIG_KEYS`
+(`target_duration_seconds`, `style_preset`, `subtitle_style`), the `pipeline:` block is not in it,
+and both declarations are read off project.yaml at the point of use on every run:
+
+    framing: project_framing_intent(001) = 0.0        (engine default would be 1.0)
+    project_subtitle_typography(001) = {'size': 85}   ->  resolved fontSize: 85
+
+The cache IS stale in one field - it carries `style_preset` and `subtitle_style` that 001 never
+declared, from before `project_declared_config` stopped inventing them - but every DAG edge out of
+`scan` carries only `raw_footage_files`, which recomputes byte-identical, and the whitelist
+broadcast reads `state["project_config"]`, which `load_pipeline_state` refreshes. The stale value
+reaches nothing.
+
+The general shape: a preflight cache is invalidated by a change to the FOOTAGE and by nothing else,
+so a change to the CODE that emits it has to be noticed by a person. The cheap check is the ledger
+date against `git log` on the step's own directory.
+
 ### a-selection-that-died-forty-minutes-in
 
 **#250, the captain on 2026-08-28.** "we should have that ability to be able to quickly deselect
