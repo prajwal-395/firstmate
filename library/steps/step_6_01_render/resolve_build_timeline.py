@@ -60,9 +60,6 @@ from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.execution.deliver_audio_mix import (  # noqa: E402
     PREMIX_SUFFIX, deliver_mix,
 )
-from library.tools.marker_feedback import (  # noqa: E402
-    UnpulledMarkers, guard_timeline_deletion,
-)
 from library.tools import timeline_decisions  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
@@ -400,7 +397,6 @@ def build_timeline(
     subtitle_overlay_path: Optional[str] = None,
     motion_graphics_path: Optional[str] = None,
     project_name: Optional[str] = None,
-    delete_existing: bool = True,
     project_folder: str = "",
 ) -> dict:
     """Build a complete Resolve timeline from an assembly manifest.
@@ -410,7 +406,6 @@ def build_timeline(
         subtitle_overlay_path: Legacy single-file path (fallback)
         motion_graphics_path: Legacy single-file path (fallback)
         project_name: Resolve project name (creates or loads)
-        delete_existing: Delete existing timelines with same name
 
     Returns:
         dict with build results and verification data
@@ -643,34 +638,44 @@ def build_timeline(
             s['total_frames'] = round(
                 (s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
 
-    # ── Delete existing timeline if requested ──
-    if delete_existing:
-        # `<name>__premix` too: the audio-mix round trip parks the
-        # placement timeline under that name for the length of one
-        # import, so a run killed mid-import leaves one behind.
-        stale = {timeline_name, f"{timeline_name}{PREMIX_SUFFIX}"}
-        # A timeline the captain has annotated is the one thing this
-        # build destroys that no re-run reproduces, so the check happens
-        # BEFORE the first delete and REFUSES rather than warning: a
-        # warning forty minutes into an unattended build is read by
-        # nobody. Clearing it is one read-only command. See
-        # `marker_feedback.assert_markers_pulled`.
-        try:
-            guard_timeline_deletion(project_folder, project, stale)
-        except UnpulledMarkers as exc:
-            results["errors"].append(str(exc))
-            results["unpulled_markers"] = [
-                {"text": n.text, "timecode": n.timecode, "frame": n.frame,
-                 "source": n.source} for n in exc.notes
-            ]
-            # `results["success"]` is already False and nothing has set it
-            # true yet, so this returns a failed build without adding a
-            # second assignment for `test_qa_failure_visibility` to read.
-            return results
-        for i in range(project.GetTimelineCount(), 0, -1):
-            tl = project.GetTimelineByIndex(i)
-            if tl and tl.GetName() in stale:
-                media_pool.DeleteTimelines([tl])
+    # ── A name already in use is a REFUSAL, never a deletion ──
+    #
+    # This block used to delete every timeline carrying the build's name,
+    # and step 6.01 called it with `delete_existing=True` unconditionally
+    # against a hardcoded "Pipeline_Edit".  So a second render silently
+    # destroyed the timeline the captain had spent a review annotating,
+    # and the only thing standing between them and that loss was
+    # `guard_timeline_deletion` - which passes once the notes have been
+    # collected, because collected notes are no longer AT RISK as data.
+    # A Text+ block is not a note, nothing collects one, and it went with
+    # the timeline.
+    #
+    # The build now never deletes a timeline it did not create in this
+    # run.  A collision is refused by name, and the fix is one line in
+    # the project's own project.yaml (`resolve.timeline_name`), which is
+    # what the captain asked for: "can you not just call it pipeline edit
+    # 2 or something and then render it?"
+    #
+    # `<name>__premix` is checked too: the audio-mix round trip parks the
+    # placement timeline under that name for the length of one import, so
+    # a run killed mid-import leaves one behind, and building over it
+    # would fail later and less clearly.
+    taken = []
+    for i in range(project.GetTimelineCount(), 0, -1):
+        tl = project.GetTimelineByIndex(i)
+        if tl and tl.GetName() in {timeline_name,
+                                   f"{timeline_name}{PREMIX_SUFFIX}"}:
+            taken.append(tl.GetName())
+    if taken:
+        results["errors"].append(
+            f"Refusing to build: {' and '.join(sorted(taken))} already "
+            f"exist(s) in this Resolve project, and this build does not "
+            f"delete a timeline it did not create. Choose another name "
+            f"with `resolve.timeline_name` in the project's project.yaml, "
+            f"or rename the existing timeline in Resolve."
+        )
+        results["timeline_name_taken"] = sorted(taken)
+        return results
 
     # ── Create empty timeline ──
     timeline = media_pool.CreateEmptyTimeline(timeline_name)
@@ -679,13 +684,75 @@ def build_timeline(
         return results
 
     project.SetCurrentTimeline(timeline)
-    timeline.SetSetting("useCustomSettings", "1")
-    timeline.SetSetting("timelineResolutionWidth", str(width))
-    timeline.SetSetting("timelineResolutionHeight", str(height))
     timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
+
+    # The shape goes on the PROJECT, not only on the timeline.
+    #
+    # The audio mix round trip re-imports the timeline through OTIO
+    # (AGENTS.md 5, "the import REBUILDS the timeline"), and the rebuilt
+    # one inherits the PROJECT's resolution - so per-timeline custom
+    # settings applied here are discarded a few hundred lines later. A
+    # fresh Resolve project defaults to 1920x1080, so project 001 built a
+    # correct 1080x1920 timeline and delivered a landscape master, and
+    # every structural check passed on it: duration, framerate, audio
+    # streams, even frame occupancy at 100%. It stayed hidden for the life
+    # of the pipeline because the one project it had ever rendered into
+    # had been set to vertical BY HAND.
+    #
+    # Every call is judged by what it RETURNS (AGENTS.md 5): the old code
+    # discarded four return values and then printed a tick carrying the
+    # manifest's numbers, which is why the log said 1080x1920 while the
+    # timeline was 1920x1080.
+    # The shape is confirmed by READING IT BACK, never by trusting the
+    # write. `SetSetting` returning True is a claim; `GetSetting` is the
+    # evidence, and it is the evidence that decides whether the build
+    # continues. Measured on Resolve 21 (2026-08-29): these keys commit
+    # synchronously, 20/20 immediate reads matched, so the retry below is
+    # a bound rather than a wait - it costs nothing when the first read
+    # already agrees and it does not encode a settle time nobody measured.
+    #
+    # Only the RESOLUTION is load-bearing here. Frame rate stays on the
+    # timeline, where it has always been set and has always worked;
+    # putting it on the project was an addition of mine that widened what
+    # could refuse a build without widening what the build needed.
+    def _confirm(obj, key, value, attempts=5):
+        """Write, then read back. Returns the value Resolve reports."""
+        for _ in range(attempts):
+            obj.SetSetting(key, str(value))
+            got = obj.GetSetting(key)
+            if str(got) == str(value):
+                return str(got)
+        return str(obj.GetSetting(key))
+
+    shape = (("timelineResolutionWidth", width),
+             ("timelineResolutionHeight", height),
+             ("timelineOutputResolutionWidth", width),
+             ("timelineOutputResolutionHeight", height))
+
+    wrong = []
+    for key, value in shape:
+        got = _confirm(project, key, value)
+        if got != str(value):
+            wrong.append(f"project.{key}: asked {value}, reads {got}")
+
+    timeline.SetSetting("useCustomSettings", "1")
+    for key, value in (("timelineResolutionWidth", width),
+                       ("timelineResolutionHeight", height)):
+        _confirm(timeline, key, value)
     timeline.SetSetting("timelineFrameRate", timeline_fps_str)
 
-    print(f"✓ Created timeline: {timeline_name} ({width}x{height} @ {timeline_fps_str}fps)", file=sys.stderr)
+    if wrong:
+        results["errors"].append(
+            "Resolve will not hold the timeline shape: " + "; ".join(wrong)
+            + ". The render would inherit whatever the project already "
+            "held, which is how a vertical edit ships as landscape.")
+        return results
+
+    print(f"✓ Created timeline: {timeline_name} "
+          f"({project.GetSetting('timelineResolutionWidth')}x"
+          f"{project.GetSetting('timelineResolutionHeight')} @ "
+          f"{timeline_fps_str}fps, read back from Resolve)",
+          file=sys.stderr)
 
     # ── Set up tracks ──
     # V1 exists by default. Need V2, V3, V4 for video and extra audio tracks.
@@ -1817,7 +1884,6 @@ if __name__ == "__main__":
     subtitle_overlay = None
     motion_graphics = None
     project_name = None
-    keep_existing = False
 
     if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.0)[0]:
         # Orchestrator mode: JSON piped via stdin
@@ -1837,8 +1903,6 @@ if __name__ == "__main__":
         parser.add_argument("--subtitle-overlay", help="Path to Remotion subtitle overlay (.mov)")
         parser.add_argument("--motion-graphics", help="Path to Remotion motion graphics overlay (.mov)")
         parser.add_argument("--project", help="Resolve project name")
-        parser.add_argument("--keep-existing", action="store_true",
-                            help="Don't delete existing timelines with same name")
         args = parser.parse_args()
 
         with open(args.manifest) as f:
@@ -1846,14 +1910,12 @@ if __name__ == "__main__":
         subtitle_overlay = args.subtitle_overlay
         motion_graphics = args.motion_graphics
         project_name = args.project
-        keep_existing = args.keep_existing
 
     result = build_timeline(
         manifest,
         subtitle_overlay_path=subtitle_overlay,
         motion_graphics_path=motion_graphics,
         project_name=project_name,
-        delete_existing=not keep_existing,
     )
 
     # BUG FIX C7: Output structured JSON result to stdout (only JSON, no

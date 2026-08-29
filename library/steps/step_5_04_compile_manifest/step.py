@@ -58,7 +58,8 @@ from tools.subject_framing import (
 )
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
-from tools.brand_registry import project_template_name, resolve_project_template
+from tools.brand_registry import (
+    project_template_name, resolve_project_template, project_timeline_name)
 from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   delivered_framing_intent,
                                   resolve_framing_intent, source_covers_frame)
@@ -1793,7 +1794,13 @@ def compile_manifest(out_dir: str) -> dict:
     # ── Compile ──
     manifest = {
         "project": {
-            "name": "Pipeline_Edit",
+            # The project says where its own build goes; a project that
+            # declares nothing gets the name this pipeline has always
+            # used.  It was a literal here, paired with delete_existing
+            # in step 6.01, so a second render destroyed whatever already
+            # carried the name - including a timeline the captain had
+            # been annotating.  See brand_registry.project_timeline_name.
+            "name": project_timeline_name(_project_root),
             "resolution": proj_res,
             "frame_rate": fps,
             # 3dp, matching clip precision. Rounding the authoritative

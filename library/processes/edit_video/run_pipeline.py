@@ -1040,10 +1040,17 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         [sys.executable, entry], inputs, os.path.basename(entry))
 
     if code != 0:
-        raise RuntimeError(
-            f"Step failed (exit {code}):\n"
-            f"  stderr: {stderr}"
-        )
+        # BOTH streams, because a step that fails is not obliged to have
+        # chosen the one we happen to read. Step 6.01 wrote its reason to
+        # stdout and exited 1 for the life of the pipeline, and this
+        # branch reported the stderr tail alone - so a build that refused
+        # for a stated cause reached step_errors, pipeline_log.jsonl and
+        # the run summary as an exit code and a truncated log. The reason
+        # existed the whole time and nothing read it.
+        detail = f"Step failed (exit {code}):\n  stderr: {stderr}"
+        if (stdout or "").strip():
+            detail += f"\n  stdout: {stdout}"
+        raise RuntimeError(detail)
 
     try:
         return json.loads(stdout)

@@ -29,6 +29,7 @@ RENDER_SCRIPT = os.path.join(
 if PILOT_ROOT not in sys.path:
     sys.path.insert(0, PILOT_ROOT)
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.brand_registry import DEFAULT_TIMELINE_NAME  # noqa: E402
 
 
 def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
@@ -43,7 +44,7 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
         raise ValueError("project_folder is required to place the export")
 
     output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS, step="render"))
-    output_name = manifest.get("project", {}).get("name", "Pipeline_Edit")
+    output_name = manifest.get("project", {}).get("name", DEFAULT_TIMELINE_NAME)
 
     cmd = [
         sys.executable, RENDER_SCRIPT,
@@ -106,8 +107,8 @@ def run(inputs: dict) -> dict:
             manifest=manifest,
             subtitle_overlay_path=inputs.get("subtitle_overlay_path"),
             motion_graphics_path=inputs.get("motion_graphics_path"),
-            project_name=manifest.get("project", {}).get("name", "Pipeline_Edit"),
-            delete_existing=True,
+            project_name=manifest.get("project", {}).get(
+                "name", DEFAULT_TIMELINE_NAME),
             project_folder=inputs.get("project_folder", ""),
         )
         
@@ -122,7 +123,7 @@ def run(inputs: dict) -> dict:
             if os.path.join(PILOT_ROOT, "library") not in sys.path:
                 sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.qa.timeline_sync_qa import run_timeline_sync_qa
-            run_timeline_sync_qa(manifest, manifest.get("project", {}).get("name", "Pipeline_Edit"), result.get("timeline_name"))
+            run_timeline_sync_qa(manifest, manifest.get("project", {}).get("name", DEFAULT_TIMELINE_NAME), result.get("timeline_name"))
         except Exception as e:
             raise RuntimeError(f"Timeline Sync QA Validation Failed: {str(e)}")
             
@@ -182,8 +183,28 @@ def main():
         result = run(input_data)
         json.dump(result, sys.stdout, indent=2)
     except Exception as e:
+        # The reason goes to STDERR, and the traceback with it.
+        #
+        # This used to `print()` the reason - to STDOUT - and exit 1. The
+        # runner reports STDERR on a non-zero exit and discards stdout,
+        # so the one channel carrying the reason was the one the failure
+        # path does not read. A build could refuse for a stated cause and
+        # arrive as "Step failed (exit 1)" with stderr truncated mid-log
+        # and nothing in step_errors, pipeline_log.jsonl or the run
+        # summary. Same family as a success tick that reports what it
+        # wanted rather than what happened (AGENTS.md 5): the report was
+        # decoupled from the event.
+        #
+        # `str(e)` alone loses where it came from, and these failures are
+        # Resolve calls a dozen frames deep, so the traceback goes too.
+        import traceback
+        print(f"RENDER FAILED: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        # Still on stdout for anything that parses it.
         print(json.dumps({
             "error": str(e),
+            "traceback": traceback.format_exc(),
             "step": "6.1_render"
         }))
         sys.exit(1)

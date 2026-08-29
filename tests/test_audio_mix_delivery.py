@@ -375,7 +375,17 @@ class FakeTimeline:
     def GetItemListInTrack(self, kind, index):
         return list((self.video if kind == "video" else self.audio).get(index, []))
 
-    def SetSetting(self, *a): return True
+    # Settings are stored and echoed, not waved through: the build
+    # confirms the timeline shape by reading it back.
+    def SetSetting(self, key, value):
+        self.settings[str(key)] = str(value)
+        return True
+
+    def GetSetting(self, key=None):
+        if key is None:
+            return dict(self.settings)
+        return self.settings.get(str(key), "")
+
     def SetTrackName(self, *a): return True
     def SetClipsLinked(self, *a): return True
     def GetStartFrame(self): return 0
@@ -557,11 +567,26 @@ class _BuildProject(FakeProject):
         self.timelines = []
         self.current = None
         self.media_pool = _BuildMediaPool(self)
+        self._settings = {}
 
     def GetName(self): return "Pipeline_Edit"
     def GetTimelineCount(self): return len(self.timelines)
     def GetTimelineByIndex(self, i): return self.timelines[i - 1]
     def ApplyFairlightPresetToCurrentTimeline(self, name): return False
+
+    # A real settings store, because `build_timeline` now confirms the
+    # timeline SHAPE by reading it back off the PROJECT rather than
+    # trusting that SetSetting worked. The OTIO round trip this file
+    # exercises is precisely what discards a per-timeline resolution, so
+    # a double for it has to hold the project-level one.
+    def SetSetting(self, key, value):
+        self._settings[str(key)] = str(value)
+        return True
+
+    def GetSetting(self, key=None):
+        if key is None:
+            return dict(self._settings)
+        return self._settings.get(str(key), "")
 
 
 class _BuildMediaPool(FakeMediaPool):

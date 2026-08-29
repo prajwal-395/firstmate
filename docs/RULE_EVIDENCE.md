@@ -38,6 +38,66 @@ The fingerprint carries the path for that reason: a renumber must invalidate the
 Deliberately NOT built alongside it: a caching framework, or a content-addressed artifact store.
 The whole mechanism is one declared field, one split ledger, one re-run flag and one identity check.
 
+### the-tick-that-reported-what-it-wanted
+
+**Project 001, 2026-08-29.** The first render into a new Resolve project delivered a **1920x1080**
+master of a **1080x1920** edit, and every structural check passed on it: duration 56.68s, framerate
+30.00, one audio stream, `face_intact` 0 of 52 cut, and `frame_occupancy` 100.0% of the frame.
+Occupancy is 100% because the picture does fill the frame - the frame is the wrong shape.
+
+**Why it had never happened before.** `build_timeline` set the resolution on the TIMELINE. The audio
+mix round trip then re-imports the timeline through OTIO, and the rebuilt one inherits the PROJECT's
+resolution (AGENTS.md 5, "the import REBUILDS the timeline"). Every render the pipeline had ever
+made went into `Lucie Content/Pipeline_Edit`, a project set to vertical BY HAND, so the inheritance
+was always correct and nobody learned it was doing the deciding. A fresh project defaults to
+1920x1080.
+
+**What made it cost three renders instead of one.** Two reporting defects, which are the same defect
+from opposite sides.
+
+The build discarded all four `SetSetting` return values and then printed
+
+```
+✓ Created timeline: Pipeline_Edit_2 (1080x1920 @ 30fps)
+```
+
+from the MANIFEST's own numbers. The timeline was 1920x1080 with `useCustomSettings: 0`. The tick
+reported what the code wanted, not what Resolve did, and it was the single most misleading line in
+the log - the first diagnosis off it was wrong, and cost a render.
+
+Then, when a later attempt refused for a stated reason, the reason reached nobody. Step 6.01's
+`main()` did `print(json.dumps({"error": ...}))` - to STDOUT - and exited 1, while
+`run_deterministic_step` reports STDERR on a non-zero exit and discards stdout. So the failure
+arrived in `step_errors`, `pipeline_log.jsonl` and the run summary as:
+
+```
+Step failed (exit 1):
+  stderr:   PIPELINE_SKIP_STABILIZATION set: dropping 13 neural-engine directive(s)...
+✓ Imported 18 media files into subfolders
+  Media pool: 18 clips (18 with paths)
+✓ Detected actual FPS from source: 30.0
+```
+
+An exit code and a truncated log. The message existed the whole time and nothing read it. A step
+that fails silently is the sibling of a gate that cannot fail: in both, the report is decoupled from
+the event.
+
+**Two hypotheses raised and killed on evidence rather than patched around.** That the render preset
+was inheriting a stale size - killed, the timeline itself was landscape. That `SetSetting` does not
+commit synchronously, so a read-back races - killed, measured 20/20 immediate reads matching across
+alternating writes on Resolve 21, plus a real frame-rate change accepted after media import. Both
+were plausible and both were wrong, which is the argument for fixing the reporting FIRST.
+
+**What changed.** The shape is set on the project and confirmed by `GetSetting`, and the tick prints
+what Resolve reports. Step 6.01 writes its reason and traceback to stderr. The runner's failure
+branch reports BOTH streams, because a step that fails is not obliged to have chosen the one we read.
+The test doubles now hold a settings store and echo it - a double that cannot echo a setting cannot
+exercise code that depends on echoing one, and six tests passed against a `MagicMock` that said yes
+to everything.
+
+**Still open at the time of writing:** why the third render refused. It is no longer a guess worth
+making - the next attempt will say.
+
 ### a-preflight-cache-that-predates-its-own-fix
 
 **Measured on project 001, 2026-08-29,** on the first end-to-end run after twenty fixes landed on

@@ -398,8 +398,11 @@ def test_an_unmarked_timeline_does_not_raise(tmp_path, scratch_timeline):
 
 def test_the_build_path_guard_refuses_the_named_timeline(
         tmp_path, resolve_project, scratch_timeline):
-    """`guard_timeline_deletion` is what step 6.01 calls before its
-    `DeleteTimelines`."""
+    """The guard for any caller that is about to delete a named timeline.
+
+    Step 6.01 no longer deletes one - a name already in use is refused
+    there instead - so this is the guard on its own terms, for whatever
+    calls it next."""
     _, project, _ = resolve_project
     _three_notes(scratch_timeline)
     name = scratch_timeline.GetName()

@@ -232,6 +232,42 @@ def project_pipeline_block(project_folder: Optional[str]) -> dict:
     return block if isinstance(block, dict) else {}
 
 
+# The timeline the build writes into.  `ResolveConfig.timeline_name` has
+# been in library/schemas/project_config.py since the schema was written
+# and NOTHING read it, while step 5.04 wrote the literal "Pipeline_Edit"
+# into every manifest and step 6.01 deleted whatever already carried that
+# name.  So a project could not say where its own build should go, and a
+# re-render destroyed the timeline the captain had been annotating.
+# Same shape as `brand_template` before #194: a declaration with no reader.
+#
+# The default is MECHANICAL - a name, like a path or a codec, not a
+# creative value (AGENTS.md 10.5) - and it is the name this pipeline has
+# always used, so a project that declares nothing builds where it always did.
+DEFAULT_TIMELINE_NAME = "Pipeline_Edit"
+
+
+def project_timeline_name(project_folder: Optional[str]) -> str:
+    """The timeline name a project declares under ``resolve:``.
+
+    Returns :data:`DEFAULT_TIMELINE_NAME` when the project declares none,
+    which keeps every existing project building where it always has.
+    """
+    if not project_folder:
+        return DEFAULT_TIMELINE_NAME
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return DEFAULT_TIMELINE_NAME
+    if yaml is None:
+        raise ImportError("PyYAML is required to read project.yaml.")
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    block = cfg.get("resolve") or {}
+    if not isinstance(block, dict):
+        return DEFAULT_TIMELINE_NAME
+    declared = (block.get("timeline_name") or "").strip()
+    return declared or DEFAULT_TIMELINE_NAME
+
+
 # What a project's own project.yaml may declare about the PRODUCT, as
 # opposed to about a brand.  Only `target_duration_seconds` has a reader;
 # the other two are what step 1.01 has always emitted and are kept so the

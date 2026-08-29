@@ -165,12 +165,40 @@ def render_timeline(
     # spanning the timeline's own frame range.
     start_frame = timeline.GetStartFrame()
     end_frame = timeline.GetEndFrame()
+    # Nor is RESOLUTION on by default, and it is the same defect as audio
+    # one line down: SetRenderSettings inherits whatever the PROJECT's
+    # render preset last held, and a freshly created Resolve project
+    # defaults to 1920x1080. Project 001 built a correct 1080x1920
+    # timeline and rendered out landscape, and every structural check
+    # passed - duration, framerate, audio streams, frame occupancy - on a
+    # file of the wrong shape. It only stayed hidden because every project
+    # the pipeline had rendered into before had been set to vertical BY
+    # HAND. Read off the TIMELINE that was actually built, so there is no
+    # second source of truth to disagree with the manifest, and REFUSE
+    # rather than inherit when it cannot be read.
+    def _timeline_setting(key: str) -> int:
+        try:
+            return int(timeline.GetSetting(key))
+        except (TypeError, ValueError):
+            return 0
+
+    width = _timeline_setting("timelineResolutionWidth")
+    height = _timeline_setting("timelineResolutionHeight")
+    if width <= 0 or height <= 0:
+        raise RenderError(
+            f"Timeline {timeline_name!r} reports no usable resolution "
+            f"({width}x{height}), so the render would silently inherit the "
+            f"Resolve project's own default. Refusing rather than guessing."
+        )
+
     settings = {
         "TargetDir": output_dir,
         "CustomName": output_name,
         "MarkIn": start_frame,
         "MarkOut": max(start_frame, end_frame - 1),
         "SelectAllFrames": False,
+        "FormatWidth": width,
+        "FormatHeight": height,
         # Audio is NOT on by default: whatever the project's last render
         # preset had wins, and a silent export passes every structural
         # check while being useless. State it explicitly.

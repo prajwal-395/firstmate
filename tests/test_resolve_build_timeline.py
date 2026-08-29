@@ -47,6 +47,31 @@ def mock_resolve():
     
     timeline = MagicMock()
     media_pool.CreateEmptyTimeline.return_value = timeline
+
+    # Settings are a STORE, not a MagicMock that says yes to everything.
+    # `build_timeline` now reads the resolution back off Resolve rather
+    # than trusting that SetSetting worked - it printed a tick carrying
+    # the manifest's own numbers for the life of the pipeline while the
+    # timeline was a different shape - so a double that cannot echo a
+    # setting cannot exercise the code that depends on echoing one.
+    def _settings_store(obj):
+        store = {}
+
+        def set_setting(key, value):
+            store[str(key)] = str(value)
+            return True
+
+        def get_setting(key=None):
+            if key is None:
+                return dict(store)
+            return store.get(str(key), "")
+
+        obj.SetSetting.side_effect = set_setting
+        obj.GetSetting.side_effect = get_setting
+        return store
+
+    _settings_store(project)
+    _settings_store(timeline)
     
     # Keep track of track counts to avoid infinite loops
     track_counts = {"video": 1, "audio": 1}
@@ -581,3 +606,40 @@ def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_man
     captured = capsys.readouterr()
     assert "QA CHECK FAILURE(S)" in captured.err
     assert "mock_loud_check" in captured.err
+
+
+def test_a_project_that_will_not_hold_the_shape_fails_the_build(
+        mock_resolve, sample_manifest):
+    """A vertical edit must never ship as landscape in silence.
+
+    The OTIO mix round trip re-imports the timeline and the rebuilt one
+    takes the PROJECT's resolution, so the shape has to be confirmed on
+    the project. It is confirmed by READING IT BACK: `SetSetting`
+    returning True is a claim, `GetSetting` is the evidence. Project 001
+    delivered a 1920x1080 master of a 1080x1920 edit and every structural
+    check passed on it - duration, framerate, audio streams, and frame
+    occupancy at 100%.
+    """
+    project = mock_resolve['project']
+    sample_manifest["project"]["resolution"] = [1080, 1920]
+
+    # A project that accepts the write and keeps its own value anyway -
+    # exactly what a stale render preset looks like from the outside.
+    def _refuse(key, value):
+        return True
+
+    project.SetSetting.side_effect = _refuse
+    project.GetSetting.side_effect = lambda key=None: (
+        {"timelineResolutionWidth": "1920",
+         "timelineResolutionHeight": "1080"}.get(str(key), "")
+        if key is not None else {})
+
+    with patch('os.path.exists', return_value=True):
+        result = build_timeline(sample_manifest)
+
+    assert not result.get("success")
+    joined = " ".join(result.get("errors", []))
+    assert "will not hold the timeline shape" in joined, joined
+    # It names the key, what was asked for, and what Resolve reports.
+    assert "timelineResolutionWidth" in joined
+    assert "asked 1080" in joined and "reads 1920" in joined, joined
