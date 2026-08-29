@@ -36,6 +36,17 @@
 #      naming them. The discriminator is the assignee login, configured in
 #      config/captain-github (or FM_CAPTAIN_GITHUB); with none configured every
 #      assignment reads as a claim. See docs/configuration.md.
+#
+#   3b. A ticket nobody may pick up advertising itself as READY. The frontier
+#      had only three discriminators - the type label, the assignee and the
+#      tracked-issue edge - and a hold is none of them, so a held ticket fell
+#      through to READY and contradicted its own body. The fourth discriminator
+#      is the fm:state:held label, in its own namespace so it is never read as a
+#      second type. It is a LABEL because `sync` runs on every dispatch and
+#      rewrites the body: anything not in the tracker's own vocabulary is
+#      overwritten by the next dispatch. `sync` raises the hold from the queue's
+#      own hold and NEVER lowers it - lowering one is `unhold`, which is somebody
+#      deciding it - so a hold taken in review survives the next dispatch.
 #   4. A decision that could not be answered without going and finding the
 #      background. A decision reaches the captain as a notification and nothing
 #      else, so `add --type decision` REFUSES a body without context, two
@@ -48,6 +59,13 @@
 #      WAY THE FLEET MAY COMMENT: a bare `gh api ... /comments` call leaves no
 #      record and wakes firstmate on what firstmate just wrote. Use
 #      `fm-tracker.sh comment`.
+#
+#   5b. A row that must not be published being published anyway. `sync` runs on
+#      every dispatch, so a row kept off a board by hand is filed by the next
+#      one and the decision survives only as prose in whatever review took it.
+#      A withhold is recorded in config/tracker-withhold with its reason, is
+#      consulted before a title is ever composed, and therefore holds across
+#      every later dispatch. See `withhold` below and docs/configuration.md.
 #
 #   6. The structure filed for the horizon and not for the work. The destination,
 #      decision and unknown halves were adopted and the task half was not, so the
@@ -75,8 +93,23 @@
 #     least two '- <option> - <consequence>' lines, and '## Recommendation'.
 #     '## Or something else' is appended by this script and must not be authored.
 #   fm-tracker.sh frontier <owner/repo>
+#     READY, BLOCKED, HELD and CLAIMED. HELD ranks above BLOCKED because a hold
+#     does not clear when a blocker closes, and below CLAIMED because somebody
+#     already working a ticket settles the question.
 #   fm-tracker.sh claim <owner/repo> <n>
 #   fm-tracker.sh release <owner/repo> <n>
+#   fm-tracker.sh hold <owner/repo> <n>
+#   fm-tracker.sh unhold <owner/repo> <n>
+#     Take one ticket out of the ready set, or put it back. The carrier is the
+#     fm:state:held label, so the state survives every later sync.
+#   fm-tracker.sh withhold --project <name> --task <task-id> --reason <text>
+#   fm-tracker.sh unwithhold --project <name> --task <task-id>
+#   fm-tracker.sh withheld [--project <name>]
+#     Record, clear and list the rows `sync` must never publish. --reason is
+#     required: a withhold nobody can explain later is a withhold nobody can
+#     lift. The record is consulted before a title is composed, so a withheld
+#     row's summary never reaches GitHub at all. A withhold cannot unpublish a
+#     ticket already filed; `sync` names that ticket rather than implying it did.
 #   fm-tracker.sh answer <owner/repo> <n> --decision <text>
 #                     [--settles <text>] [--does-not-settle <text>]
 #   fm-tracker.sh comment <owner/repo> <n> --body <text>|--body-file <path>
@@ -106,7 +139,8 @@
 #     forever with nobody working it. A re-dispatch reopens the same ticket.
 #   fm-tracker.sh sync --project <name> [--task <task-id>] [--dry-run] [--limit <n>]
 #     Reconcile that project's whole open queue into task tickets, in dependency
-#     order, and claim the in-flight rows. Reads data/backlog.md directly, so it
+#     order, and claim the in-flight rows. Skips every row recorded in
+#     config/tracker-withhold, and marks a held row's ticket fm:state:held. Reads data/backlog.md directly, so it
 #     works under either backlog backend and a broken tasks-axi cannot stop a
 #     dispatch. Skips kind:captain rows (a decision is not a task and has its own
 #     type), hold-kind:future rows (parked rows are parked from the captain too)
@@ -202,24 +236,45 @@ ensure_labels() {
   for t in $FM_TRACKER_TYPES; do
     name=$(fm_tracker_type_label "$t")
     case "$t" in
-      destination) desc='firstmate: the destination this project steers toward'; color=0e8a16 ;;
-      decision) desc='firstmate: a decision the captain owns'; color=b60205 ;;
-      unknown) desc='firstmate: a known unknown to be resolved'; color=fbca04 ;;
-      *) desc='firstmate: executable work'; color=1d76db ;;
+      destination) desc='the destination this project steers toward'; color=0e8a16 ;;
+      decision) desc='a decision for the project owner'; color=b60205 ;;
+      unknown) desc='a known unknown to be resolved'; color=fbca04 ;;
+      *) desc='executable work'; color=1d76db ;;
     esac
     gh_api -X POST "/repos/$OWNER/$REPO/labels" \
       -f "name=$name" -f "description=$desc" -f "color=$color" >/dev/null 2>&1 || true
   done
+  gh_api -X POST "/repos/$OWNER/$REPO/labels" \
+    -f "name=$FM_TRACKER_HELD_LABEL" \
+    -f 'description=not available to pick up yet' -f 'color=6a737d' >/dev/null 2>&1 || true
 }
 
-create_issue() {  # <title> <body> <type>
-  local title=$1 body=$2 type=$3 label num
+create_issue() {  # <title> <body> <type> [extra-label]
+  local title=$1 body=$2 type=$3 extra=${4-} label num
   label=$(fm_tracker_type_label "$type")
-  num=$(gh_api -X POST "/repos/$OWNER/$REPO/issues" \
-    -f "title=$title" -f "body=$body" -f "labels[]=$label" --jq .number) \
-    || die "could not create the issue in $OWNER/$REPO"
+  if [ -n "$extra" ]; then
+    num=$(gh_api -X POST "/repos/$OWNER/$REPO/issues" \
+      -f "title=$title" -f "body=$body" -f "labels[]=$label" -f "labels[]=$extra" --jq .number) \
+      || die "could not create the issue in $OWNER/$REPO"
+  else
+    num=$(gh_api -X POST "/repos/$OWNER/$REPO/issues" \
+      -f "title=$title" -f "body=$body" -f "labels[]=$label" --jq .number) \
+      || die "could not create the issue in $OWNER/$REPO"
+  fi
   fm_tracker_issue_number_valid "$num" || die "GitHub returned no usable issue number"
   printf '%s\n' "$num"
+}
+
+# Raise or lower the hold on an existing ticket. Separate calls rather than a
+# label rewrite, so a label somebody else put on the ticket is left alone.
+add_held_label() {  # <number>
+  gh_api -X POST "/repos/$OWNER/$REPO/issues/$1/labels" \
+    -f "labels[]=$FM_TRACKER_HELD_LABEL" >/dev/null 2>&1
+}
+
+remove_held_label() {  # <number>
+  gh_api -X DELETE "/repos/$OWNER/$REPO/issues/$1/labels/$FM_TRACKER_HELD_LABEL" \
+    >/dev/null 2>&1
 }
 
 node_id_for() {  # <number>
@@ -595,9 +650,14 @@ compose_task_body() {  # <task-id> <kind> <project> <hold> <blocker-csv> <existi
   compose_body "$(fm_tracker_task_marker "$task"; printf '\n%s\n' "$author")" "$blockers"
 }
 
-ensure_task_ticket() {  # <task-id> <title> <kind> <project> <hold> <blocker-numbers-csv> <claim:0|1>
-  local task=$1 title=$2 kind=$3 project=$4 hold=$5 blockers=$6 claim=$7
-  local row num state parent assignees body current
+# The hold is raised but never lowered here, and that asymmetry is the point.
+# `sync` can see the hold the task list declares; it cannot see a hold decided
+# anywhere else - in review, or about what a particular board may show - and a
+# dispatch that cleared those would undo a decision nobody re-took. Lowering a
+# hold is `unhold`, which is somebody deciding it.
+ensure_task_ticket() {  # <task-id> <title> <kind> <project> <hold> <blocker-numbers-csv> <claim:0|1> <held:0|1>
+  local task=$1 title=$2 kind=$3 project=$4 hold=$5 blockers=$6 claim=$7 held=${8:-0}
+  local row num state parent assignees body current labels
   if row=$(task_index_row "$task"); then
     read -r num state parent assignees <<EOF
 $row
@@ -621,6 +681,10 @@ EOF
     if [ "$claim" = 1 ] && [ -z "$assignees" ]; then
       claim_issue "$num" || true
     fi
+    if [ "$held" = 1 ]; then
+      labels=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_labels_of "$num") || labels=
+      fm_tracker_labels_held "$labels" || add_held_label "$num" || true
+    fi
     printf '%s\n' "$num"
     return 0
   fi
@@ -632,7 +696,11 @@ EOF
   body=$(compose_task_body "$task" "$kind" "$project" "$hold" "$blockers" '')
   fm_tracker_body_prose_blocker_refuse "$body" || return 1
   ensure_labels_once
-  num=$(create_issue "$title" "$body" task) || return 1
+  if [ "$held" = 1 ]; then
+    num=$(create_issue "$title" "$body" task "$FM_TRACKER_HELD_LABEL") || return 1
+  else
+    num=$(create_issue "$title" "$body" task) || return 1
+  fi
   attach_parent "$num" "$DESTINATION" || true
   if [ "$claim" = 1 ]; then
     claim_issue "$num" || true
@@ -650,7 +718,7 @@ task_index_record() {  # <task-id> <number> <claim:0|1>
 }
 
 cmd_task_open() {
-  local task='' title='' kind='' project='' hold='' blockers='' claim=1 adopt='' num row
+  local task='' title='' kind='' project='' hold='' blockers='' claim=1 adopt='' held=0 num row
   parse_repo "${1-}"; shift
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -704,7 +772,9 @@ cmd_task_open() {
     TASK_INDEX="${TASK_INDEX:+$TASK_INDEX
 }$task $row"
   fi
-  num=$(ensure_task_ticket "$task" "$title" "$kind" "$project" "$hold" "$blockers" "$claim") || exit 1
+  held=0
+  [ -n "$hold" ] && held=1
+  num=$(ensure_task_ticket "$task" "$title" "$kind" "$project" "$hold" "$blockers" "$claim" "$held") || exit 1
   printf 'task %s -> #%s in %s/%s\n' "$task" "$num" "$OWNER" "$REPO"
 }
 
@@ -753,6 +823,107 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Holding and withholding
+# ---------------------------------------------------------------------------
+
+cmd_hold() {  # <owner/repo> <n> [--clear]
+  local num clear=0
+  parse_repo "${1-}"; shift
+  num=${1-}
+  [ -n "$num" ] || usage_die "hold requires an issue number"
+  shift
+  fm_tracker_issue_number_valid "$num" || usage_die "invalid issue number '$num'"
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --clear) clear=1; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  require_gh
+  gh_api "/repos/$OWNER/$REPO/issues/$num" --jq .number >/dev/null 2>&1 \
+    || die "#$num does not exist in $OWNER/$REPO"
+  if [ "$clear" -eq 1 ]; then
+    remove_held_label "$num" || true
+    printf '#%s is available again in %s/%s\n' "$num" "$OWNER" "$REPO"
+    return 0
+  fi
+  ensure_labels
+  add_held_label "$num" || die "could not label #$num"
+  printf '#%s is held in %s/%s and leaves the ready set\n' "$num" "$OWNER" "$REPO"
+}
+
+cmd_unhold() { cmd_hold "$@" --clear; }
+
+# The withhold record is a decision about what may be PUBLISHED, so it is kept
+# in this home's own configuration rather than on the board: a board is exactly
+# the place a decision not to publish must not be written down.
+cmd_withhold() {
+  local project='' task='' reason=''
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      --reason) [ "$#" -gt 1 ] || usage_die "--reason requires text"; reason=$2; shift 2 ;;
+      --reason=*) reason=${1#--reason=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$project" ] || usage_die "withhold requires --project <name>"
+  [ -n "$task" ] || usage_die "withhold requires --task <task-id>"
+  fm_pr_task_id_valid "$task" || usage_die "invalid task id '$task'"
+  [ -n "$reason" ] || usage_die "withhold requires --reason <text>; a withhold nobody can explain later is a withhold nobody can lift"
+  fm_tracker_withhold_record "$CONFIG" "$project" "$task" "$reason" \
+    || die "could not record the withhold in $CONFIG/$FM_TRACKER_WITHHOLD_CONFIG"
+  printf '%s is withheld from %s: %s\n' "$task" "$project" "$reason"
+  printf 'no sync will file it until this is cleared with: fm-tracker.sh unwithhold --project %s --task %s\n' \
+    "$project" "$task"
+}
+
+cmd_unwithhold() {
+  local project='' task=''
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      --task) [ "$#" -gt 1 ] || usage_die "--task requires a task id"; task=$2; shift 2 ;;
+      --task=*) task=${1#--task=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$project" ] || usage_die "unwithhold requires --project <name>"
+  [ -n "$task" ] || usage_die "unwithhold requires --task <task-id>"
+  fm_tracker_withhold_clear "$CONFIG" "$project" "$task" \
+    || die "no withhold is recorded for $task under $project"
+  printf '%s is no longer withheld from %s; the next sync will file it\n' "$task" "$project"
+}
+
+cmd_withheld() {
+  local project='' names='' lines
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
+      --project=*) project=${1#--project=}; shift ;;
+      *) usage_die "unexpected argument '$1'" ;;
+    esac
+  done
+  if [ -n "$project" ]; then
+    if fm_tracker_repo_for_project "$CONFIG" "$project"; then
+      names=$FM_TRACKER_PROJECT_NAMES
+    else
+      names=$project
+    fi
+  fi
+  lines=$(fm_tracker_withhold_lines "$CONFIG" "$names")
+  if [ -z "$lines" ]; then
+    printf 'nothing is withheld%s\n' "${project:+ from $project}"
+    return 0
+  fi
+  printf '%s\n' "$lines"
+}
+
+# ---------------------------------------------------------------------------
 # The path a dispatch takes
 # ---------------------------------------------------------------------------
 #
@@ -772,7 +943,7 @@ cmd_sync() {
   local project='' task='' dry=0 limit=25 repo names backlog
   local id kind rowrepo holdkind blocked section summary
   local rows pending progress created=0 skipped=0 capped=0 deferred
-  local blocker_nums bid brow bnum bstate claim hold num
+  local blocker_nums bid brow bnum bstate claim hold held num wrow
   while [ "$#" -gt 0 ]; do
     case $1 in
       --project) [ "$#" -gt 1 ] || usage_die "--project requires a name"; project=$2; shift 2 ;;
@@ -819,9 +990,25 @@ cmd_sync() {
     return 0
   fi
 
+  # The withhold check runs HERE, before a title is composed and before the row
+  # can reach any write path, because the summary is the title and a title is
+  # usually the part a withhold is protecting. A row dropped here is reported by
+  # name and reason, so the standing decision stays visible on the dispatch that
+  # honours it rather than only in whatever review took it.
   pending=$(printf '%s\n' "$rows" | while IFS=$'\037' read -r id kind rowrepo holdkind blocked section summary; do
     [ -n "$id" ] || continue
     fm_tracker_project_matches "$rowrepo" "$names" || continue
+    if fm_tracker_withheld_reason "$CONFIG" "$names" "$id"; then
+      sync_report "withheld from $repo: $id ($FM_TRACKER_WITHHOLD_REASON)"
+      # A withhold decided AFTER the row was filed cannot unpublish what is
+      # already on the board, and quietly skipping the row would let that read as
+      # if it had. Name the ticket instead: whether it is closed or edited is a
+      # judgement, and one this must not make on a repository other people read.
+      if wrow=$(task_index_row "$id"); then
+        sync_report "  but $id already has ticket #${wrow%% *} there; close or edit it by hand if it must come down"
+      fi
+      continue
+    fi
     printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' \
       "$id" "$kind" "$rowrepo" "$holdkind" "$blocked" "$section" "$summary"
   done)
@@ -873,7 +1060,11 @@ EOF
       [ "$section" = flight ] && claim=1
       [ "$id" = "$task" ] && claim=1
       hold=
-      [ -n "$holdkind" ] && hold="Held for the captain, with the reason recorded in firstmate's own task list."
+      held=0
+      if [ -n "$holdkind" ]; then
+        hold=$FM_TRACKER_HOLD_NOTE
+        held=1
+      fi
       if [ "$dry" -eq 1 ]; then
         # A dry run names the DECLARED dependency rather than an issue number:
         # the blocker's ticket is one of the things it did not create, so any
@@ -888,7 +1079,7 @@ EOF
         capped=1
         continue
       fi
-      if num=$(ensure_task_ticket "$id" "$summary" "$kind" "$project" "$hold" "$blocker_nums" "$claim"); then
+      if num=$(ensure_task_ticket "$id" "$summary" "$kind" "$project" "$hold" "$blocker_nums" "$claim" "$held"); then
         created=$((created + 1))
         task_index_record "$id" "$num" "$claim"
         if [ "$id" = "$task" ]; then
@@ -1080,6 +1271,11 @@ case $CMD in
   answer) cmd_answer "$@" ;;
   comment) cmd_comment "$@" ;;
   validate) cmd_validate "$@" ;;
+  hold) cmd_hold "$@" ;;
+  unhold) cmd_unhold "$@" ;;
+  withhold) cmd_withhold "$@" ;;
+  unwithhold) cmd_unwithhold "$@" ;;
+  withheld) cmd_withheld "$@" ;;
   task-open) cmd_task_open "$@" ;;
   task-close) cmd_task_close "$@" ;;
   sync) cmd_sync "$@" ;;

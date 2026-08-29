@@ -307,6 +307,13 @@ test_propagate_lib() {
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
   [ -f "$dest/trace-context" ] || fail "trace-context not propagated by the default inheritable set"
+  # A withhold is a decision about what may be published. A secondmate that did
+  # not inherit it would publish, on its own next dispatch, exactly the row the
+  # primary decided to keep off that board.
+  printf 'proj private-row names commercial planning\n' > "$src/tracker-withhold"
+  propagate_inheritable_config "$src" "$dest"
+  [ "$(cat "$dest/tracker-withhold")" = 'proj private-row names commercial planning' ] \
+    || fail "tracker-withhold not propagated by the default inheritable set"
 
   # 2. idempotent: an unchanged re-run does not churn the mtime
   m1=$(date -r "$dest/crew-harness" +%s 2>/dev/null || stat -c %Y "$dest/crew-harness")

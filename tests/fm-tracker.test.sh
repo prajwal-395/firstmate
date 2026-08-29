@@ -205,6 +205,41 @@ expect_code_out 1 "$rc" "$out" "prose under the canonical heading must be refuse
 assert_no_grep "POST" "$FAKE_GH_LOG" "refused canonical-heading prose must not create anything"
 pass "add refuses prose under the canonical heading"
 
+# The guard reads whole words. "font-independent one" contains the letters of
+# "dependent on" and says nothing about a dependency, so refusing it costs a
+# real body and teaches the author to distrust the guard.
+reset_gh
+printf '7\n' > "$FAKE_GH_DIR/rest.default"
+out=$(run_tracker "$HOME_A" add o/r --type task --title 'a task' \
+  --body '## Cap-height comparison, which is the font-independent one' 2>&1)
+rc=$?
+expect_code_out 0 "$rc" "$out" "a word merely CONTAINING the vocabulary must not be refused"
+pass "the prose guard matches whole words, not letters inside unrelated ones"
+
+for innocent in \
+  'The renderer blockers out of the pipeline' \
+  'Unblocked by the ruling that already landed' \
+  'Read the codependents table before the join'; do
+  reset_gh
+  printf '7\n' > "$FAKE_GH_DIR/rest.default"
+  out=$(run_tracker "$HOME_A" add o/r --type task --title 'a task' --body "$innocent" 2>&1)
+  rc=$?
+  expect_code_out 0 "$rc" "$out" "'$innocent' names no dependency and must be accepted"
+done
+pass "the prose guard accepts wording that only embeds its vocabulary"
+
+# The expensive half of a refusal is finding WHICH words tripped it. Naming the
+# rule and quoting the whole line leaves the author to re-derive the match, which
+# on the observed body took three attempts.
+reset_gh
+out=$(run_tracker "$HOME_A" add o/r --type task --title 'a task' \
+  --body "$(printf 'Ship the parser first.\nThe renderer depends on #12 landing.\n')" 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "a genuine prose blocker must still be refused"
+assert_contains "$out" "depends on" "the refusal must print the text it matched"
+assert_contains "$out" "line 2" "the refusal must name the line it matched on"
+pass "the prose refusal prints the matched text and its line"
+
 # A body carrying an already-correct task list is NOT prose and must be accepted,
 # or the refusal would be unusable.
 reset_gh
