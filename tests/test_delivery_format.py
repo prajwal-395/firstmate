@@ -155,11 +155,24 @@ def test_every_shipped_template_declares_a_known_format(filename):
     assert not validate_template(BrandTemplate.from_dict(data))
 
 
-def test_a_project_with_no_template_reads_default_brand_from_disk():
-    """Editing default_brand.yaml must govern template-less projects."""
+def test_a_project_with_no_template_declares_no_format_and_gets_the_default():
+    """The frame is a property of the PRODUCT, and it has its own default.
+
+    This used to assert that a template-less project read
+    `default_brand.yaml` off disk. It no longer does - a project that
+    names no brand template declares nothing at all - and the frame is
+    unchanged by that, because `DEFAULT_DELIVERY_FORMAT` is where the
+    vertical default lives and `default_brand.yaml` only ever restated
+    it.
+    """
+    assert resolve_project_template("").delivery_format == ""
+    assert delivery_format_name(None) == DEFAULT_DELIVERY_FORMAT
+
     with open(os.path.join(TEMPLATES_DIR, f"{DEFAULT_TEMPLATE_NAME}.yaml")) as f:
         on_disk = yaml.safe_load(f)
-    assert resolve_project_template("").delivery_format == on_disk["delivery_format"]
+    assert on_disk["delivery_format"] == DEFAULT_DELIVERY_FORMAT, (
+        "default_brand.yaml no longer restates the enumeration's default; "
+        "a project NAMING it would now get a different frame")
 
 
 def test_a_named_template_that_does_not_exist_raises():

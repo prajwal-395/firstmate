@@ -241,13 +241,27 @@ def check_total_duration(a_roll_assignments: list, audio_spine: dict,
         )
 
     # Determine target duration zone from precedence rules
-    from library.tools.duration_targets import get_target_duration_zone
-    min_dur, target_duration, max_dur = get_target_duration_zone(data)
+    from library.tools.duration_targets import (
+        NO_TARGET_DECLARED, get_target_duration_zone)
+    zone = get_target_duration_zone(data)
 
+    if zone is None:
+        # A gate with nothing to judge against says so.  It used to be
+        # handed 54-66s by `duration_targets` whatever the project
+        # declared, which reads as coverage (AGENTS.md 10.4).
+        return {
+            "passed": True,
+            "checked": False,
+            "actual_duration_seconds": round(actual_duration, 2),
+            "reason": NO_TARGET_DECLARED,
+        }
+
+    min_dur, target_duration, max_dur = zone
     exceeded = actual_duration > max_dur or actual_duration < min_dur
 
     result = {
         "passed": not exceeded,
+        "checked": True,
         "actual_duration_seconds": round(actual_duration, 2),
         "target_duration_seconds": round(target_duration, 2),
         "min_duration_seconds": round(min_dur, 2),

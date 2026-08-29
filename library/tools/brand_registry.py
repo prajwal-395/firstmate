@@ -9,27 +9,141 @@ except ImportError:
     yaml = None
 
 from library.schemas.brand_template import BrandTemplate, StyleSlots, EffectSlots, ContentSlots
-from library.tools.transition_vocabulary import PLANNABLE_TYPES
 
-def _get_default_template() -> BrandTemplate:
+# ── What a project that names no brand template gets ──
+#
+# It gets NOTHING, and that is a decision rather than an omission.
+#
+# For the whole life of the pipeline an empty declaration resolved to
+# `library/templates/default_brand.yaml`, so a project that had chosen no
+# brand rendered under one anyway.  On project 001 that unchosen template
+# lowercased all 45 caption cards, held both drawn transitions for 500 ms
+# against the model's own "quick" and "medium", told step 2.01 the series
+# runs at "high" energy and told step 4.03 to plan VFX at an intensity of
+# 0.5.  The model said so itself, at 2.01: those values are "a default
+# nobody chose for this project rather than a brand decision".
+#
+# So an absent declaration now declares NOTHING, and every consumer reads
+# that absence through a rule that is already written down and is the
+# absence of decoration rather than a substitute taste.  The table is the
+# statement of what absence means; keep it true when a slot changes.
+ABSENT_SLOT_READINGS = {
+    "style.house_look": (
+        "exposure normalisation only, no look "
+        "(AGENTS.md 12, library/tools/house_look.py)"),
+    "style.color_palette": (
+        "no palette, so each consumer keeps its own colour "
+        "(library/tools/brand_palette.py)"),
+    "style.energy_profile": (
+        "no energy is asserted to any step; the creative direction's own "
+        "`target_energy` is the only energy the pipeline reads "
+        "(library/tools/energy_reading.py)"),
+    "style.framing_intent": (
+        "the frame fills, from the one enumeration "
+        "(library/tools/framing_intent.py)"),
+    "style.typography": (
+        "the `default_subtitles` shape, 160/800 - PARKED with the rest of "
+        "the style layer, inventoried and deliberately unchanged "
+        "(library/tools/subtitle_style.py)"),
+    "effect.transition_types": (
+        "every drawable type is permitted, because an allow-list is a "
+        "permission and not an instruction "
+        "(library/tools/transition_vocabulary.PLANNABLE_TYPES)"),
+    "effect.transition_duration_ms": (
+        "no bound and no declared length, so a drawn transition is held "
+        "for as long as the PLAN's own `duration_feel` says "
+        "(library/tools/transition_selector.py)"),
+    "effect.vfx_intensity": (
+        "no intensity constraint reaches step 4.03's prompt "
+        "(library/tools/template_loader.py)"),
+    "effect.subtitle_style": (
+        "the `default_subtitles` shape - see style.typography"),
+    "effect.caption_case": (
+        "lowercase - PARKED.  It is the one creative value that survives "
+        "an absent template, it is why every caption card on 001 is "
+        "lowercase, and which case the copy is set in is the captain's "
+        "open decision (step_4_01_plan_subtitles/step.py)"),
+    "effect.timed_text_overlay": (
+        "no timed text (library/tools/timed_text_overlay.py)"),
+    "content.bookends": "no intro, no outro, no end card (library/tools/bookends.py)",
+    "content.target_duration_seconds": (
+        "no duration zone from the brand; the PROJECT's own "
+        "`target_duration_seconds` is the declaration the gates measure "
+        "against, and when neither declares one nothing is checked "
+        "(library/tools/duration_targets.py)"),
+    "delivery_format": (
+        "the product's own enumeration decides, and its default is "
+        "vertical 1080x1920 (library/tools/delivery_format.py)"),
+    "content.music_genre": (
+        "NO READER.  Step 2.04's handoff names `brand_content.music_genre` "
+        "but no manifest routes brand_content to it, so the slot reaches "
+        "no prompt from any template, chosen or not"),
+    "effect.sfx_density": (
+        "NO READER.  `audio_reactive_sfx.scale_sfx_density` was its only "
+        "one and was deleted (AGENTS.md 10.5)"),
+}
+
+
+def no_brand_template() -> BrandTemplate:
+    """The template a project that names no brand template runs under.
+
+    Every creative slot is EMPTY.  See `ABSENT_SLOT_READINGS` for what
+    each consumer does with that, and `describe_brand_absence()` for the
+    line the run prints so the absence is stated rather than inferred.
+
+    `caption_case` keeps its dataclass default and is the one exception,
+    recorded as such in the table above.
+    """
     return BrandTemplate(
-        series_id="default",
-        style=StyleSlots(color_palette=["#ffffff", "#000000"], energy_profile="moderate"),
-        # The fallback allow-list governs whenever no template resolves, so
-        # it has to be the full drawable vocabulary. "dissolve" sat here and
-        # is not drawable at all - see library/tools/transition_vocabulary.py.
-        effect=EffectSlots(
-            transition_types=list(PLANNABLE_TYPES), sfx_density="moderate"
-        ),
-        # No music_genre. Nothing in the pipeline reads the slot, and an
-        # in-code default that names a genre states a taste the captain
-        # never chose for a project that declared nothing.
-        content=ContentSlots()
+        series_id="",
+        style=StyleSlots(),
+        # NOT `transition_types=PLANNABLE_TYPES`.  An empty allow-list is
+        # what "declares no permission" means, and `filter_allowed` plus
+        # `select_transition` already read that as the full drawable
+        # vocabulary - writing the vocabulary in here would make an
+        # absent declaration indistinguishable from a template that
+        # really listed all seven types.
+        effect=EffectSlots(),
+        content=ContentSlots(),
     )
 
+
+# The absent slots that change the finished PICTURE or SOUND rather than
+# only the prompt.  Named in the run's own output, because "no brand
+# template" is otherwise a sentence a reader can pass over.
+PICTURE_CONSEQUENCES_OF_ABSENCE = (
+    "no house look, so the clips carry exposure normalisation only "
+    "(step 5.01 says so in look_notes)",
+    "no palette, so captions and motion graphics keep their own colours",
+    "no transition duration bound, so a drawn transition is held for as "
+    "long as the plan's own duration_feel says",
+    "no bookends, so no intro, outro or end card",
+)
+
+
+def describe_brand_absence() -> str:
+    """One paragraph, printed once per run, stating what absence means."""
+    return (
+        "No brand template: this project's project.yaml declares no "
+        "`pipeline.brand_template`, so no brand style, effect or content "
+        "slot is in play. It is NOT rendering under default_brand.yaml. "
+        "What that changes in the finished video: "
+        + "; ".join(PICTURE_CONSEQUENCES_OF_ABSENCE)
+        + ". Name a template under `pipeline.brand_template` to declare "
+        "any of them. See ABSENT_SLOT_READINGS in "
+        "library/tools/brand_registry.py for every slot."
+    )
+
+
 def load_brand_template(template_path: str) -> BrandTemplate:
+    """Load a template from a PATH.  No path means no brand template.
+
+    This used to substitute the in-code default, which is the same silent
+    substitution `resolve_project_template` stopped doing: a caller that
+    asked for a file and got taste back had no way to tell.
+    """
     if not template_path or not os.path.exists(template_path):
-        return _get_default_template()
+        return no_brand_template()
 
     with open(template_path, 'r', encoding='utf-8') as f:
         if template_path.endswith('.yaml') or template_path.endswith('.yml'):
@@ -46,8 +160,13 @@ TEMPLATES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates"
 )
 
-# The template a project gets when its project.yaml names none.
+# `default_brand` is a template a project may NAME.  It is no longer what
+# a project gets for naming nothing - see `no_brand_template()`.
 DEFAULT_TEMPLATE_NAME = "default_brand"
+
+# The name a template-less project reports.  It is not a template name;
+# nothing resolves it.
+NO_BRAND_TEMPLATE_NAME = ""
 
 
 def resolve_project_template(template_name: str = "",
@@ -59,24 +178,25 @@ def resolve_project_template(template_name: str = "",
     rebuild the same `templates/<name>.yaml` join.  There were two copies
     of that join and they could disagree; this is the one.
 
-    An empty name means the project declared none, which resolves to
-    `default_brand` ON DISK - so editing that file really does govern
-    every template-less project.  The in-code `_get_default_template()`
-    is the last resort for an installation that has no templates
-    directory at all.
+    An EMPTY name means the project declared none, and it resolves to
+    `no_brand_template()` - no style, no effect, no content.  It used to
+    resolve to `default_brand` on disk, which is how project 001 rendered
+    under a brand nobody chose; see `ABSENT_SLOT_READINGS` above for what
+    each consumer now does with an absent slot.  `default_brand` is still
+    there and is still loadable - by NAME, from a project that asks for
+    it, which is what makes its values a choice.
 
-    Any OTHER name that does not resolve RAISES: a named template that is
-    not there is a typo, and silently substituting a default is how a
-    project renders under a brand nobody chose.
+    Any name that does not resolve RAISES: a named template that is not
+    there is a typo, and silently substituting a default is how a project
+    renders under a brand nobody chose.
     """
+    if not template_name:
+        return no_brand_template()
     base = templates_dir or TEMPLATES_DIR
-    name = template_name or DEFAULT_TEMPLATE_NAME
     for ext in (".yaml", ".yml", ".json"):
-        candidate = os.path.join(base, f"{name}{ext}")
+        candidate = os.path.join(base, f"{template_name}{ext}")
         if os.path.exists(candidate):
             return load_brand_template(candidate)
-    if not template_name or name == DEFAULT_TEMPLATE_NAME:
-        return _get_default_template()
     available = (sorted({os.path.splitext(f)[0] for f in os.listdir(base)})
                  if os.path.isdir(base) else [])
     raise FileNotFoundError(
@@ -104,6 +224,40 @@ def project_pipeline_block(project_folder: Optional[str]) -> dict:
         cfg = yaml.safe_load(f) or {}
     block = cfg.get("pipeline") or {}
     return block if isinstance(block, dict) else {}
+
+
+# What a project's own project.yaml may declare about the PRODUCT, as
+# opposed to about a brand.  Only `target_duration_seconds` has a reader;
+# the other two are what step 1.01 has always emitted and are kept so the
+# two producers of `project_config` cannot disagree about its shape.
+PROJECT_CONFIG_KEYS = (
+    "target_duration_seconds",
+    "style_preset",
+    "subtitle_style",
+)
+
+
+def project_declared_config(project_folder: Optional[str]) -> dict:
+    """The `project_config` a project DECLARES, with nothing added.
+
+    An undeclared key is ABSENT, never filled in.  Step 1.01 used to write
+    `target_duration_seconds: 60`, `style_preset: "shortform_vertical"`
+    and `subtitle_style: "word_by_word"` for a project that declared none,
+    so a length nobody chose was indistinguishable from one the captain
+    typed.
+    """
+    if not project_folder:
+        return {}
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return {}
+    if yaml is None:
+        raise ImportError("PyYAML is required to read project.yaml.")
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    if not isinstance(cfg, dict):
+        return {}
+    return {k: cfg[k] for k in PROJECT_CONFIG_KEYS if cfg.get(k) is not None}
 
 
 def project_template_name(project_folder: str) -> str:
@@ -163,11 +317,17 @@ def reference_template_name(reference: str = "") -> str:
     `TemplateLoader` (library/tools/template_loader.py) resolves by name
     against its own templates dir, so it needs the name half of whatever
     the run is carrying.
+
+    An empty reference answers "" - NOT `default_brand`.  Answering
+    `default_brand` here is what sent every template-less project's LLM
+    steps the fallback template's constraints: step 2.01 was told the
+    series runs at "high" energy and step 4.03 was told to plan at
+    intensity 0.5, on a project that had chosen neither.
     """
     ref = (reference or "").strip()
     if ref and _looks_like_path(ref):
         return os.path.splitext(os.path.basename(ref))[0]
-    return ref or DEFAULT_TEMPLATE_NAME
+    return ref or NO_BRAND_TEMPLATE_NAME
 
 
 def query_slots(template: BrandTemplate, category: str) -> dict:
@@ -188,13 +348,15 @@ def validate_template(template: BrandTemplate) -> list[str]:
                 f"Invalid delivery_format: {template.delivery_format} "
                 f"must be one of {sorted(DELIVERY_FORMATS)}"
             )
-    if template.style.energy_profile not in ["calm", "moderate", "high"]:
+    # "" is "declares none", which is now a legitimate state: a
+    # template-less project resolves to `no_brand_template()`.
+    if template.style.energy_profile not in ["", "calm", "moderate", "high"]:
         errors.append(f"Invalid energy_profile: {template.style.energy_profile}")
     if template.effect.vfx_intensity < 0.0 or template.effect.vfx_intensity > 1.0:
         errors.append(f"Invalid vfx_intensity: {template.effect.vfx_intensity} must be between 0.0 and 1.0")
     if template.style.framing_intent is not None:
         if not (0.0 <= template.style.framing_intent <= 1.0):
             errors.append(f"Invalid framing_intent: {template.style.framing_intent} must be between 0.0 and 1.0")
-    if template.effect.sfx_density not in ["sparse", "moderate", "dense"]:
+    if template.effect.sfx_density not in ["", "sparse", "moderate", "dense"]:
         errors.append(f"Invalid sfx_density: {template.effect.sfx_density}")
     return errors

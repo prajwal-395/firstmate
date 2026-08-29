@@ -124,7 +124,8 @@ def test_cohesion_review_end_to_end():
     }
     result = review_creative_cohesion(inputs)
     assert len(result["warnings"]) > 0
-    # A duration is the one finding the manifest compiler applies where
-    # this step runs, so it is the one that reaches `adjustments`.
-    assert [(a["target_step"], a["field"]) for a in result["adjustments"]] == [
-        ("transition_spec", "duration_frames")]
+    # No adjustment: the four energy thresholds that produced them were
+    # creative values this step chose, and they are removed rather than
+    # re-tuned (AGENTS.md 10.5). The plan is counted instead.
+    assert result["adjustments"] == []
+    assert result["measurements"]["transitions_drawn"] == 1

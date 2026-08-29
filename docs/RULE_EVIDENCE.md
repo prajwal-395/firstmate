@@ -2321,6 +2321,183 @@ the same clip. And the small tracks die at 2 to 4.5 seconds at EVERY rate. Dense
 temporal resolution on the tracks that survive and does not extend the ones that do not: these
 objects are lost to the footage, not to the gap between samples.
 
+## a-template-nobody-chose
+
+The captain, 2026-08-28: *"also why do we have 16 hardcoded values? i did not choose that most
+likely so where is it coming from, the LLM should be able to make all these creative decisions
+based on the project, it makes no sense to have these hardcoded values"*
+
+`data/vep-creative-decision-degradation/report.md` §6 counted sixteen creative values still in the
+path on project 001's run of record. This is what each of them was, where it went, and the route
+taken. **The pipeline's own model flagged the cause at step 2.01**, unprompted:
+
+> *"`project.yaml` names no brand template, so this is the fallback `default_brand`, whose values
+> are a default nobody chose for this project rather than a brand decision. I would not overrule a
+> template the captain had actually selected."*
+
+### What a project that names no brand template now gets
+
+**Nothing.** `resolve_project_template("")` answered `library/templates/default_brand.yaml`; it now
+answers `brand_registry.no_brand_template()`, every creative slot empty, and `ABSENT_SLOT_READINGS`
+records what each consumer does with that. The readings were already written and are the absence of
+decoration, not a substitute taste - no house look is exposure normalisation only, an empty
+transition allow-list permits the whole drawable vocabulary, an absent `delivery_format` gets the
+product enumeration's own vertical default. `default_brand.yaml` stays on disk as a template a
+project may NAME, which is what makes its values a decision again.
+
+`describe_brand_absence()` is printed once per run and names the four consequences that change the
+finished video, because "no brand template" is otherwise a sentence a reader passes over.
+
+### The sixteen, with the route taken
+
+Numbering follows §6 of the report. "on 001" is measured against its 2026-08-26 run of record.
+
+| # | value | on 001 | route |
+|---|---|---|---|
+| 1 | an empty required list is a defect (`run_pipeline.py`) | rejected the correct VFX plan 3x | **already fixed** at HEAD by #275 - a step declares `may_be_empty` |
+| 2 | high energy ⇒ transitions < 500 ms, suggested 10 frames (5.03) | could not fire; energy read `moderate` | **removed** - a threshold the step chose, on the one field the compiler rewrites |
+| 3 | calm energy ⇒ dissolves ≥ 1000 ms, suggested 30 frames (5.03) | could not fire | **removed**, same reason |
+| 4 | high energy ⇒ ≥ 10 SFX per minute (5.03) | could not fire | **removed** - a creative floor in code (AGENTS.md 10.5) |
+| 5 | calm energy ⇒ ≤ 15 SFX per minute (5.03) | could not fire | **removed**, same reason |
+| 6 | colour-mood word lists (5.03) | never fired | **already removed** at HEAD by #271 |
+| 7 | cohesion score 100, penalties 3/5/10, apply below 70 | score 90, so nothing applied | **already removed** at HEAD by #271 |
+| 8 | house-look strengths: `glow_gain 0.12`, `glow_threshold 0.78`, `glow_size 3.5`, `grain_power 0.18`, `grain_size 1.5`, `vignette_blend 0.16`, `vignette_soft 0.35`, `contrast 0.1`, `saturation 1.1`, and the slope/offset/power triples | on all 17 per-clip comps | **PARKED - untouched.** `library/tools/house_look.py` is not modified. What DOES change is that 001 no longer inherits `pmk_default` at all, because that came from the unchosen template (see "the consequence to take to the captain") |
+| 9 | `style.energy_profile: "high"` | reached 2.01's constraints; the model overruled it in writing | **removed from the absent path.** A project that names no template sends no brand constraints at all |
+| 10 | `effect.vfx_intensity: 0.5` | was the entire 41-byte constraints block at 4.03 | **removed from the absent path**, same mechanism |
+| 11 | `content.music_genre: ["electronic", "upbeat"]` | no reader | **removed** from `default_brand.yaml`. The slot survives because four templates declare it; it reaches nothing, and step 2.04's frozen handoff names `brand_content.music_genre` while no manifest routes `brand_content` to 2.04 - **reported, not wired** |
+| 12 | `effect.sfx_density: "dense"` | no reader since `scale_sfx_density` was deleted | **removed** from `default_brand.yaml`; the schema default is now `""` |
+| 13 | `effect.caption_case: "lowercase"` | all 45 caption cards lowercased | **PARKED, and made explicit.** It is the one creative value that survives an absent template, and it is recorded as an exception in `ABSENT_SLOT_READINGS` and in `EffectSlots` rather than left implicit |
+| 14 | `style.typography: Montserrat / 160 / 800` | 45 cards, median 0.781 s each | **PARKED - untouched.** Measured: absence and `default_brand` resolve to the SAME subtitle style, because `default_subtitles` is 160/800 too, so removing the fallback changes no caption pixel |
+| 15 | `effect.transition_duration_ms: 200-500` | both drawn transitions held for 500 ms | **given to the model.** A range is a permission and bounds the plan; the plan's own `duration_feel` is the length |
+| 16 | `content.target_duration_seconds: 30-60` | reached no step | **replaced by the project's own declaration.** See below |
+
+Two values the report did not count, found while taking those routes and fixed with them:
+
+| value | where | route |
+|---|---|---|
+| `transition_duration_ms` defaults to **500 ms** when nothing declares one | `transition_selector._resolve_duration_ms` | **removed.** A drawn transition with no declared length is dropped with the reason |
+| the duration zone defaults to **54 / 60 / 66 s** | `duration_targets.get_target_duration_zone` | **removed.** It returns None and each gate says it did not check |
+| `target_duration_seconds: 60`, `style_preset`, `subtitle_style` invented for a project declaring none | `step_1_01_scan_project/step.py` | **removed.** `project_declared_config` emits only what the project declares |
+
+### The measured before and after, on 001's real state
+
+Read out of 001's own `pipeline_data.json` and `pipeline_output/llm_responses/`, with the real
+`gather_step_inputs`. Nothing was run against the project and nothing in it was written.
+
+**The brand constraints in the prompts.** Before, on a project that had chosen nothing:
+
+```
+creative_direction: "\nBrand Constraints:\n- Style: {\"color_palette\": [...], \"house_look\":
+                     \"pmk_default\", \"typography\": {...160...}, \"energy_profile\": \"high\"}\n
+                     - Content Rules: {... \"music_genre\": [\"electronic\", \"upbeat\"],
+                     \"target_duration_seconds\": {\"min\": 30, \"max\": 60}}\n"
+plan_transitions:   "\nBrand Constraints:\n- Transition Types: [...seven...]\n
+                     - Transition Duration MS: {'min': 200, 'max': 500}\n"
+plan_vfx:           "\nBrand Constraints:\n- VFX Intensity: 0.5\n"
+```
+
+After: `''`, `''`, `''`.
+
+**The two drawn transitions.** The model's own plan, and its rationale for the second: *"'medium'
+(333ms) because this is the single transition..."*
+
+| cut | the plan's word | before | after |
+|---|---|---|---|
+| position 8 | `duration_feel: "quick"` | 15 frames (500 ms) | **6 frames (200 ms)** |
+| position 13 | `duration_feel: "medium"` | 15 frames (500 ms) | **10 frames (333 ms)** |
+
+Both were 500 ms because `_resolve_duration_ms` answered `max` of a range in a template 001 never
+selected. The thirteen hard and jump cuts are unchanged at 0 frames, and the spec still has fifteen
+entries.
+
+**The duration zone.** 001's `project.yaml` declares `target_duration_seconds: 60`. Nothing carried
+it: no DAG edge maps `project_config` and nothing wrote `state["project_config"]`, so all four
+callers were handed the in-code 54/60/66.
+
+```
+before   speech_sequence  project_config=None  ->  (54.0, 60.0, 66.0)   # the constant
+         mesh_spine       project_config=None  ->  (54.0, 60.0, 66.0)
+         review_rough_cut project_config=None  ->  (54.0, 60.0, 66.0)
+         creative_cohesion project_config=None ->  (54.0, 60.0, 66.0)
+
+after    all four         project_config={'target_duration_seconds': 60} -> (54.0, 60.0, 66.0)
+```
+
+The numbers are identical and that is the point: the zone 001 was judged against happens to be the
+one the captain declared, and until now that was a coincidence. A project declaring 90 seconds was
+judged against 60 just the same.
+
+**Step 5.03's output on 001's real inputs**, before (four inert energy checks, an adjustment made of
+an arithmetic constant) and after:
+
+```json
+{"timeline_duration_seconds": 59.44,
+ "measurements": {"declared_target_energy": "building", "transitions_planned": 15,
+                  "transitions_drawn": 2, "sfx_events": 2, "sfx_per_minute": 2.0},
+ "warnings": ["Engagement not compared: ..."],
+ "adjustments": [], "observations": []}
+```
+
+**What does not change on 001.** The delivery format stays `[1080, 1920]`, from
+`DEFAULT_DELIVERY_FORMAT`, which `default_brand.yaml` only ever restated. The subtitle style
+resolves byte-identically with and without the template - `resolve_subtitle_style` differences:
+none - because `default_subtitles` carries the same 160/800 the template's typography block did.
+Captions stay lowercase.
+
+### The consequence to take to the captain
+
+`default_brand.yaml` declares `house_look: pmk_default`, and 001 inherited it. With absence
+declaring nothing, **001's next grade would carry exposure normalisation only** - step 5.01 says so
+in its own `look_notes` - instead of `pmk_default`'s CDL and Fusion values on all 17 per-clip comps.
+
+That is the correct behaviour of the rule and it is also a change to the picture layer the captain
+has parked, so it is stated rather than worked around. `pmk_default`'s `derived_from` cites the
+captain's own `overall_branding_creative_direction.md`, and 001 is a pmk video, so the look is very
+likely one the captain WOULD choose - which is exactly the decision this change refuses to make on
+their behalf. **The fix is one line in 001's `project.yaml`:** `pipeline: {brand_template: <name>}`.
+Nothing here edits it.
+
+### Why the cohesion thresholds were removed rather than re-tuned
+
+Items 2-5 are four numbers a step picked. Items 4 and 5 are creative floors in the plainest sense of
+AGENTS.md 10.5 - the creative direction decides how many sounds a piece gets - and they survived the
+ruling that deleted `scale_sfx_density` and step 4.02's `min_trans` only because
+`tests/test_no_creative_floors.py` reads the planning steps and 5.03 is not one of them. Items 2 and
+3 reached the picture: `transition_spec.duration_frames` is the whole of
+`cohesion_scope.ACTIONABLE_AT_COHESION`, so `suggested_value: 10` was a number nobody chose landing
+on a transition an editor had timed.
+
+There is nothing to derive a replacement from. A creative direction declares `target_energy` in
+prose and no pace, no duration and no density, so any threshold there would be invented - and 5.03
+is a deterministic step with no handoff, so the decision cannot be handed to the model without
+authoring a thirteenth prompt. The step reports the counts instead and judges none of them, which is
+the shape `render_qa`'s chroma and mix checks already use.
+
+### The cost, stated: step 5.03 is now a pure observer
+
+`ACTIONABLE_AT_COHESION` has an applier and no producer. The single `proposals.append` left in the
+step targets `("speech_sequence", "segment_order")`, which is in `OWNED_UPSTREAM`, so `adjustments`
+is empty **for every input at every energy** - not only at the `moderate` 001 declares. The step
+changes nothing where it runs; it reports.
+
+**This answers issue #272**, which asked whether the actionable set was too narrow for a
+moderate-energy edit or whether such an edit genuinely has nothing to correct. Neither, as posed:
+the set had no legitimate producer at ANY energy, because the four thresholds feeding it were
+numbers the step chose. #272 was right that widening the set "needs a value nobody has chosen"; the
+same objection applies to the values that were already there, so they went instead.
+
+`test_the_actionable_finding_fires_on_001s_real_transition_spec` was deleted with its subject - it
+supplied `target_energy: "high"` as its one non-real value precisely to reach a check that no real
+001 input could. What replaced it is `test_001s_real_transition_spec_is_counted_and_left_alone`,
+against the same fifteen real entries, plus `test_the_step_is_a_pure_observer`, which reads the
+step's own source with the AST and fails if any proposal targets an ACTIONABLE pair again. That
+turns "no producer" from a comment into a checked fact, and makes re-opening #272 a test failure
+rather than a silent drift.
+
+The two lists and the raise are kept because they are the guard on the NEXT check that gets added,
+and `tests/test_cohesion_scope.py` drives the applier with a proposal built in the test so the
+branch stays exercised. An always-empty `adjustments` is not a clean bill of health on the edit.
+
 ## the-sfx-chooser-was-a-word-list
 
 `AGENTS.md` §10.5, "Sound-effect selection is one enumeration".

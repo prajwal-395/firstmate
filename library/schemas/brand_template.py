@@ -15,7 +15,12 @@ class StyleSlots:
     reference_look_image: str = ""
 
     typography: Dict[str, Any] = field(default_factory=dict)
-    energy_profile: str = "moderate"
+    # "" is "declares none".  It used to default to "moderate", which is a
+    # level, and a level nobody chose is exactly the thing an undeclared
+    # slot must not assert.  The energy the pipeline reads is the creative
+    # direction's own `target_energy` (library/tools/energy_reading.py);
+    # this slot reaches only step 2.01's brand constraints text.
+    energy_profile: str = ""
     framing_intent: Optional[float] = None  # 0.0=letterbox, 1.0=fill, None=auto
 
 @dataclass
@@ -24,8 +29,17 @@ class EffectSlots:
     transition_duration_ms: Dict[str, int] = field(default_factory=dict)
     vfx_intensity: float = 0.0
     subtitle_style: str = ""
-    sfx_density: str = "moderate"
-    caption_case: str = "lowercase"  # "lowercase" | "as_written"
+    # NO READER.  `audio_reactive_sfx.scale_sfx_density` was the only one
+    # and was deleted (AGENTS.md 10.5).  The field is kept because shipped
+    # templates still declare it and dropping it would fail to parse them;
+    # "" is "declares none" and nothing reads either value.
+    sfx_density: str = ""
+    # "lowercase" | "as_written".  The one creative value that survives an
+    # absent brand template, and the reason every caption card on project
+    # 001 is lowercase.  PARKED: which case the copy is set in is the
+    # captain's open decision, so it is inventoried rather than changed.
+    # See ABSENT_SLOT_READINGS in library/tools/brand_registry.py.
+    caption_case: str = "lowercase"
     # Motion graphics (P3.1). Both default to today's behaviour: the
     # corner accents and the progress bar were drawn unconditionally, and
     # whether the house style should keep them is Q3, a captain's call.
@@ -49,6 +63,10 @@ class ContentSlots:
     # a "Subscribe!" card the channel spec forbids by name.
     bookends: Optional[Dict[str, Any]] = None
     watermark: Dict[str, Any] = field(default_factory=dict)
+    # NO READER.  Step 2.04's handoff names `brand_content.music_genre`,
+    # but no manifest routes `brand_content` to step 2.04, so the slot
+    # reaches no prompt from any template.  Routing it means changing that
+    # manifest; the handoff is under the captain's freeze and needs none.
     music_genre: List[str] = field(default_factory=list)
     target_duration_seconds: Dict[str, int] = field(default_factory=dict)
 
@@ -95,7 +113,7 @@ class BrandTemplate:
                         "reference_look_image": {"type": "string"},
 
                         "typography": {"type": "object"},
-                        "energy_profile": {"type": "string", "enum": ["calm", "moderate", "high"]},
+                        "energy_profile": {"type": "string", "enum": ["", "calm", "moderate", "high"]},
                         "framing_intent": {
                             "type": "number",
                             "minimum": 0.0,
@@ -138,7 +156,7 @@ class BrandTemplate:
                                 }
                             }
                         },
-                        "sfx_density": {"type": "string", "enum": ["sparse", "moderate", "dense"]},
+                        "sfx_density": {"type": "string", "enum": ["", "sparse", "moderate", "dense"]},
                         "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"}
                     }
                 },

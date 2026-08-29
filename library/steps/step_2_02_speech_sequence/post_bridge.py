@@ -668,11 +668,18 @@ def main():
         if start is not None and end is not None:
             total_duration += (end - start)
             
-    from library.tools.duration_targets import get_target_duration_zone
-    min_dur, target_dur, max_dur = get_target_duration_zone(data)
+    from library.tools.duration_targets import (
+        NO_TARGET_DECLARED, get_target_duration_zone)
+    zone = get_target_duration_zone(data)
 
-    if total_duration > max_dur or total_duration < min_dur:
-        print(f"WARNING: Total speech duration ({total_duration:.1f}s) is out of bounds ({min_dur:.1f}-{max_dur:.1f}s).", file=sys.stderr)
+    if zone is None:
+        # Stated, not measured against a made-up minute.
+        print(f"NOTE: speech duration ({total_duration:.1f}s) not checked - "
+              f"{NO_TARGET_DECLARED}.", file=sys.stderr)
+    else:
+        min_dur, target_dur, max_dur = zone
+        if total_duration > max_dur or total_duration < min_dur:
+            print(f"WARNING: Total speech duration ({total_duration:.1f}s) is out of bounds ({min_dur:.1f}-{max_dur:.1f}s).", file=sys.stderr)
 
     json.dump({
         "step": "2.02_bridge",

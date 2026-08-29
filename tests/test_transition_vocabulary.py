@@ -99,12 +99,29 @@ def test_brand_templates_allow_only_plannable_types(template):
     assert allowed, f"{template.name} would permit no transition at all"
 
 
-def test_the_default_registry_fallback_allows_the_full_vocabulary():
-    """The fallback governs whenever no template resolves, which in the
-    shipped project is always - so it must not be a two-item list."""
-    from library.tools.brand_registry import load_brand_template
-    template = load_brand_template("")
-    assert set(template.effect.transition_types) == set(PLANNABLE_TYPES)
+def test_no_template_permits_the_full_vocabulary_without_declaring_it():
+    """A project that names no brand template declares no allow-list.
+
+    The list is EMPTY rather than the seven types written out, because an
+    allow-list is a permission and an absent permission must not be
+    indistinguishable from a template that really listed everything. What
+    matters is what reaches the picture, so this asserts the SELECTOR's
+    reading of that emptiness, not the stored value.
+    """
+    from library.tools.brand_registry import (
+        no_brand_template, resolve_project_template)
+    from library.tools.transition_selector import select_transition
+
+    assert resolve_project_template("").effect.transition_types == []
+    assert no_brand_template().effect.transition_types == []
+
+    brand_effect = {"transition_types": []}
+    for ttype in PLANNABLE_TYPES:
+        res = select_transition({"clip_id": "a"}, {"clip_id": "b"},
+                                brand_effect, {}, requested_type=ttype)
+        assert res["type"] == ttype, (
+            f"{ttype} is drawable and no brand forbade it, but an absent "
+            f"allow-list refused it")
 
 
 # ── The vocabulary itself is coherent ──

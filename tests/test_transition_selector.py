@@ -97,18 +97,41 @@ def test_a_brand_allowing_a_drawn_type_still_does_not_draw_it_unasked():
     assert res["type"] == "hard_cut"
 
 
-def test_brand_duration_accepts_the_min_max_shape():
-    """default_brand.yaml writes {min, max}; every reader wanted a scalar.
+def test_a_brand_range_is_a_bound_and_not_a_length():
+    """`default_brand.yaml` writes {min, max}, and a RANGE names no length.
 
-    Wiring the brand template in without this raised a TypeError on the
-    first non-cut transition.
+    Answering `max` here is what overruled the plan: project 001's two
+    drawn transitions were planned "quick" and "medium" and both were
+    held for 500 ms. A range now yields bounds and no duration, so the
+    plan's own `duration_feel` decides inside them.
     """
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
         {"transition_duration_ms": {"min": 200, "max": 500}}, {},
         requested_type="defocus",
     )
-    assert res["duration_ms"] == 500
+    assert res["duration_ms"] is None
+    assert res["duration_bounds_ms"] == (200, 500)
+
+
+def test_a_brand_scalar_is_a_declared_length():
+    """One number is the template author saying how long, exactly."""
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+        {"transition_duration_ms": 600}, {}, requested_type="defocus",
+    )
+    assert res["duration_ms"] == 600
+    assert res["duration_bounds_ms"] == (600, 600)
+
+
+def test_no_brand_duration_invents_no_length():
+    """`_resolve_duration_ms` ended `return default` with default=500."""
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"}, {}, {},
+        requested_type="defocus",
+    )
+    assert res["duration_ms"] is None
+    assert res["duration_bounds_ms"] == (None, None)
 
 
 def test_every_outcome_is_a_plannable_type():

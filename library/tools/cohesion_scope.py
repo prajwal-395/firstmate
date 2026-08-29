@@ -30,6 +30,25 @@ So there are two lists, and a finding is in one or the other:
 A pair in neither list is UNKNOWN and raises here, so a new finding has to
 say which side it is on rather than silently becoming an adjustment that is
 then silently dropped.
+
+**Step 5.03 is a pure OBSERVER today, and that is deliberate.**  Every
+proposal it can still make - the engagement one - routes to
+`OWNED_UPSTREAM`, so `adjustments` is empty for every input at every
+energy, not only at the `moderate` project 001 declares (issue #272).  The four findings that
+fed this route - two transition-duration adjustments and two SFX-density
+observations - were creative thresholds the step chose ("high energy
+means every transition under 500 ms, so make it 10 frames"), and they
+were removed rather than re-tuned: there is no declared pace or density
+to derive a replacement from, and inventing one is what AGENTS.md 10.5
+forbids.  So `ACTIONABLE_AT_COHESION` currently has an applier and no
+producer.
+
+The two lists and the raise are kept because they are the GUARD, not the
+finding: they are what stops the next check that is added from becoming
+an adjustment nothing applies.  Do not read an always-empty `adjustments`
+array as a clean bill of health on the edit - it means nothing proposed
+anything.  `tests/test_cohesion_scope.py` drives the applier directly so
+the branch stays exercised.
 """
 
 from dataclasses import dataclass

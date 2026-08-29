@@ -1,30 +1,72 @@
-def get_target_duration_zone(data: dict) -> tuple[float, float, float]:
-    """
-    Returns (min_duration, target_duration, max_duration) in seconds.
+"""The duration zone a run is judged against, or the absence of one.
+
+Four gates measure the cut against a target length: step 2.02's post
+bridge, step 2.05's spine contract, step 3.03's rough-cut review and step
+5.03's cohesion review.  Every one of them used to be handed
+``(54.0, 60.0, 66.0)`` when nothing declared a target - and nothing ever
+did, because ``project_config`` reached no step and no step that calls
+this declares a ``brand_template`` input.  So on project 001 the captain's
+own ``target_duration_seconds: 60`` in project.yaml governed nothing, and
+four gates ran against a minute this file made up.
+
+Both halves are fixed here and in `load_pipeline_state`:
+
+* the PROJECT's declaration is read into state and broadcast, so the
+  captain's number is the one the gates use;
+* when neither the project nor a selected brand template declares a
+  target, this returns **None** - "nothing declared a length" - and each
+  caller says so rather than measuring against an invented one.
+"""
+
+from typing import Optional, Tuple
+
+# How far either side of a declared target still counts as on-target.
+# Not a creative value: the project declares a LENGTH, and a length with
+# no tolerance would fail every cut that is not frame-exact.
+PROJECT_TARGET_TOLERANCE = 0.1
+
+
+def get_target_duration_zone(data: dict) -> Optional[Tuple[float, float, float]]:
+    """Returns (min, target, max) in seconds, or None if nothing declared one.
+
     Precedence:
-    1. Explicitly specified project target (project_config.target_duration_seconds) OVERRIDES the brand default.
-       If project target is present, acceptable variance is +/- 10% (i.e. min = target * 0.9, max = target * 1.1).
-    2. Otherwise, fall back to brand template's content.target_duration_seconds (min, max). Target is average.
-    3. If neither is available, default to ~60s (min 54, max 66).
+
+    1. ``project_config.target_duration_seconds`` - the project's own
+       declaration, plus or minus ``PROJECT_TARGET_TOLERANCE``.
+    2. the SELECTED brand template's ``content.target_duration_seconds``
+       ``{min, max}``; the target is the average.  A project that names no
+       brand template has no such declaration - see
+       ``no_brand_template()`` in library/tools/brand_registry.py.
+    3. **None.**  There used to be a ``54.0, 60.0, 66.0`` here.
     """
     project_config = data.get("project_config", {})
     brand_template = data.get("brand_template", {})
 
-    # 1. Project config override
-    target_dur = project_config.get("target_duration_seconds") if isinstance(project_config, dict) else None
-    if target_dur is not None and float(target_dur) > 0:
-        target_f = float(target_dur)
-        return target_f * 0.9, target_f, target_f * 1.1
+    target_dur = (project_config.get("target_duration_seconds")
+                  if isinstance(project_config, dict) else None)
+    if target_dur is not None:
+        try:
+            target_f = float(target_dur)
+        except (TypeError, ValueError):
+            target_f = 0.0
+        if target_f > 0:
+            return (target_f * (1 - PROJECT_TARGET_TOLERANCE),
+                    target_f,
+                    target_f * (1 + PROJECT_TARGET_TOLERANCE))
 
-    # 2. Brand template fallback
     if isinstance(brand_template, dict):
         content_slots = brand_template.get("content", {})
         brand_dur = content_slots.get("target_duration_seconds", {})
         if isinstance(brand_dur, dict) and "min" in brand_dur and "max" in brand_dur:
             min_dur = float(brand_dur["min"])
             max_dur = float(brand_dur["max"])
-            target = (min_dur + max_dur) / 2.0
-            return min_dur, target, max_dur
+            return min_dur, (min_dur + max_dur) / 2.0, max_dur
 
-    # 3. Default
-    return 54.0, 60.0, 66.0
+    return None
+
+
+NO_TARGET_DECLARED = (
+    "no target length is declared: neither the project's "
+    "`target_duration_seconds` nor a selected brand template's "
+    "`content.target_duration_seconds` reached this step"
+)

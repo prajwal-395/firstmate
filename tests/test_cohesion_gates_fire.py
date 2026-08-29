@@ -114,6 +114,12 @@ class TestMeasureTimelineDuration:
 def _inputs(**kw):
     base = {
         "creative_direction": {"target_energy": "moderate"},
+        # 001's own project.yaml declaration, which is what the gate now
+        # measures against. It used to be handed 54/60/66 by
+        # `duration_targets` whatever any project declared, and nothing
+        # ever put a `project_config` in state at all - so the captain's
+        # number governed nothing and the gate ran on a made-up minute.
+        "project_config": {"target_duration_seconds": 60},
         "transition_spec": [],
         "sfx_spec": [],
         "speech_sequence": SPEECH_001,
@@ -121,6 +127,22 @@ def _inputs(**kw):
     }
     base.update(kw)
     return base
+
+
+def test_the_gate_is_the_projects_own_declaration():
+    """54-66s is 001's `target_duration_seconds: 60` plus or minus 10%."""
+    from library.tools.duration_targets import get_target_duration_zone
+    assert get_target_duration_zone(_inputs()) == (54.0, 60.0, 66.0)
+
+
+def test_with_no_declared_target_the_gate_says_so_rather_than_firing():
+    """A gate with nothing to judge against is not coverage."""
+    inputs = _inputs()
+    inputs.pop("project_config")
+    review = review_creative_cohesion(inputs)
+    assert any(w.startswith("Duration not checked:")
+               for w in review["warnings"])
+    assert not any("target zone" in w for w in review["warnings"])
 
 
 def test_the_001_timeline_is_inside_the_zone():

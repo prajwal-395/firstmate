@@ -37,6 +37,12 @@
         "description": "State input: music_selection"
       },
       {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "State input: project_config - the project's own declarations. `get_target_duration_zone` reads target_duration_seconds off it; without one the spine contract's duration zone is not checked."
+      },
+      {
         "name": "semantic_analysis_documents",
         "type": "array",
         "required": true,

@@ -1,3 +1,14 @@
+# A template a project may NAME, not the one it gets for naming nothing.
+#
+# It was the FALLBACK until 2026-08-28: a project.yaml with no
+# `pipeline.brand_template` resolved to this file, so project 001 was
+# lowercasing every caption, holding both drawn transitions for 500 ms and
+# telling step 2.01 the series runs at "high" energy - values nobody chose
+# for it. A project that declares nothing now gets `no_brand_template()`;
+# see ABSENT_SLOT_READINGS in library/tools/brand_registry.py.
+#
+# Everything below is therefore a real declaration again: it governs a
+# project only because that project asked for this template by name.
 series_id: "default_series"
 # The frame this series ships in (captain's ruling, 2026-08-19).
 # Declared explicitly even though it IS the default, because this is
@@ -70,7 +81,9 @@ effect:
   # placeholder - accents here would render as #ff0000 corner brackets.
   # See docs/PIPELINE_PLAN.md: a fallback template that renders is not the
   # same as one anyone should ship.
-  sfx_density: "dense"
+  # No sfx_density. The slot has NO READER - `scale_sfx_density` was the
+  # only one and was deleted (AGENTS.md 10.5) - so "dense" was a taste
+  # this file stated and nothing could act on.
   caption_case: "lowercase"
 content:
   series_title: "Default Series"
@@ -81,9 +94,10 @@ content:
   # and a "Subscribe!" card the channel spec forbids by name - that no
   # step ever imported. Both are deleted; see library/tools/bookends.py
   # for what a template that DOES want a card declares.
-  music_genre:
-    - "electronic"
-    - "upbeat"
+  # No music_genre. The slot has NO READER: step 2.04's handoff names
+  # `brand_content.music_genre`, but no manifest routes `brand_content` to
+  # step 2.04, so no template's genre has ever reached that prompt.
+  # Routing it is a manifest change, recorded rather than made here.
   target_duration_seconds:
     min: 30
     max: 60

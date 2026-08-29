@@ -24,7 +24,7 @@ import yaml
 from library.processes.edit_video.run_pipeline import (
     gather_step_inputs, load_pipeline_state)
 from library.tools.brand_registry import (
-    DEFAULT_TEMPLATE_NAME, _get_default_template, project_template_name,
+    DEFAULT_TEMPLATE_NAME, no_brand_template, project_template_name,
     query_slots, reference_template_name, resolve_template_reference)
 
 TEMPLATES_DIR = os.path.join(
@@ -108,7 +108,7 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
     cinematic_narrative's effect slots, not the in-code default's.
 
     Against the unfixed loader `state` has no `brand_template` at all and
-    both sides of this assertion are `_get_default_template()`.
+    both sides of this assertion are `no_brand_template()`.
     """
     folder = _project(tmp_path, "geo", "cinematic_narrative")
     state = load_pipeline_state(folder)
@@ -120,7 +120,7 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
     declared = query_slots(
         resolve_template_reference("cinematic_narrative",
                                    templates_dir=TEMPLATES_DIR), "effect")
-    in_code_default = query_slots(_get_default_template(), "effect")
+    in_code_default = query_slots(no_brand_template(), "effect")
 
     assert inputs["brand_effect"] == declared
     assert inputs["brand_effect"] != in_code_default
@@ -132,13 +132,67 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
         "hard_cut", "match_cut", "fade_to_black", "defocus"]
 
 
-def test_a_project_declaring_none_still_gets_a_usable_slot_set(tmp_path):
+def test_a_project_declaring_none_inherits_no_taste(tmp_path):
+    """The whole point of `no_brand_template()`.
+
+    This used to assert `inputs["brand_effect"]["transition_types"]` was
+    non-empty, and it was - because a project that had chosen no brand
+    was handed `default_brand.yaml`'s seven types, its 200-500 ms
+    transition range and its 0.5 VFX intensity.  A project that declares
+    nothing now gets nothing, and every consumer's reading of an absent
+    slot is recorded in `ABSENT_SLOT_READINGS`.
+    """
     folder = _project(tmp_path, "bare", None)
     state = load_pipeline_state(folder)
     inputs = gather_step_inputs(
         "step_4_01_plan_subtitles", {"edges": []}, state,
         _manifest_declaring_brand_effect())
-    assert inputs["brand_effect"]["transition_types"]
+    effect = inputs["brand_effect"]
+    assert effect["transition_types"] == []
+    assert effect["transition_duration_ms"] == {}
+    assert effect["vfx_intensity"] == 0.0
+    assert effect["subtitle_style"] == ""
+    assert inputs["brand_style"]["house_look"] == ""
+    assert inputs["brand_style"]["energy_profile"] == ""
+    assert inputs["brand_style"]["typography"] == {}
+    # The one exception, and it is recorded as one.
+    assert effect["caption_case"] == "lowercase"
+
+
+def test_the_absent_reading_of_every_slot_is_written_down():
+    """A slot whose absence nobody has stated is a silent default again."""
+    from library.tools.brand_registry import ABSENT_SLOT_READINGS
+    from dataclasses import fields
+    from library.schemas.brand_template import (
+        ContentSlots, EffectSlots, StyleSlots)
+    for group, cls in (("style", StyleSlots), ("effect", EffectSlots),
+                       ("content", ContentSlots)):
+        for f in fields(cls):
+            if f.name in ("reference_look_image", "watermark",
+                          "motion_accents", "motion_progress_bar",
+                          "series_title", "channel_name"):
+                continue
+            key = f"{group}.{f.name}"
+            assert key in ABSENT_SLOT_READINGS, (
+                f"{key} has no recorded reading of absence. Say what a "
+                f"project with no brand template gets for it, in "
+                f"library/tools/brand_registry.ABSENT_SLOT_READINGS.")
+
+
+def test_default_brand_is_still_loadable_by_name(tmp_path):
+    """It stops being the fallback; it does not stop being a template.
+
+    A project that NAMES it has chosen its values, which is what makes
+    them a brand decision rather than one nobody made.
+    """
+    folder = _project(tmp_path, "chose", DEFAULT_TEMPLATE_NAME)
+    state = load_pipeline_state(folder)
+    inputs = gather_step_inputs(
+        "step_4_01_plan_subtitles", {"edges": []}, state,
+        _manifest_declaring_brand_effect())
+    assert inputs["brand_effect"]["transition_duration_ms"] == {
+        "min": 200, "max": 500}
+    assert inputs["brand_style"]["energy_profile"] == "high"
 
 
 # ── a template nobody has raises, rather than rendering a default ───
@@ -171,7 +225,9 @@ def test_reference_name_is_the_name_half_of_either_form():
     path = os.path.join(TEMPLATES_DIR, "cinematic_narrative.yaml")
     assert reference_template_name(path) == "cinematic_narrative"
     assert reference_template_name("cinematic_narrative") == "cinematic_narrative"
-    assert reference_template_name("") == DEFAULT_TEMPLATE_NAME
+    # "" is NOT `default_brand`.  Answering `default_brand` here is what
+    # sent every template-less project the fallback's brand constraints.
+    assert reference_template_name("") == ""
 
 
 # ── step 5.01 asked for the WHOLE template, and got nothing ─────────

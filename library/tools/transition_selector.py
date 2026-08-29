@@ -40,19 +40,40 @@ WITHDRAWN_SCENE_CHANGE_DEFAULTS = {
 }
 
 
-def _resolve_duration_ms(raw, default: int = 500) -> int:
-    """Accept both the scalar and the brand template's {min,max} shape.
+def brand_duration_bounds_ms(raw) -> tuple:
+    """The (min, max) a brand template PERMITS, or (None, None).
 
     `default_brand.yaml` writes `transition_duration_ms: {min: 200, max:
-    500}` while every reader treated it as a number, so wiring the brand
-    template in would have raised a TypeError on the first dissolve.
+    500}`.  A RANGE is a permission, in exactly the way an allow-list of
+    transition types is - it says what the brand will accept, not how
+    long any one transition should hold.  A SCALAR is a declaration, and
+    reads as both bounds.
     """
     if isinstance(raw, dict):
-        upper = raw.get("max", raw.get("min"))
-        return int(upper) if upper is not None else default
-    if isinstance(raw, (int, float)):
-        return int(raw)
-    return default
+        lo, hi = raw.get("min"), raw.get("max")
+        lo = int(lo) if lo is not None else None
+        hi = int(hi) if hi is not None else None
+        return lo, hi
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return int(raw), int(raw)
+    return None, None
+
+
+def brand_declared_duration_ms(raw):
+    """The one length a brand DECLARED, or None if it declared a range.
+
+    Returning the range's `max` here is what silently overruled the
+    plan: project 001's two drawn transitions were planned "quick" and
+    "medium" and both were held for 500 ms, the top of a range in a
+    template the project never selected.  A range names no length, so
+    this answers None and the plan's own `duration_feel` decides.
+
+    There is no fallback constant.  This used to end `return default`
+    with `default=500`, which handed a transition a length nobody chose
+    even when neither the brand nor the plan had said anything.
+    """
+    lo, hi = brand_duration_bounds_ms(raw)
+    return lo if lo is not None and lo == hi else None
 
 
 def _is_high_energy(creative_direction: dict) -> bool:
@@ -80,7 +101,13 @@ def select_transition(
       never invents a DRAWN transition - see
       `WITHDRAWN_SCENE_CHANGE_DEFAULTS`.
 
-    Returns {"type", "duration_ms", "requested_type", "downgrade_reason"}.
+    Returns {"type", "duration_ms", "duration_bounds_ms",
+    "requested_type", "downgrade_reason"}.
+
+    `duration_ms` is None for a drawn transition whose brand declared no
+    single length - which is the usual case, because a template writes a
+    RANGE.  How long the transition holds is then the plan's to say; see
+    `brand_declared_duration_ms`.
     """
     allowed, rejected = filter_allowed(
         brand_effect.get("transition_types"), source="brand template"
@@ -92,7 +119,9 @@ def select_transition(
             file=sys.stderr,
         )
     preferred_types = allowed or list(PLANNABLE_TYPES)
-    duration_ms = _resolve_duration_ms(brand_effect.get("transition_duration_ms"))
+    raw_duration = brand_effect.get("transition_duration_ms")
+    duration_ms = brand_declared_duration_ms(raw_duration)
+    bound_min, bound_max = brand_duration_bounds_ms(raw_duration)
 
     requested_raw = (requested_type or "").strip()
     # No request at all means nothing is drawn here.
@@ -100,6 +129,7 @@ def select_transition(
     result = {
         "type": "hard_cut",
         "duration_ms": 0,
+        "duration_bounds_ms": (bound_min, bound_max),
         "requested_type": requested_raw,
         "downgrade_reason": "",
     }

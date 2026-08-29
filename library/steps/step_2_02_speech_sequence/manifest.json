@@ -7,10 +7,22 @@
   "interface": {
     "inputs": [
       {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none."
+      },
+      {
         "name": "creative_direction",
         "type": "object",
         "required": true,
         "description": "State input: creative_direction"
+      },
+      {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "State input: project_config - the project's own declarations, read from project.yaml by load_pipeline_state and broadcast by the runner. The handoff asks the model to read target_duration_seconds from it."
       },
       {
         "name": "semantic_analysis_documents",
@@ -23,12 +35,6 @@
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
-      },
-      {
-        "name": "creative_brief",
-        "type": "string",
-        "required": false,
-        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none."
       }
     ],
     "outputs": [
@@ -94,6 +100,7 @@
   },
   "context_fields": [
     "creative_direction",
+    "project_config",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.blocks",
     "semantic_analysis_documents.*.duration_s",

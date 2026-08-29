@@ -32,15 +32,53 @@ def _spine(*positions):
 def test_a_requested_drawable_type_reaches_the_spec():
     spec = resolve_transitions(
         creative_plan=[{"cut_point_position": 2, "type": "flash",
-                        "rationale": "beat hit"}],
+                        "duration_feel": "quick", "rationale": "beat hit"}],
         timed_spine=_spine((1, "clip_a"), (2, "clip_b")),
         music_selection={},
     )
     assert len(spec) == 1
     assert spec[0]["transition_type"] == "flash"
-    assert spec[0]["duration_frames"] > 0
+    assert spec[0]["duration_frames"] == 6, "the plan said 'quick'"
     assert spec[0]["requested_type"] == "flash"
     assert spec[0]["downgrade_reason"] == ""
+
+
+def test_the_plans_own_pace_is_what_is_held(capsys):
+    """How long a drawn transition holds is the PLAN's to say.
+
+    This read the brand template's `transition_duration_ms` first and
+    consulted `duration_feel` only if that came out under a frame, so on
+    project 001 a "quick" defocus and a "medium" defocus were both held
+    for 500 ms - the top of a range in `default_brand.yaml`, a template
+    001 never selected.
+    """
+    plan = [{"cut_point_position": 2, "type": "defocus",
+             "duration_feel": "quick"},
+            {"cut_point_position": 3, "type": "defocus",
+             "duration_feel": "medium"}]
+    spine = _spine((1, "a"), (2, "b"), (3, "c"))
+    spec = resolve_transitions(creative_plan=plan, timed_spine=spine,
+                               music_selection={})
+    assert [e["duration_frames"] for e in spec] == [6, 10]
+
+    # And a brand that permits a RANGE bounds that choice without
+    # replacing it: 200-500 ms is 6-15 frames, so both still stand.
+    spec = resolve_transitions(
+        creative_plan=plan, timed_spine=spine, music_selection={},
+        brand_effect={"transition_duration_ms": {"min": 200, "max": 500}})
+    assert [e["duration_frames"] for e in spec] == [6, 10]
+
+
+def test_a_drawn_transition_with_no_declared_length_is_dropped(capsys):
+    """Neither invented nor emitted at zero frames (AGENTS.md 10.5)."""
+    spec = resolve_transitions(
+        creative_plan=[{"cut_point_position": 2, "type": "defocus",
+                        "rationale": "no feel declared"}],
+        timed_spine=_spine((1, "clip_a"), (2, "clip_b")),
+        music_selection={},
+    )
+    assert spec == []
+    assert "duration_feel" in capsys.readouterr().err
 
 
 def test_a_withdrawn_type_is_recorded_not_swapped():

@@ -1,4 +1,17 @@
-"""Tests for duration enforcement in review_rough_cut and creative_cohesion."""
+"""Tests for duration enforcement in review_rough_cut and creative_cohesion.
+
+The zone is the PROJECT's declaration, and there is no longer a fallback.
+`get_target_duration_zone` used to answer `(54.0, 60.0, 66.0)` whenever
+nothing declared a target - and nothing ever did, because no state key
+and no DAG edge carried `project_config` to any step.  So the captain's
+own `target_duration_seconds: 60` in project 001's project.yaml governed
+nothing, and every one of these gates ran against a minute the pipeline
+made up.  `load_pipeline_state` now reads the declaration and the runner
+broadcasts it; with nothing declared, a gate reports that it did not
+check rather than judging the cut against an invented length.
+
+`DECLARES_60` below is 001's own declaration.
+"""
 import json
 import pytest
 
@@ -9,6 +22,10 @@ from library.steps.step_3_03_review_rough_cut.step import (
 from library.steps.step_5_03_creative_cohesion.step import review_creative_cohesion
 
 
+# 001's own project.yaml declaration: 60 seconds, so the zone is 54-66.
+DECLARES_60 = {"project_config": {"target_duration_seconds": 60}}
+
+
 # --- step_3_03 total duration tests ---
 
 class TestCheckTotalDuration:
@@ -17,20 +34,20 @@ class TestCheckTotalDuration:
     def test_within_target_passes(self):
         """60s actual vs 60s target = passes."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 60}]
-        result = check_total_duration(a_rolls, {}, {})
+        result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is True
         assert result["actual_duration_seconds"] == 60.0
 
     def test_at_threshold_passes(self):
         """66s actual vs 60s target (max is 66), should pass."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 66}]
-        result = check_total_duration(a_rolls, {}, {})
+        result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is True
 
     def test_over_threshold_fails(self):
         """67s actual vs 60s target (max is 66), should fail."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 67}]
-        result = check_total_duration(a_rolls, {}, {})
+        result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is False
 
     def test_audio_spine_takes_precedence(self):
@@ -42,7 +59,7 @@ class TestCheckTotalDuration:
                 {"timeline_start": 50, "timeline_end": 100},
             ]
         }
-        result = check_total_duration(a_rolls, audio_spine, {})
+        result = check_total_duration(a_rolls, audio_spine, DECLARES_60)
         assert result["actual_duration_seconds"] == 100.0
         # 100 > 66 -> fail
         assert result["passed"] is False
@@ -63,15 +80,28 @@ class TestCheckTotalDuration:
     def test_massive_overshoot_fails(self):
         """8.6 min (516s) vs 60s target - the original bug scenario."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 516}]
-        result = check_total_duration(a_rolls, {}, {})
+        result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is False
         assert result["actual_duration_seconds"] == 516.0
 
     def test_empty_inputs(self):
         """Empty inputs means 0s duration, which is below min 54s, so fails."""
-        result = check_total_duration([], {}, {})
+        result = check_total_duration([], {}, DECLARES_60)
         assert result["passed"] is False
         assert result["actual_duration_seconds"] == 0.0
+
+    def test_nothing_declared_is_reported_not_judged(self):
+        """The gate used to be handed 54-66s whatever a project declared.
+
+        A gate with nothing to judge against is not coverage
+        (AGENTS.md 10.4), so it says which declaration was missing.
+        """
+        result = check_total_duration(
+            [{"timeline_start": 0, "timeline_end": 516}], {}, {})
+        assert result["checked"] is False
+        assert result["passed"] is True
+        assert "target_duration_seconds" in result["reason"]
+        assert result["actual_duration_seconds"] == 516.0
 
 
 class TestRunMechanicalChecksWithDuration:
@@ -83,6 +113,7 @@ class TestRunMechanicalChecksWithDuration:
             "b_roll_assignments": [],
             "audio_spine": {},
             "project_folder": ".",
+            **DECLARES_60,
         }
         result = run_mechanical_checks(data)
         assert "total_duration" in result["mechanical_checks"]
@@ -146,6 +177,7 @@ class TestRunMechanicalChecksWithDuration:
             "b_roll_assignments": [],
             "audio_spine": {},
             "project_folder": ".",
+            **DECLARES_60,
         }
         result = run_mechanical_checks(data)
         assert result["passed"] is False
@@ -224,8 +256,8 @@ class TestCohesionDurationWarning:
         review = review_creative_cohesion(inputs)
         assert not any("Duration warning" in w for w in review["warnings"])
 
-    def test_no_project_config_warns_with_default(self):
-        """Without project_config, it falls back to 54-66s default and warns if out of bounds."""
+    def test_no_project_config_states_that_nothing_was_checked(self):
+        """It used to fall back to a 54-66s zone nobody declared."""
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
             "transition_spec": {"transitions": []},
@@ -237,4 +269,10 @@ class TestCohesionDurationWarning:
             "color_grade_spec": {},
         }
         review = review_creative_cohesion(inputs)
+        assert any(w.startswith("Duration not checked:")
+                   for w in review["warnings"])
+        assert not any("Duration warning" in w for w in review["warnings"])
+
+        # And with the project's own declaration it fires as before.
+        review = review_creative_cohesion({**inputs, **DECLARES_60})
         assert any("Duration warning" in w for w in review["warnings"])

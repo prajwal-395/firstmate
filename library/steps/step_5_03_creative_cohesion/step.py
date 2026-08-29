@@ -7,7 +7,6 @@ import json
 import sys
 
 from library.tools import cohesion_scope
-from library.tools.energy_reading import read_energy
 from library.tools.passage_engagement import (
     NO_ENGAGEMENT_BASIS,
     engagement_of,
@@ -15,22 +14,7 @@ from library.tools.passage_engagement import (
     unjudged_summary,
 )
 from library.tools.timeline_duration import measure_timeline_duration
-from library.tools.transition_vocabulary import canonical_type, is_cut
-
-# Transitions that read as slow and soft, so a calm edit wants them long.
-SOFT_TRANSITIONS = ("fade_to_black", "defocus")
-
-
-def map_energy(energy_str):
-    """Read the energy the way every other reader does.
-
-    This used to carry its own word list, which matched "building" to
-    "high" while `transition_selector` did not - and this is the reader
-    that ACTS, so project 001's deliberate "building" had three defocus
-    transitions cut from 500 ms to 333 ms and a demand for denser SFX.
-    One vocabulary now: library/tools/energy_reading.py.
-    """
-    return read_energy(energy_str)
+from library.tools.transition_vocabulary import is_cut
 
 def engagement_score(passage) -> float:
     """The composite engagement of one passage, or None if it has none.
@@ -123,113 +107,53 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # list.
     proposals = []
 
-    # 1. Energy Alignment Check
+    # The ENERGY ALIGNMENT checks used to sit here, and they are REMOVED.
     #
-    # The energy comes from the creative direction or the checks below do
-    # not run. This used to read `.get("target_energy", "moderate")`, so a
-    # direction that declared no energy was scored against one this file
-    # made up - and the transition adjustments below are APPLIED by
-    # compile_manifest, so an invented word reached the picture.
-    raw_energy = creative_direction.get("target_energy")
-    energy = map_energy(raw_energy) if raw_energy else None
-    if not energy:
-        warnings.append(
-            "Energy not checked: the creative direction declares no "
-            "target_energy, so there is nothing to judge the transitions "
-            "and SFX density against"
-        )
-
-    # Transition Check
+    # There were four, and each was a creative threshold this file chose:
     #
-    # The one finding this step can act on where it runs: a duration is a
-    # number the compiler rewrites, and nothing that is timed off the
-    # timeline moves when it does.
-    for t in transitions if energy else []:
-        # A transition that declares no duration is not measured. Assuming
-        # 15 frames invented the very number this check then judged.
-        dur_frames = t.get("duration_frames")
-        if not isinstance(dur_frames, (int, float)) or isinstance(dur_frames, bool):
-            warnings.append(
-                f"Transition at {t.get('cut_point_timeline', '?')}s declares "
-                f"no duration_frames, so its pace was not checked"
-            )
-            continue
-        # assuming 30fps -> ms = (frames / 30) * 1000
-        dur_ms = (dur_frames / 30.0) * 1000
-        ttype = t.get("transition_type", t.get("type", ""))
-
-        if energy == "high":
-            if dur_ms >= 500 and not is_cut(ttype):
-                finding = f"High energy but found slow transition ({dur_ms}ms)"
-                warnings.append(finding)
-                proposals.append({
-                    "target_step": "transition_spec",
-                    "field": "duration_frames",
-                    "current_value": dur_frames,
-                    "suggested_value": 10, # ~333ms
-                    "finding": finding,
-                    "reason": "High energy requires faster transitions (<500ms)",
-                    "target_index": transitions.index(t)
-                })
-        elif energy == "calm":
-            # The soft transitions a calm edit should hold on. Named from
-            # the one vocabulary rather than a list of types that no
-            # longer exist - "cross_dissolve" here matched nothing the
-            # planner could emit.
-            if dur_ms <= 1000 and canonical_type(ttype) in SOFT_TRANSITIONS:
-                finding = f"Calm energy but found fast dissolve ({dur_ms}ms)"
-                warnings.append(finding)
-                proposals.append({
-                    "target_step": "transition_spec",
-                    "field": "duration_frames",
-                    "current_value": dur_frames,
-                    "suggested_value": 30, # 1000ms
-                    "finding": finding,
-                    "reason": "Calm energy should have slower dissolves (>=1000ms)",
-                    "target_index": transitions.index(t)
-                })
+    #   1. a "high" energy edit must hold every drawn transition under
+    #      500 ms, and the fix was `duration_frames: 10`;
+    #   2. a "calm" edit must hold a soft transition for at least
+    #      1000 ms, and the fix was `duration_frames: 30`;
+    #   3. a "high" edit must carry at least 10 SFX per minute;
+    #   4. a "calm" edit must carry at most 15 SFX per minute.
+    #
+    # Three reasons they are gone rather than rewritten:
+    #
+    #   * 3 and 4 are CREATIVE FLOORS, in code, in the plainest sense of
+    #     AGENTS.md 10.5 - "the creative direction decides how many
+    #     cutaways and how many sounds a piece gets".  They survived the
+    #     ruling that deleted `scale_sfx_density` and step 4.02's
+    #     `min_trans` only because `tests/test_no_creative_floors.py`
+    #     reads the planning steps and 5.03 is not one.
+    #   * 1 and 2 reached the PICTURE.  `duration_frames` is the one field
+    #     `cohesion_scope.ACTIONABLE_AT_COHESION` lets the compiler
+    #     rewrite, so `suggested_value: 10` was a number nobody chose
+    #     landing on a transition an editor had timed.
+    #   * There is nothing to derive a replacement from.  A creative
+    #     direction declares a `target_energy` in prose and no pace, no
+    #     duration and no density, so any threshold here would be one
+    #     this file invented.  Reporting that, rather than picking a
+    #     number, is the rule (AGENTS.md 10.5).
+    #
+    # On project 001's run of record none of the four could fire at all:
+    # the direction said "building", which `energy_reading` correctly
+    # reads as neither high nor calm, so the whole block read as coverage
+    # while doing nothing (AGENTS.md 10.4).
+    #
+    # A check on pace against energy is welcome here.  It needs a
+    # DECLARED target to judge against - a pace the creative direction
+    # actually states - which no step emits today.
+    #
+    # What the transitions and the SFX plan CAN say without a threshold
+    # is how many there are.  That is reported below, under
+    # `measurements`, and it fires nothing: a number beside a finding is
+    # the shape the render-QA chroma and mix checks already use.
 
     # The timeline's real length, measured the way review_rough_cut
     # measures it: the last spine block's timeline_end. See
     # library/tools/timeline_duration.py for what this replaced.
     timeline_duration = measure_timeline_duration(inputs)
-
-    # SFX Check (density estimation)
-    #
-    # Measured against the REAL timeline or not at all. `timeline_duration
-    # or 60.0` made a minute up when nothing had been measured, and
-    # `measure_timeline_duration` returns 0.0 to mean "no evidence"
-    # precisely so a reader says so instead (AGENTS.md 10.1).
-    total_duration = timeline_duration
-    if energy and not total_duration:
-        warnings.append(
-            "SFX density not checked: the timeline length is unknown, so "
-            "there is nothing to measure a density against"
-        )
-
-    sfx_density_per_min = (len(sfx) / total_duration) * 60 if total_duration > 0 else 0
-    if energy == "high" and total_duration and sfx_density_per_min < 10:
-        finding = f"High energy but sparse SFX ({sfx_density_per_min:.1f} per min)"
-        warnings.append(finding)
-        proposals.append({
-            "target_step": "sfx_spec",
-            "field": "density",
-            "current_value": "sparse",
-            "suggested_value": "dense",
-            "finding": finding,
-            "reason": "High energy requires dense SFX"
-        })
-    elif energy == "calm" and total_duration and sfx_density_per_min > 15:
-        finding = f"Calm energy but dense SFX ({sfx_density_per_min:.1f} per min)"
-        warnings.append(finding)
-        proposals.append({
-            "target_step": "sfx_spec",
-            "field": "density",
-            "current_value": "dense",
-            "suggested_value": "sparse",
-            "finding": finding,
-            "reason": "Calm energy requires sparse SFX"
-        })
 
     # The colour grade check used to sit here, and it is REMOVED for the
     # same three reasons the pacing check was (#238, and P4.2 in
@@ -333,10 +257,17 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # Check the TIMELINE against the target duration zone. This used to
     # read `body_sequence[-1]["end_time"]`, a source timestamp, and so
     # warned about a length the video never had.
-    from library.tools.duration_targets import get_target_duration_zone
-    min_dur, target_dur, max_dur = get_target_duration_zone(inputs)
+    from library.tools.duration_targets import (
+        NO_TARGET_DECLARED, get_target_duration_zone)
+    zone = get_target_duration_zone(inputs)
+    min_dur, target_dur, max_dur = zone if zone else (None, None, None)
 
-    if not timeline_duration:
+    if zone is None:
+        # `get_target_duration_zone` used to answer 54/60/66 when nothing
+        # declared a length, and nothing ever did reach this step, so
+        # every run of this gate measured against a made-up minute.
+        warnings.append(f"Duration not checked: {NO_TARGET_DECLARED}")
+    elif not timeline_duration:
         # No spine and no A-roll reached this step, so there is nothing
         # to measure. Saying so beats warning about 0.0 seconds.
         warnings.append(
@@ -383,8 +314,29 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # A number nobody acts on, made of weights nobody measured, reads as
     # a verdict on the edit (AGENTS.md 10.4). What this step really has
     # is a list of findings; that is what it reports.
+    # Counted, never judged.  The density this step used to demand of a
+    # "high" energy edit (>= 10 per minute) is the captain's and the
+    # creative direction's to decide; what this step can honestly do is
+    # say what the plan came to.
+    drawn = [t for t in transitions
+             if isinstance(t, dict) and not is_cut(
+                 t.get("transition_type", t.get("type", "")))]
+    measurements = {
+        # The word the direction actually wrote, reported beside the
+        # counts and judged against nothing.  A reader can see what was
+        # asked for and what the plan came to; turning the pair into a
+        # verdict needs a declared pace, which no step emits.
+        "declared_target_energy": creative_direction.get("target_energy"),
+        "transitions_planned": len(transitions),
+        "transitions_drawn": len(drawn),
+        "sfx_events": len(sfx),
+        "sfx_per_minute": (round((len(sfx) / timeline_duration) * 60, 1)
+                           if timeline_duration else None),
+    }
+
     cohesion_review = {
         "timeline_duration_seconds": round(timeline_duration, 2),
+        "measurements": measurements,
         "warnings": warnings,
         # Every entry here is one `apply_cohesion_adjustments` applies.
         "adjustments": adjustments,

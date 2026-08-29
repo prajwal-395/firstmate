@@ -77,24 +77,21 @@ def scan_project_folder(project_folder: str) -> dict:
     # README-LAYOUT.md, so a project the captain opens in six months
     # explains itself without anyone reading code. Input directories are
     # deliberately not created. See library/tools/project_layout.py.
-    layout = ProjectLayout(project_folder).ensure()
+    ProjectLayout(project_folder).ensure()
 
-    project_yaml_path = str(layout.project_config_path)
-    project_config = {
-        "target_duration_seconds": 60,
-        "style_preset": "shortform_vertical",
-        "subtitle_style": "word_by_word"
-    }
-    if os.path.exists(project_yaml_path):
-        import yaml
-        try:
-            with open(project_yaml_path, "r") as f:
-                data = yaml.safe_load(f) or {}
-            project_config["target_duration_seconds"] = data.get("target_duration_seconds", 60)
-            project_config["style_preset"] = data.get("style_preset", "shortform_vertical")
-            project_config["subtitle_style"] = data.get("subtitle_style", "word_by_word")
-        except Exception as e:
-            print(f"WARNING: Failed to read project.yaml: {e}", file=sys.stderr)
+    # What the project DECLARES, and nothing else.  This block used to
+    # write `target_duration_seconds: 60`, `style_preset:
+    # "shortform_vertical"` and `subtitle_style: "word_by_word"` for a
+    # project that declared none of them, so a length nobody chose was
+    # indistinguishable in state from one the captain typed.  One reader
+    # now, shared with `load_pipeline_state`, so the two producers of
+    # `project_config` cannot disagree.
+    from library.tools.brand_registry import project_declared_config
+    try:
+        project_config = project_declared_config(project_folder)
+    except Exception as e:
+        print(f"WARNING: Failed to read project.yaml: {e}", file=sys.stderr)
+        project_config = {}
 
     return {
         "raw_footage_files": raw_footage_files,

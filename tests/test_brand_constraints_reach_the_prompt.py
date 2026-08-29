@@ -145,6 +145,13 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
+    # The project SELECTS a brand.  It used to declare none and still get
+    # `default_brand`'s constraints, which is the thing that changed: a
+    # template-less project now contributes no brand text at all, so a
+    # test that asserts the brand reaches the prompt has to name one.
+    (project / "project.yaml").write_text(
+        "name: t\nslug: t\npipeline:\n  brand_template: default_brand\n",
+        encoding="utf-8")
     prompt_path = tmp_path / "handoff.md"
     prompt_path.write_text("Plan the transitions.\n", encoding="utf-8")
 
@@ -176,3 +183,43 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     )
     # The vocabulary itself, not just the header.
     assert "hard_cut" in request["prompt"]
+
+
+def test_a_project_that_selected_no_brand_contributes_no_brand_text(tmp_path):
+    """The other half, and the point of the change.
+
+    A project declaring no `pipeline.brand_template` used to be handed
+    `default_brand.yaml`'s constraints: step 2.01 was told the series runs
+    at "high" energy and step 4.03 was told to plan VFX at intensity 0.5.
+    On project 001 the model overruled the energy in writing and called
+    those values "a default nobody chose for this project".  Absence now
+    declares nothing - see ABSENT_SLOT_READINGS in
+    library/tools/brand_registry.py.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.yaml").write_text(
+        "name: t\nslug: t\n", encoding="utf-8")
+    prompt_path = tmp_path / "handoff.md"
+    prompt_path.write_text("Plan the transitions.\n", encoding="utf-8")
+
+    node_id = _dag_node_id("step_4_02_plan_transitions")
+    _answer_when_asked(project, node_id,
+                       {"transition_creative": [{"cut_point_position": 1,
+                                                 "transition_type": "hard_cut"}]})
+
+    present_llm_step(
+        str(prompt_path),
+        {"project_folder": str(project), "timed_spine": {"structure": []}},
+        node_id,
+        manifest={"interface": {"outputs": [{"name": "transition_creative"}]},
+                  "context_fields": ["timed_spine"]},
+        full_auto="agy", llm_timeout=30,
+    )
+
+    request = json.loads(
+        (project / "pipeline_output" / "llm_requests" / f"{node_id}.json").read_text()
+    )
+    assert request["constraints"] == ""
+    assert "Brand Constraints" not in request["prompt"]
+    assert "Transition Duration MS" not in request["prompt"]

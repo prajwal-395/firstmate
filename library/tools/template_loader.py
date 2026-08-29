@@ -27,13 +27,28 @@ class TemplateLoader:
         else:
             self.templates_dir = Path(__file__).resolve().parent.parent / "templates"
             
-    def load_template(self, template_name: str = "default_brand") -> dict:
-        """Load from project brand.json first, then from templates_dir"""
+    def load_template(self, template_name: str = "") -> dict:
+        """Load from project brand.json first, then from templates_dir.
+
+        An EMPTY name means the project declared no brand template, and it
+        loads NOTHING - not `default_brand`.  The default used to be
+        `"default_brand"` and the runner used to pass that name for a
+        project that had chosen none, which is how the fallback
+        template's energy profile and VFX intensity reached the prompts of
+        every template-less project.  See `no_brand_template()` and
+        `ABSENT_SLOT_READINGS` in library/tools/brand_registry.py.
+
+        A `brand.json` sitting in the project IS a declaration, so it
+        still wins.
+        """
         brand_json = self.project_dir / "brand.json"
         if brand_json.exists():
             with open(brand_json) as f:
                 return json.load(f)
-                
+
+        if not template_name:
+            return {}
+
         # Try YAML in templates_dir
         yaml_path = self.templates_dir / f"{template_name}.yaml"
         if yaml_path.exists():

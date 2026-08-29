@@ -323,11 +323,31 @@ def load_pipeline_state(project_dir: str) -> dict:
     # declaration is left OUT of state so a project that names no template
     # keeps resolving through the same empty-reference path as before, and
     # `resolve_template_reference("")` sends that to default_brand on disk.
+    # The project's own declarations about the PRODUCT.  The whitelist in
+    # `gather_step_inputs` broadcasts `project_config` to every step, and
+    # nothing had ever put one in state - so the captain's
+    # `target_duration_seconds` reached no gate on any run, and four
+    # duration checks measured against a constant instead.  See
+    # library/tools/duration_targets.py.
+    if "project_config" not in state:
+        from library.tools.brand_registry import project_declared_config
+        declared_cfg = project_declared_config(project_dir)
+        if declared_cfg:
+            state["project_config"] = declared_cfg
+
     if "brand_template" not in state:
-        from library.tools.brand_registry import project_template_name
+        from library.tools.brand_registry import (
+            describe_brand_absence, project_template_name)
         declared = project_template_name(project_dir)
         if declared:
             state["brand_template"] = declared
+        else:
+            # STATED, not inferred.  An absent declaration used to resolve
+            # silently to library/templates/default_brand.yaml, so the
+            # only way to find out a project was rendering under a brand
+            # nobody chose was to read the resolver.
+            import sys
+            print(describe_brand_absence(), file=sys.stderr)
 
     # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
@@ -1161,9 +1181,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     # key was never set, so every project's LLM brand constraints came from
     # default_brand.yaml whatever its project.yaml declared.
     from library.tools.brand_registry import (
-        DEFAULT_TEMPLATE_NAME, project_template_name, reference_template_name)
+        project_template_name, reference_template_name)
+    # "" when the project declares none, and `get_brand_constraints`
+    # answers "" for it.  This read used to fall back to `default_brand`,
+    # so a template-less project's step 2.01 was told the series runs at
+    # "high" energy and its step 4.03 was told to plan VFX at 0.5 - taste
+    # from a template nobody selected, in the prompt.
     brand_template = (reference_template_name(project_template_name(project_folder))
-                      if project_folder else DEFAULT_TEMPLATE_NAME)
+                      if project_folder else "")
     from library.tools.template_loader import TemplateLoader
     
     loader_instance = TemplateLoader(project_folder)

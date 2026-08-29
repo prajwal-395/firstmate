@@ -6,7 +6,15 @@ would arrive before its own inputs exist.  What it can do is stop
 presenting a recommendation it has no route to apply as though it were
 one, which is #238.
 
-Two things these tests used to assert, and no longer can:
+Three things these tests used to assert, and no longer can:
+
+- **The four energy thresholds.**  "high energy means every transition
+  under 500 ms, so make it 10 frames", "calm means a dissolve of at least
+  1000 ms, so make it 30", "high means at least 10 SFX per minute", "calm
+  means at most 15".  Every one is a creative value the step chose, two of
+  them reached the picture through `duration_frames`, and nothing declares
+  a pace or a density to derive a replacement from.  Removed rather than
+  re-tuned (AGENTS.md 10.5); the step reports the counts instead.
 
 - **`cohesion_score`.**  100 minus a hand-picked weight per finding, read
   by nothing outside the step.  Removed; see the comment at the end of
@@ -40,8 +48,15 @@ SPINE_60S = {
 }
 
 
-def test_a_high_energy_mismatch_is_reported_and_is_applicable_here():
-    """Both findings are real; only one of them is an adjustment."""
+def test_a_high_energy_edit_is_reported_and_not_judged():
+    """The four thresholds are gone; the counts are what is reported.
+
+    This used to assert "High energy but found slow transition (1000.0ms)"
+    and an adjustment rewriting `duration_frames` to 10.  Both the 500 ms
+    line and the 10 frames were numbers this step picked, and
+    `duration_frames` is the ONE field `compile_manifest` rewrites, so the
+    picked number reached the picture.
+    """
     inputs = {
         "creative_direction": {"target_energy": "high"},
         "transition_spec": {
@@ -50,28 +65,24 @@ def test_a_high_energy_mismatch_is_reported_and_is_applicable_here():
             ]
         },
         "sfx_spec": [],  # sparse
+        "project_config": {"target_duration_seconds": 60},
         "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},
         "audio_spine": SPINE_60S,
     }
 
     review = review_creative_cohesion(inputs)
 
-    warnings = review["warnings"]
-    assert any("High energy but found slow transition" in w for w in warnings)
-    assert any("High energy but sparse SFX" in w for w in warnings)
+    assert not any("High energy" in w for w in review["warnings"])
+    assert review["adjustments"] == []
+    assert review["observations"] == []
 
-    # The transition duration is the one thing the compiler rewrites
-    # without moving a frame, so it is the one adjustment.
-    assert [(a["target_step"], a["field"], a["suggested_value"])
-            for a in review["adjustments"]] == [
-        ("transition_spec", "duration_frames", 10)]
-
-    # SFX are chosen and placed at 4.04. The finding stays, as an
-    # observation naming who owns it - not as an adjustment that is then
-    # silently dropped.
-    assert [o["state_key"] for o in review["observations"]] == ["sfx_spec"]
-    assert review["observations"][0]["owner_step"] == "step_4_04_plan_sfx"
-    assert "plan_sfx" in review["observations"][0]["how_to_act"]
+    assert review["measurements"] == {
+        "declared_target_energy": "high",
+        "transitions_planned": 1,
+        "transitions_drawn": 1,
+        "sfx_events": 0,
+        "sfx_per_minute": 0.0,
+    }
 
 
 # Project 001's REAL `transition_spec`, as step 4.02 emitted it on the
@@ -99,43 +110,29 @@ TRANSITIONS_001 = (
 )
 
 
-def test_the_actionable_finding_fires_on_001s_real_transition_spec():
-    """The one thing 5.03 can still change where it runs, driven end to
-    end: 5.03 finds it, 5.04 applies it, and the durations move.
+def test_001s_real_transition_spec_is_counted_and_left_alone():
+    """001's two 500 ms defocus transitions used to be the one actionable
+    finding: an explicit "high" energy shortened both to 10 frames.
 
-    `duration_frames` is the whole of `ACTIONABLE_AT_COHESION`, so if this
-    stops firing the review has nothing left that it can act on and the
-    step is a withdrawal rather than a rescope.
+    They are counted now.  The eleven hard cuts and two jump cuts draw
+    nothing (`transition_vocabulary.CUT_TYPES`), so they are not part of
+    the drawn count - the same distinction P7 makes in
+    `manifest_validator` (AGENTS.md 10.4).
     """
-    from library.steps.step_5_04_compile_manifest.step import (
-        apply_cohesion_adjustments,
-    )
     transitions = [dict(t) for t in TRANSITIONS_001]
     review = review_creative_cohesion({
         "creative_direction": {"target_energy": "high"},
         "transition_spec": transitions,
         "sfx_spec": [],
+        "project_config": {"target_duration_seconds": 60},
         "audio_spine": SPINE_60S,
     })
 
-    # The two real defocus transitions, at their real indices.
-    assert [(a["target_index"], a["current_value"], a["suggested_value"])
-            for a in review["adjustments"]] == [(7, 15, 10), (12, 15, 10)]
-    assert all(a["target_step"] == "transition_spec"
-               and a["field"] == "duration_frames"
-               for a in review["adjustments"])
-    # The eleven hard cuts and two jump cuts draw nothing, so they are not
-    # findings (transition_vocabulary.CUT_TYPES).
-    assert sum(1 for w in review["warnings"]
-               if "slow transition" in w) == 2
-
-    record = apply_cohesion_adjustments(transitions, review)
-    assert record["not_applied"] == [], record["not_applied"]
-    assert record["applied"] == [
-        "transition[7].duration_frames: 15 -> 10",
-        "transition[12].duration_frames: 15 -> 10"]
+    assert review["adjustments"] == []
+    assert review["measurements"]["transitions_planned"] == 15
+    assert review["measurements"]["transitions_drawn"] == 2
     assert [t["duration_frames"] for t in transitions
-            if t["transition_id"] in ("trans_008", "trans_013")] == [10, 10]
+            if t["transition_id"] in ("trans_008", "trans_013")] == [15, 15]
 
 
 def test_an_aligned_edit_reports_only_what_it_could_not_measure():
@@ -148,8 +145,8 @@ def test_an_aligned_edit_reports_only_what_it_could_not_measure():
                 {"transition_type": "hard_cut", "duration_frames": 0},
             ]
         },
-        # 5 SFX over 60s is 5 per minute, inside the calm ceiling of 15.
         "sfx_spec": [{"sfx_type": "swell"} for _ in range(5)],
+        "project_config": {"target_duration_seconds": 60},
         "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},
         "audio_spine": SPINE_60S,
     }
@@ -170,13 +167,10 @@ def test_missing_inputs_are_stated_not_judged():
     review = review_creative_cohesion({})
     # Each gate says it could not measure, rather than judging the edit
     # against an energy and a duration this step invented.
+    from library.tools.duration_targets import NO_TARGET_DECLARED
     assert review["warnings"] == [
-        "Energy not checked: the creative direction declares no "
-        "target_energy, so there is nothing to judge the transitions and "
-        "SFX density against",
         "Engagement not compared: " + NO_ENGAGEMENT_BASIS,
-        "Duration not checked: neither audio_spine nor a_roll_assignments "
-        "reached creative_cohesion, so the timeline length is unknown",
+        f"Duration not checked: {NO_TARGET_DECLARED}",
     ]
     assert review["adjustments"] == []
     assert review["observations"] == []

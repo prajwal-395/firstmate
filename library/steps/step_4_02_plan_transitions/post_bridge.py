@@ -261,36 +261,67 @@ def resolve_transitions(
 
         ttype = selected_trans["type"]
 
-        # Duration frame calculation
+        # Duration frame calculation.
+        #
+        # How long a transition holds is PACE, and the plan is what says
+        # it.  The handoff asks the model for a `duration_feel` on every
+        # drawn transition and it answers one; this used to read the
+        # brand template's `transition_duration_ms` FIRST and consult the
+        # plan only if that came out under a frame, so on project 001 a
+        # "quick" defocus and a "medium" defocus were both held for
+        # 500 ms - the top of a range in default_brand.yaml, a template
+        # the project never selected.  The model's own rationale for the
+        # second one reads "'medium' (333ms)".
+        #
+        # `duration_map` is not a choice of pace: it is the rendering of
+        # the word the model wrote into frames, the same way
+        # `audio_mix` renders a declared `music_behavior` into dB.
         if is_cut(ttype):
             dur_frames = 0
         else:
-            # For dissolve/wipe, we might fall back to LLM feel if needed, but selector returns duration_ms
-            dur_frames = int((selected_trans.get("duration_ms", 500) / 1000.0) * frame_rate)
-            if dur_frames == 0:
-                # How long a transition holds is pace, so it comes from
-                # the plan or from the brand template - never from a word
-                # this file picks. `duration_feel` used to default to
-                # "medium", which handed every undeclared transition the
-                # same third of a second on the pipeline's say-so.
-                duration_map = {
-                    "instant": 0,
-                    "quick": int(6 * (frame_rate / 30)),
-                    "medium": int(10 * (frame_rate / 30)),
-                    "slow": int(15 * (frame_rate / 30)),
-                }
-                feel = trans.get("duration_feel")
-                if feel in duration_map:
-                    dur_frames = duration_map[feel]
-                else:
-                    print(
-                        f"  Transition at spine boundary "
-                        f"{block.get('position')!r} resolves to under one "
-                        f"frame and the plan declares no duration_feel "
-                        f"({feel!r}); leaving it at 0 frames rather than "
-                        f"choosing a pace for it",
-                        file=sys.stderr,
-                    )
+            duration_map = {
+                "instant": 0,
+                "quick": int(6 * (frame_rate / 30)),
+                "medium": int(10 * (frame_rate / 30)),
+                "slow": int(15 * (frame_rate / 30)),
+            }
+            feel = trans.get("duration_feel")
+            declared_ms = selected_trans.get("duration_ms")
+            if feel in duration_map:
+                dur_frames = duration_map[feel]
+                # A brand's {min, max} is a permission, so it BOUNDS the
+                # plan's choice rather than replacing it.
+                lo, hi = selected_trans.get("duration_bounds_ms", (None, None))
+                # `instant` is zero frames: the plan asking for no hold.
+                # Clamping it up to the brand's minimum would give it one.
+                if lo is not None and dur_frames > 0:
+                    dur_frames = max(dur_frames, int((lo / 1000.0) * frame_rate))
+                if hi is not None and dur_frames > 0:
+                    dur_frames = min(dur_frames, int((hi / 1000.0) * frame_rate))
+            elif declared_ms:
+                # The plan declared no pace and the brand declared ONE
+                # length (a scalar, not a range). That is a chosen value.
+                dur_frames = int((declared_ms / 1000.0) * frame_rate)
+            else:
+                # DROPPED, with the reason.  A drawn transition needs a
+                # length, and neither the plan nor a selected brand
+                # template gave one - so there is nothing to hold it for
+                # that anybody chose.  Emitting it at zero frames leaves a
+                # `defocus` in the spec that draws nothing and says
+                # nothing, which is the unread-parameter failure of
+                # AGENTS.md 10.2; completing it from a constant is the
+                # invented-taste failure of 10.5.  This is the third
+                # option that rule names: drop it and say so.
+                print(
+                    f"  Dropped {ttype!r} at spine boundary "
+                    f"{block.get('position')!r}: the plan declares no "
+                    f"duration_feel ({feel!r}) and no selected brand "
+                    f"template declares a single transition duration, so "
+                    f"nothing has said how long to hold it",
+                    file=sys.stderr,
+                )
+                seen_block_indices.discard(block_idx)
+                continue
 
         # Resolve the precise cut point
         cut_info = resolve_cut_point(

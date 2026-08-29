@@ -31,6 +31,12 @@
         "description": "State input: enhancement_spec (VFX)"
       },
       {
+        "name": "project_config",
+        "type": "object",
+        "required": false,
+        "description": "State input: project_config - the project's own declarations. `get_target_duration_zone` reads target_duration_seconds off it; without one the duration gate says so rather than measuring."
+      },
+      {
         "name": "sfx_spec",
         "type": "object",
         "required": true,

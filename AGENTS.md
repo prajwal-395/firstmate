@@ -558,6 +558,20 @@ The key is spelled three ways and they are not interchangeable:
 Nothing is broadcast. A step gets brand data because its manifest asked.
 `tests/test_brand_template_load.py`.
 
+**A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
+`library/tools/brand_registry.no_brand_template` is what an empty declaration resolves to - every creative slot empty - and `ABSENT_SLOT_READINGS` is the statement, one row per slot, of what each consumer does with it. `describe_brand_absence()` is printed once per run so the absence is stated rather than inferred. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+
+- An empty declaration used to resolve to `library/templates/default_brand.yaml`. **That file is now a template a project must NAME**; naming it is what makes its values a brand decision.
+- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no house look is exposure normalisation only (§12), an empty transition allow-list permits the whole drawable vocabulary, an absent `transition_duration_ms` bounds nothing, an absent `delivery_format` gets the product enumeration's own default. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
+- **`effect.caption_case` is the one creative value that survives absence**, and it is recorded as an exception rather than left implicit. Which case the copy is set in is the captain's open decision.
+- Two slots have NO READER and no template value should state one: `content.music_genre` (step 2.04's handoff names `brand_content.music_genre`, and no manifest routes `brand_content` to step 2.04) and `effect.sfx_density` (`scale_sfx_density` was its only reader and was deleted).
+
+**A project's own declarations reach every step through `state["project_config"]`.**
+`brand_registry.project_declared_config` reads them off project.yaml, `load_pipeline_state` puts them in state and the runner's whitelist broadcasts them. Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
+
+- `target_duration_seconds` is the one with readers. Nothing populated `project_config` before, so the captain's declared length governed nothing and four duration gates ran against a constant. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+- `library/tools/duration_targets.get_target_duration_zone` returns **None** when neither the project nor a selected template declares a target, and each caller says it did not check. There is no fallback zone.
+
 **A brand's CONSTRAINTS reach three planning steps, and a step has two names.**
 `TemplateLoader.get_brand_constraints` gives `creative_direction` a palette and typography, `plan_transitions` the permitted transition vocabulary and `plan_vfx` a VFX intensity - as prompt text, not as an input key.
 `library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, named in the DAG's vocabulary and checked against the step table at import.
@@ -824,6 +838,8 @@ The creative direction decides how many cutaways and how many sounds a piece get
 - **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output. Reading only prompts is how the VFX pair survived (#192); listing only the steps the ruling named is how step 4.02's `min_trans` floor and its `defocus` injection survived longer still.
 - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
+- **A floor in a REVIEW step is still a floor.** `creative_cohesion` (5.03) demanded at least 10 SFX per minute of a "high" energy edit and at most 15 of a "calm" one, and required every drawn transition under 500 ms - proposing `duration_frames: 10`, the one field `compile_manifest` rewrites. All four are removed. The step reports the counts under `cohesion_review.measurements` and judges none of them; a pace check there needs a pace the creative direction DECLARED, which no step emits. **The step is therefore a pure OBSERVER**: every proposal it can still make routes to `OWNED_UPSTREAM`, so `adjustments` is empty for every input at every energy - not just at the `moderate` 001 declares (#272). `ACTIONABLE_AT_COHESION` has an applier and no producer, which `library/tools/cohesion_scope.py` states and `tests/test_cohesion_scope.py::test_the_step_is_a_pure_observer` pins off the step's own source. **Do not read an empty `adjustments` as a clean bill of health.**
+- **How long a drawn transition holds comes from the PLAN.** The handoff asks for a `duration_feel` on every one; step 4.02's post-bridge renders that word into frames. A brand template's `transition_duration_ms` `{min, max}` is a RANGE, so it BOUNDS that choice and never replaces it; a scalar is a declared length. A drawn transition that neither declares is DROPPED with the reason, not held for a constant.
 
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
 `load_sfx_catalog` merges the library's three index files - `sfx_index.json` (path, category, measured duration, envelope, transient offset), `library_semantic.json` (`description`, `source_object`, `evokes`, `emotional_temperature`, `works_when`, `avoid_when`) and `profiles/*.json` - into one row per playable sound, and step 4.04's bridge puts the WHOLE catalogue in the prompt as `sfx_catalog_toon`.
