@@ -814,7 +814,21 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                         f"Step '{node_id}' declares creative_brief and the "
                         f"project points at {brief_path!r}, which is empty."
                     )
-                inputs["creative_brief"] = content
+                # The brief travels as a REFERENCE the model can follow,
+                # not as 47,903 bytes of copy in seven prompts.  See
+                # library/tools/brief_reference.py for the rule and for
+                # what the copy cost: 46.9% of every byte the pipeline's
+                # replayable steps sent, 41.9% of it in sections no LLM
+                # planning step can act on.
+                #
+                # The path recorded is ABSOLUTE, because it is the path
+                # the model will have to use and it runs from wherever
+                # the harness put it, not from the project folder.
+                from library.tools.brief_reference import (
+                    build_reference, project_pinned_sections)
+                inputs["creative_brief"] = build_reference(
+                    os.path.abspath(brief_path), content,
+                    pinned=project_pinned_sections(project_folder))
 
     if step_type == "llm_only" and manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
@@ -1067,6 +1081,28 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     In automated mode, this calls the LLM and returns the parsed output.
     """
     raw_input_tokens = len(str(inputs).split()) * 1.3
+
+    # Clause 5 of the brief rule: a harness that cannot follow a path
+    # gets the document whole.  `gather_step_inputs` reads the brief and
+    # has no idea which backend will answer; this is the one place that
+    # does, so the restore happens here rather than the reference being
+    # built conditionally somewhere that would have to guess.
+    #
+    # The path comes back out of the reference by reading the SAME line
+    # the model reads, so a harness that cannot follow it and a test that
+    # can are following exactly the same string.
+    if isinstance(inputs.get("creative_brief"), str) and full_auto:
+        from library.tools.brief_reference import (
+            harness_reads_files, reference_path)
+        if not harness_reads_files(full_auto):
+            _brief_path = reference_path(inputs["creative_brief"])
+            if _brief_path:
+                inputs = dict(inputs)
+                with open(_brief_path, "r", encoding="utf-8") as _bf:
+                    inputs["creative_brief"] = _bf.read()
+                print(f"  [llm] {node_id}: harness {full_auto!r} cannot read "
+                      f"a file - carrying the creative brief inline",
+                      file=sys.stderr)
 
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     inputs = project_step_context(inputs, manifest, bridge_supplied)

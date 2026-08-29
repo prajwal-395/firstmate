@@ -686,6 +686,98 @@ Worth the captain knowing: the with-brief rationale cites *Through the 4th Wall*
 The channel document names all eight series - the model reached for the nearest one, which is the series #214 established 001 is NOT.
 A brief specific to 001 is what closes that, and it is the captain's writing.
 
+### the-brief-was-copied-seven-times
+
+The entry above measured what a copied brief costs. This is what replacing the copy with a reference did, measured the same way, on the same project.
+
+**The captain's ruling, 2026-08-28:** *"why are we giving it the brief several times? i feel like we should just have the brief for the LLM to be able to reference if it needs it or something no? ... we can just tell it if you need to reference something again you can look at this file and it can grep and search or whatever right?"*
+
+**They can.** The degradation investigation's run of record has the answering agent reading repository source, running the aligner and measuring audio files with ffmpeg. A model that can run ffmpeg can run `sed`.
+
+#### What the seven contexts cost, before and after
+
+`library/tools/replay_bench compare 001-withbrief-20260828 <step> --rev-a origin/main --rev-b WORKTREE`, snapshot `001-withbrief-20260828`, `origin/main` at `b10833d`:
+
+| step | A: brief copied | B: brief referenced | delta | brief share A | brief share B |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `music_selection` | 57,539 | 14,260 | -43,279 (-75.2%) | 84.4% | 36.9% |
+| `creative_direction` | 78,846 | 35,567 | -43,279 (-54.9%) | 61.6% | 14.8% |
+| `plan_sfx` | 88,717 | 45,438 | -43,279 (-48.8%) | 54.7% | 11.6% |
+| `plan_vfx` | 92,723 | 49,444 | -43,279 (-46.7%) | 52.4% | 10.7% |
+| `plan_transitions` | 98,737 | 55,458 | -43,279 (-43.8%) | 49.2% | 9.5% |
+| `speech_sequence` | 110,815 | 67,536 | -43,279 (-39.1%) | 43.8% | 7.8% |
+| `select_broll` | 130,692 | 87,413 | -43,279 (-33.1%) | 37.1% | 6.0% |
+| **total** | **658,069** | **355,116** | **-302,953 (-46.0%)** | 51.6% | 10.4% |
+
+The brief itself goes from 48,547 B in the context to 5,268 B - 47,903 bytes of document becoming a 5,086-byte map, plus the TOON key and block indent. `prompt identical: True` on all seven: no handoff was touched.
+
+**The bench's visibility was established before any of this was trusted**, because it was blind to briefs once and returned a false null (#214). `verify 001-withbrief-20260828 --rev origin/main` reports `0 exact, 0 exact after a named cause, 10 unaccounted, of 10` and names each difference BY SECTION - `creative_brief +48,547 B` on seven steps, `music_analysis -8,615 B`, `transcript -10,062 B`, `picture +10,508 B`. A tool that cannot see the brief cannot itemise it. It also asserts `project untouched by this run: True`.
+
+#### The path is followable, and it is followed
+
+Parsing the `FILE:` line and a heading's line range out of the reconstructed `music_selection` context and running exactly what it says:
+
+```
+PATH FROM CONTEXT : .../overall_branding_creative_direction.md
+HEADING FROM MAP  : Music & Sound Philosophy  [3,140 B, lines 331-356]
+COMMAND           : sed -n 331,356p "..."
+BYTES READ BACK   : 3141
+lines of substance in the section : 10
+of those, ABSENT from the context : 10
+```
+
+That is reachability. **Whether a model bothers** is the separate question, and it was answered by asking six sessions to answer the real `music_selection` prompt - three on each arm, identical answering envelope:
+
+- Every arm-B session read the file. Each returned a verbatim sentence that occurs **once in the document and zero times in the prompt it was given**, and cited line ranges off the map (`331-356`, `62-87`, `88-107`, `448-460`) rather than headings alone.
+- The map did not stop them looking. The worry that a summary too good stops the model ever following the path did not materialise here; what the map buys is the model choosing WHICH sections, which is the thing 47,903 bytes of copy takes away from it.
+
+#### It moved the answer, in the direction #258 is about
+
+All three arm-A sessions - the brief copied whole - chose Sickick's *Infected* and justified it as the series' **locked** track. That lock is line 472, and it belongs to **Through the 4th Wall**, which #214 established 001 is not. `Through the 4th Wall` appears **20 times** in the copied prompt and **0 times** in the referenced one.
+
+None of the arm-B sessions adopted it. Two went outside the library for a warm, unhurried, CC-licensed instrumental and named the direction's forbidden registers as the reason; the third did the same.
+
+**The reference does not hide that line** - `Open Creative Decisions [2,590 B, lines 461-480]` is in the map and one `sed` away. It stops it being unavoidable. That is a bearing on #258 and not a fix for it.
+
+#### The 41.9% that is unactionable is still unactionable
+
+Moving it behind a path makes it cheap, not usable. Classifying every leaf section by whether a step in this pipeline makes a decision it constrains:
+
+| section | bytes | why no step can act on it |
+| --- | ---: | --- |
+| Open Creative Decisions | 2,590 | undecided by the document's own heading |
+| Naming Philosophy | 2,286 | no step names anything |
+| Cross-Series Narrative Weaving | 1,824 | links between episodes; the pipeline makes one video |
+| Part 2: Intro Card / Animation | 1,760 | bookends come from `content.bookends` plus a project asset (§13), never from brief prose |
+| Platform-Specific Considerations | 1,737 | aspect and length are `delivery_format` (§10.1); the rest is upload behaviour |
+| Growth Philosophy | 1,677 | channel growth |
+| Posting Strategy & Feed Cadence | 1,655 | when to post |
+| The Netflix Model | 1,571 | channel architecture |
+| Per-Series Typography Direction (to be finalized) | 1,089 | unsettled by its own heading |
+| Guiding Principles (typography, all series) | 1,062 | typography is `render_fonts` plus the brand template (§11); `plan_subtitles` receives no brief at all |
+| Part 1: Thumbnails | 1,005 | the pipeline renders no thumbnail |
+| Production Pipeline | 970 | how the human works |
+| Part 3: In-Video Text Overlays | 961 | timed text is declared project-side (§14); no brief-receiving step writes one |
+| Portfolio at a Glance | 821 | the eight-series table - and the #258 hazard |
+| What needs to be selected per series | 743 | a to-do list for a human |
+| Three Content Lanes | 494 | a taxonomy of series; nothing reads it |
+| Per-Series Sonic Identity (to be finalized) | 379 | unsettled; 001 has no series spec |
+| Typography Philosophy (intro) | 376 | as above |
+| Series Identifier System (intro) | 322 | identity marks, not the edit |
+| Volume Targets | 280 | videos per month |
+| Per-Series Color Identity (to be finalized) | 275 | unsettled; the grade is `house_look` (§12) |
+| **total** | **23,877** | **49.8% of 47,903 B** |
+
+That is stricter than the degradation report's 41.9% by 7.9 points, and the difference is entirely the four sections above that a reader could call channel-level rather than out-of-scope (The Netflix Model, Three Content Lanes, Cross-Series Narrative Weaving, Part 3). Either number says the same thing.
+
+**What would make them usable.** Three different answers, and none of them is "rewrite the captain's brief":
+
+- **Six are unsettled by the document's own headings** - `(to be finalized)`, `Open Creative Decisions`. They become usable when the captain settles them, and not before; a model asked to act on a `⚠️ Partial` row is being asked to decide it.
+- **Six name things the engine already takes from somewhere else** - typography from `render_fonts` and the brand template, colour from `house_look`, format from `delivery_format`, intro cards from `content.bookends`, timed text from the project's own declaration. They become usable when a brand template for this series carries the parameters, which is where §14 says a per-series value belongs. Prose in a channel document is not a route to any of them.
+- **Nine are about the channel rather than about a video** - posting, growth, volume, naming, thumbnails, the portfolio. Nothing in this pipeline makes those decisions and nothing should; they are usable to the captain and to nobody in the DAG. Behind a path they cost 5 bytes of map line each, which is the right price.
+
+The one thing that would help every step at once is the thing the entry above already says: **a brief specific to 001**, which is the captain's writing and not the engine's.
+
 ### compile-manifest-read-an-empty-catalog
 
 The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export.

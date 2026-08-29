@@ -566,14 +566,23 @@ Nothing is broadcast. A step gets brand data because its manifest asked.
 - The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
 - `tests/test_brand_constraints_reach_the_prompt.py`.
 
-**The captain's creative brief is one per-project declaration that reaches SEVEN steps, whole.**
+**The captain's creative brief is one per-project declaration that reaches SEVEN steps, BY REFERENCE.**
 `project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file.
-`load_pipeline_state` reads the PATH into state; `gather_step_inputs` reads the FILE, so a step receives the document's CONTENT and only if its own manifest declares the input.
+`load_pipeline_state` reads the PATH into state; `gather_step_inputs` reads the FILE and hands the step a REFERENCE to it, and only if the step's own manifest declares the input.
 A relative path resolves against the project, an absolute one is taken as given so the captain's read-only planning tree is cited in place and never copied, and a path that cannot be read or is empty RAISES rather than leaving a filename in the prompt.
 
 - The seven are `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - exactly the seven whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
 - It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
 - **The cost is per step, not per run**, and a channel-level document is large. Measure before assuming a brief is free. [why - 001's measured before and after](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+
+**A reference is an ABSOLUTE PATH plus a MAP, and the rule for what still travels inline is in `library/tools/brief_reference.py`.**
+Copying the document put it at 37.0%-84.3% of those seven prompts - 46.9% of every byte the pipeline's replayable steps send. The map is 5,086 bytes against 47,903, and the same seven contexts fall from 57,539-130,692 B to 14,260-87,413 B. [why - the per-step table, and what three answers did with the copy](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
+
+- **The map carries a LINE RANGE per heading**, so following it is one `sed -n 'a,bp'` and not a search. A path a model can reach and a path a model does reach are different properties, and the range is what buys the second.
+- **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
+- **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
+- **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agy` and `mock` reach a file; `api` does not - `LLMClient.generate` posts one string and has no tool loop - so under `api` the document is carried whole. A route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore, because `gather_step_inputs` does not know which backend will answer.
+- `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 
 **Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
 Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `deterministic_with_llm` step's `step.py` keep receiving the unprojected inputs - only the prompt narrows. A step declaring none is handed every byte it was routed. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)

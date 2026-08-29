@@ -15,6 +15,15 @@ carried, would have passed throughout the entire period the feature did
 not work: the old code left the *path string* in `inputs["creative_brief"]`
 whenever the file could not be read, so a step could "have a brief" that
 was a filename.
+
+Since the brief travels as a REFERENCE rather than a copy
+(`library/tools/brief_reference.py`), "the content lands" is asserted by
+FOLLOWING the reference the way the model does - `reference_path` reads
+the same `FILE:` line the model reads - and requiring that what it opens
+is the declared brief. That is strictly stronger than the old equality:
+a filename left in the key does not name a readable file, and a
+reference that names the wrong file now fails where an equality on a
+copied string could not see the difference at all.
 """
 
 import json
@@ -107,6 +116,24 @@ def _gather(node_id, state, manifest):
     return gather_step_inputs(node_id, EDGELESS_DAG, state, manifest=manifest)
 
 
+def _brief_the_model_can_reach(inputs) -> str:
+    """Everything the model can get to, following what it was handed.
+
+    The reference itself plus, when it names one, the file at the end of
+    the path - opened here exactly as a shell-capable harness would open
+    it. A reference naming an unreachable or relative path fails here.
+    """
+    from library.tools.brief_reference import reference_path
+    text = inputs["creative_brief"]
+    path = reference_path(text)
+    if not path:
+        return text
+    assert Path(path).is_absolute(), (
+        f"the reference hands the model {path!r}, which is relative: it "
+        f"runs from wherever the harness put it, not from the project")
+    return text + Path(path).read_text(encoding="utf-8")
+
+
 DECLARING_MANIFEST = {
     "interface": {"inputs": [{"name": "creative_brief", "required": False}]}
 }
@@ -120,8 +147,7 @@ def test_declared_brief_arrives_as_content_not_as_a_path(tmp_path):
 
     inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
 
-    assert inputs["creative_brief"] == BRIEF_TEXT
-    assert str(brief) not in inputs["creative_brief"]
+    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
 
 def test_a_relative_brief_resolves_against_the_project(tmp_path):
@@ -130,7 +156,7 @@ def test_a_relative_brief_resolves_against_the_project(tmp_path):
 
     inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
 
-    assert inputs["creative_brief"] == BRIEF_TEXT
+    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
 
 def test_an_absolute_brief_is_taken_as_given(tmp_path):
@@ -145,7 +171,7 @@ def test_an_absolute_brief_is_taken_as_given(tmp_path):
 
     inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
 
-    assert inputs["creative_brief"] == BRIEF_TEXT
+    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
 
 def test_a_step_that_does_not_declare_it_is_not_given_one(tmp_path):
@@ -353,7 +379,7 @@ def test_a_brief_in_a_read_only_planning_tree_reaches_the_request(tmp_path, requ
     state = load_pipeline_state(str(project))
     inputs = gather_step_inputs(
         "plan_vfx", EDGELESS_DAG, state, manifest=DECLARING_MANIFEST)
-    assert inputs["creative_brief"] == BRIEF_TEXT
+    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
     prompt_path = tmp_path / "handoff.md"
     prompt_path.write_text("Do the creative work.\n", encoding="utf-8")

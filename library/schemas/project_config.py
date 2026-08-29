@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 
 class ProjectStatus(str, Enum):
@@ -62,6 +62,12 @@ class PipelineConfig:
     # which in turn defaults to fill. See library/tools/framing_intent.py.
     framing_intent: Optional[float] = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
+    # Headings of the brief this project wants carried INLINE rather than
+    # reached by path.  Clause 3 of the rule in
+    # library/tools/brief_reference.py: which sections are about THIS
+    # video is a judgement belonging to whoever owns the video, so the
+    # engine keeps no default list.  Empty means "the map is enough".
+    creative_brief_inline: List[str] = field(default_factory=list)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
 
@@ -206,6 +212,8 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         delivery_format=pipeline_data.get("delivery_format", "") or "",
         framing_intent=pipeline_data.get("framing_intent"),
         creative_brief=pipeline_data.get("creative_brief", ""),
+        creative_brief_inline=list(
+            pipeline_data.get("creative_brief_inline", []) or []),
         sfx_library=pipeline_data.get("sfx_library", ""),
         music_library=pipeline_data.get("music_library", ""),
     )
@@ -261,6 +269,12 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if config.pipeline.framing_intent is None
                else {"framing_intent": config.pipeline.framing_intent}),
             "creative_brief": config.pipeline.creative_brief,
+            # Only when declared, for the same reason framing_intent is:
+            # an empty list in every project.yaml reads as a decision
+            # nobody made.
+            **({} if not config.pipeline.creative_brief_inline
+               else {"creative_brief_inline":
+                     list(config.pipeline.creative_brief_inline)}),
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,
         },
