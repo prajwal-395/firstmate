@@ -17,6 +17,21 @@
 FM_TRACKER_TYPES='destination decision unknown task'
 FM_TRACKER_LABEL_PREFIX='fm:'
 
+# The frontier had three discriminators - the type label, the assignee, and the
+# tracked-issue edge - and "nobody may pick this up yet" is none of them, so a
+# held ticket fell through to READY and contradicted what its own body said.
+#
+# The fourth discriminator is a LABEL, for the one reason that decides the whole
+# design: bin/fm-spawn.sh runs `sync` on every dispatch, so a state written only
+# into a body or a comment is overwritten by the next dispatch. A label is the
+# tracker's own vocabulary, is not part of the body sync converges, and survives.
+#
+# It lives in its own namespace so it can never be read as a second TYPE label:
+# a state and a type are different questions, and counting the hold as a type
+# would report every held ticket as ambiguous.
+FM_TRACKER_STATE_PREFIX='fm:state:'
+FM_TRACKER_HELD_LABEL='fm:state:held'
+
 # The one heading blocking edges live under, and the one line shape allowed
 # beneath it. GitHub builds a queryable trackedIssues edge only from a markdown
 # task-list reference, so this shape is what makes a blocker visible to the
@@ -28,7 +43,18 @@ FM_TRACKER_EDGE_RE='^- \[[ xX]\] #[1-9][0-9]*$'
 # outside the canonical section is refused: prose blockers read as authoritative
 # to a human and are invisible to the query, which is how a genuinely blocked
 # ticket came back READY.
-FM_TRACKER_PROSE_RE='blocked[ -]?by|blocked on|blocks |depends on|dependent on|waiting on|waits on|blocker'
+#
+# FM_TRACKER_PROSE_WORDS is the vocabulary; FM_TRACKER_PROSE_RE is that
+# vocabulary bounded to whole words. The boundary is written as an explicit
+# non-word character rather than \b or [[:<:]], because neither of those is
+# understood by both GNU and BSD grep and this runs on both.
+#
+# Without the boundary the guard matched inside unrelated words: "the
+# font-independent one" contains the letters of "dependent on" and refused a
+# heading about typography. A guard that refuses correct bodies gets worked
+# around, which costs the real defect it was built to stop.
+FM_TRACKER_PROSE_WORDS='blocked[ -]?by|blocked on|blocks|depends on|dependent on|waiting on|waits on|blocker'
+FM_TRACKER_PROSE_RE='(^|[^[:alnum:]_])('"$FM_TRACKER_PROSE_WORDS"')([^[:alnum:]_]|$)'
 
 FM_TRACKER_WATCH_MAGIC='fm-tracker-watch-v1'
 FM_TRACKER_CURSOR_MAGIC='fm-tracker-cursor-v1'
@@ -264,7 +290,16 @@ fm_tracker_all_labels() {
   for t in $FM_TRACKER_TYPES; do
     out="$out $(fm_tracker_type_label "$t")"
   done
-  printf '%s\n' "${out# }"
+  printf '%s\n' "${out# } $FM_TRACKER_HELD_LABEL"
+}
+
+# True when a label list marks the ticket as not available to pick up.
+fm_tracker_labels_held() {  # <labels>
+  local l
+  for l in ${1-}; do
+    [ "$l" = "$FM_TRACKER_HELD_LABEL" ] && return 0
+  done
+  return 1
 }
 
 # Read the type off a space-separated label list into FM_TRACKER_TYPE and
@@ -282,6 +317,7 @@ fm_tracker_type_of_labels() {  # <labels>
   FM_TRACKER_TYPE_COUNT=0
   for l in $labels; do
     case "$l" in
+      "$FM_TRACKER_STATE_PREFIX"*) ;;
       "$FM_TRACKER_LABEL_PREFIX"*)
         FM_TRACKER_TYPE=${l#"$FM_TRACKER_LABEL_PREFIX"}
         FM_TRACKER_TYPE_COUNT=$((FM_TRACKER_TYPE_COUNT + 1))
@@ -302,7 +338,13 @@ fm_tracker_labels_answerable() {  # <labels>
 
 # Report every prose blocking declaration in a body, one record per finding:
 #
-#     <lineno>\x1f<the offending line>\x1f<space-separated issue numbers it names>
+#     <lineno>\x1f<the offending line>\x1f<issue numbers it names>\x1f<matched text>
+#
+# The matched text is the fourth field because naming the RULE and quoting the
+# whole line leaves the author to re-derive which words tripped it, and on a long
+# line that is several attempts of guessing. A finding raised by the SHAPE of a
+# line inside the canonical section matched no wording, and its fourth field is
+# empty.
 #
 # A blocking declaration is a BLOCK, not a line: a heading such as
 # "**Blocked by:**" followed by task-list references is one declaration, and its
@@ -314,7 +356,7 @@ fm_tracker_labels_answerable() {  # <labels>
 # canonical section, or when a line inside the canonical section is neither
 # blank nor the exact edge shape. Silent when the body is clean.
 fm_tracker_body_prose_blockers() {  # <body>
-  local body=${1-} lines=() line i n refs in_section=0 sep=$'\037'
+  local body=${1-} lines=() line i n refs matched in_section=0 sep=$'\037'
   while IFS= read -r line; do
     lines+=("$line")
   done <<EOF
@@ -339,12 +381,13 @@ EOF
         i=$((i + 1))
         continue
       fi
-      printf '%s%s%s%s%s\n' "$((i + 1))" "$sep" "$line" "$sep" \
-        "$(printf '%s' "$line" | grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ' ')"
+      printf '%s%s%s%s%s%s%s\n' "$((i + 1))" "$sep" "$line" "$sep" \
+        "$(printf '%s' "$line" | grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ' ')" "$sep" ''
       i=$((i + 1))
       continue
     fi
-    if printf '%s' "$line" | grep -Eiq "$FM_TRACKER_PROSE_RE"; then
+    matched=$(fm_tracker_prose_match "$line")
+    if [ -n "$matched" ]; then
       # Absorb the contiguous run of task-list references this declaration owns.
       refs=$(printf '%s' "$line" | grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ' ')
       i=$((i + 1))
@@ -352,22 +395,40 @@ EOF
         refs="$refs$(printf '%s' "${lines[$i]}" | grep -oE '#[0-9]+' | tr -d '#') "
         i=$((i + 1))
       done
-      printf '%s%s%s%s%s\n' "$((i))" "$sep" "$line" "$sep" "$refs"
+      printf '%s%s%s%s%s%s%s\n' "$((i))" "$sep" "$line" "$sep" "$refs" "$sep" "$matched"
       continue
     fi
     i=$((i + 1))
   done
 }
 
-# Refuse a body carrying a prose blocker, naming every offending line and the
-# supported alternative. Returns 1 so no caller can proceed to a write.
+# The blocking wording one line states, or nothing. The surrounding boundary
+# characters the match consumed are trimmed back off, so what is printed is the
+# vocabulary the guard actually objects to and not the neighbouring punctuation.
+fm_tracker_prose_match() {  # <line>
+  local hit
+  hit=$(printf '%s' "${1-}" | grep -oiE "$FM_TRACKER_PROSE_RE" | head -1) || return 0
+  [ -n "$hit" ] || return 0
+  hit=${hit#"${hit%%[[:alnum:]_]*}"}
+  hit=${hit%"${hit##*[[:alnum:]_]}"}
+  printf '%s' "$hit"
+}
+
+# Refuse a body carrying a prose blocker, naming the text it matched on every
+# offending line and the supported alternative. Returns 1 so no caller can
+# proceed to a write.
 fm_tracker_body_prose_blocker_refuse() {  # <body>
   local found
   found=$(fm_tracker_body_prose_blockers "${1-}")
   [ -n "$found" ] || return 0
   printf 'error: refusing a prose blocking edge\n' >&2
-  printf '%s\n' "$found" | while IFS=$'\037' read -r lineno text _refs; do
-    printf '  line %s: %s\n' "$lineno" "$text" >&2
+  printf '%s\n' "$found" | while IFS=$'\037' read -r lineno text _refs matched; do
+    if [ -n "$matched" ]; then
+      printf '  line %s matched "%s": %s\n' "$lineno" "$matched" "$text" >&2
+    else
+      printf '  line %s under "%s" is not a task-list reference: %s\n' \
+        "$lineno" "$FM_TRACKER_BLOCKED_HEADING" "$text" >&2
+    fi
   done
   printf 'GitHub builds a queryable blocking edge only from a task-list reference,\n' >&2
   printf 'so a prose blocker is invisible to the frontier query and the ticket\n' >&2
@@ -698,8 +759,9 @@ FM_TRACKER_GRAPH_QUERY='query($owner:String!,$repo:String!,$endCursor:String){
 #
 # Title and body are base64 so a multi-line body cannot break a record.
 #   number  state  labels  assignees  parent  blockers  title_b64  body_b64
-# where each blocker is "number|state|type|assignee" and blockers are comma
-# separated.
+# where each blocker is "number|state|type|assignee|held" and blockers are comma
+# separated. A blocker's own hold travels with it so a ticket waiting on held
+# work says so, instead of describing it as available.
 FM_TRACKER_GRAPH_JQ='.data.repository.issues.nodes[]
 | [ (.number|tostring),
     .state,
@@ -709,8 +771,11 @@ FM_TRACKER_GRAPH_JQ='.data.repository.issues.nodes[]
     ([.trackedIssues.nodes[]
       | [ (.number|tostring),
           .state,
-          (([.labels.nodes[].name]|map(select(startswith("fm:")))|.[0]) // "fm:-" | ltrimstr("fm:")),
-          ([.assignees.nodes[].login]|join(";"))
+          (([.labels.nodes[].name]
+            |map(select(startswith("fm:") and (startswith("fm:state:")|not)))|.[0])
+           // "fm:-" | ltrimstr("fm:")),
+          ([.assignees.nodes[].login]|join(";")),
+          (if ([.labels.nodes[].name]|index("fm:state:held")) then "held" else "" end)
         ]|join("|")
      ]|join(",")),
     (.title|@base64),
@@ -725,8 +790,8 @@ fm_tracker_b64_decode() {  # <b64>
 # the graph's. A blocker the captain holds is not claimed work either: saying
 # "claimed by" there would hide the wait one level down from the ticket that
 # reports it.
-fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee> [captain-login]
-  local n=$1 state=$2 type=$3 who=$4 captain=${5-} what
+fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee> [captain-login] [held]
+  local n=$1 state=$2 type=$3 who=$4 captain=${5-} held=${6-} what
   case "$type" in
     decision) what='a decision the captain owns' ;;
     unknown) what='an unresolved unknown' ;;
@@ -734,6 +799,11 @@ fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee> [captain-log
     destination) what='the destination itself' ;;
     *) what='an untyped ticket' ;;
   esac
+  if [ -n "$held" ]; then
+    printf '#%s - %s, on hold\n' "$n" "$what"
+    : "$state"
+    return 0
+  fi
   if fm_tracker_assignees_include_captain "$who" "$captain"; then
     printf '#%s - %s, with the captain (%s)\n' "$n" "$what" "${who//;/, }"
   elif [ -n "$who" ]; then
@@ -748,10 +818,16 @@ fm_tracker_blocker_phrase() {  # <number> <state> <type> <assignee> [captain-log
 # claim and leaves both sets, because a claimed ticket is not available work. The
 # captain's assignment is the opposite and stays in BLOCKED naming them. An empty
 # <captain-login> means no login is the captain's, so every assignment is a claim.
+#
+# A hold is the fourth answer and gets its own section. It ranks above BLOCKED
+# because a hold does not clear when a blocker closes - reporting a held ticket
+# as merely blocked would promise it becomes available the moment its edges do -
+# and below CLAIMED, because someone already working it settles the question.
+# Whatever it also waits on is still printed under it.
 fm_tracker_render_frontier() {  # <owner/repo> [captain-login]
   local slug=$1 captain=${2-}
   local number state labels assignees parent blockers title_b64 body_b64
-  local title type ready='' blocked='' claimed='' b bn bstate btype bwho waits
+  local title type ready='' blocked='' claimed='' held='' b bn bstate btype bwho bheld waits
   while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
     [ -n "$number" ] || continue
     [ "$state" = OPEN ] || continue
@@ -777,17 +853,20 @@ fm_tracker_render_frontier() {  # <owner/repo> [captain-login]
     if [ -n "$blockers" ]; then
       while IFS= read -r b; do
         [ -n "$b" ] || continue
-        IFS='|' read -r bn bstate btype bwho <<EOF
+        IFS='|' read -r bn bstate btype bwho bheld <<EOF
 $b
 EOF
         [ "$bstate" = OPEN ] || continue
-        waits="$waits$(printf '            waits on %s' "$(fm_tracker_blocker_phrase "$bn" "$bstate" "$btype" "$bwho" "$captain")")
+        waits="$waits$(printf '            waits on %s' "$(fm_tracker_blocker_phrase "$bn" "$bstate" "$btype" "$bwho" "$captain" "$bheld")")
 "
       done <<EOF
 $(printf '%s' "$blockers" | tr ',' '\n')
 EOF
     fi
-    if [ -n "$waits" ]; then
+    if fm_tracker_labels_held "$labels"; then
+      held="$held$(printf '  #%-5s [%-11s] %s\n' "$number" "$type" "$title")
+$waits"
+    elif [ -n "$waits" ]; then
       blocked="$blocked$(printf '  #%-5s [%-11s] %s\n' "$number" "$type" "$title")
 $waits"
     else
@@ -801,6 +880,8 @@ $waits"
   if [ -n "$ready" ]; then printf '%s' "$ready"; else printf '  (none)\n'; fi
   printf '\nBLOCKED (open, waiting on something - a blocker, or the captain):\n'
   if [ -n "$blocked" ]; then printf '%s' "$blocked"; else printf '  (none)\n'; fi
+  printf '\nHELD (open, deliberately not available to pick up):\n'
+  if [ -n "$held" ]; then printf '%s' "$held"; else printf '  (none)\n'; fi
   printf '\nCLAIMED (excluded from the frontier - an agent assignment is the claim):\n'
   if [ -n "$claimed" ]; then printf '%s' "$claimed"; else printf '  (none)\n'; fi
   if [ -z "$captain" ]; then
@@ -838,7 +919,7 @@ fm_tracker_render_validate() {  # <owner/repo>
     edges=" $(printf '%s' "$blockers" | tr ',' '\n' | cut -d'|' -f1 | tr '\n' ' ') "
     prose=$(fm_tracker_body_prose_blockers "$body")
     if [ -n "$prose" ]; then
-      while IFS=$'\037' read -r lineno text refs; do
+      while IFS=$'\037' read -r lineno text refs _matched; do
         if [ -z "${refs// /}" ]; then
           printf '  #%s line %s states a blocker in prose but names no issue - a human reads it\n' \
             "$number" "$lineno"
@@ -1009,6 +1090,142 @@ fm_tracker_repo_for_project() {  # <config-dir> <project-name>
 }
 
 # ---------------------------------------------------------------------------
+# Withholding a row from a board
+# ---------------------------------------------------------------------------
+#
+# bin/fm-spawn.sh runs `sync` on EVERY dispatch. That is the property that makes
+# the task half a mechanism rather than a convention, and it is also why a row
+# kept off a board by hand does not stay off it: the next dispatch files it. A
+# review that decides a row must not be published therefore has nowhere to put
+# that decision, and it survives only as prose in whatever report noticed it.
+#
+# So the decision is recorded where sync reads it, once, with the reason it was
+# taken. Reading the record is unconditional: sync consults it before it composes
+# a title, so a withheld row's summary never reaches GitHub at all - which is the
+# case that matters, because the summary IS the title and a title is the part a
+# withhold is usually protecting.
+#
+# One record per line, "<project> <task-id> <reason>". Project and task id never
+# contain a space, so the reason is simply the rest of the line and the file
+# stays hand-editable. A "#" comment and a blank line are ignored.
+FM_TRACKER_WITHHOLD_CONFIG='tracker-withhold'
+
+# Resolve the record file, or refuse. Returns non-zero only on an unusable
+# config directory; an absent file is the ordinary state and resolves fine.
+fm_tracker_withhold_path() {  # <config-dir>
+  local dir=${1-}
+  FM_TRACKER_WITHHOLD_FILE=
+  [ -n "$dir" ] || return 1
+  FM_TRACKER_WITHHOLD_FILE="$dir/$FM_TRACKER_WITHHOLD_CONFIG"
+}
+
+# Print every record, one "<project> <task-id> <reason>" per line, filtered to
+# <project-names> when that alias list is non-empty. Silent when there are none.
+fm_tracker_withhold_lines() {  # <config-dir> [project-names]
+  local dir=${1-} names=${2-} line proj rest
+  fm_tracker_withhold_path "$dir" || return 0
+  [ -f "$FM_TRACKER_WITHHOLD_FILE" ] && [ ! -L "$FM_TRACKER_WITHHOLD_FILE" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [ -n "$line" ] || continue
+    proj=${line%%[[:space:]]*}
+    rest=${line#*[[:space:]]}
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    [ -n "$proj" ] && [ -n "$rest" ] && [ "$proj" != "$rest" ] || continue
+    if [ -n "$names" ]; then
+      fm_tracker_project_matches "$proj" "$names" || continue
+    fi
+    printf '%s %s\n' "$proj" "$rest"
+  done < "$FM_TRACKER_WITHHOLD_FILE"
+}
+
+# True when this project's <task-id> is withheld, with the recorded reason in
+# FM_TRACKER_WITHHOLD_REASON. An unstated reason reads as "no reason recorded"
+# rather than as no record: the decision still stands, it is just undocumented.
+FM_TRACKER_WITHHOLD_REASON=''
+fm_tracker_withheld_reason() {  # <config-dir> <project-names> <task-id>
+  local dir=${1-} names=${2-} want=${3-} line id rest
+  FM_TRACKER_WITHHOLD_REASON=
+  [ -n "$want" ] || return 1
+  while IFS= read -r line; do
+    rest=${line#*[[:space:]]}
+    id=${rest%%[[:space:]]*}
+    [ "$id" = "$want" ] || continue
+    if [ "$rest" = "$id" ]; then
+      FM_TRACKER_WITHHOLD_REASON='no reason recorded'
+    else
+      FM_TRACKER_WITHHOLD_REASON=${rest#*[[:space:]]}
+      FM_TRACKER_WITHHOLD_REASON=${FM_TRACKER_WITHHOLD_REASON#"${FM_TRACKER_WITHHOLD_REASON%%[![:space:]]*}"}
+      [ -n "$FM_TRACKER_WITHHOLD_REASON" ] || FM_TRACKER_WITHHOLD_REASON='no reason recorded'
+    fi
+    return 0
+  done <<EOF
+$(fm_tracker_withhold_lines "$dir" "$names")
+EOF
+  return 1
+}
+
+# Record one withhold, replacing any earlier record for the same project and
+# task. Rewritten through a temporary file so an interrupted write cannot leave
+# a half-line that would then be read as a different decision.
+fm_tracker_withhold_record() {  # <config-dir> <project> <task-id> <reason>
+  local dir=${1-} proj=${2-} task=${3-} reason=${4-} tmp
+  [ -n "$proj" ] && [ -n "$task" ] && [ -n "$reason" ] || return 1
+  case "$proj$task" in
+    *[[:space:]]*) return 1 ;;
+  esac
+  # A newline would split one decision into two records, and a leading "#" would
+  # turn the whole line into a comment the reader then ignores - a withhold that
+  # silently stops applying is worse than one that refuses to be written.
+  case $reason in
+    *'
+'*) return 1 ;;
+    '#'*) return 1 ;;
+  esac
+  fm_tracker_withhold_path "$dir" || return 1
+  [ -d "$dir" ] || return 1
+  tmp=$(mktemp "$dir/.fm-tracker-withhold.XXXXXX") || return 1
+  fm_tracker_withhold_drop_into "$dir" "$proj" "$task" "$tmp" || { rm -f "$tmp"; return 1; }
+  printf '%s %s %s\n' "$proj" "$task" "$reason" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$FM_TRACKER_WITHHOLD_FILE" || { rm -f "$tmp"; return 1; }
+}
+
+# Remove one withhold. Returns non-zero when there was nothing to remove, so a
+# caller can say that rather than reporting a clearance that never happened.
+fm_tracker_withhold_clear() {  # <config-dir> <project> <task-id>
+  local dir=${1-} proj=${2-} task=${3-} tmp before after
+  [ -n "$proj" ] && [ -n "$task" ] || return 1
+  fm_tracker_withhold_path "$dir" || return 1
+  [ -f "$FM_TRACKER_WITHHOLD_FILE" ] && [ ! -L "$FM_TRACKER_WITHHOLD_FILE" ] || return 1
+  before=$(fm_tracker_withhold_lines "$dir" | grep -c . || true)
+  tmp=$(mktemp "$dir/.fm-tracker-withhold.XXXXXX") || return 1
+  fm_tracker_withhold_drop_into "$dir" "$proj" "$task" "$tmp" || { rm -f "$tmp"; return 1; }
+  after=$(grep -c . "$tmp" || true)
+  [ "$after" -lt "$before" ] || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$FM_TRACKER_WITHHOLD_FILE" || { rm -f "$tmp"; return 1; }
+}
+
+# Every record except this project's <task-id>, written to <dest>.
+fm_tracker_withhold_drop_into() {  # <config-dir> <project> <task-id> <dest>
+  local dir=$1 proj=$2 task=$3 dest=$4 line rest id
+  : > "$dest" || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    rest=${line#*[[:space:]]}
+    id=${rest%%[[:space:]]*}
+    [ "${line%%[[:space:]]*}" = "$proj" ] && [ "$id" = "$task" ] && continue
+    printf '%s\n' "$line" >> "$dest" || return 1
+  done <<EOF
+$(fm_tracker_withhold_lines "$dir")
+EOF
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Binding a ticket to a firstmate task
 # ---------------------------------------------------------------------------
 #
@@ -1060,20 +1277,38 @@ fm_tracker_task_marker() {  # <task-id>
 # blocker already present in an author's body is reported by `validate`, which is
 # the standing guard for exactly that, and never blocks the pass that would give
 # the ticket its real edge.
+#
+# THE WORDING IS FOR WHOEVER READS THE BOARD, not for whoever files it. These
+# tickets land in repositories other people work in, and a body that explains
+# itself in this tool's own nouns - the fleet, the frontier, the captain - is
+# noise on their board at best and reads as a leak at worst. Nothing here names
+# an internal role, an internal id, or the tool that wrote it: the task binding
+# is already carried invisibly by the marker line above.
 # shellcheck disable=SC2016 # The backticks are markdown code spans, not shell.
 fm_tracker_task_default_note() {  # <task-id> <kind> <project> [hold-note]
   local task=$1 kind=${2-} project=${3-} hold=${4-}
-  printf 'Firstmate task `%s`' "$task"
-  [ -z "$kind" ] || printf ' (%s)' "$kind"
-  [ -z "$project" ] || printf ' in project `%s`' "$project"
+  : "$task"
+  case "$kind" in
+    scout) printf 'An investigation' ;;
+    ship) printf 'A change' ;;
+    *) printf 'A work item' ;;
+  esac
+  [ -z "$project" ] || printf ' in `%s`' "$project"
   printf '.\n\n'
-  printf 'This ticket mirrors one item of firstmate execution state so the frontier\n'
-  printf 'shows the fleet as well as the horizon. The execution record itself stays in\n'
-  printf "firstmate's own task list, which this does not replace.\n"
+  printf 'This issue mirrors one item of the working queue behind this repository, so\n'
+  printf 'the board shows what is moving as well as where the project is going. The\n'
+  printf 'detailed working record is kept outside this repository and is not replaced\n'
+  printf 'by this issue.\n'
   if [ -n "$hold" ]; then
     printf '\n## On hold\n\n%s\n' "$hold"
   fi
 }
+
+# The one sentence a mechanically held ticket says about its own hold. The
+# REASON deliberately does not travel: a hold reason is written for whoever runs
+# the queue and routinely names private context, and this body is public to
+# everyone who can read the repository.
+FM_TRACKER_HOLD_NOTE='Not available to pick up yet. The reason is recorded in the working queue outside this repository.'
 
 # Everything in a body that this script does not own: the marker line and the
 # canonical blocked-by section removed, surrounding blank lines trimmed. Printing
@@ -1115,8 +1350,8 @@ EOF
 fm_tracker_task_outcome_comment() {  # <outcome> [pr-url] [detail]
   local outcome=$1 pr=${2-} detail=${3-}
   case "$outcome" in
-    shipped) printf '**Shipped.** Firstmate finished this work and cleaned up its copy.\n' ;;
-    *) printf '**Closed without shipping.** Firstmate cleaned this work up before it landed.\n' ;;
+    shipped) printf '**Shipped.** This work is finished.\n' ;;
+    *) printf '**Closed without shipping.** This was closed before it landed.\n' ;;
   esac
   [ -z "$pr" ] || printf '\nPR: %s\n' "$pr"
   [ -z "$detail" ] || printf '\n%s\n' "$detail"
@@ -1210,6 +1445,21 @@ fm_tracker_index_row_for_number() {  # <number>
   return 1
 }
 
+# Print the labels of one issue, from graph records on stdin. Used to decide
+# whether a state label is already present, so a converged ticket is not written
+# to again on every dispatch.
+fm_tracker_labels_of() {  # <number>
+  local want=$1
+  local number state labels assignees parent blockers title_b64 body_b64
+  while IFS=$'\037' read -r number state labels assignees parent blockers title_b64 body_b64; do
+    : "$state" "$assignees" "$parent" "$blockers" "$title_b64" "$body_b64"
+    [ "$number" = "$want" ] || continue
+    printf '%s\n' "$labels"
+    return 0
+  done
+  return 1
+}
+
 # Print the body of one issue, from graph records on stdin. Used to decide
 # whether a convergent rewrite would change anything, so a sync that changes
 # nothing writes nothing.
@@ -1291,9 +1541,15 @@ fm_tracker_backlog_rows() {  # <backlog-file>
       # it out here is what lets the writer turn it into a real queryable edge
       # instead of shipping the words to GitHub, where they would be exactly the
       # prose blocker this layer refuses.
+      #
+      # A row may declare more than one, and each is its own annotation. Lifting
+      # only the first left the second in the summary - and the summary IS the
+      # ticket title - so an internal task id reached a title other people read
+      # and the edge it named was silently lost.
       blocked = ""
-      if (match(rest, / blocked-by: [^ ]+/)) {
-        blocked = substr(rest, RSTART + 13, RLENGTH - 13)
+      while (match(rest, / blocked-by: [^ ]+/)) {
+        one = substr(rest, RSTART + 13, RLENGTH - 13)
+        blocked = blocked (blocked == "" ? "" : ",") one
         rest = substr(rest, 1, RSTART - 1) substr(rest, RSTART + RLENGTH)
       }
       gsub(/^[ \t]+|[ \t]+$/, "", rest)

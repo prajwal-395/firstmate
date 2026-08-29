@@ -717,4 +717,221 @@ expect_code_out 0 "$rc" "$out" "a secondmate spawn must succeed"
 [ -z "$(gh_titles "$SP3_HOME")" ] || fail "a secondmate spawn must file no task ticket"
 pass "a secondmate spawn files no task ticket, because it is not a work item"
 
+# ===========================================================================
+# Every declared dependency becomes an edge, not just the first
+# ===========================================================================
+#
+# A row may declare more than one blocker. Lifting only the first leaves the
+# second in the summary, and the summary becomes the ticket TITLE - so an
+# internal task id reaches a title other people read, and the edge it named is
+# lost, which is defect 1 arriving through the parser.
+
+HOME_G=$(make_home g)
+printf '%s\n' 'proj proj/repo' > "$HOME_G/config/tracker-repos"
+cat > "$HOME_G/data/backlog.md" <<'BACKLOG'
+# Backlog
+
+## Queued
+- [ ] parser-half - Land the parser (repo: proj) (kind: ship) (since 2026-08-26)
+- [ ] renderer-half - Land the renderer (repo: proj) (kind: ship) (since 2026-08-26)
+- [ ] two-blockers - Wire the two halves together blocked-by: parser-half blocked-by: renderer-half (repo: proj) (kind: ship) (since 2026-08-26)
+BACKLOG
+
+out=$(run_tracker "$HOME_G" sync --project proj --dry-run 2>&1)
+rc=$?
+expect_code_out 0 "$rc" "$out" "a dry-run sync must succeed"
+assert_contains "$out" "blocked-by=parser-half,renderer-half" \
+  "every declared dependency must be lifted, not only the first"
+pass "a row declaring two dependencies reports both"
+
+out=$(run_tracker "$HOME_G" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a real sync must succeed"
+titles=$(gh_titles "$HOME_G")
+case $titles in
+  *blocked-by:*) fail "an internal task id must never survive into a ticket title" ;;
+esac
+assert_contains "$titles" "Wire the two halves together" \
+  "the summary must reach the title with the annotations removed"
+body=$(grep -l 'fm-task: two-blockers' "$HOME_G"/gh/call.*.body | head -1)
+[ -n "$body" ] || fail "the dependent row must have been filed"
+edges=$(grep -cE '^- \[[ xX]\] #[1-9][0-9]*$' "$body")
+[ "$edges" -eq 2 ] || fail "both dependencies must become task-list edges, got $edges"
+pass "both declared dependencies become queryable edges and neither reaches the title"
+
+# ===========================================================================
+# A ticket nobody can pick up does not report itself as available
+# ===========================================================================
+#
+# The frontier had three discriminators - the type label, the assignee and the
+# tracked-issue edge - and a hold is none of them, so a held ticket fell through
+# to READY and contradicted its own body. The fourth discriminator is a label,
+# because a label is the tracker's own vocabulary and survives the next sync.
+
+HOME_H=$(make_home h)
+printf '%s\n' 'proj proj/repo' > "$HOME_H/config/tracker-repos"
+{
+  graph_record 156 OPEN 'fm:destination' '' '-' '' 'The destination' 'body'
+  graph_record 157 OPEN 'fm:task' '' '156' '' 'available work' ''
+  graph_record 158 OPEN 'fm:task fm:state:held' '' '156' '' 'held work' ''
+} > "$HOME_H/gh/graph"
+
+out=$(run_tracker "$HOME_H" frontier proj/repo 2>&1)
+expect_code_out 0 "$?" "$out" "frontier must succeed"
+ready=$(printf '%s\n' "$out" | sed -n '/^READY/,/^$/p')
+held=$(printf '%s\n' "$out" | sed -n '/^HELD/,/^$/p')
+assert_contains "$ready" "#157" "an available ticket must stay ready"
+assert_not_contains "$ready" "#158" "a held ticket must not report itself as ready"
+assert_contains "$held" "#158" "a held ticket must be reported as held"
+assert_contains "$out" "[task" "the hold label must not be read as the ticket's type"
+assert_not_contains "$out" "missing type" "a held ticket still carries its type"
+pass "a held ticket leaves READY and is reported as held"
+
+# A hold label must not read as a second type label, or validate would report
+# every held ticket as ambiguous and the guard would become noise.
+out=$(run_tracker "$HOME_H" validate proj/repo 2>&1)
+expect_code_out 0 "$?" "$out" "validate must pass on a held but well-formed ticket"
+assert_contains "$out" "no malformed tickets" "a held ticket is not malformed"
+pass "a hold label is not counted as a type"
+
+# The hold is raised by the queue itself: a row the task list holds must not
+# reach the board advertising as available work.
+HOME_I=$(make_home i)
+printf '%s\n' 'proj proj/repo' > "$HOME_I/config/tracker-repos"
+cat > "$HOME_I/data/backlog.md" <<'BACKLOG'
+# Backlog
+
+## Queued
+- [ ] open-work - Ordinary available work (repo: proj) (kind: ship) (since 2026-08-26)
+- [ ] held-work - Waiting on a ruling (repo: proj) (kind: ship) (since 2026-08-26) (hold: taste) (hold-kind: captain)
+BACKLOG
+
+out=$(run_tracker "$HOME_I" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a sync over a held row must succeed"
+held_num=$(grep -l 'fm-task: held-work' "$HOME_I"/gh/call.*.body | head -1)
+[ -n "$held_num" ] || fail "the held row must still be filed"
+held_num=${held_num%.body}
+assert_present "$held_num.labels[]" "the filed ticket must carry labels"
+assert_contains "$(cat "$held_num.labels[]")" "fm:state:held" \
+  "a held row's ticket must carry the hold label"
+open_call=$(grep -l 'fm-task: open-work' "$HOME_I"/gh/call.*.body | head -1)
+open_call=${open_call%.body}
+assert_not_contains "$(cat "$open_call.labels[]" 2>/dev/null || true)" "fm:state:held" \
+  "an available row's ticket must not be held"
+pass "sync raises the hold label from the task list's own hold"
+
+# ===========================================================================
+# A withhold is a durable decision, not a one-time act
+# ===========================================================================
+#
+# Every dispatch runs sync, so a row kept off a board by hand is published by the
+# next dispatch. The decision has to be recorded where sync reads it, with the
+# reason it was taken.
+
+HOME_J=$(make_home j)
+printf '%s\n' 'proj proj/repo' > "$HOME_J/config/tracker-repos"
+cat > "$HOME_J/data/backlog.md" <<'BACKLOG'
+# Backlog
+
+## Queued
+- [ ] publishable - Ordinary engineering work (repo: proj) (kind: ship) (since 2026-08-26)
+- [ ] private-work - Package the findings for the qualification plan (repo: proj) (kind: ship) (since 2026-08-26)
+BACKLOG
+
+out=$(run_tracker "$HOME_J" withhold --project proj --task private-work \
+  --reason 'names go-to-market targeting rather than engineering work' 2>&1)
+expect_code_out 0 "$?" "$out" "recording a withhold must succeed"
+assert_present "$HOME_J/config/tracker-withhold" "the decision must be recorded durably"
+assert_contains "$(cat "$HOME_J/config/tracker-withhold")" "go-to-market targeting" \
+  "the reason must be recorded with the decision"
+
+out=$(run_tracker "$HOME_J" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a sync over a withheld row must succeed"
+assert_contains "$out" "withheld from proj/repo: private-work" \
+  "sync must say what it did not publish"
+titles=$(gh_titles "$HOME_J")
+assert_contains "$titles" "Ordinary engineering work" "publishable work must still be filed"
+case $titles in
+  *"qualification plan"*) fail "a withheld row must not reach the board" ;;
+esac
+pass "a withheld row is not published and the sync says so"
+
+# The whole point: the NEXT dispatch runs sync again and must reach the same
+# decision without anyone re-taking it.
+rm -f "$HOME_J"/gh/call.*
+out=$(run_tracker "$HOME_J" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a second sync must succeed"
+case $(gh_titles "$HOME_J") in
+  *"qualification plan"*) fail "a later sync must not publish a withheld row" ;;
+esac
+pass "a withhold survives the next dispatch's sync"
+
+# A withhold decided after the row was already filed cannot unpublish it. Saying
+# nothing would let the skip read as if it had.
+HOME_L=$(make_home l)
+printf '%s\n' 'proj proj/repo' > "$HOME_L/config/tracker-repos"
+cat > "$HOME_L/data/backlog.md" <<'BACKLOG'
+# Backlog
+
+## Queued
+- [ ] late-withhold - Package the findings (repo: proj) (kind: ship) (since 2026-08-26)
+BACKLOG
+out=$(run_tracker "$HOME_L" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "the first sync must file the row"
+filed=$(grep -l 'fm-task: late-withhold' "$HOME_L"/gh/call.*.body | head -1)
+[ -n "$filed" ] || fail "the row must have been filed before it was withheld"
+num=$(cat "${filed%.body}.issue")
+{
+  graph_record 156 OPEN 'fm:destination' '' '-' '' 'The destination' 'body'
+  graph_record "$num" OPEN 'fm:task' '' '156' '' 'Package the findings' \
+    "$(printf '<!-- fm-task: late-withhold -->\n\nA change.\n')"
+} > "$HOME_L/gh/graph"
+out=$(run_tracker "$HOME_L" withhold --project proj --task late-withhold \
+  --reason 'names commercial planning' 2>&1)
+expect_code_out 0 "$?" "$out" "a late withhold must be recordable"
+out=$(run_tracker "$HOME_L" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a sync after a late withhold must succeed"
+assert_contains "$out" "already has ticket #$num" \
+  "a withhold cannot unpublish, and must say which ticket is already out"
+pass "a withhold taken after filing names the ticket already on the board"
+
+out=$(run_tracker "$HOME_J" withheld --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "listing withholds must succeed"
+assert_contains "$out" "private-work" "the record must be readable back"
+
+out=$(run_tracker "$HOME_J" unwithhold --project proj --task private-work 2>&1)
+expect_code_out 0 "$?" "$out" "clearing a withhold must succeed"
+rm -f "$HOME_J"/gh/call.*
+out=$(run_tracker "$HOME_J" sync --project proj 2>&1)
+assert_contains "$(gh_titles "$HOME_J")" "qualification plan" \
+  "a cleared withhold must let the row be filed"
+pass "a withhold can be cleared, and only then is the row published"
+
+# ===========================================================================
+# What a client-visible ticket says
+# ===========================================================================
+#
+# These tickets are read by people outside the fleet. A body that explains itself
+# in the fleet's own nouns is noise on their board at best.
+
+HOME_K=$(make_home k)
+printf '%s\n' 'proj proj/repo' > "$HOME_K/config/tracker-repos"
+cat > "$HOME_K/data/backlog.md" <<'BACKLOG'
+# Backlog
+
+## Queued
+- [ ] plain-work - Correct the sensitivity report (repo: proj) (kind: ship) (since 2026-08-26)
+- [ ] plain-held - Wait for the ruling (repo: proj) (kind: ship) (since 2026-08-26) (hold: taste) (hold-kind: captain)
+BACKLOG
+
+out=$(run_tracker "$HOME_K" sync --project proj 2>&1)
+expect_code_out 0 "$?" "$out" "a sync must succeed"
+bodies=$(gh_bodies "$HOME_K")
+[ -n "$bodies" ] || fail "the sync must have written bodies"
+for word in fleet frontier captain horizon crewmate Firstmate firstmate; do
+  case $bodies in
+    *"$word"*) fail "a client-visible body must not carry the word '$word'" ;;
+  esac
+done
+pass "a filed ticket body carries no fleet-internal vocabulary"
+
 echo "all fm-tracker-task-lifecycle tests passed"

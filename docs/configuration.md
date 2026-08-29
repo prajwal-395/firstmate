@@ -164,6 +164,29 @@ Without a single open destination no task ticket is filed at all, rather than an
 
 Run `bin/fm-tracker.sh sync --project <name>` to reconcile a project's whole open queue by hand; it is the same path a dispatch takes and is safe to re-run.
 
+## Withheld rows (config/tracker-withhold)
+
+`config/tracker-withhold` records the rows `sync` must never publish, and it exists because `sync` runs on every dispatch.
+A row kept off a board by hand is filed again by the next dispatch, so a decision not to publish that lives only in a review or a report is undone the moment anyone dispatches against that project.
+The file is local and gitignored, and is inherited into secondmate homes so a secondmate working the same project honours the same decision.
+
+One line per withheld row, `<project> <task-id> <reason>`, with `#` starting a comment.
+A project and a task id never contain a space, so the reason is simply the rest of the line and the file stays hand-editable.
+Write it with `bin/fm-tracker.sh withhold --project <name> --task <task-id> --reason <text>`, clear it with `unwithhold`, and read it back with `withheld [--project <name>]`.
+The reason is required: a withhold nobody can explain later is a withhold nobody can lift.
+
+`sync` consults the record before it composes a title, so a withheld row's summary - which is what becomes the ticket title - never reaches GitHub at all, and every dispatch reports by name and reason what it withheld.
+A withhold cannot unpublish a ticket that was already filed; when the row already has one, `sync` names that ticket rather than letting the skip read as if it had come down.
+
+## Held tickets (fm:state:held)
+
+A ticket nobody may pick up yet carries the `fm:state:held` label, and `bin/fm-tracker.sh frontier` reports it under `HELD` instead of `READY`.
+The carrier is a label rather than body text because `sync` rewrites the body on every dispatch: only the tracker's own vocabulary survives a re-sync.
+It lives in its own `fm:state:` namespace so it is never counted as a second type label.
+
+`sync` raises the hold from a task-list row's own hold and never lowers it, because it can see the queue's hold and cannot see one taken anywhere else.
+Lowering a hold is `bin/fm-tracker.sh unhold <owner/repo> <n>`, and raising one by hand is `hold`.
+
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
 Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
