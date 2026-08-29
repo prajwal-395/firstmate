@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "status", "info", "trace", "organize",
-    "run", "dashboard", "archive", "relink",
+    "run", "dashboard", "archive", "notes", "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -301,6 +301,26 @@ def cmd_trace(args):
     print(f"    observed: {w['observed']}  (a run was watching)")
     print(f"    declared: {w['declared']}  (the layout says which step owns the area)")
     print(f"    unknown:  {w['unknown']}  (neither - left as unknown)")
+
+
+def cmd_notes(args):
+    """Show which of the captain's timeline notes went to which step.
+
+    Reads the pull files `marker_feedback pull` wrote and routes each
+    note to the step that owns the decision it is about. Nothing here
+    touches Resolve; nothing is written unless --write is passed. See
+    library/tools/marker_routing.py.
+    """
+    from library.tools import marker_routing
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    argv = ["write" if args.write else "report", "--project", project_folder]
+    sys.exit(marker_routing.main(argv))
 
 
 def cmd_organize(args):
@@ -593,6 +613,18 @@ def main():
     p_archive.set_defaults(func=cmd_archive)
 
     # relink
+    # notes
+    p_notes = sub.add_parser(
+        "notes",
+        help="Show which timeline note the captain typed went to which step")
+    p_notes.add_argument("slug", metavar="PROJECT",
+                         help="Project slug, or an absolute path")
+    p_notes.add_argument(
+        "--write", action="store_true",
+        help="also write the routing record and ROUTED-NOTES.md into "
+             "the project's marker_feedback/ folder")
+    p_notes.set_defaults(func=cmd_notes)
+
     p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info/dashboard, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")

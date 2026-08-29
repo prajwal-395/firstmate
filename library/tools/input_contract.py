@@ -457,8 +457,13 @@ def _route(name: str, node_id: str, routed: Mapping[str, Set[str]],
 # Keys `run_pipeline.project_step_context` saves and restores AROUND the
 # projection, so a step's allow-list neither has to list them nor can
 # drop them (AGENTS.md section 10.1).
+# `timeline_notes` is on this list for the reason `creative_brief` is:
+# `run_pipeline.project_step_context` restores it BY NAME around the
+# projection, so a step's allow-list neither has to list the captain's
+# notes nor can drop them.  See library/tools/marker_routing.py.
 _RESTORED_AROUND_PROJECTION = ("project_folder", "project_fps",
-                               "brand_template", "creative_brief")
+                               "brand_template", "creative_brief",
+                               "timeline_notes")
 
 
 class _Recorder(dict):

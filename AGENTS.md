@@ -1074,6 +1074,52 @@ its recorded per-call findings are in the module docstring, in the shape `neural
   read by nothing. No acknowledgement marker is written back and no marker is deleted. This is not
   wired into the dashboard; the whole point is that the editor stays in Resolve.
 
+### Where a note goes
+
+**A collected note is routed to the step that owns the decision it is about, and an
+ambiguous one is reported as ambiguous rather than sent somewhere.**
+One enumeration, `library/tools/marker_routing.py`.
+
+    python3 manage_project.py notes <slug-or-path>            # who got what
+    python3 manage_project.py notes <slug-or-path> --write     # + ROUTED-NOTES.md
+
+- **A CLIP note and a MOMENT note are different things and are never flattened together.**
+  A `clip_marker`, `media_pool_marker` or `clip_comment` is attached to the clip it was typed
+  on and carries `clip`; a `timeline_marker` is about a MOMENT and carries `clips_under`,
+  which is CONTEXT. Reading "the clips at this frame" as "the clip this note is about" hands
+  a note typed on a V2 cutaway to whatever was on V1 underneath it.
+  `marker_feedback.MarkerNote.attached_clip` records the placement; a pull file written
+  before that field existed has it RECOVERED from §15's frame arithmetic, and the recovery is
+  refused - reported `unresolved` - unless the candidates are one clip. Resolve's linked
+  audio and video items of one placement, agreeing on file, timeline range and source range,
+  are the one clip they are.
+- **`STEP_DECISIONS` is the whole of what a note can be routed to**, each row naming the
+  decision that step makes. A step outside it cannot be routed to, and a note naming one is
+  refused BY NAME.
+- **Two bases, and two non-answers.** `declared` - a `step: select_broll` line typed into the
+  marker, or a `route` record in its `customData` - is authoritative. Otherwise the note's own
+  words must name EXACTLY ONE step's decision. Two is `ambiguous`, naming both; none is
+  `unrouted`. There is no score, no ranking, no tie-break and no default: `WITHDRAWN_ROUTERS`
+  records why highest-term-count, nearest-neighbour and ask-a-model are all out, and why the
+  clip under the playhead decides nothing. A note routed to the wrong step is worse than one
+  reported as ambiguous.
+- **Delivery is `prompt` or `report`, declared per step.** A step with a `handoff.md` declares
+  the `timeline_notes` input and `gather_step_inputs` hands it `prompt_block()` - the words
+  plus a legend, the route `MEASUREMENT_LEGEND` and `CUTS_LEGEND` take, because the handoffs
+  are frozen. A deterministic step has no prompt at all; the note is still routed, recorded
+  and reported, with that reason stated. `run_pipeline.project_step_context` restores
+  `timeline_notes` BY NAME, so a `context_fields` allow-list neither has to list it nor can
+  drop it (§10.1).
+- **Nothing may silently drop a routed note.** `assert_deliverable` fails the run when a note
+  is routed to a prompt step whose manifest does not declare the input, because a context
+  assembled without it reads exactly like a run with no notes. `undelivered` accounts for
+  every note that reaches no prompt, by name.
+- The delivery log is APPENDED by the runner, in the `Kind.CAPTURED` area beside the pull
+  files: a delivery is a thing that happened, and a later run delivering the same note does
+  not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
+  never hand-edited.
+- `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
+
 ### The button that captures the frame
 
 Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the

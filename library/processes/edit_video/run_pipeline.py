@@ -850,11 +850,34 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                     os.path.abspath(brief_path), content,
                     pinned=project_pinned_sections(project_folder))
 
+        # The captain's own notes off the built timeline, routed to the
+        # step that owns the decision each one is about.  This is the ONE
+        # place a routed note enters a step's context, and it is the one
+        # place that can refuse: `assert_deliverable` fails the run when a
+        # note is routed to a step whose manifest cannot receive it, so a
+        # note can never go missing into a context that reads exactly like
+        # a context with no notes at all.
+        #
+        # Read off DISK rather than off state, because the notes are
+        # collected by a command the captain runs between builds and
+        # `pipeline_data.json` is rewritten by every step.  See
+        # library/tools/marker_routing.py.
+        notes_project_folder = inputs.get("project_folder", "")
+        if notes_project_folder:
+            from library.tools import marker_routing
+            routed_notes = marker_routing.route_project(notes_project_folder)
+            mine = marker_routing.assert_deliverable(
+                node_id, manifest, routed_notes)
+            if mine:
+                inputs[marker_routing.STEP_INPUT_NAME] = (
+                    marker_routing.prompt_block(mine))
+
     if step_type == "llm_only" and manifest and "context_fields" in manifest:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
         saved_brand_template = inputs.get("brand_template")
         saved_creative_brief = inputs.get("creative_brief")
+        saved_timeline_notes = inputs.get("timeline_notes")
         
         from library.tools.context_projector import project_fields
         inputs = project_fields(inputs, manifest["context_fields"])
@@ -866,6 +889,8 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
             inputs["brand_template"] = saved_brand_template
         if saved_creative_brief is not None:
             inputs["creative_brief"] = saved_creative_brief
+        if saved_timeline_notes is not None:
+            inputs["timeline_notes"] = saved_timeline_notes
 
     return inputs
 
@@ -1060,6 +1085,10 @@ def project_step_context(inputs: dict, manifest: dict = None,
     # invents a declaration the project never made.
     saved_brand_template = inputs.get("brand_template")
     saved_creative_brief = inputs.get("creative_brief")
+    # Restored BY NAME for the same reason `creative_brief` is: a step's
+    # allow-list neither has to list the captain's notes nor can drop
+    # them. AGENTS.md 10.1.
+    saved_timeline_notes = inputs.get("timeline_notes")
     # A pre-bridge exists to build the ONE table its handoff tells the
     # model to read, so projecting that table away is always wrong -
     # the step is then instructed to use data the prompt does not
@@ -1091,6 +1120,8 @@ def project_step_context(inputs: dict, manifest: dict = None,
         inputs["brand_template"] = saved_brand_template
     if saved_creative_brief is not None:
         inputs["creative_brief"] = saved_creative_brief
+    if saved_timeline_notes is not None:
+        inputs["timeline_notes"] = saved_timeline_notes
     return inputs
 
 
@@ -1930,6 +1961,21 @@ def run_pipeline(
         # Gather inputs from upstream (pass manifest for optional-input checking)
         inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"), external=external)
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
+
+        # A delivery is a thing that happened, so it is recorded where a
+        # re-run cannot reach it and appended rather than replaced. This
+        # is what lets the captain see what a step DID with their note,
+        # not just where it was routed. `gather_step_inputs` cannot write
+        # it: the replay bench calls that function and must not touch the
+        # project.
+        _delivered = (inputs.get("timeline_notes") or {}).get("notes") or []
+        if _delivered:
+            from library.tools import marker_routing as _marker_routing
+            print(f"     Captain's notes: {len(_delivered)} routed to this "
+                  f"step", file=sys.stderr)
+            _marker_routing.record_delivery(
+                project_dir, node_id,
+                [n.get("note_id") for n in _delivered])
         
         try:
             start_time = time.time()

@@ -59,6 +59,12 @@
         "type": "array",
         "required": false,
         "description": "State input: temporal_index. OPTIONAL, and nothing reads it: the post_bridge never names it and `context_fields` does not select it, so the projection deletes it before the prompt. Declaring it required made a step that cannot use it refuse to run without it. Surveyed by library/tools/input_contract.py."
+      },
+      {
+        "name": "timeline_notes",
+        "type": "object",
+        "required": false,
+        "description": "The captain's own notes typed onto the built timeline in DaVinci Resolve, routed to this step because this step owns the decision each note is about. Injected by the runner from <project>/marker_feedback/ and absent when there are none. See library/tools/marker_routing.py."
       }
     ],
     "outputs": [

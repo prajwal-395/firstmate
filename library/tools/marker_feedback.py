@@ -296,6 +296,21 @@ class MarkerNote:
     clips the captain meant."""
 
     clips: list = field(default_factory=list)
+    """Every clip playing at `frame`. CONTEXT, and for a note typed at a
+    MOMENT it is all there is. It is deliberately NOT the same field as
+    `attached_clip`: reading "what was on screen" as "what the captain
+    selected" hands a note typed on a V2 cutaway to whatever was on V1
+    underneath it."""
+
+    attached_clip: Optional[dict] = None
+    """The placement the note was typed ON, for the three clip-attached
+    sources - `clip_marker`, `media_pool_marker` and `clip_comment`.
+    None for a `timeline_marker`, which is about a MOMENT and is attached
+    to no clip. The loop that reads each of those three already holds the
+    placement; this records it, so a reader does not have to recover it
+    from the frame arithmetic. `marker_routing.resolve_target` still can,
+    for pull files written before this field existed."""
+
     read_at: str = ""
 
 
@@ -530,6 +545,7 @@ def read_notes(timeline, project_folder=None) -> list:
                 add(
                     frame=placement.timeline_start
                     + (source_frame - placement.source_start),
+                    attached_clip=asdict(placement),
                     **common,
                 )
 
@@ -566,6 +582,7 @@ def read_notes(timeline, project_folder=None) -> list:
                 duration_frames=int(marker.get("duration") or 1),
                 custom_data=_parse_custom_data(marker.get("customData") or ""),
                 custom_data_raw=marker.get("customData") or "",
+                attached_clip=asdict(placement),
             )
 
     # 4. Clip comments - a MEDIA POOL property, once per file.
@@ -587,6 +604,7 @@ def read_notes(timeline, project_folder=None) -> list:
             frame=placement.timeline_start,
             frame_in_timeline_space=placement.timeline_start,
             duration_frames=placement.timeline_end - placement.timeline_start,
+            attached_clip=asdict(placement),
         )
 
     notes.sort(key=lambda n: (n.frame is None, n.frame or 0, n.source, n.text))

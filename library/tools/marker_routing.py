@@ -1,0 +1,1151 @@
+"""Route a note the captain typed on the timeline to the step that owns it.
+
+`marker_feedback.py` READS the captain's typed notes off a DaVinci Resolve
+timeline and writes them durably to `<project>/marker_feedback/`.  Nothing
+consumed them: a detailed note about a b-roll choice reached a file and
+stopped there, and the step that made that choice never heard about it.
+
+This module is the other half.  It answers two questions about every
+collected note, separately, and never lets one answer stand in for the
+other:
+
+    WHAT IS IT ATTACHED TO - a specific clip, or a moment on the timeline
+    WHICH STEP'S DECISION IS IT ABOUT
+
+The first is a MEASUREMENT off the marker itself.  The second is a
+ROUTING, and it is the one that can be wrong, so it is allowed to answer
+"I do not know" and it is allowed to answer "more than one".
+
+
+A clip note and a moment note are different things
+--------------------------------------------------
+A marker typed onto a CLIP is about that clip: the captain selected it,
+put the playhead on it and typed.  A marker typed onto the TIMELINE is
+about a moment - what is happening then, which may involve every clip
+stacked under that frame and the cut on either side of it.
+
+These are never flattened together.  A clip note carries `clip`; a
+moment note carries `clips_under`, which is CONTEXT and is explicitly not
+an attachment.  Reading "the clips at this frame" as "the clip this note
+is about" would hand a note typed on a V2 cutaway to whatever happened to
+be on V1 underneath it.
+
+`marker_feedback.MarkerNote.attached_clip` records the placement directly
+for anything read after this module existed.  A pull file written before
+that has the placement RECOVERABLE rather than recorded, from the frame
+arithmetic PR 276 established:
+
+    timeline_frame = clip.timeline_start + (source_frame - clip.source_start)
+
+Only a clip that both plays the source frame and lands on the note's own
+timeline frame is a candidate, and the recovery is refused unless the
+candidates are one clip - Resolve's linked audio and video items of one
+placement agreeing on file, timeline range and source range count as the
+one clip they are.  Zero candidates, or two real ones, is reported as
+`unresolved`, never broken by picking the first.
+
+
+Which step - declared, or by the words the captain used
+-------------------------------------------------------
+`STEP_DECISIONS` is the whole vocabulary of what a note can be routed to.
+A step that is not in it cannot be routed to, and a note naming one is
+refused BY NAME rather than sent to the nearest thing.
+
+Two bases, in this order:
+
+* `declared` - the note says which step, either as a line
+  `step: select_broll` typed into the marker's Name or Notes field, or as
+  a `route` record in its `customData` (a writer's channel; see
+  `marker_payload`).  A declaration is authoritative and stops here.
+* `vocabulary` - the note's own words name EXACTLY ONE step's decision.
+
+and two non-answers, which are outcomes and not failures:
+
+* `ambiguous` - the words name more than one step's decision.  Every
+  candidate is reported.  Nothing breaks the tie.
+* `unrouted` - the words name none.
+
+This is a ROUTER, not a chooser, and the difference from the SFX word
+list AGENTS.md section 10.5 deleted is the refusal rule.  That one scored
+each candidate by substring hits and took the HIGHEST COUNT, so it always
+produced an answer and the answer was frequently the library's first
+entry.  Here there is no score, no ranking, no tie-break and no default:
+two candidates is a reported ambiguity and zero is a reported miss.
+`WITHDRAWN_ROUTERS` records the shapes that were considered and refused.
+
+A note routed to the wrong step is worse than one reported as ambiguous,
+so where the two readings of a word are both real - "zoom" is a
+transition in `plan_transitions` and an effect in `plan_vfx` - both steps
+declare it and a note using it comes out ambiguous.  That is the correct
+output, not a gap to be closed.
+
+
+Reaching the step
+-----------------
+`STEP_DECISIONS[...].delivery` says how, and there are two ways because
+the pipeline has two kinds of step:
+
+* `DELIVERY_PROMPT` - the step has a `handoff.md` and reads a prompt.  It
+  declares `timeline_notes` in its manifest and `gather_step_inputs`
+  hands it `prompt_block()` - the captain's words with a legend saying
+  what they are, taking the same route `music_measurement.MEASUREMENT_LEGEND`
+  and `transition_carriers.CUTS_LEGEND` take, because the twelve
+  `handoff.md` files are frozen and cannot be told about a new input.
+* `DELIVERY_REPORT` - the step is deterministic and has no prompt at all.
+  The note is still routed, still recorded and still reported; it is
+  stated as not prompt-deliverable, with the reason, rather than being
+  quietly dropped on the floor.  The primary consumer of a routed note is
+  a human investigating it, and that consumer is served either way.
+
+**Nothing may silently drop a routed note.**  `assert_deliverable` is
+called from `gather_step_inputs`: a note routed to a step whose manifest
+does not declare `timeline_notes` FAILS the run, naming the note and the
+step, rather than being assembled into a context that does not carry it.
+
+    python3 -m library.tools.marker_routing report --project <dir>
+    python3 -m library.tools.marker_routing write  --project <dir>
+    python3 -m library.tools.marker_routing steps
+
+`tests/test_marker_routing.py`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+_HERE = Path(__file__).resolve()
+if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
+    sys.path.insert(0, str(_HERE.parents[2]))
+
+from library.tools import marker_payload  # noqa: E402
+from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+
+ROUTING_FORMAT = "marker_routing/1"
+ROUTING_FILE_SUFFIX = ".routing.json"
+REPORT_FILENAME = "ROUTED-NOTES.md"
+DELIVERY_LOG_FILENAME = "deliveries.jsonl"
+
+STEP_INPUT_NAME = "timeline_notes"
+"""The ONE input name a step declares to accept the captain's notes.
+
+One name, one injection point, one restore around the projection.  The
+alternative surveyed was a bespoke key per step, which is twelve names to
+keep in step with twelve manifests and nothing that fails when one of
+them goes stale."""
+
+KIND_ROUTE = "route"
+"""A `customData` record declaring the step a note is about."""
+
+
+# ── What a note can be attached to ──────────────────────────────────
+
+TARGET_CLIP = "clip"
+TARGET_MOMENT = "moment"
+
+CLIP_ATTACHED_SOURCES = ("clip_marker", "media_pool_marker", "clip_comment")
+MOMENT_ATTACHED_SOURCES = ("timeline_marker",)
+
+
+# ── What a note can be routed to ────────────────────────────────────
+
+DELIVERY_PROMPT = "prompt"
+DELIVERY_REPORT = "report"
+
+
+@dataclass(frozen=True)
+class StepDecision:
+    """One step, and the decision a note about it would be about."""
+
+    node_id: str
+    """The DAG's name for the step - what `pipeline_data.json`, both
+    ledgers and the runner key everything by.  NOT the directory name;
+    `project_layout.node_id_for` is the only translator (AGENTS.md 10.1)."""
+
+    number: str
+    """`3.02` - the number the captain and the docs use."""
+
+    owns: str
+    """One sentence: the decision this step makes that a note can be about."""
+
+    delivery: str
+    """`DELIVERY_PROMPT` or `DELIVERY_REPORT`."""
+
+    delivery_note: str = ""
+    """Why, for `DELIVERY_REPORT`."""
+
+    terms: tuple = ()
+    """The words that name THIS step's decision.  A word two steps'
+    decisions can both be about belongs to both, and a note using it comes
+    out ambiguous - that is the point, not a defect."""
+
+
+_NO_PROMPT = (
+    "deterministic step, no handoff.md and no prompt: the note is routed "
+    "and reported for investigation, and reaches no model"
+)
+
+STEP_DECISIONS = (
+    StepDecision(
+        "semantic_analysis", "1.03",
+        "what the vision pass measured about a clip - scene, camera, "
+        "actions, objects, usable ranges",
+        DELIVERY_PROMPT,
+        terms=("vision pass", "semantic analysis"),
+    ),
+    StepDecision(
+        "creative_direction", "2.01",
+        "the stated direction for the piece - its mood, its energy arc "
+        "and what it is trying to do",
+        DELIVERY_PROMPT,
+        terms=("creative direction", "the vibe", "overall tone",
+               "the direction"),
+    ),
+    StepDecision(
+        "speech_sequence", "2.02",
+        "which spoken passages are used, in what order, and where each "
+        "one is cut from",
+        DELIVERY_PROMPT,
+        terms=("passage", "passages", "script", "what he says",
+               "what she says", "what they say", "the order", "speech",
+               "spoken", "talking", "narration"),
+    ),
+    StepDecision(
+        "music_selection", "2.04",
+        "which music track plays, and which section of it",
+        DELIVERY_PROMPT,
+        terms=("music", "song", "track", "soundtrack"),
+    ),
+    StepDecision(
+        "mesh_spine", "2.05",
+        "the timeline spine - block order, the gaps between them, and "
+        "each block's declared music behaviour",
+        DELIVERY_PROMPT,
+        terms=("pacing", "pace", "spine", "gap", "gaps", "silence",
+               "duck", "ducking", "too long", "too short", "drags"),
+    ),
+    StepDecision(
+        "select_broll", "3.02",
+        "which b-roll covers which block, and which standalone cutaways "
+        "are inserted",
+        DELIVERY_PROMPT,
+        terms=("b-roll", "broll", "b roll", "cutaway", "cutaways",
+               "cut away", "cutting away"),
+    ),
+    StepDecision(
+        "review_rough_cut", "3.03",
+        "the review of the rough cut before post-production",
+        DELIVERY_PROMPT,
+        terms=("rough cut",),
+    ),
+    StepDecision(
+        "plan_subtitles", "4.01",
+        "how the words are grouped into caption cards, at the caption "
+        "style the project and the template resolve to",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("subtitle", "subtitles", "caption", "captions",
+               "caption card", "caption cards"),
+    ),
+    StepDecision(
+        "plan_transitions", "4.02",
+        "which cuts carry a drawn transition, of which type, and how "
+        "long it holds",
+        DELIVERY_PROMPT,
+        terms=("transition", "transitions", "crash zoom", "zoom",
+               "flash", "dissolve", "wipe", "whip pan"),
+    ),
+    StepDecision(
+        "plan_vfx", "4.03",
+        "which visual effects are drawn on which clip, and how strong",
+        DELIVERY_PROMPT,
+        terms=("vfx", "effect", "effects", "blur", "blurry", "zoom",
+               "shake", "glitch", "defocus", "glow", "grain", "vignette"),
+    ),
+    StepDecision(
+        "plan_sfx", "4.04",
+        "which sound effect plays, where, and at what level",
+        DELIVERY_PROMPT,
+        terms=("sfx", "sound effect", "sound effects", "whoosh", "swoosh",
+               "impact", "riser"),
+    ),
+    StepDecision(
+        "render_subtitles", "4.05",
+        "how a caption card is drawn - the typeface, the weight, the box",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("font", "typeface"),
+    ),
+    StepDecision(
+        "render_motion_graphics", "4.06",
+        "the motion-graphic overlays and the timed text cards",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("overlay", "overlays", "motion graphic", "motion graphics",
+               "timed text", "text card", "end card", "intro card",
+               "outro card"),
+    ),
+    StepDecision(
+        "color_grade", "5.01",
+        "the declared look and the exposure normalisation applied to "
+        "each clip",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("grade", "grading", "colour", "color", "exposure",
+               "too dark", "too bright", "saturation", "washed out",
+               "contrast"),
+    ),
+    StepDecision(
+        "audio_mix", "5.02",
+        "the per-block levels - the music bed's curve and each clip's "
+        "own gain",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("volume", "levels", "the mix", "too loud", "too quiet",
+               "inaudible", "clipping"),
+    ),
+    StepDecision(
+        "compile_manifest", "5.04",
+        "the placement geometry every clip is conformed to - the pan, "
+        "the fill zoom and the framing backdrop",
+        DELIVERY_REPORT, _NO_PROMPT,
+        terms=("framing", "letterbox", "letterboxed", "black bars",
+               "cropped", "off centre", "off center", "pan"),
+    ),
+    StepDecision(
+        "render", "6.01",
+        "what the build did to the picture after placement - "
+        "stabilisation, and the render itself",
+        DELIVERY_PROMPT,
+        terms=("stabilisation", "stabilization", "stabilised",
+               "stabilized", "shaky", "the render"),
+    ),
+)
+
+BY_NODE_ID = {d.node_id: d for d in STEP_DECISIONS}
+
+
+# ── What was refused ────────────────────────────────────────────────
+
+WITHDRAWN_ROUTERS = {
+    "highest_term_count":
+        "Score each step by how many of its terms the note contains and "
+        "take the highest. This is the shape AGENTS.md section 10.5 "
+        "deleted from the SFX chooser: it always produces an answer, so "
+        "a note about nothing in the table still lands on a step, and a "
+        "note about two steps lands on whichever list happens to be "
+        "longer. Ambiguity is information and this discards it.",
+    "nearest_step_by_embedding":
+        "Embed the note and take the nearest step description. Same "
+        "defect with a better disguise - a nearest neighbour is a "
+        "chooser, and it cannot say 'not in this table' at all. "
+        "`docs/FOOTAGE_INDEX_PROTOTYPE.md` had to establish a measured "
+        "score floor before a ranking could answer that, and a routing "
+        "with eighteen candidates has no way to measure one.",
+    "the_clip_under_the_playhead_decides":
+        "Route by what the note sits on - a note over a V2 clip is about "
+        "b-roll, one on a cut is about transitions. Every frame of this "
+        "pipeline's output has a V1 clip, a caption card, a music bed "
+        "and often a cutaway under it, so the structure narrows nothing "
+        "and would route by track index. The attachment is recorded as "
+        "evidence for the reader and decides nothing.",
+    "ask_a_model_which_step":
+        "Hand the note to an LLM and let it name the step. It would "
+        "answer every time, including for the notes that are genuinely "
+        "ambiguous, and the pipeline would have invented a routing "
+        "nobody can inspect. The captain declaring `step:` costs one "
+        "line and is inspectable.",
+}
+
+
+# ── Declaring a step in the note ────────────────────────────────────
+
+DECLARATION_RE = re.compile(
+    r"^[ \t]*(?:step|steps)[ \t]*[:=][ \t]*(?P<targets>[^\n]+)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+DECLARATION_RULE = (
+    "A line reading `step: <name>` in a marker's Name or Notes field "
+    "names the step the note is about. `step: select_broll` and "
+    "`step: 3.02` are the same declaration. Several are separated by "
+    "commas. A name that is not in STEP_DECISIONS is refused by name."
+)
+
+_SPLIT_TARGETS = re.compile(r"[,;]+")
+
+
+def resolve_step_name(raw: str) -> Optional[StepDecision]:
+    """The step a declaration names, by node id or by number, or None.
+
+    Exact only.  A near match is a chooser, and a note routed to the
+    wrong step is the failure this whole module is arranged around.
+    """
+    token = (raw or "").strip().strip("`'\"[]()").lower()
+    if not token:
+        return None
+    for decision in STEP_DECISIONS:
+        if token == decision.node_id.lower() or token == decision.number:
+            return decision
+    return None
+
+
+def declared_steps(text: str, custom_data=None) -> tuple:
+    """(resolved decisions, unresolved names) declared by this note.
+
+    Two channels, both authoritative and both read: a `step:` line the
+    captain typed, and a `route` record in `customData` that a writer -
+    a Resolve panel, the capture button - put there where the marker UI
+    cannot show it.  Neither outranks the other; a note carrying both is
+    read as declaring both, and two different steps is an ambiguity like
+    any other.
+    """
+    resolved, unknown = [], []
+
+    def take(raw):
+        decision = resolve_step_name(raw)
+        if decision is None:
+            if raw.strip():
+                unknown.append(raw.strip())
+        elif decision not in resolved:
+            resolved.append(decision)
+
+    for match in DECLARATION_RE.finditer(text or ""):
+        for token in _SPLIT_TARGETS.split(match.group("targets")):
+            take(token)
+    for record in marker_payload.records_of(custom_data or {}, KIND_ROUTE):
+        take(str(record.get("step") or ""))
+    return tuple(resolved), tuple(unknown)
+
+
+# ── The words the captain used ──────────────────────────────────────
+
+def _term_pattern(term: str) -> re.Pattern:
+    escaped = re.escape(term).replace(r"\ ", r"[ \t]+")
+    left = r"(?<![\w-])" if term[:1].isalnum() else ""
+    right = r"(?![\w-])" if term[-1:].isalnum() else ""
+    return re.compile(left + escaped + right, re.IGNORECASE)
+
+
+_TERM_PATTERNS = {
+    decision.node_id: tuple((term, _term_pattern(term))
+                            for term in decision.terms)
+    for decision in STEP_DECISIONS
+}
+
+
+def matched_terms(text: str) -> dict:
+    """{node_id: [the terms of that step this note contains]}.
+
+    No count is compared against another count and no list is ranked.
+    The caller's rule is on how many STEPS matched, never on how well.
+    """
+    out = {}
+    for node_id, patterns in _TERM_PATTERNS.items():
+        hits = [term for term, pattern in patterns if pattern.search(text or "")]
+        if hits:
+            out[node_id] = hits
+    return out
+
+
+# ── The result ──────────────────────────────────────────────────────
+
+BASIS_DECLARED = "declared"
+BASIS_VOCABULARY = "vocabulary"
+
+OUTCOME_ROUTED = "routed"
+OUTCOME_AMBIGUOUS = "ambiguous"
+OUTCOME_UNROUTED = "unrouted"
+OUTCOME_UNKNOWN_STEP = "unknown_step"
+
+
+@dataclass
+class NoteTarget:
+    """What a note is attached to.  A clip, or a moment.  Never both."""
+
+    kind: str
+    """`TARGET_CLIP` or `TARGET_MOMENT`."""
+
+    basis: str
+    """`recorded` (the reader wrote the placement down), `rederived`
+    (recovered from the frame arithmetic), `unresolved`, or `timeline`
+    for a moment."""
+
+    clip: Optional[dict] = None
+    """The placement, when `kind` is `TARGET_CLIP` and it is known."""
+
+    clips_under: list = field(default_factory=list)
+    """For a moment: everything playing at that frame.  CONTEXT.  This is
+    deliberately not the same field as `clip`, so a reader cannot mistake
+    "what was on screen" for "what the captain selected"."""
+
+    tracks: list = field(default_factory=list)
+    """`["video1", "audio1"]` - the tracks one placement was seen on."""
+
+    reason: str = ""
+
+
+@dataclass
+class RoutedNote:
+    """One collected note, its attachment and where it is going."""
+
+    note_id: str
+    source: str
+    name: str
+    note: str
+    text: str
+    frame: Optional[int]
+    timecode: Optional[str]
+    frame_in_timeline_space: Optional[int]
+    unplaced_reason: str
+    collected_at: str
+    timeline: str
+    pull_file: str
+
+    target: dict = field(default_factory=dict)
+    outcome: str = OUTCOME_UNROUTED
+    basis: str = ""
+    steps: list = field(default_factory=list)
+    """Node ids.  One for `routed`, two or more for `ambiguous`, none
+    otherwise."""
+
+    evidence: dict = field(default_factory=dict)
+    """{node_id: [terms]} for a vocabulary routing; the declaration for a
+    declared one.  What a reader checks the routing against."""
+
+    unknown_names: list = field(default_factory=list)
+    reason: str = ""
+    attachments: list = field(default_factory=list)
+
+
+def _note_id(raw: dict, timeline: str, pull_file: str) -> str:
+    """Stable across re-routings of the same note, and readable.
+
+    The timeline, the kind of marker and the frame - which is what the
+    captain would use to find it again in Resolve.  A pull file's name is
+    the timeline's, so falling back to it changes nothing.
+    """
+    stem = timeline or Path(pull_file).name.split(".")[0] or "timeline"
+    stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem)
+    frame = raw.get("frame")
+    where = "unplaced" if frame is None else str(frame)
+    return f"{stem}:{raw.get('source', 'note')}:{where}"
+
+
+def _same_placement(a: dict, b: dict) -> bool:
+    """Resolve's linked audio and video items of ONE placement.
+
+    Same file, same span on the timeline, same span in the source.  A
+    pair that agrees on all three is one clip seen twice, not two
+    candidates, so recovering the attachment from it is not a guess.
+    """
+    keys = ("source_file", "timeline_start", "timeline_end",
+            "source_start", "source_end")
+    return all(a.get(k) == b.get(k) for k in keys)
+
+
+def resolve_target(raw: dict) -> NoteTarget:
+    """What this note is attached to.  See the module docstring."""
+    source = raw.get("source", "")
+    clips = list(raw.get("clips") or [])
+    if source in MOMENT_ATTACHED_SOURCES:
+        return NoteTarget(
+            kind=TARGET_MOMENT, basis="timeline", clips_under=clips,
+            reason="a timeline marker is about the moment; the clips "
+                   "under it are context, not what it is attached to",
+        )
+    if source not in CLIP_ATTACHED_SOURCES:
+        return NoteTarget(
+            kind=TARGET_MOMENT, basis="unresolved", clips_under=clips,
+            reason=f"unknown marker source {source!r}",
+        )
+
+    recorded = raw.get("attached_clip")
+    if isinstance(recorded, dict) and recorded:
+        return NoteTarget(
+            kind=TARGET_CLIP, basis="recorded", clip=recorded,
+            tracks=[f"{recorded.get('track_type')}{recorded.get('track_index')}"],
+        )
+
+    # Recover it.  A pull file written before the reader recorded the
+    # placement still names every clip at the frame, and only one of them
+    # can be the one whose own arithmetic produced this note's frame.
+    frame = raw.get("frame")
+    key = raw.get("frame_in_timeline_space")
+    if frame is None or key is None:
+        return NoteTarget(
+            kind=TARGET_CLIP, basis="unresolved", clips_under=clips,
+            reason="the note has no placed frame, so no clip's arithmetic "
+                   "can be checked against it",
+        )
+    if source == "clip_comment":
+        candidates = [c for c in clips if c.get("timeline_start") == frame]
+    else:
+        candidates = [
+            c for c in clips
+            if c.get("source_start") is not None
+            and c["source_start"] <= key < c.get("source_end", key)
+            and c["timeline_start"] + (key - c["source_start"]) == frame
+        ]
+    if not candidates:
+        return NoteTarget(
+            kind=TARGET_CLIP, basis="unresolved", clips_under=clips,
+            reason=f"no clip at frame {frame} plays source frame {key}",
+        )
+    first = candidates[0]
+    if not all(_same_placement(first, c) for c in candidates[1:]):
+        named = ", ".join(
+            f"{c.get('name')} ({c.get('track_type')}{c.get('track_index')})"
+            for c in candidates)
+        return NoteTarget(
+            kind=TARGET_CLIP, basis="unresolved", clips_under=clips,
+            reason=f"{len(candidates)} different clips fit the arithmetic "
+                   f"and nothing here can choose between them: {named}",
+        )
+    return NoteTarget(
+        kind=TARGET_CLIP, basis="rederived", clip=first,
+        tracks=[f"{c.get('track_type')}{c.get('track_index')}"
+                for c in candidates],
+        reason="recovered from the frame arithmetic; this pull file "
+               "predates the reader recording the placement",
+    )
+
+
+def route_note(raw: dict, timeline: str = "", pull_file: str = "") -> RoutedNote:
+    """Route ONE collected note.  Never raises on the note's content."""
+    text = raw.get("text") or "\n\n".join(
+        p for p in (raw.get("name") or "", raw.get("note") or "") if p)
+    routed = RoutedNote(
+        note_id=_note_id(raw, timeline, pull_file),
+        source=raw.get("source", ""),
+        name=raw.get("name", ""),
+        note=raw.get("note", ""),
+        text=text,
+        frame=raw.get("frame"),
+        timecode=raw.get("timecode"),
+        frame_in_timeline_space=raw.get("frame_in_timeline_space"),
+        unplaced_reason=raw.get("unplaced_reason", ""),
+        collected_at=raw.get("read_at", ""),
+        timeline=timeline,
+        pull_file=pull_file,
+        target=asdict(resolve_target(raw)),
+        attachments=list(raw.get("attachments") or []),
+    )
+
+    declared, unknown = declared_steps(text, raw.get("custom_data"))
+    routed.unknown_names = list(unknown)
+    if declared:
+        routed.basis = BASIS_DECLARED
+        routed.steps = [d.node_id for d in declared]
+        routed.evidence = {"declared": list(routed.steps)}
+        routed.outcome = (OUTCOME_ROUTED if len(declared) == 1
+                          else OUTCOME_AMBIGUOUS)
+        routed.reason = (
+            "the note declares its step"
+            if len(declared) == 1 else
+            f"the note declares {len(declared)} steps and nothing here "
+            f"chooses between them"
+        )
+        return routed
+    if unknown:
+        routed.outcome = OUTCOME_UNKNOWN_STEP
+        routed.reason = (
+            f"the note declares {', '.join(repr(u) for u in unknown)}, "
+            f"which is not a step this pipeline can route to. Run "
+            f"`python3 -m library.tools.marker_routing steps` for the "
+            f"whole list."
+        )
+        return routed
+
+    hits = matched_terms(text)
+    routed.evidence = hits
+    if len(hits) == 1:
+        routed.basis = BASIS_VOCABULARY
+        routed.outcome = OUTCOME_ROUTED
+        routed.steps = list(hits)
+        routed.reason = (
+            f"the note's own words name one step's decision: "
+            f"{', '.join(repr(t) for t in hits[routed.steps[0]])}"
+        )
+    elif hits:
+        routed.basis = BASIS_VOCABULARY
+        routed.outcome = OUTCOME_AMBIGUOUS
+        routed.steps = sorted(hits)
+        routed.reason = (
+            "the note's words name more than one step's decision "
+            + "; ".join(
+                f"{node} ({', '.join(repr(t) for t in hits[node])})"
+                for node in routed.steps)
+            + f". Nothing here chooses between them - add a line "
+              f"`step: <name>` to the marker to decide it."
+        )
+    else:
+        routed.outcome = OUTCOME_UNROUTED
+        routed.reason = (
+            "the note's words name no step's decision. Add a line "
+            "`step: <name>` to the marker to route it."
+        )
+    return routed
+
+
+# ── Every note this project has collected ───────────────────────────
+
+def _pull_payloads(project_folder) -> list:
+    from library.tools import marker_feedback
+    return marker_feedback.pulled_files(project_folder)
+
+
+def route_project(project_folder) -> list:
+    """Every collected note of this project, routed, oldest pull first.
+
+    Deduplicated on the same identity `marker_feedback` uses for "have I
+    already collected this" - the text, where it was typed and what is
+    attached - so a note collected by three pulls is one routed note and
+    the LATEST reading of it wins.
+    """
+    from library.tools.marker_feedback import _attachment_identity
+
+    seen: dict = {}
+    order: list = []
+    for path, payload in _pull_payloads(project_folder):
+        for raw in payload.get("notes", []):
+            identity = (
+                raw.get("source", ""), raw.get("name", ""),
+                raw.get("note", ""), raw.get("frame_in_timeline_space"),
+                _attachment_identity(raw.get("attachments")),
+            )
+            routed = route_note(raw, payload.get("timeline", ""), str(path))
+            if identity not in seen:
+                order.append(identity)
+            seen[identity] = routed
+    return [seen[i] for i in order]
+
+
+def notes_for_step(routed_notes, node_id: str) -> list:
+    """The notes routed to ONE step.  Ambiguous ones reach nobody."""
+    return [n for n in routed_notes
+            if n.outcome == OUTCOME_ROUTED and node_id in n.steps]
+
+
+# ── The form a step accepts ─────────────────────────────────────────
+
+PROMPT_LEGEND = (
+    "The captain reviewed the built timeline in DaVinci Resolve and typed "
+    "these notes onto it. They are their own words, verbatim, routed to "
+    "this step because this step owns the decision each note is about. "
+    "`attached_to` says whether the note was typed on a specific CLIP or "
+    "at a MOMENT on the timeline - a clip note is about that clip, a "
+    "moment note is about what is happening then. Read them as context "
+    "for the decision you are about to make. They do not replace any "
+    "input you were given, and a note you cannot act on is one to leave "
+    "alone rather than to guess at."
+)
+
+
+def _target_summary(target: dict) -> dict:
+    if target.get("kind") == TARGET_CLIP:
+        clip = target.get("clip") or {}
+        return {
+            "attached_to": "clip",
+            "clip": clip.get("name", ""),
+            "clip_source_file": clip.get("source_file", ""),
+            "clip_track": ", ".join(target.get("tracks") or []),
+            "clip_timeline_frames": (
+                f"{clip.get('timeline_start')}..{clip.get('timeline_end')}"
+                if clip else ""),
+            "clip_source_frames": (
+                f"{clip.get('source_start')}..{clip.get('source_end')}"
+                if clip else ""),
+            "attachment_basis": target.get("basis", ""),
+            "attachment_reason": target.get("reason", ""),
+        }
+    return {
+        "attached_to": "moment",
+        "clips_under": [
+            f"{c.get('name')} ({c.get('track_type')}{c.get('track_index')})"
+            for c in (target.get("clips_under") or [])
+        ],
+        "attachment_basis": target.get("basis", ""),
+        "attachment_reason": target.get("reason", ""),
+    }
+
+
+def prompt_block(routed_notes) -> dict:
+    """What `gather_step_inputs` hands a step that declares the input.
+
+    A legend plus the notes, in the shape `MEASUREMENT_LEGEND` and
+    `CUTS_LEGEND` travel in: the twelve `handoff.md` files are frozen, so
+    a new input has to say what it is inside the data itself.
+    """
+    return {
+        "legend": PROMPT_LEGEND,
+        "note_count": len(routed_notes),
+        "notes": [
+            dict(
+                note_id=n.note_id,
+                typed=n.text,
+                at_timecode=n.timecode,
+                collected_at=n.collected_at,
+                timeline=n.timeline,
+                routed_because=n.reason,
+                **_target_summary(n.target),
+            )
+            for n in routed_notes
+        ],
+    }
+
+
+# ── Nothing may silently drop a routed note ─────────────────────────
+
+class UndeliverableNote(RuntimeError):
+    """A note was routed to a step that cannot receive it."""
+
+
+def assert_deliverable(node_id: str, manifest, routed_notes) -> list:
+    """The notes for `node_id`, or raise if the step cannot take them.
+
+    Called from `gather_step_inputs`.  A step in `STEP_DECISIONS` with
+    `DELIVERY_PROMPT` that does not declare `STEP_INPUT_NAME` would
+    assemble a context with the captain's note silently absent, and the
+    run would look exactly like a run with no notes at all.  It fails
+    instead, naming the note and the one line that fixes it.
+
+    A `DELIVERY_REPORT` step is not a failure: it has no prompt at all,
+    which is recorded in the table with its reason, and the note reaches
+    the report either way.
+    """
+    mine = notes_for_step(routed_notes, node_id)
+    if not mine:
+        return []
+    decision = BY_NODE_ID.get(node_id)
+    if decision is None:
+        raise UndeliverableNote(
+            f"{len(mine)} note(s) are routed to {node_id!r}, which is not "
+            f"in STEP_DECISIONS. Routing cannot produce a step that is "
+            f"not in the table, so this is a corrupted routing record."
+        )
+    if decision.delivery != DELIVERY_PROMPT:
+        return []
+    declared = {inp.get("name") for inp in
+                ((manifest or {}).get("interface") or {}).get("inputs") or []}
+    if STEP_INPUT_NAME not in declared:
+        preview = "; ".join(
+            f"{n.timecode or '(unplaced)'} {n.text.splitlines()[-1]}"
+            for n in mine[:3])
+        raise UndeliverableNote(
+            f"Step {node_id!r} is carrying {len(mine)} of the captain's "
+            f"timeline note(s) and its manifest does not declare the "
+            f"{STEP_INPUT_NAME!r} input, so they would reach the prompt "
+            f"nowhere and the run would look like a run with no notes.\n"
+            f"  {preview}\n"
+            f"  Add to library/steps/<dir>/manifest.json, under "
+            f"interface.inputs:\n"
+            f'    {{"name": "{STEP_INPUT_NAME}", "type": "object", '
+            f'"required": false, "description": "..."}}'
+        )
+    return mine
+
+
+def undelivered(routed_notes) -> list:
+    """Every note that reaches no step's prompt, with why.
+
+    Ambiguous, unrouted, an unknown declared name, and routed-to-a-step-
+    with-no-prompt.  All four are reported; none is a silent drop.
+    """
+    out = []
+    for note in routed_notes:
+        if note.outcome != OUTCOME_ROUTED:
+            out.append((note, note.outcome, note.reason))
+            continue
+        decision = BY_NODE_ID.get(note.steps[0])
+        if decision and decision.delivery != DELIVERY_PROMPT:
+            out.append((note, DELIVERY_REPORT, decision.delivery_note))
+    return out
+
+
+# ── The durable record, and what the captain reads ──────────────────
+
+def routing_record(project_folder, routed_notes=None) -> dict:
+    routed_notes = (route_project(project_folder) if routed_notes is None
+                    else routed_notes)
+    by_step: dict = {}
+    for note in routed_notes:
+        if note.outcome == OUTCOME_ROUTED:
+            by_step.setdefault(note.steps[0], []).append(note.note_id)
+    counts = {outcome: 0 for outcome in (
+        OUTCOME_ROUTED, OUTCOME_AMBIGUOUS, OUTCOME_UNROUTED,
+        OUTCOME_UNKNOWN_STEP)}
+    for note in routed_notes:
+        counts[note.outcome] = counts.get(note.outcome, 0) + 1
+    return {
+        "format": ROUTING_FORMAT,
+        "routed_at": datetime.now(timezone.utc).isoformat(),
+        "note_count": len(routed_notes),
+        "counts": counts,
+        "by_step": by_step,
+        "notes": [asdict(n) for n in routed_notes],
+    }
+
+
+def write_record(project_folder, routed_notes=None) -> dict:
+    """Write the routing record and the report the captain reads.
+
+    Both live beside the pull files in `<project>/marker_feedback/`.  The
+    record is timestamped and never overwritten, for the same reason a
+    pull file is not; the report is one file, regenerated, and says so.
+    """
+    routed_notes = (route_project(project_folder) if routed_notes is None
+                    else routed_notes)
+    record = routing_record(project_folder, routed_notes)
+    layout = ProjectLayout(project_folder)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = layout.write_path(Area.MARKER_FEEDBACK,
+                             f"routing.{stamp}{ROUTING_FILE_SUFFIX}")
+    serial = 1
+    while path.exists():
+        serial += 1
+        path = layout.write_path(
+            Area.MARKER_FEEDBACK,
+            f"routing.{stamp}-{serial}{ROUTING_FILE_SUFFIX}")
+    path.write_text(json.dumps(record, indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+    report = layout.write_path(Area.MARKER_FEEDBACK, REPORT_FILENAME)
+    report.write_text(render_report(project_folder, routed_notes),
+                      encoding="utf-8")
+    return {"record": str(path), "report": str(report), "payload": record}
+
+
+def record_delivery(project_folder, node_id: str, note_ids) -> None:
+    """Append what reached which step, on the run that delivered it.
+
+    Append-only, for the reason `provenance` is: a delivery is a thing
+    that happened, and a later run delivering the same note again does
+    not unmake the record of the first.
+    """
+    if not note_ids:
+        return
+    layout = ProjectLayout(project_folder)
+    path = layout.write_path(Area.MARKER_FEEDBACK, DELIVERY_LOG_FILENAME)
+    line = json.dumps({
+        "at": datetime.now(timezone.utc).isoformat(),
+        "step": node_id,
+        "notes": list(note_ids),
+    }, ensure_ascii=False)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
+def deliveries(project_folder) -> list:
+    layout = ProjectLayout(project_folder)
+    path = layout.read_path(Area.MARKER_FEEDBACK, DELIVERY_LOG_FILENAME)
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
+
+
+# ── The report ──────────────────────────────────────────────────────
+
+def _where(note: RoutedNote) -> str:
+    target = note.target or {}
+    if target.get("kind") == TARGET_CLIP:
+        clip = target.get("clip") or {}
+        if clip:
+            tracks = ", ".join(target.get("tracks") or []) or "?"
+            return (f"on clip **{clip.get('name', '?')}** ({tracks}), "
+                    f"source frames {clip.get('source_start')}.."
+                    f"{clip.get('source_end')}")
+        return f"on a clip that could not be identified - {target.get('reason')}"
+    under = target.get("clips_under") or []
+    names = ", ".join(f"{c.get('name')} "
+                      f"({c.get('track_type')}{c.get('track_index')})"
+                      for c in under) or "nothing"
+    return f"at a moment on the timeline, over: {names}"
+
+
+def render_report(project_folder, routed_notes=None) -> str:
+    """The markdown the captain reads.  Generated; never hand-edited."""
+    routed_notes = (route_project(project_folder) if routed_notes is None
+                    else routed_notes)
+    delivered = {}
+    for entry in deliveries(project_folder):
+        for note_id in entry.get("notes", []):
+            delivered.setdefault(note_id, []).append(
+                f"{entry.get('step')} at {entry.get('at')}")
+
+    lines = [
+        "# The captain's timeline notes, and where each one went",
+        "",
+        "Generated by `python3 -m library.tools.marker_routing write "
+        f"--project {project_folder}`. Never hand-edit it: it is "
+        "regenerated from the pull files in this folder.",
+        "",
+        f"{len(routed_notes)} collected note(s).",
+        "",
+    ]
+    if not routed_notes:
+        lines.append("No notes have been collected. Run "
+                     "`python3 -m library.tools.marker_feedback pull "
+                     f"--project {project_folder}` with the timeline open.")
+        return "\n".join(lines) + "\n"
+
+    lines += ["| note | typed on | routed to | basis | delivery |",
+              "|---|---|---|---|---|"]
+    for note in routed_notes:
+        first = next((line for line in note.text.splitlines()
+                      if line.strip()), "(no text)")
+        if note.outcome == OUTCOME_ROUTED:
+            decision = BY_NODE_ID[note.steps[0]]
+            went = f"**{decision.number} {decision.node_id}**"
+            how = ("prompt" if decision.delivery == DELIVERY_PROMPT
+                   else "report only")
+        elif note.outcome == OUTCOME_AMBIGUOUS:
+            went = "AMBIGUOUS: " + ", ".join(
+                f"{BY_NODE_ID[s].number} {s}" for s in note.steps)
+            how = "nowhere - reported"
+        elif note.outcome == OUTCOME_UNKNOWN_STEP:
+            went = "UNKNOWN STEP: " + ", ".join(note.unknown_names)
+            how = "nowhere - reported"
+        else:
+            went = "UNROUTED"
+            how = "nowhere - reported"
+        lines.append(
+            f"| {first[:60]} | {note.target.get('kind', '?')} "
+            f"@ {note.timecode or '(unplaced)'} | {went} | "
+            f"{note.basis or '-'} | {how} |")
+
+    lines += ["", "## Every note in full", ""]
+    for note in routed_notes:
+        lines += [
+            f"### `{note.note_id}`",
+            "",
+            f"- **Typed on**: a {note.target.get('kind')} - {_where(note)}",
+            f"- **Marker kind**: `{note.source}` at "
+            f"{note.timecode or '(unplaced)'} (frame {note.frame})",
+            f"- **Collected**: {note.collected_at} off timeline "
+            f"`{note.timeline}`",
+        ]
+        if note.outcome == OUTCOME_ROUTED:
+            decision = BY_NODE_ID[note.steps[0]]
+            lines += [
+                f"- **Routed to**: {decision.number} `{decision.node_id}` "
+                f"- {decision.owns}",
+                f"- **Why**: {note.reason}",
+            ]
+            if decision.delivery == DELIVERY_PROMPT:
+                lines.append(
+                    f"- **Delivery**: reaches that step's prompt as "
+                    f"`{STEP_INPUT_NAME}`. Re-run it with "
+                    f"`manage_project.py run <project> --rerun "
+                    f"{decision.node_id}`.")
+            else:
+                lines.append(
+                    f"- **Delivery**: none - {decision.delivery_note}")
+        else:
+            lines += [
+                f"- **Routed to**: nothing ({note.outcome})",
+                f"- **Why**: {note.reason}",
+            ]
+        if note.note_id in delivered:
+            lines.append("- **Delivered**: "
+                         + "; ".join(delivered[note.note_id]))
+        for attachment in note.attachments:
+            lines.append(
+                f"- **Attached**: `{attachment.get('resolved_path') or attachment.get('path')}`"
+                + ("" if attachment.get("exists") else "  (NOT ON DISK)"))
+        lines += ["", "> " + "\n> ".join(note.text.splitlines()), ""]
+
+    left = undelivered(routed_notes)
+    lines += ["## Notes that reached no prompt", ""]
+    if not left:
+        lines.append("None: every collected note reached a step.")
+    else:
+        for note, why, detail in left:
+            first = next((line for line in note.text.splitlines()
+                          if line.strip()), "(no text)")
+            lines.append(f"- `{note.note_id}` **{why}** - {first[:70]}")
+            lines.append(f"  - {detail}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+# ── CLI ─────────────────────────────────────────────────────────────
+
+def _print_steps() -> None:
+    print(f"{'number':<8}{'step':<26}{'delivery':<10}decision")
+    for decision in STEP_DECISIONS:
+        print(f"{decision.number:<8}{decision.node_id:<26}"
+              f"{decision.delivery:<10}{decision.owns}")
+    print()
+    print(DECLARATION_RULE)
+
+
+def _print_report(project_folder, routed_notes) -> None:
+    print(f"{len(routed_notes)} collected note(s) in {project_folder}")
+    for note in routed_notes:
+        print()
+        print(f"  {note.note_id}")
+        print(f"    typed on : {note.target.get('kind')} "
+              f"({note.target.get('basis')}) @ "
+              f"{note.timecode or '(unplaced)'}")
+        print(f"    {_where(note)}")
+        for line in note.text.splitlines():
+            print(f"    | {line}")
+        if note.outcome == OUTCOME_ROUTED:
+            decision = BY_NODE_ID[note.steps[0]]
+            print(f"    ROUTED   -> {decision.number} {decision.node_id} "
+                  f"({decision.delivery}) [{note.basis}]")
+        else:
+            print(f"    {note.outcome.upper()}")
+        print(f"    why      : {note.reason}")
+    left = undelivered(routed_notes)
+    print()
+    print(f"  {len(routed_notes) - len(left)} note(s) reach a prompt, "
+          f"{len(left)} do not:")
+    for note, why, detail in left:
+        print(f"    {note.note_id}: {why} - {detail}")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m library.tools.marker_routing",
+        description="Route the captain's collected timeline notes to the "
+                    "steps that own the decisions they are about.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("steps", help="the steps a note can be routed to")
+    p_report = sub.add_parser(
+        "report", help="print the routing, writing nothing")
+    p_report.add_argument("--project", required=True)
+    p_write = sub.add_parser(
+        "write", help="write the routing record and ROUTED-NOTES.md")
+    p_write.add_argument("--project", required=True)
+
+    args = parser.parse_args(argv)
+    if args.command == "steps":
+        _print_steps()
+        return 0
+
+    routed = route_project(args.project)
+    if args.command == "report":
+        _print_report(args.project, routed)
+        return 0
+
+    result = write_record(args.project, routed)
+    _print_report(args.project, routed)
+    print()
+    print(f"  -> {result['record']}")
+    print(f"  -> {result['report']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
