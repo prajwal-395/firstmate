@@ -183,12 +183,23 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
       )}
 
       {showProgress && (
+        /*
+         * Inside the safe area, like the other two elements.
+         *
+         * This bar used to sit at `bottom: 0`, `width: 100%` - the last
+         * literal margin left in this file after #153 moved the corner
+         * accents onto the insets. On a 1080x1920 delivery the bottom
+         * inset is 320px, so a 12px bar at row 1908 was rendered,
+         * composited onto V4 and then covered by the platform's own
+         * caption and like/comment/share rail. A planned graphic drawn
+         * where nobody can see it has not reached the viewer.
+         */
         <div
           style={{
             position: "absolute",
-            bottom: 0,
-            left: 0,
-            width: "100%",
+            bottom: safeArea.bottom,
+            left: safeArea.left,
+            right: safeArea.right,
             height: "12px",
             backgroundColor: "rgba(255, 255, 255, 0.15)",
           }}

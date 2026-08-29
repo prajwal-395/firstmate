@@ -117,6 +117,23 @@ def generate_motion_props(
     5.6% of a 1080px width, well inside the like/comment/share rail - by
     two literals in `MotionGraphics/index.tsx`. See
     `library/tools/safe_area.py`.
+
+    NOTHING PLANS A MOTION GRAPHIC, and that is the state of the
+    capability rather than a defect in this function. `enhancement_spec`
+    (the VFX plan, step 4.03) and `creative_direction` (step 2.01) are
+    both declared REQUIRED by this step's manifest, both routed by the
+    DAG, and neither is read here: 4.03 emits `visual_effects` and
+    nothing else, and 2.01's eight fields are prose about mood and
+    narrative. So which blocks carry decoration, and what the upper
+    third says, are decided by a brand template's two booleans and by
+    nobody at all respectively.
+
+    `library/tools/input_contract.py` cannot see this - a deterministic
+    step has no `context_fields`, so `_reaches_prompt` answers True for
+    every input it declares and both read as consumed. The two
+    parameters are kept in the signature because they are the route a
+    plan will arrive by; when a step emits motion-graphics entries, this
+    is where they land.
     """
     structure = audio_spine.get("structure", [])
     if not structure:
@@ -221,29 +238,31 @@ def generate_motion_props(
         progress_start = block_start / total_duration
         progress_end = block_end / total_duration
 
-        # Only show upper third on hook and first speech block
-        block_idx = 0
-        if isinstance(block_position, str):
-            if block_position.startswith("body_"):
-                try:
-                    block_idx = int(block_position.split("_")[1])
-                except:
-                    pass
-        elif isinstance(block_position, int):
-            block_idx = block_position
+        # The upper third is offered where there is copy to put in it,
+        # and nowhere else.
+        #
+        # This used to read `block_type == "hook" or (speech and
+        # block_idx <= 2)` - "the title card belongs on the hook and the
+        # first two body passages" is a creative judgement, taken by this
+        # file, on behalf of nobody (AGENTS.md section 10.5). It also
+        # made the props file lie: every 001 segment was written to disk
+        # carrying `showUpperThird: true` beside `title: ""`, which is
+        # what made eight fully transparent renders read like eight
+        # delivered graphics.
+        #
+        # Nothing declares the copy today (see above), so this is False
+        # on every block of every project - which is the honest state.
+        # When a producer for the copy is settled, WHICH blocks carry it
+        # is that producer's decision to state, not this loop's to guess.
+        show_upper_third = bool(title.strip() or subtitle.strip())
 
-        show_upper_third = (
-            block_type == "hook"
-            or (block_type == "speech" and block_idx <= 2)
-        )
-
-        # B-roll blocks: show accents but not upper third or progress
+        # B-roll blocks: show accents but not the progress bar
         show_progress = (block_type != "broll") and progress_enabled
         show_accents = accents_enabled
 
         props = {
-            "title": title if show_upper_third else "",
-            "subtitle": subtitle if show_upper_third else "",
+            "title": title,
+            "subtitle": subtitle,
             "accentColor": accent_color,
             "showUpperThird": show_upper_third,
             "showProgress": show_progress,

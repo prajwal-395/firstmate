@@ -1010,6 +1010,43 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
     return result
 
 
+# Every overlay track the manifest can carry, and what it costs when a
+# segment the pipeline said it rendered is not on disk.
+#
+# All three are ADDITIVE: the picture underneath an absent overlay is
+# intact, the build succeeds, and the render is a valid video of the
+# right length with one capability silently missing. Nothing downstream
+# can tell the difference, so this is the only gate that can - which is
+# why it refuses rather than warning.
+#
+# Motion graphics used to be a `logger.warning` here while timed text
+# raised, and that asymmetry is the same "planned but absent" silence
+# that let project 001's V4 read as delivered.
+OVERLAY_TRACKS = {
+    "subtitle_overlay": "subtitle overlay",
+    "motion_graphics_overlay": "motion graphics",
+    "timed_text_overlay": "timed text overlay",
+}
+
+
+class OverlaySegmentMissing(ValueError):
+    """A rendered overlay segment the manifest names is not on disk."""
+
+
+def assert_overlay_segments_on_disk(manifest: dict) -> None:
+    """Refuse a manifest that names an overlay file nothing wrote."""
+    for key, what in OVERLAY_TRACKS.items():
+        for seg in manifest.get(key, {}).get("segments", []):
+            path = seg.get("overlay_path")
+            if path and not os.path.exists(path):
+                raise OverlaySegmentMissing(
+                    f"{what} segment declared but missing on disk: "
+                    f"{path}. The step that renders it recorded it as "
+                    f"rendered. Nothing downstream notices a missing "
+                    f"overlay - the picture underneath is intact - so "
+                    f"this is the only gate that can.")
+
+
 def compile_manifest(out_dir: str) -> dict:
     global _STATE_OUTPUTS
     _STATE_OUTPUTS = _load_state_outputs(out_dir)
@@ -1856,24 +1893,7 @@ def compile_manifest(out_dir: str) -> dict:
                 if not c.get("video_only")]
     assert len(A1_clips) == len(V1_clips), f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)}"
 
-    sub_overlay = manifest.get("subtitle_overlay", {})
-    for seg in sub_overlay.get("segments", []):
-        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
-            logger.warning(f"Subtitle overlay missing on disk: {seg['overlay_path']}")
-            
-    mg_overlay = manifest.get("motion_graphics_overlay", {})
-    for seg in mg_overlay.get("segments", []):
-        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
-            logger.warning(f"MG overlay missing on disk: {seg['overlay_path']}")
-
-    timed_text = manifest.get("timed_text_overlay", {})
-    for seg in timed_text.get("segments", []):
-        if "overlay_path" in seg and not os.path.exists(seg["overlay_path"]):
-            raise ValueError(
-                f"timed text overlay declared but missing on disk: "
-                f"{seg['overlay_path']}. Nothing downstream notices a "
-                f"missing overlay - the picture underneath is intact - so "
-                f"this is the only gate that can.")
+    assert_overlay_segments_on_disk(manifest)
 
     errors = validate_manifest(manifest)
     if errors:

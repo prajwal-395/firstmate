@@ -709,6 +709,17 @@ The renderer dispatches on parameter NAMES (`library/tools/execution/apply_fusio
 `generate_motion_props.props_draw_ink` is the predicate; keep it in step with the MotionGraphics composition.
 The output carries NO `available` key when nothing draws, because `available: false` anywhere fails the run. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
 
+**An overlay segment the manifest names and disk does not have REFUSES the compile.**
+`compile_manifest.assert_overlay_segments_on_disk`, over `OVERLAY_TRACKS` - subtitles, motion graphics and timed text, all three at the same severity.
+Every overlay is ADDITIVE, so an absent one changes nothing anyone downstream can see: the picture underneath is intact and the export is a valid video of the right length.
+Motion graphics were a `logger.warning` here while timed text raised. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+
+**Nothing plans a motion graphic, and no test proved one reached a pixel until `tests/test_motion_graphics_delivery.py`.**
+Step 4.06 declares `enhancement_spec` and `creative_direction` REQUIRED, the DAG routes both, and `generate_motion_props` reads neither - 4.03 emits `visual_effects` alone and 2.01's eight fields are prose.
+§16 names the elements that SHOULD exist; what anything can actually ask the renderer for today is a brand template's `effect.motion_accents` and `effect.motion_progress_bar`, and no step emits a plan at all.
+The upper third's COPY has no producer, and that is an open captain decision (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`), not a value for the engine to invent.
+`input_contract` cannot see the two unread inputs - a deterministic step has no `context_fields`, so `_reaches_prompt` answers True for everything it declares. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+
 **Manifest validation has a semantic half.**
 `library/tools/manifest_validator.py` asserts distinct cut points, distributed SFX, distinct VFX ranges, B-roll differing from the A-roll it covers, no overlay overlaps, no repeated source audio across consecutive V1 clips, no zero-duration clips and no fabricated round-number source ranges.
 It does NOT check ducking curves.
@@ -721,7 +732,8 @@ Step 6.02 honours the same declaration by passing `declared_black_beat_ranges` i
 
 **Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
 One enumeration keyed by delivery format, insets stored as FRACTIONS so a 4K vertical or a small test frame needs no second row; an unknown format raises.
-Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth` props), `generate_motion_props`, `timed_text_overlay` (which refuses a card centred in the platform's UI band) and `plan_subtitles`' grouper. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth` props), `generate_motion_props`, `timed_text_overlay` (which refuses a card centred in the platform's UI band) and `plan_subtitles`' grouper.
+**Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included** - it sat at `bottom: 0`, `width: 100%` until #321, which on a 1080x1920 delivery is 320px inside the caption and audio-bar band, so it was rendered, composited onto V4 and covered by the platform's own interface. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
 - The subtitle style is resolved at the top of `generate_subtitles` and there is no blind path: `split_into_groups` raises without a `fits_fn`.
 - **A card fits the BOX, not one line.** The overlay wraps (`flexWrap`), so `fits_in_box`/`MAX_CAPTION_LINES` is the test; grouping against one line halves the words on every card and therefore halves how long each is on screen. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)

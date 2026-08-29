@@ -3422,6 +3422,148 @@ The full re-measurement of all eight families the map listed, with a
 recommendation per remaining field, is in
 [`docs/UNREAD_DECISIONS_INVENTORY.md`](UNREAD_DECISIONS_INVENTORY.md).
 
+---
+
+## the-motion-graphics-that-were-planned-and-absent
+
+The captain, 2026-08-21: *"the motion graphics don't load, there are not any
+like title cards or cool edits and whatnot, so i want the end product to be a
+fully finished video before we say we are done."*  Still true on 2026-08-29,
+and the brief that authorised this fix listed four candidate causes: the plan
+not reaching the renderer, the renderer failing, the render succeeding and
+never being composited, or a composite with a broken alpha.
+
+It is a fifth.  **There is no plan.**
+
+### The reproduction, before anything was changed
+
+Step 4.06 run exactly as the runner runs it - stdin JSON in, stdout JSON out -
+against project 001's frozen `pipeline_data.json`, into a throwaway project
+folder, at 89c796b:
+
+```
+── step 4.06 stderr ──
+No motion graphics to draw: all 11 resolved props have no upper-third text,
+no accents and no progress bar. Skipping the render.
+── step 4.06 motion_graphics_overlay ──
+{ "declared": false, "segments": [], "total_segments": 0,
+  "reason": "all 11 resolved motion graphics props draw nothing: ..." }
+── files written to the motion graphics area ──
+(directory does not exist)
+```
+
+And the run of record agrees - `step_outputs.render.render_output.tracks`:
+
+```
+{"V1": 11, "A1": 11, "V2": 7, "V3": 11, "A2": 1, "A3": 2}
+```
+
+**No V4 at all.**  Eleven subtitle segments on V3, eleven A-roll clips, seven
+cutaways, and not one motion graphic in 54.87 seconds.
+
+### Which stage breaks
+
+Not the renderer, not the compositor, not the alpha.  Each of those is proved
+working by the same evidence:
+
+* **The renderer works.** A single `MotionGraphics` composition at 320x568 for
+  24 frames renders in **3.4 s wall** and the ProRes 4444 carries real alpha -
+  8,585 pixels above the alpha floor on frame 12, in the declaring template's
+  own `#ff0055`, over a transparent field.
+* **The compositor works.** The 2026-08-20 run placed eight segments on V4 and
+  `render.json` recorded `"V4": 8`.
+* **The alpha was never broken.** Those eight files had `max(alpha) == 0` on
+  every frame because the composition was handed nothing to draw, not because
+  the channel was wrong.
+
+The break is that **nothing decides what a motion graphic is**:
+
+* `generate_motion_props` takes `enhancement_spec` and `creative_direction`,
+  both declared REQUIRED by the step's manifest and both routed by the DAG,
+  and reads neither.  Step 4.03 emits `{"visual_effects": []}` and nothing
+  else; step 2.01's eight fields are prose about mood and narrative.
+* `library/tools/input_contract.py` cannot see it.  A deterministic step
+  declares no `context_fields`, so `_reaches_prompt` answers True for every
+  input, `consumed` is `code_reads or prompt_reads`, and both rows report
+  `consumed: code, prompt`.
+* So the entire vocabulary a step could ask the renderer for is two
+  brand-template booleans, `motion_accents` and `motion_progress_bar` - and no
+  step asks.  `library/tools/motion_graphics_vocabulary.py` (#329) is the
+  roster of what SHOULD exist and is deliberately not wired; four of its
+  fifteen entries are `reachable_now`.  001 names no brand template, and a
+  project that names none gets nothing (section 10.1) - so it gets no motion
+  graphics, and correctly so.
+* The upper third has never carried a word and structurally could not.  #320
+  removed the four dead `creative_direction` reads; **who produces the copy is
+  an open captain decision** and the engine may not answer it by inventing one.
+
+### Two defects in the path itself, both fixed here
+
+**The progress bar was drawn under the platform's own interface.**  It sat at
+`bottom: 0`, `width: 100%` - the last literal margin left in
+`MotionGraphics/index.tsx` after #153 put the corner accents on the insets, and
+contradicting that file's own docstring claim that every element is positioned
+from the safe area.  `safe_area.py` records the bottom inset as **320px of
+captions, CTA, hashtags and audio bar** on 1080x1920, so a 12px bar at row 1908
+was rendered, composited onto V4, and covered.  Measured on the fixture render,
+before and after:
+
+```
+before: the bar's widest row is 547 of 568   (inside the 95px inset)
+after:  the bar's widest row is 462 of 568   (rows 461..472, at the inset)
+```
+
+And at the real delivery frame, one 48-frame proof render, **4.19 s wall**:
+
+```
+size 1080x1920   safeArea {top 120, right 120, bottom 320, left 90}
+widest accent row  1589 of 1920, spanning 888 of 1080 px   (bar rows 1588..1599)
+lowest lit row     1611 of 1920                            (the bar's 16px glow)
+lit pixels         34,156 of 2,073,600  = 1.6%             (alpha is real)
+```
+
+Before the fix that row was **1908** - 308px inside the band the platform
+paints over.
+
+**A segment the manifest named and disk did not have was a `logger.warning`,**
+while the identical case for timed text raised.  Every overlay is additive: the
+picture underneath an absent one is intact, the build succeeds and the export
+is a valid video of the right length, so nothing downstream can tell a planned
+graphic that landed from one that did not.  Both, and subtitles, now go through
+`compile_manifest.assert_overlay_segments_on_disk` at the same severity.
+
+### And one lie in the props file
+
+`show_upper_third` was `block_type == "hook" or (speech and block_idx <= 2)` -
+"the title card belongs on the hook and the first two body passages", a
+creative judgement taken by that file on behalf of nobody (section 10.5).  It
+also wrote `showUpperThird: true` beside `title: ""` into every props file on
+disk, which is what made eight fully transparent renders read like eight
+delivered graphics.  The flag now follows the copy and nothing else.
+
+### Not the same root cause as #202
+
+Issue #202 - `zoom_blur` held for a whole clip, and 331 frames carrying
+full-strength defocus nobody planned - is a **Fusion** defect: a per-clip
+`.comp` whose animation range is not clamped to the transition's frames and
+whose Background does not cover the source, imported onto an existing timeline
+clip with `ImportFusionComp`.
+
+Motion graphics share none of it.  They are rendered by **Chromium under
+Remotion** into standalone ProRes 4444 files and placed as their own clips on
+V4; `grep -rn fusion` over the whole 4.06 path -
+`step_4_06_render_motion_graphics/`, `timed_text_render.py`,
+`bookend_render.py`, `compositions/MotionGraphics/` - returns nothing.  There
+is no `.comp`, no `GlobalIn`/`GlobalOut`, and no source-versus-timeline frame
+mapping to get wrong: each segment's clock is its own `durationInFrames`.
+
+The two share a FAMILY - a capability advertised, planned and never verified in
+pixels - and not a cause.  The remedy is the same shape in both cases and is
+what #202 itself asks for: a bounded fixture render that reads the frames back.
+`tests/test_motion_graphics_delivery.py` is that test for V4.
+
+---
+
 ## the-roster-nobody-wrote-down
 
 Evidence for AGENTS.md §16.

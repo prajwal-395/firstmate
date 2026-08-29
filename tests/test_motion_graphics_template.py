@@ -59,6 +59,11 @@ def props(**kw):
 
 ON = {"motion_accents": True, "motion_progress_bar": True}
 
+# A palette to go with ON: enabling the accents without one is refused
+# by design (MissingAccentColor), so a test about a different element
+# still has to supply it.
+PALETTE = {"color_palette": ["#ff0055", "#ffffff", "#000000"]}
+
 
 def test_accent_comes_from_the_brand_palette():
     got = props(brand_style={"color_palette": ["#ff0055", "#ffffff", "#000000"]},
@@ -162,9 +167,36 @@ def test_the_two_elements_are_independent():
 
 
 def test_the_upper_third_is_unaffected_by_the_accent_flags():
-    """It is a different element and it is not part of Q3."""
-    got = props()
-    assert any(p["showUpperThird"] for p in got)
+    """It is a different element and it is not part of Q3.
+
+    Independent in BOTH directions: turning the accents on does not
+    raise the upper third, and turning them off does not lower it. What
+    the flag follows is the copy - and nothing declares the copy, so it
+    is False either way. It used to be True on the hook and the first
+    two speech blocks, from a rule this file wrote, beside a `title` of
+    "" that could never fill it.
+    """
+    assert not any(p["showUpperThird"] for p in props())
+    assert not any(p["showUpperThird"] for p in props(
+        brand_style=PALETTE, brand_effect=ON))
+
+
+def test_the_upper_third_is_never_claimed_without_copy():
+    """The flag and the copy agree on every block, whatever is declared.
+
+    This is the invariant, not the current value: `showUpperThird` is
+    true exactly when there is a word to draw. It holds today because
+    nothing declares the copy (an open captain decision - see
+    generate_motion_props), and it is what stops the props file on disk
+    claiming an element the composition draws as an empty div, which is
+    how eight fully transparent 001 renders read as eight delivered
+    graphics.
+    """
+    for effect in ({}, ON, {"motion_accents": True},
+                   {"motion_progress_bar": True}):
+        for p_ in props(brand_style=PALETTE, brand_effect=effect):
+            assert p_["showUpperThird"] == bool(
+                str(p_["title"]).strip() or str(p_["subtitle"]).strip()), p_
 
 
 def test_the_upper_third_stays_legible_with_no_palette():
