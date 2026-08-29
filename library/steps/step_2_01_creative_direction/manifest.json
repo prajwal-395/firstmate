@@ -107,6 +107,7 @@
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.content_type",
     "semantic_analysis_documents.*.assessment.usable_ranges",
+    "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "view:picture",
     "view:transcript",
     "view:prosody",

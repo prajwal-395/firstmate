@@ -1,0 +1,230 @@
+"""No assessment field reports a default as though it were measured.
+
+The family, found one field at a time:
+
+- ``camera_stability`` read back as the literal ``"unknown"`` while
+  ``camera[]`` held the answer (#273, read-side).
+- ``usable_ranges`` asserting ``[[0, duration]]`` while the three fields
+  beside it said nobody looked (#248, producer side).
+- ``speech_coverage: 0.0`` with ``speech_coverage_method:
+  "temporal_index"`` whenever the temporal index carried no speech
+  regions - and ``speech_present: False`` beside it. On project 001 that
+  is 17 of 17 clips, 10 of them talking to camera.
+- ``primary_subject_visible: []`` when the model answered without the key.
+- ``clip_type: "b_roll"`` derived from a ``content_type`` of ``"unknown"``.
+
+This file is the sweep, kept executable: the deterministic half of the
+assessment is computed with nothing to measure, and every field it
+produces has to be an admitted absence rather than a value.
+"""
+
+import pytest
+
+from library.tools.analysis.vision_pipeline_v3 import (
+    analyze_assessment,
+    compute_deterministic_assessment,
+)
+from library.tools.semantic_index import clip_observations
+from library.tools.vision_schema_adapter import (
+    UNMEASURED_SUMMARY,
+    adapt_semantic_document,
+    usable_ranges_summary,
+)
+
+try:                                              # analyze_assessment only
+    from unittest.mock import MagicMock
+except ImportError:                               # pragma: no cover
+    MagicMock = None
+
+
+# Every value that reads as "nothing measured this". A field of the
+# deterministic assessment must hold one of these when nothing did.
+ADMITTED_ABSENCES = (None, "unknown", "unmeasured", "", [], {})
+
+
+def _index_without_speech(duration=188.578):
+    """A temporal index that exists and measured no speech.
+
+    `detect_speech_regions` returns `[]` both when WhisperX ran and heard
+    nothing and when WhisperX raised, so `[]` is not a measurement of
+    silence and nothing here may read it as one.
+    """
+    return {"duration_s": duration, "speech_regions": []}
+
+
+# ── The sweep ───────────────────────────────────────────────────────────
+
+def test_no_deterministic_field_holds_a_value_when_nothing_measured():
+    """The whole assessment, computed with nothing to measure."""
+    result = compute_deterministic_assessment(
+        _index_without_speech(), transcript="", duration=188.578)
+
+    reported = {
+        key: value for key, value in result.items()
+        if value not in ADMITTED_ABSENCES
+    }
+    assert not reported, (
+        f"these assessment fields claim a value nothing measured: {reported}"
+    )
+
+
+def test_the_same_holds_with_no_temporal_index_at_all():
+    result = compute_deterministic_assessment(
+        None, transcript="", duration=188.578)
+    reported = {
+        key: value for key, value in result.items()
+        if value not in ADMITTED_ABSENCES
+    }
+    assert not reported, reported
+
+
+# ── speech_coverage / speech_present ────────────────────────────────────
+
+def test_an_empty_region_list_is_not_zero_speech():
+    result = compute_deterministic_assessment(
+        _index_without_speech(), transcript="", duration=188.578)
+
+    assert result["speech_coverage"] is None, (
+        "0.0 reports 'this clip has no speech' as a measured fact; an "
+        "empty speech_regions list is also what a WhisperX failure leaves"
+    )
+    assert result["speech_coverage_method"] == "unmeasured"
+    assert result["speech_present"] is None
+
+
+def test_speech_present_is_never_false():
+    """False is a claim of silence, and nothing here can measure one."""
+    for transcript in ("", "   ", None):
+        for index in (None, {}, _index_without_speech()):
+            result = compute_deterministic_assessment(
+                index, transcript=transcript, duration=10.0)
+            assert result["speech_present"] is not False
+
+
+def test_a_transcript_alone_measures_presence_and_not_coverage():
+    result = compute_deterministic_assessment(
+        _index_without_speech(duration=10.0),
+        transcript="i can feel the silent judgment", duration=10.0)
+
+    assert result["speech_present"] is True
+    assert result["speech_coverage"] is None, (
+        "one string of words carries no timings, so how much of the clip "
+        "is speech is still unmeasured")
+    assert result["speech_coverage_method"] == "unmeasured"
+
+
+def test_regions_measure_both_and_say_which_measured_them():
+    index = {"duration_s": 10.0,
+             "speech_regions": [{"start": 1.0, "end": 6.0}]}
+    result = compute_deterministic_assessment(index, "", duration=10.0)
+
+    assert result["speech_present"] is True
+    assert result["speech_coverage"] == 0.5
+    assert result["speech_coverage_method"] == "temporal_index"
+
+
+def test_regions_without_a_duration_measure_presence_only():
+    index = {"speech_regions": [{"start": 1.0, "end": 6.0}]}
+    result = compute_deterministic_assessment(index, "", duration=0)
+
+    assert result["speech_present"] is True
+    assert result["speech_coverage"] is None
+    assert result["speech_coverage_method"] == "unmeasured"
+
+
+# ── primary_subject_visible ─────────────────────────────────────────────
+
+def _assessment_from_model(answer):
+    analyzer = MagicMock()
+    analyzer.analyze_with_retry.return_value = (answer, "", 0.0)
+    assessment, _ = analyze_assessment(
+        analyzer, "clip.mov", 10.0,
+        {"speech_present": None, "camera_stability": "unknown"})
+    return assessment
+
+
+def test_an_answer_without_the_key_is_not_an_answer_of_nowhere():
+    assessment = _assessment_from_model({"content_type": "scenery"})
+    assert assessment["primary_subject_visible"] is None, (
+        "[] says 'the subject appears nowhere in this clip', and the "
+        "model did not say that - it said nothing")
+
+
+def test_an_answer_of_empty_is_kept_because_the_model_made_it():
+    assessment = _assessment_from_model(
+        {"content_type": "scenery", "primary_subject_visible": []})
+    assert assessment["primary_subject_visible"] == []
+
+
+# ── usable_ranges: the display reads the method, not the ranges ─────────
+
+STALE_001_ASSESSMENT = {
+    # Exactly the shape every one of 001's 17 documents carries.
+    "usable_ranges": [[0, 3.567]],
+    "unusable_ranges": [],
+    "usable_ranges_method": "unmeasured",
+    "usable_ranges_signals": [],
+    "content_type": "scenery",
+}
+
+
+def test_a_range_beside_an_unmeasured_method_reads_as_unmeasured():
+    assert usable_ranges_summary(STALE_001_ASSESSMENT) == UNMEASURED_SUMMARY
+
+
+def test_a_measured_range_still_renders_as_a_range():
+    measured = dict(STALE_001_ASSESSMENT,
+                    usable_ranges_method="deterministic_v1",
+                    usable_ranges_signals=["picture_sharpness"])
+    assert usable_ranges_summary(measured) == "0.0-3.5s"
+
+
+def test_the_broll_candidate_cell_says_unmeasured():
+    """The cell the B-roll selector cut project 001's first interjection on."""
+    doc = {
+        "clip_id": "clip_001",
+        "vision_schema_version": "3.0",
+        "scene": [{"type": "exterior", "start": 0, "end": 3.5,
+                   "description": "a street corner"}],
+        "camera": [{"framing": "wide", "stability": "shaky",
+                    "movement": "panning_right"}],
+        "actions": [],
+        "objects": [],
+        "assessment": dict(STALE_001_ASSESSMENT),
+    }
+    assert clip_observations(doc)["usable_ranges"] == UNMEASURED_SUMMARY
+
+
+def test_a_stale_usable_portions_string_is_replaced_not_deferred_to():
+    doc = {
+        "clip_id": "clip_001",
+        "vision_schema_version": "3.0",
+        "scene": [], "camera": [], "actions": [], "objects": [],
+        "assessment": dict(STALE_001_ASSESSMENT, usable_portions="0.0-3.5s"),
+    }
+    adapted = adapt_semantic_document(doc)
+    assert adapted["assessment"]["usable_portions"] == UNMEASURED_SUMMARY
+
+
+# ── clip_type ───────────────────────────────────────────────────────────
+
+def test_an_unknown_content_type_derives_no_clip_type():
+    doc = {
+        "clip_id": "clip_001",
+        "vision_schema_version": "3.0",
+        "scene": [], "camera": [], "actions": [], "objects": [],
+        "assessment": {"content_type": "unknown"},
+    }
+    adapted = adapt_semantic_document(doc)
+    assert "clip_type" not in adapted["assessment"], (
+        "b_roll would classify a clip nothing classified")
+
+
+def test_a_measured_content_type_still_derives_one():
+    doc = {
+        "clip_id": "clip_001",
+        "vision_schema_version": "3.0",
+        "scene": [], "camera": [], "actions": [], "objects": [],
+        "assessment": {"content_type": "person_talking_to_camera"},
+    }
+    assert adapt_semantic_document(doc)["assessment"]["clip_type"] == "a_roll"

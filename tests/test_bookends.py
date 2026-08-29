@@ -35,6 +35,7 @@ from library.tools.bookends import (
     BOOKEND_SLOTS,
     MAX_BOOKEND_SECONDS,
     BookendDeclarationError,
+    InventedBookendBlock,
     block_bookend,
     bookend_blocks,
     bookend_render_path,
@@ -256,37 +257,83 @@ def test_a_declared_intro_shifts_the_whole_edit():
         assert after["timeline_end"] == before["timeline_end"] + 3.0
 
 
-def test_a_card_the_llm_invented_is_dropped():
-    """Which card a video shows is a brand decision, not a per-run one."""
+def test_a_card_the_llm_invented_refuses_the_step():
+    """Which card a video shows is a brand decision, not a per-run one.
+
+    It used to be dropped with a line on stderr. The plan around a card is
+    written knowing the card is there, so the drop shipped an edit
+    designed for a moment it no longer had, and nothing said so.
+    """
     spine = _speech_spine()
     spine["structure"].append({
         "position": "outro", "block_type": "end_card",
         "content": {}, "duration_seconds": 6.0,
     })
+    with pytest.raises(InventedBookendBlock) as exc:
+        enrich_spine(
+            spine, _speech_sequence(), {},
+            {"brand_content": {}, "project_config": SPEECH_ONLY_TARGET},
+        )
+    # By name: which block, and which type.
+    assert "'outro'" in str(exc.value)
+    assert "'end_card'" in str(exc.value)
+
+
+def test_the_refusal_names_every_invented_card_not_just_the_first():
+    spine = _speech_spine()
+    spine["structure"].insert(0, {
+        "position": "opening", "block_type": "intro_card",
+        "content": {}, "duration_seconds": 3.0,
+    })
+    spine["structure"].append({
+        "position": "closing", "block_type": "end_card",
+        "content": {}, "duration_seconds": 6.0,
+    })
+    with pytest.raises(InventedBookendBlock) as exc:
+        enrich_spine(
+            spine, _speech_sequence(), {},
+            {"brand_content": {}, "project_config": SPEECH_ONLY_TARGET},
+        )
+    message = str(exc.value)
+    assert "'opening'" in message and "'closing'" in message
+    assert "2 card block(s)" in message
+
+
+def test_a_breath_of_music_is_not_a_card_and_is_kept():
+    """`intro` and `outro` are the plan's own non-speech beats.
+
+    The refusal is on `intro_card`/`outro_card`/`end_card` only. An
+    `intro` block is a breath of music and B-roll, which the handoff's
+    block-type table offers and the spine contract carries.
+    """
+    spine = _speech_spine()
+    spine["structure"].insert(1, {
+        "position": 1, "block_type": "intro",
+        "content": {}, "duration_seconds": 2.0,
+        "music_behavior": "prominent",
+    })
     structure = enrich_spine(
         spine, _speech_sequence(), {},
-        {"brand_content": {}, "project_config": SPEECH_ONLY_TARGET},
+        {"brand_content": {},
+         "project_config": {"target_duration_seconds": 9.0}},
     )["audio_spine"]["structure"]
-    assert [b["block_type"] for b in structure] == ["hook", "speech"]
+    assert [b["block_type"] for b in structure] == ["hook", "intro", "speech"]
 
 
-def test_a_declared_card_replaces_an_invented_one():
+def test_a_declared_card_does_not_excuse_an_invented_one():
+    """The declaration is a separate thing; the plan still wrote a card."""
     spine = _speech_spine()
     spine["structure"].append({
         "position": "outro", "block_type": "end_card",
         "content": {}, "duration_seconds": 6.0,
     })
-    structure = enrich_spine(
-        spine, _speech_sequence(), {},
-        {"brand_content": END_CARD_DECLARATION,
-         "project_folder": "/projects/lucie",
-         "project_config": SPEECH_ONLY_TARGET},
-    )["audio_spine"]["structure"]
-    cards = bookend_blocks(structure)
-    assert len(cards) == 1
-    assert cards[0]["duration_seconds"] == 5.0
-    assert block_bookend(cards[0])["asset_path"] == \
-        "/projects/lucie/assets/end_card.mov"
+    with pytest.raises(InventedBookendBlock):
+        enrich_spine(
+            spine, _speech_sequence(), {},
+            {"brand_content": END_CARD_DECLARATION,
+             "project_folder": "/projects/lucie",
+             "project_config": SPEECH_ONLY_TARGET},
+        )
 
 
 def test_a_card_does_not_spend_the_duration_target():

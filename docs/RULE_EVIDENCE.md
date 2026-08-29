@@ -2659,3 +2659,163 @@ the same reasons independently:
 table (lines 28-33) still name `foley`, `ambient` and `reverse_cymbal`. After this change they name
 nothing the model can emit - the schema asks for an `sfx_id` out of `sfx_catalog_toon` - but the
 table reads as a menu and should be corrected by whoever holds that file.
+
+## no-assessment-field-reports-a-default
+
+Rule: AGENTS.md §10.3, "No assessment field reports a default as though it were measured".
+
+### The family, and how it was found
+
+Three separate fixes, each found by noticing one field:
+
+| found | field | what it asserted | fix |
+|---|---|---|---|
+| #273 | `camera_stability` | the literal `"unknown"` won over `camera[].stability`, which had the answer | read-side fall-through |
+| #248 | `usable_ranges` | `[[0, duration]]` beside `usable_ranges_method: "unmeasured"` | producer |
+| #301 | `speech_coverage`, `speech_present`, `primary_subject_visible`, `clip_type` | below | producer + read-side |
+
+Each was found one at a time, which is why `tests/test_assessment_reports_no_default_as_measured.py`
+computes the whole deterministic assessment with nothing to measure and asserts that NO field holds a
+value, rather than naming the four that were known.
+
+### `speech_coverage: 0.0` was a fabricated claim on 17 of 17 clips of 001
+
+`compute_deterministic_assessment` initialised `speech_coverage: 0.0` with
+`speech_coverage_method: "temporal_index"` and only overwrote it when `speech_regions` was non-empty.
+The function got the same question right one branch above - with no temporal index at all it wrote
+`None` / `"unmeasured"`, and its own docstring said why - and the reasoning was simply not applied to
+the empty-list case.
+
+Measured on 001's stored `semantic_analysis` (17 documents, 2026-08-17):
+
+```
+assessment.speech_coverage == 0.0       17 of 17   (10 of them person_talking_to_camera)
+assessment.speech_present  == False     17 of 17
+assessment.speech_coverage_method       absent on 17 of 17 - the number stood alone
+```
+
+An empty `speech_regions` list cannot be read as silence: `detect_speech_regions` returns `[]` both
+when WhisperX ran and heard nothing and when WhisperX raised inside its own `try`, and the two are
+indistinguishable from the caller. So the fields start unmeasured and only evidence promotes them:
+regions measure presence and coverage, a transcript measures presence alone. `speech_present` is now
+`True` or `None` and never `False`.
+
+Nothing acted on the number. Its one code reader is the per-clip summary line in `analyze_clip`,
+which already printed `unmeasured` for `None`; step 2.02's manifest routes it to a prompt.
+
+### `primary_subject_visible: []` when the model answered without the key
+
+`analyze_assessment` already carried `None` for a call that produced nothing, with a comment saying
+`[]` is a claim - "the subject appears nowhere in this clip". One level in, `result.get(key, [])`
+made that same claim whenever the model answered `content_type` and omitted the key. `[]` the model
+really returned is kept; an absent key is `None`. On 001, `primary_subject_visible == []` on 4 of 17
+and the archive does not record which of the two produced it.
+
+### `clip_type` classified a clip nothing classified
+
+`_derived_clip_type` returned `b_roll` for any `content_type` that is not a talking-head type,
+including `"unknown"` - the value `analyze_assessment` writes precisely when the model call failed.
+On 001 that costs nothing (`content_type` is real on 17 of 17), but it is the same shape, so an
+unknown `content_type` now derives no `clip_type` at all.
+
+### The stale state: what a re-run of 1.03 would and would not fix
+
+001's `semantic_analysis` last ran 2026-08-17 and was NOT re-run for this change. The deterministic
+half is a pure function, so what a re-run would now record was computed against the temporal index on
+disk today (17 files) without running anything:
+
+```
+                              stored (2026-08-17)     a re-run today
+speech_present   True                 0/17                12/17
+                 False               17/17                 0/17
+                 None                 0/17                 5/17
+speech_coverage  a number            17/17 (all 0.0)      12/17 (0.08 - 0.93)
+                 None                 0/17                 5/17
+usable_ranges_method  unmeasured     17/17                 0/17
+                      deterministic_v1 0/17               17/17
+camera_stability      unknown        17/17                 0/17
+```
+
+Per clip, the ranges a re-run would record (temporal index only; the picture-sharpness signal would
+narrow them further):
+
+```
+clip_002  [[0, 17.103]]   -> [[0.0, 6.633], [7.8, 17.103]]
+clip_007  [[0, 139.132]]  -> [[4.574, 139.132]]
+clip_008  [[0, 9.068]]    -> [[3.251, 6.761]]
+clip_014  [[0, 4.7]]      -> []              nothing in this clip is usable
+the other 13              -> unchanged bounds, but MEASURED
+```
+
+What a re-run would NOT fix:
+
+- **`transcript` stays `""` on 17 of 17.** `load_transcript_text`'s first strategy reads only
+  `<project>/raw/analysis/temporal_index/`, the pre-layout location; `load_temporal_index` was moved
+  onto `pipeline_output/steps/1_04_temporal_index/index/` and this function was not. 001 has no
+  `raw/analysis/temporal_index` directory at all. It costs nothing for `speech_present`, which now
+  reads the regions directly, but the per-window action prompts are still told "(No speech in this
+  segment.)" for every window of every clip. Reported, not fixed - fixing it changes what the vision
+  model is shown.
+- The model half - `content_type`, `primary_subject_visible` - needs the VLM and cannot be projected.
+- Nothing downstream of 1.03 is re-decided by a re-run of 1.03 alone.
+
+### The display was the other half, and it works without a re-run
+
+`usable_ranges_summary` returned the "unmeasured" wording only when `usable_ranges` was EMPTY, so a
+stale document rendered its range and the contradiction disappeared. Measured on 001's real state
+through the real step 3.02 bridge, the `usable_range` column of `broll_candidates_toon`:
+
+```
+before   clip_001  '0.0-3.5s'      ... 17 rows of a range, on 17 documents that measured nothing
+after    clip_001  'unmeasured - nothing measured this clip'   ... 17 of 17
+```
+
+`adapt_semantic_document` likewise REPLACES a stored `usable_portions` when the method says
+unmeasured, instead of deferring to it - 001 carries one on 17 of 17.
+
+The four manifests routing `assessment.usable_ranges` raw into a prompt now route
+`usable_ranges_method` beside it, and 2.02 routes `speech_coverage_method` beside `speech_coverage`.
+An allow-list selects by name and cannot tell a measurement from a default; the method is what tells
+them apart, and on 001's stale documents it is present and says `unmeasured` on 17 of 17.
+
+## the-card-that-vanished-into-a-log-line
+
+Rule: AGENTS.md §13, "A card the PLAN wrote REFUSES the step, by name".
+
+Step 2.05's post-bridge dropped any `intro_card` / `outro_card` / `end_card` block the plan wrote,
+with a line on stderr. The model answering 2.05 on the 2026-08-26 run of 001 found it and named the
+consequence:
+
+> "an agent that obeyed the structural rule literally would have written an `intro` block, had it
+> dropped, and shipped a video that cuts from the hook straight into the body with no breath - and
+> the drop is a log line, not an error, so nothing would have said so."
+
+The plan around a card is written knowing the card is there. Removing the card and keeping the plan
+ships an edit designed for a moment it no longer has, and a warning forty minutes into an unattended
+`--full-auto` run is read by nobody - the same reasoning that makes `guard_timeline_deletion` refuse
+rather than warn (§15). `bookends.assert_no_invented_bookends` now raises `InventedBookendBlock`
+naming every offending block, its position and its type, the shape `UnplayableSfxPlan` uses in 4.04.
+
+Nothing legitimate is refused by it: no fixture, template or captured run carries an LLM-written card
+block, and a DECLARED card is inserted after the check.
+
+### The contradiction, and where it actually lives
+
+The frozen `handoff.md` is internally consistent at HEAD. Its block-type table (lines 57-60) offers
+`intro` and `outro`, and lines 62-70 say plainly that `intro_card` / `outro_card` / `end_card` are
+cards, are dropped, and that "an `intro` block is still yours". Line 80's structural rule agrees.
+
+The contradiction was in `library/steps/step_2_05_mesh_spine/manifest.json`,
+`interface.llm_outputs[0].description` - which is not frozen, and which `present_llm_step` injects as
+the output schema, so the model reads it as the authority. It said:
+
+> block_type ("hook"|"speech"|"transition_slot") ... Do NOT write "intro", "outro" or "end_card"
+> blocks: those come from the brand template's content.bookends and the bridge drops any the plan
+> invents
+
+Both halves were wrong about the code. The enum omitted `intro` and `outro`, which the handoff's own
+table offers and `spine_contract` carries as first-class non-speech types. And the bridge never
+dropped `intro` or `outro`: `BOOKEND_BLOCK_TYPES` is `("intro_card", "outro_card", "end_card")`, so
+an `intro` block written on the strength of line 80 passed straight through the `else` branch of
+`enrich_spine` and became a real pacing beat. The description now names the real vocabulary and the
+real refusal.

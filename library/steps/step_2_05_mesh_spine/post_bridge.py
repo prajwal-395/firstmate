@@ -38,6 +38,7 @@ from library.tools.spine_contract import (
     validate_spine_blocks,
 )
 from library.tools.bookends import (
+    assert_no_invented_bookends,
     declared_bookends,
     insert_bookend_blocks,
     resolve_bookend,
@@ -168,24 +169,14 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     # nothing adds nothing here, which is every template unless someone
     # opted in. The LLM never writes these blocks: the card a video shows
     # is a brand decision, and inventing one per run is how a client's end
-    # card ends up on a series video. A planned intro/outro block with no
-    # declaration behind it is dropped OUT LOUD - left in, it would be a
-    # stretch of timeline with no clip under it, and the coverage
-    # assertion in compile_manifest would report it as a hole with its
-    # cause three steps behind it.
-    for b in enriched_blocks:
-        if b.get("block_type") in BOOKEND_BLOCK_TYPES:
-            print(
-                f"  Dropped planned {b['block_type']} block "
-                f"[{b.get('position')}]: intros, outros and end cards come "
-                f"from the brand template's content.bookends, not from the "
-                f"spine plan",
-                file=sys.stderr,
-            )
-    enriched_blocks = [
-        b for b in enriched_blocks
-        if b.get("block_type") not in BOOKEND_BLOCK_TYPES
-    ]
+    # card ends up on a series video.
+    #
+    # A planned card block REFUSES the step, by name. It used to be
+    # dropped with a line on stderr, and a log line is read by nobody
+    # forty minutes into an unattended run - the plan around the card was
+    # written knowing the card was there, so the drop shipped an edit
+    # designed for a moment it no longer had.
+    assert_no_invented_bookends(enriched_blocks)
     resolved_bookends = [
         resolve_bookend(d, (data or {}).get("project_folder", ""))
         for d in declared_bookends((data or {}).get("brand_content"))

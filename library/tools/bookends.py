@@ -96,6 +96,52 @@ class BookendDeclarationError(ValueError):
     """A template's `content.bookends` declaration is malformed."""
 
 
+class InventedBookendBlock(ValueError):
+    """The spine plan wrote a card block, which is not its to write.
+
+    Raised at PLAN time, from step 2.05, with every offending block named.
+    It is not a warning and it is not a per-block drop: the plan around a
+    card is written knowing the card is there, so removing the card and
+    keeping the plan ships an edit that was designed for a moment it no
+    longer has.  Project 001's spine plan was one sentence away from
+    exactly that - the model reported that a literal reading of its own
+    prompt would have had it write a block, watched it vanish into a log
+    line, and ship a video with a hole where the breath was.
+
+    The same shape as `UnplayableSfxPlan` in step 4.04: a plan naming
+    something the pipeline will not deliver fails whole and by name,
+    where it was written.
+    """
+
+
+def assert_no_invented_bookends(blocks: list) -> None:
+    """Refuse a spine plan that wrote its own intro / outro / end card.
+
+    Which card a video shows is a brand decision (`content.bookends`), not
+    a per-run one, so `BOOKEND_BLOCK_TYPES` is the plan's to READ and
+    never to WRITE.  A declared card reaches the spine through
+    `insert_bookend_blocks`, after this check, and is unaffected.
+    """
+    invented = [b for b in (blocks or [])
+                if isinstance(b, dict)
+                and b.get("block_type") in BOOKEND_BLOCK_TYPES]
+    if not invented:
+        return
+    named = "\n  - ".join(
+        f"block {b.get('position')!r} is a {b['block_type']!r} block"
+        for b in invented
+    )
+    raise InventedBookendBlock(
+        f"the spine plan wrote {len(invented)} card block(s) it does not "
+        f"own:\n  - " + named
+        + "\nIntros, outros and end cards come from the brand template's "
+        "content.bookends and are placed around the spine; the block "
+        "types a plan may write are hook, speech, transition_slot, intro "
+        "and outro - where intro and outro are a breath of music and "
+        "B-roll, not a card. Rewrite the spine without these blocks."
+    )
+
+
 def declared_bookends(brand_content: dict[str, Any] | None) -> list[dict]:
     """Normalise a template's ``content.bookends`` into ordered declarations.
 

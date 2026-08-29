@@ -1011,10 +1011,23 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
     camera_stability, usable_ranges, unusable_ranges, usable_ranges_method,
     usable_ranges_signals.
 
-    When ``temporal_index`` is absent the speech fields are set to ``None``
-    with ``speech_coverage_method = "unmeasured"`` rather than asserting no
-    speech.  The vision model has no audio, so it cannot determine whether
-    speech is present; ``False`` / ``0.0`` would be a fabricated claim.
+    **No field here reports a default as though it were measured.**  The
+    vision model has no audio, so it cannot determine whether speech is
+    present; ``False`` / ``0.0`` would be a fabricated claim.  That was
+    applied when ``temporal_index`` was absent and not when it was present
+    and carried no speech regions - so an empty region list reported zero
+    speech as a measured fact, with ``speech_coverage_method`` already set
+    to ``"temporal_index"`` before anything had been measured.  On project
+    001 that is what put ``speech_coverage: 0.0`` on 17 of 17 clips,
+    including all 10 talking-to-camera ones.
+
+    An empty ``speech_regions`` list is NOT a measurement of silence:
+    ``step_1_04_temporal_index.detect_speech_regions`` returns ``[]`` both
+    when WhisperX ran and heard nothing and when WhisperX raised, and the
+    two are indistinguishable from here.  So the speech fields start
+    unmeasured and are only filled in by evidence: speech regions, or -
+    for presence alone - a transcript.  ``speech_present`` is therefore
+    ``True`` or ``None``, never ``False``.
     """
     if not temporal_index:
         result = {
@@ -1028,9 +1041,9 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
         return result
 
     result = {
-        "speech_present": bool(transcript and transcript.strip()),
-        "speech_coverage": 0.0,
-        "speech_coverage_method": "temporal_index",
+        "speech_present": None,
+        "speech_coverage": None,
+        "speech_coverage_method": "unmeasured",
         "camera_stability": "unknown",
     }
 
@@ -1043,13 +1056,24 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
     if not ti_duration:
         ti_duration = clip_duration
 
-    # Speech coverage
-    speech_regions = temporal_index.get("speech_regions", [])
-    if speech_regions and ti_duration > 0:
-        total_speech = sum(
-            r.get("end", 0) - r.get("start", 0) for r in speech_regions
-        )
-        result["speech_coverage"] = round(min(total_speech / ti_duration, 1.0), 2)
+    # Speech coverage.  Only evidence promotes these off "unmeasured":
+    # regions measure both presence and coverage, a transcript measures
+    # presence alone, and neither being there measures nothing at all.
+    speech_regions = temporal_index.get("speech_regions") or []
+    if speech_regions:
+        result["speech_present"] = True
+        if ti_duration > 0:
+            total_speech = sum(
+                r.get("end", 0) - r.get("start", 0) for r in speech_regions
+            )
+            result["speech_coverage"] = round(
+                min(total_speech / ti_duration, 1.0), 2)
+            result["speech_coverage_method"] = "temporal_index"
+    elif transcript and transcript.strip():
+        # Words were transcribed for this clip, so speech is present. They
+        # arrive here as one string with no timings, so how MUCH of the
+        # clip is speech stays unmeasured.
+        result["speech_present"] = True
 
     # Camera stability from optical flow variance
     camera_data = temporal_index.get("camera_motion", {})
@@ -1446,11 +1470,16 @@ def analyze_assessment(analyzer, video_path, duration, deterministic,
     # defect `usable_ranges: [[0, duration]]` was, inverted: an answer
     # asserted where no pass ran.  `content_type` says "unknown" for the
     # same reason.
+    #
+    # The same holds one level in: an answer that came back WITHOUT the
+    # key is not an answer of `[]` either, so the key's absence is carried
+    # as None.  A model that returned `[]` really did say the subject is
+    # nowhere, and that is kept.
     assessment = dict(deterministic)
     if result:
         assessment["content_type"] = result.get("content_type", "unknown")
         assessment["primary_subject_visible"] = result.get(
-            "primary_subject_visible", [])
+            "primary_subject_visible")
     else:
         assessment["content_type"] = "unknown"
         assessment["primary_subject_visible"] = None

@@ -95,7 +95,7 @@
         "name": "structure",
         "type": "list",
         "required": true,
-        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"transition_slot\") and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position. Do NOT write \"intro\", \"outro\" or \"end_card\" blocks: those come from the brand template's content.bookends and the bridge drops any the plan invents"
+        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"transition_slot\"|\"intro\"|\"outro\" - the handoff's own block-type table) and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position. Do NOT write \"intro_card\", \"outro_card\" or \"end_card\" blocks: those are CARDS, they come from the brand template's content.bookends, and the bridge REFUSES the step by name if the plan writes one. \"intro\" and \"outro\" are not cards - they are a breath of music and B-roll, they are yours to write, and nothing drops them."
       }
     ]
   },
@@ -160,6 +160,7 @@
     "semantic_analysis_documents.*.assessment.content_type",
     "semantic_analysis_documents.*.assessment.clip_type",
     "semantic_analysis_documents.*.assessment.keywords",
-    "semantic_analysis_documents.*.assessment.usable_ranges"
+    "semantic_analysis_documents.*.assessment.usable_ranges",
+    "semantic_analysis_documents.*.assessment.usable_ranges_method"
   ]
 }

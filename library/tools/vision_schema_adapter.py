@@ -281,6 +281,16 @@ def usable_ranges_summary(assessment) -> str:
       words.  It used to render as the empty string, indistinguishable
       from a document that carries no such field at all.
 
+    **The method decides, not the ranges.**  A document whose method says
+    ``unmeasured`` while ``usable_ranges`` holds ``[[0, duration]]`` is a
+    contradiction the producer stopped writing in #248, and it is what
+    every project analysed before that still carries: on 001 it is 17 of
+    17 clips.  Rendering the range made the stale assertion read as a
+    measurement - ``usable_range: 0.0-3.5s`` - which is the field the
+    B-roll selector cut its first interjection out of.  Reading the method
+    first is the same read-side correction ``stability_summary`` makes for
+    ``camera_stability`` (#273); neither writes to the stored document.
+
     A document with NO ``usable_ranges_method`` at all is a legacy one,
     and renders empty so `semantic_index` can fall back to its
     ``usable_portions`` prose.
@@ -288,9 +298,9 @@ def usable_ranges_summary(assessment) -> str:
     if not isinstance(assessment, dict):
         return ""
     method = assessment.get("usable_ranges_method")
-    text = format_ranges(assessment.get("usable_ranges"))
-    if not text and method == "unmeasured":
+    if method == "unmeasured":
         return UNMEASURED_SUMMARY
+    text = format_ranges(assessment.get("usable_ranges"))
     if text or method != "deterministic_v1":
         return text
     reasons = []
@@ -322,8 +332,14 @@ def _derived_clip_type(assessment: dict) -> str:
 
     A rendering of `content_type`, not a new judgement - the retired
     schema's `clip_type` carried exactly this distinction.
+
+    `""` when `content_type` is absent or `"unknown"`, because a
+    rendering of an absent measurement is not a measurement either:
+    answering `b_roll` there would classify a clip nothing classified.
     """
     content_type = str(assessment.get("content_type") or "").lower()
+    if not content_type or content_type == "unknown":
+        return ""
     if content_type in _A_ROLL_CONTENT_TYPES:
         return "a_roll"
     return "b_roll"
@@ -350,11 +366,20 @@ def adapt_semantic_document(doc: dict) -> dict:
     if not adapted.get("blocks"):
         adapted["blocks"] = _blocks_from_actions(doc)
 
-    assessment.setdefault("clip_type", _derived_clip_type(assessment))
+    derived_type = _derived_clip_type(assessment)
+    if derived_type:
+        assessment.setdefault("clip_type", derived_type)
     assessment.setdefault("keywords", derived_keywords(doc))
     usable = usable_ranges_summary(assessment)
     if usable:
-        assessment.setdefault("usable_portions", usable)
+        if assessment.get("usable_ranges_method") == "unmeasured":
+            # A stored prose rendering of ranges nothing measured is the
+            # same stale assertion one field over, so it is REPLACED
+            # rather than deferred to. On 001 every document carries
+            # `usable_portions: "0.0-188.5s"` beside `method: unmeasured`.
+            assessment["usable_portions"] = usable
+        else:
+            assessment.setdefault("usable_portions", usable)
     adapted["assessment"] = assessment
 
     adapted["vision_schema_version"] = _V3_VERSION

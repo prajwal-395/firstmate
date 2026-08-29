@@ -753,6 +753,16 @@ Exercise the collection half with an analysis dir of copied profiles and `raw_fo
 - The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
 - It samples at 5 Hz and reports runs of 0.6s or longer. **State that bound when you report a verdict**: shorter soft windows can fall between samples, and it cannot tell motion blur from a missed focus.
 - `camera_stability` stays `unknown` when nothing measured it. Do not fill it in to match.
+- **The DISPLAY reads the method, not the ranges.** A stored document written before the producer was fixed still carries the contradiction, and rendering its range makes the stale assertion read as a measurement. `usable_ranges_summary` answers "unmeasured" whenever the method says so, whatever the ranges hold, and `adapt_semantic_document` REPLACES a stale `usable_portions` rather than deferring to it. Same read-side shape as `stability_summary` treating the literal `"unknown"` as absent - neither writes to the stored document.
+
+**No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
+[why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+`compute_deterministic_assessment` is where the deterministic half is decided and `tests/test_assessment_reports_no_default_as_measured.py` is the sweep, kept executable: the assessment is computed with nothing to measure and every field it produces must be an admitted absence. The family was found one field at a time - `camera_stability`, then `usable_ranges`, then these - so assume another exists until the sweep says otherwise.
+
+- **An empty `speech_regions` list is not a measurement of silence.** `detect_speech_regions` returns `[]` both when WhisperX ran and heard nothing and when it raised, so the two are indistinguishable downstream. Speech regions measure presence AND coverage; a transcript measures presence alone; neither measures nothing. **`speech_present` is `True` or `None`, never `False`**, and `speech_coverage_method` says `temporal_index` only once a coverage has been computed.
+- **An answer that came back without a key is not an answer of `[]`.** `primary_subject_visible` is `None` when the model omitted it and `[]` only when the model really said the subject is nowhere.
+- A rendering of an absent measurement is not a measurement either: `_derived_clip_type` returns `""` for a `content_type` of `"unknown"` rather than classifying the clip `b_roll`.
+- **A method field travels with the number it qualifies.** The four manifests routing `assessment.usable_ranges` route `usable_ranges_method` beside it, and 2.02 routes `speech_coverage_method` beside `speech_coverage`; an allow-list that selects the number alone cannot tell a measurement from a default.
 
 ### 10.4 Gates, and what counts as evidence
 
@@ -910,6 +920,7 @@ One enumeration, `library/tools/bookends.py`.
 - A brand template declares `content.bookends`; a template that declares nothing gets nothing.
 - A declaration names either an `asset` that already exists or a `composition` to render, plus a `duration_seconds`. **A malformed declaration raises rather than being dropped.** [why](docs/RULE_EVIDENCE.md#bookends-only-on-some-videos)
 - **A card takes the same path as every other clip.** `mesh_spine` turns each declaration into an `intro_card`/`outro_card`/`end_card` spine block (NOT `intro`/`outro`, which already mean a non-speech pacing beat), step 4.06 renders the composition-mode ones, `compile_manifest` emits a V1 clip, and the renderer places it. That is what puts a card inside the coverage assertion, the manifest duration and render QA.
+- **A card the PLAN wrote REFUSES the step, by name.** `bookends.assert_no_invented_bookends` raises `InventedBookendBlock` from 2.05's post-bridge naming every offending block; it used to drop them with a line on stderr. The plan around a card is written knowing the card is there, so dropping it ships an edit designed for a moment it no longer has - and a log line forty minutes into an unattended run is read by nobody. Same shape as `UnplayableSfxPlan` in 4.04 (§10.5). `intro` and `outro` are NOT cards and are never dropped. [why - and where the prompt contradiction actually lived](docs/RULE_EVIDENCE.md#the-card-that-vanished-into-a-log-line)
 - Never append a card out of band after compilation.
 - Project-owned compositions are staged **verbatim** by `bookend_render.py` into gitignored build output. The engine renders a client's asset; it never edits one.
 
