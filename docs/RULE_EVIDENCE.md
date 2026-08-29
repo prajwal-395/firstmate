@@ -3374,3 +3374,105 @@ cut, which is what section 10.5 forbids the engine from doing on its own.
 The full re-measurement of all eight families the map listed, with a
 recommendation per remaining field, is in
 [`docs/UNREAD_DECISIONS_INVENTORY.md`](UNREAD_DECISIONS_INVENTORY.md).
+
+## the-roster-nobody-wrote-down
+
+Evidence for AGENTS.md §16.
+
+### The decision that was never offered
+
+The captain, 2026-08-29, on the capability: the pipeline has *"access to remotion to make literally
+any kind of motion design and animation desired."* True of the toolchain, and false at the moment of
+decision - the model cannot choose from a vocabulary nobody has defined. A step asked to pick from
+an undefined set picks nothing, or invents inconsistently.
+
+The round-2 creative audit is the general shape of it: of **28 creative decisions that reached the
+finished video, 9 were ones the model was never asked** and **0 were confirmed bad taste**. An
+undefined roster is that failure exactly - a decision nobody offered - and it sits in the same class
+as the cutaway window, the crop aim and the bed's level per block.
+
+### The implicit roster of three
+
+Nobody wrote it down, and it was authored by whoever wrote the component.
+`remotion-subtitles/src/compositions/MotionGraphics/index.tsx` draws exactly three things, each
+behind its own boolean: a two-line upper third, four corner brackets, and a progress bar.
+`generate_motion_props.props_draw_ink` is the predicate that has to stay in step with it, and its
+own docstring records what happened when nothing did:
+
+> Project 001 rendered eight such segments: 53.8 MB of ProRes in which `max(alpha)` is 0 on every
+> frame of every file, placed on V4 so `render.json` reported "V4: 8" - which reads as motion
+> graphics delivered.
+
+The upper third has never been able to carry copy at all: `generate_motion_props` reads
+`creative_direction` for `title`, `subtitle`, `series_name` and `episode_label`, and
+`creative_direction`'s schema has none of those fields. That is the copy-source decision showing
+through, not a renderer defect.
+
+A second implicit roster exists in prose. `docs/style_specification.md` §7 lists text animations,
+zoom emphasis, shake/impact, tracking text and lower thirds - but it is a codification of ONE
+creator's style, values included ("5% scale bump", "2-3px, 3-4 frames", "100-200ms"), and two of its
+five entries are picture treatments that `plan_vfx` already owns. It informed the roster's element
+KINDS and none of its numbers, and its taste ("subtle, underspoken … never flashy") is deliberately
+not encoded: the engine serves a daily channel and client work, so one creator's register in the
+vocabulary would reach every client.
+
+### Why the numbers are not in the table
+
+PR #310 emptied `library/tools/house_look.py` of four complete looks on the captain's ruling of
+2026-08-28: *"i want no hardcoded values. there are no house glow looks, there are no settled house
+grain or anything"*. A roster saying "the stat callout holds for 1.2 s in the accent colour" puts
+that defect back one level up, in the place it is hardest to see - a vocabulary is read as
+definitional, not as a default.
+
+So `MotionElement` and `Axis` have no numeric field at all; a renderer has nowhere to read a
+magnitude from. `tests/test_motion_graphics_vocabulary.py` asserts that structurally, and then scans
+the source of `ROSTER`, `AXES`, `FUNCTIONS`, `OUT_OF_VOCABULARY` and `ROSTER_LEGEND` for value
+shapes in the prose - hex colours, and a number with a unit. Three citations are recorded with
+reasons in `CITED_VALUES`, and every one of them names a WITHDRAWN literal or a measurement taken
+elsewhere: `#00D4FF` (the cyan that reached every frame of every video from
+`generate_motion_props`), `60px` (the corner-accent inset `safe_area.py` records as the defect), and
+`5 Hz` (the rate `compute_face_presence` samples a face centre at, which is why `tracked_label` has
+no track). The scan is pointed at the tables and not at the module docstring, because a `[why]` link
+carries evidence and evidence has numbers in it.
+
+### Why the roster is bigger than the renderer
+
+Eleven of fifteen entries cannot be drawn today. That is deliberate and it is asserted: the test
+fails if `reachable_now` ever outnumbers the rest, because a roster that has converged on what the
+composition already does is a roster the renderer shaped. The render path is being repaired in
+parallel (`vep-motion-graphics-render-path`) and nothing in this change touches it -
+`index.tsx` and `generate_motion_props.py` are unmodified.
+
+### How large, and why not larger
+
+The size was aimed at two failures at once.
+
+Too small and the model has no range - three elements is what there was. Too large and it is the SFX
+library's shape: **41 of its 78 entries are `emotional_temperature: cold tense`**, so a catalogue
+that looks large is two thirds one register and the useful entries are hard to find. `FUNCTIONS` is
+the register axis here and `register_spread()` is the same statistic; the test fails when any one
+function holds more than a third of the roster. The unit of an entry is a QUESTION an editor answers
+with a graphic, not a shape a component can draw: `stat_callout` and `counter_roll` are two entries
+because a number that holds and a number that changes are two decisions, while a rectangle and a
+rounded rectangle are one.
+
+Fifteen also fits whole in a prompt, which is what lets `roster_rows()` ship the entire table.
+Whatever selects a shortlist becomes the chooser (AGENTS.md §10.5) - the failure the SFX word list
+was.
+
+### What the roster does not decide
+
+Two neighbouring decisions were explicitly left with the captain on 2026-08-29: what produces the
+COPY a motion graphic shows, and whether the model authors each component or fills a props schema.
+Each entry declares only `copy`: required, optional or none. A model writing the words, a project
+declaring them, a transcript supplying them and a template carrying them all satisfy the same entry.
+Under the props answer the axes ARE the schema; under the authoring answer they are the brief the
+component must honour and `never` is what review checks it against.
+`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET` records both, and two tests assert the roster rows
+name neither a producer nor an authoring mechanism.
+
+That is also why nothing is wired into a planning prompt by this change. `plan_vfx`'s `handoff.md`
+is one of the twelve frozen prompt files, its `enhancement_spec` schema's `motion_graphics` list has
+no reader, and a table put in front of a model that its handoff does not name is the unread-key
+defect of §10.2 in the other direction. The wiring is a separate change and it needs the copy answer
+first.

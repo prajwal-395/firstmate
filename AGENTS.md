@@ -1192,6 +1192,23 @@ self-describing records, with the reasoning for that shape in the module docstri
   conservatively (absolute POSIX path or `file://`) and never rewritten out of the text.
 - `tests/test_marker_payload.py`, `tests/test_marker_capture_against_resolve.py`.
 
+## 16. Motion graphics
+
+**The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.**
+Fifteen elements across seven functions in the edit - identify, quantify, enumerate, point, quote, punctuate, persist - each with what it is, when it earns its place, what it needs, and what it must never be used for. [why - the implicit roster of three, and the eight empty ProRes segments](docs/RULE_EVIDENCE.md#the-roster-nobody-wrote-down)
+
+    python3 -m library.tools.motion_graphics_vocabulary            # the roster
+    python3 -m library.tools.motion_graphics_vocabulary --check    # the rules, as a gate
+
+- **An entry names a dimension; the magnitude belongs to whoever declares it.** `AXES` is the vocabulary of dimensions - timing, anchor, footprint, entrance, exit, emphasis, colour_role, type_role, copy, data, asset - and no axis has a default or a bound. `colour_role` is a role of the declaring palette and never a colour; `type_role` is a weight within the element and never a size. Nothing here fixes a colour, a duration, an easing strength or an intensity, which is the same rule §12 emptied `house_look.py` to establish.
+- **Reachability is REPORTED per entry, never a filter on membership.** Four entries are `reachable_now`, ten need renderer work and one needs a measurement nothing takes. The render path is broken; a roster written around it would keep the defect after the repair.
+- **`never` is not optional.** An entry that only says what a thing is teaches a model to reach for it everywhere, so every entry records refusals and `assert_roster_is_well_formed` raises without them.
+- **The boundary is the whole point.** `OUT_OF_VOCABULARY` names the module that owns each near miss: a treatment of the spoken word is a caption (`subtitle_style`), a treatment of the picture is VFX (`plan_vfx`), a change between two shots is a transition (`transition_vocabulary`), a full frame of artwork is a bookend (`bookends`). An element is in this roster when it is an ADDITIVE OVERLAY carrying meaning the picture and the captions do not already carry.
+- **Nothing here is keyed to one identity**, because the engine serves a daily channel and client work (§14). `channel_bug` draws a project-supplied asset; the engine ships no artwork and states none.
+- **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
+- `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route, the same shape `music_measurement.MEASUREMENT_LEGEND` takes. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5).
+- `tests/test_motion_graphics_vocabulary.py`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
