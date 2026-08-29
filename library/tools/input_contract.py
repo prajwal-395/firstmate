@@ -51,6 +51,42 @@ Reaching the prompt is read off `context_fields`, the same allow-list
 step declaring none is handed every byte it was routed, so every input
 reaches its prompt.
 
+The step that has no prompt at all
+----------------------------------
+That reading had one silent hole, and the very next task fell in it.
+A step with no `handoff.md` declares no `context_fields` because there
+is no prompt to project, and reading that absence as "handed every
+byte" made `prompt_reads` True for every input of all fifteen
+prompt-less steps in the DAG.  So `render_motion_graphics` declared
+`creative_direction` and `enhancement_spec` REQUIRED, the DAG routed
+both, `generate_motion_props` read neither, and the survey called them
+consumed (#330).
+
+A guard with a silent hole is worse than a known gap, because the
+fields inside it read as verified.  Two things close this one:
+
+* `prompt_reads` is False for a step with no prompt, asked of
+  `run_pipeline.get_step_implementation` rather than of a list kept
+  here;
+* and because that step's CODE is then the only consumer it can have,
+  "the code names the key" is no longer enough.  `trace_step_values`
+  asks whether the value the key yields REACHES A USE - the two motion-
+  graphics inputs are named in `step.py` and handed to a function that
+  never mentions either parameter.
+
+The findings are REPORTED, not failed.  Every one of them predates the
+change that made the class visible, and escalating a pre-existing
+finding to a build failure is the captain's decision;
+`unread_by_a_prompt_less_step` is the report and `disagreements` is
+unchanged.
+
+What this still cannot see is printed by the survey itself rather than
+left implicit: a step WITH a prompt is judged on whether its code NAMES
+the key, because the prompt consumes it either way and the dataflow
+question decides nothing there; and the value read is one-sided by
+design - `_UNTRACEABLE` is the list of what it reads as used rather
+than guessing about.
+
     python3 -m library.tools.input_contract          # the survey
     python3 -m library.tools.input_contract --bad    # disagreements only
 
@@ -227,7 +263,26 @@ class InputContract:
     """The step's own Python names this key at all."""
 
     prompt_reads: bool
-    """The projection lets it reach the prompt (AGENTS.md 10.1)."""
+    """The projection lets it reach the prompt (AGENTS.md 10.1). Always
+    False for a step with no `handoff.md`: it has no prompt to reach."""
+
+    has_prompt: bool = True
+    """The step puts something in front of a model, asked of
+    `run_pipeline.get_step_implementation`."""
+
+    code_consumes: Optional[bool] = None
+    """Whether the value the key yields REACHES A USE, for a step whose
+    code is the only consumer it can have.
+
+    `True` the value is used somewhere; `False` every place the step's
+    own files obtain it, it goes nowhere; `None` not asked - the step
+    has a prompt, so the prompt already consumes it, or the step's own
+    files never obtain the value and there is nothing to trace.
+    """
+
+    value_evidence: str = ""
+    """`file.py:line what` for a value that goes nowhere. Evidence, so a
+    finding can be checked rather than believed."""
 
     @property
     def refused_by(self) -> str:
@@ -239,7 +294,15 @@ class InputContract:
 
     @property
     def consumed(self) -> bool:
-        """Something downstream of the declaration actually reads it."""
+        """Something downstream of the declaration actually reads it.
+
+        A key the code NAMES and then drops is not read. That is the
+        whole of the deterministic blind spot: `code_reads` answers
+        whether the key appears, `code_consumes` whether the value it
+        yields does anything.
+        """
+        if self.code_consumes is False:
+            return False
         return self.code_reads or self.prompt_reads
 
     @property
@@ -430,6 +493,213 @@ def read_step_code(step_dir: Path) -> Tuple[Dict[str, str], Set[str]]:
     return refusals, reads
 
 
+# ── Does the value go anywhere ───────────────────────────────────────
+#
+# A step with no `handoff.md` has no prompt, so "reaches the prompt" is
+# a statement about something that does not exist and the code is the
+# only consumer there can be.  For that step, "the code NAMES the key"
+# is not enough: `render_motion_graphics` does
+# `data.get("enhancement_spec", {})`, hands the value to
+# `generate_motion_props`, and that function never mentions its own
+# parameter again.  The key is named, the value goes nowhere, and the
+# survey called it consumed.
+#
+# So for a prompt-less step the survey asks the harder question: does
+# the value the key yields REACH A USE.  It is a small dataflow read,
+# and it is deliberately one-sided - everything it cannot follow is
+# read as a use, so it under-reports rather than inventing a finding.
+# `_UNTRACEABLE` records what it cannot follow.
+
+_UNTRACEABLE = (
+    ("a value passed to anything but a plain function this step's own "
+     "files define - a method, an imported library tool, a builtin - is "
+     "read as used, because the callee is not traced"),
+    ("a value rebound to a second name is read as used, rather than "
+     "followed through the alias"),
+    ("one hop only: a parameter the callee passes on again is read as "
+     "used wherever the callee names it"),
+)
+
+
+def _parent_table(tree: ast.AST) -> Dict[ast.AST, ast.AST]:
+    table: Dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            table[child] = node
+    return table
+
+
+def _origin_key(node) -> Optional[str]:
+    """The input key a node OBTAINS, for `x["K"]` and `x.get("K", ...)`.
+
+    The object has to be a plain name - the dict the step was handed.
+    `manifest["K"]` qualifies and so does `data.get("K")`; a chained
+    `a.b["K"]` does not, because the value came from somewhere else.
+    """
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+        return _string_key(node.slice)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get" and node.args
+            and isinstance(node.func.value, ast.Name)):
+        return _string_key(node.args[0])
+    return None
+
+
+def _function_table(trees: Sequence[Tuple[str, ast.AST]]
+                    ) -> Dict[str, Optional[ast.FunctionDef]]:
+    """`{name: def}` for the step's own functions.
+
+    A name two files define is mapped to None, so a call on it resolves
+    to nothing and the argument is read as used.  Guessing which of two
+    definitions ran is how a dataflow read starts inventing findings.
+    """
+    table: Dict[str, Optional[ast.FunctionDef]] = {}
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                table[node.name] = None if node.name in table else node
+    return table
+
+
+def _parameter_names(fn) -> List[str]:
+    return [a.arg for a in list(fn.args.posonlyargs) + list(fn.args.args)]
+
+
+def _parameter_for(fn, call: ast.Call, argument) -> Optional[str]:
+    """Which parameter this argument lands on, or None if unknowable."""
+    for keyword in call.keywords:
+        if keyword.value is argument:
+            if keyword.arg is None:
+                return None
+            names = _parameter_names(fn) + [a.arg for a in fn.args.kwonlyargs]
+            return keyword.arg if keyword.arg in names else None
+    if any(isinstance(a, ast.Starred) for a in call.args):
+        return None
+    for index, given in enumerate(call.args):
+        if given is argument:
+            names = _parameter_names(fn)
+            return names[index] if index < len(names) else None
+    return None
+
+
+def _parameter_is_read(fn, parameter: str) -> bool:
+    for node in ast.walk(ast.Module(body=list(fn.body), type_ignores=[])):
+        if (isinstance(node, ast.Name) and node.id == parameter
+                and isinstance(node.ctx, ast.Load)):
+            return True
+    return False
+
+
+def _is_a_use(node, parents: Mapping, functions: Mapping) -> bool:
+    """Does this occurrence of the value do anything with it?
+
+    One case answers no: the value is handed to a plain function this
+    step defines, and that function never names the parameter it landed
+    on.  Everything else - a subscript, an attribute, a comparison, a
+    return, a call this read cannot resolve - is a use.
+    """
+    parent = parents.get(node)
+    if not isinstance(parent, ast.Call) or parent.func is node:
+        return True
+    callee = parent.func
+    if not isinstance(callee, ast.Name):
+        return True
+    fn = functions.get(callee.id)
+    if fn is None:
+        return True
+    parameter = _parameter_for(fn, parent, node)
+    if parameter is None:
+        return True
+    return _parameter_is_read(fn, parameter)
+
+
+def _enclosing_scope(node, parents: Mapping):
+    walker = parents.get(node)
+    while walker is not None and not isinstance(
+            walker, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+        walker = parents.get(walker)
+    return walker
+
+
+def _binding_reaches_a_use(name: str, scope, binding, parents: Mapping,
+                           functions: Mapping) -> bool:
+    if scope is None:
+        return True
+    for node in ast.walk(scope):
+        if (isinstance(node, ast.Name) and node.id == name
+                and isinstance(node.ctx, ast.Load) and node is not binding
+                and _is_a_use(node, parents, functions)):
+            return True
+    return False
+
+
+def trace_step_values(step_dir: Path) -> Tuple[Set[str], Dict[str, str]]:
+    """`({keys the step's own code obtains}, {key: where it goes nowhere})`.
+
+    A key is in the second mapping only when EVERY place the step's own
+    files obtain it, the value reaches no use.  One use anywhere keeps
+    it out: a step that reads an input on one route and drops it on
+    another is reading it.
+    """
+    trees: List[Tuple[str, ast.AST]] = []
+    for path in sorted(step_dir.glob("*.py")):
+        if path.name.startswith("test_"):
+            continue
+        try:
+            trees.append((path.name, ast.parse(
+                path.read_text(encoding="utf-8"))))
+        except (OSError, SyntaxError):
+            continue
+
+    functions = _function_table(trees)
+    obtained: Set[str] = set()
+    used: Set[str] = set()
+    dead: Dict[str, str] = {}
+
+    for filename, tree in trees:
+        parents = _parent_table(tree)
+        for node in ast.walk(tree):
+            key = _origin_key(node)
+            if key is None:
+                continue
+            obtained.add(key)
+            parent = parents.get(node)
+            if (isinstance(parent, ast.Assign) and parent.value is node
+                    and len(parent.targets) == 1
+                    and isinstance(parent.targets[0], ast.Name)):
+                target = parent.targets[0]
+                reaches = _binding_reaches_a_use(
+                    target.id, _enclosing_scope(parent, parents), target,
+                    parents, functions)
+                where = (f"{filename}:{node.lineno} bound to "
+                         f"{target.id!r} and never used")
+            else:
+                reaches = _is_a_use(node, parents, functions)
+                where = (f"{filename}:{node.lineno} handed to a function "
+                         f"that never names the parameter")
+            if reaches:
+                used.add(key)
+            else:
+                dead.setdefault(key, where)
+
+    return obtained, {k: v for k, v in dead.items() if k not in used}
+
+
+def step_has_a_prompt(step_dir: Path) -> bool:
+    """Whether this step puts anything in front of a model.
+
+    Asked of the runner, which is the authority: `handoff.md` is what
+    `get_step_implementation` turns into every `prompt` it returns, and
+    a copy of that rule here is a second list that can drift.  The
+    import is local because the runner imports this package.
+    """
+    try:
+        from library.processes.edit_video import run_pipeline
+    except Exception:
+        return (step_dir / "handoff.md").is_file()
+    return bool(run_pipeline.get_step_implementation(step_dir).get("prompt"))
+
+
 # ── Reading the routes ───────────────────────────────────────────────
 
 def routed_inputs(dag: Mapping) -> Dict[str, Set[str]]:
@@ -519,7 +789,8 @@ def view_sources(view: str) -> Set[str]:
     return set(recorder.touched) - {view}
 
 
-def _reaches_prompt(manifest: Mapping, name: str) -> bool:
+def _reaches_prompt(manifest: Mapping, name: str,
+                    has_prompt: bool = True) -> bool:
     """Whether the projection lets this input reach the prompt.
 
     Three ways in, and all three are the projection's own (AGENTS.md
@@ -527,7 +798,16 @@ def _reaches_prompt(manifest: Mapping, name: str) -> bool:
     byte it was routed; a declaration of nothing but `-` paths is
     "everything, minus these"; and a `view:<name>` entry is a READING of
     a routed input, so the input it reads reaches the prompt through it.
+
+    A step with no `handoff.md` reaches NOTHING, and that is the blind
+    spot this argument closes.  It declares no `context_fields` because
+    it has no prompt to project, and reading that absence as "handed
+    every byte" answered True for every input of every deterministic
+    step - so `render_motion_graphics` declared `creative_direction` and
+    `enhancement_spec` REQUIRED, read neither, and surveyed clean.
     """
+    if not has_prompt:
+        return False
     if name in _RESTORED_AROUND_PROJECTION:
         return True
     fields = manifest.get("context_fields")
@@ -561,10 +841,25 @@ def survey(dag: Optional[Mapping] = None,
     rows: List[InputContract] = []
     for node_id in run_scope.topological_order(dag):
         manifest = manifests.get(node_id) or {}
-        refusals, reads = read_step_code(_LIBRARY_ROOT / step_ref[node_id])
+        step_dir = _LIBRARY_ROOT / step_ref[node_id]
+        refusals, reads = read_step_code(step_dir)
+        has_prompt = step_has_a_prompt(step_dir)
+        # The dataflow read is asked only where it decides something.
+        # A step WITH a prompt already has a consumer, so tracing its
+        # values would answer a question nobody is asking - and would
+        # change the survey's verdict on every LLM step, which is a
+        # separate decision from closing this blind spot.
+        obtained, dead = (set(), {}) if has_prompt else trace_step_values(
+            step_dir)
         for declaration in ((manifest.get("interface") or {}).get("inputs")
                             or []):
             name = declaration.get("name", "")
+            if name in dead:
+                consumes = False
+            elif name in obtained:
+                consumes = True
+            else:
+                consumes = None
             rows.append(InputContract(
                 node_id=node_id,
                 step_ref=step_ref[node_id],
@@ -573,7 +868,10 @@ def survey(dag: Optional[Mapping] = None,
                 route=_route(name, node_id, routed, merging),
                 step_refusal=refusals.get(name, ""),
                 code_reads=name in reads,
-                prompt_reads=_reaches_prompt(manifest, name),
+                prompt_reads=_reaches_prompt(manifest, name, has_prompt),
+                has_prompt=has_prompt,
+                code_consumes=consumes,
+                value_evidence=dead.get(name, ""),
             ))
     return rows
 
@@ -596,6 +894,28 @@ def unconsumed(rows: Sequence[InputContract]) -> List[InputContract]:
     return [r for r in rows if not r.consumed]
 
 
+def unread_by_a_prompt_less_step(rows: Sequence[InputContract]
+                                 ) -> List[InputContract]:
+    """Declared by a step with no prompt, and its code does not read it.
+
+    This whole class was invisible until the survey stopped answering
+    "reaches the prompt" for a step that has none. It is REPORTED and
+    does not fail: every row in it predates the fix, and escalating a
+    pre-existing finding to a build failure is the captain's decision,
+    not this module's. `unconsumed` still fails for a step WITH a
+    prompt, exactly as it did.
+    """
+    return [r for r in unconsumed(rows) if not r.has_prompt]
+
+
+def unread_basis(row: InputContract) -> str:
+    """Why this row reads as unread, in the survey's own terms."""
+    if row.code_consumes is False:
+        return (f"the code names it and the value goes nowhere: "
+                f"{row.value_evidence}")
+    return "the step's own code and the modules it imports never name it"
+
+
 def disagreements(rows: Sequence[InputContract]) -> List[str]:
     """Every way the declaration and the code can contradict each other."""
     lines = []
@@ -612,6 +932,8 @@ def disagreements(rows: Sequence[InputContract]) -> List[str]:
     for row in unconsumed(rows):
         if (row.node_id, row.name) in UNCONSUMED_DECLARATIONS:
             continue
+        if not row.has_prompt:
+            continue  # reported by `unread_by_a_prompt_less_step`
         lines.append(
             f"{row.node_id}.{row.name}: declared, and read by neither the "
             f"step's code nor its prompt. Nothing consumes it. Drop the "
@@ -641,8 +963,10 @@ def render(rows: Sequence[InputContract]) -> List[str]:
             current = row.node_id
             lines.append("")
         consumers = ", ".join(
-            part for part, on in (("code", row.code_reads),
+            part for part, on in (("code", row.consumed and row.code_reads),
                                   ("prompt", row.prompt_reads)) if on)
+        if row.code_reads and row.code_consumes is False:
+            consumers = "NAMED ONLY"
         lines.append(
             f"{row.node_id:<24}{row.name:<30}"
             f"{'required' if row.required else 'optional':<9}"
@@ -675,12 +999,35 @@ def main(argv=None) -> int:
         print(f"  {warrant:<16}: {warrants.get(warrant, 0)}")
     print(f"  {'(optional)':<16}: {warrants.get('optional', 0)}")
 
-    unread = unconsumed(rows)
+    unread = [r for r in unconsumed(rows) if r.has_prompt]
     if unread:
         print(f"\n{len(unread)} declared input(s) nothing consumes "
               f"(recorded in UNCONSUMED_DECLARATIONS):")
         for row in unread:
             print(f"  - {row.node_id}.{row.name}")
+
+    prompt_less = sorted({r.node_id for r in rows if not r.has_prompt})
+    dropped = unread_by_a_prompt_less_step(rows)
+    print(f"\n{len(prompt_less)} step(s) in the DAG have no prompt, so "
+          f"their code is the only consumer they can have.")
+    if dropped:
+        print(f"  {len(dropped)} declared input(s) that code does not read:")
+        for row in dropped:
+            print(f"    UNREAD  {row.node_id}.{row.name} "
+                  f"({'required' if row.required else 'optional'}) - "
+                  f"{unread_basis(row)}")
+        print("  (reporting only - this class was invisible until the "
+              "survey\n  stopped answering \"reaches the prompt\" for a "
+              "step with none, and\n  escalating a pre-existing finding "
+              "to a failure is the captain's call.)")
+    else:
+        print("  Every one of their declared inputs is read.")
+    print("  Blind spot, stated: a step WITH a prompt is still judged on")
+    print("  whether its code NAMES the key, not on whether the value")
+    print("  goes anywhere - the prompt consumes it either way, so the")
+    print("  question does not decide. And the value read is one-sided:")
+    for limit in _UNTRACEABLE:
+        print(f"    - {limit}")
 
     if problems:
         print(f"\n{len(problems)} disagreement(s):")

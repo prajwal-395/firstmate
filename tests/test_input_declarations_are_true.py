@@ -99,9 +99,17 @@ def test_no_optional_input_is_refused_by_the_step(rows):
 def test_every_declared_input_is_read_by_the_code_or_the_prompt(rows):
     """A declaration nothing consumes costs a scoped run its producer
     and buys nothing. The two the survey found are recorded; a third
-    fails here."""
+    fails here.
+
+    Scoped to steps WITH a prompt, which is the scope this gate has
+    always really had: every finding in the prompt-less class predates
+    the fix that made it visible, and escalating a pre-existing finding
+    to a build failure is a separate decision. They are reported by
+    `test_the_inputs_a_prompt_less_step_never_reads` below.
+    """
     bad = [f"{r.node_id}.{r.name}" for r in input_contract.unconsumed(rows)
-           if (r.node_id, r.name) not in UNCONSUMED_DECLARATIONS]
+           if r.has_prompt
+           and (r.node_id, r.name) not in UNCONSUMED_DECLARATIONS]
     assert not bad, f"declared, and nothing reads it: {bad}"
 
 
@@ -226,3 +234,147 @@ def test_a_key_restored_around_the_projection_reaches_the_prompt(rows):
 
 def test_the_cli_agrees_with_the_suite():
     assert input_contract.main(["--bad"]) == 0
+
+
+# ── The step with no prompt ─────────────────────────────────────────
+#
+# The survey read "reaches the prompt" off `context_fields`, and a step
+# with no `handoff.md` declares none because it has no prompt to
+# project.  That absence was read as "handed every byte it was routed",
+# so every input of every prompt-less step surveyed as consumed.  #330
+# found the class by hand: `render_motion_graphics` declares
+# `creative_direction` and `enhancement_spec` REQUIRED, the DAG routes
+# both, and `generate_motion_props` reads neither.
+
+def test_a_step_with_no_prompt_reaches_no_prompt(rows):
+    """`prompt_reads` is a claim about a prompt. Fifteen steps in the
+    DAG have none, and the claim was True for every input of all of
+    them."""
+    prompt_less = [r for r in rows if not r.has_prompt]
+    assert prompt_less, "the DAG has prompt-less steps; the survey found none"
+    assert not [f"{r.node_id}.{r.name}" for r in prompt_less
+                if r.prompt_reads]
+
+
+def test_the_runner_decides_which_steps_have_a_prompt(dag, rows):
+    """Asked of `get_step_implementation`, not of a list kept here."""
+    from library.processes.edit_video import run_pipeline
+
+    step_ref = {node["id"]: node["step_ref"] for node in dag["nodes"]}
+    for row in rows:
+        step_dir = input_contract._LIBRARY_ROOT / step_ref[row.node_id]
+        expected = bool(
+            run_pipeline.get_step_implementation(step_dir).get("prompt"))
+        assert row.has_prompt is expected, row.node_id
+
+
+def test_the_motion_graphics_step_declares_two_inputs_it_never_reads(rows):
+    """The regression case, in the survey's own output.
+
+    Both are named in `step.py` and handed to `generate_motion_props`,
+    which never mentions either parameter - so the KEY reads as read and
+    the VALUE goes nowhere. A survey that stopped at `code_reads` calls
+    this consumed, which is why the fix is a dataflow read and not just
+    an honest `prompt_reads`.
+    """
+    by_key = {(r.node_id, r.name): r for r in rows}
+    for name in ("creative_direction", "enhancement_spec"):
+        row = by_key[("render_motion_graphics", name)]
+        assert row.required
+        assert row.code_reads, "the key IS named; that was the blind spot"
+        assert row.code_consumes is False, row.value_evidence
+        assert not row.consumed
+        assert "step.py:" in row.value_evidence
+        assert row in input_contract.unread_by_a_prompt_less_step(rows)
+
+
+def test_a_value_handed_to_a_function_that_ignores_it_is_not_read(tmp_path):
+    """The dataflow read, on a step built here rather than on the
+    pipeline's, so the property survives the pipeline being fixed."""
+    (tmp_path / "helper.py").write_text(
+        "def draw(kept, dropped):\n"
+        "    return sorted(kept)\n", encoding="utf-8")
+    (tmp_path / "step.py").write_text(
+        "from helper import draw\n"
+        "def main(data):\n"
+        "    kept = data.get('kept', {})\n"
+        "    dropped = data.get('dropped', {})\n"
+        "    named_only = data['named_only']\n"
+        "    return draw(kept, dropped)\n", encoding="utf-8")
+
+    obtained, dead = input_contract.trace_step_values(tmp_path)
+    assert obtained == {"kept", "dropped", "named_only"}
+    assert set(dead) == {"dropped", "named_only"}
+    assert "step.py:" in dead["dropped"]
+
+
+def test_the_value_read_is_one_sided(tmp_path):
+    """Everything it cannot follow is read as USED. A dataflow read that
+    guessed would report findings the code does not have."""
+    (tmp_path / "step.py").write_text(
+        "from library.tools import safe_area\n"
+        "def main(data):\n"
+        "    to_a_tool = data.get('to_a_tool', {})\n"
+        "    to_a_method = data.get('to_a_method', {})\n"
+        "    aliased = data.get('aliased', {})\n"
+        "    second = aliased\n"
+        "    safe_area.resolve_safe_area(to_a_tool)\n"
+        "    return data.render(to_a_method)\n", encoding="utf-8")
+
+    _, dead = input_contract.trace_step_values(tmp_path)
+    assert dead == {}
+
+
+def test_one_use_anywhere_keeps_a_key_out_of_the_finding(tmp_path):
+    (tmp_path / "step.py").write_text(
+        "def ignore(x):\n"
+        "    return 1\n"
+        "def main(data):\n"
+        "    ignore(data.get('spec', {}))\n"
+        "    return data['spec']['blocks']\n", encoding="utf-8")
+
+    _, dead = input_contract.trace_step_values(tmp_path)
+    assert dead == {}
+
+
+def test_the_new_findings_report_and_do_not_fail(rows):
+    """Out of scope for this change: making a pre-existing finding fail
+    the build. `disagreements` - the failing set - is unchanged."""
+    dropped = input_contract.unread_by_a_prompt_less_step(rows)
+    assert dropped, "the class the fix exists to see is empty"
+    assert input_contract.disagreements(rows) == []
+    assert input_contract.main(["--bad"]) == 0
+
+
+def test_the_llm_steps_are_judged_exactly_as_before(rows):
+    """The dataflow read is asked only where it decides something, so a
+    step with a prompt is surveyed by PR 320's rule unchanged."""
+    for row in rows:
+        if not row.has_prompt:
+            continue
+        assert row.code_consumes is None
+        assert row.value_evidence == ""
+        assert row.consumed == (row.code_reads or row.prompt_reads)
+
+
+def test_the_prompt_less_findings_are_reported(rows, capsys):
+    """Reports; never fails. Fixing each is separate work."""
+    dropped = input_contract.unread_by_a_prompt_less_step(rows)
+    prompt_less = sorted({r.node_id for r in rows if not r.has_prompt})
+    with capsys.disabled():
+        print(f"\n  steps with no prompt: {len(prompt_less)}   declared "
+              f"inputs their code does not read: {len(dropped)}")
+        for row in dropped:
+            print(f"    UNREAD  {row.node_id}.{row.name} "
+                  f"({'required' if row.required else 'optional'}) - "
+                  f"{input_contract.unread_basis(row)}")
+        print("  (reporting only - escalating a pre-existing finding to a "
+              "failure is the captain's call.)")
+        print("  Blind spot, stated: a step WITH a prompt is still judged "
+              "on whether")
+        print("  its code NAMES the key, not on whether the value goes "
+              "anywhere. And")
+        print("  the value read is one-sided:")
+        for limit in input_contract._UNTRACEABLE:
+            print(f"    - {limit}")
+    assert True

@@ -3882,3 +3882,89 @@ row would read as an absent measurement (§10.3) rather than as "no reader had t
 001 was not re-run and not re-rendered. The run summary above was produced by invoking the real
 runner against a COPY of 001's frozen `pipeline_data.json` and `exports/qa_report.json`, on one
 already-complete step.
+
+## the-guard-that-could-not-see-a-deterministic-step
+
+**The rule:** AGENTS.md §3, "A declaration must be true".
+
+`library/tools/input_contract.py` reads "does the prompt consume this input" off `context_fields`,
+the same allow-list `run_pipeline.project_step_context` applies. A step declaring none is handed
+every byte it was routed, so an absent declaration answers True.
+
+**A step with no `handoff.md` declares none for the opposite reason: it has no prompt to project.**
+`_reaches_prompt` could not tell the two apart, so it answered True for every declared input of
+every prompt-less step, and `consumed` - `code_reads or prompt_reads` - could never be False there.
+
+Fifteen of the DAG's twenty-seven steps have no prompt. **86 of the survey's 148 rows belong to the
+twelve that do; the other 62 were inside the hole.**
+
+### The one that was found by hand
+
+#330 found it the next day, without the survey. Step 4.06 `render_motion_graphics` declares
+`creative_direction` and `enhancement_spec` REQUIRED, the DAG routes both, and
+`generate_motion_props` reads neither: 4.03 emits `visual_effects` alone and 2.01's eight fields are
+prose. The consequence was the captain's week-old complaint - no motion graphic has ever reached a
+frame - and nothing mechanical could say so.
+
+Making `prompt_reads` honest is not enough to catch that one. `step.py` really does name both keys:
+
+```python
+enhancement_spec = data.get("enhancement_spec", {})       # step.py:121
+creative_direction = data.get("creative_direction", {})   # step.py:123
+...
+props_list = generate_motion_props(
+    enhancement_spec, creative_direction, audio_spine, ...)   # step.py:229
+```
+
+and `generate_motion_props` never mentions either parameter again. So `code_reads` - "the step's own
+Python names this key" - is True for both, and the row would still have surveyed as consumed.
+
+**Naming a key is not reading it.** `trace_step_values` is the second half: where the step's own
+files obtain the value, does it REACH A USE. It is asked only of prompt-less steps, because a step
+with a prompt has a consumer either way and the question decides nothing there.
+
+### What it found, and the verdict on each
+
+Ten declared inputs across six steps. Every one predates the change.
+
+| step | input | decl | basis | real? |
+|---|---|---|---|---|
+| `color_grade` | `creative_direction` | required | never named | yes - 5.01 reads exposure and the declared look; the direction reaches nothing |
+| `plan_subtitles` | `rough_cut_review` | required | never named | yes - no mention in `step.py` |
+| `plan_subtitles` | `speech_sequence` | required | never named | yes - named only in the module docstring's `Input:` block |
+| `render_motion_graphics` | `creative_direction` | required | bound at `step.py:123`, never used | yes - #330's case |
+| `render_motion_graphics` | `enhancement_spec` | required | bound at `step.py:121`, never used | yes - #330's case |
+| `audio_mix` | `creative_direction` | required | never named | yes - the mix is four constants and a spine (N2) |
+| `audio_mix` | `enhancement_spec` | optional | bound at `step.py:111`, never used | yes - passed to `define_audio_mix(audio_spine, enhancement_spec)`, whose body never touches the parameter |
+| `audio_mix` | `music_selection` | required | never named | yes - no mention in `step.py` |
+| `creative_cohesion` | `enhancement_spec` | optional | never named | yes - 5.03 reads `transition_spec` and `sfx_spec`; the VFX plan it is documented to review never arrives |
+| `compile_manifest` | `temporal_index` | optional | never named | yes - the step loads `temporal_index.json` off disk; the routed state value is unread. Same shape as the two already in `UNCONSUMED_DECLARATIONS` |
+
+Three of the ten are the value-goes-nowhere kind that an honest `prompt_reads` alone would still
+have missed.
+
+### Why it reports rather than fails
+
+All ten predate the change that made them visible, and none is fixed here - fixing each is separate
+work. `disagreements` is the failing set and is unchanged: it still fails on an unenforced
+requirement, on an optional input the step refuses, and on an unconsumed declaration of a step WITH
+a prompt. `unread_by_a_prompt_less_step` is the report, printed loudly on every run in the shape
+#320's own check uses.
+
+### What it still cannot see, stated in the output
+
+- **A step WITH a prompt is judged on whether its code NAMES the key**, not on whether the value
+  goes anywhere. The prompt consumes it either way, so the dataflow question decides nothing there -
+  and asking it would change the survey's verdict on all 86 LLM-step rows, which is a separate
+  decision.
+- **The value read is one-sided by design.** `_UNTRACEABLE` is the enumeration: a value handed to
+  anything but a plain function the step's own files define - a method, an imported library tool, a
+  builtin - is read as USED; a value rebound to a second name is read as used rather than followed;
+  and it is one hop, so a parameter the callee passes on again is used wherever the callee names it.
+  A dataflow read that guessed would report findings the code does not have, which is the failure
+  mode this whole section exists to remove.
+
+### Measured
+
+86 of 148 rows - every row of all twelve prompt-carrying steps - are byte-identical before and
+after. The 62 that changed all belong to the fifteen prompt-less steps.

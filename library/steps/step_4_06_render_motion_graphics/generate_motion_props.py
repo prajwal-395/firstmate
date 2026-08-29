@@ -128,9 +128,11 @@ def generate_motion_props(
     third says, are decided by a brand template's two booleans and by
     nobody at all respectively.
 
-    `library/tools/input_contract.py` cannot see this - a deterministic
-    step has no `context_fields`, so `_reaches_prompt` answers True for
-    every input it declares and both read as consumed. The two
+    `library/tools/input_contract.py` now REPORTS both, by name and with
+    the line each is bound on: a step with no `handoff.md` reaches no
+    prompt, and naming a key is not reading it (AGENTS.md section 3, "A
+    declaration must be true"). It could not see them while a prompt-less
+    step's absent `context_fields` read as "handed every byte". The two
     parameters are kept in the signature because they are the route a
     plan will arrive by; when a step emits motion-graphics entries, this
     is where they land.

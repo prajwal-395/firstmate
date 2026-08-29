@@ -120,6 +120,9 @@ One enumeration, `library/tools/external_inputs.py`. [why - what was measured, a
 - A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
 - The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
 - `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt. Two exist. Widening either table is not a way to make the survey quiet.
+- **A step with no `handoff.md` reaches no prompt, and its CODE is the only consumer it can have.** Reading its absent `context_fields` as "handed every byte" answered `prompt_reads` True for every input of all fifteen prompt-less steps, so `render_motion_graphics` declared two inputs REQUIRED, read neither, and surveyed clean. `step_has_a_prompt` asks `run_pipeline.get_step_implementation`, and `trace_step_values` then asks whether the value the key yields REACHES A USE - naming the key is not reading it. [why](docs/RULE_EVIDENCE.md#the-guard-that-could-not-see-a-deterministic-step)
+- **That half REPORTS; it does not fail.** All ten findings predate the change that made them visible, and escalating a pre-existing finding is the captain's call. `unread_by_a_prompt_less_step` is the report; `disagreements` is unchanged.
+- **The value read is one-sided and says so.** `_UNTRACEABLE` is what it reads as USED rather than guessing about - anything but a plain function the step's own files define, an alias, a second hop. The survey prints that and its remaining blind spot (a step WITH a prompt is still judged on whether its code NAMES the key) on every run.
 - `tests/test_input_declarations_are_true.py`.
 
 Steps come in three implementation types:
@@ -719,7 +722,7 @@ Motion graphics were a `logger.warning` here while timed text raised. [why](docs
 Step 4.06 declares `enhancement_spec` and `creative_direction` REQUIRED, the DAG routes both, and `generate_motion_props` reads neither - 4.03 emits `visual_effects` alone and 2.01's eight fields are prose.
 §16 names the elements that SHOULD exist; what anything can actually ask the renderer for today is a brand template's `effect.motion_accents` and `effect.motion_progress_bar`, and no step emits a plan at all.
 The upper third's COPY has no producer, and that is an open captain decision (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`), not a value for the engine to invent.
-`input_contract` cannot see the two unread inputs - a deterministic step has no `context_fields`, so `_reaches_prompt` answers True for everything it declares. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+`input_contract` now REPORTS both (section 3, "A declaration must be true"); it could not see them while a prompt-less step's absent `context_fields` read as "handed every byte". [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
 **Manifest validation has a semantic half.**
 `library/tools/manifest_validator.py` asserts distinct cut points, distributed SFX, distinct VFX ranges, B-roll differing from the A-roll it covers, no overlay overlaps, no repeated source audio across consecutive V1 clips, no zero-duration clips and no fabricated round-number source ranges.
