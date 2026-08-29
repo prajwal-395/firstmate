@@ -455,14 +455,19 @@ def _summary_plan_sfx(name: str, out: dict) -> str:
 def _summary_color_grade(name: str, out: dict) -> str:
     spec = out.get("color_grade_spec", out)
     lines = [f"# {name}", ""]
-    # `house_look` is what step_5_01 emits. This used to look for
-    # `target_look`/`look`/`lut`, none of which any step has ever
+    # `house_look` is the NAME the brand template's declaration carries;
+    # `house_look_declared` is which elements it wrote. This used to look
+    # for `target_look`/`look`/`lut`, none of which any step has ever
     # written, so the summary never named the grade it was summarising.
-    look = spec.get("house_look_title") or spec.get("house_look")
+    look = spec.get("house_look")
     if look:
-        lines.append(f"**House Look**: {look}")
+        declared = ", ".join(spec.get("house_look_declared", [])) or "nothing"
+        lines.append(f"**Declared look**: {look} ({declared})")
     else:
-        lines.append("**House Look**: none named - exposure normalisation only")
+        lines.append(
+            "**Declared look**: none - no brand template declares "
+            "`style.house_look`, so no CDL, contrast, glow, grain or "
+            "vignette reaches the picture")
     notes = spec.get("look_notes", "")
     if notes:
         lines.append(f"\n{notes}")

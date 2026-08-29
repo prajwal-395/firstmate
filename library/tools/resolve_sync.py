@@ -14,9 +14,9 @@ Symlink map:
     library/presets/fairlight/     -> Resolve/Fairlight/Presets/Pipeline/
 
 These are assets a human uses on the Color and Fusion pages. The
-pipeline's own look is not among them: it is CDL plus Fusion values in
-library/tools/house_look.py, applied by the renderer, with no file
-inside a Resolve installation involved.
+pipeline's own look is not among them: it is CDL plus Fusion values a
+brand template declares (library/tools/house_look.py), applied by the
+renderer, with no file inside a Resolve installation involved.
 
 Usage:
     python resolve_sync.py sync      # Create/repair all symlinks
@@ -57,8 +57,8 @@ def _build_link_map():
     links = []
 
     # There is no luts/ or dctls/ preset directory: nothing in the
-    # pipeline ever read one, and the look now ships as CDL plus Fusion
-    # values in library/tools/house_look.py.
+    # pipeline ever read one, and a look now ships as CDL plus Fusion
+    # values a brand template declares (library/tools/house_look.py).
 
     # Project DCTL (4thWall_Base_Memory.dctl) -> Resolve/LUT/4th Wall/
     # This one has its own namespace because it was already manually placed there

@@ -72,9 +72,16 @@ class VFXEntry(BaseModel):
 class ColorGradeAdjustment(BaseModel):
     source_file: str
     cdl_values: Dict[str, float]
+    # The measured average luma, or None when nothing measured it. Never
+    # a number standing in for an absent measurement - see step 5.01.
+    measured_luma: Optional[float] = None
+    measured_luma_method: Optional[str] = None
 
 class ColorGrade(BaseModel):
     per_clip_adjustments: List[ColorGradeAdjustment] = Field(default_factory=list)
+    # The NAME the brand template's `style.house_look` declaration
+    # carries. None means no template declared a look, which means no
+    # grade at all - there is no house look to fall back to.
     house_look: Optional[str] = None
 
 

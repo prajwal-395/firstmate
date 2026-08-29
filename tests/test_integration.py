@@ -7,7 +7,7 @@ from library.schemas.brand_template import BrandTemplate
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 from library.tools.brand_registry import load_brand_template
 from library.steps.step_5_01_color_grade.step import define_color_grade
-from library.tools.house_look import HOUSE_LOOKS
+from library.tools.house_look import resolve_look
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
 class TestIntegration(unittest.TestCase):
@@ -39,8 +39,8 @@ class TestIntegration(unittest.TestCase):
         inputs_empty = gather_step_inputs("step_5_01", dag, state_empty, {"interface": {"inputs": [{"name": "brand_style"}]}})
         # As long as it doesn't crash, we're good. It might not contain brand_style or contain None/Defaults.
         
-    @patch("library.steps.step_5_01_color_grade.step._estimate_exposure")
-    def test_color_grade_manifest_integration(self, mock_estimate):
+    @patch("library.steps.step_5_01_color_grade.step.measure_luma")
+    def test_color_grade_manifest_integration(self, mock_measure):
         shot_list = {
             "entries": [
                 {"track": "V1", "clip_id": "c1", "entry_id": "e1", "source_file": "f1.mov"},
@@ -48,17 +48,35 @@ class TestIntegration(unittest.TestCase):
                 {"track": "V1", "clip_id": "c3", "entry_id": "e3", "source_file": "f3.mov"},
             ]
         }
-        mock_estimate.side_effect = [0.0, 1.0, -1.0]
+        # One clip on the declared reference, one a stop under, one a
+        # stop over. These are MEASUREMENTS of three imaginary clips; the
+        # reference they are normalised onto is declared below, by the
+        # template, because the engine holds no such number.
+        mock_measure.side_effect = [
+            {"luma": 120.0, "method": "ffprobe_signalstats_yavg", "samples": 40},
+            {"luma": 60.0, "method": "ffprobe_signalstats_yavg", "samples": 40},
+            {"luma": 240.0, "method": "ffprobe_signalstats_yavg", "samples": 40},
+        ]
 
-        look = HOUSE_LOOKS["film_stock_warmth"]
+        declaration = {
+            "name": "integration_declaration",
+            "cdl": {"slope": [1.025, 1.0, 0.951],
+                    "offset": [0.012, 0.01, 0.004],
+                    "power": [0.985, 0.995, 1.012],
+                    "saturation": 0.95},
+            "contrast": 0.06,
+            "exposure_reference": 120.0,
+        }
+        look = resolve_look(declaration)
         res = define_color_grade(shot_list, project_folder="proj",
-                                 house_look=look.name)
+                                 house_look=declaration)
         spec = res["color_grade_spec"]
 
         adj = {a["clip_id"]: a["cdl_values"] for a in spec["per_clip_adjustments"]}
 
-        # Exposure normalisation is a gain on the look's slope, so an
-        # under-exposed clip lands on the same look one stop brighter.
+        # Exposure normalisation is a gain on the look's slope, so a clip
+        # a stop under the declared reference lands on the same look one
+        # stop brighter.
         self.assertAlmostEqual(adj["c1"]["slope_r"], look.slope[0])
         self.assertAlmostEqual(adj["c2"]["slope_r"], round(look.slope[0] * 2.0, 4))
         self.assertAlmostEqual(adj["c3"]["slope_r"], round(look.slope[0] * 0.5, 4))
@@ -69,7 +87,12 @@ class TestIntegration(unittest.TestCase):
             self.assertAlmostEqual(adj[clip_id]["offset_r"], look.offset[0])
             self.assertAlmostEqual(adj[clip_id]["power_b"], look.power[2])
             self.assertAlmostEqual(adj[clip_id]["saturation"], look.saturation)
-        
+
+        # And the measurement travels with the number derived from it.
+        for entry in spec["per_clip_adjustments"]:
+            self.assertIsNotNone(entry["measured_luma"])
+            self.assertEqual(entry["exposure_reference"], 120.0)
+
         inputs = {
             "color_grade_spec": spec,
             # A one-block spine, not an empty one: an empty structure

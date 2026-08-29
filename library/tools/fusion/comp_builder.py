@@ -133,7 +133,15 @@ def build_effect_comp(effects: dict, clip_dur: int,
     if 'lens_distortion' in effects or 'lens_distortion_amount' in effects:
         engine.add(fx.lens_distortion(distortion=effects.get('lens_distortion_amount', 0.1)))
 
-    if effects.get('vignette', True):
+    # A vignette is DRAWN ONLY WHERE ONE WAS ASKED FOR. This used to
+    # default to True, so any clip carrying a zoom and no explicit
+    # vignette key got one at blend 0.25 and soft 0.35 - two strengths
+    # nobody chose, arriving through a `.get` default rather than through
+    # a plan or a brand template. `normalize_effects` set `vignette:
+    # False` for the no-zoom case only, which is why it never showed up
+    # as an obvious bug: the half of the clips it hit were the ones with
+    # a VFX zoom on them.
+    if effects.get('vignette'):
         engine.add(fx.vignette(
             clip_dur=clip_dur,
             width=effects.get('vignette_width', 1.0),

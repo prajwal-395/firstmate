@@ -68,8 +68,8 @@ manifest says.
 | 4.03 VFX (zoom family, shake) | `comp_builder.py:49-94` | Parameter names now match the dispatch. |
 | 4.04 SFX placement | `resolve_build_timeline.py:1045-1101` | SFX clips are placed on A3+. That half is real. ~~and `volume_db` is applied per clip~~ - see Partial below: the level is not. |
 | 4.06 motion graphics | `resolve_build_timeline.py:880-914` | Remotion segments on V4. See section 2 on what they draw. |
-| 5.01 house look, CDL half (node_2) | `resolve_build_timeline.py:1276-1327` | Slope/offset/power/saturation from the named look via `SetCDL`. |
-| 5.01 house look, Fusion half (nodes 3-4) | `compile_manifest/step.py:1125-1130` -> `comp_builder.py:59-104` | Contrast, glow, grain and the (optionally coloured) vignette, merged onto every V1/V2 clip. |
+| 5.01 declared look, CDL half (node_2) | `resolve_build_timeline.py:1276-1327` | Slope/offset/power/saturation from the look a brand template DECLARED, via `SetCDL`. No template declares one, so nothing is applied today. |
+| 5.01 declared look, Fusion half (nodes 3-4) | `compile_manifest/step.py:1125-1130` -> `comp_builder.py:59-104` | Contrast, glow, grain and the (optionally coloured) vignette, merged onto every V1/V2 clip - only where a template declared them. |
 | 6.01 export | `resolve_render.py` | Audio explicitly enabled and probed. |
 | 6.02 validation | `render_qa.py`, `step_6_02/step.py:80-208` | Resolution, fps, duration, LUFS, black frames, audio streams. |
 
@@ -345,12 +345,17 @@ planner rather than expressed in the brand template.~~ **CLOSED** in #102,
 before this document was written: it is `effect.caption_case`, and all four
 templates declare it. See Q5.
 
-**Colour is CDL plus Fusion, and it is now an authored look.** ~~The shipped
-look is an exposure-matched slope plus a fixed +0.02 lift and 1.12 saturation
-- uniform, not wrong, and not a look.~~ **CLOSED.** Four looks are authored in
-`library/tools/house_look.py` from the captain's planning docs, one named by
-each shipped template; the CDL half carries hue and level and the Fusion half
-carries contrast, glow, grain and a shaped vignette. node_1 and node_5 of the
+**Colour is CDL plus Fusion, and the values are DECLARED, not authored here.**
+~~The shipped look is an exposure-matched slope plus a fixed +0.02 lift and
+1.12 saturation - uniform, not wrong, and not a look.~~ ~~**CLOSED.** Four
+looks are authored in `library/tools/house_look.py` from the captain's
+planning docs, one named by each shipped template~~ **REOPENED AND CLOSED
+AGAIN, 2026-08-28**: the captain ruled there is no house look and no settled
+grain, so the four looks are REMOVED and `library/tools/house_look.py` holds
+no values - it reads a declaration a brand template writes. No shipped
+template declares one, so no project gets a grade today. The CDL half carries
+hue and level and the Fusion half carries contrast, glow, grain and a shaped
+vignette, exactly as before, wherever something declares them. node_1 and node_5 of the
 designed grade remain project-level colour management, recorded as undelivered
 with reasons, which is still the right call.
 
@@ -1008,10 +1013,16 @@ lowercased unconditionally since #102.
 ruled: drop the PowerGrade node and deliver the look entirely through CDL plus
 Fusion, which the pipeline can do unaided. It needs no hand-grading, it removes
 an unlicensed third-party asset, and it fixes the templates that named no grade
-- in one move. Four looks now ship in `library/tools/house_look.py`, authored
-from the planning docs at `PLAN/series portfolio '26 planning/`; see AGENTS.md
-section 12. Rejected: hand-authoring `.drx` files in Resolve; keeping the
-gifted grade and merely flagging the licence.
+- in one move. Four looks then shipped in `library/tools/house_look.py`,
+authored from the planning docs at `PLAN/series portfolio '26 planning/`.
+Rejected: hand-authoring `.drx` files in Resolve; keeping the gifted grade and
+merely flagging the licence.
+**Superseded 2026-08-28:** the captain ruled *"there are no house glow looks,
+there are no settled house grain or anything"*. The four looks are removed -
+their DIRECTIONS came from the planning docs but their STRENGTHS did not, and
+could not: a document states a direction, not a magnitude. A look is now
+declared by a brand template, in values. See AGENTS.md section 12 and
+`docs/RULE_EVIDENCE.md` "there-is-no-house-look".
 
 ~~**Q7. Do intros, outros and end cards belong in this pipeline?**~~
 **ANSWERED** 2026-08-16: "wire them up, but only on some videos", and the

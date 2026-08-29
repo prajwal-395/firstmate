@@ -491,6 +491,12 @@ manifests, and a route for the path to reach them. That is a small,
 mechanical change with an enormous creative consequence, which is why it
 is proposed here rather than batched with the section 1 fixes.
 
+> **Superseded 2026-08-28.** The four shipped looks were removed: their strengths were
+> numbers nobody chose, and the captain ruled there is no house look. A template that
+> wants a grade now DECLARES its values. See `docs/RULE_EVIDENCE.md`,
+> "there-is-no-house-look". The recommendation below is kept as the record of what
+> was proposed on the day; the `warm_reflection` half of it no longer exists.
+
 And one of the four shipped looks, `warm_reflection`, is already authored
 *from this series' own branding document* (`house_look.py:187-195`): warm
 amber highlights, warm shadows that never go blue, medium-high contrast,

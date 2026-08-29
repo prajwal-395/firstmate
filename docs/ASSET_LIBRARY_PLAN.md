@@ -143,7 +143,7 @@ series-specific by definition. That is fine and should stay - but it is
 exactly where the end card hid, so the boundary needs a rule:
 
 > **Rule (ratified 2026-08-20).** A brand template may name general
-> components and set per-series **parameters**: a `house_look` name, a
+> components and set per-series **parameters**: a `house_look` declaration, a
 > palette, a font name, durations, densities, a `caption_case`, a
 > `delivery_format`. It may not contain **artwork** - copy the viewer
 > reads on screen, or coordinates and frame numbers that describe one
@@ -157,7 +157,7 @@ That single sentence is what the end card violated.
 ## 4. What exists today, and what is missing
 
 **General assets that are real** - declared, read, and asserted:
-four house looks (`house_look.py`), the transition vocabulary, the
+the look declaration reader (`house_look.py`; it ships no look values), the transition vocabulary, the
 delivery-format enumeration, the bookend mechanism, subtitle styling,
 `SubtitleOverlay` and `MotionGraphics`, and Montserrat with its OFL text.
 

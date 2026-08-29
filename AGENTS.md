@@ -331,7 +331,7 @@ Fusion compositions operate on the source clip's full frame range, not the timel
 **Per-clip Fusion comps reach V1 AND V2.**
 One enumeration, `library/tools/execution/fusion_tracks.py`.
 
-- `compile_manifest` merges the house look onto both. Any pass that draws it must read both. [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
+- `compile_manifest` merges a declared look onto both. Any pass that draws it must read both. [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
 - Transitions stay on V1: `after_clip` indexes the V1 clip LIST, so replaying it elsewhere draws a transition at an unrelated cut.
 - Drop detection in `build_verification` asks whether a label was PLACED, not whether it is on V1.
 - `tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
@@ -571,7 +571,7 @@ Nothing is broadcast. A step gets brand data because its manifest asked.
 `library/tools/brand_registry.no_brand_template` is what an empty declaration resolves to - every creative slot empty - and `ABSENT_SLOT_READINGS` is the statement, one row per slot, of what each consumer does with it. `describe_brand_absence()` is printed once per run so the absence is stated rather than inferred. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
 - An empty declaration used to resolve to `library/templates/default_brand.yaml`. **That file is now a template a project must NAME**; naming it is what makes its values a brand decision.
-- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no house look is exposure normalisation only (§12), an empty transition allow-list permits the whole drawable vocabulary, an absent `transition_duration_ms` bounds nothing, an absent `delivery_format` gets the product enumeration's own default. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
+- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: an undeclared look is no grade at all and no exposure normalisation either (§12), an empty transition allow-list permits the whole drawable vocabulary, an absent `transition_duration_ms` bounds nothing, an absent `delivery_format` gets the product enumeration's own default. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
 - **`effect.caption_case` is the one creative value that survives absence**, and it is recorded as an exception rather than left implicit. Which case the copy is set in is the captain's open decision.
 - Two slots have NO READER and no template value should state one: `content.music_genre` (step 2.04's handoff names `brand_content.music_genre`, and no manifest routes `brand_content` to step 2.04) and `effect.sfx_density` (`scale_sfx_density` was its only reader and was deleted).
 
@@ -898,7 +898,7 @@ A mood, a genre or an energy word computed here would be the taste fabrication �
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**
 
 **No third-party look assets ship.**
-The house look is authored in this repository as CDL plus Fusion values - see §12.
+A look is declared by a brand template as CDL plus Fusion values, and this repository ships none of its own - see §12.
 `tests/test_color_grade_delivery.py` fails if any `.drx` reappears. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
 
 **One third-party asset does ship, with its licence.**
@@ -912,18 +912,23 @@ It is licensed under the **SIL Open Font License 1.1**, which permits redistribu
 One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file` staged out of `<project>/brand_assets/` by `prep_remotion`.
 Anything else raises, because Chromium substitutes its fallback sans and the frames are still valid pictures of the right size. [why](docs/RULE_EVIDENCE.md#timed-text-drew-in-the-wrong-face)
 
-## 12. The house look
+## 12. The look
 
-One enumeration, `library/tools/house_look.py`, holds every look a brand template may name via `style.house_look`.
-An unknown name raises, and a template naming none gets exposure normalisation only.
+**There is no house look.** The engine ships no slope, no saturation, no contrast, no glow, no grain and no vignette, and a project gets a grade only where a brand template it NAMED declares one.
+`library/tools/house_look.py` is the reader for that declaration and holds no values of its own. [why - the four looks that were removed, and what 001 loses](docs/RULE_EVIDENCE.md#there-is-no-house-look)
 
-Each look is delivered in two halves, because that is what the mechanisms can express:
+A look is delivered in two halves, because that is what the mechanisms can express:
 
 - **CDL** carries hue and level - slope (highlights), offset (shadows and the black floor), power (midtones), saturation - applied by `SetCDL` in `resolve_build_timeline`.
 - **Fusion** carries what a CDL has no term for - pivot contrast, glow, grain, and a shaped, optionally coloured vignette - and reaches the picture only through the parameter names `fusion/comp_builder.build_effect_comp` dispatches on (§10.2).
 
-- Every look cites its source in `derived_from` and records design it cannot deliver in `withdrawn`. [why](docs/RULE_EVIDENCE.md#where-the-look-values-come-from)
-- Add a look only with a template that names it - `tests/test_house_look.py` fails on an orphan.
+- **`LOOK_ELEMENTS` is the whole vocabulary**, and an element outside it is REFUSED by name. Each row says which half delivers it and why that half and not the other.
+- **An element is declared WHOLE or refused.** A glow with a gain and no threshold cannot be finished without the engine choosing the missing number, which is the defect this section exists for. Same shape as `bookends` (§13): raise, never drop and never complete.
+- **No element has a default and none has a bound.** How strong a glow is, and how far a slope may travel, are the declaring author's decisions; an engine-supplied range is a strength nobody chose arriving one level up.
+- **A project declaring no look gets NOTHING** - not a reduced look and not exposure normalisation. `NEUTRAL_CDL` is identity and `fusion_look` is `{}`, so no clip gets a comp for the look's sake at all. This is the shape #297 established for every other brand slot (§10.1).
+- **A vignette is drawn only where one was asked for.** `build_effect_comp` used to default `vignette` to True, so any clip carrying a zoom got one at blend 0.25 and soft 0.35 - two strengths arriving through a `.get` default rather than through a plan or a template.
+- **Exposure is MEASURED, and normalised only onto a reference the declaration carries.** Step 5.01 records every clip's average luma with its method and sample count; a clip nothing measured carries `null` and a reason, never `0.0`. The engine used to hold the target as the constant `122.0` and the clamp as `0.5` stops - both decisions about how bright the finished video is, taken by nobody. `exposure_reference` is the declared target, and the offset is then `log2(reference / measured)`, which is the definition of a stop rather than a choice. [why - the parser that discarded every sample](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
+- `tests/test_house_look.py`, `tests/test_color_grade_delivery.py`.
 
 ## 13. Intros, outros and end cards
 

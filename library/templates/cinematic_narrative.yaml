@@ -8,15 +8,28 @@ style:
   framing_intent: 0.0  # full letterbox - cinematic bars are part of the look
   # No pacing block - see docs/PIPELINE_PLAN.md P4.2.
   color_palette: ["#223344", "#aabbcc", "#111111"]
-  # Warm amber highlights, warm shadows that never go blue, medium-high
-  # contrast, falloff into a warm dark. See library/tools/house_look.py.
+  # NO LOOK IS DECLARED, and that is deliberate.
   #
-  # NOTE: this palette is cool blue-grey and the look is warm. The
-  # palette predates any authored direction; every planning document
-  # that speaks about shadows rules out cold blue ones by name, so the
-  # look follows the docs. Reconcile the palette when this template's
-  # series identity is decided.
-  house_look: warm_reflection
+  # This template used to name `warm_reflection`, one of four looks the engine
+  # shipped. Their strengths - a glow gain, a grain power, a vignette
+  # blend, a slope triple - were numbers this repository authored, not
+  # numbers anyone chose for a series. The captain, 2026-08-28: "i want
+  # no hardcoded values. there are no house glow looks, there are no
+  # settled house grain or anything." So the catalogue is gone and its
+  # numbers were NOT moved in here.
+  #
+  # The DIRECTION this series' planning document states is kept, because
+  # it is the captain's and it is what a future declaration has to
+  # deliver: warm amber highlights, warm shadows that never go blue,
+  # medium-high contrast, and a falloff into a warm dark rather than
+  # neutral black (1_through_the_4th_wall and 3_prestige,
+  # 'Colour Grading'). NOTE: this template's palette is cool blue-grey
+  # and that direction is warm; reconcile them when the series
+  # identity is decided.
+  #
+  # To grade under this template, declare the values:
+  # `python3 -c "from library.tools.house_look import
+  #  describe_declaration_shape as d; print(d())"`
   # Add path to reference frame for AI color matching here:
   # reference_look_image: "/path/to/reference.jpg"
 effect:

@@ -11,7 +11,15 @@ def _delivery_format_names() -> List[str]:
 @dataclass
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
-    house_look: str = ""
+    # The look this series DECLARES, as values - a mapping read by
+    # `library/tools/house_look.resolve_look`.  It used to be a NAME into
+    # a catalogue of four looks this engine shipped, and their strengths
+    # were numbers nobody chose (captain, 2026-08-28: "there are no house
+    # glow looks, there are no settled house grain or anything").  The
+    # catalogue is gone and was not relocated: None means this template
+    # declares no look, and a project under it gets no CDL, no contrast,
+    # no glow, no grain and no vignette.
+    house_look: Optional[Dict[str, Any]] = None
     reference_look_image: str = ""
 
     typography: Dict[str, Any] = field(default_factory=dict)
@@ -109,7 +117,10 @@ class BrandTemplate:
                     "type": "object",
                     "properties": {
                         "color_palette": {"type": "array", "items": {"type": "string"}},
-                        "house_look": {"type": "string"},
+                        "house_look": {
+                            "type": ["object", "null"],
+                            "description": "The look this series declares, as values. Omit for no look; there is no engine default. Shape: library/tools/house_look.describe_declaration_shape().",
+                        },
                         "reference_look_image": {"type": "string"},
 
                         "typography": {"type": "object"},

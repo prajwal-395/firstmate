@@ -7,8 +7,9 @@ This document outlines potential upgrades discussed during the engine refactor t
 ## 1. DRX PowerGrade Reverse Engineering
 
 **Status: WITHDRAWN (2026-08-15).** The pipeline no longer applies PowerGrades
-at all: the house look is CDL plus Fusion values committed in this repo
-(`library/tools/house_look.py`, AGENTS.md section 12), and no `.drx` ships.
+at all: a look is CDL plus Fusion values a brand template DECLARES
+(`library/tools/house_look.py`, AGENTS.md section 12), no look values are
+committed in this repo at all, and no `.drx` ships.
 Cracking the format would buy a route nothing needs. The research below is
 kept as a record of what was learned, not as a plan.
 
@@ -112,7 +113,7 @@ These values can be used directly in our `fx.*()` composable blocks to match DaV
 ## 4. Automated PowerGrade Application Pipeline
 
 **Status: WITHDRAWN (2026-08-15).** See section 1. Step 5.01 selects a named
-house look instead, and every third-party grade below carries the same
+declared look instead, and every third-party grade below carries the same
 licence problem that removed `cinematic_warm.drx` - do not import one without
 recording written terms in AGENTS.md section 11 first.
 

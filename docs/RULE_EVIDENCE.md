@@ -1742,13 +1742,57 @@ Every card it rendered was already in the wrong face, and the frames were still 
 
 ---
 
-## Section 12 - the house look
+## Section 12 - the look
 
-### where-the-look-values-come-from
+### there-is-no-house-look
 
-The values are authored from the captain's planning docs at `PLAN/series portfolio '26 planning/`, which are READ-ONLY and live outside this repo.
+Captain, 2026-08-28: *"i want no hardcoded values. **there are no house glow looks, there are no settled house grain or anything**"*.
+
+**What was there.** `library/tools/house_look.py` held four complete looks - `pmk_default`, `warm_reflection`, `electric_contrast`, `film_stock_warmth` - each carrying a slope, offset and power triple, a saturation, a pivot contrast, a glow gain / threshold / size, a grain power and size, and a vignette blend and falloff. The DIRECTIONS were cited to the captain's own planning docs at `PLAN/series portfolio '26 planning/` (read-only, outside this repo) by document and section - "warm shadows, never blue", "highlights pushed to cream", "deep, inky blacks". The STRENGTHS were not, and could not be: a document states a direction, not a magnitude. `warm_reflection`'s own comment says its blue slope was "pulled back" from a first-party DCTL's 0.88 to 0.935, and its 1.08 saturation came from a judgement that "the channel-level DNA outranks one series". Those are numbers this repository chose.
+
+**What reached 001.** `project.yaml` names no brand template. Before #297 that resolved to `default_brand.yaml`, which named `pmk_default`, so on the 2026-08-26 run every one of these reached the finished video:
+
+| where | what | count |
+|---|---|---|
+| `color_grade.per_clip_adjustments[].cdl_values` | `slope (1.020, 1.005, 0.985)`, `offset (0.006, 0.004, 0.002)`, `power (0.995, 1.000, 1.005)`, `saturation 1.10` | 10 of 10 clips, one identical value |
+| `fusion_effects.per_clip[]` | `grade_contrast 0.1`, `glow_gain 0.12`, `glow_threshold 0.78`, `glow_size 3.5`, `film_grain_power 0.18`, `film_grain_size 1.5`, `vignette_blend 0.16`, `vignette_soft 0.35` | 17 of 17 comps |
+
+**What 001 loses, measured off the manifest.** Removing the eleven look keys from `assembly_manifest.fusion_effects.per_clip` leaves **0 of 17 comps with any key at all**: 001's `vfx` list is empty (0 entries) and no clip carries a zoom, so every Fusion comp in that video exists solely to carry the look. The CDL half goes from `slope (1.020, 1.005, 0.985) / saturation 1.10` to identity on all 10.
+
+**What could NOT be established.** How that reads on screen. The captain has live markers and a Text+ block on 001's timeline, so it is not re-rendered and there is no A/B frame. From the values alone: the CDL is a ~3.5% red-over-blue slope split and a +10% saturation, the contrast is a 0.1 pivot, the glow is gated at 0.78 so it touches only the brightest part of the frame, and the grain is 0.18. Whether the sum is visible at a glance or only in a difference image is exactly the question a render answers and these numbers do not.
+
+**Where the routing landed.** No value was relocated. The four looks are removed, the five shipped templates each dropped their `house_look:` and record the series DIRECTION their planning document states plus the fact that no strength was ever chosen, and `style.house_look` became a declaration of values that `resolve_look` reads. Nothing in `library/templates/` declares one, so at HEAD every project - 001 included - gets no grade.
+
+**A second, quieter one, found on the way.** `build_effect_comp` defaulted `vignette` to True, so any clip carrying a zoom and no explicit vignette key got one at `blend 0.25`, `soft 0.35` - through a `.get` default rather than a plan or a template. `normalize_effects` set `vignette: False` for the no-zoom case only, which is why it never showed: the clips it hit were the ones with a VFX zoom on them. It now draws only where one was asked for.
 
 Nothing depends on a file inside a Resolve installation.
+
+### the-exposure-probe-measured-nothing
+
+**The claim.** Step 5.01 emitted `per_clip_adjustments` for 10 clips with **1 distinct CDL value across 10 of 10** and the note *"Exposure within normal range, no adjustment needed"* on **10 of 10**. A per-clip mechanism produced one global answer.
+
+**It was the mechanism.** `_estimate_exposure` ran `ffprobe -of csv=p=0`, which writes one field plus its separator - every line arrives as `140.914,`. `float(line)` raised `ValueError` on all of them, each was skipped by the `except ValueError: continue`, the list came out empty, and `if not values: return 0.0` returned the same 0.0 it returns for a perfectly exposed clip. Every failure mode returned 0.0: ffprobe missing, file missing, probe timed out, nothing parsed. Reproduced at HEAD against 001's real state on 2026-08-28: `Counter({0.0: 10})`, 4.0s wall clock, all 10 source files present on disk.
+
+**What the discarded samples said**, recomputed from the same command with the separator stripped:
+
+| clip | file | samples | mean YAVG | offset (old formula) | gain |
+|---|---|---|---|---|---|
+| clip_011 | IMG_1816.MOV | 60 | 145.50 | -0.470 | 0.722 |
+| clip_012 | IMG_1817.MOV | 60 | 131.21 | -0.184 | 0.880 |
+| clip_017 | IMG_1822.MOV | 60 | 53.12 | +1.378, clamped to +0.500 | 1.414 |
+| clip_008 | IMG_1813.MOV | 55 | 136.94 | -0.299 | 0.813 |
+| clip_014 | IMG_1819.MOV | 29 | 113.26 | +0.175 | 1.129 |
+| clip_001 | IMG_1806.MOV | 22 | 135.75 | -0.275 | 0.826 |
+| clip_005 | IMG_1810.MOV | 48 | 114.52 | +0.150 | 1.110 |
+| clip_002 | IMG_1807.MOV | 60 | 107.19 | +0.296 | 1.228 |
+| clip_006 | IMG_1811.MOV | 60 | 135.26 | -0.265 | 0.832 |
+| clip_004 | IMG_1809.MOV | 60 | 115.99 | +0.120 | 1.087 |
+
+**10 of 10 distinct**, spanning 0.722x to 1.414x - a 0.97-stop spread. clip_017 is the in-car passage the creative direction calls the emotional floor of the piece, and it is the darkest thing in the edit by 54 luma.
+
+**So the note was the defect, not the number.** AGENTS.md §10.3: no field reports a default as though it were measured. The step now records `measured_luma`, `measured_luma_method`, `measured_luma_samples` and, where nothing measured, `measured_luma_reason` - and `exposure_offset` is `null`, never `0.0`.
+
+**Fixing the parser is not the same as applying the result**, and the two were separated deliberately. `_REFERENCE_BRIGHTNESS = 122.0` ("typical well-exposed iPhone footage sits around 115-130. We aim for the middle") and `_MAX_EXPOSURE_OFFSET = 0.5` are decisions about how bright a finished video is and how far the engine may overrule the footage. Both were picked by nobody, and turning the parser on without routing them would have shipped an unreviewed exposure change to every clip of every project - on 001, a 0.72x on its brightest clip and a 1.41x on its darkest. So the reference is now `style.house_look.exposure_reference`, declared or absent, and with nothing declared the luma is measured, recorded and acted on by nothing. The offset is `log2(reference / measured)`, which is the definition of a stop rather than a chosen scale, and there is no clamp.
 
 ---
 
@@ -2479,7 +2523,7 @@ Numbering follows §6 of the report. "on 001" is measured against its 2026-08-26
 | 5 | calm energy ⇒ ≤ 15 SFX per minute (5.03) | could not fire | **removed**, same reason |
 | 6 | colour-mood word lists (5.03) | never fired | **already removed** at HEAD by #271 |
 | 7 | cohesion score 100, penalties 3/5/10, apply below 70 | score 90, so nothing applied | **already removed** at HEAD by #271 |
-| 8 | house-look strengths: `glow_gain 0.12`, `glow_threshold 0.78`, `glow_size 3.5`, `grain_power 0.18`, `grain_size 1.5`, `vignette_blend 0.16`, `vignette_soft 0.35`, `contrast 0.1`, `saturation 1.1`, and the slope/offset/power triples | on all 17 per-clip comps | **PARKED - untouched.** `library/tools/house_look.py` is not modified. What DOES change is that 001 no longer inherits `pmk_default` at all, because that came from the unchosen template (see "the consequence to take to the captain") |
+| 8 | house-look strengths: `glow_gain 0.12`, `glow_threshold 0.78`, `glow_size 3.5`, `grain_power 0.18`, `grain_size 1.5`, `vignette_blend 0.16`, `vignette_soft 0.35`, `contrast 0.1`, `saturation 1.1`, and the slope/offset/power triples | on all 17 per-clip comps | Was **PARKED** here. The park was lifted on 2026-08-28 and every one of them is **REMOVED** - see [there-is-no-house-look](#there-is-no-house-look) |
 | 9 | `style.energy_profile: "high"` | reached 2.01's constraints; the model overruled it in writing | **removed from the absent path.** A project that names no template sends no brand constraints at all |
 | 10 | `effect.vfx_intensity: 0.5` | was the entire 41-byte constraints block at 4.03 | **removed from the absent path**, same mechanism |
 | 11 | `content.music_genre: ["electronic", "upbeat"]` | no reader | **removed** from `default_brand.yaml`. The slot survives because four templates declare it; it reaches nothing, and step 2.04's frozen handoff names `brand_content.music_genre` while no manifest routes `brand_content` to 2.04 - **reported, not wired** |
@@ -2574,6 +2618,12 @@ captain's own `overall_branding_creative_direction.md`, and 001 is a pmk video, 
 likely one the captain WOULD choose - which is exactly the decision this change refuses to make on
 their behalf. **The fix is one line in 001's `project.yaml`:** `pipeline: {brand_template: <name>}`.
 Nothing here edits it.
+
+**Superseded 2026-08-28.** The captain lifted the park and ruled there is no house look at all
+("there are no house glow looks, there are no settled house grain or anything"), so naming a
+template is no longer a route back to `pmk_default` - the four looks are gone and no shipped
+template declares one. 001's next grade carries no CDL and no Fusion look, and no exposure
+normalisation either. See [there-is-no-house-look](#there-is-no-house-look).
 
 ### Why the cohesion thresholds were removed rather than re-tuned
 

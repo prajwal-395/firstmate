@@ -152,7 +152,7 @@ def test_a_project_declaring_none_inherits_no_taste(tmp_path):
     assert effect["transition_duration_ms"] == {}
     assert effect["vfx_intensity"] == 0.0
     assert effect["subtitle_style"] == ""
-    assert inputs["brand_style"]["house_look"] == ""
+    assert inputs["brand_style"]["house_look"] is None
     assert inputs["brand_style"]["energy_profile"] == ""
     assert inputs["brand_style"]["typography"] == {}
     # The one exception, and it is recorded as one.
@@ -239,12 +239,17 @@ _COLOR_GRADE = os.path.join(
 
 def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
     """step_5_01_color_grade does `brand_template.get("style", {})` and
-    reads `style.house_look` off it.  The key was never set, so the house
-    look a template names never reached the grade - `main()` fell through
+    reads `style.house_look` off it.  The key was never set, so the look
+    a template declares never reached the grade - `main()` fell through
     to the neutral CDL on every run of every project.
 
     It needs a DICT, so this also pins the type: broadcasting the
     reference string under the same key would crash the step.
+
+    `house_look` is now a DECLARATION rather than a name into a catalogue
+    (the catalogue was removed - see tests/test_house_look.py), and no
+    shipped template declares one, so the route is proved with a
+    declaration this test writes into the project's own template.
     """
     with open(_COLOR_GRADE, encoding="utf-8") as f:
         manifest = json.load(f)
@@ -259,35 +264,38 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
 
     template = inputs["brand_template"]
     assert isinstance(template, dict), "step 5.01 calls .get() on this"
-    assert template["style"]["house_look"] == "warm_reflection"
+    # The shipped template declares no look, and that is the point: it
+    # reaches the step as an absence rather than as a substitute.
+    assert template["style"]["house_look"] is None
+    assert "color_palette" in template["style"], "the template still arrives"
 
 
-def test_the_grade_actually_reads_that_house_look(tmp_path):
-    """The delivery half: the resolved template changes the CDL the grade
-    emits, not just the dict handed to the step."""
+def test_the_grade_actually_reads_a_declared_look(tmp_path):
+    """The delivery half: a look the template DECLARES changes the CDL
+    the grade emits, not just the dict handed to the step."""
     from library.steps.step_5_01_color_grade.step import define_color_grade
 
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
-    state = load_pipeline_state(folder)
-    with open(_COLOR_GRADE, encoding="utf-8") as f:
-        manifest = json.load(f)
-    inputs = gather_step_inputs(
-        "step_5_01_color_grade", {"edges": []}, state, manifest)
-    house_look = inputs["brand_template"]["style"]["house_look"]
-    assert house_look == "warm_reflection"
+    declaration = {
+        "name": "geo_declaration",
+        "cdl": {"slope": [1.045, 1.01, 0.935],
+                "offset": [0.016, 0.008, -0.004],
+                "power": [0.985, 0.995, 1.025],
+                "saturation": 1.08},
+        "vignette": {"blend": 0.2, "soft": 0.4},
+    }
 
     shot_list = {"entries": [{"track": "V1", "clip_id": "c1",
                               "entry_id": "e1", "source_file": "f1.mov"}]}
     with_look = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                   house_look=house_look)
+                                   house_look=declaration)
     without = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                 house_look="")
+                                 house_look=None)
     graded, neutral = with_look["color_grade_spec"], without["color_grade_spec"]
-    assert graded["house_look"] == "warm_reflection"
+    assert graded["house_look"] == "geo_declaration"
     assert neutral["house_look"] is None
-    # The two halves the look is delivered in (CLAUDE.md section 12).
+    # The two halves the look is delivered in (AGENTS.md section 12).
     # Neutral is the identity CDL and an empty Fusion block: literally no
-    # grade, which is what every project got.
+    # grade, which is what every project with no declaration gets.
     assert graded["per_clip_adjustments"][0]["cdl_values"]["slope_b"] == 0.935
     assert neutral["per_clip_adjustments"][0]["cdl_values"]["slope_b"] == 1.0
     assert graded["fusion_look"]["vignette"] is True

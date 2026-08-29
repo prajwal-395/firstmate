@@ -29,7 +29,10 @@ from library.schemas.brand_template import BrandTemplate, StyleSlots, EffectSlot
 # statement of what absence means; keep it true when a slot changes.
 ABSENT_SLOT_READINGS = {
     "style.house_look": (
-        "exposure normalisation only, no look "
+        "NO look and NO exposure normalisation: no CDL, no contrast, no "
+        "glow, no grain, no vignette.  There is nothing to fall back to - "
+        "the engine ships no look values at all, and the clip's measured "
+        "luma is recorded without anything acting on it "
         "(AGENTS.md 12, library/tools/house_look.py)"),
     "style.color_palette": (
         "no palette, so each consumer keeps its own colour "
@@ -112,8 +115,11 @@ def no_brand_template() -> BrandTemplate:
 # only the prompt.  Named in the run's own output, because "no brand
 # template" is otherwise a sentence a reader can pass over.
 PICTURE_CONSEQUENCES_OF_ABSENCE = (
-    "no house look, so the clips carry exposure normalisation only "
-    "(step 5.01 says so in look_notes)",
+    "no look at all: no CDL, no contrast, no glow, no grain and no "
+    "vignette, and no exposure normalisation either.  Step 5.01 measures "
+    "each clip's luma, records it, and applies nothing (look_notes says "
+    "so).  A clip only gets a Fusion comp if the VFX plan or the "
+    "subject-safe conform put one there",
     "no palette, so captions and motion graphics keep their own colours",
     "no transition duration bound, so a drawn transition is held for as "
     "long as the plan's own duration_feel says",
