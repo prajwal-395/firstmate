@@ -2,19 +2,21 @@
 # Self-update a running firstmate and its secondmates to the latest tracked upstream.
 #
 # Mechanical half of the /updatefirstmate skill. Fast-forwards the running
-# firstmate repo's default branch from origin, then fast-forwards every
-# registered secondmate home. Local homes are treehouse worktrees or standalone
-# clones; remote routes update their configured code root on that host and then
-# fast-forward the persistent home to that root. FAST-FORWARD ONLY, exactly like
-# fm-fleet-sync.sh: never force, never create a merge commit, never stash;
-# advance a target only when it is a clean fast-forward, otherwise skip and
-# report. A tracked-files fast-forward never touches the gitignored operational
-# dirs (data/, state/, config/, projects/, .no-mistakes/), so a secondmate's
-# in-flight work is never disrupted. Worktrees of this repo share one object
-# store, so a single fetch refreshes them all; standalone-clone homes are
-# fetched on their own. Secondmate homes are leased at a detached HEAD on the
-# default branch, so a fast-forward there advances HEAD only and never touches
-# any other worktree's checkout or the shared `main` branch.
+# firstmate repo from its tracked upstream - its default branch when it owns its
+# checkout, or its detached HEAD when the home is itself a leased worktree - then
+# fast-forwards every registered secondmate home. Local homes are treehouse
+# worktrees or standalone clones; remote routes update their configured code root
+# on that host and then fast-forward the persistent home to that root.
+# FAST-FORWARD ONLY, exactly like fm-fleet-sync.sh: never force, never create a
+# merge commit, never stash; advance a target only when it is a clean
+# fast-forward, otherwise skip and report. A tracked-files fast-forward never
+# touches the gitignored operational dirs (data/, state/, config/, projects/,
+# .no-mistakes/), so a secondmate's in-flight work is never disrupted. Worktrees
+# of this repo share one object store, so a single fetch refreshes them all;
+# standalone-clone homes are fetched on their own. Secondmate homes, and any
+# firstmate home leased the same way, are held at a detached HEAD on the default
+# branch, so a fast-forward there advances HEAD only and never touches any other
+# worktree's checkout or the shared `main` branch.
 #
 # The fast-forward mechanics live in bin/fm-ff-lib.sh (base_mode "upstream" here);
 # the same library drives the local-HEAD secondmate sync used by fm-spawn.sh and
@@ -65,7 +67,19 @@ reread_firstmate="no"
 firstmate_surface="none"
 firstmate_files="none"
 firstmate_range="none"
-ff_target "$FM_ROOT" "firstmate" upstream no no
+# A firstmate home that is a LINKED worktree of another checkout is detached by
+# design and can never be on the default branch (git refuses the same branch in
+# two worktrees), so refusing it for a detached HEAD would skip that whole class
+# of home forever. A repository's own main worktree gets no such allowance: a
+# detached HEAD there means a stranded checkout - mid-bisect, mid-rebase, or
+# holding unique commits - and is still refused. That distinction is the safety
+# boundary; every other guard in ff_target is unchanged, so a dirty, diverged,
+# or non-ancestor target is still skipped rather than forced.
+firstmate_allow_detached=no
+if is_linked_worktree "$FM_ROOT"; then
+  firstmate_allow_detached=yes
+fi
+ff_target "$FM_ROOT" "firstmate" upstream "$firstmate_allow_detached" no
 if [ "$FF_STATUS" = "updated" ]; then
   firstmate_surface=$(printf '%s' "${FF_INSTR:-none}" | tr -d ' ')
   firstmate_files=$(printf '%s' "${FF_FILES:-none}" | tr -d ' ')

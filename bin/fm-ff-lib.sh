@@ -61,6 +61,38 @@ primary_head_commit() {
   git -C "$root" rev-parse --verify --quiet "refs/heads/$default^{commit}" 2>/dev/null || return 1
 }
 
+# Is this checkout a LINKED git worktree - one that borrows another checkout's
+# git directory - rather than a repository's own main worktree?
+#
+# This is the discriminator that separates a legitimately detached home from a
+# stranded one. A linked worktree CANNOT hold the default branch while the
+# checkout it is leased from already has it: git refuses the same branch in two
+# worktrees. A leased home is therefore detached BY DESIGN, permanently, and a
+# detached HEAD there carries no information about whether something went wrong.
+# A repository's own main worktree has no such constraint, so a detached HEAD
+# there is an anomaly - mid-bisect, mid-rebase, or a stale checkout holding
+# unique commits - and must never be silently advanced.
+#
+# The test is structural: a linked worktree's --git-dir is a per-worktree
+# subdirectory of the shared --git-common-dir, while a main worktree's two are
+# the same directory. That is preferred over `git worktree list` identity, which
+# would compare recorded paths against caller-supplied ones and so depends on
+# symlink and canonicalisation luck. Both values are canonicalised through the
+# checkout itself, because git reports either one relative to its own working
+# directory or absolute depending on the shape and the git version.
+# Returns 0 for a linked worktree, 1 for anything else INCLUDING an unreadable
+# repo, so an indeterminate answer keeps the stricter detached-HEAD refusal.
+is_linked_worktree() {
+  local dir=$1 git_dir common_dir
+  git_dir=$(git -C "$dir" rev-parse --git-dir 2>/dev/null) || return 1
+  common_dir=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
+  [ -n "$git_dir" ] && [ -n "$common_dir" ] || return 1
+  git_dir=$( cd "$dir" && cd "$git_dir" 2>/dev/null && pwd -P ) || return 1
+  common_dir=$( cd "$dir" && cd "$common_dir" 2>/dev/null && pwd -P ) || return 1
+  [ -n "$git_dir" ] && [ -n "$common_dir" ] || return 1
+  [ "$git_dir" != "$common_dir" ]
+}
+
 resolve_path() {
   # Resolve to a canonical absolute path, falling back to the literal input
   # when the directory does not exist (so callers can still dedup/skip on it).
