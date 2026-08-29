@@ -111,7 +111,7 @@ One enumeration, `library/tools/external_inputs.py`. [why - what was measured, a
 ### A declaration must be true
 
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
-`library/tools/input_contract.py` surveys all 129 declared inputs of the DAG's 27 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
+`library/tools/input_contract.py` surveys all 148 declared inputs of the DAG's 27 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
 
     python3 -m library.tools.input_contract          # the survey
     python3 -m library.tools.input_contract --bad    # disagreements only
@@ -888,6 +888,17 @@ Do not flip the boolean without changing one of the two. [why - the per-window n
 The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
 A declared letterbox is exempt from the fill floor and never from the consistency half.
 `tests/test_baseline_craft_properties.py`.
+
+**Every QA finding has a reader, and one that has none is reported.**
+One enumeration, `library/tools/qa_findings.py`.
+Step 6.02 measured all four of the captain's named shortfalls on 001 - the 6.25 s caption gap, 13 of 45 cards over 25 characters per second, 10 of 11 mix windows missing the margin the plan itself declared, and the -20.94 LUFS master - and wrote every one to `exports/qa_report.json`, which nothing opened. [why - the four, and which of them is genuinely advisory](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
+
+- **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
+- **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; step 6.02 still decides what fails, and promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source, so an edit that moves the block above the status fails rather than quietly starting to block runs.
+- **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone: a report already on disk cannot be re-severitied, and `subtitle_qa` used to stamp its failing severity on a passing result. Its severity now moves with its verdict, the way `render_qa`'s always has.
+- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of both producers and checks BOTH directions. A new check that forgets its reader cannot go quiet, and the table cannot go stale.
+- **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. They carry their own legend, because `handoff.md` is frozen (the `CUTS_LEGEND` route), and the legend says plainly that a finding is not grounds to reject a rough cut.
+- `tests/test_qa_findings_reach_a_reader.py`.
 
 ### 10.5 Creative latitude
 

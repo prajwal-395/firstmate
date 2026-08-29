@@ -187,12 +187,20 @@ ROUTE_BRAND = "brand"
 """Resolved and injected by the brand block, which raises on a template
 reference it cannot resolve."""
 
+ROUTE_LAST_RENDER = "last render"
+"""`run_pipeline.QA_FINDINGS_INPUT` - the last render's QA findings,
+injected only if the step's own manifest declares it. No edge can carry
+it: the producer is the DAG's final node and the consumer sits upstream
+of it, so it is a statement about state rather than about lineage. Absent
+on a project that has never rendered, and never raising."""
+
 ROUTE_NONE = "unrouted"
 """Nothing supplies it. A declaration the runner can never meet."""
 
 _PROCESS_LEVEL = ("sfx_library", "music_library", "creative_brief")
 _GLOBALS = ("project_folder", "project_config")
 _BRAND = ("brand_template", "brand_style", "brand_effect", "brand_content")
+_LAST_RENDER = ("render_qa_findings",)
 
 
 # ── Who refuses ──────────────────────────────────────────────────────
@@ -449,6 +457,8 @@ def _route(name: str, node_id: str, routed: Mapping[str, Set[str]],
         return ROUTE_GLOBAL
     if name in _BRAND:
         return ROUTE_BRAND
+    if name in _LAST_RENDER:
+        return ROUTE_LAST_RENDER
     if node_id in merging:
         return ROUTE_EDGE_MERGE
     return ROUTE_NONE

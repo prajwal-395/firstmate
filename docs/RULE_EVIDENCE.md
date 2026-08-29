@@ -3783,3 +3783,102 @@ is one of the twelve frozen prompt files, its `enhancement_spec` schema's `motio
 no reader, and a table put in front of a model that its handoff does not name is the unread-key
 defect of §10.2 in the other direction. The wiring is a separate change and it needs the copy answer
 first.
+
+## the-qa-report-had-no-reader
+
+**The rule:** AGENTS.md §10.4, "Every QA finding has a reader".
+
+Step 6.02 measures the finished video and writes `exports/qa_report.json`. Nothing has ever opened
+that file. On project 001's run of record it held **all four** of the captain's named shortfalls,
+and every one of them was in there before this change:
+
+| finding | metric | `passed` | `severity` |
+|---|---|---|---|
+| 4 caption gaps over 2 s, the longest 6.25 s | `subtitle_gaps` | False | `info` |
+| 13 of 45 cards over 25 characters per second | `subtitle_read_speed` | False | `warning` |
+| 1 of 11 mix windows meets the plan's own declared margin | `speech_above_bed` | True | `warning` |
+| -20.94 LUFS, 6.94 dB off target | `lufs` | False | `error` |
+
+Captions, sound and the look - and a `warning` in a file with no reader is not a warning. This is
+the same defect as a gate that cannot fail (§10.4): it reads as coverage and is not.
+
+### Why the run summary AND `review_rough_cut`, and not one of them
+
+The run summary is unconditional: it prints on every run, needs no DAG change, and puts the numbers
+where a person is already looking at the end of a run.
+
+`review_rough_cut` (3.03) is the step with a review job, and several of the findings are
+consequences of decisions taken at or before it - `subtitle_gaps` is the aligner's leading gap
+(`vep-aligner-leading-gap`), and `subtitle_read_speed` moves with a caption grouping that follows
+from block boundaries. So both, and they share one reader.
+
+**No DAG edge can carry them.** `validate` is the DAG's final node and `review_rough_cut` is in
+phase 3; an edge from the one to the other is a back edge and `topological_order` would refuse it.
+So the findings travel the way `project_config` does - by name, in `gather_step_inputs`, and only
+to a step whose manifest declares them - and they describe the LAST render rather than this run's.
+That is §3's rule ("a prerequisite is a condition on STATE, not on lineage") applied to a reading
+rather than to a prerequisite: `load_findings` asks state first and the file second, and RECORDS
+which answered, so the step is never told a previous run's report is this one's.
+
+### Is any of the four genuinely advisory
+
+**One is.** `speech_above_bed` reports `passed: True` whatever it measured, because
+`SPEECH_ABOVE_BED_GATES` is False - and §10.4 records why it must stay False: `background` means
+-18 dB of CLIP GAIN, the check reads it as SEPARATION, and 001's music is mastered 8.6 dB hotter
+than its speech, so the target is unreachable by any mix setting. It is a real measurement of a
+real shortfall and it is not a build failure. It reads as ADVISORY.
+
+The other three are FAILING: each check's own `passed` is False. Their severities differ and are
+kept - `error` for the loudness, `warning` for the read speed, `info` for the gaps - and only a
+failing `error` is reported as something a gate would be entitled to act on. **Nothing was promoted
+to make the report look thorough, and no threshold moved.**
+
+### Advisory is an enumeration, not a rule about severity
+
+`REPORT_ONLY_METRICS` names the two checks whose gate boolean is False. Reading "advisory" off
+severity alone would have been simpler and wrong, because a report already on disk cannot be
+re-severitied: `subtitle_qa` stamped its FAILING severity on every result whether or not it had
+failed, so 001's own report carries
+
+    {"metric": "subtitle_overlap", "passed": true, "severity": "error",
+     "detail": "No overlapping subtitles"}
+
+and a severity-only reading promotes that to an `error` finding. That is the trap this task named -
+a silent problem converted into a loud wrong one - arriving through the reader rather than through
+a gate. `subtitle_qa`'s severity now moves with its verdict, which is what `render_qa` has always
+done (`severity="error" if not passed else "info"`); the thresholds are untouched.
+
+### Reading is not gating
+
+The summary block sits after every `status = ...` assignment in `run_pipeline` and assigns nothing.
+`tests/test_qa_findings_reach_a_reader.py::test_reading_the_findings_cannot_change_the_run_status`
+pins that ordering off the runner's own AST, so a later edit that moves the block above the status
+fails rather than quietly starting to block runs.
+
+### The failure mode, turned inside out
+
+`FINDING_READERS` carries one row per metric either producer can emit, naming the DAG node that
+owns the decision behind it and what a reader does with it. A metric with no row is not dropped: it
+is `unrouted`, printed first and loudest in the summary, and carried to 3.03 with the reading "NO
+READER IS DECLARED FOR THIS METRIC". Live, on a copy of 001's frozen state with one unclaimed row
+added:
+
+    QA findings: 18 checks, 5 failing, 1 advisory, 12 clean
+        ⚠ 1 finding(s) reach NO READER - add a row to qa_findings.FINDING_READERS:
+          ? caption_contrast: 3 cards sit under 4.5:1 against the picture behind them
+
+The test harvests the metric names out of `render_qa.py` and `subtitle_qa.py` by AST and fails in
+BOTH directions - a metric with no reader, and a reader for a metric nothing emits - so a new check
+that forgets its reader cannot repeat the defect, and the table cannot go stale.
+
+### Cost
+
+The findings are 4,067 B of `review_rough_cut`'s 43,343 B context on 001 - 9.4%. All seventeen rows
+travel, clean ones included: filtering would put the module in the position of deciding which
+measurements a reviewer may see, which is the shape of the defect. The per-metric `reading` is
+keyed rather than a sixth column, because it is a constant per metric and a blank cell on a clean
+row would read as an absent measurement (§10.3) rather than as "no reader had to act".
+
+001 was not re-run and not re-rendered. The run summary above was produced by invoking the real
+runner against a COPY of 001's frozen `pipeline_data.json` and `exports/qa_report.json`, on one
+already-complete step.

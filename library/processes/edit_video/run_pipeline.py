@@ -75,6 +75,11 @@ DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
 # in its own manifest's interface.inputs - see gather_step_inputs.
 PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief")
 
+# The one input carrying the LAST render's QA findings.  It is not a
+# process-level input and it is not DAG-routable - see the block in
+# `gather_step_inputs` that fills it, and library/tools/qa_findings.py.
+QA_FINDINGS_INPUT = "render_qa_findings"
+
 
 # ── DAG Loader ──────────────────────────────────────────────────────
 
@@ -769,6 +774,29 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         for g_key in PROCESS_LEVEL_INPUTS:
             if g_key in declared and g_key in state and g_key not in inputs:
                 inputs[g_key] = state[g_key]
+
+    # The LAST render's QA findings, for a step that declares them.
+    #
+    # A DAG edge cannot carry these.  `validate` (6.02) is the final node
+    # and the one step with a review job, `review_rough_cut` (3.03), sits
+    # in phase 3 - an edge from the one to the other is a back edge and
+    # the topological sort would refuse it.  So it travels the way the
+    # other non-DAG-routable globals above do, and it is a statement
+    # about STATE rather than about lineage (AGENTS.md section 3): the
+    # findings describe the last render of this project, whenever that
+    # happened, and `load_findings` records WHICH source answered so the
+    # step is never told a previous run's report is this one's.
+    #
+    # Nothing is broadcast.  A step gets this because its manifest asked.
+    if manifest and QA_FINDINGS_INPUT in {
+            inp.get("name") for inp in
+            manifest.get("interface", {}).get("inputs", [])}:
+        import sys
+        if str(LIBRARY_ROOT.parent) not in sys.path:
+            sys.path.append(str(LIBRARY_ROOT.parent))
+        from library.tools import qa_findings as _qa_findings
+        inputs[QA_FINDINGS_INPUT] = _qa_findings.findings_for_review(
+            _qa_findings.load_findings(state.get("project_folder", ""), state))
 
     if manifest and manifest.get("state", {}).get("reads"):
         import sys
@@ -2278,11 +2306,37 @@ def run_pipeline(
     if never_run:
         print(f"  ○ never completed: {', '.join(never_run)}", file=sys.stderr)
 
+    # What the render QA measured, printed where a person will see it.
+    #
+    # Step 6.02 has always written every one of these to
+    # exports/qa_report.json and nothing has ever opened it.  Reading is
+    # not gating: `status` is decided above and this block runs after it,
+    # so an advisory finding cannot fail a run.  A finding no reader
+    # claims is printed first and loudest rather than dropped - see
+    # library/tools/qa_findings.py.
+    qa_summary = {}
+    try:
+        from library.tools import qa_findings as _qa
+        _findings = _qa.load_findings(project_dir, state)
+        for _line in _qa.summary_lines(_findings):
+            print(_line, file=sys.stderr)
+        qa_summary = {
+            "source": _findings.source,
+            "source_detail": _findings.source_detail,
+            "counts": _findings.counts(),
+            "unrouted_metrics": [f.metric for f in _findings.unrouted],
+            "reportable": [f.as_dict() for f in _findings.reportable],
+        }
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the render QA findings: {exc}",
+              file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
     summary = {
         "status": status,
+        "qa_findings": qa_summary,
         "completed": completed,
         "completed_steps": len(step_ledger.all_completed(state)),
         "stage_completed": stage_done,

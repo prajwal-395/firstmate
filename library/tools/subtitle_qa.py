@@ -1,5 +1,27 @@
 from library.tools.render_qa import RenderQAResult
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+# How loud each check is WHEN IT FAILS.  A check with nothing to report
+# is `info`, which is what `render_qa` has always done
+# (`severity="error" if not passed else "info"`) and what this module used
+# not to do: every result here carried its failing severity whether or not
+# it had failed, so a report saying "No overlapping subtitles" arrived
+# labelled `error`.  A reader cannot tell an advisory note from a real one
+# if a clean check shouts, so the severity moves with the verdict.  The
+# thresholds themselves are untouched.
+FAILING_SEVERITY = {
+    "subtitle_overflow": "error",
+    "subtitle_overlap": "error",
+    "subtitle_too_short": "warning",
+    "subtitle_too_long": "warning",
+    "subtitle_gaps": "info",
+    "subtitle_read_speed": "warning",
+}
+
+
+def _severity(metric: str, passed: bool) -> str:
+    return "info" if passed else FAILING_SEVERITY[metric]
+
 
 def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: float = None) -> List[RenderQAResult]:
     """Check subtitle entries for timing issues."""
@@ -55,7 +77,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
                 passed=False,
                 value=end,
                 threshold=total_duration,
-                severity="error",
+                severity=_severity("subtitle_overflow", False),
                 detail=f"Subtitle at index {i} ends at {end}s but timeline is {total_duration}s"
             ))
                 
@@ -64,7 +86,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
         passed=len(overlaps) == 0,
         value=overlaps,
         threshold=0,
-        severity="error",
+        severity=_severity("subtitle_overlap", len(overlaps) == 0),
         detail=f"Found {len(overlaps)} overlapping subtitles" if overlaps else "No overlapping subtitles"
     ))
     
@@ -73,7 +95,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
         passed=len(too_short) == 0,
         value=too_short,
         threshold=0.5,
-        severity="warning",
+        severity=_severity("subtitle_too_short", len(too_short) == 0),
         detail=f"Found {len(too_short)} subtitles shorter than 0.5s" if too_short else "No overly short subtitles"
     ))
     
@@ -82,7 +104,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
         passed=len(too_long) == 0,
         value=too_long,
         threshold=5.0,
-        severity="warning",
+        severity=_severity("subtitle_too_long", len(too_long) == 0),
         detail=f"Found {len(too_long)} subtitles longer than 5s" if too_long else "No overly long subtitles"
     ))
     
@@ -91,7 +113,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
         passed=len(gaps) == 0,
         value=gaps,
         threshold=2.0,
-        severity="info",
+        severity=_severity("subtitle_gaps", len(gaps) == 0),
         detail=f"Found {len(gaps)} gaps longer than 2s" if gaps else "No dead caption gaps"
     ))
     
@@ -100,7 +122,7 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]], total_duration: 
         passed=len(too_fast) == 0,
         value=too_fast,
         threshold=25.0,
-        severity="warning",
+        severity=_severity("subtitle_read_speed", len(too_fast) == 0),
         detail=f"Found {len(too_fast)} subtitles too fast to read (>25 chars/sec)" if too_fast else "Subtitle reading speed is OK"
     ))
     
