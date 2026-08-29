@@ -7,6 +7,7 @@ import json
 import sys
 
 from library.tools import cohesion_scope
+from library.tools.creative_direction import direction_value
 from library.tools.passage_engagement import (
     NO_ENGAGEMENT_BASIS,
     engagement_of,
@@ -326,7 +327,8 @@ def review_creative_cohesion(inputs: dict) -> dict:
         # counts and judged against nothing.  A reader can see what was
         # asked for and what the plan came to; turning the pair into a
         # verdict needs a declared pace, which no step emits.
-        "declared_target_energy": creative_direction.get("target_energy"),
+        "declared_target_energy": direction_value(
+            creative_direction, "target_energy"),
         "transitions_planned": len(transitions),
         "transitions_drawn": len(drawn),
         "sfx_events": len(sfx),

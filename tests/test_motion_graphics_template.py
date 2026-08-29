@@ -75,9 +75,26 @@ def test_palette_beats_creative_direction():
     assert all(p["accentColor"] == "#ff0055" for p in got)
 
 
-def test_creative_direction_is_used_when_no_palette():
-    got = props(creative={"accent_color": "#123456"}, brand_effect=ON)
-    assert all(p["accentColor"] == "#123456" for p in got)
+def test_a_creative_direction_cannot_colour_the_accents():
+    """The route that was never a route.
+
+    This file used to assert that `creative_direction["accent_color"]`
+    coloured the brackets when the palette had none. Step 2.01 is asked
+    for eight fields of prose and an accent colour is not one of them
+    (library/tools/creative_direction.DIRECTION_KEYS), so the value was
+    None on every run and the branch could not fire. A test asserting it
+    passed only because it handed the generator a key no model ever
+    writes.
+
+    A direction carrying one now changes nothing, and a template that
+    enables accents with no usable palette colour fails the same way it
+    would with no direction at all.
+    """
+    with pytest.raises(MissingAccentColor):
+        props(creative={"accent_color": "#123456"}, brand_effect=ON)
+
+    off = props(creative={"accent_color": "#123456"})
+    assert all(p["accentColor"] != "#123456" for p in off)
 
 
 def test_enabling_accents_without_a_usable_colour_raises():
@@ -104,7 +121,7 @@ def test_the_withdrawn_cyan_never_reaches_a_frame():
         {},
         {"brand_style": {"color_palette": ["#ff0055", "#ffffff", "#000000"]},
          "brand_effect": ON},
-        {"creative": {"accent_color": "#123456"}, "brand_effect": ON},
+        {"creative": {"accent_color": "#123456"}},
     ):
         for p in props(**kwargs):
             assert p["accentColor"] != WITHDRAWN_LEGACY_ACCENT_COLOR

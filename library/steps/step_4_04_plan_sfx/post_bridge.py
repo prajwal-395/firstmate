@@ -545,13 +545,24 @@ def resolve_sfx(
 
     _assert_sfx_distributed(resolved)
 
-    # Determine Fairlight preset. The content type is whatever the
-    # creative direction declared; this file does not invent one. (The
-    # preset selector's own answer for an undeclared type is a mix
-    # setting, and the mix is out of this ruling's scope - see
-    # library/tools/fairlight_presets.py.)
-    content_type = (creative_direction or {}).get("content_type", "")
-    preset_name = select_preset_for_content(content_type, brand_audio)
+    # Determine Fairlight preset.
+    #
+    # This used to read `creative_direction["content_type"]`, and step
+    # 2.01 is not asked for a content type - its schema is eight fields
+    # of prose about the footage's story. So the value was "" on every
+    # run and `select_preset_for_content`'s own undeclared-type answer
+    # decided the preset, while the code read as though the creative
+    # director had chosen it. See WITHDRAWN_DIRECTION_KEYS in
+    # library/tools/creative_direction.py.
+    #
+    # The declared route into this choice is the brand template's audio
+    # slot, which the selector already prefers as `preferred_preset`.
+    # Nothing else is substituted here: a mix preset is a MECHANICAL
+    # default (AGENTS.md section 10.5), so the selector's documented
+    # answer for an undeclared type is a legitimate one - but it is now
+    # reached by saying nothing was declared, not by reading a key that
+    # cannot exist.
+    preset_name = select_preset_for_content("", brand_audio)
 
     return {
         "sfx_list": resolved,

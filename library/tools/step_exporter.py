@@ -259,27 +259,38 @@ def _summary_prosody(name: str, out: dict) -> str:
 
 
 def _summary_creative_direction(name: str, out: dict) -> str:
+    """The eight fields step 2.01 is asked for, and no ninth.
+
+    Named through library/tools/creative_direction.py so that a field
+    added to this summary and never asked for fails here instead of
+    printing "N/A" as though the model had declined to answer.
+    """
+    from library.tools.creative_direction import direction_value
     cd = out.get("creative_direction", out)
+
+    def field(key):
+        return direction_value(cd, key, "N/A")
+
     lines = [f"# {name}", ""]
-    lines.append(f"**Narrative Theme**: {cd.get('narrative_theme', 'N/A')}")
+    lines.append(f"**Narrative Theme**: {field('narrative_theme')}")
     lines.append("")
-    lines.append(f"**Target Mood**: {cd.get('target_mood', 'N/A')}")
+    lines.append(f"**Target Mood**: {field('target_mood')}")
     lines.append("")
-    lines.append(f"**Target Energy**: {cd.get('target_energy', 'N/A')}")
+    lines.append(f"**Target Energy**: {field('target_energy')}")
     lines.append("")
-    lines.append(f"**Energy Arc**: {cd.get('energy_arc', 'N/A')}")
+    lines.append(f"**Energy Arc**: {field('energy_arc')}")
     lines.append("")
-    lines.append(f"**Emotional Landscape**: {cd.get('emotional_landscape', 'N/A')}")
+    lines.append(f"**Emotional Landscape**: {field('emotional_landscape')}")
     lines.append("")
-    lines.append(f"**Audience Emotion**: {cd.get('audience_emotion', 'N/A')}")
+    lines.append(f"**Audience Emotion**: {field('audience_emotion')}")
     lines.append("")
-    moments = cd.get("key_moments", [])
+    moments = direction_value(cd, "key_moments", []) or []
     if moments:
         lines.append("**Key Moments**:")
         for m in moments:
             lines.append(f"- {m}")
         lines.append("")
-    lines.append(f"**Rationale**: {cd.get('rationale', 'N/A')}")
+    lines.append(f"**Rationale**: {field('rationale')}")
     return "\n".join(lines)
 
 

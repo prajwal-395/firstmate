@@ -87,6 +87,8 @@ def is_high_energy(creative_direction: dict) -> bool:
     `energy`/`mood` never existed on creative_direction; the real keys are
     `target_energy`/`target_mood`, which is why the energy-driven branch
     in `transition_selector` was unreachable for the whole life of the
-    step.
+    step.  The key is named through `library/tools/creative_direction.py`
+    so that spelling it wrong again RAISES rather than defaulting.
     """
-    return read_energy((creative_direction or {}).get("target_energy")) == HIGH
+    from library.tools.creative_direction import direction_value
+    return read_energy(direction_value(creative_direction, "target_energy")) == HIGH

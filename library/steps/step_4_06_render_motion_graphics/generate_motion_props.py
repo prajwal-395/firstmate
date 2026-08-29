@@ -125,9 +125,6 @@ def generate_motion_props(
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
 
-    # Extract style from creative direction
-    visual_style = creative_direction.get("visual_style", {})
-
     # ── Whether the accents are drawn at all (P3.1 / Q3) ──
     # `show_accents` was hardcoded True, so four glowing L-brackets and a
     # progress bar sat on every frame of every video the pipeline has ever
@@ -143,21 +140,26 @@ def generate_motion_props(
     progress_enabled = _as_bool(effect.get("motion_progress_bar"), False)
 
     # ── The accent colour (P3.1) ──
-    # The template's own palette first, then a per-video creative
-    # direction. There is no constant fallback: a template that wants
-    # accents must supply a colour to draw them in.
-    declared_accent = visual_style.get(
-        "accent_color", creative_direction.get("accent_color"))
+    # The template's own palette, and nothing else. There is no constant
+    # fallback: a template that wants accents must supply a colour to
+    # draw them in.
+    #
+    # This used to read `creative_direction["visual_style"]["accent_color"]`
+    # and then `creative_direction["accent_color"]`, and step 2.01 is
+    # asked for neither - so `declared_accent` was None on every run the
+    # pipeline has ever made and the branch was a route that could not
+    # carry a value. See WITHDRAWN_DIRECTION_KEYS in
+    # library/tools/creative_direction.py.
     accent_color = brand_accent_color(
-        (brand_style or {}).get("color_palette"), declared_accent)
+        (brand_style or {}).get("color_palette"), None)
 
     if accents_enabled and not accent_color:
         raise MissingAccentColor(
             "A brand template enabled motion_accents but supplies no usable "
             "accent colour. style.color_palette must contain one that would "
             "read on screen - saturated, and vivid if it is dark; see "
-            "library/tools/brand_palette.py - or creative_direction must "
-            "name one. Corner brackets are not drawn in a default colour."
+            "library/tools/brand_palette.py. Corner brackets are not drawn "
+            "in a default colour."
         )
 
     if not accent_color:
@@ -165,16 +167,25 @@ def generate_motion_props(
         # still needs to be legible. Prefer the palette's own text colour.
         palette_roles = roles_from_palette((brand_style or {}).get("color_palette"))
         accent_color = palette_roles.get("text", NEUTRAL_TEXT_COLOR)
-    title = creative_direction.get("title", "")
-    subtitle = creative_direction.get("subtitle", "")
-
-    # Series / episode label
-    series_name = creative_direction.get("series_name", "")
-    episode_label = creative_direction.get("episode_label", "")
-    if not title and series_name:
-        title = series_name
-    if not subtitle and episode_label:
-        subtitle = episode_label
+    # ── The upper third's copy ──
+    # Nothing declares it, so nothing is drawn, and `props_draw_ink`
+    # skips the render.
+    #
+    # These four strings used to come from `creative_direction`'s
+    # `title`, `subtitle`, `series_name` and `episode_label`, and step
+    # 2.01 is asked for none of them - its handoff says in as many words
+    # that the direction "is NOT a script or shot list". So every one
+    # returned "" on every run, and the upper third has never carried a
+    # word.
+    #
+    # The fix is not to ask 2.01 for them. On-screen copy is ARTWORK and
+    # belongs to the PROJECT (AGENTS.md section 14), which is why a brand
+    # template may not contain it either: `content.series_title` exists
+    # as a per-series parameter and drawing it would make it copy. No
+    # project-side declaration feeds this upper third today; that is an
+    # open question, not a value for this file to invent.
+    title = ""
+    subtitle = ""
 
     # Determine total timeline duration for progress calculation
     total_duration = 0

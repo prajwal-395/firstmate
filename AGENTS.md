@@ -658,6 +658,15 @@ It never fails a run - an empty table can be the honest answer - and it catches 
 - A nested object in a table cell is `json.dumps`'d, and that is 7-64% of every large context. **Do not "fix" it by demoting the table to indexed blocks**: measured end to end on all eleven prompts it makes them 19% BIGGER, because a table names its keys once and indexed blocks repeat them per record. A view that flattens one shape is the route that measures better, and the large savings are in what a step READS, not how it is written. [why - both routes measured](docs/RULE_EVIDENCE.md#embedded-json-is-where-the-content-is)
 - Escaping a newline is right in a CELL, where a row is a line. Under a KEY it is not: the creative brief is 47,903 bytes of markdown and arrived as one line carrying 700-odd literal `\n`.
 
+**A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.**
+`library/tools/creative_direction.py` loads `DIRECTION_KEYS` off step 2.01's own manifest and `direction_value` RAISES on anything else, because a `.get` for a key the schema cannot produce returns a default that reads as a decision.
+Seven code sites did exactly that - a title, a subtitle, a series name, an episode label, a visual style and an accent colour in step 4.06, and the Fairlight preset's `content_type` in step 4.04 - and each returned its default on every run the pipeline has ever made. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
+
+- **Which side is wrong is established from the HANDOFF, not from the code.** 2.01's handoff lists eight fields and says the direction "is NOT a script or shot list". Repairing the other side - adding `title` to the schema - looks identical and asks a creative director for artwork that AGENTS.md section 14 puts with the project.
+- `WITHDRAWN_DIRECTION_KEYS` records each withdrawn read and where the value really lives. `MECHANICALLY_READ_KEYS` and `PROMPT_ONLY_KEYS` must together account for every field the schema declares, and a prompt-only claim is CHECKED against the manifests' `context_fields` rather than asserted.
+- **The same discipline as `tests/test_manifest_readers.py`, one layer earlier.** `tests/test_asked_fields_have_readers.py` ENFORCES on `creative_direction` and REPORTS on every other step's declared output schema without failing the build - reader-or-delete for the rest is the captain's call, inventoried in [`docs/UNREAD_DECISIONS_INVENTORY.md`](docs/UNREAD_DECISIONS_INVENTORY.md).
+- **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. Closing that needs nested `expected_schema`, not a new format.
+
 **A call with nothing to ask is not made.**
 When every key a step declares has already been produced - by its own `step.py`, or by its pre-bridge - the schema is empty and `present_llm_step` returns `{}` without calling. Declare `interface.llm_outputs` to ask anyway. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 

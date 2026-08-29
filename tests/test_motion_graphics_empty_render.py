@@ -107,9 +107,24 @@ def test_a_template_that_declares_accents_still_draws():
     assert all(props_draw_ink(p) for p in got)
 
 
-def test_a_creative_direction_with_a_title_still_draws():
+def test_a_creative_direction_with_a_title_draws_nothing():
+    """The upper third has never carried a word, and this says why.
+
+    This test used to assert the opposite, and it passed only because it
+    handed the generator a `title` no model writes: step 2.01's schema is
+    eight fields of prose and `title` is not among them
+    (library/tools/creative_direction.DIRECTION_KEYS), so the read
+    returned "" on every real run.
+
+    On-screen copy is ARTWORK and belongs to the project (AGENTS.md
+    section 14). Nothing declares the upper third's copy today, so
+    nothing is drawn and the render is skipped - which is the honest
+    state, not a regression.
+    """
     got = generate_motion_props({}, {"title": "The Shop"}, SPINE)
-    assert any(props_draw_ink(p) for p in got)
+    assert got, "the generator still produces props - only the render stops"
+    assert not any(props_draw_ink(p) for p in got)
+    assert all(p["title"] == "" and p["subtitle"] == "" for p in got)
 
 
 def test_the_predicate_covers_everything_the_composition_draws():

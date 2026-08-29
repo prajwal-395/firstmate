@@ -3172,3 +3172,97 @@ The size does move caption pacing, and by less than halving the card count: at 8
 constraint stops being the box and becomes `split_into_groups`' `max_words = 6`, which 14 of the 34
 cards hit. This is the PLAN's arithmetic on 001's frozen spine; 001 has not been re-run or
 re-rendered.
+
+## seven-reads-of-a-key-that-cannot-exist
+
+The pipeline decision map (2026-08-25) counted ten code sites reading
+`creative_direction` and found that eight named keys step 2.01's schema does not
+define.  Re-measured at `89c796b` on 2026-08-29, nine of the ten were still
+there and SEVEN still read an undeclared key:
+
+| Site | Key read | What the default did |
+|---|---|---|
+| `generate_motion_props.py:129` | `visual_style` | `{}`, so the accent branch below could not fire |
+| `generate_motion_props.py:150` | `accent_color` | `None`, so the colour always came from the palette |
+| `generate_motion_props.py:168` | `title` | `""` - the upper third has never carried a word |
+| `generate_motion_props.py:169` | `subtitle` | `""` |
+| `generate_motion_props.py:172` | `series_name` | `""` |
+| `generate_motion_props.py:173` | `episode_label` | `""` |
+| `step_4_04_plan_sfx/post_bridge.py:553` | `content_type` | `""`, so `select_preset_for_content`'s undeclared-type answer picked the Fairlight preset the renderer applies |
+
+The two the map counted and are already gone: `energy_level`, which the deleted
+`audio_reactive_sfx.scale_sfx_density` cut half the SFX plan by, and the
+"building" -> "high" collapse in `creative_cohesion.map_energy`, closed by
+`library/tools/energy_reading.py`.
+
+**Which side was wrong.**  Step 2.01's `handoff.md` lists exactly eight fields
+and says of them: *"The creative_direction is NOT a script or shot list - it's
+a compass."*  Its `manifest.json` `expected_schema` declares the same eight,
+and `present_llm_step` injects that schema into the prompt.  Eight is therefore
+the whole of what the model is asked for.  Project 001's own answer confirms it:
+
+```
+$ python3 -c "import json;print(sorted(json.load(open(CD))['creative_direction']))"
+['audience_emotion', 'emotional_landscape', 'energy_arc', 'key_moments',
+ 'narrative_theme', 'rationale', 'target_energy', 'target_mood']
+```
+
+Repairing the other side - adding `title` and `accent_color` to the schema -
+would have looked identical from the code and would have asked a creative
+director for on-screen copy, which section 14 puts with the project.
+
+**What the read sites were repaired to.**  The four copy keys have no declared
+source anywhere: on-screen copy is artwork, and neither `content.bookends` nor
+`effect.timed_text_overlay` feeds the upper third, so nothing is drawn and
+`props_draw_ink` skips the render - the state it has always been in, now stated.
+The accent colour comes from `style.color_palette` through
+`library/tools/brand_palette.py`, which was already the only route carrying a
+value.  The Fairlight preset comes from the brand audio slot's
+`preferred_preset`, which `select_preset_for_content` already prefers; a mix
+preset is a MECHANICAL default under section 10.5, so its documented
+undeclared-type answer is legitimate - it is now reached by saying nothing was
+declared rather than by reading a key that cannot exist.
+
+**What was measured on 001, before and after.**  The props and the preset are
+byte-identical, and that identity IS the finding: every one of the six keys was
+dead, so removing them changes nothing a viewer sees.
+
+```
+BEFORE (origin/main)                       AFTER (this change)
+  title        = ''                          title        = ''
+  subtitle     = ''                          subtitle     = ''
+  accentColor  = '#FFFFFF'                   accentColor  = '#FFFFFF'
+  content_type = '' -> dialogue_enhancement  preset       = dialogue_enhancement
+  cd.get('title')       -> silent default    direction_value(cd,'title') -> RAISES
+  cd.get('content_type')-> silent default    direction_value(cd,'content_type') -> RAISES
+```
+
+One read site COULD reach the picture, and only ever with a value no model
+writes:
+
+```
+BEFORE: generate_motion_props({}, {"accent_color": "#123456"}, SPINE, brand_effect=ON)
+        -> accents drawn in '#123456'
+AFTER:  -> MissingAccentColor: a brand template enabled motion_accents but
+           supplies no usable accent colour.
+```
+
+`tests/test_motion_graphics_template.py::test_creative_direction_is_used_when_no_palette`
+asserted the BEFORE behaviour and passed for its whole life, because it handed
+the generator a key no model writes.  It is now
+`test_a_creative_direction_cannot_colour_the_accents`, and
+`tests/test_motion_graphics_empty_render.py::test_a_creative_direction_with_a_title_still_draws`
+is now `..._draws_nothing` for the same reason.
+
+**A further finding the map did not have.**
+`transition_selector._is_high_energy` has no production caller at HEAD - the
+scene-change defaults it gated were withdrawn - so `target_energy` reaches
+exactly one place, `creative_cohesion`'s `measurements.declared_target_energy`,
+which reports it and judges nothing.  **No `creative_direction` field has a
+mechanical reader that changes a frame.**  That is a captain's question and not
+a defect: giving one a reader means inventing a rule about how a mood becomes a
+cut, which is what section 10.5 forbids the engine from doing on its own.
+
+The full re-measurement of all eight families the map listed, with a
+recommendation per remaining field, is in
+[`docs/UNREAD_DECISIONS_INVENTORY.md`](UNREAD_DECISIONS_INVENTORY.md).
