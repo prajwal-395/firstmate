@@ -8,6 +8,9 @@ class TestCompileManifest(unittest.TestCase):
         test_file_path = os.path.abspath("vid1.mov")
         with open(test_file_path, "w") as f:
             f.write("dummy")
+        # vid2 was cleaned up and vid1 never was, so every run of the
+        # suite left a vid1.mov at the repository root.
+        self.addCleanup(os.remove, test_file_path)
         broll_file_path = os.path.abspath("vid2.mov")
         with open(broll_file_path, "w") as f:
             f.write("dummy")

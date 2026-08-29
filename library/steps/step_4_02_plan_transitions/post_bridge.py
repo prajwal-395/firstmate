@@ -216,7 +216,7 @@ def resolve_transitions(
     # and no track's first beat lands at 0.000s - so every "beat-snapped"
     # cut was snapped to a grid offset from the music by the track's
     # lead-in. See library/tools/beat_grid.py.
-    beat_positions = real_beat_positions(music_analysis)
+    beat_positions = real_beat_positions(music_analysis, music_selection)
 
     from library.tools.transition_selector import select_transition
     from library.tools.transition_vocabulary import is_cut

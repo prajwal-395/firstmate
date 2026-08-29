@@ -282,6 +282,9 @@ def _sfx_payload(n_sfx: int):
         "timed_spine": spine,
         "temporal_event_indices": [],
         "music_analysis": {},
+        # The bar grid is in the music file's clock; the selection carries
+        # the section offset that makes it a timeline clock.
+        "music_selection": {"audio_path": ""},
         "project_fps": 30.0,
         "creative_direction": {},
     }

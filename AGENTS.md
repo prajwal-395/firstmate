@@ -906,6 +906,39 @@ The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` an
 The post-bridge judges source, catalogue membership, duration plausibility and a justification naming the registers the creative direction forbids.
 Choosing from OUTSIDE the library is legitimate and stays allowed.
 
+**Nothing refuses a track on rights, and no rights model may be built.**
+Captain's ruling 2026-08-28: *"don't worry about that now, just assume for everything that you already have a licence ... so song choices need to be made on creative decisions - not if a license exists or not"*.
+Where a track came from is RECORDED as `provenance` - the query, the URL, the channel, and whatever the platform stated - and read by nothing.
+`tests/test_music_search.py` fails if any code path branches on a licence.
+
+**Search is one enumeration, `library/tools/music_search.py`, and a project declares it or gets none.**
+`pipeline.music_search` in `project.yaml` carries `queries`, `results_per_query` and `fetch_limit`; a project that declares nothing searches nothing and the catalogue says so, and a declaration missing a bound is refused by name.
+
+- **The project writes the queries.** Composing one in code out of the creative direction's `target_mood` would be the engine writing the search terms, which is §10.5's fabrication under another name.
+- **A result is judged on duration BEFORE anything is downloaded**, off the metadata the search returns for free, so bytes are only spent on tracks that could be chosen. On the run of record that dropped four multi-hour compilations at no cost.
+- **A fetched candidate is MEASURED before the model sees it**, through the same `measure_candidates` pass a local track takes, and it is fetched through `download_track.download_audio` - the one fetch path, which a named URL has always used.
+- **Cost, measured 2026-08-28**: two queries at six results, fetching three, was 3.5s of search, 10.5s of download and 46.2s for the whole bridge. `yt-dlp` is in `requirements.txt` with a measured floor - 2026.03.17 answers every download `HTTP Error 403`.
+- `tests/test_music_search.py`, and [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5 for the table.
+
+**Two candidates that are the same recording are established from the MEASUREMENTS, never the filename.**
+`library/tools/music_duplicates.py`. Two of 001's four surviving candidates were one recording, so a third of the choice set was a copy and nothing said so.
+
+- The tolerance is measured, not picked: 1.0 dB, twice the worst difference across mp3 128k/320k, opus 96k and aac 128k re-encodes of this repository's own tracks. The nearest non-duplicate pair - the same song's lyrics and instrumental versions - is an order of magnitude further apart.
+- `true_peak_dbtp` is NOT compared, and `DECLINED_SIGNALS` says why: lossy coding moves it most and it says least.
+- **A duplicate is MARKED, not dropped.** The defect was that the model could not tell; removing a row would have the pipeline choosing which encode the captain gets.
+- `tests/test_music_duplicates.py`.
+
+**Which SECTION of the track plays is the model's decision, and there is no best-section rule.**
+`library/tools/music_section.py`. `compile_manifest` used to write `source_in: 0.0` as a literal, so the `splices` step 2.04's frozen handoff has always asked for reached nothing - §10.2 exactly.
+
+- The model is asked for `section: {source_in, why}` through the manifest's `interface.llm_outputs`, which is what builds the injected schema; `handoff.md` is frozen and is not touched.
+- It decides from `music_measurement.track_sections` - one row per playable span of the track, with its mean level and spread. A DESCRIPTION at the granularity of what plays, not a menu and not a ranking.
+- **A selection that declares none plays from the head of the file, and that is the ABSENCE of a decision** - the same reading `CUT_TYPES` and `NEUTRAL_CDL` get.
+- **The beat grid moves with it.** `beat_positions`/`downbeat_positions` take the selection and return TIMELINE time; the argument is required, because a default of "no offset" is the value that is silently wrong. `assert_music_offset_is_the_chosen_section` holds the other end. `plan_sfx` is routed `music_selection` for this.
+- `resolve_section` RAISES rather than sliding a section back to fit: moving the start is choosing which part plays.
+- `UNSUPPORTED_BY_THE_MEASUREMENTS` records what a section choice cannot yet see - the SHAPE of a non-zero section, the bar lines, whether it has vocals. Say what is missing; do not fill it with a rule.
+- `tests/test_music_section.py`.
+
 **Every candidate is MEASURED, and nothing about it is classified.**
 `library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
 A mood, a genre or an energy word computed here would be the taste fabrication §10.5 forbids - numbers and one curve go to the model, the model decides.
@@ -914,7 +947,8 @@ A mood, a genre or an energy word computed here would be the taste fabrication �
 - **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way - and it is what keeps 001's two compilations from costing 325s of `loudnorm` to learn nothing.
 - `DECLINED_MEASUREMENTS` records what was left out and why, BPM included (2.06 measures tempo properly, after the choice). Widening the table is not a way to improve the prompt - every column is paid on every candidate. On 001, candidate data went from 3.8% of this step's context to 28.0%, and the room for it came from #295 no longer copying the brief in.
 - The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4 on 001's music arriving 8.6 dB hotter than its speech.
-- **Where the candidates come from, and why there are seven**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md). Fetching a NAMED external track is wired; SEARCHING for one never has been, and what blocks it is a licensing decision, not code.
+- The played window's envelope is the section starting at 0; `track_sections` is how every other span compares. See "Which SECTION of the track plays" above.
+- **Where the candidates come from**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md). Fetching a NAMED external track and SEARCHING for one are both wired; §5 has the measured cost.
 - `tests/test_music_measurement.py`.
 
 ## 11. Third-Party Asset Licenses

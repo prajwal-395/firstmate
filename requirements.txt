@@ -32,6 +32,16 @@ pyyaml>=6.0
 # Verified by transcribing 001 footage, not by importing the module.
 whisperx>=3.8,<4
 librosa>=0.10
+# Step 2.04 searches for music and fetches what it finds. It has shelled
+# out to yt-dlp since it was written and this file never carried it, so
+# `search_youtube.py` had no caller and no dependency and could never have
+# run. The floor is measured, not guessed: on 2026-08-28 the 2026.03.17
+# on this machine answered every download with `HTTP Error 403: Forbidden`
+# and warned that YouTube extraction without a JS runtime is deprecated,
+# while 2026.08.19 downloaded with no runtime and no flags. A stale
+# extractor fails in a way that reads like a network fault, so
+# `library/tools/music_search.py` reports the version it ran.
+yt-dlp>=2026.08.19
 # Step 1.05's only measuring instrument. Its manifest has listed it as a
 # precondition since the step was written and this file never carried it,
 # so every run of every project produced one "parselmouth not installed"

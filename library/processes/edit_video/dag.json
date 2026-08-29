@@ -778,6 +778,13 @@
       }
     },
     {
+      "from": "music_selection",
+      "to": "plan_sfx",
+      "data_mapping": {
+        "music_selection": "music_selection"
+      }
+    },
+    {
       "from": "review_rough_cut",
       "to": "plan_transitions",
       "data_mapping": {

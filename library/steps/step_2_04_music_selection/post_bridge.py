@@ -15,9 +15,12 @@ rather than only on taste. So this bridge:
   2. Fetches an `external` choice that names a URL but no local file, and
      re-measures the real duration off the downloaded file rather than
      trusting the number the model stated.
-  3. Emits `music_selection` with `audio_path` at the top level, which is
+  3. Checks the SECTION the model chose - which part of the track plays -
+     against the track's real length, through
+     `library/tools/music_section.py`. It validates; it never picks one.
+  4. Emits `music_selection` with `audio_path` at the top level, which is
      the key every downstream consumer reads (`music_analysis`,
-     `mesh_spine`, `plan_transitions`, `compile_manifest`).
+     `mesh_spine`, `plan_transitions`, `plan_sfx`, `compile_manifest`).
 
 A failure here exits non-zero with the reasons, so the run stops rather
 than scoring the piece with something nobody would have chosen.
@@ -36,6 +39,11 @@ REPO_ROOT = STEP_DIR.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from library.tools.music_section import (  # noqa: E402
+    describe as describe_section,
+    read_section,
+    validate_section,
+)
 from library.tools.music_selection_contract import (  # noqa: E402
     validate_selection,
     acquired_media_dir,
@@ -111,11 +119,18 @@ def resolve_selection(
             selection["duration_seconds"] = round(measured, 3)
 
     errors = validate_selection(selection, candidates, target_duration)
+    # Which part of the track plays is the model's decision (the frozen
+    # handoff has asked for splices all along and nothing read them).
+    # This checks it can be played; it does not choose one, and a
+    # selection that declares none plays from the head of the file.
+    errors += validate_section(
+        selection, selection.get("duration_seconds") or 0.0, target_duration)
     if errors:
         raise ValueError(
             "The music selection is rejected:\n"
             + "\n".join(f"  - {e}" for e in errors)
         )
+    print("  " + describe_section(read_section(selection)), file=sys.stderr)
     return selection
 
 
@@ -166,6 +181,28 @@ def main():
     resolved.setdefault("key", None)
     resolved["target_duration_seconds"] = target_duration
     resolved["catalogue_size"] = len(candidates)
+
+    # Where the track came from travels with the choice. It is RECORDED,
+    # and it gates nothing: the captain took licensing off the table on
+    # 2026-08-28 ("just assume for everything that you already have a
+    # licence"), so no step refuses a track on rights and there is no
+    # rights model to build one out of.
+    chosen = next(
+        (c for c in candidates
+         if c.get("audio_path") and c.get("audio_path") == resolved.get("audio_path")),
+        None,
+    )
+    if chosen and chosen.get("provenance"):
+        resolved.setdefault("provenance", chosen["provenance"])
+    elif (resolved.get("source") or "").lower() == "external":
+        resolved.setdefault("provenance", {
+            "found_by": "named_by_the_model",
+            "source_url": resolved.get("source_url", ""),
+            "licence_gates": (
+                "nothing - recorded as provenance only, per the captain's "
+                "ruling of 2026-08-28"
+            ),
+        })
 
     json.dump({"music_selection": resolved}, sys.stdout, indent=2)
 

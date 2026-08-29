@@ -40,7 +40,9 @@ from tools.frame_utils import seconds_to_frame, convert_clip_to_frames, convert_
 from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_catalog, resolve_sfx_id
-from tools.beat_grid import assert_music_starts_at_timeline_zero
+from tools.beat_grid import assert_music_offset_is_the_chosen_section
+from library.tools.music_section import describe as describe_music_section
+from library.tools.music_section import resolve_section
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
@@ -1418,10 +1420,20 @@ def compile_manifest(out_dir: str) -> dict:
         music_path = ms["tracks"][0].get("audio_path", "")
     music_clips = []
     if music_path:
+        # WHICH PART of the track plays is the model's decision, and this
+        # is where it lands. `source_in: 0.0` used to be a literal here,
+        # so the `splices` step 2.04's handoff has always asked for
+        # reached nothing (AGENTS.md 10.2). `resolve_section` raises if
+        # the declared section cannot cover the finished timeline; it
+        # never slides it to fit, because moving the start is choosing
+        # which part plays. See library/tools/music_section.py.
+        music_section = resolve_section(
+            ms, ms.get("duration_seconds") or 0.0, total_duration)
+        print("  " + describe_music_section(music_section), file=sys.stderr)
         music_clips.append({
             "source_file": music_path,
-            "source_in": 0.0,
-            "source_out": total_duration,
+            "source_in": music_section.source_in,
+            "source_out": music_section.source_out(total_duration),
             "timeline_in": 0.0,
             "timeline_out": total_duration,
             "label": "background_music",
@@ -1800,10 +1812,11 @@ def compile_manifest(out_dir: str) -> dict:
     _assert_timeline_fully_covered(manifest)
 
     # Beat-snapped cuts and SFX are placed using beat times measured in the
-    # MUSIC file's clock. That is only the timeline's clock while music
-    # starts at source_in 0 / timeline_in 0, which is how it is placed
-    # above - so say it out loud rather than leave it implicit.
-    assert_music_starts_at_timeline_zero(manifest)
+    # MUSIC file's clock, mapped to timeline time by subtracting the
+    # chosen section's offset. The bed has to be placed at that same
+    # offset or every snap moves by the difference - so say it out loud
+    # rather than leave it implicit.
+    assert_music_offset_is_the_chosen_section(manifest, ms)
 
     # The captions in the manifest and the captions on screen must agree.
     _assert_subtitle_overlay_matches_plan(manifest)

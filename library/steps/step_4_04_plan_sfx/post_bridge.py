@@ -392,6 +392,7 @@ def resolve_sfx(
     timed_spine: dict,
     temporal_indices: list = None,
     music_analysis: dict = None,
+    music_selection: dict = None,
     frame_rate: float = 30.0,
     creative_direction: dict = None,
     prosody_analysis: dict = None,
@@ -428,8 +429,11 @@ def resolve_sfx(
     # {"tempo": {"bpm", "beats", "downbeats"}, ...} - so `bars` was always
     # empty and SFX never snapped to anything. See
     # library/tools/beat_grid.py.
+    # `music_selection` carries the chosen section, and the grid is in the
+    # music file's clock: a bar start read without the offset is off by
+    # wherever the bed starts. See library/tools/music_section.py.
     from library.tools.beat_grid import downbeat_positions
-    beat_grid = downbeat_positions(music_analysis)
+    beat_grid = downbeat_positions(music_analysis, music_selection)
 
     # There is no density scaling here, and there must not be one again.
     #
@@ -589,7 +593,8 @@ def main():
 
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
-    require_keys(data, ["music_analysis"], "step_4_04_plan_sfx/post_bridge.py")
+    require_keys(data, ["music_analysis", "music_selection"],
+                 "step_4_04_plan_sfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
 
@@ -611,6 +616,7 @@ def main():
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
     music = data.get("music_analysis", {})
+    music_selection = data.get("music_selection", {})
     fps = data.get("project_fps", data.get("frame_rate", 30.0))
     
     cd = data.get("creative_direction", {})
@@ -630,8 +636,8 @@ def main():
     # 4.04, and not three steps later inside compile_manifest. The message
     # names every offending id, so the retry has something to act on.
     try:
-        result = resolve_sfx(creative, spine, temporal, music, fps, cd,
-                             prosody, brand_audio)
+        result = resolve_sfx(creative, spine, temporal, music,
+                             music_selection, fps, cd, prosody, brand_audio)
     except UnplayableSfxPlan as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)

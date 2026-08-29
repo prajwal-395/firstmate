@@ -33,11 +33,29 @@ actually plays, true peak and the share of energy sitting in the speech
 band.  `library/tools/music_measurement.py` is the whole of it, and it
 measures without classifying - no mood, no genre, no ranking.
 
+Captain's ruling 2026-08-28: *"flush out the search functionality ...
+just download what you need from youtube"*.  So the catalogue is no
+longer only what is on disk.  When the project declares
+`pipeline.music_search`, this bridge searches, drops what cannot cover
+the edit on the free metadata, fetches the survivors, and MEASURES them -
+so a searched candidate reaches the model in the same columns a local one
+does.  A candidate the model cannot see measured is the defect #296 just
+fixed and this must not reintroduce it by another door.  Search is off
+unless the project asks; `library/tools/music_search.py` is the whole of
+it, including what a run costs.
+
+And two of 001's four surviving candidates were the same recording, which
+no filename said.  `library/tools/music_duplicates.py` establishes it from
+the measurements that are already paid for, and MARKS them - the model was
+told it had four things to choose between and it had three.
+
 Input:  { "creative_direction": {...}, "project_folder": "..." }
 Output: { "music_candidates": {
             "target_duration_seconds": 60.0,
             "max_track_duration_seconds": 600.0,
             "measurement_legend": { "<key>": "what it is" },
+            "search": { "requested", "declaration", "cost", "rejected" },
+            "duplicate_groups": [{ "representative", "also", ... }],
             "searched": [{ "source", "directory", "exists", "count" }],
             "candidates": [{ "title", "audio_path", "duration_seconds",
                              "source", "duration_ok", "duration_note",
@@ -45,14 +63,17 @@ Output: { "music_candidates": {
                              "integrated_lufs", "loudness_range_lu",
                              "true_peak_dbtp", "rms_spread_db",
                              "window_seconds", "window_spread_db",
-                             "window_envelope_dbfs",
-                             "speech_band_ratio_db" }],
+                             "window_envelope_dbfs", "track_sections",
+                             "speech_band_ratio_db",
+                             "duplicate_of", "duplicate_deltas",
+                             "source_url", "provenance" }],
         } }
 """
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Ensure this step's directory is on sys.path for local tool imports
@@ -68,9 +89,22 @@ from library.tools.music_measurement import (  # noqa: E402
     MEASUREMENT_LEGEND,
     measure_candidates,
 )
+from library.tools.music_duplicates import (  # noqa: E402
+    duplicate_groups,
+    mark_duplicates,
+    summarise as summarise_duplicates,
+)
+from library.tools.music_search import (  # noqa: E402
+    MusicSearchError,
+    provenance,
+    search_all,
+    search_declaration,
+    within_duration,
+)
 from library.tools.music_selection_contract import (  # noqa: E402
     AUDIO_EXTENSIONS,
     DURATION_SLACK_SECONDS,
+    acquired_media_dir,
     catalogue_sources,
     max_track_duration_seconds,
 )
@@ -136,8 +170,25 @@ def _target_duration(inputs: dict) -> float:
     return DEFAULT_TARGET_DURATION_SECONDS
 
 
+def _duration_verdict(duration: float, target_duration: float,
+                      ceiling: float) -> tuple:
+    """`(duration_ok, duration_note)` - the one reading, for every source."""
+    if duration > ceiling:
+        return False, (
+            f"TOO LONG: {duration / 60:.1f} min for a "
+            f"{target_duration:.0f}s edit - this is a compilation, not a "
+            f"track"
+        )
+    if duration + DURATION_SLACK_SECONDS < target_duration:
+        return False, (
+            f"TOO SHORT: {duration:.1f}s cannot cover a "
+            f"{target_duration:.0f}s edit"
+        )
+    return True, ""
+
+
 def catalogue_music(project_folder: str, target_duration: float) -> dict:
-    """Every local track, from every source, measured and labelled."""
+    """Every local track, from every source, labelled. Not yet measured."""
     ceiling = max_track_duration_seconds(target_duration)
     searched = []
     candidates = []
@@ -163,22 +214,8 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
                     continue
 
                 duration = _get_audio_duration(full_path)
-                if duration > ceiling:
-                    note = (
-                        f"TOO LONG: {duration / 60:.1f} min for a "
-                        f"{target_duration:.0f}s edit - this is a "
-                        f"compilation, not a track"
-                    )
-                    ok = False
-                elif duration + DURATION_SLACK_SECONDS < target_duration:
-                    note = (
-                        f"TOO SHORT: {duration:.1f}s cannot cover a "
-                        f"{target_duration:.0f}s edit"
-                    )
-                    ok = False
-                else:
-                    note = ""
-                    ok = True
+                ok, note = _duration_verdict(
+                    duration, target_duration, ceiling)
 
                 candidates.append({
                     "title": os.path.splitext(entry)[0],
@@ -202,7 +239,147 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
             file=sys.stderr,
         )
 
-    measured = measure_candidates(candidates, target_duration)
+    return {
+        "target_duration_seconds": round(target_duration, 3),
+        "max_track_duration_seconds": round(ceiling, 3),
+        # Shipped with the numbers because step 2.04's handoff.md is under
+        # a captain freeze and cannot name the new columns. A definition,
+        # never a conclusion.
+        "measurement_legend": dict(MEASUREMENT_LEGEND),
+        "searched": searched,
+        "candidates": candidates,
+    }
+
+
+def fetch_searched(project_folder: str, target_duration: float,
+                   ceiling: float, already: list) -> tuple:
+    """Search as the project declared it, and fetch what could be chosen.
+
+    Returns `(new_candidates, report)`.  Every result is judged on the
+    duration YouTube states BEFORE anything is downloaded - that read is
+    free and it is the same read the local catalogue makes - so the bytes
+    are only spent on tracks that could actually be selected.  What was
+    rejected is reported, never silently dropped.
+
+    `already` is the local catalogue: a track fetched by an earlier run
+    is already on disk under `pipeline_output`, so it is annotated in
+    place rather than added twice.
+    """
+    from download_track import download_audio
+
+    declaration = search_declaration(project_folder)
+    report = {
+        "requested": declaration.requested,
+        "declaration": declaration.describe(),
+        "reason": declaration.reason,
+        "rejected_on_duration": [],
+        "fetched": 0,
+        "fetch_seconds": 0.0,
+        "fetch_errors": [],
+    }
+    print(f"  {declaration.describe()}", file=sys.stderr)
+    if not declaration.requested:
+        report["cost"] = {"queries": 0, "results": 0, "search_seconds": 0.0,
+                          "considered_after_duration": 0, "errors": []}
+        return [], report
+
+    results, cost = search_all(declaration)
+    report["cost"] = cost.as_dict()
+    print(
+        f"    {cost.results} result(s) from {cost.queries} query(ies) in "
+        f"{cost.search_seconds:.1f}s",
+        file=sys.stderr,
+    )
+    for error in cost.errors:
+        print(f"    SEARCH: {error}", file=sys.stderr)
+
+    keepers = []
+    for result in results:
+        ok, note = within_duration(
+            result, target_duration, ceiling, DURATION_SLACK_SECONDS)
+        if ok:
+            keepers.append(result)
+        else:
+            report["rejected_on_duration"].append({
+                "title": result.get("title", ""),
+                "source_url": result.get("source_url", ""),
+                "duration_seconds": result.get("duration_seconds"),
+                "duration_note": note,
+            })
+    report["cost"]["considered_after_duration"] = len(keepers)
+    print(
+        f"    {len(keepers)} of {len(results)} could cover a "
+        f"{target_duration:.0f}s edit; fetching at most "
+        f"{declaration.fetch_limit}",
+        file=sys.stderr,
+    )
+
+    by_path = {c.get("audio_path"): c for c in already}
+    output_dir = acquired_media_dir(project_folder)
+    fetched = []
+    started = time.monotonic()
+    for result in keepers[:declaration.fetch_limit]:
+        try:
+            track = download_audio(
+                result["source_url"], output_dir, analyze=False)
+        except Exception as exc:
+            report["fetch_errors"].append(
+                f"{result.get('title', '')}: {exc}")
+            print(f"    FETCH FAILED: {result.get('title','')}: {exc}",
+                  file=sys.stderr)
+            continue
+
+        path = track.get("audio_path", "")
+        duration = _get_audio_duration(path) if path else 0.0
+        ok, note = _duration_verdict(duration, target_duration, ceiling)
+        result["licence"] = track.get("licence") or ""
+        record = by_path.get(path)
+        if record is None:
+            record = {
+                "title": track.get("title") or result.get("title", ""),
+                "audio_path": path,
+                "duration_seconds": round(duration, 3),
+                # It is on disk in this project now, so it is catalogued
+                # the same way anything else in the project is - the
+                # source labels are part of the contract with the model.
+                "source": "project",
+                "duration_ok": ok,
+                "duration_note": note,
+            }
+            fetched.append(record)
+        record["source_url"] = result.get("source_url", "")
+        record["provenance"] = provenance(result, declaration)
+        report["fetched"] += 1
+        print(f"    fetched {record['title'][:56]} ({duration:.1f}s)",
+              file=sys.stderr)
+
+    report["fetch_seconds"] = round(time.monotonic() - started, 2)
+    return fetched, report
+
+
+def run(inputs: dict) -> dict:
+    project_folder = inputs.get("project_folder", "") or "./"
+    target_duration = _target_duration(inputs)
+    catalogue = catalogue_music(project_folder, target_duration)
+    local_count = len(catalogue["candidates"])
+
+    # Search, if the project asked for one. A fetched track joins the same
+    # list and is measured by the same pass, so it reaches the model in
+    # the same columns a local one does.
+    try:
+        fetched, search_report = fetch_searched(
+            project_folder, target_duration,
+            catalogue["max_track_duration_seconds"],
+            catalogue["candidates"])
+    except MusicSearchError as exc:
+        # A malformed declaration is a mistake to report, not one to
+        # search around.
+        print(json.dumps({"error": str(exc), "step": "2.04_bridge"}))
+        sys.exit(1)
+    catalogue["candidates"].extend(fetched)
+    catalogue["search"] = search_report
+
+    measured = measure_candidates(catalogue["candidates"], target_duration)
     for entry in measured:
         if entry.get("measured"):
             print(
@@ -215,29 +392,23 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
                 file=sys.stderr,
             )
 
-    return {
-        "target_duration_seconds": round(target_duration, 3),
-        "max_track_duration_seconds": round(ceiling, 3),
-        # Shipped with the numbers because step 2.04's handoff.md is under
-        # a captain freeze and cannot name the new columns. A definition,
-        # never a conclusion.
-        "measurement_legend": dict(MEASUREMENT_LEGEND),
-        "searched": searched,
-        "candidates": measured,
-    }
+    # Two rows that are one recording is a third of 001's choice set. The
+    # test is the measurements above, never the filename.
+    measured = mark_duplicates(measured)
+    catalogue["candidates"] = measured
+    catalogue["duplicate_groups"] = duplicate_groups(measured)
+    duplicate_line = summarise_duplicates(measured)
+    if duplicate_line:
+        print(f"  same recording twice: {duplicate_line}", file=sys.stderr)
 
-
-def run(inputs: dict) -> dict:
-    project_folder = inputs.get("project_folder", "") or "./"
-    target_duration = _target_duration(inputs)
-    catalogue = catalogue_music(project_folder, target_duration)
-
-    usable = [c for c in catalogue["candidates"] if c["duration_ok"]]
+    usable = [c for c in measured if c["duration_ok"]]
+    distinct = [c for c in usable if not c.get("duplicate_of")]
     print(
-        f"  {len(catalogue['candidates'])} local track(s) catalogued, "
-        f"{len(usable)} within duration sanity for a "
-        f"{target_duration:.0f}s edit. Selecting from them - or from "
-        f"outside - is the LLM's call.",
+        f"  {len(measured)} track(s) catalogued ({local_count} local, "
+        f"{len(fetched)} searched), {len(usable)} within duration sanity "
+        f"for a {target_duration:.0f}s edit, {len(distinct)} of them "
+        f"distinct recordings. Selecting from them - or from outside - is "
+        f"the LLM's call.",
         file=sys.stderr,
     )
 

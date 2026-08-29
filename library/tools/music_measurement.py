@@ -57,13 +57,14 @@ What is measured, and why each one
     the 29.9 dB the agent got by hand.
 
 ``window_envelope_dbfs`` and ``window_spread_db``
-    The same per-second RMS, over the part that actually plays.
-    ``compile_manifest`` places music at ``source_in`` 0 and runs it to the
-    end of the timeline, so the first ``target_duration_seconds`` is the
-    whole of what a viewer hears - a track's later climax is not in the
-    edit.  The curve is bucketed to :data:`ENVELOPE_BUCKETS` points so its
-    size does not depend on the target duration; the spread is the same
-    p95-p5 read, as one scannable column.
+    The same per-second RMS, over one ``target_duration_seconds`` span
+    from the head of the file - the section that plays when the model
+    declares none.  A viewer hears one span that long and no more, so this
+    is the shape of what is heard, not of the track.  The curve is
+    bucketed to :data:`ENVELOPE_BUCKETS` points so its size does not
+    depend on the target duration; the spread is the same p95-p5 read, as
+    one scannable column.  ``track_sections`` below is how every other
+    span compares.
 
 ``true_peak_dbtp``
     Free from the same ``loudnorm`` JSON, no extra pass.  Headroom before
@@ -76,6 +77,17 @@ What is measured, and why each one
     -2.8, the Sickick instrumental -8.6 - which is a real fact about
     whether a bed and a voice occupy the same place, and one no filename
     carries.
+
+``track_sections``
+    The same per-second RMS, reduced to one row per *playable section* of
+    the track: successive non-overlapping spans of ``window_seconds``,
+    plus the last span that still fits, each with its mean level and its
+    spread.  A track is longer than the video and only part of it plays;
+    which part is the model's decision
+    (:mod:`library.tools.music_section`), and this is what it has to
+    decide from.  The rows are a description of the track at the
+    granularity of what plays - **not a menu**: a section may start
+    anywhere, and nothing here says which one is best.
 
 Nothing here is a threshold and nothing here is a verdict.  The one
 judgement in the module is which candidates are worth opening at all, and
@@ -159,6 +171,17 @@ MEASUREMENT_LEGEND = {
         "How long the played window is, in seconds. Each envelope bucket "
         "covers window_seconds / "
         f"{ENVELOPE_BUCKETS} of it.",
+    "track_sections":
+        "Every section of the track that is long enough to play under the "
+        "whole edit: successive non-overlapping spans of window_seconds "
+        "from 0, plus the last span that still fits. Each row is "
+        "{start_seconds, end_seconds, mean_dbfs, spread_db}, in time "
+        "order. A section may start anywhere, not only at a row boundary; "
+        "these are a description of the track at the granularity of what "
+        "plays, not a list of the options. window_envelope_dbfs is the "
+        "shape of the section starting at 0.",
+    "track_sections_note":
+        "Why the section table is absent or short, when it is.",
     "speech_band_ratio_db":
         f"RMS in the {SPEECH_BAND_HZ[0]}-{SPEECH_BAND_HZ[1]} Hz speech "
         "band minus full-band RMS, in dB. How much of the track's energy "
@@ -365,6 +388,43 @@ def speech_band_ratio_db(audio_path: str,
     return round(band - full_band_rms_db, 2)
 
 
+def track_sections(values: Sequence[float],
+                   window_seconds: float) -> List[Dict[str, object]]:
+    """Every span of the track long enough to play under the whole edit.
+
+    Successive non-overlapping spans of ``window_seconds`` from 0, plus
+    the last span that still fits when the track does not divide evenly -
+    so the tail of a track is described rather than falling off the end.
+    Row count is bounded by the duration ceiling
+    (``music_selection_contract.max_track_duration_seconds``), which is
+    ten times the target.
+
+    A DESCRIPTION, at the granularity of what plays.  It is not a menu and
+    it is not ranked: a section may start anywhere, and which one is right
+    is the model's call (``library/tools/music_section.py``).
+    """
+    span = max(1, int(round(window_seconds / RMS_WINDOW_SECONDS)))
+    if len(values) < span:
+        return []
+
+    starts = list(range(0, len(values) - span + 1, span))
+    last = len(values) - span
+    if starts and starts[-1] != last:
+        starts.append(last)
+
+    rows: List[Dict[str, object]] = []
+    for start in starts:
+        window = values[start:start + span]
+        mean = _power_mean_db(window)
+        rows.append({
+            "start_seconds": round(start * RMS_WINDOW_SECONDS, 2),
+            "end_seconds": round((start + span) * RMS_WINDOW_SECONDS, 2),
+            "mean_dbfs": None if mean is None else round(mean, 1),
+            "spread_db": _spread(window),
+        })
+    return rows
+
+
 def measure_track(audio_path: str, window_seconds: float) -> Dict[str, object]:
     """Every measurement for one candidate.
 
@@ -393,6 +453,13 @@ def measure_track(audio_path: str, window_seconds: float) -> Dict[str, object]:
     out["window_envelope_dbfs"] = _bucket_envelope(played)
     out["window_spread_db"] = _spread(played)
     out["rms_spread_db"] = _spread(windows)
+
+    sections = track_sections(windows, window_seconds)
+    out["track_sections"] = sections
+    out["track_sections_note"] = "" if sections else (
+        f"the track is shorter than the {window_seconds:.0f}s the edit "
+        f"runs, so no section of it can play under the whole video"
+    )
 
     try:
         out.update(loudness(audio_path))

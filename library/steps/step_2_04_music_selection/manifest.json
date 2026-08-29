@@ -29,12 +29,12 @@
       {
         "name": "music_candidates",
         "type": "object",
-        "description": "Bridge output: every locally-held track from PIPELINE_MUSIC_LIBRARY and the project's music/ folder, measured, with the target duration the choice must serve. The bridge picks none of them."
+        "description": "Bridge output: every track available to choose from - PIPELINE_MUSIC_LIBRARY, the project's music/ folder, and, when the project declares pipeline.music_search, what a YouTube search returned and the bridge fetched. All measured the same way, with duplicate recordings marked from those measurements, and with the target duration the choice must serve. The bridge picks none of them."
       },
       {
         "name": "music_selection",
         "type": "object",
-        "description": "State output: music_selection - the chosen track, its source, and its justification against the creative direction.",
+        "description": "State output: music_selection - the chosen track, the section of it that plays, its justification against the creative direction, and where it came from. `provenance` is recorded and gates nothing.",
         "expected_schema": {
           "title": "string",
           "source": "string",
@@ -45,7 +45,9 @@
           "key": "string",
           "direction_justification": "object",
           "candidates_evaluated": "list",
-          "splices": "list"
+          "splices": "list",
+          "section": "object",
+          "provenance": "object"
         }
       }
     ],
@@ -60,7 +62,7 @@
         "name": "music_selection",
         "type": "object",
         "required": true,
-        "description": "The track you choose and why it is right for THIS piece. Keys: title (string, the track's name); source (string, exactly one of 'library' (PIPELINE_MUSIC_LIBRARY), 'project' (the project's own music/ folder) or 'external' (a track held nowhere locally)); audio_path (string, REQUIRED and copied verbatim from the chosen candidate when source is 'library' or 'project'; empty when 'external'); source_url (string, REQUIRED when source is 'external'); duration_seconds (number, the track's real length - it must be at least as long as the edit and no longer than music_candidates.max_track_duration_seconds); bpm (number or null); key (string or null); direction_justification (object with: direction_mood (string, quote the creative direction's target mood you are scoring against); why_it_fits (string); forbidden_registers (list of strings - the registers the creative direction says the piece must NOT be scored in); why_not_forbidden (object mapping each forbidden register to a sentence saying why this track does not do it)); candidates_evaluated (list of objects: title, source, verdict, reason - what you considered and why you rejected it); splices (list of objects: intended_use, source_in, source_out - sections of the track to use)."
+        "description": "The track you choose and why it is right for THIS piece. Keys: title (string, the track's name); source (string, exactly one of 'library' (PIPELINE_MUSIC_LIBRARY), 'project' (the project's own music/ folder) or 'external' (a track held nowhere locally)); audio_path (string, REQUIRED and copied verbatim from the chosen candidate when source is 'library' or 'project'; empty when 'external'); source_url (string, REQUIRED when source is 'external'); duration_seconds (number, the track's real length - it must be at least as long as the edit and no longer than music_candidates.max_track_duration_seconds); bpm (number or null); key (string or null); direction_justification (object with: direction_mood (string, quote the creative direction's target mood you are scoring against); why_it_fits (string); forbidden_registers (list of strings - the registers the creative direction says the piece must NOT be scored in); why_not_forbidden (object mapping each forbidden register to a sentence saying why this track does not do it)); candidates_evaluated (list of objects: title, source, verdict, reason - what you considered and why you rejected it); splices (list of objects: intended_use, source_in, source_out - sections of the track to use); section (object, REQUIRED when the track is longer than the edit: {source_in (number, the second of the TRACK the bed starts at - the bed is placed once and runs under the whole video from there), why (string, what in the measurements decided it)}). Which part of a track plays is your decision and nothing in the pipeline picks one: music_candidates[].track_sections measures every playable section of each track by mean level and spread, and window_envelope_dbfs is the shape of the section starting at 0. Omit `section` to play from the head of the file - that is read as the absence of a decision, not as a choice of the opening."
       }
     ]
   },

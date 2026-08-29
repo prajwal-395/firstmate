@@ -26,11 +26,16 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools.beat_grid import (
     MIN_USABLE_BEATS,
-    assert_music_starts_at_timeline_zero,
+    assert_music_offset_is_the_chosen_section,
     beat_positions,
     bpm,
     downbeat_positions,
 )
+
+# The bed plays from the head of the file unless a section says otherwise;
+# these cases are about the grid's shape, not about the offset. The offset
+# has its own tests in tests/test_music_section.py.
+NO_SECTION = None
 
 MUSIC_PIPELINE = os.path.join(PROJECT_ROOT, "library", "tools", "analysis",
                               "music_pipeline.py")
@@ -115,19 +120,19 @@ def test_nobody_synthesises_a_grid_from_bpm_any_more():
 # ─────────────────────────────────────────────────────────
 
 def test_beats_are_returned_in_order():
-    got = beat_positions(analysis(beats=list(reversed(BEATS))))
+    got = beat_positions(analysis(beats=list(reversed(BEATS))), NO_SECTION)
     assert got == sorted(BEATS)
 
 
 def test_the_first_beat_is_not_assumed_to_be_zero():
     """The whole point: real grids have a lead-in."""
-    got = beat_positions(analysis(beats=BEATS))
+    got = beat_positions(analysis(beats=BEATS), NO_SECTION)
     assert got[0] == pytest.approx(0.37)
     assert got[0] != 0.0
 
 
 def test_downbeats_are_separate_from_beats():
-    got = downbeat_positions(analysis(beats=BEATS, downbeats=BEATS[::4]))
+    got = downbeat_positions(analysis(beats=BEATS, downbeats=BEATS[::4]), NO_SECTION)
     assert got == sorted(BEATS[::4])
     assert len(got) < len(BEATS)
 
@@ -140,32 +145,32 @@ class TestRefusesToInvent:
     """Empty means "do not snap", which every caller already honours."""
 
     def test_no_analysis(self):
-        assert beat_positions(None) == []
-        assert beat_positions({}) == []
-        assert downbeat_positions(None) == []
+        assert beat_positions(None, NO_SECTION) == []
+        assert beat_positions({}, NO_SECTION) == []
+        assert downbeat_positions(None, NO_SECTION) == []
         assert bpm(None) is None
 
     def test_unavailable_analysis(self):
         a = analysis(beats=BEATS)
         a["available"] = False
-        assert beat_positions(a) == []
+        assert beat_positions(a, NO_SECTION) == []
 
     def test_too_few_beats_is_not_a_rhythm(self):
         few = BEATS[:MIN_USABLE_BEATS - 1]
-        assert beat_positions(analysis(beats=few)) == []
+        assert beat_positions(analysis(beats=few), NO_SECTION) == []
 
     def test_enough_beats_is(self):
         enough = BEATS[:MIN_USABLE_BEATS]
-        assert len(beat_positions(analysis(beats=enough))) == MIN_USABLE_BEATS
+        assert len(beat_positions(analysis(beats=enough), NO_SECTION)) == MIN_USABLE_BEATS
 
     def test_malformed_entries_are_skipped_not_crashed(self):
         messy = list(BEATS) + ["x", None, {}, -1.0]
-        assert beat_positions(analysis(beats=messy)) == sorted(BEATS)
+        assert beat_positions(analysis(beats=messy), NO_SECTION) == sorted(BEATS)
 
     def test_missing_or_wrong_shaped_tempo(self):
-        assert beat_positions({"tempo": None}) == []
-        assert beat_positions({"tempo": []}) == []
-        assert beat_positions({"tempo": {"beats": "nope"}}) == []
+        assert beat_positions({"tempo": None}, NO_SECTION) == []
+        assert beat_positions({"tempo": []}, NO_SECTION) == []
+        assert beat_positions({"tempo": {"beats": "nope"}}, NO_SECTION) == []
 
     def test_bad_bpm(self):
         assert bpm({"tempo": {"bpm": 0}}) is None
@@ -178,22 +183,31 @@ class TestRefusesToInvent:
 # ─────────────────────────────────────────────────────────
 
 def test_music_at_zero_passes():
-    assert_music_starts_at_timeline_zero(
-        {"tracks": {"A2": {"clips": [{"source_in": 0.0, "timeline_in": 0.0}]}}})
+    assert_music_offset_is_the_chosen_section(
+        {"tracks": {"A2": {"clips": [{"source_in": 0.0, "timeline_in": 0.0}]}}},
+        NO_SECTION)
 
 
 def test_no_music_passes():
-    assert_music_starts_at_timeline_zero({"tracks": {}})
-    assert_music_starts_at_timeline_zero({})
+    assert_music_offset_is_the_chosen_section({"tracks": {}}, NO_SECTION)
+    assert_music_offset_is_the_chosen_section({}, NO_SECTION)
 
 
-def test_offset_music_raises():
+def test_music_placed_somewhere_other_than_the_chosen_section_raises():
     """A snapped cut that is off by the music's offset looks exactly like
     a snapped cut that is correct."""
-    with pytest.raises(ValueError, match="beat"):
-        assert_music_starts_at_timeline_zero(
+    with pytest.raises(ValueError, match="section"):
+        assert_music_offset_is_the_chosen_section(
             {"tracks": {"A2": {"clips": [
-                {"source_in": 4.5, "timeline_in": 0.0}]}}})
+                {"source_in": 4.5, "timeline_in": 0.0}]}}},
+            None)
+
+
+def test_music_placed_at_the_chosen_section_passes():
+    assert_music_offset_is_the_chosen_section(
+        {"tracks": {"A2": {"clips": [
+            {"source_in": 4.5, "timeline_in": 0.0}]}}},
+        {"section": {"source_in": 4.5}})
 
 
 def test_compile_manifest_asserts_the_domain():
@@ -201,7 +215,7 @@ def test_compile_manifest_asserts_the_domain():
                         "step_5_04_compile_manifest", "step.py")
     with open(path, encoding="utf-8") as f:
         src = f.read()
-    assert "assert_music_starts_at_timeline_zero(manifest)" in src, (
+    assert "assert_music_offset_is_the_chosen_section(manifest, ms)" in src, (
         "compile_manifest must assert the time domain the beat grid "
         "depends on, or an offset silently moves every snapped cut")
 

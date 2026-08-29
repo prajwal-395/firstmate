@@ -30,7 +30,7 @@ def main():
     from library.tools.beat_grid import bpm as real_bpm
 
     music_analysis = data.get("music_analysis", {})
-    beat_positions = real_beat_positions(music_analysis)
+    beat_positions = real_beat_positions(music_analysis, music_selection)
     bpm = real_bpm(music_analysis) or 0
 
     # Step 1.03 keys its documents by the media file's STEM (`IMG_1816`)

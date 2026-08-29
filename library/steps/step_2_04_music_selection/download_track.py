@@ -17,12 +17,28 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+STEP_DIR = Path(__file__).resolve().parent
+REPO_ROOT = STEP_DIR.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from library.tools.music_search import yt_dlp_command  # noqa: E402
 
 
-def download_audio(url: str, output_dir: str) -> dict:
+def download_audio(url: str, output_dir: str, analyze: bool = True) -> dict:
     """
     Download audio from a YouTube URL as WAV.
     Returns metadata about the downloaded file.
+
+    `analyze=False` skips the librosa BPM and key passes. Step 2.04's
+    bridge fetches searched candidates only to MEASURE them, and
+    `music_measurement.DECLINED_MEASUREMENTS` records why BPM does not
+    belong in that bridge: librosa costs ~5s a track, pulls the ML stack
+    into a step that needs only ffmpeg, and step 2.06 measures tempo
+    properly after the choice. The default is unchanged, so the
+    named-URL path this has always served behaves exactly as before.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -30,7 +46,7 @@ def download_audio(url: str, output_dir: str) -> dict:
     try:
         meta_result = subprocess.run(
             [
-                "yt-dlp",
+                *yt_dlp_command(),
                 "--dump-json",
                 "--no-download",
                 url,
@@ -61,7 +77,7 @@ def download_audio(url: str, output_dir: str) -> dict:
     try:
         result = subprocess.run(
             [
-                "yt-dlp",
+                *yt_dlp_command(),
                 "-x",                          # Extract audio
                 "--audio-format", "wav",        # Convert to WAV
                 "--audio-quality", "0",         # Best quality
@@ -76,14 +92,20 @@ def download_audio(url: str, output_dir: str) -> dict:
         )
     except FileNotFoundError:
         raise RuntimeError(
-            "yt-dlp not found. Install it: pip install yt-dlp"
+            "yt-dlp not found. It is in requirements.txt; install it into "
+            "the interpreter the run uses."
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"Download timed out for {url}")
 
     if result.returncode != 0:
+        from library.tools.music_search import yt_dlp_version
+        # The whole of stderr, not 300 characters of it: a stale yt-dlp
+        # prints an update warning first and its real error - "HTTP Error
+        # 403: Forbidden" - was landing past the truncation.
         raise RuntimeError(
-            f"Download failed for {url}: {result.stderr[:300]}"
+            f"Download failed for {url} (yt-dlp {yt_dlp_version()}): "
+            f"{(result.stderr or '').strip()}"
         )
 
     # Find the output file (yt-dlp may use a slightly different name)
@@ -102,17 +124,18 @@ def download_audio(url: str, output_dir: str) -> dict:
     # Get duration using ffprobe
     duration = get_audio_duration(wav_path)
 
-    # Analyze BPM
-    bpm = analyze_bpm(wav_path)
-
-    # Attempt key detection
-    key = analyze_key(wav_path)
+    bpm = analyze_bpm(wav_path) if analyze else None
+    key = analyze_key(wav_path) if analyze else None
 
     return {
         "audio_path": os.path.abspath(wav_path),
         "title": meta.get("title", safe_title),
         "source_url": url,
         "channel": meta.get("channel", meta.get("uploader", "Unknown")),
+        # Recorded as provenance and read by nothing. The captain took
+        # licensing off the table on 2026-08-28; see
+        # library/tools/music_search.py.
+        "licence": meta.get("license") or "",
         "duration_seconds": duration,
         "bpm": bpm,
         "key": key,

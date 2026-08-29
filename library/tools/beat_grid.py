@@ -23,12 +23,19 @@ run reports success over empty data. This module is the single place that
 knows the producer's shape, so there is one name to change if it ever
 moves, and `tests/test_beat_grid.py` asserts the two ends still agree.
 
-**Time domain.** Beat times come from the music file, and the pipeline
-places music at `source_in: 0.0`, `timeline_in: 0.0`
-(`compile_manifest`), so music time and timeline time are the same clock.
-`assert_music_starts_at_timeline_zero` states that dependency rather than
-leaving it implicit - if music ever gains an offset, every snapped cut
-silently moves and nothing else would notice.
+**Time domain.** Beat times come from the music file. The bed is placed at
+`timeline_in: 0.0` and at whatever `source_in` the model's chosen section
+names (`library/tools/music_section.py`), so timeline time is
+`file time - source_in` and a grid used unmapped is wrong by the offset on
+every cut. `beat_positions` and `downbeat_positions` therefore take the
+selection and RETURN TIMELINE TIME; the offset is read in one place, by
+`music_section.section_offset_seconds`.
+
+The selection argument is required rather than defaulted. A default of
+"no offset" is the value that is silently wrong, and this module exists
+because a producer and a consumer disagreed quietly once already.
+`assert_music_offset_is_the_chosen_section` is the other end: it checks
+the manifest placed the bed where the grid was mapped for.
 """
 
 from typing import Any, Dict, List, Optional
@@ -38,33 +45,42 @@ from typing import Any, Dict, List, Optional
 MIN_USABLE_BEATS = 8
 
 
-def beat_positions(music_analysis: Optional[Dict[str, Any]]) -> List[float]:
-    """Every detected beat, in seconds, ascending.
+def beat_positions(music_analysis: Optional[Dict[str, Any]],
+                   music_selection: Optional[Dict[str, Any]]) -> List[float]:
+    """Every detected beat, in TIMELINE seconds, ascending.
 
     Empty when the analysis is absent, unavailable or too sparse to be a
     rhythm. Empty means "do not snap", which is what every caller already
     does with an empty grid.
+
+    `music_selection` is required: it carries the chosen section, and a
+    grid read without it is off by that section's offset on every beat.
     """
-    return _times(music_analysis, "beats")
+    return _times(music_analysis, "beats", music_selection)
 
 
-def downbeat_positions(music_analysis: Optional[Dict[str, Any]]) -> List[float]:
-    """Bar starts, in seconds, ascending.
+def downbeat_positions(music_analysis: Optional[Dict[str, Any]],
+                       music_selection: Optional[Dict[str, Any]]) -> List[float]:
+    """Bar starts, in TIMELINE seconds, ascending.
 
     The stronger grid: a cut on a downbeat reads as intentional where a
     cut on any beat can read as busy. `plan_sfx` wants these - it was
     asking for `beat_grid.bars`, which is what a bar start is.
     """
-    return _times(music_analysis, "downbeats")
+    return _times(music_analysis, "downbeats", music_selection)
 
 
-def _times(music_analysis: Optional[Dict[str, Any]], key: str) -> List[float]:
+def _times(music_analysis: Optional[Dict[str, Any]], key: str,
+           music_selection: Optional[Dict[str, Any]]) -> List[float]:
+    from library.tools.music_section import section_offset_seconds
+
     if not music_analysis or not isinstance(music_analysis, dict):
         return []
     # A failed or skipped analysis says so; do not snap to nothing.
     if music_analysis.get("available") is False:
         return []
 
+    offset = section_offset_seconds(music_selection)
     tempo = music_analysis.get("tempo")
     if not isinstance(tempo, dict):
         return []
@@ -76,9 +92,10 @@ def _times(music_analysis: Optional[Dict[str, Any]], key: str) -> List[float]:
     out = []
     for value in raw:
         try:
-            t = float(value)
+            t = float(value) - offset
         except (TypeError, ValueError):
             continue
+        # A beat before the chosen section starts is not in the edit.
         if t >= 0:
             out.append(round(t, 4))
 
@@ -106,23 +123,40 @@ def bpm(music_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
     return value if value > 0 else None
 
 
-def assert_music_starts_at_timeline_zero(manifest: Dict[str, Any]) -> None:
-    """Beat times are only timeline times while music starts at zero.
+def assert_music_offset_is_the_chosen_section(
+        manifest: Dict[str, Any],
+        music_selection: Optional[Dict[str, Any]]) -> None:
+    """The bed was placed at the offset the grid was mapped for.
 
-    Raises rather than warning: a snapped cut that is silently off by the
-    music's offset looks exactly like a snapped cut that is correct.
+    `beat_positions` subtracts the chosen section's `source_in` from every
+    beat, so the two ends have to agree. Raises rather than warning: a
+    snapped cut silently off by the music's offset looks exactly like a
+    snapped cut that is correct.
+
+    It also holds the other half of the invariant - the bed starts at
+    timeline 0 - because that is what makes `file time - source_in` a
+    timeline time at all.
     """
+    from library.tools.music_section import section_offset_seconds
+
+    expected = section_offset_seconds(music_selection)
     tracks = manifest.get("tracks") or {}
     clips = (tracks.get("A2") or {}).get("clips") or []
     for clip in clips:
         source_in = float(clip.get("source_in", 0.0) or 0.0)
         timeline_in = float(clip.get("timeline_in", 0.0) or 0.0)
-        if abs(source_in - timeline_in) > 1e-6:
+        if abs(timeline_in) > 1e-6:
             raise ValueError(
-                "Music is placed with source_in "
-                f"{source_in} against timeline_in {timeline_in}. The beat "
-                "grid is expressed in music time and is used as timeline "
-                "time, so every beat-snapped cut and SFX hit would be off "
-                "by that difference. Map the grid through the offset "
-                "before snapping, or place music at source_in 0."
+                f"Music is placed at timeline_in {timeline_in}, not 0. The "
+                f"beat grid is mapped as file time minus the chosen "
+                f"section, which is a timeline time only while the bed "
+                f"starts the timeline."
+            )
+        if abs(source_in - expected) > 1e-6:
+            raise ValueError(
+                f"Music is placed with source_in {source_in} but the "
+                f"selection's chosen section starts at {expected}. The beat "
+                f"grid was mapped through {expected}, so every beat-snapped "
+                f"cut and SFX hit would be off by the difference. Place the "
+                f"bed at the section the selection declares."
             )

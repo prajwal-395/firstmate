@@ -41,7 +41,13 @@ EMITTED_KEYS = {
     "integrated_lufs", "loudness_range_lu", "true_peak_dbtp",
     "rms_spread_db", "window_seconds", "window_spread_db",
     "window_envelope_dbfs", "speech_band_ratio_db",
+    # Which section of the track plays is the model's decision, and this
+    # is what it decides from - one row per playable span, measured.
+    "track_sections", "track_sections_note",
 }
+
+# The two emitted keys that are not a number or a curve of numbers.
+SECTION_ROW_KEYS = {"start_seconds", "end_seconds", "mean_dbfs", "spread_db"}
 
 
 # Six 15s steps spanning 30 dB: the fixture shape of a track that opens
@@ -176,7 +182,13 @@ def test_nothing_emitted_is_a_taste_label(tmp_path):
 
     assert set(measured) <= EMITTED_KEYS, set(measured) - EMITTED_KEYS
     for key, value in measured.items():
-        if key in ("measured", "measurement_note"):
+        if key in ("measured", "measurement_note", "track_sections_note"):
+            continue
+        if key == "track_sections":
+            for row in value:
+                assert set(row) == SECTION_ROW_KEYS, row
+                assert row["mean_dbfs"] is None or isinstance(
+                    row["mean_dbfs"], (int, float))
             continue
         if isinstance(value, list):
             assert all(v is None or isinstance(v, (int, float)) for v in value)

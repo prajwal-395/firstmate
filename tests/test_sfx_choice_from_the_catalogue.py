@@ -257,6 +257,7 @@ def _payload(entries):
         "timed_spine": _spine(2),
         "temporal_event_indices": [],
         "music_analysis": {},
+        "music_selection": {"audio_path": ""},
         "project_fps": 30.0,
         "creative_direction": {},
     }

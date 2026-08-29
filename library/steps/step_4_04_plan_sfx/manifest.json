@@ -25,6 +25,12 @@
         "description": "State input: music_analysis"
       },
       {
+        "name": "music_selection",
+        "type": "object",
+        "required": true,
+        "description": "State input: music_selection. The chosen track AND the section of it that plays. The bar grid this step snaps to is measured in the music file's clock, so it is a timeline clock only after the section's offset is subtracted - see library/tools/music_section.py."
+      },
+      {
         "name": "rough_cut_review",
         "type": "object",
         "required": true,

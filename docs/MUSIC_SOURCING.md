@@ -1,4 +1,4 @@
-# Where the music comes from, and why nothing goes looking for more
+# Where the music comes from, and how it goes looking for more
 
 The captain, 2026-08-28:
 
@@ -11,8 +11,14 @@ sees loudness, dynamic range and the envelope over the part that plays instead o
 listing. This document answers the **seven** half: where those seven come from, why there are
 only seven, and what sourcing more would actually cost.
 
-Nothing here was built. No network call, no download, no external service was added. Measured
-on 2026-08-28 against project 001 and the machine's own library.
+Measured on 2026-08-28 against project 001 and the machine's own library.
+
+> **Superseded in part, 2026-08-28 (evening).** Sections 1 and 2 still describe what was on
+> disk and why. Sections 3 and 4 were written when a licensing decision blocked everything,
+> and **the captain has since taken licensing off the table**: *"don't worry about that now,
+> just assume for everything that you already have a licence ... so song choices need to be
+> made on creative decisions - not if a license exists or not"*. Search, fetch and measure are
+> now built. **Section 5 is the current state**; read it before acting on section 3.
 
 ---
 
@@ -138,12 +144,69 @@ SFX library already keeps becomes worth building. Below about 50 tracks it is no
 
 ---
 
-## 4. What this leaves
+## 4. What this left, before the ruling
 
-The captain's question has a blunt answer: **we are not looking online because nobody has
-decided what this channel is allowed to play**, and every mechanism that would find more music
-is downstream of that. The seven filenames were not a design; they are what was in two folders.
+The captain's question had a blunt answer at the time: **we are not looking online because
+nobody has decided what this channel is allowed to play**, and every mechanism that would find
+more music was downstream of that. The seven filenames were not a design; they are what was in
+two folders.
 
 The half that was an engineering problem - choosing among those seven with nothing but their
-names - is fixed. See `library/tools/music_measurement.py` and AGENTS.md §10.5 on why what it
-emits stops at numbers.
+names - was fixed first. See `library/tools/music_measurement.py` and AGENTS.md §10.5 on why
+what it emits stops at numbers.
+
+---
+
+## 5. What was built after the ruling (2026-08-28, evening)
+
+The captain: *"flush out the search functionality, as far as music, just download what you need
+from youtube and then use the sections from the music you find is best ... don't worry about
+[licensing] now"*. So the three items section 3 ordered behind a licensing decision were built,
+minus the licence gate, which is now explicitly not a thing that exists.
+
+**Search reaches the model as results.** `library/tools/music_search.py` replaces the never-called
+`search_youtube.py`. A project declares `pipeline.music_search` with its own `queries`,
+`results_per_query` and `fetch_limit`; a project that declares nothing searches nothing and the
+catalogue says so. The engine does not compose a query out of the creative direction - that
+would be the engine writing the search terms.
+
+**A searched candidate arrives measured.** Results that cannot cover the edit are dropped on the
+duration YouTube states for free, before a byte is downloaded; the survivors are fetched through
+`download_track.download_audio` - the same path a named URL has always taken - and go through
+`measure_candidates` with everything else. A candidate the model cannot see measured is the
+defect #296 fixed, and search does not reintroduce it.
+
+**What a run costs, measured on 2026-08-28 on a domestic connection**, two queries at six
+results each, fetching three:
+
+| stage | cost |
+|---|---|
+| 2 queries, 12 results, metadata only | 3.5 s, ~0 bytes of media |
+| duration filter | free; 5 of 12 dropped, four of them multi-hour compilations |
+| 3 tracks fetched to WAV | 10.5 s |
+| 7 candidates measured (4 local, 3 fetched) | ~32 s |
+| **whole bridge** | **46.2 s** |
+
+The four compilations dropped for free were 251, 193, 67 and 64 minutes long; fetching them
+would have dominated the run.
+
+**Duplicate recordings are found from the measurements.** Two of 001's four surviving candidates
+were the same recording under two filenames. `library/tools/music_duplicates.py` establishes it
+from loudness, range, spread and the envelope - never the name - and marks them without
+removing anything. See AGENTS.md §10.5.
+
+**Which section of the track plays is the model's.** `compile_manifest` used to write
+`source_in: 0.0` as a literal, so the `splices` the frozen handoff has always asked for reached
+nothing. `library/tools/music_section.py` carries the decision to the manifest and the beat
+grid. Nothing scores a section; `music_measurement.track_sections` measures every playable span
+and the model reads it.
+
+**Licence is provenance and gates nothing.** A fetched candidate carries `provenance` -
+the query, the URL, the channel, and whatever the platform stated as a licence, or "unstated".
+No step reads it, and `tests/test_music_search.py` fails if one branches on it. Section 3's
+item 3 - "a licence field that travels with the track" - is deliberately NOT what was built: it
+travels, and it decides nothing.
+
+**Section 3 item 2's cheapest option is still the cheapest.** If the captain later takes a
+subscription that syncs to a folder, pointing `PIPELINE_MUSIC_LIBRARY` at it still needs no code
+at all, and every track in it arrives measured and de-duplicated alongside anything searched.
