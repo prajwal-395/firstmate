@@ -316,10 +316,14 @@ One enumeration, `library/tools/transition_carriers.py`.
 
 ### Frame mapping
 
-Fusion compositions operate on the source clip's full frame range, not the timeline's trimmed duration.
+**Comp frame 0 is the clip's FIRST PLAYED frame, and `clip_dur` is the SOURCE's frame count. They are different numbers and both are needed.**
+One enumeration, `library/tools/fusion/played_window.py`.
 
-- Use the SOURCE clip frame count for `clip_dur` (the comp's GlobalIn/GlobalOut range), read as `int(mpi.GetClipProperty('Frames'))`, not `clip.GetDuration()`.
-- **Keyframes must land within the PLAYED window** (`source_in_frame..source_out_frame` in source frame numbers), not across the full source. [why](docs/RULE_EVIDENCE.md#keyframes-outside-the-played-window)
+- Use the SOURCE clip frame count for `clip_dur` (the comp's GlobalIn/GlobalOut range), read as `int(mpi.GetClipProperty('Frames'))`, not `clip.GetDuration()`. It is always at least the played length, so a Background sized by it exists for every frame that plays. [why](docs/RULE_EVIDENCE.md#keyframes-outside-the-played-window)
+- **Every animated keyframe is placed in the COMP's frames, through `played_range`** - never at a source frame number. `source_in_frame`/`source_out_frame` arrive in the SOURCE's numbering and are translated; a segment cut from source frames 654-725 animates over comp frames 0-71.
+- **A spline extrapolates FLAT, so a keyframe outside what plays is not a ramp that does nothing - it is the effect held at full strength for the whole clip.** That is what shipped: 0 of 30 planned transition frames drew and 331 frames, 18.6% of 001's video, carried an unplanned full-strength defocus. Issue #202's `zoom_blur` "held for the whole clip" is the same defect on another type. [why - the four banked comps and the measured master](docs/RULE_EVIDENCE.md#the-transition-ramp-that-never-ran)
+- **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: it never reaches neutral, so it covers the whole clip.
+- **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp the renderer writes and evaluates its splines; `tests/test_transition_ramp_draws.py` is the gate. 001's plan was correct on every run it ever made, which is exactly what kept this invisible - a test that asserts a plan exists cannot see it.
 
 ### Default transition values
 

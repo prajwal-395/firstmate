@@ -60,10 +60,12 @@ def build_effect_comp(effects: dict, clip_dur: int,
     leaves the rest ungraded.
 
     ``source_in_frame`` / ``source_out_frame`` in the *effects* dict
-    bound the segment the timeline actually plays.  All animated
-    keyframes land inside this window.  When absent they default to
-    ``0`` / ``clip_dur - 1`` (the whole source), which is correct only
-    when the placed segment uses the entire source clip.
+    bound the segment the timeline actually plays, in SOURCE frame
+    numbers.  ``fusion.played_window`` translates them into the comp's
+    own frames, which start at zero on the first played frame; every
+    animated keyframe lands inside that range.  When absent the whole
+    source is assumed, which is correct only when the placed segment
+    uses all of it.
     """
     res = tuple(source_res) if source_res else DEFAULT_SOURCE_RES
     engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
@@ -163,7 +165,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
         engine.add(fx.transition_tail(
             clip_dur, tail_trans,
             effects.get('tail_transition_frames', 7), res=res,
-            source_out=src_out))
+            source_in=src_in, source_out=src_out))
 
     head_trans = effects.get('head_transition')
     if head_trans:

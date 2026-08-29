@@ -15,15 +15,18 @@ CRITICAL - two frame concepts that must not be confused:
 
   ``source_in`` / ``source_out``
                  The first and last SOURCE FRAME that the timeline
-                 actually plays.  All animated keyframes (zoom ramp,
-                 transitions, fade, vignette) must land INSIDE this
-                 window.  When omitted they default to
-                 ``0`` / ``clip_dur - 1`` (the whole clip), which is
-                 correct only when the placed segment uses the entire
-                 source.  A clip whose source_in is not zero will have
-                 its keyframes placed outside the played window if these
-                 are not supplied - which is the defect this parameter
-                 was added to fix.
+                 actually plays.  They are given in the SOURCE's
+                 numbering, as the manifest carries them, and they are
+                 translated to comp frames by
+                 ``played_window.played_range`` - never used as
+                 keyframe positions directly.  **Comp frame 0 is the
+                 clip's first played frame**, so a segment cut from
+                 source frames 654..725 animates over comp frames 0..71.
+                 Writing a keyframe at 654 puts it past everything
+                 Resolve renders for that clip, and the spline then
+                 extrapolates flat: the effect is held at its first
+                 keyframe's value for the whole clip. That is measured,
+                 not assumed - see ``played_window``.
 
 Usage:
     block = fx.zoom(clip_dur=5657, source_in=25, source_out=97,
@@ -36,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .nodes import BezierSpline, FusionNode
+from .played_window import assert_ramp_fits, played_range
 
 
 @dataclass
@@ -152,9 +156,9 @@ class fx:
         tf.set_attr("CtrlWZoom", False)
 
         if has_anim:
-            # Keyframes within the PLAYED window, not the full source.
-            first = source_in if source_in is not None else 0
-            last = source_out if source_out is not None else clip_dur - 1
+            # Keyframes in the comp's own frames, which are the
+            # PLAYED frames numbered from zero.
+            first, last = played_range(clip_dur, source_in, source_out)
             seg_dur = last - first
             mid_frame = first + seg_dur // 2
             third = seg_dur // 3
@@ -416,8 +420,7 @@ class fx:
         if fade_in <= 0 and fade_out <= 0:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
-        first = source_in if source_in is not None else 0
-        last = source_out if source_out is not None else clip_dur - 1
+        first, last = played_range(clip_dur, source_in, source_out)
         bg_name = _next_name("Background")
         mg_name = _next_name("Merge")
         sp_name = f"{mg_name}Blend"
@@ -469,15 +472,19 @@ class fx:
         dur_frames: int = 7,
         *,
         res: tuple = (1080, 1920),
+        source_in: Optional[int] = None,
         source_out: Optional[int] = None,
     ) -> EffectBlock:
         """Transition at end of clip (outgoing).
 
         Only affects the last dur_frames of the PLAYED segment - neutral
-        before that.  ``source_out`` is the last played source frame;
-        when omitted, ``clip_dur - 1`` is used (the whole source).
+        before that.  ``source_in``/``source_out`` are the played window
+        in SOURCE frames; the ramp is written in the comp's own frames,
+        which start at zero on the first played frame.
         """
-        last_frame = source_out if source_out is not None else clip_dur - 1
+        first, last_frame = played_range(clip_dur, source_in, source_out)
+        assert_ramp_fits(dur_frames, first, last_frame,
+                         ttype=ttype, half="tail")
         start_f = last_frame - dur_frames
 
         if ttype == "fade_to_black":
@@ -511,11 +518,13 @@ class fx:
         """Transition at start of clip (incoming).
 
         Only affects the first dur_frames of the PLAYED segment - neutral
-        after that.  ``source_in`` / ``source_out`` bound the played
-        window; when omitted, ``0`` / ``clip_dur - 1`` are used.
+        after that.  ``source_in``/``source_out`` bound the played window
+        in SOURCE frames; the ramp is written in the comp's own frames,
+        which start at zero on the first played frame.
         """
-        first = source_in if source_in is not None else 0
-        last_played = source_out if source_out is not None else clip_dur - 1
+        first, last_played = played_range(clip_dur, source_in, source_out)
+        assert_ramp_fits(dur_frames, first, last_played,
+                         ttype=ttype, half="head")
 
         if ttype == "fade_to_black":
             return fx._fade_transition(

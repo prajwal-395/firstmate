@@ -311,9 +311,57 @@ That is what makes it safe to pop off the in-memory manifest for a timeline mean
 
 A clip with 513 source frames placed as 410 frames on the timeline has a Fusion frame range of 0-512.
 `clip_dur` sets the comp's frame RANGE (GlobalIn/GlobalOut) and must come from the SOURCE clip frame count, read as `int(mpi.GetClipProperty('Frames'))`, not from `clip.GetDuration()`.
+That half stands: the source count is always at least the played length, so a Background sized by it exists for every frame that plays.
 
 Using `0..clip_dur` for keyframes when `source_in` is not zero puts all motion outside the frames that play.
-A segment from frames 25-97 of a 5657-frame clip must have its zoom ramp between 25 and 97, not between 0 and 5656.
+The repair for that was to place them at `source_in..source_out` instead - so a segment from frames 25-97 of a 5657-frame clip got its ramp between 25 and 97.
+**That repair was wrong, and the section below is what measured it.**
+The comp is rendered over the frames the clip PLAYS, numbered from zero, so 25-97 is still outside a 73-frame comp.
+
+### the-transition-ramp-that-never-ran
+
+The captain marked a clip on their own timeline: *"visibly actually blurry, not like because its punched in, but because there was a distinct blur effect on it"*, and noted a second clip later doing the same.
+
+001's run of record, 2026-08-26, planned two `defocus` transitions, `duration_frames: 15`, at cut 8 (timeline 34.394 s) and cut 13 (timeline 46.147 s).
+The plan was correct. So was every previous run's.
+
+**The comps that run banked are on disk**, under `assets/fusion_presets/`, and they are the artefact Resolve imported:
+
+| comp | half | `TransDefocus1Size` keyframes | frames the clip plays |
+|---|---|---|---|
+| `speech_7_seg0_b72a99d75c79` | cut 8 tail | 0 = 0.0, 3480 = 0.0 ... 3495 = 3.0 | 480 |
+| `speech_9_seg0_4df94525be04` | cut 8 head | 654 = 3.0 ... 669 = 0.0, 725 = 0.0 | 71 |
+| `speech_12_seg0_8c88369d70f1` | cut 13 tail | 0 = 0.0, 1047 = 0.0 ... 1062 = 3.0 | 43 |
+| `speech_14_seg0_f299d472deb2` | cut 13 head | 944 = 3.0 ... 959 = 0.0, 1204 = 0.0 | 260 |
+
+Under the source-frame reading each ramp sits exactly on the played frames and all four draw.
+Under the clip-frame reading - comp frame 0 is the first PLAYED frame - a Fusion spline extrapolates flat, so the two heads hold their FIRST key, full strength, for every frame they play, and the two tails interpolate 0.0 to 0.0 across everything that plays and draw nothing.
+
+**The shipped master says which happened.**
+Measured on `exports/Pipeline_Edit.mp4` as mean absolute horizontal pixel difference at 540x960, one value per frame, no re-render and no Resolve:
+
+    cut 8  tail, last 20 played frames   6.97 6.83 6.80 6.95 6.98 ... 6.90 6.77 6.79 | cut
+    cut 8  head, first 20 played frames  1.81 1.81 1.78 1.75 1.65 ... 1.47 1.49 1.63
+                 rest of that clip       1.865 mean - the same level
+    cut 13 head, first 20 played frames  2.00 2.01 1.99 1.99 2.01 ... 1.98 1.98 1.99
+                 rest of that clip       1.728 mean
+
+No ramp on any of the four, and the two head clips are flat for their whole length.
+**71 + 260 = 331 frames, 18.6% of a 1783-frame video, carrying a full-strength defocus nobody planned, and 0 of the 30 planned ramp frames drawn.**
+
+That the softness is ADDED rather than the footage: cut 8's head and the three untransitioned clips that follow it are the same source clip (IMG_1817), seconds apart, conformed identically.
+With the same crop applied to the raw file the two windows measure 0.988 and 1.040 - within 5%.
+In the render they measure 1.780 and 3.999: the transitioned clip keeps **44.5%** of its neighbours' high-frequency energy.
+
+Four predictions, four matches, and the source-frame reading contradicted by all four.
+
+**Issue #202 is the same defect**, not a second one.
+Its `zoom_blur` head builds the identical shape - `BezierSpline.sampled(reverse=True, hold_after=...)`, first key at the source frame number carrying the full value - and that full value is `Transform.Size = 0.6`.
+Held for the whole clip, that is exactly what #202 reports: *"it never returns to neutral"* and *"its transform leaves the frame uncovered"*, a shrunken picture with black around it for the block's entire 2.38 s.
+A defocus has no transform, so the same hold reads as a blur rather than as an uncovered frame; the mechanism is one.
+
+The fix is one statement of the time base, `library/tools/fusion/played_window.py`, used by the zoom, the fade and both transition halves.
+The gate is `tests/test_transition_ramp_draws.py`, which counts the frames a transition is DRAWN on by evaluating the comp's own splines - because a test that asserts the plan is right passes on every run this defect ever shipped.
 
 ### background-sized-to-the-delivery-frame
 

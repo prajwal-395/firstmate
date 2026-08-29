@@ -1,10 +1,25 @@
 """Keyframes land inside the PLAYED window, not across the whole source.
 
-This is the test that proves finding 4 is fixed: a segment from a 5657-frame
-source clip that plays only frames 25-97 must have its zoom ramp and
-transition keyframes WITHIN 25-97, not at 0/2828/5656 (the full source).
+A segment cut from a 5657-frame source that plays only 73 frames must
+have its zoom ramp and its transition keyframes inside those 73 frames,
+not spread across the whole source.
 
-A test using source_in=0 would pass against the broken code, so every
+**The window is stated in the COMP's frames, not the source's.**  This
+file used to require the keyframes to sit between ``source_in`` and
+``source_out`` - 25 and 97 - which is a bound on the SOURCE's numbering,
+and it passed on every run while the picture was wrong: a per-clip
+Fusion comp is rendered over the frames the clip plays, numbered from
+zero, so a keyframe at source frame 25 is 25 frames past everything
+Resolve renders for a clip that plays 73.  Two 15-frame ``defocus``
+transitions on project 001 therefore drew none of their 30 planned
+frames and held a full-strength blur across 331 frames instead.
+
+``library/tools/fusion/played_window.py`` carries the measurement and
+``tests/test_transition_ramp_draws.py`` counts the frames a transition
+is drawn on, which is the check this file could not make: a keyframe in
+range is necessary and not sufficient.
+
+A test using source_in=0 would pass against either reading, so every
 parametrized case here uses a non-zero source_in.
 """
 import re
@@ -13,6 +28,7 @@ import pytest
 
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.fusion.effects import _reset_counters, fx
+from library.tools.fusion.played_window import played_range
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -52,6 +68,9 @@ def _extract_all_keyframes(comp: str) -> dict[str, list[int]]:
 HOOK_CLIP_DUR = 5657
 HOOK_SOURCE_IN = 25
 HOOK_SOURCE_OUT = 97
+# The same window in the comp's own frames, which is where keyframes go.
+HOOK_FIRST, HOOK_LAST = played_range(
+    HOOK_CLIP_DUR, HOOK_SOURCE_IN, HOOK_SOURCE_OUT)
 
 
 class TestZoomKeyframesInPlayedWindow:
@@ -71,13 +90,13 @@ class TestZoomKeyframesInPlayedWindow:
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines, "zoom block has no spline"
         frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_SOURCE_IN, (
-            f"Zoom keyframe at frame {min(frames)} is before played window "
-            f"(source_in={HOOK_SOURCE_IN})"
+        assert min(frames) >= HOOK_FIRST, (
+            f"Zoom keyframe at comp frame {min(frames)} is before the "
+            f"played window ({HOOK_FIRST}..{HOOK_LAST})"
         )
-        assert max(frames) <= HOOK_SOURCE_OUT, (
-            f"Zoom keyframe at frame {max(frames)} is after played window "
-            f"(source_out={HOOK_SOURCE_OUT})"
+        assert max(frames) <= HOOK_LAST, (
+            f"Zoom keyframe at comp frame {max(frames)} is after the "
+            f"played window ({HOOK_FIRST}..{HOOK_LAST})"
         )
 
     def test_zoom_out_within_played_window(self):
@@ -93,8 +112,8 @@ class TestZoomKeyframesInPlayedWindow:
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines
         frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_SOURCE_IN
-        assert max(frames) <= HOOK_SOURCE_OUT
+        assert min(frames) >= HOOK_FIRST
+        assert max(frames) <= HOOK_LAST
 
 
 class TestTransitionKeyframesInPlayedWindow:
@@ -106,15 +125,17 @@ class TestTransitionKeyframesInPlayedWindow:
         _reset_counters()
         block = fx.transition_tail(
             HOOK_CLIP_DUR, ttype, dur_frames=7,
+            source_in=HOOK_SOURCE_IN,
             source_out=HOOK_SOURCE_OUT,
         )
         from library.tools.fusion.nodes import BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines, f"{ttype} tail has no spline"
         frames = [kf.frame for kf in splines[0].keyframes]
-        assert max(frames) <= HOOK_SOURCE_OUT, (
-            f"{ttype} tail keyframe at {max(frames)} is after source_out "
-            f"({HOOK_SOURCE_OUT}) - transition fires after clip is gone"
+        assert max(frames) <= HOOK_LAST, (
+            f"{ttype} tail keyframe at comp frame {max(frames)} is past the "
+            f"last played frame ({HOOK_LAST}) - it fires after the clip is "
+            f"gone, and Fusion holds it across everything that plays"
         )
 
     @pytest.mark.parametrize("ttype", ["fade_to_black", "defocus", "flash"])
@@ -130,9 +151,9 @@ class TestTransitionKeyframesInPlayedWindow:
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines, f"{ttype} head has no spline"
         frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_SOURCE_IN, (
-            f"{ttype} head keyframe at {min(frames)} is before source_in "
-            f"({HOOK_SOURCE_IN}) - transition fires before clip starts"
+        assert min(frames) >= HOOK_FIRST, (
+            f"{ttype} head keyframe at comp frame {min(frames)} is before "
+            f"the first played frame ({HOOK_FIRST})"
         )
 
 
@@ -142,12 +163,15 @@ class TestBuildEffectCompWithSourceWindow:
     def test_hook_zoom_and_defocus_within_played_window(self):
         """Reproduce the exact hook scenario from project 001.
 
-        The hook is 2.4s (72 frames) taken from source seconds 0.836-3.234
-        of a 5657-frame clip, i.e. source frames 25-97.
+        The hook is 2.4s (73 frames) taken from source seconds
+        0.836-3.234 of a 5657-frame clip, i.e. source frames 25-97,
+        which is comp frames 0-72.
 
-        Before the fix, Transform1Size had keyframes at [0]=1.0,
-        [2828]=1.0, [5656]=1.03 and the defocus had keyframes at
-        [5646]=0.0 .. [5656]=3.0 - all outside the played window.
+        Two readings have been wrong here. Originally Transform1Size had
+        keyframes at [0], [2828], [5656] and the defocus at [5646]..
+        [5656] - across the whole source. Then they moved to [25]..[97],
+        which is the source's numbering and still outside the 73 frames
+        the comp renders.
         """
         effects = {
             'zoom_start': 1.0,
@@ -168,13 +192,13 @@ class TestBuildEffectCompWithSourceWindow:
         # The zoom spline must be entirely within the played window
         zoom_kf = all_kf.get("Transform1Size", [])
         assert zoom_kf, "No zoom keyframes"
-        assert min(zoom_kf) >= HOOK_SOURCE_IN, (
-            f"Zoom keyframe at {min(zoom_kf)} before source_in "
-            f"({HOOK_SOURCE_IN})"
+        assert min(zoom_kf) >= HOOK_FIRST, (
+            f"Zoom keyframe at comp frame {min(zoom_kf)} before the first "
+            f"played frame ({HOOK_FIRST})"
         )
-        assert max(zoom_kf) <= HOOK_SOURCE_OUT, (
-            f"Zoom keyframe at {max(zoom_kf)} after source_out "
-            f"({HOOK_SOURCE_OUT})"
+        assert max(zoom_kf) <= HOOK_LAST, (
+            f"Zoom keyframe at comp frame {max(zoom_kf)} after the last "
+            f"played frame ({HOOK_LAST})"
         )
 
         # The defocus transition's active frames must end at source_out.
@@ -183,18 +207,19 @@ class TestBuildEffectCompWithSourceWindow:
         # played and the held value is neutral.
         defocus_kf = all_kf.get("TransDefocus1Size", [])
         assert defocus_kf, "No defocus keyframes"
-        assert max(defocus_kf) <= HOOK_SOURCE_OUT, (
-            f"Defocus keyframe at {max(defocus_kf)} after source_out "
-            f"({HOOK_SOURCE_OUT}) - transition fires after clip is gone"
+        assert max(defocus_kf) <= HOOK_LAST, (
+            f"Defocus keyframe at comp frame {max(defocus_kf)} after the "
+            f"last played frame ({HOOK_LAST}) - it fires after the clip "
+            f"is gone"
         )
-        # Active defocus frames (excluding the hold-before) must start
-        # near source_out - dur_frames
+        # Active defocus frames (excluding the neutral hold at frame 0)
+        # must start dur_frames back from the last played frame.
         active_kf = [f for f in defocus_kf if f > 0]
-        if active_kf:
-            assert min(active_kf) >= HOOK_SOURCE_OUT - 10, (
-                f"Defocus active keyframe at {min(active_kf)} is far from "
-                f"source_out ({HOOK_SOURCE_OUT})"
-            )
+        assert active_kf, "Defocus has no active keyframes"
+        assert min(active_kf) >= HOOK_LAST - 10, (
+            f"Defocus active keyframe at {min(active_kf)} is far from the "
+            f"last played frame ({HOOK_LAST})"
+        )
 
     def test_source_in_zero_still_works(self):
         """A segment starting at frame 0 (the common case) still works."""
@@ -242,10 +267,10 @@ class TestFadeKeyframesInPlayedWindow:
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines
         frames = [kf.frame for kf in splines[0].keyframes]
-        # Fade-out end should be at source_out, not clip_dur-1
-        assert max(frames) <= HOOK_SOURCE_OUT, (
-            f"Fade keyframe at {max(frames)} is after source_out "
-            f"({HOOK_SOURCE_OUT})"
+        # Fade-out end lands on the last PLAYED frame, not clip_dur-1
+        assert max(frames) <= HOOK_LAST, (
+            f"Fade keyframe at comp frame {max(frames)} is after the last "
+            f"played frame ({HOOK_LAST})"
         )
 
     def test_fade_in_at_source_in(self):
@@ -260,10 +285,10 @@ class TestFadeKeyframesInPlayedWindow:
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         assert splines
         frames = [kf.frame for kf in splines[0].keyframes]
-        # Fade-in start should be at source_in, not 0
-        assert min(frames) >= HOOK_SOURCE_IN, (
-            f"Fade keyframe at {min(frames)} is before source_in "
-            f"({HOOK_SOURCE_IN})"
+        # Fade-in starts on the first PLAYED frame
+        assert min(frames) >= HOOK_FIRST, (
+            f"Fade keyframe at comp frame {min(frames)} is before the "
+            f"first played frame ({HOOK_FIRST})"
         )
 
 
