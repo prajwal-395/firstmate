@@ -40,7 +40,7 @@
       {
         "name": "music_selection",
         "type": "object",
-        "description": "State output: music_selection - the chosen track, the section of it that plays, its justification against the creative direction, and where it came from. `provenance` is recorded and gates nothing.",
+        "description": "State output: music_selection - the chosen track, the section of it that plays, its justification against the creative direction, where it came from, and what was measured about it. `provenance` is recorded and gates nothing; `measurements` is the chosen track's own scalars, carried forward for step 5.02 by library/tools/music_measurement.selection_measurements.",
         "expected_schema": {
           "title": "string",
           "source": "string",
@@ -53,7 +53,8 @@
           "candidates_evaluated": "list",
           "splices": "list",
           "section": "object",
-          "provenance": "object"
+          "provenance": "object",
+          "measurements": "object"
         }
       }
     ],

@@ -33,6 +33,40 @@ MUSIC_BEHAVIORS = {
 
 SILENT = "silent"
 
+# ── A clip gain is not a separation ─────────────────────────────────
+#
+# The dB above is a CLIP GAIN: how far the bed is pushed down from
+# whatever level the file already carries.  It is not the gap the ear
+# hears between the voice and the bed, and the two agree only when the
+# music file's own level sits at or below the speech's.  On project 001
+# the bed is mastered about 8.6 dB hotter than the iPhone speech, so -18
+# dB of gain buys about 12.5 dB of separation and no mix setting reaches
+# 18 (AGENTS.md 10.4; `render_qa.SPEECH_ABOVE_BED_GATES` records the
+# per-window numbers).
+#
+# `render_qa.measure_speech_above_bed` measures the separation.  What it
+# has never had is a separation to measure AGAINST, so it reads the clip
+# gain as though it were one - which is why it reports 1 of 11 windows
+# meeting "the plan's own margin" on an edit whose plan never declared a
+# margin at all.
+#
+# So the plan may now CARRY one, per behaviour, and today none is
+# declared.  The number is not the engine's to choose: it is the same
+# registered captain decision as the five clip gains above, and an
+# engine-supplied separation target would be a strength nobody chose
+# arriving one level up (AGENTS.md 10.5, and section 12's rule that no
+# element has a default and none has a bound).
+SEPARATION_TARGETS_DB: dict = {}
+
+UNDECLARED_SEPARATION = (
+    "no separation target is declared for this behaviour. The dB beside "
+    "it is a clip gain, which is what the bed is pushed down BY, not the "
+    "gap it ends up at under the voice. Declaring one is the same open "
+    "decision as the clip gains themselves; until it is taken, a check "
+    "judging against the clip gain is judging against a number that was "
+    "not a separation target."
+)
+
 # A block that carries speech has a voice to sit under; one that does not
 # has nothing to duck for.  These two are the only defaults, and they are
 # the same two `mesh_spine`'s handoff table prescribes.
@@ -86,6 +120,20 @@ def music_level_db(behavior: str) -> int:
             f"unknown music_behavior {behavior!r}; the vocabulary is "
             f"{sorted(MUSIC_BEHAVIORS)}")
     return MUSIC_BEHAVIORS[behavior][0]
+
+
+def separation_target_db(behavior: str):
+    """The separation this behaviour asks for, or None when none is declared.
+
+    None means UNDECLARED, never zero and never "no separation wanted".
+    A reader that cannot tell the two apart is the defect this exists to
+    remove - see :data:`UNDECLARED_SEPARATION`.
+    """
+    if not is_known_behavior(behavior):
+        raise MusicBehaviorError(
+            f"unknown music_behavior {behavior!r}; the vocabulary is "
+            f"{sorted(MUSIC_BEHAVIORS)}")
+    return SEPARATION_TARGETS_DB.get(behavior)
 
 
 def is_silent(behavior) -> bool:

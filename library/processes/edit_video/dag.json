@@ -469,13 +469,6 @@
       }
     },
     {
-      "from": "plan_vfx",
-      "to": "audio_mix",
-      "data_mapping": {
-        "enhancement_spec": "enhancement_spec"
-      }
-    },
-    {
       "from": "creative_direction",
       "to": "creative_cohesion",
       "data_mapping": {
@@ -930,13 +923,6 @@
       "to": "audio_mix",
       "data_mapping": {
         "music_selection": "music_selection"
-      }
-    },
-    {
-      "from": "creative_direction",
-      "to": "audio_mix",
-      "data_mapping": {
-        "creative_direction": "creative_direction"
       }
     },
     {

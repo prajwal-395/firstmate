@@ -229,6 +229,108 @@ DECLINED_MEASUREMENTS = {
 }
 
 
+# ── What travels onward with the track that was CHOSEN ──────────────
+#
+# Every number above is measured on every candidate so that step 2.04 can
+# choose between them.  Once the choice is made, the same numbers are a
+# description of the bed that will actually play, and the mix is the step
+# that needs them: `music_behavior` words are RELATIVE dB applied to
+# whatever the file already is, so the file's own level decides whether
+# the planned offset lands (AGENTS.md 10.4, and the 8.6 dB it records).
+#
+# Only the SCALARS travel.  `music_selection` is declared whole by two
+# steps that reach a prompt - `plan_transitions` and `mesh_spine` - so a
+# curve or a table folded onto it lands in those prompts, and AGENTS.md
+# 10.1 is explicit that no raw value list reaches one.  The two withheld
+# keys are also the two that exist to decide WHICH section plays, which
+# is a decision 2.04 has already taken by the time this runs.
+SELECTION_MEASUREMENT_KEYS = (
+    "measured",
+    "measurement_note",
+    "integrated_lufs",
+    "loudness_range_lu",
+    "true_peak_dbtp",
+    "rms_spread_db",
+    "window_seconds",
+    "window_spread_db",
+    "speech_band_ratio_db",
+)
+
+WITHHELD_FROM_THE_SELECTION = {
+    "window_envelope_dbfs": (
+        f"{ENVELOPE_BUCKETS} numbers. AGENTS.md 10.1: no raw value list "
+        "reaches a prompt, and `music_selection` is declared whole by "
+        "`plan_transitions` and `mesh_spine`. It is the shape of the "
+        "section starting at 0, which is a thing to CHOOSE a section by; "
+        "step 2.04 has chosen one by the time this travels."
+    ),
+    "track_sections": (
+        "One row per playable span of the track. Same raw-list hazard, "
+        "and the same reason: the table exists so the model can pick "
+        "which section plays (library/tools/music_section.py), and the "
+        "pick is already made."
+    ),
+    "track_sections_note": (
+        "Says why the section table is absent or short; it travels with "
+        "the table it qualifies, or with neither."
+    ),
+}
+
+# A key that is in neither list is a measurement nobody decided about.
+_UNACCOUNTED = (set(MEASUREMENT_LEGEND)
+                - set(SELECTION_MEASUREMENT_KEYS)
+                - set(WITHHELD_FROM_THE_SELECTION))
+if _UNACCOUNTED:  # pragma: no cover - import-time guard
+    raise RuntimeError(
+        "music_measurement: "
+        + ", ".join(sorted(_UNACCOUNTED))
+        + " is measured but neither travels with the chosen track nor is "
+          "recorded as withheld. Add it to SELECTION_MEASUREMENT_KEYS or "
+          "to WITHHELD_FROM_THE_SELECTION with the reason."
+    )
+del _UNACCOUNTED
+
+
+def selection_measurements(selection: dict,
+                           candidates: Sequence[dict]) -> Dict[str, object]:
+    """What was measured about the track a selection chose.
+
+    The chosen track is identified by ``audio_path`` - the same identity
+    ``music_selection_contract.validate_selection`` checks catalogue
+    membership on, so the two cannot disagree about which candidate was
+    chosen.
+
+    Returns ``{"measured": False, "measurement_note": ...}`` and no
+    numbers whenever the measurements cannot be found, naming which of
+    the reasons it was.  An absent measurement is STATED, never defaulted
+    to a value (AGENTS.md 10.3): a bed whose level is unknown is not a
+    bed at 0 LUFS.
+    """
+    audio_path = ((selection or {}).get("audio_path") or "").strip()
+    if not audio_path:
+        return {"measured": False,
+                "measurement_note":
+                    "the selection names no audio_path, so there is no file "
+                    "to attribute a measurement to"}
+
+    for candidate in candidates or []:
+        if (candidate.get("audio_path") or "").strip() != audio_path:
+            continue
+        if not candidate.get("measured"):
+            return {"measured": False,
+                    "measurement_note": (candidate.get("measurement_note")
+                                         or "the candidate was not measured")}
+        return {key: candidate[key]
+                for key in SELECTION_MEASUREMENT_KEYS
+                if key in candidate}
+
+    return {"measured": False,
+            "measurement_note":
+                f"{audio_path} is not one of the {len(candidates or [])} "
+                f"measured candidates - a track fetched after the catalogue "
+                f"was measured is not in it"}
+
+
 def should_measure(candidate: dict) -> bool:
     """Whether opening this file can change the answer.
 

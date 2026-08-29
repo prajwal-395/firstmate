@@ -468,6 +468,23 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 # Promoting it is this boolean, and it needs one of: a loudness-relative
 # bed level in `audio_mix`, or a target here that is the planned dB minus
 # the measured source difference. Either is a decision, not a fix.
+#
+# Half of the first route is now built and the half that is missing is a
+# number, not a mechanism. Step 2.04 measures every candidate
+# (`library/tools/music_measurement.py`), the CHOSEN track carries its own
+# scalars forward as `music_selection.measurements`, and step 5.02 reads
+# them: `audio_mix.music_automation[].bed_level_after_gain_lufs` is where
+# the clip gain actually puts the bed. Two things still do not exist:
+#
+#   * a declared separation target. `music_behavior.SEPARATION_TARGETS_DB`
+#     is empty, so this check still falls back to the clip gain and now
+#     SAYS SO per window in `required_margin_basis`. The number is the
+#     same open captain decision as the five clip gains themselves.
+#   * a measurement of the SPEECH's loudness. Nothing in the pipeline
+#     takes one, so the plan cannot predict the separation it will
+#     deliver - only this check, on the finished master, can measure it.
+#     `step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED` names what it
+#     would cost.
 SPEECH_ABOVE_BED_GATES = False
 
 # A `silent` window is judged by how far its music sits below the median
@@ -1178,6 +1195,7 @@ def measure_speech_above_bed(
                 "timeline_end": round(float(w.get("timeline_end", 0.0)), 3),
                 "music_behavior": behaviour,
                 "target_level_db": w.get("target_level_db"),
+                "separation_target_db": w.get("separation_target_db"),
                 "block_type": block_type_by_position.get(str(position)),
                 "music_in_mix_db": round(music_db, 2),
                 "non_music_db": round(other_db, 2),
@@ -1197,15 +1215,30 @@ def measure_speech_above_bed(
         silent_reference = (statistics.median(non_silent) if non_silent
                             else None)
 
-        # The targets are the plan's own dB, sign-flipped: a bed planned at
-        # -18 dB against a 0 dB speech reference is a bed 18 dB DOWN.
+        # A SEPARATION the plan asked for, when the plan asked for one -
+        # `audio_mix.music_automation[].separation_target_db`.  Otherwise
+        # the clip gain, sign-flipped, which is what this check has always
+        # judged against and is NOT a separation target: a bed planned at
+        # -18 dB is pushed 18 dB down from its own level, which only comes
+        # out as 18 dB under the voice when the file is no hotter than the
+        # speech.  The basis is recorded per window either way, so nobody
+        # reads a clip gain as a margin somebody chose.  See
+        # `library/tools/music_behavior.UNDECLARED_SEPARATION`.
         for w in windows:
             if w["music_behavior"] == "silent":
                 w["required_margin_db"] = None
+                w["required_margin_basis"] = None
+                continue
+            declared = w.get("separation_target_db")
+            if isinstance(declared, (int, float)):
+                w["required_margin_db"] = abs(float(declared))
+                w["required_margin_basis"] = "declared_separation_target"
                 continue
             target = w.get("target_level_db")
             w["required_margin_db"] = abs(float(target)) if target is not None \
                 else None
+            w["required_margin_basis"] = (
+                "clip_gain_read_as_separation" if target is not None else None)
 
         judged, failures = [], []
         for w in windows:
@@ -1230,9 +1263,16 @@ def measure_speech_above_bed(
                 failures.append(w)
 
         meets = not failures
+        bases = {w.get("required_margin_basis") for w in judged
+                 if w.get("required_margin_basis")}
+        on_clip_gain = "clip_gain_read_as_separation" in bases
         detail = (f"{len(judged) - len(failures)} of {len(judged)} "
-                  f"speech-bearing windows meet the margin the plan itself "
-                  f"declared")
+                  f"speech-bearing windows meet the margin they were "
+                  f"judged against")
+        if on_clip_gain:
+            detail += (" - which for at least one window is the CLIP GAIN, "
+                       "not a separation target: the plan declares none "
+                       "(music_behavior.SEPARATION_TARGETS_DB is empty)")
         if failures:
             worst = min(failures,
                         key=lambda w: (w["margin_db"] - (w["required_margin_db"] or 0)))
@@ -1253,7 +1293,12 @@ def measure_speech_above_bed(
                    "silent_reference_db": (round(silent_reference, 2)
                                            if silent_reference is not None
                                            else None)},
-            threshold={"targets": "audio_mix.track_levels, as planned",
+            threshold={"targets": (
+                           "audio_mix.music_automation[].separation_target_db "
+                           "where the plan declares one, else the clip gain in "
+                           "target_level_db - see required_margin_basis per "
+                           "window"),
+                       "judged_on_clip_gain": on_clip_gain,
                        "silent_margin_db": silent_margin_db,
                        "speech_bearing_block_types":
                            list(SPEECH_BEARING_BLOCK_TYPES),

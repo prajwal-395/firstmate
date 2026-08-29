@@ -924,6 +924,19 @@ Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATE
 The mix reaches the file - the planned silence measures 32 dB below the bed - but `background` means -18 dB of CLIP GAIN while the check reads it as SEPARATION, and 001's music is mastered 8.6 dB hotter than its speech, so the target is unreachable by any mix setting.
 Do not flip the boolean without changing one of the two. [why - the per-window numbers](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
+**A clip gain is not a separation, and both halves now SAY which one they are holding.**
+`music_behavior.SEPARATION_TARGETS_DB` is the plan's half and is EMPTY - no behaviour declares a separation, and an engine-supplied one would be a strength nobody chose arriving one level up (§10.5).
+`measure_speech_above_bed` reads a declared target when the plan carries one and otherwise falls back to the clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result, so a reported margin can never be mistaken for one somebody chose.
+
+**The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
+Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN track's SCALARS onto `music_selection.measurements` through `music_measurement.selection_measurements`, and step 5.02 reads them and records `bed` plus a per-window `bed_level_after_gain_lufs` - the bed's integrated loudness plus the clip gain, which is arithmetic and not a decision.
+
+- **Only scalars travel.** `music_selection` is declared whole by `plan_transitions` and `mesh_spine`, so the envelope curve and the section table would land in two prompts (§10.1). `WITHHELD_FROM_THE_SELECTION` records both with the reason, and an unaccounted measurement key raises at import.
+- **An unmeasured bed is an admitted absence**: `measured: false` with its reason, no level at all, and `bed_level_after_gain_lufs` None - never 0.
+- **The separation a window will DELIVER still cannot be predicted**, because nothing measures the loudness of the speech that plays. `step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED` names what it would cost (one `loudnorm` pass over the ranges `a_roll_assignments` names). Say that, rather than computing a separation from a convention.
+- Step 5.02 declares `audio_spine` and `music_selection` and nothing else. `creative_direction` reaches it through the spine's own `music_behavior`, which `mesh_spine` already decided from it; `enhancement_spec` described audio-aware mixing nobody built. Re-declaring either needs a reader in the same commit.
+- `tests/test_mix_reads_the_bed.py`.
+
 The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
 A declared letterbox is exempt from the fill floor and never from the consistency half.
 `tests/test_baseline_craft_properties.py`.

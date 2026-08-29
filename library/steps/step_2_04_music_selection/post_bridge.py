@@ -44,6 +44,9 @@ from library.tools.music_section import (  # noqa: E402
     read_section,
     validate_section,
 )
+from library.tools.music_measurement import (  # noqa: E402
+    selection_measurements,
+)
 from library.tools.music_selection_contract import (  # noqa: E402
     validate_selection,
     acquired_media_dir,
@@ -131,6 +134,24 @@ def resolve_selection(
             + "\n".join(f"  - {e}" for e in errors)
         )
     print("  " + describe_section(read_section(selection)), file=sys.stderr)
+
+    # The bed's own measurements travel with the bed.  Every candidate was
+    # measured so this step could choose between them; the chosen one's
+    # numbers are a description of what will actually play, and step 5.02
+    # needs them - a `music_behavior` word is a RELATIVE dB applied to
+    # whatever the file already is, so the file's own level decides
+    # whether the planned offset lands.  Scalars only; see
+    # `music_measurement.WITHHELD_FROM_THE_SELECTION`.
+    selection = dict(selection)
+    selection["measurements"] = selection_measurements(selection, candidates)
+    measured = selection["measurements"]
+    if measured.get("measured"):
+        print(f"  Bed measured: {measured.get('integrated_lufs')} LUFS "
+              f"integrated, speech-band ratio "
+              f"{measured.get('speech_band_ratio_db')} dB.", file=sys.stderr)
+    else:
+        print(f"  Bed NOT measured: {measured.get('measurement_note')}",
+              file=sys.stderr)
     return selection
 
 

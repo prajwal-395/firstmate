@@ -2,7 +2,7 @@
   "id": "step_5_02_audio_mix",
   "name": "Audio Mix",
   "version": "1.0.0",
-  "description": "Balances and mixes audio streams for the final output.",
+  "description": "Balances and mixes audio streams for the final output, against the measured level of the bed that was chosen.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -13,35 +13,22 @@
         "description": "State input: audio_spine (the timed audio spine with structure and music_behavior)"
       },
       {
-        "name": "creative_direction",
-        "type": "object",
-        "required": true,
-        "description": "State input: creative_direction"
-      },
-      {
-        "name": "enhancement_spec",
-        "type": "object",
-        "required": false,
-        "description": "State input: enhancement_spec (VFX/enhancement data, used for audio-aware mixing)"
-      },
-      {
         "name": "music_selection",
         "type": "object",
         "required": true,
-        "description": "State input: music_selection"
+        "description": "State input: music_selection - the chosen bed. Read for `measurements`: a music_behavior is a RELATIVE dB applied to whatever level the file already carries, so the bed's own integrated loudness is what decides whether the planned offset lands."
       }
     ],
     "outputs": [
       {
         "name": "audio_mix_spec",
         "type": "object",
-        "description": "State output: audio_mix_spec"
+        "description": "State output: audio_mix_spec - the track levels, the per-block music automation with the clip gain and where it puts the measured bed, what the bed measures, and the separation target, which is undeclared."
       }
     ],
     "preconditions": [
       "'audio_spine' exists in state",
-      "'music_selection' exists in state",
-      "'creative_direction' exists in state"
+      "'music_selection' exists in state"
     ],
     "postconditions": [
       "'audio_mix_spec' is written to state"
