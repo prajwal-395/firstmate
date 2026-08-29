@@ -182,7 +182,8 @@ class TestTheConformHoldsTheSubject:
     def test_a_declared_letterbox_is_left_alone(self):
         got = conform(framing_intent=0.0, subject_center_x=CENTRE_001,
                       subject_width=SUBJECT_001)
-        assert got == {"needs_conform": False, "framing_intent": 0.0}
+        assert got == {"needs_conform": False, "framing_intent": 0.0,
+                       "framing_delivered": 0.0}
 
     def test_portrait_source_is_never_width_limited(self):
         """A vertical clip in a vertical frame crops height, not width."""

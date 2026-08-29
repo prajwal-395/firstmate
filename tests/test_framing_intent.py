@@ -1,13 +1,15 @@
 """The framing intent declaration: where a clip's number comes from.
 
-`library/tools/framing_intent.py` is the one enumeration. Three things
+`library/tools/framing_intent.py` is the one enumeration. Four things
 are tested here and nothing else:
 
 1. the default is FILL, because the heuristic it replaced letterboxed
    every talking-head clip;
 2. the precedence - spine block > project.yaml > brand template >
    default - and in particular that a project can still say "letterbox";
-3. a malformed declaration RAISES rather than degrading to "no framing".
+3. a malformed declaration RAISES rather than degrading to "no framing";
+4. declared is not delivered - a source that already covers the frame
+   fills at every intent, and `_conform_fields` records both numbers.
 """
 import os
 import sys
@@ -26,6 +28,8 @@ from library.tools.framing_intent import (
     DEFAULT_FRAMING_INTENT,
     FILL,
     LETTERBOX,
+    delivered_framing_intent,
+    source_covers_frame,
     project_framing_intent,
     resolve_framing_intent,
     template_framing_intent,
@@ -212,3 +216,89 @@ class TestShippedTemplates:
             width, height = resolve_format_name(
                 getattr(tmpl, "delivery_format", "") or "")
             assert height > width, f"{name} is not a vertical product"
+
+
+class TestDeclaredIsNotDelivered:
+    """A source that already covers the frame has no bars to give.
+
+    This is project 001's whole edit: eleven landscape A-roll placements
+    that letterbox under a declared 0.0, and seven portrait cutaways that
+    cannot. Recording the declaration alone told `render_qa`'s occupancy
+    gate the frame was barred where it is full, and that gate reads the
+    manifest precisely to learn what the picture was supposed to be.
+    """
+
+    VERTICAL = (1080, 1920)
+
+    def test_landscape_source_in_a_vertical_frame_has_bars_to_give(self):
+        assert source_covers_frame(1920, 1080, *self.VERTICAL) is False
+
+    def test_portrait_source_matching_the_frame_covers_it(self):
+        assert source_covers_frame(1080, 1920, *self.VERTICAL) is True
+
+    def test_a_taller_source_still_covers_the_frame(self):
+        """4:5 into 9:16 crops the height; it never shows a bar."""
+        assert source_covers_frame(1080, 1350, *self.VERTICAL) is False
+        assert source_covers_frame(1080, 2400, *self.VERTICAL) is False
+
+    def test_a_source_with_no_dimensions_covers_nothing(self):
+        assert source_covers_frame(0, 0, *self.VERTICAL) is False
+        assert source_covers_frame(None, None, *self.VERTICAL) is False
+
+    def test_a_covering_source_fills_whatever_was_declared(self):
+        assert delivered_framing_intent(LETTERBOX, True) == FILL
+        assert delivered_framing_intent(0.4, True) == FILL
+        assert delivered_framing_intent(FILL, True) == FILL
+
+    def test_a_source_with_bars_delivers_what_it_was_told(self):
+        assert delivered_framing_intent(LETTERBOX, False) == LETTERBOX
+        assert delivered_framing_intent(0.4, False) == 0.4
+        assert delivered_framing_intent(FILL, False) == FILL
+
+    def test_a_malformed_resolved_intent_still_raises(self):
+        with pytest.raises(ValueError):
+            delivered_framing_intent(1.5, False)
+
+
+class TestTheManifestRecordsBoth:
+    """`_conform_fields` writes the declaration AND what it delivers."""
+
+    @staticmethod
+    def _conform(**kwargs):
+        from library.steps.step_5_04_compile_manifest.step import _conform_fields
+        meta = {
+            "landscape": {"width": 1920, "height": 1080, "rotation": 0},
+            "portrait": {"width": 1920, "height": 1080, "rotation": -90},
+        }
+        return _conform_fields(meta, kwargs.pop("clip"), (1080, 1920), **kwargs)
+
+    def test_a_landscape_clip_told_to_letterbox_delivers_bars(self):
+        got = self._conform(clip="landscape", framing_intent=LETTERBOX)
+        assert got["framing_intent"] == LETTERBOX
+        assert got["framing_delivered"] == LETTERBOX
+        assert got["needs_conform"] is False
+        assert "fill_zoom" not in got
+
+    def test_a_portrait_clip_told_to_letterbox_delivers_a_full_frame(self):
+        """The one that matters: it has no bars to give, and says so."""
+        got = self._conform(clip="portrait", framing_intent=LETTERBOX)
+        assert got["framing_intent"] == LETTERBOX
+        assert got["framing_delivered"] == FILL
+
+    def test_a_landscape_clip_told_to_fill_delivers_fill(self):
+        got = self._conform(clip="landscape", framing_intent=FILL)
+        assert got["framing_intent"] == FILL
+        assert got["framing_delivered"] == FILL
+        assert got["fill_zoom"] > 1.0
+
+    def test_a_partial_punch_in_delivers_exactly_what_it_declared(self):
+        """Below FILL the bars are narrower, not gone."""
+        got = self._conform(clip="landscape", framing_intent=0.5)
+        assert got["framing_delivered"] == 0.5
+
+    def test_the_backdrop_route_delivers_a_full_frame(self):
+        """Blurred backdrop behind an inset picture: every row is picture."""
+        got = self._conform(clip="landscape", framing_intent=FILL,
+                            subject_center_x=0.5, subject_width=0.8)
+        assert "framing_backdrop" in got
+        assert got["framing_delivered"] == FILL

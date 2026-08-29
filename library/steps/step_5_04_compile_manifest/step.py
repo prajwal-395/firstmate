@@ -56,7 +56,9 @@ from tools.subject_framing import (
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import project_template_name, resolve_project_template
-from tools.framing_intent import DEFAULT_FRAMING_INTENT, resolve_framing_intent
+from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
+                                  delivered_framing_intent,
+                                  resolve_framing_intent, source_covers_frame)
 from tools.delivery_format import resolve_delivery_format
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
@@ -886,13 +888,22 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
     # one, because the manifest carried only the RESULT (`fill_zoom`) and
     # never the declaration - so `render_qa`'s occupancy gate would have
     # had to guess what the picture was supposed to look like.
+    #
+    # `framing_delivered` is the other half, and the two are not always
+    # the same number: a source that already covers the frame has no bars
+    # to give and fills at every intent. See
+    # library/tools/framing_intent.py, "Declared is not delivered".
     resolved_intent = (DEFAULT_FRAMING_INTENT if framing_intent is None
                        else max(0.0, min(1.0, framing_intent)))
+    covers = source_covers_frame(width, height, target_w, target_h)
 
-    if fill_scale <= fit_scale * (1 + 1e-6):
+    if covers:
         # Source already matches the target aspect ratio - no conform needed
         # regardless of framing_intent (there are no bars to remove).
-        return {"needs_conform": False, "framing_intent": resolved_intent}
+        return {"needs_conform": False,
+                "framing_intent": resolved_intent,
+                "framing_delivered": delivered_framing_intent(
+                    resolved_intent, covers)}
 
     max_zoom = round(fill_scale / fit_scale, 4)
 
@@ -904,11 +915,16 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
     # frame.  See library/tools/framing_intent.py.
     intent = resolved_intent
     if intent == 0.0:
-        return {"needs_conform": False, "framing_intent": intent}
+        return {"needs_conform": False, "framing_intent": intent,
+                "framing_delivered": intent}
     zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
     result = {
         "needs_conform": True,
         "framing_intent": intent,
+        # A partial punch-in delivers exactly what it was told: the frame
+        # is covered only at FILL, and below it the bars are narrower
+        # rather than gone.
+        "framing_delivered": intent,
         "source_width": width,
         "source_height": height,
         "fill_zoom": zoom,
@@ -954,6 +970,11 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
 
         picture_scale = round(column / required, 4)
         result["fill_zoom"] = max_zoom
+        # The backdrop route puts the same frame again, scaled to cover
+        # and blurred, behind the inset picture. Every row of the frame
+        # is picture, so what it DELIVERS is a full frame however far the
+        # foreground had to shrink to hold the subject.
+        result["framing_delivered"] = FILL
         result["framing_backdrop"] = {
             "visible_source_width": round(required, 4),
             "picture_scale": picture_scale,

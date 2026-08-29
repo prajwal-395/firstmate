@@ -33,9 +33,11 @@ from library.tools.subtitle_style import (
     LEGACY_FONT_WEIGHT,
     LEGACY_OUTLINE_WIDTH,
     SUBTITLE_STYLES,
+    TYPOGRAPHY_KEYS,
     UnknownSubtitleStyle,
     VALID_POSITIONS,
     get_subtitle_style,
+    project_subtitle_typography,
     resolve_subtitle_style,
 )
 
@@ -363,3 +365,105 @@ def test_emphasis_size_comes_from_font_size_not_transform():
         "1, or a scaled glyph overlaps its neighbours again")
     assert "enterScale" not in src
     assert "restScale" not in src
+
+
+# ─────────────────────────────────────────────────────────
+# A project may typeset its own captions
+# ─────────────────────────────────────────────────────────
+
+def _project(tmp_path, pipeline_block):
+    """A throwaway project.yaml declaring `pipeline_block`."""
+    body = {"name": "T", "slug": "t"}
+    if pipeline_block is not None:
+        body["pipeline"] = pipeline_block
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump(body),
+                                           encoding="utf-8")
+    return str(tmp_path)
+
+
+class TestProjectTypography:
+    """`pipeline.subtitle_typography` - one video typeset for itself.
+
+    Project 001 is why this exists: the captain measured ~85px off a
+    Text+ block they placed on its timeline and said the typography was
+    "for this specific test project only and is not meant to be the end
+    standard design". A number that governs one video does not belong in
+    a preset four other videos read.
+    """
+
+    def test_a_project_declaring_nothing_gets_the_template_look(self, tmp_path):
+        folder = _project(tmp_path, None)
+        assert project_subtitle_typography(folder) is None
+        assert resolve_subtitle_style({}, {}, folder)["fontSize"] \
+            == LEGACY_FONT_SIZE
+
+    def test_a_declared_size_outranks_the_style_default(self, tmp_path):
+        folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
+        assert resolve_subtitle_style({}, {}, folder)["fontSize"] == 85
+
+    def test_a_declared_size_outranks_the_template_typography(self, tmp_path):
+        folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
+        got = resolve_subtitle_style(
+            {"subtitle_style": "bold_large"},
+            {"typography": {"size": 192, "font": "Montserrat"}}, folder)
+        assert got["fontSize"] == 85
+
+    def test_it_overrides_key_by_key_and_keeps_the_rest(self, tmp_path):
+        """Asking for a size is not asking to give up the typeface.
+
+        Replacing the whole slot would take the template's font and
+        weight with it, silently - the class of degradation this
+        repository keeps having to undo.
+        """
+        folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
+        got = resolve_subtitle_style(
+            {}, {"typography": {"font": "Montserrat", "weight": 600}}, folder)
+        assert got["fontSize"] == 85
+        assert got["fontFamily"] == "Montserrat"
+        assert got["fontWeight"] == 600
+
+    def test_the_four_presets_and_the_legacy_default_do_not_move(self):
+        """A project declaration is not a change to what anyone else gets."""
+        assert LEGACY_FONT_SIZE == 160
+        assert SUBTITLE_STYLES["bold_large"].font_size == 192
+        assert SUBTITLE_STYLES["clean_standard"].font_size == 144
+        assert SUBTITLE_STYLES["minimal"].font_size == 120
+        assert SUBTITLE_STYLES["default_subtitles"].font_size == LEGACY_FONT_SIZE
+
+    def test_a_key_nothing_reads_is_refused_by_name(self, tmp_path):
+        folder = _project(tmp_path, {"subtitle_typography": {"colour": "red"}})
+        with pytest.raises(ValueError, match="colour"):
+            project_subtitle_typography(folder)
+
+    def test_a_declaration_that_is_not_a_mapping_raises(self, tmp_path):
+        folder = _project(tmp_path, {"subtitle_typography": 85})
+        with pytest.raises(TypeError):
+            project_subtitle_typography(folder)
+
+    def test_the_key_enumeration_is_what_resolve_reads(self):
+        """A fourth key would be a declaration nothing draws."""
+        assert set(TYPOGRAPHY_KEYS) == {"font", "size", "weight"}
+
+    def test_the_schema_round_trips_a_declaration(self, tmp_path):
+        from library.schemas.project_config import (
+            _dict_to_project_config, project_config_to_dict)
+        cfg = _dict_to_project_config({
+            "name": "T", "slug": "t",
+            "pipeline": {"subtitle_typography": {"size": 85}}})
+        assert cfg.validate() == []
+        assert cfg.pipeline.subtitle_typography == {"size": 85}
+        assert project_config_to_dict(cfg)["pipeline"]["subtitle_typography"] \
+            == {"size": 85}
+
+    def test_the_schema_omits_it_when_undeclared(self):
+        from library.schemas.project_config import (
+            _dict_to_project_config, project_config_to_dict)
+        cfg = _dict_to_project_config({"name": "T", "slug": "t"})
+        assert "subtitle_typography" not in project_config_to_dict(cfg)["pipeline"]
+
+    def test_the_schema_reports_a_key_nothing_reads(self):
+        from library.schemas.project_config import _dict_to_project_config
+        cfg = _dict_to_project_config({
+            "name": "T", "slug": "t",
+            "pipeline": {"subtitle_typography": {"colour": "red"}}})
+        assert any("subtitle_typography" in e for e in cfg.validate())

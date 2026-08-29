@@ -61,6 +61,31 @@ template.
 
 A malformed declaration RAISES.  A framing declaration that is silently
 dropped is a frame the editor believes shipped.
+
+Declared is not delivered
+-------------------------
+A declaration says what the editor WANTS.  What a clip can actually give
+is arithmetic, and the two differ in one direction: **a source whose
+display aspect already matches the delivery frame has no bars to give.**
+It covers the frame at every intent, ``0.0`` included, because there is
+nothing to letterbox.
+
+That is not a corner case - it is project 001's whole edit.  Its eleven
+A-roll placements are landscape 1920x1080 into a 1080x1920 frame and its
+seven cutaways are shot portrait, so ONE declaration of ``0.0`` puts bars
+on the A-roll and leaves the cutaways full-bleed.  The per-clip framing
+of that video is not a second creative choice on top of the first; it is
+the first choice meeting seventeen measured source aspects.
+
+:func:`delivered_framing_intent` is that reading, and
+``compile_manifest._conform_fields`` records it beside the declaration as
+``framing_delivered``.  Recording the declaration alone is what made the
+distinction invisible: ``render_qa``'s occupancy gate reads the manifest
+to learn what the picture was SUPPOSED to look like, and a portrait clip
+carrying ``framing_intent: 0.0`` tells it the frame is barred when the
+frame is full.  Same defect class as AGENTS.md section 10.3's rule about
+an assessment field reporting a value nobody measured, arriving through
+the manifest instead of through the vision pass.
 """
 
 import os
@@ -150,3 +175,49 @@ def resolve_framing_intent(block_intent=None,
         return declared
 
     return DEFAULT_FRAMING_INTENT
+
+
+# How close two scale factors must be before the source counts as already
+# covering the frame.  Float arithmetic on integer pixel dimensions, not a
+# tolerance for "nearly 9:16" footage: 1920x1080 rotated is exactly
+# 1080x1920 and the two scales agree to the last bit, while 1080x1350 is
+# 1.42x off and is a genuine letterbox.
+_COVERAGE_EPSILON = 1e-6
+
+
+def source_covers_frame(source_width, source_height,
+                        target_width, target_height) -> bool:
+    """Whether a source already covers the delivery frame at fit scale.
+
+    The dimensions are DISPLAY dimensions - axes already swapped for a
+    rotated clip, which is how an iPhone portrait MOV stored 1920x1080
+    becomes 1080x1920.
+
+    When this is True the source has no bars to give: fitting it inside
+    the frame and filling the frame are the same transform, so every
+    framing intent from ``LETTERBOX`` to ``FILL`` delivers the same
+    picture.
+    """
+    if not source_width or not source_height:
+        return False
+    if source_width <= 0 or source_height <= 0:
+        return False
+    if target_width <= 0 or target_height <= 0:
+        return False
+    fit_scale = min(target_width / source_width, target_height / source_height)
+    fill_scale = max(target_width / source_width, target_height / source_height)
+    return fill_scale <= fit_scale * (1 + _COVERAGE_EPSILON)
+
+
+def delivered_framing_intent(declared: float, covers_frame: bool) -> float:
+    """What a clip DELIVERS, given what it was told and what it can do.
+
+    ``covers_frame`` is :func:`source_covers_frame` for this clip.  When
+    it is True the clip fills whatever anybody declared, so the delivered
+    intent is :data:`FILL`; otherwise the declaration is delivered as
+    written.  See the module docstring for why the two must be recorded
+    separately.
+    """
+    if covers_frame:
+        return FILL
+    return validate_framing_intent(declared, "the resolved framing intent")

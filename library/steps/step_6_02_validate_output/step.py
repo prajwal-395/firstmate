@@ -78,22 +78,44 @@ def _declared_black_beats(assembly_manifest: dict) -> list:
     return declared_black_beat_ranges(assembly_manifest.get("_spine_blocks") or [])
 
 
-def _declared_framing_intents(assembly_manifest: dict) -> list:
-    """Every framing intent the manifest's picture clips declare.
+def _framing_spans(assembly_manifest: dict) -> list:
+    """What each stretch of the timeline was supposed to look like.
 
-    `compile_manifest` writes the RESOLVED intent onto each conformed
-    clip. The occupancy gate needs it in both directions: a video whose
-    clips all declare FILL owes the whole frame, and a video whose clips
-    declare more than one intent is allowed to change geometry because
-    something asked it to.
+    One `render_qa.FramingSpan` per picture clip, so every sampled frame
+    of the master can be judged against the framing in force over it
+    rather than against a flat set of declarations for the whole video.
+
+    The intent read is `framing_delivered`, NOT `framing_intent`. The
+    first is what the clip's geometry produces and the second is what was
+    asked for, and they part company wherever a source already covers the
+    delivery frame - a portrait cutaway fills a 9:16 frame however firmly
+    the project declared bars, because it has none to give. Judging the
+    render against the declaration would fail exactly the videos whose
+    framing is right. See `library/tools/framing_intent.py`, "Declared is
+    not delivered". A manifest compiled before that key existed carries
+    only `framing_intent`, which is the same number on every clip that
+    was actually conformed, so it is read as the fallback.
+
+    V1 first and V2 second, because `render_qa._intent_at` lets the later
+    span win an overlap and V2 is the track that covers V1.
     """
-    intents = []
+    from library.tools.render_qa import FramingSpan
+
+    spans = []
     for track in ("V1", "V2"):
         for clip in assembly_manifest.get("tracks", {}).get(track, {}).get("clips", []):
-            declared = clip.get("framing_intent")
-            if declared is not None:
-                intents.append(float(declared))
-    return intents
+            delivered = clip.get("framing_delivered")
+            if delivered is None:
+                delivered = clip.get("framing_intent")
+            if delivered is None:
+                continue
+            start = clip.get("timeline_in")
+            end = clip.get("timeline_out")
+            if start is None or end is None or end <= start:
+                continue
+            spans.append(FramingSpan(float(start), float(end),
+                                     float(delivered)))
+    return spans
 
 
 def _music_bed(assembly_manifest: dict):
@@ -166,7 +188,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             # judged every render against a hardcoded 1080x1920/30fps.
             expected_resolution=expected_resolution,
             expected_fps=expected_fps,
-            framing_intents=_declared_framing_intents(assembly_manifest),
+            framing_spans=_framing_spans(assembly_manifest),
             # No chroma floor is passed, deliberately: the value is an
             # open captain decision and P2 reports its number until one
             # exists. See render_qa.CHROMA_PRESENCE_GATES.

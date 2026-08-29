@@ -714,12 +714,22 @@ Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`
 
 - The subtitle style is resolved at the top of `generate_subtitles` and there is no blind path: `split_into_groups` raises without a `fits_fn`.
 - **A card fits the BOX, not one line.** The overlay wraps (`flexWrap`), so `fits_in_box`/`MAX_CAPTION_LINES` is the test; grouping against one line halves the words on every card and therefore halves how long each is on screen. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+  **Reconstruct a grouping with `fits_in_box`, never `fits`.** On 001 the one-line predicate reports 100 cards where 45 shipped, and rejects 40 of the 45 that are on screen; the box predicate reproduces all 45 exactly. A reconstruction using the wrong half reads as a bug in the pipeline. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
 - **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it - the extension the per-block pass applies, and the block end the last card is clamped to.
 - The last card of a block leaves when the block does, so it can be short with no partition able to fix it. `manifest_validator`'s P6 reports exactly that case and fails every other one.
 - Set the weight axis when measuring a VARIABLE font.
 - A card with one over-wide word carries `fit_scale` and the render draws THAT CARD smaller; the style's font size is untouched.
 - The Remotion studio's `defaultProps` get the insets from `src/safeArea.generated.ts`, projected out of the enumeration by `scripts/generate_safe_area_defaults.py`.
 - `tests/test_caption_safe_area.py`.
+
+**A project may typeset its own captions, and that is not a change to anyone else's.**
+`pipeline.subtitle_typography` in a project.yaml, the same `{font, size, weight}` shape a template's `style.typography` uses, resolved by `subtitle_style.resolve_subtitle_style`. [why - the captain's measurement, and what the size moves on 001](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
+
+- It overrides the template's typography **KEY BY KEY**, not slot for slot: asking for a size is not asking to give up the typeface. That is the one place this precedence differs from `delivery_format_name`'s and `timed_text_overlay`'s, and it differs on purpose.
+- `TYPOGRAPHY_KEYS` is the whole of what may be declared and a fourth key is refused by name, because `SubtitleStyle.resolve` reads exactly three.
+- **A number that governs one video does not go in a preset four other videos read.** 001 declares `size: 85`; `bold_large` (192), `clean_standard` (144), `minimal` (120) and `LEGACY_FONT_SIZE` (160) are untouched.
+- The size moves caption PACING, because the grouper fits cards to the box at the resolved size. Measured on 001's frozen spine: 45 cards at a median 0.781s on screen at 160px, 34 at a median 0.952s at 85px, with `max_words = 6` becoming the binding constraint on 14 of the 34. Re-measure rather than assuming a ratio.
+- `tests/test_subtitle_style.py`.
 
 ### 10.3 Measuring the footage
 
@@ -750,6 +760,13 @@ One enumeration, `library/tools/framing_intent.py`: 0.0 letterboxes, 1.0 fills.
 The number comes from the spine block > the project's `pipeline.framing_intent` > the template's `style.framing_intent` > `DEFAULT_FRAMING_INTENT` (1.0).
 A malformed declaration raises, and `_conform_fields` has ONE branch. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 `tests/test_framing_intent.py`.
+
+**A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
+`_conform_fields` writes `framing_intent` (what was asked for) and `framing_delivered` (what the geometry produces) on every picture clip; `render_qa` reads the second. [why - 001's eighteen placements, and the 13.7x failure recording only the first caused](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
+
+- **A source whose display aspect already covers the delivery frame has no bars to give**, so it fills at every intent, `0.0` included. `framing_intent.source_covers_frame` is that predicate and `delivered_framing_intent` is the reading. Do not put the coverage arithmetic anywhere else.
+- **Which clips letterbox is therefore a MEASUREMENT, not a second creative choice.** 001 declares `pipeline.framing_intent: 0.0` once: its 11 landscape A-roll placements deliver 0.0 and its 7 portrait cutaways deliver 1.0, because that is what the footage can do. A step that chose a framing per clip would be inventing taste where the arithmetic already answers (section 10.5). **Whether the picture is inset at all is the captain's PREFERENCE and belongs in the project's own declaration**, which is where they said it belongs.
+- **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
 
 **A file on disk is not a measurement.**
 Judge a step by what it MEASURED.
@@ -815,12 +832,19 @@ A seventh, a face cut by the frame edge, is measured on the render and gates thr
 
 `render_qa.py` measures the RENDER:
 
-- the picture fills the delivery frame and keeps ONE geometry (`measure_frame_occupancy`);
+- the picture fills the delivery frame and keeps ONE GEOMETRY PER DECLARED FRAMING
+  (`measure_frame_occupancy`).
   **a letterbox bar is FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make one.**
   A row joins a bar only while it is dark, has near-zero variance along itself and matches the
   row before it; the walk runs inward from the top and bottom boundaries and stops at the first
   row that is picture. Reading every dark row as bar cannot tell a night shot from a black bar
   and failed a correctly-framed master. [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
+  **Every sample is attributed to the clip playing over it** through `framing_spans`, which step
+  6.02 builds off the manifest's `framing_delivered` (§10.3) with V2 winning an overlap. The fill
+  floor then applies to the FILL stretches and the consistency bound applies WITHIN each declared
+  framing. A video declaring more than one framing used to switch the consistency half off
+  altogether, so declaring a framing per clip removed the only gate on geometry.
+  [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
 - colour exists somewhere in the frame (`measure_chroma_presence`);
 - speech sits above the bed (`measure_speech_above_bed`);
 - the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`).

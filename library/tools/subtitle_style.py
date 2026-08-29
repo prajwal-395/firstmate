@@ -29,6 +29,27 @@ the family, size and weight when it declares them, and
 Inventing a palette here would be authoring brand identity in a tool
 module, which is not this file's job.
 
+And the PROJECT
+---------------
+A project may declare `pipeline.subtitle_typography` in its project.yaml,
+in the same `{font, size, weight}` shape the template uses, and it
+outranks the template - the same project-over-template precedence
+`delivery_format_name` and `framing_intent` use.
+
+It overrides KEY BY KEY rather than replacing the slot. A project saying
+`size: 85` is asking for a size, not asking to give up the family its
+template names; replacing the whole slot would silently take the typeface
+with it, which is the kind of quiet degradation this repository keeps
+having to undo.
+
+It exists because a video may be typeset for itself. Project 001 is one:
+the captain typed a Text+ block onto its timeline at an effective 85 px
+and said the typography was "for this specific test project only and is
+not meant to be the end standard design". A number that governs one video
+belongs in that video's project.yaml, not in a preset four other videos
+read - so none of `bold_large` (192), `clean_standard` (144), `minimal`
+(120) or the legacy 160 moves.
+
 Adding a style means adding it here and naming it from a template;
 `tests/test_subtitle_style.py` fails on an orphan in either direction, the
 same contract `transition_vocabulary` and `house_look` hold.
@@ -51,6 +72,11 @@ LEGACY_OUTLINE_COLOR = "#000000"
 LEGACY_OUTLINE_WIDTH = 12
 
 VALID_POSITIONS = ("bottom", "center", "top")
+
+# What a `typography` mapping may declare, template-side or project-side.
+# `SubtitleStyle.resolve` reads exactly these three; a fourth key would be
+# a declaration nothing draws.
+TYPOGRAPHY_KEYS = ("font", "size", "weight")
 
 @dataclass(frozen=True)
 class SubtitleStyle:
@@ -213,6 +239,39 @@ def get_subtitle_style(name: str) -> SubtitleStyle:
         ) from None
 
 
+def project_subtitle_typography(
+        project_folder: Optional[str]) -> Optional[Dict[str, Any]]:
+    """`pipeline.subtitle_typography` off a project.yaml, or None.
+
+    None means the project declared none, which is different from an
+    empty mapping. A malformed declaration RAISES: a typography
+    declaration that is silently dropped is a caption the editor believes
+    shipped, the same reasoning `framing_intent` states.
+    """
+    from library.tools.brand_registry import project_pipeline_block
+
+    block = project_pipeline_block(project_folder)
+    if "subtitle_typography" not in block:
+        return None
+    declared = block.get("subtitle_typography")
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        raise TypeError(
+            f"pipeline.subtitle_typography in {project_folder}/project.yaml "
+            f"must be a mapping of {{font, size, weight}}, got "
+            f"{type(declared).__name__}: {declared!r}"
+        )
+    unknown = sorted(set(declared) - set(TYPOGRAPHY_KEYS))
+    if unknown:
+        raise ValueError(
+            f"pipeline.subtitle_typography in {project_folder}/project.yaml "
+            f"declares {unknown}, which nothing reads. It takes "
+            f"{list(TYPOGRAPHY_KEYS)}."
+        )
+    return declared
+
+
 def resolve_subtitle_style(
     brand_effect: Optional[Dict[str, Any]] = None,
     brand_style: Optional[Dict[str, Any]] = None,
@@ -226,15 +285,19 @@ def resolve_subtitle_style(
     brand template at all must keep rendering.
 
     `project_folder` resolves the delivery format, and through it the safe
-    area the captions must sit inside.
+    area the captions must sit inside - and it carries the project's own
+    `pipeline.subtitle_typography`, which overrides the template's key by
+    key. See "And the PROJECT" in the module docstring.
     """
     brand_effect = brand_effect or {}
     brand_style = brand_style or {}
 
     name = brand_effect.get("subtitle_style") or "default_subtitles"
     style = get_subtitle_style(name)
+    typography = dict(brand_style.get("typography") or {})
+    typography.update(project_subtitle_typography(project_folder) or {})
     return style.resolve(
-        typography=brand_style.get("typography"),
+        typography=typography or None,
         color_palette=brand_style.get("color_palette"),
         safe_area=resolve_safe_area(project_folder),
     )

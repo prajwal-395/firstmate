@@ -2987,3 +2987,188 @@ dropped `intro` or `outro`: `BOOKEND_BLOCK_TYPES` is `("intro_card", "outro_card
 an `intro` block written on the strength of line 80 passed straight through the `else` branch of
 `enrich_spine` and became a real pacing beat. The description now names the real vocabulary and the
 real refusal.
+
+## a-declaration-a-clip-cannot-honour
+
+**The rule:** AGENTS.md §10.3, "A framing DECLARATION is not a framing DELIVERED", and §10.4 on the
+occupancy gate judging per declared framing.
+
+### What the captain asked for
+
+On 2026-08-28, asked whether the frame should fill or letterbox, they answered:
+
+> Make framing a per-clip choice rather than one setting for the video
+
+and, in their note:
+
+> some people might have a preference to zoom in horizontal 31.6x to fill out the screen, **i prefer
+> letterboxed**, but then those are things that exist in like a creative brief or some kind of client
+> preferences doc
+
+The second half is the part that decides who chooses. See "Preference or craft" below.
+
+### The history
+
+| when | what |
+|---|---|
+| 2026-08-16 | Q1 answered: **letterbox stays the default** (`docs/RUN_001_END_TO_END.md:171`) |
+| 2026-08-20 | **"### 19.1 Framing (Q1) - keep the letterbox. Nothing built."** (`docs/RUN_001_END_TO_END.md:1324`) |
+| 2026-08-21 18:58 | commit `de3ed62` / PR **#133** sets `DEFAULT_FRAMING_INTENT = FILL` for **every** project |
+| 2026-08-26 | 001 renders with `framing_intent: 1.0` on all 18 placements, every landscape clip punched in 3.1605x showing 31.6% of its width |
+
+001's `project.yaml` declared no `framing_intent`, no `pipeline:` block and no brand template, so it
+took the new default. Nobody chose it for this video.
+
+### Preference or craft - where a per-clip framing choice sits
+
+The captain's own framing cuts the question cleanly, and it lands on **preference**:
+
+- **Whether the picture is punched in or inset is a preference**, and they said so - it "exists in
+  like a creative brief or some kind of client preferences doc". So it is a DECLARATION, and
+  `project.yaml`'s `pipeline.framing_intent` is where 001's lives.
+- **What each clip then delivers is neither preference nor craft. It is arithmetic.** 001's eleven
+  A-roll placements are landscape 1920x1080 into a 1080x1920 frame and have bars to give; its seven
+  cutaways are shot portrait, already cover the frame, and have none. One declaration of `0.0`
+  produces exactly the picture the captain described, per clip, with nothing choosing anything.
+
+So no chooser was built, and none should be: a step that picked a framing per clip would be
+inventing taste where a measurement already answers (§10.5). What was missing was not a decision -
+it was an honest record of one.
+
+### What was actually broken
+
+`_conform_fields` wrote the resolved DECLARATION onto every clip as `framing_intent`, including onto
+clips that could not honour it:
+
+```python
+if fill_scale <= fit_scale * (1 + 1e-6):
+    # Source already matches the target aspect ratio - no conform needed
+    return {"needs_conform": False, "framing_intent": resolved_intent}
+```
+
+A portrait cutaway under a declared `0.0` recorded `framing_intent: 0.0` and rendered a full frame.
+`render_qa`'s occupancy gate reads that field precisely to learn what the picture was supposed to
+look like, so the manifest was telling it the frame was barred where the frame is full - the same
+defect class as §10.3's rule about an assessment field reporting a value nobody measured, arriving
+through the manifest instead of through the vision pass.
+
+Measured on 001's real state, with `pipeline.framing_intent: 0.0` declared and `_conform_fields`
+re-run over its real catalog and its real manifest clip list:
+
+| | declared | delivered | occupancy the geometry implies |
+|---|---|---|---|
+| 11 landscape A-roll placements (IMG_1816/1817/1822) | 0.0 | 0.0 | 31.67% |
+| 7 portrait cutaways (IMG_1806/1807/1809/1810/1811/1813/1819) | 0.0 | **1.0** | 100% |
+
+Recording the declaration alone gave the gate one declared framing and two geometries. Fed 118
+samples at that profile, it failed at **spread 0.6833 against a bound of 0.05 - 13.7x over**, with
+the message *"the picture changes size within one declared framing (0)"*. Recording
+`framing_delivered` gives it two declared framings - 80 samples at 0.3167 and 38 at 1.0, each
+internally flat at spread 0.0000 - and it passes.
+
+(That profile is computed from 001's real catalog dimensions, its real manifest timeline ranges and
+its real conform geometry, and fed through the real check. It is a verdict on the PLAN. 001 has not
+been re-rendered - the captain has live markers and a Text+ block on its timeline.)
+
+### The gate half
+
+The consistency check used to switch off entirely the moment the manifest carried more than one
+declared intent:
+
+```python
+one_geometry = len(declared) == 1
+if one_geometry and spread > max_spread:
+```
+
+so the moment a video declared its framing per clip, the only gate on its geometry stopped running -
+a gate that cannot fail (§10.4). `measure_frame_occupancy` now takes `framing_spans`, attributes
+every sampled frame to the clip playing over it, and makes both assertions PER DECLARED FRAMING: the
+FILL stretches owe the fill floor, and each declared framing owes one geometry to itself. A sample
+falling outside every span is reported as unattributed rather than folded into the nearest group.
+
+The rewrite is not a change of verdict on the one real render on disk. Run against 001's shipped
+`exports/Pipeline_Edit.mp4` with the spans its current manifest produces, it reports the same numbers
+the shipped `qa_report.json` recorded on 2026-08-26: 119 samples, median 1.0, min 0.9958, spread
+0.0042, 0 unattributed, PASS.
+
+### What is reachable and what is written
+
+`resolve_framing_intent` has always taken a `block_intent`, and `compile_manifest` has always read
+`block["framing_intent"]` - but nothing tested that the two meet, so "a spine block may declare its
+own framing" was a claim about a resolver rather than about the pipeline. It is now proved end to
+end through `compile_manifest` (`tests/test_compile_manifest.py`).
+
+**Nothing writes it.** `mesh_spine`'s handoff does not ask for a framing and `spine_contract` does
+not list the key, so the hook is reachable and unused. On the B-roll side the hook is the PLACEMENT,
+not the block: `_resolve_framing(broll)` reads the b_roll assignment's own `framing_intent`, because
+a cutaway is different footage from the block it covers and framing it by that block would be wrong.
+Nothing writes that either.
+
+## the-caption-grouping-reconstruction-used-the-wrong-predicate
+
+**The rule:** AGENTS.md §10.2, "A card fits the BOX, not one line" - unchanged, and this is the
+evidence that it holds at HEAD.
+
+Project 001 ships **45** caption cards. A reconstruction of the grouping at 160 px reported **100**,
+and reported that **40 of the 45 cards on screen do not fit the box**. Both figures are real and both
+came from calling `CaptionFitter.fits` - the ONE-LINE predicate - where the pipeline calls
+`fits_in_box`, which allows `MAX_CAPTION_LINES = 3` wrapped lines.
+
+Reconstructed on 001's real spine, with the real bundled `Montserrat-Variable.ttf`, an 840 px
+`captionMaxWidth` and a 12 px outline (816 px usable):
+
+| font size | predicate | cards |
+|---|---|---|
+| 160 | `fits_in_box` (3 lines) | **45** - what shipped |
+| 160 | `fits` (1 line) | **100** |
+| 85 | `fits_in_box` (3 lines) | 34 |
+| 85 | `fits` (1 line) | 56 |
+
+and against the 45 cards actually on screen:
+
+| font size | fail `fits` (1 line) | fail `fits_in_box` |
+|---|---|---|
+| 160 | **40 of 45** | **0 of 45** |
+| 85 | 22 of 45 | 0 of 45 |
+
+So there is no anomaly in the grouping path. `fitter.measured` is True on this project - the font
+file is found and PIL measures it - and 45 cards at a median display of 0.781 s is exactly what
+today's code produces from 001's spine at 160 px.
+
+## the-caption-size-that-governs-one-video
+
+**The rule:** AGENTS.md §10.2, "A project may typeset its own captions".
+
+The captain measured the Text+ block they placed on 001's timeline - Open Sans Semibold, 65 px of
+ink, an effective **~85 px** - against the **160** the video shipped, and ruled on 2026-08-28:
+
+> Set 001 to ~85px now and leave the four presets alone
+
+> the typography on the subtitles is something i want to use for **this specific test project only**
+> and is not meant to be the end standard design
+
+160 is `subtitle_style.LEGACY_FONT_SIZE`, which 001 gets because it names no brand template and so
+resolves `default_subtitles`. There was no level between "the preset" and "the legacy default" at
+which one video could say something, so `pipeline.subtitle_typography` is that level: the same
+`{font, size, weight}` shape a template's `style.typography` uses, overriding it KEY BY KEY rather
+than replacing the slot, because asking for a size is not asking to give up the typeface.
+
+`bold_large` (192), `clean_standard` (144), `minimal` (120) and the legacy 160 are untouched.
+
+### What the size moves, measured
+
+Reconstructed on 001's real spine with the real font, box predicate both times:
+
+| | 160 px (shipped) | 85 px (declared) |
+|---|---|---|
+| cards | 45 | **34** |
+| median words per card | 3 | 5 |
+| cards at the 6-word cap | 3 | **14** |
+| median time on screen | 0.781 s | **0.952 s** |
+| cards under 0.5 s | 5 | 2 |
+| cards needing `fit_scale < 1` | 7 | **0** |
+
+The size does move caption pacing, and by less than halving the card count: at 85 px the binding
+constraint stops being the box and becomes `split_into_groups`' `max_words = 6`, which 14 of the 34
+cards hit. This is the PLAN's arithmetic on 001's frozen spine; 001 has not been re-run or
+re-rendered.

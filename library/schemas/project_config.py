@@ -61,6 +61,11 @@ class PipelineConfig:
     # 0.0 letterbox, 1.0 fill. None means "take the brand template's",
     # which in turn defaults to fill. See library/tools/framing_intent.py.
     framing_intent: Optional[float] = None
+    # Per-project caption typography, in the same {font, size, weight}
+    # shape a brand template's `style.typography` uses, overriding it key
+    # by key. None means "take the template's". See
+    # library/tools/subtitle_style.py, "And the PROJECT".
+    subtitle_typography: Optional[dict] = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     # Headings of the brief this project wants carried INLINE rather than
     # reached by path.  Clause 3 of the rule in
@@ -176,6 +181,21 @@ class ProjectConfig:
                                         "pipeline.framing_intent")
             except (TypeError, ValueError) as exc:
                 errors.append(str(exc))
+        if self.pipeline.subtitle_typography is not None:
+            from library.tools.subtitle_style import TYPOGRAPHY_KEYS
+            declared = self.pipeline.subtitle_typography
+            if not isinstance(declared, dict):
+                errors.append(
+                    f"pipeline.subtitle_typography must be a mapping of "
+                    f"{list(TYPOGRAPHY_KEYS)}, got "
+                    f"{type(declared).__name__}")
+            else:
+                unknown = sorted(set(declared) - set(TYPOGRAPHY_KEYS))
+                if unknown:
+                    errors.append(
+                        f"pipeline.subtitle_typography declares {unknown}, "
+                        f"which nothing reads. It takes "
+                        f"{list(TYPOGRAPHY_KEYS)}.")
         return errors
 
 @dataclass
@@ -211,6 +231,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         brand_template=pipeline_data.get("brand_template", "default_brand"),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
         framing_intent=pipeline_data.get("framing_intent"),
+        subtitle_typography=pipeline_data.get("subtitle_typography"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         creative_brief_inline=list(
             pipeline_data.get("creative_brief_inline", []) or []),
@@ -268,6 +289,10 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             # and "unset" are different answers here.
             **({} if config.pipeline.framing_intent is None
                else {"framing_intent": config.pipeline.framing_intent}),
+            # Only when declared, for the same reason framing_intent is.
+            **({} if config.pipeline.subtitle_typography is None
+               else {"subtitle_typography":
+                     dict(config.pipeline.subtitle_typography)}),
             "creative_brief": config.pipeline.creative_brief,
             # Only when declared, for the same reason framing_intent is:
             # an empty list in every project.yaml reads as a decision

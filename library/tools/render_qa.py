@@ -21,7 +21,7 @@ import statistics
 import tempfile
 import re
 from dataclasses import dataclass
-from typing import Any, Iterator, List, Optional, Sequence
+from typing import Any, Iterator, List, NamedTuple, Optional, Sequence
 
 try:
     from library.tools.spine_contract import MAX_DECLARED_BLACK_BEAT_SECONDS
@@ -567,13 +567,45 @@ def _bar_rows(row_mean, row_std,
     return i
 
 
+class FramingSpan(NamedTuple):
+    """What one stretch of the timeline was supposed to look like.
+
+    `start`/`end` are timeline seconds and `intent` is the framing the
+    clip covering that stretch DELIVERS - `framing_delivered` off the
+    manifest, not `framing_intent`.  The two differ wherever a source
+    already covers the delivery frame; see
+    `library/tools/framing_intent.py`, "Declared is not delivered".
+    """
+
+    start: float
+    end: float
+    intent: float
+
+
+def _intent_at(spans: Sequence["FramingSpan"], t: float):
+    """The intent in force at timeline second `t`, or None.
+
+    Later spans win an overlap, which is what puts a V2 cutaway over the
+    V1 clip it covers.
+    """
+    found = None
+    for span in spans:
+        # Half-open, so a sample landing exactly on a cut belongs to the
+        # clip that starts there rather than the one that just ended. The
+        # tolerance is on the START only: adjacent clips share a boundary
+        # and float arithmetic must not drop a sample into the gap.
+        if span.start - 1e-6 <= t < span.end:
+            found = span.intent
+    return found
+
+
 def measure_frame_occupancy(
         video_path: str,
-        framing_intents: Optional[Sequence[float]] = None,
+        framing_spans: Optional[Sequence["FramingSpan"]] = None,
         sample_fps: float = DEFAULT_SAMPLE_FPS,
         min_fill_fraction: float = MIN_FILL_ROW_FRACTION,
         max_spread: float = MAX_ROW_FRACTION_SPREAD) -> RenderQAResult:
-    """P1: the picture fills the delivery frame, and one video has one geometry.
+    """P1: the picture fills the delivery frame, and one geometry per intent.
 
     Samples the master and, on each frame, measures the letterbox BARS -
     the runs of rows contiguous from the top and bottom edges that are
@@ -594,23 +626,34 @@ def measure_frame_occupancy(
     plan declared; there is no geometry to measure on it, so it is
     counted out rather than entered as an occupancy of zero.
 
-    Two assertions, and they fail for different reasons:
+    Every sample is attributed to the clip playing over it, through
+    `framing_spans`, and the two assertions are then made PER DECLARED
+    INTENT:
 
-    * **Fill** - the median occupancy is at least `min_fill_fraction`.
-      Applies only where every clip declared FILL, which is what nothing
-      declaring anything resolves to.  A series that declares
-      `framing_intent: 0.0` wants bars and gets no floor; there is no
-      channel-wide number for how much of the frame a deliberately inset
-      picture should occupy, and inventing one here would answer a brand
-      decision.
-    * **Consistency** - the spread between the least and most occupied
-      sampled frame is at most `max_spread`.  Applies whenever the video
-      declared ONE intent, whatever it was.  A viewer cannot name "framing
-      intent" but can see the picture jump size twice in 55 seconds.
+    * **Fill** - the median occupancy of the stretches declaring FILL is
+      at least `min_fill_fraction`.  A stretch that declares bars gets no
+      floor; there is no channel-wide number for how much of the frame a
+      deliberately inset picture should occupy, and inventing one here
+      would answer a brand decision.
+    * **Consistency** - within one declared intent, the spread between
+      the least and most occupied sampled frame is at most `max_spread`.
+      A viewer cannot name "framing intent" but can see the picture jump
+      size twice in 55 seconds.
 
-    `framing_intents` is the set of per-clip declarations the manifest
-    carries (compile_manifest writes `framing_intent` on every conformed
-    clip).  None means nothing was declared, which resolves to the default.
+    Grouping is what makes a per-clip framing choice CHECKABLE rather
+    than exempt.  This check used to take a flat set of declarations and
+    switch the consistency half off entirely as soon as that set held
+    more than one value - so the moment a video declared its framing per
+    clip, the only gate on its geometry stopped running.  That is a gate
+    that cannot fail (AGENTS.md section 10.4).  Project 001 is the case:
+    its landscape A-roll letterboxes and its portrait cutaways cannot,
+    so it delivers two geometries on purpose, and each of them still owes
+    one geometry to itself.
+
+    `framing_spans` is that attribution - `(start, end, delivered_intent)`
+    over the timeline, built by `step_6_02_validate_output` off the
+    manifest.  None means nothing was declared, which resolves to one
+    span of `DEFAULT_FRAMING_INTENT` over the whole video.
     """
     try:
         import numpy as np
@@ -626,9 +669,11 @@ def measure_frame_occupancy(
         width, height = size
 
         fractions = []
+        times = []
         bands = []
         bars = []
         black_frames = 0
+        index = 0
         for frame in _stream_raw_frames(video_path, 'gray', 1,
                                         width, height, sample_fps):
             luma = frame[0].astype(np.float32)
@@ -636,10 +681,13 @@ def measure_frame_occupancy(
             row_std = luma.std(axis=1)
             top = _bar_rows(row_mean, row_std)
             bottom = _bar_rows(row_mean[::-1], row_std[::-1])
+            timestamp = index / sample_fps
+            index += 1
             if top + bottom >= height:
                 black_frames += 1
                 continue
             fractions.append((height - top - bottom) / height)
+            times.append(timestamp)
             bands.append((top, height - 1 - bottom))
             bars.append((top, bottom))
 
@@ -651,35 +699,80 @@ def measure_frame_occupancy(
                 if black_frames else
                 "Could not sample any frame from the render")
 
-        declared = sorted({float(i) for i in framing_intents}) if framing_intents \
-            else [float(DEFAULT_FRAMING_INTENT)]
+        spans = [FramingSpan(float(a), float(b), float(c))
+                 for a, b, c in (framing_spans or [])]
+        declared = sorted({s.intent for s in spans}) or \
+            [float(DEFAULT_FRAMING_INTENT)]
+
+        # Attribute every sample to the framing in force over it. A
+        # sample the spans do not cover is UNATTRIBUTED and reported as
+        # such: silently folding it into the nearest group would let a
+        # gap in the manifest read as coverage.
+        groups: dict = {}
+        unattributed = 0
+        for frac, when in zip(fractions, times):
+            intent = _intent_at(spans, when) if spans \
+                else float(DEFAULT_FRAMING_INTENT)
+            if intent is None:
+                unattributed += 1
+                continue
+            groups.setdefault(intent, []).append((frac, when))
+
+        if spans and not groups:
+            return RenderQAResult(
+                "frame_occupancy", False, None, None, "error",
+                f"None of the {len(fractions)} sampled frames falls inside "
+                f"any of the {len(spans)} framing spans the manifest "
+                f"declares - the render and the plan describe different "
+                f"timelines")
+
         median_fraction = float(statistics.median(fractions))
         spread = float(max(fractions) - min(fractions))
 
         faults = []
-        fill_applies = all(i == FILL for i in declared)
-        if fill_applies and median_fraction < min_fill_fraction:
-            faults.append(
-                f"the picture occupies {median_fraction:.1%} of the frame "
-                f"height (floor {min_fill_fraction:.0%}) in a video whose "
-                f"framing declares FILL - it is letterboxed and nothing "
-                f"asked for bars"
-            )
+        fill_applies = any(i == FILL for i in declared)
+        fill_group = [f for f, _ in groups.get(float(FILL), [])]
+        if fill_group:
+            fill_median = float(statistics.median(fill_group))
+            if fill_median < min_fill_fraction:
+                faults.append(
+                    f"the picture occupies {fill_median:.1%} of the frame "
+                    f"height (floor {min_fill_fraction:.0%}) over the "
+                    f"{len(fill_group)} sampled frames whose framing "
+                    f"declares FILL - it is letterboxed and nothing asked "
+                    f"for bars"
+                )
 
-        one_geometry = len(declared) == 1
-        if one_geometry and spread > max_spread:
-            lo = min(range(len(fractions)), key=lambda i: fractions[i])
-            hi = max(range(len(fractions)), key=lambda i: fractions[i])
-            faults.append(
-                f"the picture changes size within the video: "
-                f"{fractions[lo]:.1%} at {lo / sample_fps:.1f}s vs "
-                f"{fractions[hi]:.1%} at {hi / sample_fps:.1f}s "
-                f"(spread {spread:.2f}, bound {max_spread:.2f}) - one video "
-                f"has one geometry"
-            )
+        per_intent = {}
+        for intent in sorted(groups):
+            measured = groups[intent]
+            values = [f for f, _ in measured]
+            group_spread = float(max(values) - min(values))
+            per_intent[f"{intent:g}"] = {
+                "frames_sampled": len(values),
+                "median_picture_fraction": round(
+                    float(statistics.median(values)), 4),
+                "min_picture_fraction": round(float(min(values)), 4),
+                "max_picture_fraction": round(float(max(values)), 4),
+                "spread": round(group_spread, 4),
+            }
+            if group_spread > max_spread:
+                lo = min(measured, key=lambda m: m[0])
+                hi = max(measured, key=lambda m: m[0])
+                faults.append(
+                    f"the picture changes size within one declared framing "
+                    f"({intent:g}): {lo[0]:.1%} at {lo[1]:.1f}s vs "
+                    f"{hi[0]:.1%} at {hi[1]:.1f}s (spread {group_spread:.2f}, "
+                    f"bound {max_spread:.2f}) - one framing has one geometry"
+                )
 
         detail = (f"picture occupies {median_fraction:.1%} of the frame "
-                  f"(spread {spread:.2f} over {len(fractions)} samples)")
+                  f"(spread {spread:.2f} over {len(fractions)} samples; "
+                  f"{len(declared)} declared framing"
+                  f"{'s' if len(declared) != 1 else ''})")
+        if unattributed:
+            detail += (f"; {unattributed} of {len(fractions)} samples fall "
+                       f"outside every declared span and were not judged")
         if faults:
             detail += " - " + "; ".join(faults)
 
@@ -697,6 +790,8 @@ def measure_frame_occupancy(
                 "max_top_bar_rows": max(t for t, _ in bars),
                 "max_bottom_bar_rows": max(b for _, b in bars),
                 "declared_framing_intents": declared,
+                "by_declared_framing": per_intent,
+                "unattributed_samples": unattributed,
             },
             threshold={"min_fill_fraction": min_fill_fraction,
                        "max_spread": max_spread,
@@ -704,7 +799,7 @@ def measure_frame_occupancy(
                        "bar_row_max_std": BAR_ROW_MAX_STD,
                        "bar_row_max_step": BAR_ROW_MAX_STEP,
                        "fill_floor_applies": fill_applies,
-                       "consistency_applies": one_geometry},
+                       "consistency_applies": bool(groups)},
             severity="error" if faults else "info",
             detail=detail,
         )
@@ -1292,7 +1387,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                        declared_black_beats: Optional[List] = None,
                        expected_resolution: Optional[List[int]] = None,
                        expected_fps: Optional[float] = None,
-                       framing_intents: Optional[Sequence[float]] = None,
+                       framing_spans: Optional[Sequence["FramingSpan"]] = None,
                        chroma_floor: Optional[float] = None,
                        music_path: Optional[str] = None,
                        music_automation: Optional[Sequence[dict]] = None,
@@ -1313,8 +1408,10 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     `horizontal_1920x1080` would have failed its own correct render. A
     gate has to check what was asked for, not what is usual.
 
-    `framing_intents` are the per-clip framing declarations the manifest
-    carries; `chroma_floor` is the colour floor, which has no default
+    `framing_spans` are the per-clip framing declarations the manifest
+    carries, laid out over the timeline so each sampled frame can be
+    judged against the framing that was in force over it;
+    `chroma_floor` is the colour floor, which has no default
     because it is an open captain decision; `music_path`,
     `music_automation` and `spine_blocks` are what P3 needs to fit the
     bed against the master, and without them P3 does not run at all
@@ -1329,7 +1426,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))
     results.append(measure_frame_occupancy(video_path,
-                                           framing_intents=framing_intents))
+                                           framing_spans=framing_spans))
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))

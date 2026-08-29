@@ -147,6 +147,74 @@ class TestCompileManifest(unittest.TestCase):
 
 
 
+    def test_a_spine_block_may_declare_its_own_framing(self):
+        """The per-clip level of the precedence chain, through the step.
+
+        `framing_intent.resolve_framing_intent` has always taken a
+        `block_intent`, and `compile_manifest` has always read
+        `block["framing_intent"]` - but nothing tested that the two meet,
+        so "a spine block may declare its own framing" was a claim about
+        a resolver rather than about the pipeline. It meets: a landscape
+        source told 0.0 by its block letterboxes while the project and
+        the template say nothing.
+
+        Nothing WRITES the key today. `mesh_spine`'s handoff does not ask
+        for it and the spine contract does not list it, so this is the
+        hook a per-clip choice would arrive through, proved reachable.
+        """
+        import os as _os
+        from unittest.mock import patch
+        from library.steps.step_5_04_compile_manifest.step import compile_manifest
+
+        src = _os.path.abspath("framed.mov")
+        with open(src, "w") as f:
+            f.write("dummy")
+        self.addCleanup(_os.remove, src)
+
+        def _inputs(declared):
+            return {
+                "a_roll_assignments": [{
+                    "clip_id": "clip_1", "source_clip_id": "clip_1",
+                    "source_file": src, "video_in": 4.113, "video_out": 6.027,
+                    "timeline_start": 0.0, "timeline_end": 1.914,
+                }],
+                "b_roll_assignments": [], "b_roll_interjections": [],
+                "subtitle_plan": {"subtitles": []}, "transition_spec": [],
+                "enhancement_spec": [], "color_grade_spec": {},
+                "audio_mix_spec": {}, "music_selection": {},
+                "audio_spine": {"frame_rate": 30.0, "structure": [dict(
+                    {"block_type": "speech", "position": 1,
+                     "clip_id": "clip_1", "source_start": 4.113,
+                     "source_end": 6.027, "timeline_start": 0.0,
+                     "timeline_end": 1.914,
+                     "content": {"clip_id": "clip_1"}},
+                    **({} if declared is None
+                       else {"framing_intent": declared}))]},
+                # Landscape source, so there really are bars to give.
+                "clip_catalog": [{"clip_id": "clip_1", "path": src,
+                                  "width": 1920, "height": 1080}],
+                "semantic_analysis": {"semantic_analysis_documents": [
+                    {"clip_id": "clip_1",
+                     "analysis": {"motion": "Locked off on a tripod.",
+                                  "scene": "A speaker on a city street."},
+                     "assessment": {"clip_type": "a-roll"}}]},
+            }
+
+        def _v1(declared):
+            with patch("library.steps.step_5_04_compile_manifest.step.load",
+                       side_effect=lambda out_dir, filename: _inputs(declared)):
+                return compile_manifest("dummy")["tracks"]["V1"]["clips"][0]
+
+        undeclared = _v1(None)
+        self.assertEqual(undeclared["framing_intent"], 1.0)
+        self.assertEqual(undeclared["framing_delivered"], 1.0)
+        self.assertTrue(undeclared["needs_conform"])
+
+        declared = _v1(0.0)
+        self.assertEqual(declared["framing_intent"], 0.0)
+        self.assertEqual(declared["framing_delivered"], 0.0)
+        self.assertFalse(declared["needs_conform"])
+
     def test_conform_fields_fill_by_default_and_letterbox_only_on_request(self):
         """Vision data no longer decides the framing; the declaration does.
 

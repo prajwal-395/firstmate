@@ -147,16 +147,36 @@ def _yuv_frame(chroma: float, accent_rows: int = 0, accent_chroma: float = 0.0):
     return np.stack([y, u, v])
 
 
-def _occupancy(fractions, framing_intents=None, **kwargs):
+def _spans(intents):
+    """One one-second FramingSpan per entry, matching sample_fps=1.0.
+
+    The helpers below sample at 1 Hz, so frame `i` is at second `i` and a
+    list of intents lays out over the timeline one-for-one.
+    """
+    if intents is None:
+        return None
+    return [render_qa.FramingSpan(float(i), float(i + 1), float(v))
+            for i, v in enumerate(intents)]
+
+
+def _occupancy(fractions, framing_intents=None, framing_spans=None, **kwargs):
     return _occupancy_of([_gray_frame(f) for f in fractions],
-                         framing_intents=framing_intents, **kwargs)
+                         framing_intents=framing_intents,
+                         framing_spans=framing_spans, **kwargs)
 
 
-def _occupancy_of(frames, framing_intents=None, **kwargs):
-    """Measure occupancy over frames the caller built pixel by pixel."""
+def _occupancy_of(frames, framing_intents=None, framing_spans=None, **kwargs):
+    """Measure occupancy over frames the caller built pixel by pixel.
+
+    `framing_intents` is the convenience form: one intent per sampled
+    second, in order. `framing_spans` is the real parameter, for the
+    cases that need a span to cover more than one sample.
+    """
+    if framing_spans is None:
+        framing_spans = _spans(framing_intents)
     with patch.object(render_qa, "_probe_video_size", return_value=(W, H)), \
             patch.object(render_qa, "_stream_raw_frames", return_value=iter(frames)):
-        return measure_frame_occupancy("master.mp4", framing_intents=framing_intents,
+        return measure_frame_occupancy("master.mp4", framing_spans=framing_spans,
                                        sample_fps=1.0, **kwargs)
 
 
@@ -202,7 +222,7 @@ class TestP1FrameOccupancy:
         """
         result = _occupancy([1.0] * 6 + [0.80] * 4)
         assert not result.passed
-        assert "changes size within the video" in result.detail
+        assert "changes size within one declared framing" in result.detail
         # and specifically NOT via the fill floor
         assert "letterboxed" not in result.detail
 
@@ -211,7 +231,7 @@ class TestP1FrameOccupancy:
         result = _occupancy([608 / 1920] * 8 + [1.0] * 2)
         assert not result.passed
         assert "letterboxed and nothing asked for bars" in result.detail
-        assert "changes size within the video" in result.detail
+        assert "changes size within one declared framing" in result.detail
 
     def test_a_declared_letterbox_is_exempt_from_the_fill_floor(self):
         """A series that declares bars gets them - cinematic_narrative does.
@@ -220,21 +240,76 @@ class TestP1FrameOccupancy:
         inset picture should occupy, so inventing one here would answer a
         brand decision. The consistency half still applies.
         """
-        result = _occupancy([0.34] * 10, framing_intents=[0.0] * 8)
+        result = _occupancy([0.34] * 10, framing_intents=[0.0] * 10)
         assert result.passed, result.detail
         assert result.threshold["fill_floor_applies"] is False
         assert result.threshold["consistency_applies"] is True
 
     def test_a_declared_letterbox_still_owes_one_geometry(self):
-        result = _occupancy([0.34] * 6 + [0.9] * 4, framing_intents=[0.0] * 8)
+        result = _occupancy([0.34] * 6 + [0.9] * 4, framing_intents=[0.0] * 10)
         assert not result.passed
-        assert "changes size within the video" in result.detail
+        assert "changes size within one declared framing" in result.detail
 
-    def test_clips_declaring_different_intents_may_change_geometry(self):
-        """A spine block may declare its own framing - then variation is asked for."""
-        result = _occupancy([1.0] * 6 + [0.34] * 4, framing_intents=[1.0, 1.0, 0.0])
+    def test_a_declared_per_clip_framing_may_change_geometry(self):
+        """Two declared framings, each delivered where it was declared.
+
+        Project 001's shape: landscape A-roll letterboxes and portrait
+        cutaways cannot, so the video changes size on purpose. It passes
+        because the manifest says where each geometry belongs, not
+        because the check stopped looking.
+        """
+        result = _occupancy([1.0] * 6 + [0.34] * 4,
+                            framing_intents=[1.0] * 6 + [0.0] * 4)
         assert result.passed, result.detail
-        assert result.threshold["consistency_applies"] is False
+        assert result.threshold["consistency_applies"] is True
+        assert result.value["declared_framing_intents"] == [0.0, 1.0]
+        assert result.value["by_declared_framing"]["0"]["frames_sampled"] == 4
+        assert result.value["by_declared_framing"]["1"]["frames_sampled"] == 6
+
+    def test_a_per_clip_declaration_still_owes_one_geometry_per_framing(self):
+        """The half a mixed declaration used to switch off entirely.
+
+        Six FILL samples, and the four LETTERBOX ones disagree with each
+        other. Nothing declared that, and the old rule - consistency off
+        as soon as more than one intent appears - reported a clean pass.
+        """
+        result = _occupancy([1.0] * 6 + [0.34, 0.34, 0.9, 0.9],
+                            framing_intents=[1.0] * 6 + [0.0] * 4)
+        assert not result.passed
+        assert "within one declared framing (0)" in result.detail
+        assert "one framing has one geometry" in result.detail
+
+    def test_the_fill_floor_applies_to_the_fill_half_of_a_mixed_video(self):
+        """A letterboxed stretch does not excuse a barred FILL stretch."""
+        result = _occupancy([0.34] * 6 + [0.34] * 4,
+                            framing_intents=[1.0] * 6 + [0.0] * 4)
+        assert not result.passed
+        assert "declares FILL" in result.detail
+        assert "letterboxed and nothing asked for bars" in result.detail
+
+    def test_a_sample_outside_every_span_is_reported_not_folded_in(self):
+        result = _occupancy([1.0] * 6,
+                            framing_spans=[render_qa.FramingSpan(0.0, 3.0, 1.0)])
+        assert result.passed, result.detail
+        assert result.value["unattributed_samples"] == 3
+        assert "outside every declared span" in result.detail
+
+    def test_spans_that_miss_the_render_entirely_are_an_error(self):
+        result = _occupancy([1.0] * 4,
+                            framing_spans=[render_qa.FramingSpan(90.0, 99.0, 1.0)])
+        assert not result.passed
+        assert result.severity == "error"
+        assert "different timelines" in result.detail
+
+    def test_the_later_span_wins_an_overlap_so_v2_covers_v1(self):
+        """V2 is laid down after V1 and is what the viewer sees."""
+        result = _occupancy(
+            [1.0, 1.0, 0.34, 1.0],
+            framing_spans=[render_qa.FramingSpan(0.0, 4.0, 1.0),
+                           render_qa.FramingSpan(2.0, 3.0, 0.0)])
+        assert result.passed, result.detail
+        assert result.value["by_declared_framing"]["0"]["frames_sampled"] == 1
+        assert result.value["by_declared_framing"]["1"]["frames_sampled"] == 3
 
     def test_the_lit_threshold_is_the_pipelines_own_black(self):
         assert LIT_LUMA_THRESHOLD == 12.0
@@ -311,7 +386,7 @@ class TestP1FrameOccupancy:
         frames = [_gray_frame(1.0)] * 6 + [_letterboxed_frame(round(H * 0.6))] * 4
         result = _occupancy_of(frames)
         assert not result.passed
-        assert "changes size within the video" in result.detail
+        assert "changes size within one declared framing" in result.detail
 
     def test_an_imperfectly_encoded_bar_is_still_a_bar(self):
         """A bar is not always pristine, and the bound is measured for that.
@@ -954,13 +1029,20 @@ class TestTheGatesActuallyDecide:
 
         manifest = {
             "tracks": {
-                "V1": {"clips": [{"framing_intent": 1.0}, {"framing_intent": 1.0}]},
-                "V2": {"clips": [{"framing_intent": 0.0}]},
+                "V1": {"clips": [
+                    {"framing_delivered": 1.0,
+                     "timeline_in": 0.0, "timeline_out": 1.0},
+                    {"framing_delivered": 1.0,
+                     "timeline_in": 1.0, "timeline_out": 2.0}]},
+                "V2": {"clips": [{"framing_delivered": 0.0,
+                                  "timeline_in": 2.0, "timeline_out": 3.0}]},
                 "A2": {"clips": [{"source_file": __file__}]},
             },
             "audio_mix": {"music_automation": [{"timeline_start": 0.0}]},
         }
-        assert validate._declared_framing_intents(manifest) == [1.0, 1.0, 0.0]
+        assert [(s.start, s.end, s.intent)
+                for s in validate._framing_spans(manifest)] == [
+            (0.0, 1.0, 1.0), (1.0, 2.0, 1.0), (2.0, 3.0, 0.0)]
         music, automation = validate._music_bed(manifest)
         assert music == __file__
         assert len(automation) == 1

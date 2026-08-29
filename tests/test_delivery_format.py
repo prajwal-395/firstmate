@@ -249,7 +249,8 @@ def test_landscape_footage_still_compiles_to_a_vertical_target(tmp_path):
     # `framing_intent` rides along so the render-side occupancy gate can
     # tell a declared letterbox from an accidental one; the conform half
     # is still "nothing to do".
-    assert same_frame == {"needs_conform": False, "framing_intent": 1.0}, (
+    assert same_frame == {"needs_conform": False, "framing_intent": 1.0,
+                          "framing_delivered": 1.0}, (
         "target == source is why the framing mechanism was a no-op"
     )
 

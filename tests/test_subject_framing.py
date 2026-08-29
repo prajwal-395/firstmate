@@ -270,7 +270,8 @@ class TestSubjectFramingRespectsTheDeclaration:
 
     def test_letterbox_intent_ignores_the_subject(self):
         got = conform(framing_intent=0.0, subject_center_x=0.30)
-        assert got == {"needs_conform": False, "framing_intent": 0.0}
+        assert got == {"needs_conform": False, "framing_intent": 0.0,
+                       "framing_delivered": 0.0}
 
     def test_unset_intent_tracks_the_subject(self):
         """No declaration means the default, and the default fills - so
@@ -291,7 +292,8 @@ class TestSubjectFramingRespectsTheDeclaration:
         square = {"clip_001": {"width": 1080, "height": 1920}}
         got = _conform_fields(square, "clip_001", VERTICAL,
                               framing_intent=1.0, subject_center_x=0.2)
-        assert got == {"needs_conform": False, "framing_intent": 1.0}
+        assert got == {"needs_conform": False, "framing_intent": 1.0,
+                       "framing_delivered": 1.0}
 
 
 # ─────────────────────────────────────────────────────────
