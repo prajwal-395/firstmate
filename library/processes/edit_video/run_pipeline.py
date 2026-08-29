@@ -2331,12 +2331,37 @@ def run_pipeline(
         print(f"  WARNING: could not read the render QA findings: {exc}",
               file=sys.stderr)
 
+    # What the rough-cut review found and could not hand to anyone.
+    #
+    # Step 3.03 is asked for `cut_decisions` on every run.  Its per-cut
+    # verdicts go to step 4.02's cuts table; the rows that name no single
+    # cut have no downstream reader and cannot be given one - a finding
+    # owned by step 2.02 is not acted on by putting it in the transitions
+    # prompt (library/tools/cohesion_scope.py names that shape).  So they
+    # are printed, the way the render QA findings above are.  On 001's run
+    # of record one of them was the passage mis-anchor, diagnosed with its
+    # cause and its owning step, and nothing read it.
+    #
+    # Reading is not gating: `status` is decided above this block.
+    review_findings = []
+    try:
+        from library.tools import cut_verdicts as _cv
+        _cut_decisions = (state.get("step_outputs", {})
+                          .get("review_rough_cut", {}).get("cut_decisions"))
+        for _line in _cv.summary_lines(_cut_decisions):
+            print(_line, file=sys.stderr)
+        review_findings = _cv.unplaced_findings(_cut_decisions)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the rough-cut review findings: "
+              f"{exc}", file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
     summary = {
         "status": status,
         "qa_findings": qa_summary,
+        "rough_cut_review_findings": review_findings,
         "completed": completed,
         "completed_steps": len(step_ledger.all_completed(state)),
         "stage_completed": stage_done,

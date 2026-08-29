@@ -788,7 +788,8 @@
       "from": "review_rough_cut",
       "to": "plan_transitions",
       "data_mapping": {
-        "rough_cut_review": "rough_cut_review"
+        "rough_cut_review": "rough_cut_review",
+        "cut_decisions": "cut_decisions"
       }
     },
     {

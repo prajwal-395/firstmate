@@ -58,7 +58,7 @@
         "name": "temporal_index",
         "type": "array",
         "required": false,
-        "description": "State input: temporal_index. OPTIONAL, and nothing reads it: step.py never names it and `context_fields` does not select it, so the projection deletes it before the prompt. The handoff's State Interaction table still lists it and is stale. Surveyed by library/tools/input_contract.py."
+        "description": "State input: temporal_index - the word-level index step 1.04 wrote, mapped from its `full_indices`. It is the only input this step is routed that is a MEASUREMENT rather than an upstream decision, and it is what Check 5 - which this handoff calls the most important step of Part 2 - reconstructs the actual script from. It reaches the prompt through `view:transcript`, which leaves the per-word timings behind (AGENTS.md 10.1); step.py still receives the whole thing unprojected."
       },
       {
         "name": "timeline_notes",
@@ -70,7 +70,8 @@
     "outputs": [
       {
         "name": "cut_decisions",
-        "type": "list"
+        "type": "list",
+        "description": "The narrative half of this step: one record per CUT, judging how the cut reads. Shape: [{\"cut_point_position\": <the position of the spine block the cut leads INTO, as it appears in audio_spine.structure>, \"verdict\": \"smooth\"|\"acceptable\"|\"jarring\"|\"broken\", \"why\": \"one sentence\"}]. The four words are Check 7's own vocabulary in this handoff; this declaration states the SHAPE the schema injector asks for and adds no criterion the handoff does not already carry. Judge a cut only where you have something to say - a cut you name no verdict for reads as UNJUDGED downstream, which is not the verdict 'smooth'. Read by step 4.02 plan_transitions, which folds it onto its cuts table as `narrative_verdict` and `verdict_note`; see library/tools/cut_verdicts.py."
       },
       {
         "name": "rough_cut_review",
@@ -127,6 +128,7 @@
     "b_roll_assignments",
     "b_roll_interjections",
     "creative_direction",
+    "view:transcript",
     "render_qa_findings",
     "rough_cut_review",
     "audio_spine",

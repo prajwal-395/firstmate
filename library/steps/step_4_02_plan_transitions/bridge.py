@@ -79,6 +79,18 @@ def main():
 
     carriers = {str(row["position"]): row for row in cut_carriers(spine_blocks)}
 
+    # Step 3.03 is asked to judge how each cut READS - Check 7 of its
+    # handoff, "smooth | acceptable | jarring | broken" - and its answer
+    # used to go nowhere: `cut_decisions` appeared once in the whole
+    # repository, in its own manifest. This is the reader. It states the
+    # review's verdict per cut beside the buildability columns and
+    # decides nothing: no rule here turns `jarring` into a transition,
+    # and an unjudged cut is spelled `unjudged` rather than borrowing the
+    # mild end of the scale (AGENTS.md 10.5).
+    from library.tools import cut_verdicts as cv
+
+    verdicts = cv.verdicts_by_cut(data.get("cut_decisions"))
+
     cut_rows = []
     
     # We will output a cuts table
@@ -135,26 +147,41 @@ def main():
         # these cuts when nothing said they were unbuildable.
         carrier = carriers.get(str(curr_block.get("position", i)), {})
 
+        position = curr_block.get("position", i)
+
         cut_rows.append({
-            "cut_point_position": curr_block.get("position", i),
+            "cut_point_position": position,
             "cut_time": f"{cut_time:.2f}",
             "type": cut_type,
             "can_carry_drawn_transition": carrier.get("verdict", ""),
             "carry_basis": carrier.get("basis", ""),
+            "narrative_verdict": cv.verdict_column(verdicts, position),
+            "verdict_note": cv.note_column(verdicts, position),
             "beat_near_cut": beat_near_cut,
             "outgoing_footage": get_desc(prev_sem),
             "incoming_footage": get_desc(curr_sem)
         })
-        
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
-    
+
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
+
+    cuts_legend = dict(CUTS_LEGEND)
+    cuts_legend.update(cv.CUT_VERDICT_LEGEND)
+
     compressed = {
         "cuts_toon": cuts_toon,
-        # The handoff is frozen and cannot name the two derived columns,
-        # so their definition travels as data - the route step 2.04 takes
+        # The handoff is frozen and cannot name the derived columns, so
+        # their definition travels as data - the route step 2.04 takes
         # for MEASUREMENT_LEGEND.
-        "cuts_legend": dict(CUTS_LEGEND),
+        "cuts_legend": cuts_legend,
     }
+
+    # How much of the review's judgement is missing, said rather than
+    # left to be inferred from a column of `unjudged`. Empty when every
+    # cut was judged, and absent from the context in that case.
+    unjudged = cv.unjudged_summary(
+        verdicts, [row["cut_point_position"] for row in cut_rows])
+    if unjudged:
+        compressed["cuts_unjudged"] = unjudged
     
     print(json.dumps(compressed))
 

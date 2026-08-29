@@ -50,7 +50,19 @@ TRANSCRIPT_STEPS = {
 # different column orders - 19,844 characters, a quarter of the context.
 # So the view is the route for the step that has no bridge.
 # `tests/test_context_ships_it_once.py` holds the pair of them together.
-VIEW_STEPS = {"creative_direction": "step_2_01_creative_direction"}
+#
+# 3.03 is the third case and the reason is its own: Check 5 of its frozen
+# handoff tells it to reconstruct what the viewer ACTUALLY hears "from
+# actual temporal index data, not from the speech_sequence's intended
+# text", and the projection was deleting the only input that could answer
+# it.  Every other input the step is routed is a decision some upstream
+# step made, so without this the reviewer was handed nothing but the plan
+# it was reviewing. See docs/RULE_EVIDENCE.md, "the review answered
+# and nobody read it".
+VIEW_STEPS = {
+    "creative_direction": "step_2_01_creative_direction",
+    "review_rough_cut": "step_3_03_review_rough_cut",
+}
 
 # The two steps handed their whole input set on a standing decision
 # (tests/test_llm_context_routing.py NO_PROJECTION).  They carried word

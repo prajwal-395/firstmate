@@ -31,6 +31,12 @@
         "description": "State input: music_selection"
       },
       {
+        "name": "cut_decisions",
+        "type": "array",
+        "required": false,
+        "description": "Step 3.03's narrative verdict per cut - smooth | acceptable | jarring | broken, with the review's own sentence. Routed to this step's BRIDGE, which folds it onto `cuts_toon` as `narrative_verdict` and `verdict_note` keyed on `cut_point_position`, the identifier both tables already share. Deliberately NOT in `context_fields`: sending the raw list beside the table would ship the same judgement twice (AGENTS.md 10.1). Optional, because a review that judged no cut is a review that had nothing to say - an unjudged cut reads as `unjudged`, never as `smooth`. See library/tools/cut_verdicts.py."
+      },
+      {
         "name": "rough_cut_review",
         "type": "object",
         "required": true,

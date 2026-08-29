@@ -917,6 +917,41 @@ Step 6.02 measured all four of the captain's named shortfalls on 001 - the 6.25 
 - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. They carry their own legend, because `handoff.md` is frozen (the `CUTS_LEGEND` route), and the legend says plainly that a finding is not grounds to reject a rough cut.
 - `tests/test_qa_findings_reach_a_reader.py`.
 
+**The rough-cut review's own answer has a reader, and it has two halves.**
+`review_rough_cut` (3.03) is asked for `cut_decisions` on every run, and until this change nothing read it:
+the field appeared once in the whole repository, in its own manifest, declared with a type and no
+description - so the injected schema was the bare line `"cut_decisions": []`. On 001's run of record
+the model answered it with **19 rows, 9,498 bytes**, and one of them diagnosed the passage mis-anchor
+by name, with its cause, its owning step and its fix. All of it was discarded.
+[why - the flag, verbatim, and what 3.03 reviews that it did not itself decide](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
+One enumeration, `library/tools/cut_verdicts.py`.
+
+- **A row that names a CUT goes to step 4.02**, folded onto `cuts_toon` as `narrative_verdict` and
+  `verdict_note` keyed on `cut_point_position` - the identifier both tables already share, so there
+  is no join. `CUT_VERDICT_LEGEND` defines the two columns as DATA, because `handoff.md` is frozen
+  (the `CUTS_LEGEND` route). **4.01 `plan_subtitles` cannot be the reader**: it is `deterministic`,
+  has no `handoff.md` and therefore no prompt at all.
+- **A row that names NO cut goes to the run summary**, printed after `status` is decided. A finding
+  owned by step 2.02 is not made actionable by putting it in the transitions prompt - that is
+  `cohesion_scope.OWNED_UPSTREAM`'s shape. A route back to the owning step does not exist and is
+  stated rather than quietly closed. **Nothing is filtered by `decision`, `scope` or severity**:
+  whatever picks which findings matter becomes the reviewer.
+- **An unjudged cut reads `unjudged`, never `smooth`.** `verdict_of` returns None, and how many cuts
+  went unjudged is SAID (`cuts_unjudged`) rather than inferred from a column. A word outside
+  `smooth`/`acceptable`/`jarring`/`broken` is carried VERBATIM and marked `unrecognised` -
+  `WITHDRAWN_READINGS` records why dropping it and why mapping it onto the nearest word are both out.
+- **The verdict decides nothing.** No rule turns `jarring` into a transition; the column is data and
+  the model still chooses (10.5).
+- **3.03's one input that is a MEASUREMENT rather than an upstream decision is `temporal_index`**, and
+  the projection used to delete it - so the step whose Check 5 says the script "must be derived from
+  actual temporal index data, not from the speech_sequence's intended text" was handed nothing but
+  the plan it was reviewing. It now reads `view:transcript`. Its five other inputs are all upstream
+  decisions, and `a_roll_assignments` is a field-for-field copy of the spine whose duration invariant
+  step 3.01 already ran. **The remaining self-review is not in the DAG - it is that one agent answers
+  2.02, 2.05, 3.02 and then 3.03 under `--full-auto agy` (10.1). Closing that needs a different
+  answerer, not a different edge.**
+- `tests/test_cut_decisions_reach_a_reader.py`.
+
 ### 10.5 Creative latitude
 
 **The pipeline never invents a creative judgement on the model's behalf.**

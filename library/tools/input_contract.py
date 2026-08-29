@@ -124,10 +124,6 @@ UNCONSUMED_DECLARATIONS = {
         "Relaxed to optional under #260; unrouting it is a separate "
         "decision because the handoff's State Interaction table still "
         "lists it.",
-    ("review_rough_cut", "temporal_index"):
-        "step.py never names it and `context_fields` does not select "
-        "it. Same case, same change, same reason for stopping at "
-        "optional.",
 }
 
 

@@ -23,10 +23,15 @@ from library.tools.transition_carriers import (
 REPO = Path(__file__).resolve().parents[1]
 BRIDGE = REPO / "library" / "steps" / "step_4_02_plan_transitions" / "bridge.py"
 
+# `narrative_verdict` and `verdict_note` are step 3.03's per-cut judgement,
+# folded in beside the buildability columns by the same bridge
+# (library/tools/cut_verdicts.py). This file owns the buildability half;
+# tests/test_cut_decisions_reach_a_reader.py owns the verdict half.
 CUTS_HEADERS = [
     "cut_point_position", "cut_time", "type",
-    "can_carry_drawn_transition", "carry_basis", "beat_near_cut",
-    "outgoing_footage", "incoming_footage",
+    "can_carry_drawn_transition", "carry_basis",
+    "narrative_verdict", "verdict_note",
+    "beat_near_cut", "outgoing_footage", "incoming_footage",
 ]
 
 
@@ -219,7 +224,10 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
 
     # The columns are DEFINED, because handoff.md is frozen and cannot
     # name them.  Same route as step 2.04's measurement legend.
-    assert out["cuts_legend"] == dict(CUTS_LEGEND)
+    # `<=`, not `==`: the legend is the union of every derived column's
+    # definition, and step 3.03's verdict columns add their own
+    # (library/tools/cut_verdicts.CUT_VERDICT_LEGEND).
+    assert dict(CUTS_LEGEND).items() <= out["cuts_legend"].items()
     assert set(CUTS_LEGEND) == {"can_carry_drawn_transition", "carry_basis"}
 
 

@@ -3931,6 +3931,137 @@ row would read as an absent measurement (§10.3) rather than as "no reader had t
 runner against a COPY of 001's frozen `pipeline_data.json` and `exports/qa_report.json`, on one
 already-complete step.
 
+## the-review-answered-and-nobody-read-it
+
+*(§10.4, "Every QA finding has a reader"; §3, "A declaration must be true")*
+
+Step 3.03 `review_rough_cut` is `deterministic_with_llm`: `step.py` computes `rough_cut_review` and
+the LLM is then asked for whatever the manifest declares that the step does not already have. That
+left exactly one key, `cut_decisions`, declared as
+
+    { "name": "cut_decisions", "type": "list" }
+
+with no description, so `generate_output_schema_text` injected this into the prompt on every run the
+step has ever made:
+
+    // (required)
+    "cut_decisions": []
+
+A bare list, named nowhere in the step's frozen `handoff.md`. And `grep -rn "cut_decisions"
+library/ tests/` returned **one** occurrence: that declaration.
+
+### The model answered anyway, and the answer was good
+
+001's frozen `pipeline_data.json` carries `step_outputs.review_rough_cut.cut_decisions`: **19 rows,
+9,498 bytes**, in a shape the model invented for itself -
+`{decision, scope, from_block, to_block, rating, rationale}`.
+
+- **8 rows** are `decision: "flow"` - one per cut between speech blocks, keyed on `to_block` (the
+  block the cut leads into, which is exactly what `cuts_toon` keys on), rated with the four words
+  Check 7 of the handoff names: seven `smooth`, one `acceptable`.
+- **11 rows** are about the cut as a whole: the reconstructed script, the sentence-completion and
+  arc passes, four key moments, two notes, and one `flag`.
+
+That flag, verbatim and discarded:
+
+> Block 13's aligned source range starts at 29.002s while its first strongly matched word
+> ('almost') is at 30.58s. The alignment anchored on the word 'i' inside the preceding phrase
+> "i'm happy that i at least recorded this", 1.58s before the passage the speech sequence asked
+> for [...] the viewer hears roughly 1.5s of audio before the captioned text begins [...] The
+> clean fix belongs in step 2.2.
+
+**The review layer found the passage mis-anchor.** It named the wrong anchor word, the drift, both
+consequences, the owning step and the fix. That defect went on to be the largest single flaw in the
+finished video - 6.901s, 11.6% of it, wrong audio with no captions - and was not fixed until #331,
+by an audit that rediscovered it from scratch. Nothing read the flag, because nothing read the
+field.
+
+### Why 4.02 is the reader and 4.01 is not
+
+Four nodes are downstream of the review: `plan_subtitles`, `plan_transitions`, `plan_vfx`,
+`plan_sfx`. Only one makes a decision AT a cut.
+
+`plan_subtitles` (4.01) runs first of the four and looks like the obvious reader. It cannot be one:
+it is `deterministic` - a `step.py`, no `handoff.md`, no `bridge.py` - so `detect_implementation`
+gives it no prompt at all, and its grouping is measured pixels against the caption box. Routing a
+narrative judgement there would have reproduced the defect at a second address.
+
+`plan_transitions` (4.02) already holds the matching table. Its pre-bridge builds `cuts_toon`, one
+row per cut, keyed on `cut_point_position` - the same identifier `transition_carriers.cut_carriers`
+keys on and the same one `transitions_toon` carries to 4.04. So the verdict needs no join: it is two
+more columns, the route #305 took for `can_carry_drawn_transition`.
+
+Measured on 001's frozen snapshot at `WORKTREE`, 8 of the 13 rows now carry a real verdict, e.g.
+
+    12  43.18  transition_slot-to-speech  no  ...  acceptable  The largest jump in the video:
+    clip_013 to clip_015, and a change of subject from the past to the present.
+
+4.02's context: **55,644 B -> 58,816 B (+3,172 B, +5.7%)**.
+
+### The half that names no cut goes to the run summary, not to 4.02
+
+The other 11 rows are findings about the edit, and 4.02 is not their owner. Putting a finding owned
+by step 2.02 into the transitions prompt does not make it actionable - that is exactly the shape
+`cohesion_scope.OWNED_UPSTREAM` exists to name. So they take the reader a finding nobody downstream
+can act on already has: the run summary prints them, after `status` is decided, the way `qa_findings`
+is printed. `tests/test_cut_decisions_reach_a_reader.py` pins that ordering off the runner's source.
+
+A route BACK to the owning step does not exist and is not built here. It is the same open shape as
+`OWNED_UPSTREAM`: stated, not quietly closed.
+
+### What 3.03 reviews that it did not itself decide
+
+The premise that the step is "downstream of decisions it made itself" is false as a statement about
+the graph. 3.03 has six inbound edges - `assign_aroll`, `select_broll`, `mesh_spine`,
+`creative_direction`, `speech_sequence`, `temporal_index` - and no outbound edge reaches any of
+them; its outputs go only to phase-4 nodes. There is no cycle to break.
+
+What is true is narrower and worse.
+
+**Five of its six mechanical checks read a copy.** `step_3_01_assign_aroll` is `deterministic` and
+its assignment is a field-for-field restatement of the spine block - `video_in =
+float(block["source_start"])`, `"timeline_start": block["timeline_start"]` - and it then runs the
+duration invariant itself, at a 0.15 s tolerance, printing a warning. 3.03's Check 1 re-runs the
+same arithmetic on the same numbers at 0.1 s and rejects. Two readings of one producer's output. A
+real gate, and no new information.
+
+**The one check that reads an independent measurement had its input deleted before the prompt.**
+Check 5 - which the handoff itself calls *"the most important step"* of Part 2 - says the
+reconstructed script *"must be derived from actual temporal index data, not from the
+speech_sequence's intended text"*. `temporal_index` is edge-routed to the step and declared
+optional, and `context_fields` did not select it, so `project_step_context` dropped it. Replayed at
+`origin/main`, 3.03's context keys were:
+
+    a_roll_assignments, audio_spine, b_roll_assignments, b_roll_interjections,
+    creative_direction, project_folder, render_qa_findings, rough_cut_review, speech_sequence
+
+Every one of those is a decision an upstream step made. The reviewer was asked to compare what the
+viewer will HEAR against what the plan INTENDED, and was handed only the plan - and the handoff
+forbids using the plan for it. It was recorded in `input_contract.UNCONSUMED_DECLARATIONS`.
+
+`view:transcript` is the fix, and it is the route `creative_direction` already uses: region-level
+text with timings, no per-word records (§10.1). 3.03's context: **34,565 B -> 44,628 B (+10,063 B)**,
+one new key, `transcript`. That is the first byte of change in that step's context across thirteen
+PRs.
+
+**PR #332's QA findings are genuinely independent and are not enough on their own.**
+`render_qa_findings` is measured on a rendered file by step 6.02, not decided by anyone upstream. But
+it describes the LAST render, so on the run that matters it is `source: none, total: 0` - which is
+what it is on 001's snapshot.
+
+**What is left is not in the graph; it is in who answers.** Under `--full-auto agy` one agent answers
+2.01, 2.02, 2.05, 3.02 and then 3.03, so the reviewer is the author. §10.1 already names this
+failure mode ("a run answered end to end by one context carries facts forward in the answering
+agent's head"). No rewiring closes it - it needs a different answerer for the review step, which is
+a redesign and was not taken here.
+
+### Not measured
+
+001 was not re-run and not re-rendered. Every number above is from the step-replay bench against
+001's frozen 2026-08-26 snapshot, and from the recorded `cut_decisions` in that snapshot's own
+`pipeline_data.json`. Whether a transitions plan made with the verdict column differs from one made
+without it is an answer-side question the bench does not answer.
+
 ## the-guard-that-could-not-see-a-deterministic-step
 
 **The rule:** AGENTS.md §3, "A declaration must be true".
