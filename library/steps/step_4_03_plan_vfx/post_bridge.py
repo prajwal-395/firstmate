@@ -14,6 +14,11 @@ Idempotent: Yes
 import json
 import sys
 from library.tools.pipeline_validation import require_keys
+from library.tools.vfx_plan_basis import (
+    DroppedEntry,
+    PlanBasis,
+    basis_summary,
+)
 
 
 # Style spec ranges for VFX parameters.
@@ -132,8 +137,27 @@ def resolve_vfx(
     creative_plan: list,
     timed_spine: dict,
     frame_rate: float = 30.0,
+    dropped: list = None,
 ) -> list:
-    """Resolve creative VFX plan to execution specs."""
+    """Resolve creative VFX plan to execution specs.
+
+    `dropped` is an optional out-parameter: pass a list and every entry
+    this function discards is appended to it as a
+    `vfx_plan_basis.DroppedEntry`.  Without it the drops go only to
+    stderr, which is where they used to go exclusively - and a plan whose
+    every entry was dropped came out byte-identical to a plan the model
+    deliberately left empty.  See `library/tools/vfx_plan_basis.py`.
+    """
+    def _drop(pos, effect_type, reason, detail):
+        print(f"  {detail}", file=sys.stderr)
+        if dropped is not None:
+            dropped.append(DroppedEntry(
+                target_block_position=pos,
+                effect_type=effect_type or "",
+                reason=reason,
+                detail=detail,
+            ))
+
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
     block_lookup = {str(b["position"]): b for b in spine_blocks if "position" in b}
 
@@ -146,20 +170,20 @@ def resolve_vfx(
             # An entry that names no real spine block used to resolve to
             # {} and land at 0.0-5.0, so several of them stacked into one
             # identical effect. Drop it loudly instead.
-            print(
-                f"  Dropped VFX {vfx.get('effect_type', '?')}: "
+            _drop(
+                pos, vfx.get("effect_type", ""), "not_a_spine_block",
+                f"Dropped VFX {vfx.get('effect_type', '?')}: "
                 f"target_block_position {pos!r} is not a spine block",
-                file=sys.stderr,
             )
             continue
 
         # One effect per block. A second entry on the same block is a
         # duplicate, not a stacked effect.
         if str(pos) in covered_positions:
-            print(
-                f"  Dropped duplicate VFX on block {pos!r} "
+            _drop(
+                pos, vfx.get("effect_type", ""), "duplicate_block",
+                f"Dropped duplicate VFX on block {pos!r} "
                 f"({vfx.get('effect_type', '?')})",
-                file=sys.stderr,
             )
             continue
         covered_positions.add(str(pos))
@@ -173,11 +197,11 @@ def resolve_vfx(
         # step exists to make; there is nothing to fall back to.
         raw_type = vfx.get("effect_type")
         if not raw_type:
-            print(
-                f"  Dropped VFX on block {pos!r}: it names no effect_type. "
+            _drop(
+                pos, "", "no_effect_type",
+                f"Dropped VFX on block {pos!r}: it names no effect_type. "
                 f"No effect is substituted - choose one of "
                 f"{', '.join(sorted(INTENSITY_MAP))}.",
-                file=sys.stderr,
             )
             covered_positions.discard(str(pos))
             continue
@@ -191,12 +215,12 @@ def resolve_vfx(
             # missing intensity and an unrecognised one used to land on
             # "moderate", so a typo silently changed the picture.
             if intensity not in type_map:
-                print(
-                    f"  Dropped VFX {raw_type!r} on block {pos!r}: "
+                _drop(
+                    pos, raw_type, "unknown_intensity",
+                    f"Dropped VFX {raw_type!r} on block {pos!r}: "
                     f"intensity {intensity!r} is not one of "
                     f"{', '.join(sorted(type_map))}. No intensity is "
                     f"substituted.",
-                    file=sys.stderr,
                 )
                 covered_positions.discard(str(pos))
                 continue
@@ -210,12 +234,12 @@ def resolve_vfx(
             # input. Cannot be used as a clip effect - it would cover the
             # shot rather than modify it. Route to the overlay track via
             # resolve_generator_overlays instead.
-            print(
-                f"  Rejected generator preset {raw_type!r} on block {pos!r}: "
+            _drop(
+                pos, raw_type, "generator_not_a_clip_effect",
+                f"Rejected generator preset {raw_type!r} on block {pos!r}: "
                 f"this preset has no image input and cannot modify the "
                 f"picture. Generator presets are routed to the overlay "
                 f"track (V5) via resolve_generator_overlays.",
-                file=sys.stderr,
             )
             covered_positions.discard(str(pos))
             continue
@@ -224,13 +248,14 @@ def resolve_vfx(
             # default 3% zoom while keeping its own name, so the manifest
             # claimed an effect the viewer never saw.
             withdrawn = WITHDRAWN_ALIASES.get(raw_type)
-            print(
-                f"  Dropped VFX {raw_type!r} on block {pos!r}: "
+            _drop(
+                pos, raw_type,
+                "withdrawn_alias" if withdrawn else "unknown_effect_type",
+                f"Dropped VFX {raw_type!r} on block {pos!r}: "
                 + (f"{withdrawn}. " if withdrawn else "")
                 + f"not in the effect toolkit "
                 f"({', '.join(sorted(INTENSITY_MAP))}) and not a built-in "
                 f"Fusion clip effect",
-                file=sys.stderr,
             )
             covered_positions.discard(str(pos))
             continue
@@ -388,16 +413,45 @@ def main():
     # padded the plan up to every eligible block and then failed the step
     # outright if the padding left it empty.
 
-    result = resolve_vfx(creative, spine, fps)
+    dropped = []
+    result = resolve_vfx(creative, spine, fps, dropped=dropped)
 
     # Extract generator presets for the overlay track.
     # resolve_vfx rejects these from the clip-effect path; this routes
     # them to the overlay track instead of discarding them.
     gen_overlays = resolve_generator_overlays(creative, spine, fps)
 
+    # A generator that REACHED the overlay track was routed, not dropped:
+    # its pixels are on V5.  Only one the overlay path could not place is
+    # a casualty, so the clip-effect rejection is withdrawn from the drop
+    # list for every position the overlays cover.  Recording a routed
+    # entry as dropped would make `every_entry_dropped` fire on a plan
+    # that is fully delivered.
+    routed = {str(o["target_block_position"]) for o in gen_overlays}
+    dropped = [
+        d for d in dropped
+        if not (d.reason == "generator_not_a_clip_effect"
+                and str(d.target_block_position) in routed)
+    ]
+
+    # Why this plan is the length it is.  `{"visual_effects": []}` alone
+    # says the same thing whether the planner deliberately chose
+    # stillness or named four effects that were all discarded, and only
+    # the first of those is a decision.  See
+    # `library/tools/vfx_plan_basis.py`.
+    basis = PlanBasis(
+        proposed=len(creative),
+        resolved=len(result) + len(gen_overlays),
+        dropped=dropped,
+    ).as_dict()
+    print(f"  {basis_summary(basis)}", file=sys.stderr)
+
     # C5 fix: Output key must be enhancement_spec to match manifest contract.
     # The DAG edge plan_vfx -> compile_manifest maps enhancement_spec.
-    output = {"enhancement_spec": {"visual_effects": result}}
+    output = {"enhancement_spec": {
+        "visual_effects": result,
+        "planning_basis": basis,
+    }}
     if gen_overlays:
         output["enhancement_spec"]["generator_overlays"] = gen_overlays
     json.dump(output, sys.stdout, indent=2)

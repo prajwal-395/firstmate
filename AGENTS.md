@@ -709,6 +709,16 @@ The renderer dispatches on parameter NAMES (`library/tools/execution/apply_fusio
 - Every TOP-LEVEL manifest key is held to this by `tests/test_manifest_readers.py`: name a reader that really contains `manifest[key]`, plus one sentence saying what that reader does to the picture or the sound - or put it in `EXEMPTED_KEYS` with a reason.
 - `docs/PIPELINE_PLAN.md` is the standing audit of which manifest keys have a reader. Check it before assuming a stage's output reaches the picture, and update it when you wire or withdraw one.
 
+**An empty VFX plan says WHY it is empty, and step 4.03 CAN produce a non-empty one.**
+One enumeration, `library/tools/vfx_plan_basis.py`.
+`{"visual_effects": []}` is what 4.03 has emitted on every run in the repository, and it read the same whether the planner chose stillness or named four effects the post-bridge discarded - the drop reasons went to stderr and nowhere else. [why - the four hypotheses, and which one it was](docs/RULE_EVIDENCE.md#the-vfx-plan-that-was-always-empty)
+
+- `enhancement_spec.planning_basis` carries `basis`, `proposed`, `resolved` and one `dropped` record per casualty with its reason. **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one, the same distinction `cutaway_window.BASES` draws between `moment_match` and `single_span`.
+- `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused by name, so a new drop branch has to say what it is before it can go quiet.
+- **Recording is not gating.** `may_be_empty: true` on `vfx_creative` still holds and an empty plan is still accepted; `compile_manifest` reads the basis and NAMES the casualties, and fails on none of them. Whether a dropped entry should REFUSE the step the way an unplayable sound refuses 4.04 (§10.5) is recorded in `THE_REFUSAL_QUESTION` and is the captain's call.
+- **The step is not broken and the vocabulary is not missing.** A planner naming one of the five toolkit effects at one of the three intensities resolves, reaches `manifest["vfx"]`, reaches the V1 clip's Fusion comp and draws nodes - `tests/test_vfx_reaches_the_manifest.py` runs that end to end. What 001's run of record shows is a planner deciding none on the merits, with its reasoning in `docs/run-001-reasoning/plan_vfx.md`.
+- `tests/test_vfx_plan_basis.py`.
+
 **An overlay that draws nothing is not rendered.**
 `generate_motion_props.props_draw_ink` is the predicate; keep it in step with the MotionGraphics composition.
 The output carries NO `available` key when nothing draws, because `available: false` anywhere fails the run. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)

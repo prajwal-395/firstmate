@@ -65,9 +65,10 @@
       {
         "name": "enhancement_spec",
         "type": "object",
-        "description": "State output: enhancement_spec",
+        "description": "State output: enhancement_spec. `visual_effects` is the resolved plan; `planning_basis` says why it is the length it is, so an empty plan the planner chose is distinguishable from one whose every entry was dropped. See library/tools/vfx_plan_basis.py.",
         "expected_schema": {
-          "vfx_creative": "list"
+          "visual_effects": "list",
+          "planning_basis": "object"
         }
       },
       {

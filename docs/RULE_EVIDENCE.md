@@ -3968,3 +3968,70 @@ a prompt. `unread_by_a_prompt_less_step` is the report, printed loudly on every 
 
 86 of 148 rows - every row of all twelve prompt-carrying steps - are byte-identical before and
 after. The 62 that changed all belong to the fifteen prompt-less steps.
+
+## The VFX plan that was always empty
+
+Step 4.03 `plan_vfx` has emitted `{"visual_effects": []}` on every run the repository can show,
+and #330's motion-graphics diagnosis established that `generate_motion_props` reads that
+`enhancement_spec` and gets an empty list every time. Four things could explain it, and they need
+four different fixes - or none:
+
+  a. nothing asks the step for effects in a form it can answer;
+  b. it answers and the answer is dropped;
+  c. the effects vocabulary it could name does not exist;
+  d. it decided none, every time, on the merits.
+
+### The verdict: (d) at the run of record, with a residual (b) that hides it
+
+**(c) is refuted by a test that already existed.** `tests/test_vfx_delivery.py` parametrises the
+five toolkit effects over the three intensities and asserts each draws real Fusion nodes through
+`build_effect_comp`, and `test_the_handoff_offers_exactly_the_effects_the_bridge_resolves` pins the
+handoff's table against `INTENSITY_MAP`. The vocabulary exists, is complete, and is drawn.
+
+**(a) is refuted at HEAD and was TRUE at the run of record.** `replay_bench replay
+001-pre-repass-20260829 plan_vfx` reconstructs a 60,142 B context whose `vfx_candidates_toon` is
+16 rows carrying each block's spoken line, its duration and what the camera does
+(`16.0s, tilting_up, shaky`; `8.7s, stationary, stable`). At the 2026-08-26 run it was 11 rows with
+every `text` blank and every `vfx_suggested` the literal string `"No"` - a column the prompt
+described as "pre-computed ... based on motion/pose data" and which was based on nothing. The
+planner read the source and said so: `docs/run-001-reasoning/plan_vfx.md` §2. The bridge repair
+closed it.
+
+**(b) is refuted for the resolution path.** Feeding the real post-bridge a two-entry plan against
+001's own frozen spine resolves both, with the block positions turned into timeline ranges and the
+intensities into `zoom_start`/`zoom_end`. `tests/test_vfx_reaches_the_manifest.py` carries one the
+whole way: post-bridge subprocess -> `enhancement_spec` -> the real `compile_manifest` ->
+`manifest["vfx"]` -> `fusion_effects.per_clip` -> a comp string with a `Transform` in it.
+
+**(d) is what the one run of record shows.** The planner wrote its reasoning BEFORE answering,
+applied the handoff's own "long AND static" criterion to eleven blocks, found two candidates
+(block 7 at 15.99 s, already `tilting_up, shaky`; block 14 at 8.67 s, `stationary, stable`),
+rejected both with stated reasons, and recorded the counter-argument against itself: *"shortform
+convention is that the frame is always moving ... a sixty-second edit with zero VFX may simply read
+as flat on a phone."* It then held that answer across three `semantically empty` rejections from
+`validate_step_output`, and wrote down that *"an agent behaving more agreeably would have produced a
+different video."* #275 closed that pressure with `may_be_empty: true`.
+
+So nothing about (d) is broken. **What is broken is that (d) is unreadable.** Run the post-bridge
+twice - once on `[]`, once on four entries naming a withdrawn alias, an unknown type, a block that
+is not on the spine and an intensity outside `subtle|moderate|strong` - and both print exactly
+`{"enhancement_spec": {"visual_effects": []}}`. The four drop sentences went to stderr, which is
+`pipeline_output/logs/run_*.log` and nothing else; §13's ruling on the bookend that vanished into a
+log line applies unchanged. An edit could ship with no effects that nobody decided to leave out.
+
+### What was built
+
+`library/tools/vfx_plan_basis.py` and `enhancement_spec.planning_basis`. The two empty plans are now:
+
+    {"basis": "no_effects_planned",  "proposed": 0, "resolved": 0, "dropped": []}
+    {"basis": "every_entry_dropped", "proposed": 4, "resolved": 0, "dropped": [ ...four... ]}
+
+`compile_manifest` reads it and names the casualties, because that is where the absence becomes
+final. It fails on none of them: `may_be_empty: true` is untouched, and whether a dropped entry
+should refuse the step the way an unplayable sound refuses 4.04 is recorded in
+`THE_REFUSAL_QUESTION` rather than settled here.
+
+**Not measured, and stated as such:** whether the planner still answers empty now that the
+candidate table is real. That needs a run of step 4.03, and 001 was not re-run, not re-rendered and
+its timeline not opened. Every number above is `replay_bench` reconstruction, a post-bridge
+subprocess, or arithmetic over frozen JSON.

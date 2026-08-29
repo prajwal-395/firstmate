@@ -47,6 +47,7 @@ from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
 from library.tools.transition_carriers import block_reaches_v1
+from library.tools.vfx_plan_basis import basis_summary
 from tools.spine_contract import (
     MAX_DECLARED_BLACK_BEAT_SECONDS,
     is_speech_block,
@@ -1618,6 +1619,24 @@ def compile_manifest(out_dir: str) -> dict:
     for v in vfx:
         if v.get("timeline_end", 0) > total_duration:
             v["timeline_end"] = total_duration
+
+    # Why the plan is the length it is.  An empty `visual_effects` used
+    # to read the same whether step 4.03's planner chose stillness or
+    # named effects the post-bridge could not build, and the drop
+    # reasons went only to that step's stderr.  This is where the
+    # absence becomes final, so it is where it is said.
+    # See `library/tools/vfx_plan_basis.py`.
+    if isinstance(vfx_container, dict):
+        vfx_basis = vfx_container.get("planning_basis")
+        if isinstance(vfx_basis, dict) and vfx_basis.get("basis"):
+            logger.info("%s", basis_summary(vfx_basis))
+            if vfx_basis["basis"] == "every_entry_dropped":
+                for drop in vfx_basis.get("dropped") or []:
+                    logger.warning(
+                        "  VFX not built: block %s asked for %r - %s",
+                        drop.get("target_block_position"),
+                        drop.get("effect_type"), drop.get("reason"),
+                    )
 
     # ── Generator overlays ──
     # Generator presets (particles, backgrounds, etc.) produce content from
