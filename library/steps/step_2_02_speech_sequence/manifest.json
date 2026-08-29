@@ -35,6 +35,12 @@
         "type": "array",
         "required": true,
         "description": "State input: temporal_index"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: clip_catalog. Read for the clip_id the rest of this step's context uses; `view:picture` keys its rows by it. Optional because the view names the vision pass's own id and says so when no clip list is routed."
       }
     ],
     "outputs": [
@@ -102,7 +108,7 @@
     "creative_direction",
     "project_config",
     "semantic_analysis_documents.*.clip_id",
-    "semantic_analysis_documents.*.blocks",
+    "view:picture",
     "semantic_analysis_documents.*.duration_s",
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.motion",
@@ -118,6 +124,8 @@
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "semantic_analysis_documents.*.assessment.unusable_ranges",
-    "temporal_index.*.clip_id"
+    "temporal_index.*.clip_id",
+    "clip_catalog.*.clip_id",
+    "clip_catalog.*.filename"
   ]
 }

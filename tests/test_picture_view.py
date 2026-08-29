@@ -1,21 +1,28 @@
-"""The creative director can see past the first nineteen seconds.
+"""Every step that decides from a shot sees the whole clip, not its opening.
 
-`creative_direction` chose the story from `analysis.scene`, which is
-`scene[]` rendered as prose.  On project 001 `scene[]` is ONE segment for
-sixteen of the seventeen clips, so `IMG_1816_v3` - 188.6 seconds, and the
-source of seven of the ten spoken lines in the final cut - was described
-to the step as "[0.0-18.9s] Outdoor urban area with a parking lot and
-construction site...".  That is 10% of the clip, and the step that decides
-what the video is about was deciding it from the opening.
+`analysis.scene` is `scene[]` rendered as prose, and on project 001
+`scene[]` describes 374.2 s of 807.0 s - 46.4%.  `IMG_1816_v3` is 188.6
+seconds, supplies seven of the eleven A-roll blocks in the finished cut,
+and is described for 18.9 of them.  Five of the sixteen source windows
+the video actually plays fall outside the described range; all sixteen
+fall inside the vision pass's per-window action records, which reach the
+last second of all seventeen clips.
 
-The material was already measured and already reaching other steps: the
-vision pass writes an action window per ~10 seconds, 19 of them for that
-clip, and `vision_schema_adapter` renders them as `blocks`.
 `view:picture` is the reading of those records - what happens, in which
-clip, between which two seconds.
+clip, between which two seconds - and 2.01, 2.02, 3.02, 4.02, 4.03 and
+4.04 all declare it.
+
+**It is not a substitute for `scene[]`.**  `scene[]` says WHERE (location,
+type, lighting, notable features); the action windows say WHAT HAPPENS.
+The view goes beside `analysis.scene`, never in place of it, and a step
+that drops the place axis fails below.
+
+Rows are keyed by the CATALOG clip id wherever a routed clip list makes
+that join possible, because that is the id every other table in a
+planning step's context uses (AGENTS.md 10.1).
 
 What a scene boundary should MEAN is a separate, open question (#225);
-this does not touch `scene[]`.
+why `scene[]` covers 46.4% is #302.  Neither is touched here.
 """
 
 import json
@@ -105,3 +112,115 @@ def test_the_view_reaches_the_prompt_and_survives_a_second_projection():
     twice = project_fields(once, cf)
     assert twice["picture"] == once["picture"]
     assert "The person is looking upwards as if speaking." in json_to_toon(twice)
+
+
+# The join. Documents are keyed by file stem; every table a planning step
+# reasons over is keyed by the catalog's synthetic id (AGENTS.md 10.1), and
+# a table the step cannot join to its own spine says nothing - which is
+# what step 2.02 reported about `topics_toon`.
+CATALOG = [
+    {"clip_id": "clip_011", "file_path": "/p/raw/IMG_1816.MOV"},
+    {"clip_id": "clip_014", "file_path": "/p/raw/IMG_1819.MOV"},
+]
+
+JOINABLE_DOCS = [
+    {**DOCS[0], "file_path": "/p/raw/IMG_1816.MOV"},
+    {**DOCS[1], "file_path": "/p/raw/IMG_1819.MOV"},
+]
+
+
+def test_rows_are_keyed_by_the_clip_id_the_rest_of_the_context_uses():
+    view = build_view("picture", {
+        "semantic_analysis_documents": JOINABLE_DOCS,
+        "clip_catalog": CATALOG,
+    })
+    assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
+    assert "clip_014" in view["picture"]["not_described"]
+
+
+def test_the_assignments_serve_as_the_clip_list_when_the_catalog_is_not_routed():
+    """`plan_vfx` is routed the A-roll assignments, not the catalog."""
+    view = build_view("picture", {
+        "semantic_analysis_documents": JOINABLE_DOCS,
+        "a_roll_assignments": [{"video_segments": [
+            {"clip_id": "clip_011", "source_file": "/p/raw/IMG_1816.MOV"}]}],
+    })
+    assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
+
+
+def test_a_document_no_routed_clip_list_names_keeps_its_own_id_and_says_so():
+    """A MIXED table is the dangerous one - nothing on a row says which id
+    space it is in, so the absence is stated."""
+    view = build_view("picture", {
+        "semantic_analysis_documents": JOINABLE_DOCS,
+        "clip_catalog": [CATALOG[1]],
+    })
+    assert {r["clip_id"] for r in view["picture"]["observed"]} == {"IMG_1816_v3"}
+    assert "IMG_1816_v3" in view["picture"]["not_in_the_clip_list"]
+
+
+def test_with_no_clip_list_at_all_nothing_is_flagged():
+    view = build_view("picture", {"semantic_analysis_documents": DOCS})
+    assert "not_in_the_clip_list" not in view["picture"]
+
+
+def test_the_view_reads_the_nested_step_output_too():
+    """`plan_transitions` is routed the whole step 1.03 output."""
+    view = build_view("picture", {
+        "semantic_analysis": {"semantic_analysis_documents": JOINABLE_DOCS},
+        "clip_catalog": CATALOG,
+    })
+    assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
+
+
+# Which steps decide from what a shot looks like. Each of these was checked
+# against its own handoff and its reasoning trace on the run of record; the
+# other six of the twelve are named in the commit message with the reason
+# they are not here.
+PICTURE_DECIDING_STEPS = [
+    "step_2_01_creative_direction",
+    "step_2_02_speech_sequence",
+    "step_3_02_select_broll",
+    "step_4_02_plan_transitions",
+    "step_4_03_plan_vfx",
+    "step_4_04_plan_sfx",
+]
+
+
+def test_every_step_that_decides_from_a_shot_sees_the_whole_clip():
+    for step in PICTURE_DECIDING_STEPS:
+        m = manifest(step)
+        cf = m["context_fields"]
+        assert "view:picture" in cf, (
+            f"{step} decides from what a shot looks like and does not "
+            f"declare view:picture")
+        routed = {i["name"] for i in m["interface"]["inputs"]}
+        assert routed & {"semantic_analysis_documents", "semantic_analysis"}, (
+            f"{step} declares the view but is not routed the input it reads")
+
+
+def test_no_picture_deciding_step_still_reads_the_raw_blocks():
+    """`blocks` in a TOON cell is 33,098 B of json.dumps on 001 against the
+    view's 10,508, and `speech_sequence` was the one still getting it."""
+    for step in PICTURE_DECIDING_STEPS:
+        cf = manifest(step)["context_fields"]
+        assert "semantic_analysis_documents.*.blocks" not in cf, step
+
+
+def test_the_place_axis_is_not_dropped_for_the_action_axis():
+    """`blocks[]` is not a substitute for `scene[]`.
+
+    `scene[]` carries location, type, lighting and notable_features and on
+    001 covers 374.2 s of 807.0 s; the action windows carry what happens
+    and reach the last second of all seventeen clips. They are different
+    axes, so the view is added beside `analysis.scene`, never in place of
+    it. `plan_transitions` reads the same measurements through its own
+    pre-bridge table instead.
+    """
+    for step in PICTURE_DECIDING_STEPS:
+        if step == "step_4_02_plan_transitions":
+            continue
+        cf = manifest(step)["context_fields"]
+        assert any(p.endswith("analysis.scene") or p.endswith(".scene")
+                   for p in cf), (
+            f"{step} lost the only description of WHERE the clip is")

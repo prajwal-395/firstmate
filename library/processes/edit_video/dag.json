@@ -673,6 +673,13 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "speech_sequence",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "creative_direction",
       "to": "mesh_spine",
       "data_mapping": {
@@ -827,6 +834,13 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "plan_vfx",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "select_broll",
       "to": "plan_vfx",
       "data_mapping": {
@@ -921,6 +935,7 @@
       "from": "catalog",
       "to": "plan_sfx",
       "data_mapping": {
+        "clip_catalog": "clip_catalog",
         "project_fps": "project_fps"
       }
     },

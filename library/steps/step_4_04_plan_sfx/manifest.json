@@ -65,6 +65,12 @@
         "type": "number",
         "required": true,
         "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: clip_catalog. Read for the clip_id the rest of this step's context uses; `view:picture` keys its rows by it. Optional because the view names the vision pass's own id and says so when no clip list is routed."
       }
     ],
     "outputs": [
@@ -162,6 +168,9 @@
     "semantic_analysis_documents.*.analysis.audio_prediction",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.content_type",
-    "temporal_event_indices.*.clip_id"
+    "temporal_event_indices.*.clip_id",
+    "view:picture",
+    "clip_catalog.*.clip_id",
+    "clip_catalog.*.filename"
   ]
 }

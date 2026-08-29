@@ -150,6 +150,7 @@
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
     "-timed_spine.structure.*.content.word_timestamps",
-    "temporal_event_indices.*.clip_id"
+    "temporal_event_indices.*.clip_id",
+    "view:picture"
   ]
 }

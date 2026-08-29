@@ -972,9 +972,80 @@ What the view leaves out, and why:
 - `label` is `_scene_location_at`, which reads `scene[]` - the field that is degenerate in the first place, and reads "action" for most rows.
 - The raw records: `timestamp_range` duplicates `start`/`end` in another unit, and `speech_cue` is null on all 86.
 
-Cost: `creative_direction`'s context 26,668 B -> 31,321 B, +17.4%. It is the one context of the ten that grows, and it buys the step 170 seconds of a clip it was blind to.
+Cost: `creative_direction`'s context 26,668 B -> 31,321 B, +17.4%. It bought the step 170 seconds of a clip it was blind to.
 
-What a scene boundary should MEAN is a separate, open captain decision (#225) and this does not touch `scene[]`.
+What a scene boundary should MEAN is a separate, open captain decision (#225) and this does not touch `scene[]`. Why `scene[]` covers only 46.4% of 001 is #302, and it is not established.
+
+#### The other five steps, and what `blocks[]` is not
+
+Measured on 001's own `pipeline_data.json`, 2026-08-28, 17 clips and 807.0 s of footage.
+Coverage is the union of the described intervals; extent is how far the last record reaches, clamped to the clip's duration (`scene[]`'s bounds are rounded to whole seconds and overshoot four short clips by up to 0.5 s).
+
+| clip | duration | `scene[]` extent | `scene[]` cov. | `blocks[]` extent | `blocks[]` cov. |
+|---|---|---|---|---|---|
+| IMG_1816 | 188.6 s | 18.9 s | 10% | 188.6 s | 100% |
+| IMG_1812 | 139.1 s | 13.9 s | 10% | 139.1 s | 100% |
+| IMG_1818 | 85.5 s | 15.0 s | 18% | 85.5 s | 100% |
+| IMG_1822 | 85.8 s | 85.8 s | 100% | 85.8 s | 100% |
+| IMG_1820 | 52.5 s | 15.0 s | 29% | 52.5 s | 81% |
+| IMG_1817 | 41.5 s | 41.5 s | 100% | 41.5 s | 52% |
+| IMG_1809 | 26.8 s | 26.8 s | 100% | 26.8 s | 63% |
+| **all 17** | **807.0 s** | - | **374.2 s = 46.4%** | 100% on 17/17 | **767.0 s = 95.0%** |
+
+`camera[]`, the third axis, covers 685.0 s = 84.9%.
+
+**`blocks[]` is not a substitute for `scene[]`; it is the other axis.**
+`scene[]` carries `location`, `type`, `lighting` and `notable_features` - where the clip is and what it looks like.
+The action windows carry what the subject does.
+On IMG_1816 `scene[]` says "Outdoor urban area with a parking lot and construction site" for 0-18.9 s and the windows say "The person is looking towards the left side of the frame" for 0-188.6 s; neither answers the other's question, and `blocks[].label` is `scene[]`'s own location, so it reads `"action"` for 17 of that clip's 19 records.
+So the view is declared BESIDE `analysis.scene`, never in place of it, and `tests/test_picture_view.py` fails a picture-deciding step that drops the place axis.
+
+**What the truncation cost, on the windows that were actually cut.**
+Of the 16 source windows the finished 59.4 s video plays - 11 A-roll, 5 B-roll - **11 of 16 lie wholly inside `scene[]`'s described range and 16 of 16 lie inside `blocks[]`'s.**
+The five outside are all `clip_011`/IMG_1816, at 17.67-20.35 s (46% described), 24.17-26.87 s, 63.13-66.67 s, 100.52-116.51 s and 119.23-121.94 s (0% described) - which is what step 2.02 recorded at the time: *"I have selected 27 seconds of a clip I cannot see."*
+
+**The six steps that decide from a shot, and the six that do not.**
+Checked against each handoff and, where one exists, that step's reasoning trace from the 2026-08-26 run.
+
+| step | decides from the picture? | what it does about it |
+|---|---|---|
+| 1.03 `semantic_analysis` | no - it MAKES the description, and its LLM schema is `[]` | - |
+| 2.01 `creative_direction` | yes - picks the story and the key moments | already declared the view |
+| 2.02 `speech_sequence` | yes - *"I have selected 27 seconds of a clip I cannot see"* | raw `blocks` replaced by the view |
+| 2.04 `music_selection` | no - routed no footage at all; decides from the direction and measured audio | - |
+| 2.05 `mesh_spine` | no - pacing, gaps and `music_behavior`; its own trace records *"this step assigns no clips"* and `visual_note` is non-binding guidance from the speech | - |
+| 3.02 `select_broll` | yes - *"my entire subject is what the picture looks like"* | already declared the view |
+| 3.03 `review_rough_cut` | no - routed no footage; reviews the script and the mechanics | - |
+| 4.02 `plan_transitions` | yes - `match_cut` is "shape/motion/composition matching across the cut" | view added; its `cuts_toon` carries the camera axis already |
+| 4.03 `plan_vfx` | yes - "a static talking-head shot held for a long time" | view added |
+| 4.04 `plan_sfx` | yes - whooshes on camera movement, foley establishing a scene | view added |
+| 6.01 `render` | no - technical QA of a manifest | - |
+| 6.02 `validate` | no - measures the rendered file | - |
+
+**The join, and why it is part of the fix.**
+The documents are keyed by file stem and every table a planning step reasons over is keyed by the catalog's `clip_XXX` (section 10.1).
+Handing 4.04 an 86-row table keyed `IMG_1816_v3` would have reproduced the `topics_toon` defect step 2.02 reported - *"the two tables cannot be joined without a mapping the context does not contain"* - and 4.04's context names a source file for only 5 of the 17 clips, none of them the backbone.
+`_picture` therefore joins through `semantic_index.build_semantic_lookup` against `clip_catalog`, `a_roll_assignments` or `b_roll_assignments`, whichever is routed, and a document none of them names keeps its own id and is reported in `not_in_the_clip_list`.
+2.02, 4.03 and 4.04 gained an optional `clip_catalog` edge for it; 2.01 and 3.02 gained `clip_catalog.*.clip_id` so their own catalog table still names the id the rows now use - the 2.01 agent had been deriving that mapping by matching durations.
+
+**What it cost, per step, reconstructed off 001's frozen state with `replay_bench` at `ef3b8f8`:**
+
+| step | before | after | delta |
+|---|---|---|---|
+| 2.01 `creative_direction` | 35,567 B | 35,470 B | **-97 B** |
+| 2.02 `speech_sequence` | 67,582 B | 45,464 B | **-22,118 B (-32.7%)** |
+| 3.02 `select_broll` | 87,413 B | 87,316 B | **-97 B** |
+| 4.02 `plan_transitions` | 55,458 B | 65,709 B | **+10,251 B (+18.5%)** |
+| 4.03 `plan_vfx` | 49,444 B | 60,142 B | **+10,698 B (+21.6%)** |
+| 4.04 `plan_sfx` | 90,395 B | 101,093 B | **+10,698 B (+11.8%)** |
+| 2.04, 2.05, 3.03, 6.01 | unchanged | unchanged | 0 |
+| **net** | | | **+9,335 B** |
+
+2.01 and 3.02 shrink because `clip_011` is shorter than `IMG_1816_v3` on 86 rows, which pays for the `clip_id` column they gained.
+2.02 falls by a third because raw `blocks` reaches a TOON cell as `json.dumps` - 33,098 B on 001 - and the view is 10,508 B of flat table for the same records.
+
+The view is 10,508 B and 86 rows.
+Three ways to make it smaller were considered and none is taken: dropping `visual` for a shorter field leaves nothing (it is already the only column of the four that is prose); restricting the rows to the clips a step actually places is a judgement about which clips matter that the view has no input to make and 2.01 could not make at all, since nothing is placed when it runs; and the path-plus-map route `brief_reference.py` uses needs a harness that reads files, which under `api` there is not - and it would trade 10.5 KB for a route the model may not follow.
 
 ### the-apostrophe-was-doubled-in-every-prompt
 

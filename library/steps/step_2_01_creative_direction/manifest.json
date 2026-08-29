@@ -111,6 +111,7 @@
     "view:picture",
     "view:transcript",
     "view:prosody",
+    "clip_catalog.*.clip_id",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds"
   ]

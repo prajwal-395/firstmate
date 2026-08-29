@@ -47,6 +47,12 @@
         "type": "string",
         "required": false,
         "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: clip_catalog. Read for the clip_id the rest of this step's context uses; `view:picture` keys its rows by it. Optional because the view names the vision pass's own id and says so when no clip list is routed."
       }
     ],
     "outputs": [
@@ -128,6 +134,9 @@
     "semantic_analysis_documents.*.analysis.motion",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.content_type",
-    "semantic_analysis_documents.*.assessment.camera_stability"
+    "semantic_analysis_documents.*.assessment.camera_stability",
+    "view:picture",
+    "clip_catalog.*.clip_id",
+    "clip_catalog.*.filename"
   ]
 }

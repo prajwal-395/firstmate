@@ -117,6 +117,55 @@ def _prosody(data: dict) -> dict:
     return {"prosody": view}
 
 
+def _catalog_clip_ids(data: dict) -> dict:
+    """The document id -> catalog clip id map, from whatever names both.
+
+    The documents are keyed by FILE STEM (`IMG_1816_v3`) and every table a
+    planning step reasons over is keyed by the catalog's synthetic id
+    (`clip_011`) - AGENTS.md 10.1.  A table the step cannot join to its own
+    spine is the `topics_toon` defect: step 2.02 reported it as "the two
+    tables cannot be joined without a mapping the context does not
+    contain", and answered from a mapping it had derived at an earlier
+    step instead.
+
+    Returns {the document's own clip_id: the catalog clip_id}.  The join
+    needs a list carrying both a clip_id and a path.  The catalog
+    is the one that carries every clip; the A-roll and B-roll assignments
+    carry the placed ones and are what a planning step is routed when it
+    is not routed the catalog.  A document that joins to none of them
+    keeps the id it came with.
+    """
+    from library.tools.semantic_index import build_semantic_lookup
+
+    entries = []
+    for key in ("clip_catalog", "a_roll_assignments", "b_roll_assignments"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            value = list(value.values())
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            entries.append(item)
+            # An A-roll assignment names its clips one level down.
+            for seg in item.get("video_segments") or []:
+                if isinstance(seg, dict):
+                    entries.append(seg)
+    if not entries:
+        return {}
+
+    docs = data.get("semantic_analysis_documents")
+    if docs is None:
+        docs = data.get("semantic_analysis")
+    lookup = build_semantic_lookup(docs, entries)
+    return {
+        str(doc.get("clip_id")): cid
+        for cid, doc in lookup.items()
+        if isinstance(doc, dict) and doc.get("clip_id")
+    }
+
+
 def _picture(data: dict) -> dict:
     """What the footage SHOWS, across the WHOLE clip, one row per record.
 
@@ -130,9 +179,16 @@ def _picture(data: dict) -> dict:
 
     The material was already there and going to other steps: the vision
     pass writes one action window per ~10 seconds - 19 of them for that
-    clip, 86 across 001's seventeen, covering 95% of the footage - and
-    `vision_schema_adapter` renders them as `blocks`.  `speech_sequence`
-    is routed them; `creative_direction` was not.
+    clip, 86 across 001's seventeen, covering 95% of the footage and
+    reaching the last second of every one of the seventeen - and
+    `vision_schema_adapter` renders them as `blocks`.
+
+    **This is not a substitute for `scene[]`, and must not be read as
+    one.**  `scene[]` says WHERE the clip is - location, type, lighting,
+    notable features - and on 001 it says it for 46.4% of the footage.
+    The action windows say WHAT HAPPENS, for all of it.  A step that needs
+    the place still declares `analysis.scene`; this is the other axis, and
+    it is the one that covers the whole clip.
 
     One row per record, not the raw records: `body_language` restates the
     same moment as posture and expression and costs 2.4x the bytes of
@@ -140,20 +196,36 @@ def _picture(data: dict) -> dict:
     is degenerate in the first place.  `visual` is the reading that
     answers "what happens in this clip, and when".
 
+    Rows are keyed by the CATALOG clip id wherever the routed inputs make
+    that join possible (`_catalog_clip_ids`), because that is the id every
+    other table in a planning step's context uses.
+
     A clip the vision pass described no action for is NAMED rather than
     silently absent - the same rule `_prosody` follows.
     """
     docs = data.get("semantic_analysis_documents")
+    if docs is None:
+        # `plan_transitions` is routed the whole step 1.03 output under
+        # `semantic_analysis`; the documents are the same list.
+        docs = data.get("semantic_analysis")
     if isinstance(docs, dict):
-        docs = list(docs.values())
+        if "semantic_analysis_documents" in docs:
+            docs = docs["semantic_analysis_documents"]
+        else:
+            docs = list(docs.values())
     if not isinstance(docs, list):
         return {}
 
-    rows, undescribed = [], []
+    joined = _catalog_clip_ids(data)
+
+    rows, undescribed, unjoined = [], [], []
     for doc in docs:
         if not isinstance(doc, dict):
             continue
-        clip_id = doc.get("clip_id")
+        own_id = doc.get("clip_id")
+        clip_id = joined.get(str(own_id), own_id)
+        if joined and own_id and str(own_id) not in joined:
+            unjoined.append(str(own_id))
         described = False
         for block in doc.get("blocks") or []:
             if not isinstance(block, dict):
@@ -179,6 +251,15 @@ def _picture(data: dict) -> dict:
         view["not_described"] = (
             f"{len(undescribed)} clip(s) have no observed action to show: "
             + ", ".join(sorted(undescribed))
+        )
+    if unjoined:
+        # A MIXED table is the dangerous one: some rows key to the clip
+        # ids the rest of the context uses and some do not, and nothing
+        # on the row says which.  Say it rather than let it be inferred.
+        view["not_in_the_clip_list"] = (
+            f"{len(unjoined)} clip(s) are named by the vision pass's own id "
+            f"because no routed clip list names them: "
+            + ", ".join(sorted(unjoined))
         )
     return {"picture": view}
 
