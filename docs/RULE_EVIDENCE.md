@@ -5545,3 +5545,109 @@ IMG TAG PAINTED: <img src="/Users/prajwal/.vep_panel/frames/ask_frame.20260830T1
 It goes through `richtext.image`, which is the same helper the Timeline tab uses to draw
 `strip.png` - the route `6_timeline.png` in `docs/panel/` already shows drawing, and the one
 `Label.Pixmap` silently does not.
+
+## The menu entries that did nothing
+
+Filed 2026-08-30. The rule is AGENTS.md section 15, "What Resolve's script host does not give
+an entry point".
+
+### What the captain saw
+
+They clicked **Workspace > Scripts > VEP Pipeline Panel**. Nothing opened. They clicked
+**Workspace > Scripts > Capture Frame for Firstmate**. Nothing opened. No window, no message,
+no error dialog - the menu item behaved as though it had done its job.
+
+Resolve's own log, `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/logs/davinci_resolve.log`,
+had both:
+
+```
+2026-08-30 19:14:37 | Traceback (most recent call last):
+  File ".../Fusion/Scripts/Utility/VEP Pipeline Panel.py", line 90, in <module>
+  File ".../Fusion/Scripts/Utility/VEP Pipeline Panel.py", line 81, in _repo_root
+NameError: name '__file__' is not defined. Did you mean: '__name__'?
+
+2026-08-30 19:14:45 | Traceback (most recent call last):
+  File ".../Fusion/Scripts/Utility/Capture Frame for Firstmate.py", line 170, in <module>
+  File ".../Fusion/Scripts/Utility/Capture Frame for Firstmate.py", line 136, in main
+  File ".../Fusion/Scripts/Utility/Capture Frame for Firstmate.py", line 47, in _repo_root
+NameError: name '__file__' is not defined. Did you mean: '__name__'?
+```
+
+### The initiating trigger
+
+`_repo_root()` built its candidates as a TUPLE, so all three were evaluated before the loop
+tested any of them:
+
+```python
+for candidate in (
+    REPO_ROOT,                                                    # correct, and exists
+    os.environ.get("VEP_REPO_ROOT", ""),
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),  # raises, first
+):
+```
+
+The stamped `REPO_ROOT` was right - `/Users/prajwal/.treehouse/video_editing_pilot-9487f5/1/video_editing_pilot`,
+a directory that was still there - and was never looked at. The last-resort fallback was the
+thing that killed it first. That is the general shape and it is worth stating on its own: **an
+eagerly built fallback chain lets a later candidate pre-empt an earlier one that would have
+worked**, and the failure mode is the fallback's, not the answer's.
+
+### The masking condition, which is the part that matters
+
+`__file__` is bound by the interpreter when it runs a script AS A FILE. `importlib`,
+`exec_module`, and `python3 the_file.py` all bind it. **Resolve's own script host does not.**
+
+Every test and every screenshot ran these files the first way. The panel session that shipped
+this produced six screenshots and a responsiveness measurement (303 probes, p50 1.3 ms) and
+not one launch from the menu the captain uses. `tests/test_resolve_script_install.py::test_the_stamped_copy_finds_the_repository`
+called `_repo_root()` on the INSTALLED copy - the exact function, in the exact file, in the
+exact place - and passed, because `exec_module` had bound `__file__` for it.
+
+So the defect was not merely untested. It was on the only path that matters, and every
+available route to it went around.
+
+### What the host does and does not provide, audited
+
+- `__name__` **is** provided, as `"__main__"`. The capture button's traceback runs through its
+  `if __name__ == "__main__":` line, which is only reachable when that comparison is true.
+- `__file__` is **not**.
+- `fusion` and `bmd` **are** injected, before a line of the file runs - which is what makes a
+  window reachable from a script that has imported nothing of ours.
+- `sys.argv` and the working directory are not relied on by either entry point, and
+  `tests/test_resolve_scripts_bootstrap.py` keeps it that way. The one subprocess that needs a
+  directory is handed one explicitly by `frame_attach.call_site`.
+
+### The regression test, and why it is shaped as it is
+
+`tests/test_resolve_scripts_bootstrap.py` runs `exec(compile(src, path, "exec"))` into a
+namespace with no `__file__`, in a subprocess, for every entry point in `resolve_scripts/`.
+Against the code it replaced: **10 failed, 2 passed**. After: **12 passed**. The two that
+passed either way are the `sys.argv`/cwd audit, which was already clean.
+
+It covers the module body AND `_repo_root()` because the defect landed in a different place in
+each file - the panel resolves the root at import, the capture button from inside `main()`.
+
+`__name__` is deliberately NOT set to `"__main__"` in the harness, even though the host sets
+it: under that name these scripts connect to Resolve, and the panel leaves through `os._exit`,
+which would take pytest with it. The defect is reachable without it.
+
+Laziness is proved by a candidate that CANNOT be evaluated: with a stamped root and no
+`__file__`, the third candidate raises if it is computed at all, so returning the stamp is
+itself the evidence it was never reached.
+
+### The two copies
+
+`_repo_root` is duplicated across the two entry points, which is how one bug became two. It
+stays duplicated: the helper's entire job is to find the repository, so any shared copy would
+have to be imported from the thing it has not found yet, and a third file copied beside them in
+the Scripts folder would be a second thing the installer stamps and a second thing that can
+drift. The duplication is instead held by ONE test over BOTH files.
+
+### The stamp
+
+The installed copies pointed at `~/.treehouse/video_editing_pilot-9487f5/1/video_editing_pilot`
+- a disposable worktree. The installer's logic was right; it stamps the checkout it is run
+from, and it had been run from a worktree. It now says so, detecting a LINKED worktree by its
+`.git` being a file rather than a directory - exact, where a path-name guess would not be - and
+installs anyway, because it is the captain's machine. And a stamped path that has gone away now
+produces a stated error rather than another silent death.

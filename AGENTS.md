@@ -1373,6 +1373,18 @@ loop above.
 - **A screenshot of this panel is opened and read before it is committed.** Nothing else tells a picture of the panel from a picture of what was behind it; `docs/panel/README.md` records the one that got through.
 - **Footage Search is deliberately not in the panel.** `library/dashboard/footage_search.py` is the only authorised caller of the footage index (§2) and widening that is the captain's call.
 
+### What Resolve's script host does not give an entry point
+
+**`__file__` IS NOT DEFINED there, and an entry point verified by running it as a FILE has not been verified.**
+Both entry points in `resolve_scripts/` are launched by Resolve's own script host, which defines `__name__` as `"__main__"` but does NOT define `__file__` - and `importlib`, `exec_module` and `python3 the_file.py` all define it, so every route a test or a screenshot takes hides this. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
+
+- **Read `__file__` in ONE place per entry point, inside a helper that answers `""` when it is absent.** Nowhere else, and `tests/test_resolve_scripts_bootstrap.py` fails on a second reader.
+- **A fallback chain is evaluated LAZILY, or the last candidate can kill the first.** `_repo_root()` built its candidates as a tuple, so the `__file__` fallback raised before the stamped `REPO_ROOT` beside it - correct, and pointing at a directory that existed - was ever tested.
+- **A bootstrap failure must reach the SCREEN.** Resolve puts a traceback in `~/Library/Application Support/.../logs/davinci_resolve.log` and nothing in front of the captain, so a script that dies during bootstrap is a menu item that silently does nothing. `print` is the floor - it reaches Resolve's Console before any import of ours has run - and a window built from the injected `fusion`/`bmd` goes on top of it and MAY NOT RAISE. The panel's module body cannot be reached by its own `if __name__ == "__main__":` guard, so it holds its failure in `BOOTSTRAP_ERROR` instead.
+- **Verify from the MENU.** `tests/test_resolve_scripts_bootstrap.py` executes each entry point's bootstrap the way the host does - `exec(compile(...))` into a namespace with no `__file__` - and that is the substitute for a click, not a replacement for one.
+- **The two copies of `_repo_root` stay two.** Its whole job is to find the repository a shared copy would have to be imported from. The duplication is held by ONE test over BOTH files rather than by one function.
+- `sys.argv` and the working directory are not relied on by either file, and the same test keeps it that way.
+
 ### The button that captures the frame
 
 Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the

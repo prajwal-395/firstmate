@@ -40,12 +40,40 @@ REPO_ROOT = ""
 file is run from inside the checkout, where it finds itself."""
 
 
+def _candidate_roots():
+    """Where the repository might be, LAZILY, best answer first.
+
+    A generator rather than a tuple, and that is the whole of the fix
+    for the crash this bootstrap shipped with.  Built eagerly, the last
+    candidate was evaluated before the first was tested, so a candidate
+    that cannot be computed took the script down before the stamped
+    `REPO_ROOT` beside it - correct, and pointing at a directory that
+    existed - was ever looked at.  A fallback must never be able to
+    pre-empt the answer it is a fallback FOR.
+    """
+    yield REPO_ROOT
+    yield os.environ.get("VEP_REPO_ROOT", "")
+    yield _beside_this_file()
+
+
+def _beside_this_file():
+    """The checkout this file sits in, when the host says where that is.
+
+    **Resolve's own script host does not define `__file__`.**  It is
+    defined when a script is run as a file by an interpreter, which is
+    how every test and every screenshot ran this - and never how the
+    captain runs it.  So this is a question that can legitimately go
+    unanswered, and an unanswered question is "", not a traceback.
+    """
+    try:
+        here = __file__
+    except NameError:
+        return ""
+    return os.path.dirname(os.path.dirname(os.path.abspath(here)))
+
+
 def _repo_root():
-    for candidate in (
-        REPO_ROOT,
-        os.environ.get("VEP_REPO_ROOT", ""),
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    ):
+    for candidate in _candidate_roots():
         if candidate and os.path.isfile(
             os.path.join(candidate, "library", "tools", "marker_capture.py")
         ):
@@ -110,28 +138,35 @@ def _window(title, body, ui, dispatcher):
     window.Hide()
 
 
-def main():
-    ui = dispatcher = None
+def _resolve_ui():
+    """`(ui, dispatcher)` when Resolve's own host injected them, else
+    `(None, None)`.
+
+    Only when the host injected `fusion`: run standalone there is nobody
+    looking at a window, and stdout is the right place.  The dispatcher
+    comes from the injected `bmd`, falling back to the library it is a
+    view onto.  It never raises - a UI that will not build must not be
+    able to become the failure it was going to report.
+    """
     try:
         fu = fusion  # noqa: F821 - injected by Resolve's script host
     except NameError:
-        fu = None
-    if fu is not None:
-        # Only when Resolve's own host injected `fusion`: run standalone
-        # there is nobody looking at a window, and stdout is the right
-        # place. The dispatcher comes from the injected `bmd`, falling
-        # back to the library it is a view onto.
+        return None, None
+    try:
+        ui = fu.UIManager
         try:
-            ui = fu.UIManager
-            try:
-                factory = bmd.UIDispatcher  # noqa: F821 - injected too
-            except NameError:
-                import fusionscript
-                factory = fusionscript.UIDispatcher
-            dispatcher = factory(ui)
-        except Exception:
-            traceback.print_exc()
-            ui = dispatcher = None
+            factory = bmd.UIDispatcher  # noqa: F821 - injected too
+        except NameError:
+            import fusionscript
+            factory = fusionscript.UIDispatcher
+        return ui, factory(ui)
+    except Exception:                               # noqa: BLE001
+        traceback.print_exc()
+        return None, None
+
+
+def main():
+    ui, dispatcher = _resolve_ui()
 
     root = _repo_root()
     if not root:
@@ -166,5 +201,35 @@ def main():
     return 0
 
 
+def _bootstrap_failed(detail):
+    """Say it where the captain is, not only in Resolve's log.
+
+    This is the guard the silent menu entry needed.  Clicking Workspace >
+    Scripts and getting NOTHING - no window, no message - is what made a
+    one-line bug cost a dig through
+    `~/Library/Application Support/.../logs/davinci_resolve.log`.
+
+    `print` is the floor: it is available before any import of ours has
+    run and it reaches Resolve's own Console.  A window is attempted on
+    top of it and may not raise, because a report that fails is worse
+    than the plain one it replaced.
+    """
+    body = ("Capture Frame could not start.\n\n" + detail
+            + "\nRe-run scripts/install_resolve_scripts.sh from the "
+              "checkout, or set VEP_REPO_ROOT.")
+    print("Capture Frame - could not start\n" + body)
+    try:
+        ui, dispatcher = _resolve_ui()
+        if ui is not None and dispatcher is not None:
+            _window("Capture Frame - could not start", body, ui, dispatcher)
+    except Exception:                               # noqa: BLE001
+        traceback.print_exc()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        _status = main()
+    except BaseException:                           # noqa: BLE001
+        _bootstrap_failed(traceback.format_exc())
+        _status = 1
+    sys.exit(_status)

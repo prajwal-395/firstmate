@@ -74,12 +74,40 @@ ASK_TIMEOUT_SECONDS = 180
 SCRATCH = os.path.join(os.path.expanduser("~"), ".vep_panel")
 
 
+def _candidate_roots():
+    """Where the repository might be, LAZILY, best answer first.
+
+    A generator rather than a tuple, and that is the whole of the fix
+    for the crash this bootstrap shipped with.  Built eagerly, the last
+    candidate was evaluated before the first was tested, so a candidate
+    that cannot be computed took the panel down before the stamped
+    `REPO_ROOT` beside it - correct, and pointing at a directory that
+    existed - was ever looked at.  A fallback must never be able to
+    pre-empt the answer it is a fallback FOR.
+    """
+    yield REPO_ROOT
+    yield os.environ.get("VEP_REPO_ROOT", "")
+    yield _beside_this_file()
+
+
+def _beside_this_file():
+    """The checkout this file sits in, when the host says where that is.
+
+    **Resolve's own script host does not define `__file__`.**  It is
+    defined when a script is run as a file by an interpreter, which is
+    how every test and every screenshot ran this - and never how the
+    captain runs it.  So this is a question that can legitimately go
+    unanswered, and an unanswered question is "", not a traceback.
+    """
+    try:
+        here = __file__
+    except NameError:
+        return ""
+    return os.path.dirname(os.path.dirname(os.path.abspath(here)))
+
+
 def _repo_root():
-    for candidate in (
-        REPO_ROOT,
-        os.environ.get("VEP_REPO_ROOT", ""),
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    ):
+    for candidate in _candidate_roots():
         if candidate and os.path.isfile(
                 os.path.join(candidate, "library", "tools", "panel",
                              "trace.py")):
@@ -87,9 +115,23 @@ def _repo_root():
     return ""
 
 
-ROOT = _repo_root()
-if ROOT and ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+BOOTSTRAP_ERROR = ""
+"""What went wrong finding the repository, if anything did.
+
+The panel's own crash happened HERE, in the module body, where the
+`if __name__ == "__main__":` guard at the foot of the file cannot reach
+it - so a failure on these two lines is silent by construction.  Holding
+it as a string instead means the one thing this file does before it can
+report anything is also the one thing that cannot stop it reporting.
+"""
+
+try:
+    ROOT = _repo_root()
+    if ROOT and ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+except BaseException:                               # noqa: BLE001
+    ROOT = ""
+    BOOTSTRAP_ERROR = traceback.format_exc()
 
 sys.path.append("/Library/Application Support/Blackmagic Design/"
                 "DaVinci Resolve/Developer/Scripting/Modules")
@@ -1601,23 +1643,100 @@ def _leave(status):
     os._exit(status)
 
 
+def _injected_ui():
+    """`(ui, dispatcher)` when Resolve's own host injected them, else
+    `(None, None)`.
+
+    The floor of what a panel that has imported NOTHING can put on
+    screen.  `fusion` and `bmd` are injected into the script host's
+    namespace before a line of this file runs, so they are reachable
+    even when the bootstrap failed and `library/` was never found.
+    It never raises - a UI that will not build must not be able to
+    become the failure it was going to report.
+    """
+    try:
+        fu = fusion  # noqa: F821 - injected by Resolve's script host
+    except NameError:
+        return None, None
+    try:
+        ui = fu.UIManager
+        try:
+            factory = bmd.UIDispatcher  # noqa: F821 - injected too
+        except NameError:
+            import fusionscript
+            factory = fusionscript.UIDispatcher
+        return ui, factory(ui)
+    except Exception:                               # noqa: BLE001
+        return None, None
+
+
+def _say(title, body):
+    """Say it where the captain is, not only in Resolve's log.
+
+    This is the guard the silent menu entry needed.  Clicking Workspace >
+    Scripts and getting NOTHING - no window, no message - is what made a
+    one-line bug cost a dig through
+    `~/Library/Application Support/.../logs/davinci_resolve.log`.
+
+    `print` is the floor: it is available before any import of ours has
+    run and it reaches Resolve's own Console.  A window is attempted on
+    top of it and may not raise, because a report that fails is worse
+    than the plain one it replaced.
+    """
+    print("%s\n%s" % (title, body))
+    ui, dispatcher = _injected_ui()
+    if ui is None or dispatcher is None:
+        return
+    try:
+        window = dispatcher.AddWindow(
+            {"ID": "vepPanelSays", "WindowTitle": title,
+             "Geometry": [200, 200, 640, 280]},
+            [ui.VGroup([
+                ui.TextEdit({"ID": "Body", "Text": body, "ReadOnly": True,
+                             "Font": ui.Font({"Family": "Menlo",
+                                              "MonoSpaced": True})}),
+                ui.Button({"ID": "Close", "Text": "Close"}),
+            ])],
+        )
+        window.GetItems()["Body"].PlainText = body
+
+        def close(ev):
+            dispatcher.ExitLoop()
+
+        window.On.vepPanelSays.Close = close
+        window.On.Close.Clicked = close
+        window.Show()
+        dispatcher.RunLoop()
+        window.Hide()
+    except Exception:                               # noqa: BLE001
+        traceback.print_exc()
+
+
 def main():
     if not ROOT:
-        print("VEP Pipeline Panel: cannot find the video editing pipeline "
-              "repository. Re-run scripts/install_resolve_scripts.sh from "
-              "the checkout, or set VEP_REPO_ROOT.")
+        _say("VEP Pipeline Panel - could not start",
+             "This script cannot find the video editing pipeline "
+             "repository.\n\nIt looks for, in order: the path stamped in "
+             "by the installer, $VEP_REPO_ROOT, and the checkout this file "
+             "sits in.\n\nStamped: %s\n%s\nRe-run "
+             "scripts/install_resolve_scripts.sh from the checkout, or set "
+             "VEP_REPO_ROOT."
+             % (REPO_ROOT or "(nothing)",
+                "\n" + BOOTSTRAP_ERROR if BOOTSTRAP_ERROR else ""))
         return 3
     try:
         import DaVinciResolveScript as dvr
     except ImportError:
-        print("VEP Pipeline Panel: DaVinci Resolve's scripting modules are "
-              "not importable. Is Resolve installed?")
+        _say("VEP Pipeline Panel - could not start",
+             "DaVinci Resolve's scripting modules are not importable. Is "
+             "Resolve installed?")
         return 3
 
     resolve = dvr.scriptapp("Resolve")
     if resolve is None:
-        print("VEP Pipeline Panel: Resolve is not running, or scripting is "
-              "disabled in Preferences > System > General.")
+        _say("VEP Pipeline Panel - could not start",
+             "Resolve is not running, or scripting is disabled in "
+             "Preferences > System > General.")
         return 2
     ui = resolve.Fusion().UIManager
     dispatcher = dvr.UIDispatcher(ui)
@@ -1630,4 +1749,9 @@ def main():
 
 
 if __name__ == "__main__":
-    _leave(main())
+    try:
+        _status = main()
+    except BaseException:                           # noqa: BLE001
+        _say("VEP Pipeline Panel - could not start", traceback.format_exc())
+        _status = 1
+    _leave(_status)
