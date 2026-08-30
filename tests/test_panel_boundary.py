@@ -184,7 +184,7 @@ def test_the_panel_needs_nothing_beyond_the_standard_library():
 SLOW_CALLS = {"trace.read_state", "trace.step_rows", "trace.trace_step",
               "clip_context.clip_facts", "run_view.preview",
               "run_view.start_run", "run_view.tail_log", "strip.draw",
-              "ask_model"}
+              "ask_model", "grab_frame"}
 
 WORKER_FUNCTIONS = {
     # Functions that exist ONLY as `spawn` targets. Named rather than
@@ -192,6 +192,10 @@ WORKER_FUNCTIONS = {
     # question this test is asking and inferring it would beg it.
     "ask_model", "_read_project", "build_strip", "build_preview",
     "read_tail", "join_clip",
+    # A still is exported to disk through the gallery, which is the
+    # slowest thing the panel asks Resolve for. `ask_with_frame` is the
+    # one job that grabs it and then asks about it.
+    "grab_frame", "ask_with_frame",
 }
 
 

@@ -5368,3 +5368,180 @@ All real, all fixed in the same pass:
   and sat a finished run's settings beside "no run up" as though they described something
   happening. It reads `No run is going.  Last run: ...` and names the mode as the LAST run's,
   which is what `pipeline_run.json` holds.
+
+## the-model-was-told-a-filename-and-not-shown-the-frame
+
+The join (`the-panel-handed-the-model-a-filename`) stopped the panel handing the model a
+filename and started it handing over what the pipeline MEASURED. This is the other half of
+the same steer: **a measurement reads the whole clip, and the captain is asking about one
+frame.**
+
+Nothing here was invented. The scout's report of 2026-08-30 had already proved every piece:
+`marker_capture.grab_still` returns the graded, conformed timeline frame and restores the
+gallery; an image reaches the model over the panel's existing keyless CLI path; and the one
+thing that would silently break it is a working directory the CLI will not read out of.
+
+### The wall, reproduced and closed, through the panel's own `ask_model`
+
+Same PNG, same call, same model. The only difference is where the process ran.
+
+```
+image: /var/folders/.../wall_scratch_7thl7o2g/frames/ask_frame.20260830T193617354611Z.png
+
+======================================================================
+BEFORE - the call the panel used to make (cwd inherited)
+  reaches_the_file() says: False
+  cwd used: /var/folders/.../wall_elsewhere_znhmroat
+  seconds: 6.5  ok: True
+  --- answer ---
+  I need permission to read the PNG file. Please grant access so I can open it and
+  answer your question about the white vertical line and timecode.
+
+======================================================================
+AFTER  - frame_attach.call_site()
+  reaches_the_file() says: True
+  cwd used: /var/folders/.../wall_scratch_7thl7o2g/frames
+  seconds: 11.5  ok: True
+  --- answer ---
+  I opened the file successfully.
+  **What the white vertical line marks:** ... the white vertical line marks Resolve's
+  live playhead position - the current frame being viewed.
+  **Timecode printed beside it:** The panel header shows the playhead is at 00:00:13:04.
+```
+
+**`ok: True` in both.** The CLI exits 0 and writes a plausible English sentence, so nothing
+downstream can tell the failure from an unhelpful answer - which is why the fix is a test
+that fails against the old call shape and not a code comment.
+
+Two routes close it and either is fine. `cwd` was chosen because the panel had never set
+one at all, so the call inherited whatever Resolve was launched with; `--add-dir` is a flag
+on a CLI whose interface is not ours, and a renamed flag fails exactly as silently as no
+flag. `frame_attach.reaches_the_file` is what the test asserts, so what is pinned is *the
+call can read the still* - `--add-dir` satisfies it too.
+
+### The before and after, same question, same clip, same model
+
+`Pipeline_Edit_2` at 00:00:13:04, picture IMG_1822.MOV, `claude-haiku-4-5-20251001`, minutes
+apart. Question: *"Is the person in this shot sharp and well framed, or is something wrong
+with the picture? Answer about what is on screen at the playhead."*
+
+**Without the frame** (3,500 characters of context, 10.1 s):
+
+> ... **the pipeline did not measure sharpness or focus quality.** It observed the shot as
+> "dimly lit interior" with medium framing and a person talking to camera, but could not
+> assess whether focus is sharp or the composition is well-balanced - that's a visual
+> judgment call on your end. ... **Look at the frame yourself to judge focus and
+> composition.**
+
+**With it** (4,240 characters, 15.0 s):
+
+> The person is **sharp and well-framed**. On screen: the subject's face is acceptably
+> sharp - eyes, features are clear. Medium framing is good: chest-up composition with
+> natural headroom, centered in the car interior context. The lit building visible through
+> the window adds environmental depth. ... Minor note: the left hand shows some motion blur
+> from gesturing, but that's typical for a talking-head shot.
+
+The still was opened and read before this was written. It is 1080x1920 - the delivered
+vertical frame with the burned-in caption on it, not the 1920x1080 source - and every claim
+checks out: a car interior at night, chest-up centred framing, a lit building through the
+window on the left, and a raised gesturing hand that is blurred while the face is not.
+**The answer without the frame is not wrong. It is a correct refusal, and the frame is what
+turns it into an answer.**
+
+### What the picture costs
+
+Measured on the run above: **the grab is 0.2-0.3 s** and the model call goes from 10.1 s to
+15.0 s, so about **5 seconds a question**, plus ~740 characters of prompt. It is attached on
+every ask rather than on request, because a question about the picture is the common case
+and a five-second cost the captain did not choose beats an answer that says "look at it
+yourself". `VEP_PANEL_NO_FRAME=1` declines it with no change to a panel the captain has
+already seen.
+
+Disk is the other cost and it is not small: an exported still is a FIXED 6,232,792 bytes off
+this timeline whatever is in it, so the scratch is pruned to `KEEP_FRAMES` (10, ~62 MB).
+The stills are not overwritten into one file, because an answer names the picture it was
+given and two asks a second apart would leave the first answer pointing at the second
+question's frame.
+
+### The loop kept moving, measured rather than asserted
+
+The real panel, its real widgets, its own `on_ask` handler, printing its heartbeat each
+second. Idle is ~37 passes a second; the worst second with the grab and the call in flight
+was 31.
+
+```
+[  4.0s] --- pressing Ask (beat 140) ---
+[  4.2s] beats=141    jobs in flight=1   askstate: grabbing the frame, then asking claude-haiku-...
+[  9.3s] beats=326    jobs in flight=1   askstate: grabbing the frame, then asking claude-haiku-...
+[ 14.3s] beats=511    jobs in flight=1   askstate: grabbing the frame, then asking claude-haiku-...
+[ 15.3s] beats=545    jobs in flight=0   askstate: answered in 10.8s by claude-haiku-4-5-20251001
+                                                  - frame at 00:00:13:04 attached
+beats per second: [35, 37, 37, 31, 38, 37, 37, 37, 36, 37, 37, 36, 37, 38, 34, 38, ...]
+MIN beats in any one second while a job was in flight: 31
+```
+
+Before and after the grab the gallery read `Stills 1: 0 stills` and the timeline still had 8
+V1 and 5 V2 items with the playhead where the captain left it. `marker_capture` puts the
+gallery back, and this route inherits that.
+
+### A grab that cannot happen still asks the question
+
+```
+frame.attached: False
+describe(): no frame attached - frame attachment is off for this panel (VEP_PANEL_NO_FRAME is set)
+--- what the model is told ---
+THE FRAME THE EDITOR IS LOOKING AT
+
+No frame was attached to this question: frame attachment is off for this panel
+(VEP_PANEL_NO_FRAME is set).
+Answer from the measurements below alone, and say plainly that you could not see the picture.
+--- answer ---
+I couldn't see the picture - frame attachment is off for this panel.
+Based only on the clip metadata, IMG_1822.MOV appears to be a dimly lit car interior ...
+```
+
+A playhead over a gap, a timeline with nothing open and a still Resolve declines are all
+ordinary, and none of them is worth failing a question over. Every refusal `marker_capture`
+raises becomes that stated reason.
+
+### How the model is told what it is seeing, and why in those words
+
+Three sentences, each against a way the answer goes wrong without it:
+
+* **the absolute path, with "Read it"** - the picture reaches the model because the prompt
+  names a file it can open, so the path is an instruction and not a caption;
+* **"the GRADED, CONFORMED timeline frame ... not the raw source file"** - otherwise a
+  colour or framing question is answered about a different picture, 63.35/255 different on
+  `marker_capture`'s own measurement;
+* **"It is ONE INSTANT ... everything below was measured over the WHOLE clip"** - this is
+  the one that matters. Without it a disagreement between the picture and the measurements
+  reads as a contradiction rather than as two different spans, and the scout's step 2
+  evidence is that the model describes a picture very literally once it has one.
+
+### What was NOT built
+
+Region marking and freehand drawing - options B and C of the scout's report, both gated on
+the open captain decision `annotate-means-sketch-or-point`. No tile grid, no `drawbox`, no
+click-a-region.
+
+### What could not be shown
+
+**A screenshot of the panel with the frame in it.** The captain's display was asleep and a
+full-screen capture came back entirely black - which is precisely the mistake
+`docs/panel/README.md` records, and waking their machine for a picture is not this task's to
+do. What was recorded instead is the HTML the widget was really handed, live, from a real
+run:
+
+```
+IMG TAG PAINTED: <img src="/Users/prajwal/.vep_panel/frames/ask_frame.20260830T194208184801Z.png" width="320">
+  file exists: True  bytes: 6232792
+
+... <h3>the frame that went with it</h3><img src="...ask_frame...png" width="320">
+<div class="dim">frame at 00:00:13:04 attached (5.9 MB, grabbed in 0.2s)</div>
+<div class="dim">/Users/prajwal/.vep_panel/frames/ask_frame.20260830T194208184801Z.png</div>
+<h3>how it was asked</h3><div class="dim">4082 characters of context, 11.9s round trip ...
+```
+
+It goes through `richtext.image`, which is the same helper the Timeline tab uses to draw
+`strip.png` - the route `6_timeline.png` in `docs/panel/` already shows drawing, and the one
+`Label.Pixmap` silently does not.

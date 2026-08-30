@@ -243,11 +243,77 @@ def find_project_from_timeline(timeline):
     return None
 
 
+# ── The frame the captain is looking at ──────────────────────────────
+
+def grab_frame(resolve, frame_attach, scratch=SCRATCH):
+    """The still under the playhead, into the panel's own scratch.
+
+    Worker thread only - a grab is an export to disk and a gallery
+    round trip, and 0.5 seconds of it on the loop is 0.5 seconds of a
+    frozen panel.
+
+    **There is exactly one frame grabber and this is not it.**
+    `marker_capture.grab_still` returns the graded, conformed timeline
+    frame and puts the gallery back as it found it, both measured
+    (AGENTS.md section 15); this function only decides which timeline to
+    ask and where to put the answer. The destination is the panel's
+    `SCRATCH`, never `<project>/marker_feedback/stills/`: that directory
+    is `Kind.CAPTURED` and holds frames the captain deliberately kept,
+    and a question's frame is remade by asking again.
+
+    Every refusal comes back as a `Frame` carrying its REASON, so the
+    question still goes with the text context and the answer says what
+    could not be seen. A playhead over a gap, a timeline with nothing
+    open, a still Resolve declines: all of them are Tuesday, and none of
+    them is worth failing a question over.
+    """
+    started = time.time()
+    if frame_attach.disabled_by_environment():
+        return frame_attach.Frame(reason=frame_attach.DISABLED)
+    timecode = ""
+    try:
+        from pathlib import Path
+
+        from library.tools import marker_capture
+
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject() if manager else None
+        if not project:
+            return frame_attach.Frame(reason=frame_attach.NO_PROJECT)
+        timeline = project.GetCurrentTimeline()
+        if not timeline:
+            return frame_attach.Frame(reason=frame_attach.NO_TIMELINE)
+        playhead = marker_capture.read_playhead(timeline)
+        timecode = playhead.timecode
+        destination = Path(frame_attach.still_destination(scratch))
+        result = marker_capture.grab_still(timeline, project, destination)
+        frame_attach.prune_frames(scratch)
+        return frame_attach.Frame(
+            path=str(result.path), timecode=timecode,
+            seconds=round(time.time() - started, 1),
+            size_bytes=result.path.stat().st_size)
+    except Exception as exc:                        # noqa: BLE001 - reported
+        return frame_attach.Frame(
+            reason="%s: %s" % (type(exc).__name__, exc), timecode=timecode,
+            seconds=round(time.time() - started, 1))
+
+
 # ── The model, keylessly ─────────────────────────────────────────────
 
 def ask_model(question, context_block, model=MODEL,
-              timeout=ASK_TIMEOUT_SECONDS):
-    """Shell out to an ALREADY-AUTHENTICATED CLI. Worker thread only."""
+              timeout=ASK_TIMEOUT_SECONDS, call_site=None, frame=None):
+    """Shell out to an ALREADY-AUTHENTICATED CLI. Worker thread only.
+
+    **The call runs where it can read what the prompt points at.** The
+    CLI will not open a file outside its working directory, and until
+    this took a `call_site` the panel never set one - so it inherited
+    whatever Resolve was launched with. The scout measured the failure
+    that comes out the other side: the same image, the same call, a
+    different cwd, and the model answering *"I need permission to read
+    the screenshot file"*, which reads as an unhelpful model rather than
+    as a permissions bug. `panel/frame_attach.call_site` decides where,
+    and `frame_attach.reaches_the_file` is the guarantee the test pins.
+    """
     prompt = (
         "You are answering a question from inside DaVinci Resolve about a "
         "video edit. The editor is looking at the timeline right now, and "
@@ -256,20 +322,27 @@ def ask_model(question, context_block, model=MODEL,
         + "\n\nTheir question: " + question
         + "\n\nAnswer from what is above. Be concrete. If something was not "
           "measured, say so rather than guessing. Under 150 words.")
+    argv = ["claude", "-p", "--model", model]
+    cwd = None
+    if call_site is not None:
+        argv += list(call_site.extra_argv)
+        cwd = call_site.cwd or None
     started = time.time()
     try:
         proc = subprocess.run(
-            ["claude", "-p", "--model", model],
+            argv, cwd=cwd,
             input=prompt, capture_output=True, encoding="utf-8",
             timeout=timeout)
         text = (proc.stdout or "").strip() or (proc.stderr or "").strip()
         return {"ok": proc.returncode == 0, "text": text, "model": model,
                 "seconds": round(time.time() - started, 1),
-                "prompt_chars": len(prompt), "prompt": prompt}
+                "prompt_chars": len(prompt), "prompt": prompt,
+                "cwd": cwd, "argv": argv, "frame": frame}
     except Exception as exc:                        # noqa: BLE001 - reported
         return {"ok": False, "text": "%s: %s" % (type(exc).__name__, exc),
                 "model": model, "seconds": round(time.time() - started, 1),
-                "prompt_chars": len(prompt), "prompt": prompt}
+                "prompt_chars": len(prompt), "prompt": prompt,
+                "cwd": cwd, "argv": argv, "frame": frame}
 
 
 # ═══════════════════════════════════════════════════════════ the panel ══
@@ -282,6 +355,12 @@ PREVIEW_COLUMNS = 52
 # The strip is drawn to the width of the pane it goes in, so the picture
 # does not stop short of the right edge with dead space beside it.
 STRIP_WIDTH = 1120
+
+# The attached frame, drawn beside its own answer. Narrower than the
+# strip on purpose: the strip IS the view it lives in, and this is a
+# thumbnail that has to leave room for the words under it. A vertical
+# delivery frame at this width is ~570 px tall, which fits the pane.
+FRAME_PREVIEW_WIDTH = 320
 
 TABS = ("Trace", "This clip", "Run", "Gates", "Timeline")
 PAGE_TRACE, PAGE_CLIP, PAGE_RUN, PAGE_GATES, PAGE_STRIP = range(5)
@@ -599,6 +678,8 @@ class Panel(object):
                 self.paint_trace(result)
             elif tag == "ask":
                 self.paint_answer(result)
+            elif tag == "showctx":
+                self.paint_showctx(result)
             elif tag == "strip":
                 self.paint_strip(result)
             elif tag == "preview":
@@ -765,13 +846,44 @@ class Panel(object):
             project_folder=self.project_folder)
 
     def on_showctx(self):
+        """Grab the frame and show it, because a picture that is going is
+        a piece of context like any other and this view's promise is that
+        the captain sees all of it before pressing Ask."""
+        self._set("askstate", "Text",
+                  "grabbing the frame under the playhead...")
+        self.spawn("showctx", grab_frame, self.resolve, self.m.frame_attach)
+
+    def paint_showctx(self, frame):
         rt = self.m.richtext
+        block = self.m.frame_attach.attach_to_block(self.context_block(),
+                                                    frame)
         self._html("clipbody", rt.document(
             rt.heading("What the panel would send", 2),
             rt.lead("Nothing leaves this machine until you press Ask. "
                     "Every line below was read off disk or off Resolve."),
-            rt.block(self.context_block())))
-        self._set("askstate", "Text", "not sent")
+            self.frame_html(frame),
+            rt.block(block)))
+        self._set("askstate", "Text",
+                  "not sent - " + self.m.frame_attach.describe(frame))
+
+    def frame_html(self, frame):
+        """The picture itself, so the captain never has to guess what the
+        model saw. `<img>` in a read-only TextEdit is the route that
+        draws; `Label.Pixmap` is the one that silently does not."""
+        rt = self.m.richtext
+        if frame is None:
+            return ""
+        if not frame.attached:
+            return (rt.heading("no frame attached", 3)
+                    + rt.paragraph(self.m.frame_attach.describe(frame),
+                                   "warn")
+                    + rt.paragraph("The question still goes, with the "
+                                   "measurements below and nothing else.",
+                                   "dim"))
+        return (rt.heading("the frame that went with it", 3)
+                + rt.image(frame.path, FRAME_PREVIEW_WIDTH)
+                + rt.paragraph(self.m.frame_attach.describe(frame), "dim")
+                + rt.paragraph(frame.path, "dim"))
 
     def on_ask(self):
         question = self._text("question")
@@ -779,9 +891,23 @@ class Panel(object):
             self._set("askstate", "Text", "type a question first")
             return
         self._set("askstate", "Text",
-                  "asking %s - the panel keeps running (watch the heartbeat)"
-                  % MODEL)
-        self.spawn("ask", ask_model, question, self.context_block())
+                  "grabbing the frame, then asking %s - the panel keeps "
+                  "running (watch the heartbeat)" % MODEL)
+        self.spawn("ask", self.ask_with_frame, question)
+
+    def ask_with_frame(self, question):
+        """One worker: grab the frame, then ask about it.
+
+        Both halves are slow and the second needs the first, so they are
+        one job rather than two - a second `spawn` from inside `drain`
+        would put the grab's latency on the loop's next pass and leave
+        the answer arriving in two paints.
+        """
+        frame = grab_frame(self.resolve, self.m.frame_attach)
+        block = self.m.frame_attach.attach_to_block(self.context_block(),
+                                                    frame)
+        site = self.m.frame_attach.call_site(frame.path, SCRATCH)
+        return ask_model(question, block, call_site=site, frame=frame)
 
     # ─────────────────────────────────────────────────────────── the run ──
     def build_preview(self):
@@ -1067,20 +1193,31 @@ class Panel(object):
         rt = self.m.richtext
         if not result:
             return
+        frame = result.get("frame")
         self._set("askstate", "Text",
-                  "answered in %ss by %s" % (result.get("seconds"),
-                                             result.get("model")))
+                  "answered in %ss by %s - %s"
+                  % (result.get("seconds"), result.get("model"),
+                     self.m.frame_attach.describe(frame) if frame
+                     else "no frame"))
         self._html("clipbody", rt.document(
             rt.heading("Answer" if result.get("ok") else "The call failed", 2),
             rt.markdown(result.get("text", "")),
+            self.frame_html(frame),
             rt.heading("how it was asked", 3),
             rt.paragraph(
                 "%s characters of context, %ss round trip, on a worker "
                 "thread. The panel holds no API key: it shelled out to an "
                 "already-authenticated CLI."
                 % (result.get("prompt_chars"), result.get("seconds")), "dim"),
+            rt.paragraph(
+                "The call ran in %s, which is what lets it open the frame: "
+                "the CLI will not read a file outside its working directory."
+                % (result.get("cwd") or "the inherited working directory"),
+                "dim"),
             rt.heading("the context that was attached", 3),
-            rt.block(self.context_block())))
+            rt.block(self.m.frame_attach.attach_to_block(
+                self.context_block(), frame) if frame
+                else self.context_block())))
 
     def paint_plan(self):
         rt = self.m.richtext
@@ -1424,9 +1561,10 @@ class _Modules(object):
 
     def __init__(self):
         from library.tools import review_gate
-        from library.tools.panel import (clip_context, richtext, run_view,
-                                         strip, trace)
+        from library.tools.panel import (clip_context, frame_attach,
+                                         richtext, run_view, strip, trace)
         self.clip_context = clip_context
+        self.frame_attach = frame_attach
         self.richtext = richtext
         self.run_view = run_view
         self.strip = strip
