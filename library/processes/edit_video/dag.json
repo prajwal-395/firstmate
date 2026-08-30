@@ -898,6 +898,13 @@
       }
     },
     {
+      "from": "assign_aroll",
+      "to": "audio_mix",
+      "data_mapping": {
+        "a_roll_assignments": "a_roll_assignments"
+      }
+    },
+    {
       "from": "catalog",
       "to": "plan_sfx",
       "data_mapping": {

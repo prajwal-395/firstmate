@@ -687,3 +687,90 @@ def test_it_is_restored_around_the_projection_by_name():
     list rather than off the runner, so the two cannot disagree."""
     from library.tools import input_contract
     assert STEP_INPUT_NAME in input_contract._RESTORED_AROUND_PROJECTION
+
+
+# ── A note that reaches nobody is SAID, not silently dropped ──────────
+
+def test_the_run_summary_names_every_note_that_reached_nobody(tmp_path):
+    """Two of 001's three notes reached no model and nothing said so.
+
+    *"why are the subtitles so big?"* routes to 4.01 `plan_subtitles`,
+    which is deterministic with no `handoff.md`, so it is delivered as a
+    `report` and reaches no model at all. *"why is this fully blurry, is
+    it the zoom blur applied wrong?"* is AMBIGUOUS between
+    `plan_transitions` and `plan_vfx` and therefore reaches neither.
+    Both were in `ROUTED-NOTES.md`; neither was in a run.
+    """
+    n1 = marker_routing.route_note(dict(
+        MOMENT_NOTE, note="why are the subtitles so big?",
+        text="why are the subtitles so big?"))
+    n2 = marker_routing.route_note(dict(
+        MOMENT_NOTE, frame=400, timecode="00:00:13:10",
+        note="why is this fully blurry, is it the zoom blur applied wrong?",
+        text="why is this fully blurry, is it the zoom blur applied wrong?"))
+    notes = [n1, n2]
+    left = marker_routing.undelivered(notes)
+    assert len(left) == 2
+    outcomes = {why for _n, why, _d in left}
+    assert marker_routing.OUTCOME_AMBIGUOUS in outcomes
+
+    lines = "\n".join(marker_routing.undelivered_summary_lines(notes))
+    assert "reached NOBODY" in lines
+    assert n1.note_id in lines and n2.note_id in lines
+    # The reason travels with the note, not just the count.
+    for _note, _why, detail in left:
+        assert detail and detail in lines
+
+
+def test_every_note_reaching_a_prompt_still_says_so():
+    routed = [marker_routing.route_note(dict(
+        MOMENT_NOTE,
+        note="step: select_broll\nthis cutaway is broll of nothing",
+        text="step: select_broll\nthis cutaway is broll of nothing"))]
+    assert not marker_routing.undelivered(routed)
+    lines = "\n".join(marker_routing.undelivered_summary_lines(routed))
+    assert "none was dropped" in lines
+
+
+def test_a_run_that_delivered_nothing_records_that_on_the_note(tmp_path):
+    """The note's OWN record, in the log the deliveries go to."""
+    project = tmp_path / "proj"
+    ProjectLayout(str(project)).ensure()
+    note = marker_routing.route_note(dict(
+        MOMENT_NOTE,
+        note="why is this fully blurry, is it the zoom blur applied wrong?",
+        text="why is this fully blurry, is it the zoom blur applied wrong?"))
+    notes = [note]
+    left = marker_routing.undelivered(notes)
+    marker_routing.record_non_delivery(str(project), left)
+
+    entries = marker_routing.deliveries(str(project))
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["step"] == marker_routing.NON_DELIVERY_STEP
+    assert entry["reached_nobody"][0]["note_id"] == note.note_id
+    assert entry["reached_nobody"][0]["outcome"] == \
+        marker_routing.OUTCOME_AMBIGUOUS
+
+    # And it must not read as a delivery to a step called "(nobody)".
+    report = marker_routing.render_report(str(project), notes)
+    assert "Reached nobody" in report
+    assert "**Delivered**" not in report
+
+
+def test_recording_nothing_writes_nothing(tmp_path):
+    project = tmp_path / "proj"
+    ProjectLayout(str(project)).ensure()
+    marker_routing.record_non_delivery(str(project), [])
+    assert marker_routing.deliveries(str(project)) == []
+
+
+def test_the_runner_reports_it_after_the_status_is_decided():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "library" / "processes"
+              / "edit_video" / "run_pipeline.py").read_text()
+    assert "undelivered_summary_lines" in source
+    assert "record_non_delivery" in source
+    assert '"notes_reaching_nobody": notes_reaching_nobody' in source
+    assert source.index("status = ") < source.index(
+        "undelivered_summary_lines")

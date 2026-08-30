@@ -249,6 +249,86 @@ class TestCompileManifest(unittest.TestCase):
         self.assertFalse(res["needs_conform"])
 
 
+    def test_the_bed_is_bounded_by_the_picture_not_by_v1(self):
+        """A bed is clamped to the last PICTURE, and a cutaway is picture.
+
+        The clamp used to bound the bed by `max(V1.timeline_out)`. An
+        outro cutaway sits on V2, so 001's four-second ending - declared
+        `music_behavior: "fade_out"` and given automation at -12 dB by
+        step 5.02 - shipped with no bed at all: 4.0s measured at -91.0 dB
+        in the render. See AGENTS.md 10.5.
+        """
+        import os as _os
+        from unittest.mock import patch
+        from library.steps.step_5_04_compile_manifest.step import compile_manifest
+
+        aroll = _os.path.abspath("bed_aroll.mov")
+        broll = _os.path.abspath("bed_broll.mov")
+        music = _os.path.abspath("bed_music.wav")
+        for path in (aroll, broll, music):
+            with open(path, "w") as f:
+                f.write("dummy")
+            self.addCleanup(_os.remove, path)
+
+        inputs = {
+            "a_roll_assignments": [{
+                "clip_id": "clip_1", "source_clip_id": "clip_1",
+                "source_file": aroll, "video_in": 4.113, "video_out": 6.027,
+                "timeline_start": 0.0, "timeline_end": 1.914,
+            }],
+            # The outro: a non-speech block covered by a V2 cutaway, and
+            # the last thing in the edit.
+            "b_roll_assignments": [{
+                "spine_block_position": 2, "block_type": "transition_slot",
+                "clip_id": "clip_2", "source_file": broll,
+                "video_in": 0.317, "video_out": 4.317, "duration_seconds": 4.0,
+                "timeline_start": 1.914, "timeline_end": 5.914,
+                "video_only": True,
+            }],
+            "b_roll_interjections": [],
+            "subtitle_plan": {"subtitles": []}, "transition_spec": [],
+            "enhancement_spec": [], "color_grade_spec": {},
+            "audio_mix_spec": {},
+            "music_selection": {"audio_path": music, "duration_seconds": 180.0},
+            "audio_spine": {
+                "frame_rate": 30.0,
+                "structure": [
+                    {"block_type": "speech", "position": 1,
+                     "clip_id": "clip_1", "source_start": 4.113,
+                     "source_end": 6.027, "timeline_start": 0.0,
+                     "timeline_end": 1.914, "music_behavior": "background",
+                     "content": {"clip_id": "clip_1", "link_group_id": "lg_1"}},
+                    {"block_type": "transition_slot", "position": 2,
+                     "clip_id": None, "source_start": None,
+                     "source_end": None, "timeline_start": 1.914,
+                     "timeline_end": 5.914, "music_behavior": "fade_out",
+                     "content": {}},
+                ],
+            },
+            "clip_catalog": [
+                {"clip_id": "clip_1", "path": aroll, "width": 1080, "height": 1920},
+                {"clip_id": "clip_2", "path": broll, "width": 1080, "height": 1920},
+            ],
+            "semantic_analysis": {"semantic_analysis_documents": [
+                {"clip_id": "clip_1",
+                 "analysis": {"motion": "Locked off on a tripod.",
+                              "scene": "A speaker on a city street."},
+                 "assessment": {"clip_type": "a-roll"}}]},
+        }
+
+        with patch("library.steps.step_5_04_compile_manifest.step.load",
+                   side_effect=lambda out_dir, filename: inputs):
+            manifest = compile_manifest("dummy")
+
+        v1_end = max(c["timeline_out"] for c in manifest["tracks"]["V1"]["clips"])
+        self.assertAlmostEqual(v1_end, 1.914)
+        bed = manifest["tracks"]["A2"]["clips"][0]
+        # The bed runs to the end of the PICTURE, four seconds past V1.
+        self.assertAlmostEqual(bed["timeline_out"], 5.914, places=3)
+        self.assertAlmostEqual(
+            bed["source_out"] - bed["source_in"], 5.914, places=3)
+
+
 
 if __name__ == '__main__':
     unittest.main()

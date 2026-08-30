@@ -214,7 +214,12 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     subtitles = assembly_manifest.get("subtitles", [])
     if subtitles:
         try:
-            qa_results.extend(verify_subtitle_timing(subtitles))
+            # The spine is what tells the gap check that a stretch with
+            # no caption on it is a beat the plan wrote rather than dead
+            # caption time. See library/tools/subtitle_qa.py.
+            qa_results.extend(verify_subtitle_timing(
+                subtitles,
+                spine_blocks=assembly_manifest.get("_spine_blocks") or []))
         except Exception as e:
             print(f"Error running subtitle_qa: {e}", file=sys.stderr)
             traceback.print_exc()

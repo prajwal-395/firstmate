@@ -282,3 +282,78 @@ def test_the_frames_are_owned_by_the_step_that_draws_them():
     spec = AREAS[Area.WINDOW_FRAMES]
     assert spec.step == "select_broll"
     assert spec.relpath.endswith("3_02_select_broll/window_frames")
+
+
+# ── The cache is keyed on what was DRAWN ──────────────────────────────
+
+def test_the_name_carries_the_frame_count_and_the_sampling_rule():
+    """`(clip_id, video_in)` is not enough to identify a strip.
+
+    On project 001, 83 of 94 rows declared 5 frames for a strip that has
+    6: the strips were drawn at 10:26 under an older sampling rule,
+    `draw_strip` reused every one of them, and `frames: len(times)` was
+    recomputed from current code at 12:36. Same class as #348/#350 - a
+    cache invalidated by the footage and never by the code that wrote it.
+    """
+    a = wf.sample_times(0.0, 4.0, 30.0)
+    b = wf.sample_times(0.0, 6.0, 30.0)
+    assert len(a) != len(b)
+
+    name_a = wf.strip_filename("clip_001", 0.0, a)
+    name_b = wf.strip_filename("clip_001", 0.0, b)
+    assert name_a != name_b
+    # Still readable, and still labelled by the window it shows.
+    assert name_a.startswith("clip_001__0000.000__")
+    assert f"{len(a)}f" in name_a
+    # Stable for the same drawing.
+    assert name_a == wf.strip_filename("clip_001", 0.0, list(a))
+
+
+def test_the_same_window_sampled_differently_is_a_different_file(
+        monkeypatch):
+    """A change to the rule alone renames every strip it produces."""
+    times_now = wf.sample_times(0.0, 4.0, 30.0)
+    name_now = wf.strip_filename("clip_004", 0.0, times_now)
+
+    monkeypatch.setattr(wf, "SECONDS_UNSEEN_BETWEEN_SAMPLES", 0.5)
+    times_finer = wf.sample_times(0.0, 4.0, 30.0)
+    assert len(times_finer) > len(times_now)
+    assert wf.strip_filename("clip_004", 0.0, times_finer) != name_now
+
+
+def test_the_scale_is_in_the_key_too():
+    times = wf.sample_times(0.0, 4.0, 30.0)
+    before = wf.strip_filename("clip_004", 0.0, times)
+    original = wf.STRIP_FRAME_SHORT_SIDE
+    try:
+        wf.STRIP_FRAME_SHORT_SIDE = original * 2
+        assert wf.strip_filename("clip_004", 0.0, times) != before
+    finally:
+        wf.STRIP_FRAME_SHORT_SIDE = original
+
+
+@pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_a_strip_drawn_under_an_older_rule_is_never_read_as_this_one(
+        tmp_path, monkeypatch):
+    """The whole defect, end to end, in one clip."""
+    clip = _fixture_clip(tmp_path / "clip.mp4", seconds=6.0)
+
+    # Yesterday's rule: a coarser sampling, so fewer frames.
+    monkeypatch.setattr(wf, "SECONDS_UNSEEN_BETWEEN_SAMPLES", 2.0)
+    old_times = wf.sample_times(0.0, 4.0, 30.0)
+    old_name = wf.strip_filename("clip_004", 0.0, old_times)
+    assert wf.draw_strip(str(clip), old_times, str(tmp_path / old_name))
+
+    # Today's rule, same window, same clip.
+    monkeypatch.setattr(wf, "SECONDS_UNSEEN_BETWEEN_SAMPLES", 1.0)
+    new_times = wf.sample_times(0.0, 4.0, 30.0)
+    new_name = wf.strip_filename("clip_004", 0.0, new_times)
+    assert new_name != old_name
+    assert wf.draw_strip(str(clip), new_times, str(tmp_path / new_name))
+
+    # The file the table describes has the frames the table declares.
+    width, height = _probe_size(tmp_path / new_name)
+    assert width == pytest.approx(640 * len(new_times), rel=0.02)
+    old_width, _ = _probe_size(tmp_path / old_name)
+    assert old_width == pytest.approx(640 * len(old_times), rel=0.02)
+    assert old_width != width

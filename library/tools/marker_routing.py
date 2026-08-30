@@ -1119,6 +1119,73 @@ def record_delivery(project_folder, node_id: str, note_ids) -> None:
         handle.write(line + "\n")
 
 
+# A run that reaches a note is recorded. A run that reaches NONE of the
+# notes it collected has to be recorded too, in the same place and by
+# the same rule, or the note's own history says only "not delivered yet"
+# where the truth is "this run read it and could not give it to anybody".
+NON_DELIVERY_STEP = "(nobody)"
+
+
+def record_non_delivery(project_folder, undelivered_notes) -> None:
+    """Append the notes THIS RUN could give to no prompt, with why.
+
+    Same append-only log as `record_delivery`, and for the same reason:
+    a run that could not deliver a note is a thing that happened.
+
+    Three markers were pulled on project 001 on 2026-08-28 and one
+    reached a prompt. *"why are the subtitles so big?"* routes to 4.01
+    `plan_subtitles`, which is deterministic with no `handoff.md`, so it
+    is delivered as a `report` and reaches no model at all. *"why is
+    this fully blurry..."* is AMBIGUOUS between `plan_transitions` and
+    `plan_vfx` and therefore reaches neither. Both were reported in
+    `ROUTED-NOTES.md` and in `manage_project.py notes`, and NOTHING in a
+    run said so - the captain thinks they were heard.
+
+    Auto-resolving an ambiguity is NOT done here and is not this
+    module's to do: `WITHDRAWN_ROUTERS` records why every tie-break was
+    refused, and a note routed to the wrong step is worse than one
+    reported as ambiguous. This makes the drop visible; picking a step
+    is the captain's call.
+    """
+    entries = list(undelivered_notes or [])
+    if not entries:
+        return
+    layout = ProjectLayout(project_folder)
+    path = layout.write_path(Area.MARKER_FEEDBACK, DELIVERY_LOG_FILENAME)
+    line = json.dumps({
+        "at": datetime.now(timezone.utc).isoformat(),
+        "step": NON_DELIVERY_STEP,
+        "notes": [note.note_id for note, _why, _detail in entries],
+        "reached_nobody": [
+            {"note_id": note.note_id, "outcome": why, "reason": detail}
+            for note, why, detail in entries
+        ],
+    }, ensure_ascii=False)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
+def undelivered_summary_lines(routed_notes) -> list:
+    """The run summary's block. Empty when every note reached a prompt."""
+    left = undelivered(routed_notes)
+    if not routed_notes:
+        return []
+    reached = len(routed_notes) - len(left)
+    if not left:
+        return [f"  Captain's notes: {reached} of {len(routed_notes)} "
+                f"reached a prompt; none was dropped."]
+    lines = [
+        f"  Captain's notes: {reached} of {len(routed_notes)} reached a "
+        f"prompt. {len(left)} reached NOBODY:"
+    ]
+    for note, why, detail in left:
+        first = next((line for line in note.text.splitlines()
+                      if line.strip()), "(no text)")
+        lines.append(f"      {note.note_id} [{why}] \"{first[:60]}\"")
+        lines.append(f"        {detail}")
+    return lines
+
+
 def deliveries(project_folder) -> list:
     layout = ProjectLayout(project_folder)
     path = layout.read_path(Area.MARKER_FEEDBACK, DELIVERY_LOG_FILENAME)
@@ -1160,7 +1227,17 @@ def render_report(project_folder, routed_notes=None) -> str:
     routed_notes = (route_project(project_folder) if routed_notes is None
                     else routed_notes)
     delivered = {}
+    reached_nobody = {}
     for entry in deliveries(project_folder):
+        # A run that could give a note to nobody is recorded in the same
+        # log and must not read as a delivery to a step called
+        # "(nobody)".
+        if entry.get("step") == NON_DELIVERY_STEP:
+            for record in entry.get("reached_nobody") or []:
+                reached_nobody.setdefault(record.get("note_id"), []).append(
+                    f"{record.get('outcome')} at {entry.get('at')} - "
+                    f"{record.get('reason')}")
+            continue
         for note_id in entry.get("notes", []):
             delivered.setdefault(note_id, []).append(
                 f"{entry.get('step')} at {entry.get('at')}")
@@ -1259,6 +1336,9 @@ def render_report(project_folder, routed_notes=None) -> str:
         if note.note_id in delivered:
             lines.append("- **Delivered**: "
                          + "; ".join(delivered[note.note_id]))
+        if note.note_id in reached_nobody:
+            lines.append("- **Reached nobody**: "
+                         + "; ".join(reached_nobody[note.note_id]))
         for attachment in note.attachments:
             lines.append(
                 f"- **Attached**: `{attachment.get('resolved_path') or attachment.get('path')}`"

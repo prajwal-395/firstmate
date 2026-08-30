@@ -82,8 +82,29 @@ def test_every_adjustment_is_accounted_for():
 
 
 def test_no_review_is_an_empty_record():
+    # `basis` is empty too: with no review there is nothing that could
+    # have stated why the list is empty, and an invented basis would be
+    # exactly the thing the field exists to stop.
     assert apply_cohesion_adjustments([], {}) == {
-        "applied": [], "not_applied": [], "observed": []}
+        "applied": [], "not_applied": [], "observed": [], "basis": {}}
+
+
+def test_the_record_carries_why_the_review_asked_for_nothing():
+    """An empty `applied` beside an empty `not_applied` is not a verdict.
+
+    On every run this project has made, `adjustments` has been empty
+    because the review proposed nothing - step 5.03 is a pure observer
+    (#272) - and the manifest's record said only that nothing was
+    applied. Which absence it is now travels with it.
+    """
+    from library.tools.cohesion_scope import adjustments_basis
+
+    review = {"adjustments": [], "observations": [],
+              "adjustments_basis": adjustments_basis([], [], [])}
+    record = apply_cohesion_adjustments([], review)
+    assert record["basis"]["basis"] == "no_proposal_was_made"
+    assert "pure OBSERVER" in record["basis"]["means"]
+    assert "no producer" in record["basis"]["channel_note"]
 
 
 def test_the_review_step_names_who_applies_its_adjustments():

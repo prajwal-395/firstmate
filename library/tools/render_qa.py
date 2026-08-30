@@ -38,6 +38,11 @@ try:
 except ImportError:  # imported as a top-level module from library/tools
     from subject_framing import load_face_cascade
 
+try:
+    from library.tools.safe_area import UnknownSafeArea, safe_area_for_frame
+except ImportError:  # imported as a top-level module from library/tools
+    from safe_area import UnknownSafeArea, safe_area_for_frame
+
 # Slack when matching detected black against a declared beat. blackdetect
 # reports whole-frame timestamps, so the segment it reports for a beat can
 # run a frame wider than the gap the manifest planned; 50ms covers a frame
@@ -412,6 +417,13 @@ DEFAULT_SAMPLE_FPS = 2.0
 # spends at most 8 of its 1920 rows that way, 0.4%.
 MIN_FILL_ROW_FRACTION = 0.95
 
+# The bar walk needs enough columns per row to tell a flat bar from a
+# dim picture row that happens to be flat where it was sampled. 1080x1920
+# gives 240 (120 each side); this is the floor under which the strips
+# stop being a measurement and the whole width is used instead, with the
+# reason recorded.
+MIN_OVERLAY_FREE_COLUMNS = 64
+
 # One video, one geometry. This half is sourced from the ABSENCE of any
 # mechanism that would deliberately vary the picture size mid-cut: no
 # document describes it and nothing offers it as a choice. Project 001
@@ -480,11 +492,12 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 #     is empty, so this check still falls back to the clip gain and now
 #     SAYS SO per window in `required_margin_basis`. The number is the
 #     same open captain decision as the five clip gains themselves.
-#   * a measurement of the SPEECH's loudness. Nothing in the pipeline
-#     takes one, so the plan cannot predict the separation it will
-#     deliver - only this check, on the finished master, can measure it.
-#     `step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED` names what it
-#     would cost.
+#   * a separation target, again. The speech's own loudness IS now
+#     measured - one ffmpeg loudnorm pass per block over the ranges
+#     `a_roll_assignments` names (`library/tools/speech_loudness.py`), so
+#     `audio_mix.music_automation[].separation_delivered_db` predicts
+#     what each window will deliver and this check measures what it did.
+#     Neither has anything to be judged against until a target exists.
 SPEECH_ABOVE_BED_GATES = False
 
 # A `silent` window is judged by how far its music sits below the median
@@ -531,7 +544,18 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
     import numpy as np
 
     frame_bytes = planes * width * height
-    chain = f'fps={sample_fps}'
+    # `round=up` and not the default `near`.  The fps filter maps each
+    # INPUT frame to an output slot by rounding its timestamp, and the
+    # last input to claim a slot is the one emitted - so under `near` a
+    # sample nominally at 32.0s can be a frame from up to half a sample
+    # period LATER (0.25s at 2 Hz).  On project 001 that put a full-frame
+    # cutaway starting at 32.067s into the sample labelled 32.0, which
+    # `_intent_at` then attributed to the letterboxed A-roll clip before
+    # it: the letterbox group's occupancy read max 1.0 against a real
+    # 0.3167 and the render failed its own consistency check.  Measured
+    # on the shipped master: the true cut is at pts_time 32.066667, and
+    # `round=up` is the only mode whose sample at 32.0 carries it.
+    chain = f'fps={sample_fps}:round=up'
     if scaled:
         chain += f',scale={width}:{height}'
     chain += f',format={pix_fmt}'
@@ -685,6 +709,40 @@ def measure_frame_occupancy(
                                   "error", "No video stream found")
         width, height = size
 
+        # The columns a CENTRED overlay cannot reach.  A caption is drawn
+        # over the picture AND over the bars, and its ink is neither dark
+        # nor flat, so the bar walk stops at it: on project 001's
+        # correctly-framed master the bottom bar read 347 rows under a
+        # caption and 656 rows without one, on a picture that never
+        # changes size, and the letterbox group's occupancy came out at a
+        # median 0.4755 against a real 0.3167.  A centred box can only be
+        # `centered_usable_width` wide (library/tools/safe_area.py), so
+        # the strips outside it carry bar and picture and no overlay.
+        #
+        # KNOWN BLIND SPOT, stated rather than solved: an overlay drawn
+        # AT the frame edge - a corner accent - lands inside these strips
+        # and would read as picture. Nothing in this pipeline draws one
+        # today, and the full-width walk had the same blind spot plus the
+        # caption one.
+        overlay_free = None
+        overlay_note = None
+        try:
+            insets = safe_area_for_frame(width, height)
+            margin = int(max(insets.left, insets.right))
+            if margin * 2 >= MIN_OVERLAY_FREE_COLUMNS:
+                overlay_free = np.r_[0:margin, width - margin:width]
+            else:
+                overlay_note = (
+                    f"the overlay-free strips are only {margin * 2} columns "
+                    f"wide, under the {MIN_OVERLAY_FREE_COLUMNS} this needs "
+                    f"to judge flatness - measured across the whole width, "
+                    f"so an overlay inflates the picture")
+        except UnknownSafeArea as exc:
+            overlay_note = (
+                f"no safe area describes a {width}x{height} frame, so the "
+                f"bars are measured across the whole width and an overlay "
+                f"drawn over one reads as picture: {exc}")
+
         fractions = []
         times = []
         bands = []
@@ -694,8 +752,9 @@ def measure_frame_occupancy(
         for frame in _stream_raw_frames(video_path, 'gray', 1,
                                         width, height, sample_fps):
             luma = frame[0].astype(np.float32)
-            row_mean = luma.mean(axis=1)
-            row_std = luma.std(axis=1)
+            measured = luma if overlay_free is None else luma[:, overlay_free]
+            row_mean = measured.mean(axis=1)
+            row_std = measured.std(axis=1)
             top = _bar_rows(row_mean, row_std)
             bottom = _bar_rows(row_mean[::-1], row_std[::-1])
             timestamp = index / sample_fps
@@ -790,6 +849,8 @@ def measure_frame_occupancy(
         if unattributed:
             detail += (f"; {unattributed} of {len(fractions)} samples fall "
                        f"outside every declared span and were not judged")
+        if overlay_note:
+            detail += f"; {overlay_note}"
         if faults:
             detail += " - " + "; ".join(faults)
 
@@ -809,6 +870,12 @@ def measure_frame_occupancy(
                 "declared_framing_intents": declared,
                 "by_declared_framing": per_intent,
                 "unattributed_samples": unattributed,
+                "overlay_free_columns_each_side": (
+                    0 if overlay_free is None else int(len(overlay_free) // 2)),
+                "overlay_masking": (
+                    overlay_note if overlay_note else
+                    "bars measured on the columns a centred overlay cannot "
+                    "reach, so caption ink is not read as picture"),
             },
             threshold={"min_fill_fraction": min_fill_fraction,
                        "max_spread": max_spread,

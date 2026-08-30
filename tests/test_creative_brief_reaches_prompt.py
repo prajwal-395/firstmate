@@ -102,6 +102,21 @@ def test_a_step_that_documents_the_brief_declares_it(step_dir):
     )
 
 
+def test_mesh_spine_declares_the_brief_without_a_handoff_line():
+    """The eighth consumer, and the one the two audits kept finding.
+
+    `mesh_spine` sets every gap length and every `music_behavior` and was
+    the only planning step with no brief at all (round 2 F7, round 3
+    B9/R9). Its `handoff.md` is under the captain's freeze and does not
+    name a brief, so the manifest DECLARATION is what asks for it - the
+    runner injects a process-level input into steps that declare it, and
+    the documenting-set test above is one-way on purpose.
+    """
+    step = STEPS_ROOT / "step_2_05_mesh_spine"
+    assert "creative_brief" in _declared_inputs(step)
+    assert "creative_brief" not in (step / "handoff.md").read_text()
+
+
 def test_creative_brief_is_a_process_level_input():
     assert "creative_brief" in PROCESS_LEVEL_INPUTS
 

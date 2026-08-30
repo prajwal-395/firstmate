@@ -4957,3 +4957,162 @@ the same two numbers `compile_manifest` placed it with.
 test fits a master carrying the second half of an 8 s music file at the right offset and gets
 |r| > 0.5 with a 2 dB margin, and its sibling fits the same master from 0 and asserts the old
 reading - |r| < 0.1, a margin over 20 dB, and `meets_plan` True.
+
+---
+
+## The bed was trimmed to the last V1 clip
+
+Audit round 3, project 001's run of record (LLM traffic 2026-08-29 12:25-12:42, render 19:01).
+
+`compile_manifest/step.py` clamped every A2 music clip to `max(V1.timeline_out)`. 001's outro is
+a **V2** cutaway, so V1 ends at 52.605 while the picture runs to 56.605:
+
+```
+max V1 timeline_out: 52.605      max V2 timeline_out: 56.605
+A2 as shipped      : timeline 0.0-52.605, source 60.0-112.605
+project duration   : 56.605
+music_automation last window:
+  {"spine_block_position": 12, "timeline_start": 52.605, "timeline_end": 56.605,
+   "music_behavior": "fade_out", "target_level_db": -12,
+   "bed_level_after_gain_lufs": -27.17}
+```
+
+The spine declared `fade_out`, step 5.02 wrote the automation for it, and this clamp then deleted
+the music the automation was written for. Measured on the shipped file with `ffmpeg volumedetect`
+per spine block, the last four seconds are **mean -91.0 dB, max -60.5** - absolute digital
+silence, 4.0 s of a 56.6 s video. Round 3's independent re-fit of the bed against that window put
+the music at **-142.36 dB with a correlation of 0.005**: not present at all.
+
+The only notice was `WARNING: Trimmed music to match last V1 clip end (52.605s)` on stderr,
+forty minutes into an unattended run - the pattern §13 already rules against for bookends.
+
+It compounded a decision the model made on the strength of it. `select_broll` chose a knowingly
+soft window for the outro and said why: *"I chose it anyway for the outro specifically because it
+is the one block where softness is least costly: **the bed is fading**, the video is ending."*
+The bed was not fading.
+
+The bound is now the picture - V1 and V2. On 001's own manifest that puts the bed's
+`timeline_out` at 56.605, which is exactly where `music_automation`'s last window already ended
+and what `project.duration_seconds` already said.
+
+`tests/test_compile_manifest.py::test_the_bed_is_bounded_by_the_picture_not_by_v1` builds a spine
+whose last block is a V2-covered non-speech beat and fails on the old bound.
+
+---
+
+## The residual nobody read
+
+Step 1.04 writes `camera_motion_decomposition`, with the optical-flow residual per sample inside
+`values`. `compute_deterministic_assessment` read `temporal_index["camera_motion"]["residual"]`.
+
+```
+$ python3 -c "... print(ti.get('camera_motion'))"    # every clip of 001
+camera_motion key None on: 17 of 17
+```
+
+So the one signal that separates camera shake from subject movement had never been read on any
+clip of any run, and every `camera_stability` label the project ever shipped came from the
+fallback: the standard deviation of `motion_energy`, which is frame differencing.
+
+The test that covered it passed throughout, because its fixture was written in the same wrong
+shape as the reader.
+
+**What the label got wrong.** Round 3 measured global per-frame translation on the render itself
+by phase correlation: clip_017 0.25 px/frame, clip_011 2.09, clip_012 2.86. The unread residual's
+ordering (0.0326 < 0.0769 < 0.2382) matches. The shipped label inverted it, calling clip_017 -
+which carries 20.2 s of a 56.6 s edit - `unstable`, while the VLM in the same run called it
+`stable` and `plan_vfx`, which reads the VLM, put both of the video's effects there for being
+still.
+
+**Why the old thresholds could not simply be reused.** 0.02 / 0.08 were written for a signal that
+never arrived. The residual's own range on 001 is 0.0051 to 0.3706, quartiles 0.0769 / 0.2382 /
+0.3094, so those numbers sit at 0.16 and 0.64 of a single step of the instrument's own search
+grid and would call 12 of 17 clips `unstable` including the two the render measurement says are
+the steadiest.
+
+**Where the new numbers come from.** The instrument, not the distribution. Step 1.04 block-matches
+a 160x90 luma frame at 5 Hz over `dx, dy in {-8, -6, ..., 8}`, then divides by 8, so the smallest
+displacement the search can report on one axis is 2 px of 160 - 1.25% of the frame width per
+0.2 s - which arrives as `dx = 0.25`. With
+`residual = max(0, magnitude - 0.5 * (|dx| + |dy|))` that is a residual of `0.125`, and a sample
+where the search found nothing is exactly `0.0`. The tiers are therefore half a grid step
+(`STABLE_BELOW = 0.0625`) and one grid step (`HANDHELD_BELOW = 0.125`) of MEAN per-sample global
+displacement.
+
+**The check, run on 001** (`MEASURED_ON_001` records it):
+
+| | before (frame differencing) | after (residual) |
+|---|---|---|
+| clips where the residual was read | 0 of 17 | 17 of 17 |
+| outright agreements with the VLM | 1 of 17 | 10 of 17 |
+| hard disagreements (one says steady, the other does not) | 9 | 5 |
+| clip_017 | `unstable` | `stable` |
+
+**The honest limit.** One project is a thin basis for a threshold and no render has been made
+against these numbers. They are grounded in the search grid rather than in this distribution,
+which is why the distribution is attached as a check rather than as the derivation, and
+`MEASURED_ON_001["caveat"]` says so.
+
+The two signals still differ where both are real, and no step was told the other answer exists:
+`view:stability` is that, as data with a legend. It resolves nothing.
+
+---
+
+## The occupancy gate failed a correct render
+
+001's shipped master is correctly built - 8 letterboxed A-roll placements at
+`framing_delivered 0.0`, 5 portrait cutaways at 1.0 - and `validate` refused it on
+`frame_occupancy`. Two independent defects in one check.
+
+**Caption ink read as picture.** A caption is drawn over the bars as well as over the picture and
+its ink is neither dark nor flat, so the bar walk stopped at it. Sampling the render at 2 Hz and
+walking the rows:
+
+```
+ t=7.5   top=656  bottom=656   frac=0.3167   (no caption)
+ t=12.0  top=656  bottom=347   frac=0.4776   (caption)
+```
+
+on a picture that never changes size. 84 of 113 samples read a bottom bar of 347-368 rows instead
+of 656.
+
+**Samples attributed to the wrong clip.** `_stream_raw_frames` asked ffmpeg for `fps=2`. That
+filter maps each INPUT frame to an output slot by ROUNDING its timestamp and emits the LAST frame
+to claim the slot, so under the default `round=near` a sample can carry a frame from up to half a
+sample period after its label. Measured on the master with `showinfo`: the true cut into the
+block-6 cutaway is at `pts_time 32.066667`, and the sample labelled 32.0 came back with a frame
+mean of 103 - the bright cutaway - where the frame really at 32.0 has a mean of 33. `round=up` is
+the only mode whose sample at 32.0 carries the frame at 32.0.
+
+**The verdict, same render, same manifest:**
+
+```
+before  passed: False
+        framing 0: n=81 median 0.4755 min 0.3167 max 1.0000 spread 0.6833
+        framing 1: n=32 median 1.0000 min 0.4729 max 1.0000 spread 0.5271
+        picture_band_first_frame [656, 1551]
+        detail: "the picture changes size within one declared framing (0):
+                 31.7% at 7.5s vs 100.0% at 32.0s (spread 0.68, bound 0.05)"
+
+after   passed: True
+        framing 0: n=81 median 0.3167 min 0.3167 max 0.3167 spread 0.0000
+        framing 1: n=33 median 1.0000 min 0.9865 max 1.0000 spread 0.0135
+        picture_band_first_frame [656, 1263]
+```
+
+The bars are now measured on the columns a CENTRED overlay cannot reach -
+`safe_area.centered_usable_width`, 120 px each side at 1080x1920 - and `safe_area_for_frame`
+raises on a size no delivery format has rather than borrowing the nearest profile. A frame no
+format describes is measured full width and the result records that it was.
+
+**The blind spot, stated rather than solved:** an overlay drawn AT the frame edge - a corner
+accent - lands inside those strips and would read as picture. Nothing in this pipeline draws one
+today, and the full-width walk had the same blind spot plus the caption one.
+
+**`subtitle_gaps` had the mirror defect**: it counted the plan's own non-speech blocks as dead
+caption time. All four of 001's reported gaps - 3.0, 3.5, 3.0 and 3.0 s - are the B-roll breaths
+at spine blocks 1, 4, 6 and 9, and since #332 the finding reaches a creative step carrying a
+legend that blamed the aligner. Caption coverage inside the speech blocks is 33.80 s of 40.10 s =
+84.3%, and the uncaptioned stretches there run 0.40-1.12 s: real pauses in the speech. The check
+reads the spine now; 4 findings became 0 on the same render, and a caller with no spine gets the
+old measurement and a result that says which it made.

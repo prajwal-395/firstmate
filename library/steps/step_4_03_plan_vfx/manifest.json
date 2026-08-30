@@ -141,8 +141,8 @@
     "semantic_analysis_documents.*.analysis.motion",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.content_type",
-    "semantic_analysis_documents.*.assessment.camera_stability",
     "view:picture",
+    "view:stability",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
   ]

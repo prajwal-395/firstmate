@@ -161,6 +161,7 @@
     "clip_catalog.*.rotation",
     "clip_catalog.*.frame_rate",
     "temporal_event_indices.*.clip_id",
-    "view:picture"
+    "view:picture",
+    "view:stability"
   ]
 }

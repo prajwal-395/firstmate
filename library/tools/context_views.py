@@ -264,6 +264,118 @@ def _picture(data: dict) -> dict:
     return {"picture": view}
 
 
+def _alignment(data: dict) -> dict:
+    """What the aligner measured about each passage's INSIDES.
+
+    `speech_sequence.alignment_report` is a real per-passage measurement
+    that two steps are routed and both drop by name, and that no gate or
+    report has ever opened.  On 001 it recorded a 1.169s silence inside a
+    2.982s block - 39% of it - and nothing said so.
+
+    It ORDERS and it REPORTS.  No threshold fires on any of these
+    numbers, and AGENTS.md section 6's rule that there is no gap
+    threshold and no voiced-fraction band is unchanged: whether a long
+    internal pause is a dramatic beat or dead air is the model's to
+    decide, which is why it has to be able to see it.
+    See library/tools/alignment_findings.py.
+    """
+    from library.tools.alignment_findings import (
+        ALIGNMENT_LEGEND, passage_rows,
+    )
+
+    sequence = data.get("speech_sequence")
+    if isinstance(sequence, dict):
+        report = sequence.get("alignment_report")
+    else:
+        report = None
+    rows = passage_rows(report)
+    if not rows:
+        return {}
+    return {"alignment": {"legend": ALIGNMENT_LEGEND, "passages": rows}}
+
+
+def _stability(data: dict) -> dict:
+    """The two stability signals SIDE BY SIDE, saying where they differ.
+
+    `camera[].stability` is the vision model's per-window verdict and
+    `assessment.camera_stability` is a deterministic per-clip one; they
+    measure different things and they disagree.  On project 001 they
+    disagreed on 9 of 17 clips, and three tables in a single run carried
+    two different answers about clip_017 - the clip carrying 20.2s of a
+    56.6s edit.  `plan_vfx` read the VLM's `stable` and put both of the
+    video's effects there; `select_broll` and `plan_transitions` read the
+    deterministic `unstable` about the same clip in the same run.  No
+    step was told the two answers exist.
+
+    **Nothing here resolves the disagreement.**  Whatever picked a winner
+    would become the measurement (AGENTS.md 10.5).  It is DATA with a
+    legend, the `MEASUREMENT_LEGEND` / `CUTS_LEGEND` route, because the
+    handoffs are frozen.
+
+    A clip neither signal measured is left out; a clip only one of them
+    measured is `one_sided` and says so rather than reading as agreement.
+    """
+    from library.tools.camera_stability import (
+        STABILITY_LEGEND, compare_stability_signals,
+    )
+
+    docs = data.get("semantic_analysis_documents")
+    if docs is None:
+        docs = data.get("semantic_analysis")
+    if isinstance(docs, dict):
+        if "semantic_analysis_documents" in docs:
+            docs = docs["semantic_analysis_documents"]
+        else:
+            docs = list(docs.values())
+    if not isinstance(docs, list):
+        return {}
+
+    joined = _catalog_clip_ids(data)
+
+    rows, disagreeing = [], []
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        assessment = doc.get("assessment") or {}
+        deterministic = assessment.get("camera_stability")
+        # A document written before the method field existed produced a
+        # label without recording which signal produced it. Say that; do
+        # not report it as "unmeasured", which is a different claim.
+        method = assessment.get("camera_stability_method") or "unrecorded"
+        words = []
+        for window in doc.get("camera") or []:
+            if isinstance(window, dict):
+                word = window.get("stability")
+                if isinstance(word, str) and word.strip() and word not in words:
+                    words.append(word.strip())
+        if deterministic in (None, "", "unknown") and not words:
+            continue
+        own_id = doc.get("clip_id")
+        clip_id = joined.get(str(own_id), own_id)
+        verdict = compare_stability_signals(deterministic, words)
+        if verdict == "disagree":
+            disagreeing.append(str(clip_id))
+        rows.append({
+            "clip_id": clip_id,
+            "deterministic_stability": deterministic or "unknown",
+            "deterministic_method": method,
+            "vlm_stability": "/".join(words) if words else "unmeasured",
+            "signals_agree": verdict,
+        })
+
+    if not rows:
+        return {}
+
+    view = {"legend": STABILITY_LEGEND, "clips": rows}
+    view["disagreements"] = (
+        f"{len(disagreeing)} of {len(rows)} clips carry two different "
+        f"answers: " + ", ".join(sorted(disagreeing))
+    ) if disagreeing else (
+        f"0 of {len(rows)} clips carry two different answers."
+    )
+    return {"stability": view}
+
+
 def _seconds(value):
     """A time in seconds, or None when the record carries no time."""
     try:
@@ -283,6 +395,8 @@ CONTEXT_VIEWS = {
     "transcript": _transcript,
     "prosody": _prosody,
     "picture": _picture,
+    "stability": _stability,
+    "alignment": _alignment,
 }
 
 

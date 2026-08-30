@@ -342,6 +342,14 @@ def review_creative_cohesion(inputs: dict) -> dict:
         "warnings": warnings,
         # Every entry here is one `apply_cohesion_adjustments` applies.
         "adjustments": adjustments,
+        # WHY that list is the length it is. An empty `adjustments` used
+        # to read the same whether the review proposed nothing or
+        # proposed only things a step upstream owns - and on every run
+        # this project has made it has been the first, so the array read
+        # as a clean bill of health on the edit. See
+        # library/tools/cohesion_scope.adjustments_basis.
+        "adjustments_basis": cohesion_scope.adjustments_basis(
+            proposals, adjustments, observations),
         # Findings a step upstream owns: stated, with who owns them and
         # what re-run would act on them. Never presented as changes.
         "observations": observations,

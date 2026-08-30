@@ -331,6 +331,119 @@ def selection_measurements(selection: dict,
                 f"was measured is not in it"}
 
 
+def bed_reading(music_selection: dict) -> dict:
+    """What is known about the bed that will play, or a stated absence.
+
+    Reads `music_selection.measurements`, which step 2.04's post-bridge
+    folds on from the candidate it chose. An unmeasured bed reports
+    `measured: False` and its reason - never a level of 0.
+
+    This lived in step 5.02 and is here because two steps read it: 5.02
+    writes the automation, and step 4.04's pre-bridge tells the sound
+    planner what the bed under each block will be doing. Two copies of
+    this arithmetic is how the two come to disagree.
+    """
+    selection = music_selection or {}
+    measurements = selection.get("measurements") or {}
+    reading = {
+        "title": selection.get("title") or "",
+        "audio_path": selection.get("audio_path") or "",
+        "measured": bool(measurements.get("measured")),
+        "measurement_note": measurements.get("measurement_note") or "",
+    }
+    if not reading["measured"]:
+        if not measurements:
+            reading["measurement_note"] = (
+                "music_selection carries no `measurements` key. Step 2.04 "
+                "writes one on every run; a selection recorded before it "
+                "did has none, and re-running 2.04 is what supplies it."
+            )
+        return reading
+
+    for key in ("integrated_lufs", "loudness_range_lu", "true_peak_dbtp",
+                "rms_spread_db", "window_spread_db", "speech_band_ratio_db"):
+        if key in measurements:
+            reading[key] = measurements[key]
+    return reading
+
+
+def bed_level_after_gain(bed: dict, level_db):
+    """Where the clip gain puts the bed, in LUFS. None when unmeasured.
+
+    Arithmetic, not a decision: the bed's own integrated loudness plus
+    the gain the plan applies to it.
+    """
+    integrated = (bed or {}).get("integrated_lufs")
+    if not (bed or {}).get("measured") or not isinstance(
+            integrated, (int, float)):
+        return None
+    if not isinstance(level_db, (int, float)):
+        return None
+    return round(float(integrated) + float(level_db), 2)
+
+
+# ── What the bed is doing under one block ────────────────────────────
+#
+# The one SFX project 001 shipped plays at -14 dB at 2.398s, which is the
+# exact frame the bed goes `prominent` (-6 dB, the loudest music in the
+# video).  Step 4.04 is routed `timed_spine`, which carries
+# `music_behavior` per block, so it COULD have seen that - but the word
+# is buried in the spine and `volume_level` is a four-word ladder
+# (subtle -18 / low -14 / medium -10 / prominent -6) with no relation to
+# what the sound measures or to what is under it.  Nothing in the
+# pipeline predicts whether a sound will be heard.
+#
+# So the bed's own level at the block a sound is placed on travels into
+# that step's candidate table, as DATA with a legend - the route
+# MEASUREMENT_LEGEND and CUTS_LEGEND already take, because the handoff
+# is frozen.
+#
+# **It states a level and never a target.**  What separation a sound
+# should have over the bed is the same undeclared decision
+# `music_behavior.SEPARATION_TARGETS_DB` is empty for, and an
+# engine-supplied one would be a strength nobody chose arriving one
+# level up (AGENTS.md 10.5).
+
+BED_UNDER_THE_BLOCK_LEGEND = {
+    "music_behavior":
+        "what the plan says the bed does under this block - prominent, "
+        "background, fade_in, fade_out or silent "
+        "(library/tools/music_behavior.py).",
+    "bed_under_it":
+        "the clip gain that behaviour applies to the bed, and where that "
+        "puts the bed's own measured loudness. A sound placed on this "
+        "block is heard against THAT. `bed level unmeasured` means step "
+        "2.04 recorded no measurement for the chosen track - never that "
+        "the bed is silent. NOTHING here says how loud a sound should "
+        "be: no separation target is declared anywhere in this pipeline, "
+        "and the level is yours to choose.",
+}
+
+
+def bed_under_block(block: dict, bed: dict) -> tuple:
+    """`(behaviour, one sentence about the bed)` for one spine block.
+
+    Raises on a behaviour outside the vocabulary, the same way every
+    other reader of that word does.
+    """
+    from library.tools.music_behavior import (
+        is_silent, music_level_db, resolve_music_behavior,
+    )
+    from library.tools.spine_contract import is_speech_block
+
+    behaviour = resolve_music_behavior(
+        (block or {}).get("music_behavior"),
+        block_carries_speech=is_speech_block(block or {}))
+    if is_silent(behaviour):
+        return behaviour, "no music at all - a planned hole in the bed"
+    gain = music_level_db(behaviour)
+    after = bed_level_after_gain(bed or {}, gain)
+    if after is None:
+        note = (bed or {}).get("measurement_note") or "no measurement recorded"
+        return behaviour, f"{gain} dB gain, bed level unmeasured ({note})"
+    return behaviour, f"{gain} dB gain, bed at {after} LUFS"
+
+
 def should_measure(candidate: dict) -> bool:
     """Whether opening this file can change the answer.
 

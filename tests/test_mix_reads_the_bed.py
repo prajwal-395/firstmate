@@ -216,11 +216,14 @@ def test_an_unmeasured_bed_is_an_admitted_absence_never_a_level():
 def test_the_step_declares_only_what_it_reads():
     manifest = json.loads((STEP_DIR / "manifest.json").read_text("utf-8"))
     declared = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert declared == {"audio_spine", "music_selection"}, (
+    assert declared == {"audio_spine", "music_selection",
+                        "a_roll_assignments"}, (
         "creative_direction reaches this step through the spine's own "
         "music_behavior, which mesh_spine decided; enhancement_spec "
         "described a feature nobody built. Re-declaring either needs a "
-        "reader in the same commit.")
+        "reader in the same commit. `a_roll_assignments` arrived WITH "
+        "its reader: it names the source ranges the speech is measured "
+        "over (library/tools/speech_loudness.py).")
 
     dag = json.loads(
         (REPO / "library" / "processes" / "edit_video" / "dag.json")

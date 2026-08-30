@@ -178,9 +178,34 @@ def test_the_transient_column_is_measured_not_a_constant():
 
 
 def test_a_block_with_no_source_clip_says_it_was_not_measured():
-    """State the absence; never report it as a measured zero."""
+    """State the absence; never report it as a measured zero.
+
+    A non-speech block names no `clip_id` on the SPINE, and this used to
+    stop there - `not measured (no source clip)` on 5 of 001's 13 rows,
+    the rows a whoosh would go on, while `b_roll_assignments` named the
+    covering cutaway in the same prompt. With no cutaway over it there
+    is genuinely nothing, and the cell says both halves.
+    """
     rows = build_sfx_candidates(_inputs())
-    assert rows[1]["action_sfx_suggested"] == "not measured (no source clip)"
+    assert rows[1]["action_sfx_suggested"] == (
+        "not measured (no source clip and no cutaway over it)")
+
+
+def test_a_covered_block_names_the_cutaway_and_says_it_plays_silent():
+    """The cutaway is placed `video_only`; its own audio is never heard.
+
+    So the honest cell is not "N transients" either - counting them
+    would describe a sound nobody hears. See
+    library/tools/broll_coverage.py.
+    """
+    rows = build_sfx_candidates(_inputs(b_roll_assignments=[{
+        "spine_block_position": 1, "clip_id": "clip_004",
+        "source_file": "/raw/IMG_1809.MOV",
+        "video_in": 0.0, "video_out": 3.0,
+    }]))
+    assert rows[1]["action_sfx_suggested"] == (
+        "covered by clip_004, video only - the cutaway's own audio is "
+        "never heard")
 
 
 def test_the_transient_column_states_no_verdict():

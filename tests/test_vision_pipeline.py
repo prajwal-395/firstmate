@@ -23,7 +23,16 @@ def sample_temporal_index():
         "duration_s": 10.0,
         "scene_boundaries": [{"timestamp": 3.5}, {"timestamp": 7.2}, {"timestamp": 0.1}],
         "speech_regions": [{"start": 1.0, "end": 2.5, "text": "hello"}],
-        "camera_motion": {"residual": [0.01, 0.015, 0.012] * 4}
+        # The shape step 1.04 really writes. This fixture used to say
+        # `"camera_motion": {"residual": [...]}` - a key nothing has ever
+        # written - so the test passed against a signal the pipeline
+        # never read. See library/tools/camera_stability.py.
+        "camera_motion_decomposition": {
+            "sample_rate_hz": 5,
+            "values": [{"translation_x": 0.0, "translation_y": 0.0,
+                        "zoom_factor": 1.0, "residual": r}
+                       for r in [0.01, 0.015, 0.012] * 4],
+        },
     }
 
 def test_merge_objects():
@@ -92,7 +101,9 @@ def test_compute_deterministic_assessment(sample_temporal_index):
     
     assert assessment["speech_present"] is True
     assert assessment["speech_coverage"] == 0.15 # 1.5s / 10.0s
-    assert assessment["camera_stability"] == "stable" # residual mean ~0.012 < 0.02
+    # residual mean ~0.0123, under half a grid step of the block search
+    assert assessment["camera_stability"] == "stable"
+    assert assessment["camera_stability_method"] == "optical_flow_residual"
     # No motion scale and no picture sample, so nothing measured the
     # ranges - and an unmeasured clip claims nothing, not everything.
     assert assessment["usable_ranges_method"] == "unmeasured"  # only 12 motion samples < 30

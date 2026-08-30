@@ -16,10 +16,16 @@ level the music file already carries, so whether the planned offset
 lands is decided by the bed's own loudness.  Step 2.04 measures that
 (`library/tools/music_measurement.py`) and the chosen track carries its
 own scalars forward as `music_selection.measurements`, which is what
-this step reads.  The one number the arithmetic still needs - how loud
-the SPEECH is - is measured nowhere in the pipeline, so the separation
-each window will deliver is REPORTED AS UNKNOWN rather than computed
-from a guess; `separation_unmeasurable_because` says so on every run.
+this step reads.  The other number the arithmetic needs - how loud the
+SPEECH is - is now MEASURED, by one ffmpeg `loudnorm` pass over the
+ranges `a_roll_assignments` names (`library/tools/speech_loudness.py`,
+about 0.23 s per block; 1.2 s for 001's eight).  So each window records
+the separation it will DELIVER.
+
+What no step supplies is the separation a window OUGHT to deliver:
+`music_behavior.SEPARATION_TARGETS_DB` is empty and the master loudness
+target is an open captain decision.  `separation_target_is_undeclared`
+says so on every run.
 
 Nothing here chooses a level.  The five clip gains are
 `library/tools/music_behavior.py`'s and are a registered open decision;
@@ -40,6 +46,15 @@ from library.tools.music_behavior import (
     music_level_db,
     resolve_music_behavior,
     separation_target_db,
+)
+from library.tools.music_measurement import (
+    bed_level_after_gain,
+    bed_reading,
+)
+from library.tools.speech_loudness import (
+    NO_TARGET_IS_SUPPLIED,
+    measure_speech_blocks,
+    separation_delivered_db,
 )
 from library.tools.spine_contract import is_speech_block
 
@@ -70,73 +85,50 @@ TRACK_LEVELS = {
 # this step and `compile_manifest` cannot disagree about what a word
 # means or about which words exist.
 
-# The half of the separation arithmetic the pipeline does not have.
-# `bed_level_after_gain_lufs` is exact - it is the bed's own integrated
-# loudness plus the clip gain the plan applies to it. The separation is
-# that number subtracted from the SPEECH's loudness, and no step measures
-# the speech's loudness: 1.05 measures prosody, 1.04 measures speech
-# REGIONS, and neither reports a level. Naming the gap is the honest
-# answer; filling it with a convention would be the same defect one level
-# down.
-SPEECH_LOUDNESS_IS_UNMEASURED = (
-    "the separation a window delivers is speech loudness minus "
-    "bed_level_after_gain_lufs, and nothing in the pipeline measures the "
-    "loudness of the speech that plays. It would take one ffmpeg "
-    "loudnorm pass over the A-roll ranges `a_roll_assignments` names - "
-    "the same pass `music_measurement.loudness` already runs on a "
-    "candidate, about 3s per track on project 001. Until it exists, "
-    "render_qa measures the separation on the finished master and this "
-    "plan cannot predict it."
+# Both halves of the separation arithmetic are now measured.
+# `bed_level_after_gain_lufs` is the bed's own integrated loudness plus
+# the clip gain the plan applies to it; `speech_lufs` is one ffmpeg
+# loudnorm pass over the range `a_roll_assignments` says this block
+# plays. Their difference is `separation_delivered_db`, and it is
+# arithmetic over two measurements rather than a prediction from a
+# convention.
+#
+# What is STILL not supplied is the separation a window ought to
+# deliver. That is the same registered captain decision as the five clip
+# gains, and an engine-supplied one would be a strength nobody chose
+# arriving one level up (AGENTS.md 10.4, 10.5).
+SEPARATION_TARGET_IS_UNDECLARED = (
+    "the separation each window DELIVERS is now measured - speech "
+    "loudness minus bed_level_after_gain_lufs, both from real "
+    "measurements. What no step supplies is the separation a window "
+    "OUGHT to deliver: music_behavior.SEPARATION_TARGETS_DB is empty and "
+    "the master loudness target is an open captain decision. Until one "
+    "is declared, a check judging against the clip gain is judging "
+    "against a number that was never a separation target."
 )
 
 
-def bed_reading(music_selection: dict) -> dict:
-    """What is known about the bed that will play, or a stated absence.
-
-    Reads `music_selection.measurements`, which step 2.04's post-bridge
-    folds on from the candidate it chose. An unmeasured bed reports
-    `measured: False` and its reason - never a level of 0.
-    """
-    selection = music_selection or {}
-    measurements = selection.get("measurements") or {}
-    reading = {
-        "title": selection.get("title") or "",
-        "audio_path": selection.get("audio_path") or "",
-        "measured": bool(measurements.get("measured")),
-        "measurement_note": measurements.get("measurement_note") or "",
-    }
-    if not reading["measured"]:
-        if not measurements:
-            reading["measurement_note"] = (
-                "music_selection carries no `measurements` key. Step 2.04 "
-                "writes one on every run; a selection recorded before it "
-                "did has none, and re-running 2.04 is what supplies it."
-            )
-        return reading
-
-    for key in ("integrated_lufs", "loudness_range_lu", "true_peak_dbtp",
-                "rms_spread_db", "window_spread_db", "speech_band_ratio_db"):
-        if key in measurements:
-            reading[key] = measurements[key]
-    return reading
+def _speech_lufs(speech: dict, block: dict):
+    """The measured loudness of this block's speech, or None."""
+    reading = speech.get(block.get("position")) or {}
+    return reading.get("integrated_lufs") if reading.get("measured") else None
 
 
-def _bed_level_after_gain(bed: dict, level_db) -> float:
-    """Where the clip gain puts the bed, in LUFS. None when unmeasured."""
-    integrated = bed.get("integrated_lufs")
-    if not bed.get("measured") or not isinstance(integrated, (int, float)):
-        return None
-    if not isinstance(level_db, (int, float)):
-        return None
-    return round(float(integrated) + float(level_db), 2)
-
-
-def define_audio_mix(audio_spine: dict, music_selection: dict) -> dict:
+def define_audio_mix(audio_spine: dict, music_selection: dict,
+                     a_roll_assignments=None) -> dict:
     """
     Define the audio mix specification from the spine and the chosen bed.
+
+    `a_roll_assignments` names the source ranges the edit really plays,
+    which is what makes the speech measurable. A caller that has none
+    still gets the whole spec; every window then records `speech_lufs`
+    as an admitted absence rather than a level.
     """
     structure = audio_spine.get("structure", [])
     bed = bed_reading(music_selection)
+    # One loudnorm pass per speech block. See
+    # library/tools/speech_loudness.py for the measured cost.
+    speech = measure_speech_blocks(a_roll_assignments)
 
     # Build music automation from spine blocks
     music_automation = []
@@ -159,10 +151,21 @@ def define_audio_mix(audio_spine: dict, music_selection: dict) -> dict:
             "target_level_db": level_db,
             # Where that gain puts the bed, given what the bed measures.
             # None when nothing measured it, never 0.
-            "bed_level_after_gain_lufs": _bed_level_after_gain(bed, level_db),
+            "bed_level_after_gain_lufs": bed_level_after_gain(bed, level_db),
             # What the plan asks the ear to hear. Undeclared today; the
             # number is the captain's, not the engine's.
             "separation_target_db": separation_target_db(behavior),
+            # How loud the speech under this window is, measured over the
+            # range a_roll_assignments says it plays. None with a stated
+            # reason when nothing measured it - never 0, which would read
+            # as silence.
+            "speech_lufs": _speech_lufs(speech, block),
+            "speech_loudness": speech.get(block["position"]),
+            # The separation this window WILL deliver. Arithmetic over
+            # two measurements; compared with nothing.
+            "separation_delivered_db": separation_delivered_db(
+                _speech_lufs(speech, block),
+                bed_level_after_gain(bed, level_db)),
         })
 
     # --- Verification ---
@@ -195,7 +198,8 @@ def define_audio_mix(audio_spine: dict, music_selection: dict) -> dict:
             "bed": bed,
             "separation_targets_declared": False,
             "separation_target_note": UNDECLARED_SEPARATION,
-            "separation_unmeasurable_because": SPEECH_LOUDNESS_IS_UNMEASURED,
+            "separation_target_is_undeclared": SEPARATION_TARGET_IS_UNDECLARED,
+            "speech_loudness_note": NO_TARGET_IS_SUPPLIED,
             "master_limiter": {
                 "threshold_db": -1.0,
                 "enabled": True,
@@ -220,7 +224,9 @@ def main():
     audio_spine = input_data.get("audio_spine", {})
     music_selection = input_data.get("music_selection", {})
 
-    result = define_audio_mix(audio_spine, music_selection)
+    result = define_audio_mix(
+        audio_spine, music_selection,
+        input_data.get("a_roll_assignments"))
     json.dump(result, sys.stdout, indent=2)
 
 

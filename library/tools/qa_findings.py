@@ -168,8 +168,10 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "A card held long enough to go stale."),
     FindingReader(
         "subtitle_gaps", "speech_sequence",
-        "Dead caption time. A long gap is the aligner's, not the "
-        "grouper's - the passage was anchored to the wrong words."),
+        "Uncaptioned seconds INSIDE a speech block. A planned B-roll "
+        "breath is not one of these - the check reads the spine. What is "
+        "left is either a real pause in the speech or a passage anchored "
+        "to the wrong words; the alignment report says which."),
     FindingReader(
         "subtitle_read_speed", "plan_subtitles",
         "Characters per second. The grouper fits cards to the caption "

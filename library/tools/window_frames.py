@@ -81,6 +81,8 @@ different things, and a harness could have the first without the second.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 import subprocess
@@ -234,15 +236,40 @@ def window_anchors(clip_analysis: dict, temporal_index: dict,
 
 # ── Drawing one ───────────────────────────────────────────────────────
 
-def strip_filename(clip_id: str, video_in: float) -> str:
-    """The strip's name, which IS its label.
+def strip_filename(clip_id: str, video_in: float, times=None) -> str:
+    """The strip's name, which IS its label AND its cache key.
 
     The window's start is in the filename so a reader never has to hold
     a mapping in their head, and so nothing has to draw text into the
     picture - which would need a font, and a font is a look decision
     arriving one level up (AGENTS.md §12).
+
+    **The name also carries what was DRAWN**, because `draw_strip`
+    reuses any file already at this path and the name used to record
+    only `(clip_id, video_in)`.  Nothing in it said how many frames the
+    strip has, where the window ends or at what scale it was sampled,
+    while the table beside it recomputes `frames: len(times)` from
+    current code.  On project 001 that shipped 83 of 94 rows declaring 5
+    frames for a strip that has 6: the strips were drawn at 10:26 under
+    an older sampling rule and the run that described them was at 12:36.
+    Harmless only because the model trusted the picture over the table.
+    Same class as #348/#350 - a cache invalidated by the footage and
+    never by the code that wrote it.
+
+    So the tag is the frame COUNT plus a digest of the exact instants
+    and the sampling scale.  Any change to what is drawn is a different
+    file, and a stale strip is never read.  `times=None` keeps the old
+    name, for a caller that only wants to address an existing strip.
     """
-    return f"{clip_id}__{video_in:08.3f}.jpg"
+    base = f"{clip_id}__{video_in:08.3f}"
+    if times is None:
+        return f"{base}.jpg"
+    rule = json.dumps(
+        {"times": [round(float(t), 3) for t in times],
+         "short_side": STRIP_FRAME_SHORT_SIDE},
+        sort_keys=True, separators=(",", ":"))
+    tag = hashlib.sha256(rule.encode("utf-8")).hexdigest()[:6]
+    return f"{base}__{len(times)}f{tag}.jpg"
 
 
 def ffmpeg_command(source_file: str, times: list, out_path: str) -> list:

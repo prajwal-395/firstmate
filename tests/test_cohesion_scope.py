@@ -256,3 +256,56 @@ def test_the_review_never_reports_an_empty_applied_list():
     left the process."""
     review = _review_with_every_finding()
     assert "applied_adjustments" not in review
+
+
+# ── Why `adjustments` is empty is SAID ─────────────────────────────────
+
+def test_an_empty_adjustments_list_says_which_absence_it_is():
+    """`[]` reads three ways and only one of them is true of this step.
+
+    On every run project 001 has made, `adjustments` was empty because
+    the review proposed nothing - and the array read as a clean bill of
+    health on the edit. Same shape as `vfx_plan_basis`: the two absences
+    are spelled differently on purpose.
+    """
+    from library.tools.cohesion_scope import (
+        ADJUSTMENT_BASES, adjustments_basis,
+    )
+
+    nothing = adjustments_basis([], [], [])
+    assert nothing["basis"] == "no_proposal_was_made"
+    assert nothing["proposed"] == 0
+
+    proposal = {"target_step": "sfx_spec", "field": "density",
+                "finding": "sparse"}
+    upstream = adjustments_basis([proposal], [], [proposal])
+    assert upstream["basis"] == "every_proposal_was_owned_upstream"
+    assert upstream["owned_upstream"] == 1
+
+    made = adjustments_basis([proposal], [proposal], [])
+    assert made["basis"] == "adjustments_were_made"
+
+    assert set(ADJUSTMENT_BASES) == {
+        "no_proposal_was_made", "every_proposal_was_owned_upstream",
+        "adjustments_were_made"}
+
+
+def test_the_basis_states_that_the_channel_has_no_producer():
+    from library.tools.cohesion_scope import (
+        NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING, adjustments_basis,
+    )
+    note = adjustments_basis([], [], [])["channel_note"]
+    assert note == NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING
+    assert "declares" in note and "10.5" in note
+
+
+def test_the_review_step_emits_the_basis():
+    from library.steps.step_5_03_creative_cohesion.step import (
+        review_creative_cohesion,
+    )
+    review = review_creative_cohesion({
+        "creative_direction": {"target_energy": "high"},
+        "transition_spec": [], "sfx_spec": [],
+    })
+    assert review["adjustments"] == []
+    assert review["adjustments_basis"]["basis"] == "no_proposal_was_made"

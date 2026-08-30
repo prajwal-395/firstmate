@@ -184,7 +184,10 @@ def build_window_frames(data: dict, catalog_entries: list,
                 continue
             times = wf.sample_times(
                 anchor["video_in"], anchor["strip_end"], float(fps))
-            name = wf.strip_filename(clip_id, anchor["video_in"])
+            # The name carries what was DRAWN, so a strip drawn under an
+            # older sampling rule is a different file and is never read
+            # as this one. See library/tools/window_frames.py.
+            name = wf.strip_filename(clip_id, anchor["video_in"], times)
             drawn += 1
             if not wf.draw_strip(source_file, times, str(directory / name)):
                 missing.append(f"{clip_id}@{anchor['video_in']:.3f}s")

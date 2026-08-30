@@ -601,12 +601,13 @@ Nothing is broadcast. A step gets brand data because its manifest asked.
 - The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
 - `tests/test_brand_constraints_reach_the_prompt.py`.
 
-**The captain's creative brief is one per-project declaration that reaches SEVEN steps, BY REFERENCE.**
+**The captain's creative brief is one per-project declaration that reaches EIGHT steps, BY REFERENCE.**
 `project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file.
 `load_pipeline_state` reads the PATH into state; `gather_step_inputs` reads the FILE and hands the step a REFERENCE to it, and only if the step's own manifest declares the input.
 A relative path resolves against the project; an absolute one is taken as given, so the captain's read-only planning tree is cited in place and never copied. A path that cannot be read or is empty RAISES.
 
-- The seven are `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - exactly the seven whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+- Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+- **The eighth is `mesh_spine`, and it is declared without a handoff line.** It sets every gap length and every `music_behavior` and had no brief at all; its `handoff.md` is under the captain's freeze, so the DECLARATION is what asks for it. A step gets the brief because its manifest asked, not because its prompt mentions one - the documenting-set above is the direction the test enforces, and it is one-way. [why - the two audit rounds that found it missing](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 - It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
 - **The cost is per step, not per run.** Measure before assuming a brief is free. [why - 001's measured before and after](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 
@@ -656,6 +657,8 @@ It never fails a run - an empty table can be the honest answer - and it catches 
   - **It is NOT a substitute for `scene[]` and must not be swapped in for it.** `scene[]` says WHERE (location, type, lighting, notable features); the action windows say WHAT HAPPENS. Different axes, so the view goes BESIDE `analysis.scene`. Repairing `scene[]`'s coverage is a separate, unestablished question (#302).
   - **Its rows are keyed by the CATALOG clip id wherever a routed input makes that join possible** - the id `timed_spine`, the assignments and `transcripts_toon` use, while the documents are keyed by file stem. `clip_catalog`, `a_roll_assignments` and `b_roll_assignments` are the lists it joins against; a document none of them names keeps its own id and is reported in `not_in_the_clip_list`. That is why 2.02, 4.03 and 4.04 route `clip_catalog` - optional, projected to `clip_id` and `filename`.
   - **Raw `blocks` in a `context_fields` allow-list is the wrong route**, several times the view's size once `json.dumps`'d into a cell. `tests/test_picture_view.py` fails if one comes back.
+- `view:stability` is the two camera-steadiness signals SIDE BY SIDE, with the verdict on whether they agree - declared by `select_broll`, `plan_transitions` and `plan_vfx`. The VLM's per-window `camera[].stability` and the deterministic per-clip `assessment.camera_stability` measure different things and on 001 they disagreed on 9 of 17 clips while three tables in one run carried two different answers about the same clip. **It resolves nothing**: whatever picked a winner would become the measurement (section 10.5).
+- `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - the leading gap, the largest silence BETWEEN two words, the voiced fraction - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it, and section 6's "no gap threshold and no voiced-fraction band" is unchanged. The run summary is its second reader (`library/tools/alignment_findings.py`).
 - `view:prosody` has NO consumer since #F5 unwired step 1.05, and is kept for whatever declares one next. It is what step 2.01 used to read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through; the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
@@ -837,6 +840,16 @@ Exercise the collection half with an analysis dir of copied profiles and `raw_fo
 - The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
 - It samples at 5 Hz and reports runs of 0.6s or longer. **State that bound when you report a verdict**: shorter soft windows can fall between samples, and it cannot tell motion blur from a missed focus.
 - `camera_stability` stays `unknown` when nothing measured it. Do not fill it in to match.
+
+**Camera steadiness has ONE reading, and it says which signal answered.**
+`library/tools/camera_stability.py`.
+The optical-flow residual is the signal designed for the job; the standard deviation of `motion_energy` is frame differencing and cannot tell a gesturing subject from a shaking camera. [why - the key nothing writes, and 001's 17 clips](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
+
+- **The residual lives at `camera_motion_decomposition.values[].residual`.** `compute_deterministic_assessment` read `temporal_index["camera_motion"]["residual"]`, a key nothing has ever written, so the residual was read on 0 of 001's 17 clips and every label came from frame differencing.
+- **The thresholds are read off the INSTRUMENT, not fitted to a project.** Step 1.04 block-matches a 160x90 frame at 5 Hz over a grid stepping 2 px, which arrives as a residual of 0.125, so the tiers are half a grid step and one grid step of MEAN per-sample global displacement. `MEASURED_ON_001` attaches that project's distribution and the VLM cross-check as a CHECK, with the caveat that one project is a thin basis and no render has been made against them.
+- **Every label carries `camera_stability_method`** - `optical_flow_residual`, `motion_energy_std` or `unmeasured` - because a method field travels with the number it qualifies. A document written before the field existed reads `unrecorded`, which is a different claim from `unmeasured`.
+- The two signals still differ where both are real: `view:stability` is how that reaches a prompt (section 10.1).
+- `tests/test_camera_stability.py`.
 - **The DISPLAY reads the method, not the ranges.** `usable_ranges_summary` answers "unmeasured" whenever the method says so, whatever the ranges hold, and `adapt_semantic_document` REPLACES a stale `usable_portions` rather than deferring to it. Same read-side shape as `stability_summary` treating the literal `"unknown"` as absent - neither writes to the stored document.
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
@@ -868,6 +881,7 @@ One enumeration, `library/tools/cohesion_scope.py`. `creative_cohesion` (5.03) c
 - `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. It carries **no `suggested_value`** (§10.5).
 - A pair in neither list RAISES, so a new finding has to say which side it is on.
 - **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/test_cohesion_scope.py` drives the real applier against both lists.
+- **An empty `adjustments` SAYS which absence it is.** `cohesion_scope.adjustments_basis` spells `no_proposal_was_made`, `every_proposal_was_owned_upstream` and `adjustments_were_made` differently - the shape `vfx_plan_basis` takes, for the same reason - and travels onto the manifest's record as `basis`, carrying the standing statement that `ACTIONABLE_AT_COHESION` has an applier and no producer. On every run this project has made it has been the first.
 - **`cohesion_score` is REMOVED, not recomputed.** [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
 **A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
@@ -896,9 +910,21 @@ A seventh, a face cut by the frame edge, is measured on the render and gates thr
   floor applies to the FILL stretches and the consistency bound applies WITHIN each declared
   framing - never switch the consistency half off for a video declaring more than one framing.
   [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
+  **An OVERLAY is not picture, and a sample carries the frame at its own timestamp.** Caption
+  ink is neither dark nor flat, so the bar walk stopped at it: 001's bottom bar read 347 rows
+  under a caption and 656 without one, on a picture that never changes size. The bars are
+  measured on the columns a CENTRED overlay cannot reach (`safe_area.centered_usable_width`);
+  a frame size no delivery format describes is measured full width and SAYS so on the result.
+  And `_stream_raw_frames` asks ffmpeg for `fps=N:round=up`, because the default `round=near`
+  emits the LAST input frame to claim a slot - up to half a sample period after the label,
+  which put a cutaway starting at 32.067s into the sample the A-roll clip before it owns.
+  [why - both, measured on 001's correct render](docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render)
 - colour exists somewhere in the frame (`measure_chroma_presence`);
 - speech sits above the bed (`measure_speech_above_bed`);
 - the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`).
+
+**`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
+A B-roll breath is time the plan chose to have no words in. All four of 001's reported gaps - 3.0, 3.5, 3.0 and 3.0s - were the planned beats at spine blocks 1, 4, 6 and 9, and the finding reaches a creative step (§10.4, the QA findings) carrying a legend. A caller with no spine gets the old whole-timeline measurement and the result says which it made.
 
 `manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
 
@@ -919,12 +945,15 @@ Do not flip the boolean without changing one of the two. [why - the per-window n
 Step 2.04 chooses which part of the track plays (§10.5) and the A2 clip carries it as `source_in`, so timeline second *t* is music file second *t + (source_in - timeline_in)*.
 `measure_speech_above_bed` takes `music_offset_seconds` positionally with no default, records it beside the windows, and `run_full_render_qa` declines to run P3 at all when it is None - the same shape `beat_grid` already has, and for the same reason: a default of "no offset" is the value that is silently wrong. [why - 001's bed plays from 60.0 s, and fitting from 0 turned 0 of 8 speech windows meeting their target into 8 of 8](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 
+**The bed is bounded by the PICTURE, not by V1.**
+`compile_manifest` clamps a music clip that runs past the last picture, and the bound is V1 AND V2. It was V1 alone; 001's outro cutaway sits on V2, so the four seconds the spine declared `fade_out` at -12 dB - with `audio_mix` automation written for them - shipped with no bed at all, 4.0s measured at -91.0 dB, announced by a `WARNING:` on stderr forty minutes into an unattended run. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
+
 **The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
 Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN track's SCALARS onto `music_selection.measurements` through `music_measurement.selection_measurements`, and step 5.02 reads them and records `bed` plus a per-window `bed_level_after_gain_lufs` - the bed's integrated loudness plus the clip gain, which is arithmetic and not a decision.
 
 - **Only scalars travel.** `music_selection` is declared whole by `plan_transitions` and `mesh_spine`, so the envelope curve and the section table would land in two prompts (§10.1). `WITHHELD_FROM_THE_SELECTION` records both with the reason, and an unaccounted measurement key raises at import.
 - **An unmeasured bed is an admitted absence**: `measured: false` with its reason, no level at all, and `bed_level_after_gain_lufs` None - never 0.
-- **The separation a window will DELIVER still cannot be predicted**, because nothing measures the loudness of the speech that plays. `step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED` names what it would cost (one `loudnorm` pass over the ranges `a_roll_assignments` names). Say that, rather than computing a separation from a convention.
+- **The separation a window will DELIVER is predicted, and the separation it OUGHT to deliver is not supplied.** `library/tools/speech_loudness.py` measures the speech with one ffmpeg `loudnorm` pass per block over the ranges `a_roll_assignments` names - 0.23 s a block, measured, so 1.2 s for 001's eight - and 5.02 records `speech_lufs` and `separation_delivered_db` per window. **Measure and expose; never choose.** `SEPARATION_TARGETS_DB` is still empty and the master loudness target is still the captain's, so nothing compares the delivered number with anything. A block whose speech could not be measured records the reason and `None`, never 0.
 - Step 5.02 declares `audio_spine` and `music_selection` and nothing else. `creative_direction` reaches it through the spine's own `music_behavior`, which `mesh_spine` already decided from it; `enhancement_spec` described audio-aware mixing nobody built. Re-declaring either needs a reader in the same commit.
 - `tests/test_mix_reads_the_bed.py`.
 
@@ -1003,7 +1032,9 @@ The answer names an `sfx_id` out of it. [why - the two sounds 001 shipped, what 
 - **It ships BY REFERENCE, through the mechanism `brief_reference` already built (#295, see 10.1).** `sfx_library.catalog_document` is the shape - one `##` section per sound, titled with the exact `sfx_id` an answer must name and opening with the sound's measured facts, so the map names **every sound by id with category, length, envelope and temperature** and a LINE RANGE for the prose. **A reference that narrowed the menu would be the shortlist problem again.** [why - the measured inline and map sizes](docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt)
 - `library/steps/step_4_04_plan_sfx/handoff.md` is frozen and its toolkit table still names `foley`, `ambient` and `reverse_cymbal`, which the library cannot play. They name nothing the model can emit - the schema asks for an `sfx_id` - but the table is the captain's to correct.
 - A sound and a transition are named by the SAME identifier, `spine_block_position`, so `transitions_toon` is keyed by the block a cut leads into and pairing them needs no join.
-- `tests/test_sfx_choice_from_the_catalogue.py`, `tests/test_sfx_duration.py`, `tests/test_sfx_catalogue_by_reference.py`.
+- **The candidate table says what the BED is doing under each block**, as `music_behavior` and `bed_under_it` with `sfx_candidates_legend` beside them (`music_measurement.bed_under_block`). 001's one sound plays at -14 dB at the exact frame the bed goes `prominent` at -6, and nothing in the pipeline predicted whether it would be heard. **It states a LEVEL and never a TARGET**: what separation a sound should have is the same undeclared decision `SEPARATION_TARGETS_DB` is empty for.
+- **A non-speech block names no `clip_id` on the spine, and that is not un-measurability.** Both this table and 4.03's read `not measured (no source clip)` on every one of them - 5 of 13 rows on 001 - while `b_roll_assignments` names the covering cutaway in the same prompt. `library/tools/broll_coverage.py` is the join, and the two tables say different things with it: 4.03 gets a real camera description of the cutaway, and this one gets an ADMITTED ABSENCE with a reason, because a cutaway is placed `video_only` and its own audio is never heard.
+- `tests/test_sfx_choice_from_the_catalogue.py`, `tests/test_sfx_duration.py`, `tests/test_sfx_catalogue_by_reference.py`, `tests/test_sfx_hears_the_bed.py`, `tests/test_broll_coverage_reaches_the_tables.py`.
 
 **Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
 The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` and picks nothing.
@@ -1234,6 +1265,13 @@ One enumeration, `library/tools/marker_routing.py`.
   is routed to a prompt step whose manifest does not declare the input, because a context
   assembled without it reads exactly like a run with no notes. `undelivered` accounts for
   every note that reaches no prompt, by name.
+- **A note that reached NOBODY is named in the run summary and recorded on the note.** Three
+  markers were pulled on 001 and one reached a prompt; the other two - one routed to a
+  deterministic step with no prompt, one `ambiguous` between two - were in `ROUTED-NOTES.md`
+  and in nothing a run said, so the captain thinks they were heard. The summary prints them
+  after `status` is decided and `record_non_delivery` appends them to the same log the
+  deliveries go to. **It stops at visibility**: `WITHDRAWN_ROUTERS` records why every tie-break
+  was refused, and resolving an ambiguity is the captain's call, not the engine's.
 - The delivery log is APPENDED by the runner, in the `Kind.CAPTURED` area beside the pull
   files: a delivery is a thing that happened, and a later run delivering the same note does
   not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and

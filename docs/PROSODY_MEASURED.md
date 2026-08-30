@@ -168,10 +168,12 @@ the model's to make, not the engine's (AGENTS.md section 10.5).
 - **Voice quality** - jitter, shimmer, HNR. 2.02's *"a crack in it"* becomes
   unanswerable.
 - **Absolute speech level.** `energy_curve` is normalised by each clip's own max, so
-  "clip A is louder than clip B" is not answerable from it. This gap is already recorded
-  at `step_5_02_audio_mix.SPEECH_LOUDNESS_IS_UNMEASURED`, with what closing it would
-  cost; unwiring prosody does not worsen it, but it does close the one route that might
-  have supplied it as a side effect.
+  "clip A is louder than clip B" is not answerable from it. This gap has since been
+  closed where it was needed, and not by prosody: `library/tools/speech_loudness.py`
+  runs one ffmpeg `loudnorm` pass per speech block over the ranges
+  `a_roll_assignments` names, and step 5.02 records `speech_lufs` and
+  `separation_delivered_db` per window. Unwiring prosody neither worsened nor closed
+  it.
 
 Of the 86 recorded decisions across 001's traces, **one named prosody (D05)**, and three
 of the four questions it was wanted for are answered above. `speech_coverage`,

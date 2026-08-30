@@ -17,6 +17,12 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection - the chosen bed. Read for `measurements`: a music_behavior is a RELATIVE dB applied to whatever level the file already carries, so the bed's own integrated loudness is what decides whether the planned offset lands."
+      },
+      {
+        "name": "a_roll_assignments",
+        "type": "array",
+        "required": false,
+        "description": "The source ranges the edit really plays, which is what makes the speech measurable: step 5.02 runs one ffmpeg loudnorm pass per block over them and records speech_lufs and the separation each window will deliver (library/tools/speech_loudness.py). Optional because a spec without it is still a whole spec - every window then records speech_lufs as an admitted absence rather than a level. Declared WITH its reader, per AGENTS.md 10.4."
       }
     ],
     "outputs": [

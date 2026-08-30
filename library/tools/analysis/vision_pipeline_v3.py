@@ -42,6 +42,7 @@ from model_lifecycle import managed_model
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 from library.tools.analysis import picture_quality
+from library.tools.camera_stability import read_camera_stability
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1035,6 +1036,7 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
             "speech_coverage": None,
             "speech_coverage_method": "unmeasured",
             "camera_stability": "unknown",
+            "camera_stability_method": "unmeasured",
         }
         _set_usable_ranges(result, None, duration or 0, "unknown",
                            soft_picture_ranges)
@@ -1045,6 +1047,7 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
         "speech_coverage": None,
         "speech_coverage_method": "unmeasured",
         "camera_stability": "unknown",
+        "camera_stability_method": "unmeasured",
     }
 
     # Support both key names: older temporal indices use "duration",
@@ -1075,34 +1078,15 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
         # clip is speech stays unmeasured.
         result["speech_present"] = True
 
-    # Camera stability from optical flow variance
-    camera_data = temporal_index.get("camera_motion", {})
-    if isinstance(camera_data, dict):
-        residuals = camera_data.get("residual", [])
-        if residuals and len(residuals) > 10:
-            arr = np.array(residuals, dtype=float)
-            mean_residual = float(np.mean(arr))
-            if mean_residual < 0.02:
-                result["camera_stability"] = "stable"
-            elif mean_residual < 0.08:
-                result["camera_stability"] = "handheld"
-            else:
-                result["camera_stability"] = "unstable"
-
-    # Alternative: use motion energy variance
-    if result["camera_stability"] == "unknown":
-        motion_data = temporal_index.get("motion_energy", {})
-        if isinstance(motion_data, dict):
-            values = motion_data.get("values", [])
-            if values and len(values) > 30:
-                arr = np.array(values, dtype=float)
-                std = float(np.std(arr))
-                if std < 0.05:
-                    result["camera_stability"] = "stable"
-                elif std < 0.15:
-                    result["camera_stability"] = "handheld"
-                else:
-                    result["camera_stability"] = "unstable"
+    # Camera stability. ONE reading, and it says which signal answered:
+    # library/tools/camera_stability.py. This used to index
+    # `temporal_index["camera_motion"]["residual"]`, a key nothing has
+    # ever written, so the optical-flow residual was never read on any
+    # clip of any run and every label came from frame differencing.
+    stability, stability_method, _residual_mean = read_camera_stability(
+        temporal_index)
+    result["camera_stability"] = stability
+    result["camera_stability_method"] = stability_method
 
     # Usable ranges: Rules 1, 2 & 4 (content_type not yet known; Rule 3
     # is deferred to analyze_assessment where the model provides it).

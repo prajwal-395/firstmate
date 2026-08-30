@@ -135,6 +135,68 @@ OWNED_UPSTREAM: Dict[Tuple[str, str], OwnedUpstream] = {
 }
 
 
+# ── Why `adjustments` is empty ───────────────────────────────────────
+#
+# An empty `adjustments` list reads the same three ways, and they are not
+# the same thing: the review proposed nothing, the review proposed things
+# and every one of them was owned upstream, or a producer exists and had
+# nothing to say about this edit.  On every run this project has ever
+# made it has been the FIRST, and nothing said so - so the array read as
+# a clean bill of health on the edit.
+#
+# Same shape as `vfx_plan_basis`, and for the same reason: `[]` is an
+# absence, and which absence it is has to be spelled out.
+
+ADJUSTMENT_BASES = {
+    "no_proposal_was_made":
+        "the review produced no finding at all. Nothing here is a "
+        "judgement about the edit: this step is a pure OBSERVER today "
+        "and the only proposal it can still make routes upstream.",
+    "every_proposal_was_owned_upstream":
+        "every finding names a decision a step that has already run "
+        "owns, so it is reported as an observation and applied by "
+        "nobody. See each observation's own owner_step and how_to_act.",
+    "adjustments_were_made":
+        "the review proposed at least one finding the manifest compiler "
+        "applies. `assembly_manifest.cohesion_adjustments` is the record "
+        "of what happened to each.",
+}
+
+# The standing statement, printed with the basis so a reader does not
+# have to come here to find it.
+NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING = (
+    "ACTIONABLE_AT_COHESION has an applier and no producer. The four "
+    "checks that used to feed it were creative thresholds this step "
+    "chose - 'high energy means every transition under 500 ms, so make "
+    "it 10 frames' - and they were removed rather than re-tuned (#272). "
+    "A replacement needs a PACE the creative direction declares, and no "
+    "step emits one; inventing it here is what AGENTS.md 10.5 forbids. "
+    "So this channel is empty by construction, deliberately, and that "
+    "is a statement about the pipeline rather than about the edit."
+)
+
+
+def adjustments_basis(proposals, adjustments, observations) -> dict:
+    """Why `adjustments` came out the length it did. Never a verdict."""
+    proposals = list(proposals or [])
+    adjustments = list(adjustments or [])
+    observations = list(observations or [])
+    if adjustments:
+        basis = "adjustments_were_made"
+    elif proposals:
+        basis = "every_proposal_was_owned_upstream"
+    else:
+        basis = "no_proposal_was_made"
+    return {
+        "basis": basis,
+        "means": ADJUSTMENT_BASES[basis],
+        "proposed": len(proposals),
+        "actionable": len(adjustments),
+        "owned_upstream": len(observations),
+        "channel_note": NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING,
+    }
+
+
 def _key(target_step: str, field: str) -> Tuple[str, str]:
     return (str(target_step or ""), str(field or ""))
 

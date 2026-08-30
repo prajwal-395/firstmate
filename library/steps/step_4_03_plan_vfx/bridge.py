@@ -26,6 +26,10 @@ import os
 import sys
 import json
 
+from library.tools.broll_coverage import (
+    coverage_by_block, covering_assignment,
+)
+from library.tools.semantic_index import build_semantic_lookup
 from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     is_v3_profile,
@@ -91,16 +95,28 @@ def _build_clip_id_to_stem(data: dict) -> dict:
 def _build_semantic_lookup(data: dict, clip_id_to_stem: dict) -> dict:
     """Map catalog clip_id to its semantic analysis document.
 
-    The semantic documents arrive keyed by file stem; the spine speaks
-    catalog ids. `clip_id_to_stem` bridges the two vocabularies.
+    The canonical join is `semantic_index.build_semantic_lookup`, which
+    matches on the source path and reaches EVERY clip in the catalog
+    (AGENTS.md 10.1).  The local join below reads `a_roll_assignments`
+    and therefore only ever resolved the A-roll clips - so a B-roll
+    cutaway's document was unreachable here and its camera came back as
+    "no camera data".  The catalog is optional on this step, so the
+    local join stays as the fallback and fills anything the canonical
+    one missed.
     """
+    catalog = data.get("clip_catalog")
+    if isinstance(catalog, dict):
+        catalog = catalog.get("clip_catalog") or []
+    lookup = dict(build_semantic_lookup(
+        data.get("semantic_analysis_documents"), catalog or []))
+
     docs_raw = data.get("semantic_analysis_documents", [])
     if isinstance(docs_raw, dict):
         docs_raw = (docs_raw.get("semantic_analysis_documents")
                     or docs_raw.get("semantic_analysis")
                     or [])
     if not isinstance(docs_raw, list):
-        return {}
+        return lookup
 
     # Key documents by every name they carry: file path stem, clip_id.
     by_stem = {}
@@ -115,9 +131,10 @@ def _build_semantic_lookup(data: dict, clip_id_to_stem: dict) -> dict:
             if doc.get(key):
                 by_stem[_stem(doc[key])] = doc
 
-    # Resolve each catalog clip_id to a document.
-    lookup = {}
+    # Resolve each catalog clip_id the canonical join did not reach.
     for cid, stem in clip_id_to_stem.items():
+        if cid in lookup:
+            continue
         doc = by_stem.get(stem) or by_doc_id.get(stem)
         if doc:
             lookup[cid] = doc
@@ -208,17 +225,26 @@ def _summary_text(block: dict) -> str:
     return text
 
 
-def _vfx_suggested(block: dict, camera_desc: str) -> str:
+def _vfx_suggested(block: dict, camera_desc: str, clip_id=None,
+                   from_broll: bool = False) -> str:
     """What the measurement says about this block, not a verdict.
 
     Reports block duration and camera movement - the two signals the
-    handoff's criterion ("long AND static") is built from. A block with
-    no source clip reads "not measured (no source clip)" rather than
-    reading as a measured absence.
+    handoff's criterion ("long AND static") is built from.
+
+    A non-speech block names no `clip_id` on the spine, and this used to
+    read `not measured (no source clip)` on every one of them - 5 of 13
+    rows on 001, and the rows a cutaway effect would go on. The picture
+    those blocks show is the cutaway `b_roll_assignments` names, in the
+    same prompt, and a cutaway has a real camera description. The join
+    turns a false statement of un-measurability into a measurement, and
+    the cell says which clip it came from.
+    See library/tools/broll_coverage.py.
     """
-    clip_id = block.get("clip_id")
+    if clip_id is None:
+        clip_id = block.get("clip_id")
     if not clip_id:
-        return "not measured (no source clip)"
+        return "not measured (no source clip and no cutaway over it)"
 
     duration = None
     tl_start = block.get("timeline_start")
@@ -236,6 +262,8 @@ def _vfx_suggested(block: dict, camera_desc: str) -> str:
         parts.append(camera_desc)
     elif clip_id:
         parts.append("no camera data")
+    if from_broll:
+        parts.append(f"B-roll cutaway {clip_id}")
     return ", ".join(parts) if parts else "no data"
 
 
@@ -243,20 +271,32 @@ def build_vfx_candidates(data: dict) -> list:
     """One row per spine block, keyed by the position the answer names."""
     clip_id_to_stem = _build_clip_id_to_stem(data)
     semantic_lookup = _build_semantic_lookup(data, clip_id_to_stem)
+    coverage = coverage_by_block(data.get("b_roll_assignments"))
     rows = []
     for block in _spine_blocks(data):
         if not isinstance(block, dict):
             continue
         clip_id = block.get("clip_id")
-        doc = semantic_lookup.get(clip_id, {}) if clip_id else {}
+        from_broll = False
         source_start = block.get("source_start")
         source_end = block.get("source_end")
+        if not clip_id:
+            entry = covering_assignment(block, coverage)
+            if isinstance(entry, dict) and entry.get("clip_id"):
+                clip_id = entry["clip_id"]
+                from_broll = True
+                # The cutaway's OWN source range, which is the range of
+                # it that plays - not the spine block's, which is None.
+                source_start = entry.get("video_in")
+                source_end = entry.get("video_out")
+        doc = semantic_lookup.get(clip_id, {}) if clip_id else {}
         camera_desc = _camera_description(doc, source_start, source_end)
 
         rows.append({
             "segment_id": block.get("position"),
             "text": _summary_text(block),
-            "vfx_suggested": _vfx_suggested(block, camera_desc),
+            "vfx_suggested": _vfx_suggested(
+                block, camera_desc, clip_id=clip_id, from_broll=from_broll),
         })
     return rows
 

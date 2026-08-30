@@ -69,6 +69,7 @@ from typing import Dict, List, Optional
 
 from library.tools.delivery_format import (
     DEFAULT_DELIVERY_FORMAT,
+    DELIVERY_FORMATS,
     delivery_format_name,
     resolve_format_name,
 )
@@ -230,6 +231,24 @@ def safe_area_for_format(format_name: str) -> SafeAreaInsets:
     """Pixel insets for a named delivery format, at that format's size."""
     width, height = resolve_format_name(format_name)
     return safe_area_profile(format_name).insets(width, height)
+
+
+def safe_area_for_frame(width: int, height: int) -> SafeAreaInsets:
+    """The profile of the delivery format that IS this frame size.
+
+    For a consumer holding pixels and no declaration - the render QA
+    measures a finished master and has the frame in front of it.  An
+    unknown size RAISES rather than borrowing the nearest profile: an
+    invented inset is the defect this module exists to stop.
+    """
+    for name, (fmt_w, fmt_h) in DELIVERY_FORMATS.items():
+        if (fmt_w, fmt_h) == (int(width), int(height)):
+            return safe_area_profile(name).insets(width, height)
+    raise UnknownSafeArea(
+        f"No delivery format is {width}x{height}, so no safe area "
+        f"describes it. Known formats: "
+        f"{ {n: s for n, s in DELIVERY_FORMATS.items()} }."
+    )
 
 
 def resolve_safe_area(project_folder: Optional[str] = None,

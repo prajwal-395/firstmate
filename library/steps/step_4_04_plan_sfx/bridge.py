@@ -77,7 +77,13 @@ import sys
 import json
 
 from library.tools.brief_reference import build_reference
+from library.tools.broll_coverage import (
+    VIDEO_ONLY_AUDIO_READING, coverage_by_block, covering_assignment,
+)
 from library.tools.project_layout import Area, layout_for
+from library.tools.music_measurement import (
+    BED_UNDER_THE_BLOCK_LEGEND, bed_reading, bed_under_block,
+)
 from library.tools.sfx_library import (
     CATALOG_DOCUMENT_NAME,
     catalog_document,
@@ -239,20 +245,52 @@ def build_transition_rows(data: dict) -> list:
 
 
 def build_sfx_candidates(data: dict) -> list:
-    """One row per spine block, keyed by the position the answer names."""
+    """One row per spine block, keyed by the position the answer names.
+
+    A non-speech block names no `clip_id` on the spine, and this table
+    used to read `not measured (no source clip)` on every one of them -
+    5 of 13 rows on 001, and the rows a whoosh or an impact would go on.
+    `b_roll_assignments` names the covering cutaway and is in the same
+    prompt. The cell now names it and says what is true of its sound:
+    the cutaway is placed `video_only`, so its own audio is never heard
+    and there are no transients to count. An admitted absence with a
+    reason, not a false claim that nothing was measurable.
+    See library/tools/broll_coverage.py.
+    """
     temporal_lookup = _temporal_lookup(data)
+    coverage = coverage_by_block(data.get("b_roll_assignments"))
+    # What the bed is doing under each block. The one sound 001 shipped
+    # plays at -14 dB at the exact frame the bed goes `prominent` at
+    # -6 dB, and nothing in the pipeline predicted whether it would be
+    # heard. See library/tools/music_measurement.bed_under_block.
+    bed = bed_reading(data.get("music_selection") or {})
     rows = []
     for block in _spine_blocks(data):
         if not isinstance(block, dict):
             continue
         count = transient_count(block, temporal_lookup)
+        own_clip = block.get("clip_id")
+        entry = covering_assignment(block, coverage)
+        covering = entry.get("clip_id") if isinstance(entry, dict) else None
+        if count is not None:
+            cell = f"{count} audio transient{'' if count == 1 else 's'}"
+        elif own_clip:
+            # The block plays its own clip and something about the
+            # measurement is missing - no temporal index for the clip, or
+            # no source range on the block. Say WHICH; "no source clip"
+            # was false of this row.
+            cell = (f"not measured (no transient index for {own_clip})")
+        elif covering:
+            cell = f"covered by {covering}, {VIDEO_ONLY_AUDIO_READING}"
+        else:
+            cell = "not measured (no source clip and no cutaway over it)"
+        behaviour, bed_cell = bed_under_block(block, bed)
         rows.append({
             "segment_id": block.get("position"),
             "text": _summary_text(block),
-            "action_sfx_suggested": (
-                "not measured (no source clip)" if count is None
-                else f"{count} audio transient{'' if count == 1 else 's'}"
-            ),
+            "action_sfx_suggested": cell,
+            "music_behavior": behaviour,
+            "bed_under_it": bed_cell,
         })
     return rows
 
@@ -286,7 +324,8 @@ def main():
         sys.exit(1)
 
     sfx_toon = format_toon(
-        ["segment_id", "text", "action_sfx_suggested"],
+        ["segment_id", "text", "action_sfx_suggested", "music_behavior",
+         "bed_under_it"],
         build_sfx_candidates(data),
     )
 
@@ -329,6 +368,12 @@ def main():
         "sfx_catalog_reference": write_catalog_reference(
             project_folder, catalog),
         "sfx_candidates_toon": sfx_toon,
+        # `handoff.md` is frozen and cannot name the two new columns, so
+        # the legend travels as DATA - the MEASUREMENT_LEGEND route. It
+        # defines what a key IS and never what to conclude: no
+        # separation target is declared anywhere in this pipeline and
+        # none is supplied here (AGENTS.md 10.4, 10.5).
+        "sfx_candidates_legend": BED_UNDER_THE_BLOCK_LEGEND,
         "transitions_toon": format_toon(
             ["spine_block_position", "transition_type", "draws_on_screen",
              "duration_frames", "cut_point_seconds"],

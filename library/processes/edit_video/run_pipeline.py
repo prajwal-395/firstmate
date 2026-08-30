@@ -2392,6 +2392,63 @@ def run_pipeline(
         print(f"  WARNING: could not read the rough-cut review findings: "
               f"{exc}", file=sys.stderr)
 
+    # The captain's notes that reached NOBODY on this run.
+    #
+    # A note is routed to the step that owns the decision it is about,
+    # and three outcomes reach no prompt: `ambiguous` (the words name two
+    # steps' decisions and nothing may pick between them),`unrouted` (the
+    # words name none), and routed-to-a-deterministic-step, which has no
+    # prompt at all. On 001, two of the three notes the captain typed on
+    # 2026-08-28 were in that set and nothing in a run ever said so, so
+    # they think they were heard.
+    #
+    # It is REPORTED and RECORDED, never resolved: auto-resolving an
+    # ambiguity is the captain's call, and marker_routing's
+    # WITHDRAWN_ROUTERS records why every tie-break was refused.
+    #
+    # Reading is not gating: `status` is decided above this block.
+    notes_reaching_nobody = []
+    try:
+        from library.tools import marker_routing as _mr
+        _routed = _mr.route_project(project_dir)
+        for _line in _mr.undelivered_summary_lines(_routed):
+            print(_line, file=sys.stderr)
+        _left = _mr.undelivered(_routed)
+        # The note's OWN record, in the same append-only log the
+        # deliveries go to.
+        _mr.record_non_delivery(project_dir, _left)
+        notes_reaching_nobody = [
+            {"note_id": n.note_id, "outcome": why, "reason": detail}
+            for n, why, detail in _left]
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the captain's routed notes: "
+              f"{exc}", file=sys.stderr)
+
+    # What the aligner measured about each passage's INSIDES.
+    #
+    # `alignment_report` is written on step 2.02's own output and carries
+    # a real per-passage measurement of the silence between words. Two
+    # steps are routed it and both drop it by name; nothing else has ever
+    # opened it. On 001's run of record it recorded a 1.169s silence
+    # inside a 2.982s block - 39% of it - and no step, no gate and no
+    # report said so. See library/tools/alignment_findings.py.
+    #
+    # It ORDERS and REPORTS. No threshold fires: AGENTS.md section 6's
+    # "there is no gap threshold and no voiced-fraction band" is
+    # unchanged, and `status` is decided above this block.
+    alignment_summary = []
+    try:
+        from library.tools import alignment_findings as _af
+        _report = ((state.get("step_outputs", {})
+                    .get("speech_sequence", {})
+                    .get("speech_sequence") or {}).get("alignment_report"))
+        for _line in _af.summary_lines(_report):
+            print(_line, file=sys.stderr)
+        alignment_summary = _af.passage_rows(_report)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the passage alignment report: "
+              f"{exc}", file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
@@ -2399,6 +2456,8 @@ def run_pipeline(
         "status": status,
         "qa_findings": qa_summary,
         "rough_cut_review_findings": review_findings,
+        "passage_alignment": alignment_summary,
+        "notes_reaching_nobody": notes_reaching_nobody,
         "completed": completed,
         "completed_steps": len(step_ledger.all_completed(state)),
         "stage_completed": stage_done,

@@ -754,8 +754,11 @@ def enrich_speech_sequence(
     # Enrich body passages
     body = result.get("body_sequence", [])
     aligned_body = []
-    for passage in body:
-        pos = passage.get("position", "?")
+    for index, passage in enumerate(body):
+        # `?` on every row is what the alignment report shipped on 001,
+        # because the model declared no `position`. The list order is a
+        # real identifier and is spelled differently from a declared one.
+        pos = passage.get("position") or f"#{index + 1}"
         clip_id = passage.get("clip_id")
         try:
             enrichment = enrich_passage(

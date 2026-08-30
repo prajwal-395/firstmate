@@ -99,12 +99,20 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> 
     NOT ask for - carried through so the manifest's record is the whole
     picture rather than half of it.
     """
-    record = {"applied": [], "not_applied": [], "observed": []}
+    record = {"applied": [], "not_applied": [], "observed": [], "basis": {}}
     if not cohesion_review:
         return record
     observed = cohesion_review.get("observations")
     if isinstance(observed, list):
         record["observed"] = list(observed)
+    # WHY the review asked for nothing, carried through so the manifest's
+    # record says which absence this is. An empty `applied` beside an
+    # empty `not_applied` reads as a clean bill of health otherwise.
+    basis = cohesion_review.get("adjustments_basis")
+    if isinstance(basis, dict):
+        record["basis"] = dict(basis)
+        logger.info("Cohesion adjustments: %s - %s",
+                    basis.get("basis"), basis.get("means"))
     if not cohesion_review.get("adjustments"):
         return record
 
@@ -1783,13 +1791,30 @@ def compile_manifest(out_dir: str) -> dict:
         "fairlight_preset": audio_preset,
     }
 
-    if v1_clips and music_clips:
-        last_v1_end = max((c.get("timeline_out", 0) for c in v1_clips), default=0)
+    # A bed running past the last PICTURE pads the export with black, so it
+    # is clamped.  The bound is the end of the picture - V1 AND V2 - not the
+    # end of V1.  It used to be V1 alone, and an outro cutaway sits on V2:
+    # 001's four-second ending declared `music_behavior: "fade_out"` at
+    # -12 dB, `audio_mix` wrote the automation for it, and this clamp then
+    # deleted the bed the automation was written for.  The shipped render
+    # ends on 4.0s measured at -91.0 dB - absolute digital silence - and the
+    # only notice was a WARNING on stderr forty minutes into an unattended
+    # run.  See AGENTS.md 10.5: a plan's declared sound is not dropped
+    # quietly.
+    picture_clips = v1_clips + v2_clips
+    if picture_clips and music_clips:
+        last_picture_end = max(
+            (c.get("timeline_out", 0) for c in picture_clips), default=0)
         for mc in music_clips:
-            if mc.get("timeline_out", 0) > last_v1_end:
-                mc["timeline_out"] = max(mc.get("timeline_in", 0), last_v1_end)
+            if mc.get("timeline_out", 0) > last_picture_end:
+                trimmed_from = mc["timeline_out"]
+                mc["timeline_out"] = max(mc.get("timeline_in", 0), last_picture_end)
                 mc["source_out"] = mc.get("source_in", 0) + (mc["timeline_out"] - mc.get("timeline_in", 0))
-                print(f"  WARNING: Trimmed music to match last V1 clip end ({last_v1_end}s)", file=sys.stderr)
+                logger.warning(
+                    "Music bed ran to %.3fs, past the %.3fs of picture - "
+                    "clamped. Any music_automation past %.3fs has no bed.",
+                    trimmed_from, last_picture_end, last_picture_end,
+                )
 
     # ── Compile ──
     manifest = {
