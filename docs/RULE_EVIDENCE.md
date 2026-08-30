@@ -5194,3 +5194,177 @@ legend that blamed the aligner. Caption coverage inside the speech blocks is 33.
 84.3%, and the uncaptioned stretches there run 0.40-1.12 s: real pauses in the speech. The check
 reads the spine now; 4 findings became 0 on the same render, and a caller with no spine gets the
 old measurement and a result that says which it made.
+
+## the-panel-handed-the-model-a-filename
+
+**The captain, 2026-08-30**, standing on a clip in DaVinci Resolve and asking the scout's
+panel *"what does this clip where my playhead is at show?"* over IMG_1806.MOV:
+
+> I can see the metadata - the clip is IMG_1806.MOV, a raw video file from your footage
+> directory. However, I cannot actually view the video content.
+
+**The model was not wrong. The panel had handed it a filename and nothing else.** Its
+`read_context` attached Resolve-side facts only - clip name, timeline frames, source offset,
+source path, markers - and nothing the pipeline already knew about that clip, all of it on
+disk and already indexed.
+
+### The before and after, same question, same clip, same model
+
+Asked twice on the timeline the captain had open (`Pipeline_Edit_2`, a build of 001) at
+00:00:13:04, where the picture is IMG_1822.MOV playing source frames 902-1204. Same model
+(`claude-haiku-4-5-20251001`), same question, minutes apart.
+
+**BEFORE** - 501 characters of context, the Resolve-side facts alone, 9.7s:
+
+> The clip is **IMG_1822.MOV**, sourced from your raw footage. It's playing at timeline position 13:04, spanning frames 251–553 of the timeline, starting from frame 902 of the source file.
+> 
+> However, I don't have access to the **semantic analysis** (vision measurements) for this clip—what the scene shows, the camera work, objects, or assessment. That data lives in the pipeline's step outputs, not in what I can see here.
+> 
+> To find out what the clip contains, check the **Footage Library** panel on the dashboard, or look at `pipeline_output/steps/1_03_semantic_analysis/` in your project folder for the vision observations captured during the pipeline run.
+
+**AFTER** - 2594 characters, the same facts joined to what the pipeline measured, 11.1s:
+
+> You're looking at a medium-framing shot of a young man in a black baseball cap inside a dimly lit car. City buildings with lit windows are visible through the window behind him. The vision pass marked it **unstable** despite calling the activity stationary—worth noting if the movement looks wrong.
+> 
+> The speech playing here is mid-passage: *"i'm happy that i at least recorded this i almost didn't do this again..."* He's talking about quitting every day, deciding this is his last shot, and comparing it to when Casey Neistat posted his first vlog 11 years ago.
+> 
+> This is a **chosen** clip from the speech_sequence step (step 2.02), so if the take or timing feels off, that's the step to note in a marker.
+
+The second answer is not longer because the prompt is bigger. It is 2,594 characters against
+501 - five times the context and a third of the words back - because the context is
+SPECIFIC. Every fact in it is a reading the pipeline already made: `semantic_index.clip_observations`
+for the shot, step 1.04's `speech_regions` clipped to the seconds this placement plays, and
+`timeline_decisions.placement_for_clip` for which step chose it. Nothing was pasted in whole.
+
+### Two failure modes the one screenshot showed, and where each is fixed
+
+**Ordering.** The model latched onto `0_01_validate_sfx_library` - the step the editor happened
+to have open in another tab - because it was the most concrete thing in the prompt.
+`clip_context.prompt_block` now leads with `WHAT THE EDITOR IS LOOKING AT` and trails the open
+step under `SECONDARY - what the editor last opened in the panel`, saying in the prompt that it
+is not what the question is about.
+
+**Attaching more of the same.** The answer to a thin prompt is not a bigger prompt. Every joined
+fact is a READING and `PROMPT_BUDGET_CHARS` bounds the lot, saying what it cut.
+
+### The picture is not the topmost item, and this cost the whole join
+
+`Timeline.GetCurrentVideoItem()` answers with the HIGHEST video track. On 001's finished build
+that is V3, so at 00:00:13:04 Resolve's "current item" is `sub_block_3.mov` - a subtitle card
+the pipeline rendered. Joining THAT to the footage catalog finds nothing and reports an absence
+about the wrong clip entirely. `clip_context.picture_at` takes the highest track carrying
+FOOTAGE instead, and `overlays_at` reports the rest; an overlay is told apart by living under
+`pipeline_output/`, which is a fact about the layout rather than a guess about a filename.
+Measured live: the panel's header read `under playhead: IMG_1822.MOV` where Resolve's own
+current item was the subtitle card.
+
+### Resolve stays responsive, measured rather than asserted
+
+An observer process timing Resolve on the wall clock while the panel was up, 303 probes over
+61.9 s, across an idle phase and a slow-job phase (a 4.5 MB state read, the whole decision
+ledger rebuilt, and a 10.0 s model call, all on worker threads):
+
+```
+phase         seconds    samples    p50 ms    p95 ms    max ms   panel/s
+idle             18.0         88      1.32      2.26     10.78      41.7
+slow job         10.0         48      1.47      2.55      2.65      41.5
+whole run        61.9        303      1.37      2.44     65.17      41.6
+
+0 errors, 0 null answers over 303 probes.
+```
+
+Resolve's latency does not move and the panel's own loop rate does not move: 41.7 passes/s idle,
+41.5 while three slow jobs are in flight. The 65 ms outlier is outside both phases, during the
+panel's own window creation. The heartbeat under the panel's header is the same number, shown to
+the captain, so a stuck panel is visible rather than inferred.
+
+### What the shipped panel does that the prototype refused to
+
+The scout's prototype deliberately imported nothing from the repository, to prove the
+no-dependency claim, and paid for it: it resolved a step directory to a node id by longest
+match, gave three steps the wrong status and hid one of two failures on 001. The shipped panel
+imports `project_layout.node_id_for`, and `tests/test_panel_boundary.py` fails if the widget
+layer grows a second copy. The dependency claim is kept the other way: nothing under
+`library/tools/panel/` imports Qt or Resolve, and `panel/strip.py` still encodes its PNG from
+`zlib` and `struct`.
+
+### The crash the panel was accused of, and the one it really had
+
+**The captain, 2026-08-30**, opening the six screenshots this PR committed:
+`1_trace_top.png` does not show the panel at all. It is DaVinci Resolve's media pool with a
+macOS dialog over it reading *"Python quit unexpectedly."* - captioned in the PR body as
+"28 steps in run order". The report asserted evidence it did not have.
+
+**Seven `Python-*.ips` crash reports were on the machine. All seven are attributed.**
+
+**Six of them, 14:13:09 to 14:13:26**, are `/Applications/Xcode.app/.../Python3.framework/3.9`
+- that is `/usr/bin/python3` - faulting in `CoreFoundation`, `libffi` and
+`_ctypes.cpython-39-darwin.so`. **None loads `fusionscript`.** They are a throwaway ctypes
+window-lister in the scratchpad, run once per screenshot in the round where every capture came
+back MISSING. Six invocations, six crashes. Nothing to do with the panel or with Resolve.
+
+**One of them, 14:05:04**, is the dialog in the picture, and it is a process that HAD connected
+to Resolve - homebrew Python 3.14, `fusionscript.so` loaded. Its two threads say exactly what
+happened:
+
+```
+thread 0  com.apple.main-thread
+    dyld  start
+    libsystem_c  exit
+    libsystem_c  __cxa_finalize_ranges
+    fusionscript.so  Fusion::ReusePoolManager::~ReusePoolManager()
+    libtbbmalloc.dylib  scalable_allocation_command
+
+thread 1  RemoteApp                          <- faulting, EXC_BAD_ACCESS
+    fusionscript.so  Fusion::RemoteApp::AppThreadFunc()
+    fusionscript.so  Fusion::RemoteApp::DispatchPacket(Fusion::Packet*)
+    fusionscript.so  Fusion::RemoteApp::FindLocalObject(unsigned long long)
+```
+
+**The main thread is inside `exit()`.** Python had finished; the work was done; dyld was running
+static destructors. Blackmagic's own library tore down its `ReusePoolManager` while its own
+`RemoteApp` thread was still dispatching a packet, and that thread dereferenced freed memory.
+
+So the panel did NOT die during use. It died - sometimes - on the way OUT, in a race inside a
+third-party library, after everything it was asked to do was finished and written. Every panel
+session in this work returned from `run()` and printed its own "closed after N loop passes"
+line.
+
+**It does not reproduce on demand.** Fourteen attempts - six connect-and-exit, eight with a
+worker keeping `RemoteApp` busy right up to the exit - produced 0 crashes. It happened once
+across roughly a dozen sessions. The crash report is the evidence; a repro is not available.
+
+**The fix is to decline to be in the room.** `_leave` flushes both streams and calls `os._exit`,
+which hands the status to the kernel without running `__cxa_finalize_ranges`, so fusionscript's
+static destructor never runs and the race has nothing to lose. That is safe in the entry point
+and nowhere else: everything the panel writes is closed at the point it is written. It is not a
+fix to Blackmagic's library.
+
+**The exposure is not the panel's alone.** Every tool in this repository that calls `scriptapp`
+and then exits has it - `marker_capture`, `marker_feedback`, `resolve_relinker`,
+`timeline_serializer` and the rest. The panel is the one the captain WATCHES, so it is the one
+where the dialog reads as a product defect.
+
+### What the five other screenshots showed, that a reader would see
+
+All real, all fixed in the same pass:
+
+* the step list clipped `1_06_object_segmentat...`, `2_01_creative_directi...` and
+  `4_06_render_motion_gr...`, and scrolled horizontally while carrying empty space. A step's name
+  is the primary key of that view. Columns are now sized to the longest value they really hold -
+  27 characters, measured off `project_layout.STEPS` - and `tests/test_panel_boundary.py` fails
+  if a step name would need scrolling;
+* the `ledger` column rendered as `ledge` and its values as `edit` and `pref`, which read as
+  complete English words - a truncation indistinguishable from a value. It is out of the list and
+  in the detail heading, whole, with the file count and size that were also being clipped;
+* the preview column ran off the right edge mid-value. The preview string is now bounded to what
+  the column can DRAW, so it ends in its own ellipsis;
+* "Where it stops" was clipped at the bottom of the Run pane, mid-sentence. It is short and it is
+  the answer to the tab's second question, so it leads, and the long step lists scroll under it;
+* the profile table was two rows in a pane sized for thirty while the pane beside it scrolled.
+  Both short lists - profiles and gates - are narrow now, and the gates list lost an `answer`
+  column that said the same word as `status` for every state the protocol can produce;
+* the status line read `no run up  resume, manual LLM, breakpoints at scan`, which is not English
+  and sat a finished run's settings beside "no run up" as though they described something
+  happening. It reads `No run is going.  Last run: ...` and names the mode as the LAST run's,
+  which is what `pipeline_run.json` holds.

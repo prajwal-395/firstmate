@@ -33,11 +33,13 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `library/tools/`: shared utilities for Resolve scripting, vision analysis and file management.
 - `library/schemas/`: Pydantic schemas for pipeline state and project configuration.
 - `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
+- `library/tools/panel/`: the Resolve panel's logic, with no Qt and no Resolve in it (§15).
 - `library/templates/`: brand templates defining styles, effects and content rules.
 - `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
 - `library/presets/`: Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
+- `resolve_scripts/`: the entry points DaVinci Resolve's Workspace > Scripts menu calls - the capture button (§15) and the pipeline panel. Installed by `scripts/install_resolve_scripts.sh`.
 - `tests/`: unit and integration tests for the engine.
 - `manage_project.py`: top-level CLI for creating, listing and running projects.
 - `requirements.txt`: Python dependencies.
@@ -1347,6 +1349,27 @@ loop above.
   and the ledger describes the LAST build. Neither is guessed at: a placement that matches no
   row comes back as a stated reason.
 - `tests/test_timeline_decisions.py`.
+
+### The panel beside the timeline
+
+**The pipeline is readable from inside Resolve, and the panel's whole reason to exist is that it knows where the PLAYHEAD is.**
+`resolve_scripts/VEP Pipeline Panel.py` is the entry point Resolve calls; everything it DECIDES is in `library/tools/panel/`, which imports no Qt and no Resolve and is driven by `tests/test_panel_*.py`. Install it with the same `scripts/install_resolve_scripts.sh` the capture button uses. [why - what the panel answered before the join, and the measured before and after](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
+
+- **The split is the rule.** Nothing under `library/tools/panel/` may import `DaVinciResolveScript`, `BlackmagicFusion` or a Qt binding; live Resolve facts arrive as `clip_context.ResolveContext`, a plain dataclass a test can build. The panel IMPORTS the repository - `project_layout.node_id_for` is the one step-id translator and the panel calls it. `tests/test_panel_boundary.py`.
+- **The clip under the playhead is joined to what the pipeline measured** - the catalog id, the vision observations, the transcript of the seconds that PLAY, and which step chose the placement (`timeline_decisions`). Every fact is a READING, never a document pasted in, and what could not be joined is SAID.
+- **The picture is not the topmost item.** `GetCurrentVideoItem()` answers with the highest video track, and on a finished build that is a subtitle card; `clip_context.picture_at` takes the highest track carrying FOOTAGE and `overlays_at` reports the rest. An overlay is told apart by living under `pipeline_output/`.
+- **What the captain is LOOKING AT outranks what they last clicked**, and the prompt says which is which. `prompt_block` is bounded and says what it cut.
+- **A large output is drilled down, never dumped.** `panel/trace.py` navigates one LEVEL at a time - 001's 2.89 MB `temporal_index` is seven readable lines - a leaf is bounded and SAYS how many bytes were withheld, and a path that does not exist is refused by name. Both readings of a step's output are offered and labelled, because `pipeline_data.json` and the per-step `output.json` can legitimately differ (§10.1).
+- **The run is previewed before it starts**: the profile, the steps it will and will not fire with each reason, and the `run_scope` refusal VERBATIM. `panel/run_view.py` calls the same resolver the runner does and has no opinion of its own.
+- **The panel launches the runner with the checkout's `.venv/bin/python3`, never `sys.executable`.** Resolve launches whatever Python it finds, and a run started with that dies inside a step's import; a checkout with no venv is REFUSED by name. This is the one place the panel's rule differs from the dashboard's (§4).
+- **The handbrake stays advisory** and the panel never kills the runner.
+- **It holds no credential**: the model is reached by shelling out to the already-authenticated `claude` CLI, overridable with `VEP_PANEL_MODEL`. Nothing secret is written into Resolve's application-support folder.
+- **Every slow thing goes on a worker thread** - the panel owns its loop (`StepLoop(False)`) and the heartbeat under the header is the captain's own proof that it has not stuck. Measured: Resolve answered 303 probes at p50 1.3 ms with 0 errors while the panel read 4.5 MB, rebuilt the join and waited 10 s on a model call.
+- Toolkit facts that bite, all measured: `hasattr` is True for widgets that do not exist; `Stack.CurrentIndex` is broken and `Hidden` is the page switch; `Label.Pixmap` draws nothing and `<img>` in a read-only `TextEdit` does; `ui.Timer` never fires; `MinimumSize` is ignored by the layout and a stretch RATIO is not; Qt decides a string is rich text by looking for a tag.
+- **A process that connected to Resolve leaves through `os._exit`, never `sys.exit`.** `fusionscript.so` does not join its own `RemoteApp` thread before its static destructor frees the pool that thread is using, so the C runtime's teardown can SEGFAULT after the work is finished - the captain sees "Python quit unexpectedly" and reads it as the panel dying. The panel's `_leave` flushes both streams and hands the status to the kernel. It is a race, so it does not reproduce on demand (0 of 14 attempts with traffic in flight); the crash report is the evidence, not a repro.
+- **A column is sized to the longest value it really holds, and a truncation may never read as a word.** `ledger` rendered as `ledge` and `preflight` as `pref` - both complete English, so a cut was indistinguishable from a value. A column that cannot be widened is dropped and its value moves to the detail pane, whole.
+- **A screenshot of this panel is opened and read before it is committed.** Nothing else tells a picture of the panel from a picture of what was behind it; `docs/panel/README.md` records the one that got through.
+- **Footage Search is deliberately not in the panel.** `library/dashboard/footage_search.py` is the only authorised caller of the footage index (§2) and widening that is the captain's call.
 
 ### The button that captures the frame
 
