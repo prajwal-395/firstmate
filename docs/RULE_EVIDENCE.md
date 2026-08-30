@@ -194,6 +194,84 @@ list is walked every run. Measured on the DAG as it stands, that leaves out `val
 `compile_manifest` on OPTIONAL inputs, the SFX-library check nothing routes, and the render QA
 that judges a master nobody is shipping yet.
 
+### a-run-shape-was-a-code-change
+
+**The captain, 2026-08-30.** "what if i want to setup specific breakpoints and such for a given
+run and/or enable/disable specific steps because they are not needed (ex: a podcast may not need
+anything but colorgrading and transitions after the rough cut, and it's creative direction is also
+not needed because it just needs to cut silences, and if this is how i want to have it, then
+that's how it should be able to run and i should be able to configure it as such)".
+
+Two things were missing and they are not the same thing.
+
+**A selection had to be written in Python.** `run_scope` has done selection properly since #250 -
+goals, hard and soft edges off the manifests, the refusal before the run - but the only NAMED
+destination lived in `run_scope.TARGETS`, a dict in a source file with exactly one entry in it. So
+"a podcast" was a code change and a pull request, and the captain could reach it only by typing
+`--skip` twelve times, every time. A run profile is that same statement written as data.
+
+The profile has no power of its own, which is the property worth keeping: it composes a
+`run_scope.Selection` and hands it to the same resolver a flag does.
+`tests/test_run_profile.py::test_a_profile_gets_the_same_refusal_the_flags_get` asserts the two
+refusals are the SAME STRING, so a declared configuration cannot express a selection the flags
+could not.
+
+**The pause was one boolean.** `--review` gated after EVERY step. "Stop after the rough cut and
+nowhere else" could not be said at all, so the only way to get one pause was to take twenty-six,
+and the gate loop had therefore never been driven on any project - 001 had no `pipeline_output/gates/`
+directory at all before 2026-08-30.
+
+**How much of the captain's podcast the DAG will actually give.** Measured on the DAG as it
+stands, `--profile podcast` runs 19 of 25 steps on 001 and leaves out `validate_sfx_library`,
+`plan_vfx`, `plan_sfx`, `render_motion_graphics`, `creative_cohesion` and `validate` - all six by
+falling out of the goals, none of them named in the profile. The four the captain also named -
+`creative_direction`, `music_selection`, `music_analysis`, `select_broll` - cannot be left out:
+eleven steps declare `creative_direction` a REQUIRED input and six declare `music_selection`, so
+excluding one is refused by name. Reproduce it with:
+
+    manage_project.py run <project> --profile podcast --skip creative_direction --dry-run
+
+That refusal is correct and is the point of the mechanism. Turning those edges soft is a change to
+eleven manifests and a captain's call about what a step may run without; `library/tools/input_contract.py`
+is where that question is surveyed. **A profile may not quietly make it.**
+
+**What driving the loop on 001 found.** Three defects, all in the gate machinery rather than in
+the selector:
+
+* `save_gate_snapshot` wrote `status.json` only when there was not one already, so a step re-run
+  after being approved arrived at its breakpoint carrying the previous run's `approved`, and the
+  next `--resume` sailed through a pause the captain never saw - applying an old `revised` payload
+  to a freshly computed output while it was at it. Arming a gate now makes it `pending` and throws
+  the old answer away.
+* The pause printed no way to answer itself. The gate was answerable from the browser dashboard and
+  from nowhere else, which made a breakpoint unusable from a terminal and, in phase 2, from inside
+  Resolve. `python3 -m library.tools.review_gate answer` is the same three actions and the same
+  files.
+* The resume command the pause prints carried `--rerun` through, which would have cleared the
+  ledger entry the pause had just written, re-run the step, re-armed its breakpoint and stopped in
+  the same place - a loop the captain could not get out of by following the printed instruction.
+  `breakpoints._NOT_CARRIED` is the enumeration of what a resume drops, with the reason.
+
+**The `revised` action, measured end to end on 001** (steps `scan` -> `catalog`, the cheapest real
+pair in the DAG, chosen so nothing expensive or creative was destroyed and both are idempotent):
+
+```
+gate answered:  revised, {"raw_footage_files": <first 3 of 17>, "total_files": 3}
+resume:         "scan: revised output applied"  ->  catalog runs
+scan.total_files        17  ->  3
+catalog.total_clips     17  ->  3
+catalog.clip_catalog    IMG_1806, IMG_1807, IMG_1808
+```
+
+and `--rerun scan --rerun catalog` afterwards put both back byte-identical to the pre-drive backup.
+
+**What is still awkward, reported rather than designed around.** The gate snapshot's
+`upstream_context` is `{name: type-name-as-a-string}` - `{"project_config": "dict"}` - so the half
+of the snapshot meant to say what the step was working FROM carries no values at all. A reviewer
+gets the step's output and a list of input names. It is not changed here because the brief for
+this work was to give the gate a selector rather than to rewrite it, and what the right shape is
+depends on what reads it - the browser dashboard today, the Resolve panel next.
+
 ### a-prerequisite-is-a-statement-about-state
 
 **#260, the captain on 2026-08-28**, reframing an issue that had been raised as a product call:

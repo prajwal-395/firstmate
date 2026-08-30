@@ -166,12 +166,31 @@ def write_run_status(project_dir: str, **fields: Any) -> Dict[str, Any]:
 
 
 def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
-                     argv: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Replace the run status wholesale at the start of a run."""
+                     argv: Optional[List[str]] = None,
+                     profile: Any = None,
+                     breakpoints: Optional[Dict[str, Any]] = None
+                     ) -> Dict[str, Any]:
+    """Replace the run status wholesale at the start of a run.
+
+    `profile` and `breakpoints` are this run's CONFIGURATION - which
+    steps it fires and where it stops.  They go on the record because a
+    reader that never saw the command line (the Resolve panel, the
+    dashboard, the captain tomorrow) otherwise has no way to tell a run
+    that stopped at a breakpoint from one that stopped for any other
+    reason.
+    """
     record = {
         "pid": os.getpid(),
         "mode": mode,
         "argv": list(argv or []),
+        "profile": {
+            "name": getattr(profile, "name", "") or "",
+            "path": getattr(profile, "path", "") or "",
+            "source": getattr(profile, "source", "") or "",
+            "adopted": bool(getattr(profile, "adopted", False)),
+            "description": getattr(profile, "description", "") or "",
+        },
+        "breakpoints": dict(breakpoints or {}),
         "started_at": _now(),
         "updated_at": _now(),
         "status": "running",
@@ -194,15 +213,24 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
                   single_step: Optional[str] = None,
                   from_step: Optional[str] = None,
                   rerun: Optional[List[str]] = None,
-                  scope: Any = None) -> str:
+                  scope: Any = None,
+                  profile: Any = None,
+                  breakpoints: Any = None) -> str:
     """A one-line human description of how this run was launched.
 
     The dashboard prints this back so the captain can see that Start
     really did launch `--full-auto agy` and really did not force review
     gates on all 26 steps - and, since #250, exactly how much of the DAG
-    a scoped run left out.
+    a scoped run left out.  Since the run profile it also says which
+    declared configuration this run is under and where it means to stop,
+    because both can now come from a file rather than from the words
+    somebody typed.
     """
     parts = []
+    profile_name = getattr(profile, "name", "") or ""
+    if profile_name:
+        how = "adopted" if getattr(profile, "adopted", False) else "named"
+        parts.append(f"profile {profile_name} ({how})")
     if single_step:
         parts.append(f"single-step {single_step}")
     elif resume_mode:
@@ -220,7 +248,19 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
     parts.append(f"full-auto {full_auto}" if full_auto else "manual LLM")
     if auto_mode:
         parts.append("bridge-auto")
-    parts.append("review gates on" if review_mode else "review gates off")
+    # Where the run stops. `--review` is the every-step case of the same
+    # thing, so it is reported through the breakpoints when they are
+    # given, and on its own when they are not.
+    if breakpoints is not None:
+        if getattr(breakpoints, "every_step", False):
+            parts.append("breakpoints at every step")
+        elif getattr(breakpoints, "steps", ()):
+            parts.append("breakpoints at "
+                         + ", ".join(breakpoints.steps))
+        else:
+            parts.append("no breakpoints")
+    else:
+        parts.append("review gates on" if review_mode else "review gates off")
     if rerun:
         parts.append("re-running " + " + ".join(rerun))
     supplied = sorted(getattr(scope, "from_external", None) or ())

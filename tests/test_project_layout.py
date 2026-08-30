@@ -415,7 +415,7 @@ def test_the_input_areas_are_the_captains_material():
     inputs = {a.value for a, s in AREAS.items() if s.kind is Kind.INPUT}
     assert inputs == {
         "project_root", "raw", "music", "assets",
-        "brand_assets", "compositions", "external_state",
+        "brand_assets", "compositions", "external_state", "run_profiles",
     }
 
 

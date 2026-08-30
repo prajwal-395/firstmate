@@ -320,6 +320,7 @@ class Area(str, Enum):
     BRAND_ASSETS = "brand_assets"
     COMPOSITIONS = "compositions"
     EXTERNAL_STATE = "external_state"
+    RUN_PROFILES = "run_profiles"
 
     # The output root, and the steps/ directory that is most of it.
     OUTPUT_ROOT = "output_root"
@@ -401,6 +402,13 @@ AREAS: dict[Area, AreaSpec] = {
         "file per state key, each CHECKED before it satisfies anything - "
         "see library/tools/external_inputs.py. Written by hand, never by "
         "a step."),
+    Area.RUN_PROFILES: AreaSpec(
+        "profiles", Kind.INPUT,
+        "This project's own run profiles - which steps a run fires and "
+        "where it stops for review. One YAML file per profile, named for "
+        "the profile. A profile here SHADOWS an engine one of the same "
+        "name; see library/tools/run_profile.py. Written by hand, never "
+        "by a step."),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,

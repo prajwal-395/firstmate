@@ -92,18 +92,28 @@ def save_gate_snapshot(
     with open(snapshot_path, "w") as f:
         json.dump(asdict(snapshot), f, indent=2)
 
-    # Initialize gate status as pending
+    # Arming a gate makes it PENDING, and throws away the answer a
+    # previous run got.
+    #
+    # This used to write `status.json` only when there was not one
+    # already, so a step re-run after being approved arrived at its
+    # breakpoint carrying last time's `approved`, and the next --resume
+    # sailed through a pause the captain never saw - applying an old
+    # `revised` payload to a freshly computed output while it was at it.
+    # A gate that pauses is by definition unanswered.
+    feedback_path = gate / "feedback.json"
+    if feedback_path.exists():
+        try:
+            feedback_path.unlink()
+        except OSError:
+            pass
     status_path = gate / "status.json"
-    if not status_path.exists():
-        status = {
+    with open(status_path, "w") as f:
+        json.dump({
             "step_id": step_id,
             "status": "pending",
             "created_at": snapshot.created_at,
-        }
-        with open(status_path, "w") as f:
-            json.dump(status, f, indent=2)
-
-
+        }, f, indent=2)
 
     return snapshot_path
 
@@ -246,3 +256,114 @@ def list_pending_gates(project_dir: str) -> List[str]:
     """List all steps with pending review gates."""
     statuses = get_all_gate_statuses(project_dir)
     return [step_id for step_id, status in statuses.items() if status == "pending"]
+
+
+# ── Answering a gate without a browser ───────────────────────────────
+#
+# The gate has always been answerable from the dashboard and from
+# nowhere else, which made a breakpoint unusable from a terminal, from a
+# script, and - the case that matters now - from inside DaVinci Resolve.
+# This is the same three actions and the same files; nothing about the
+# protocol changes.
+#
+#     python3 -m library.tools.review_gate list   --project <dir>
+#     python3 -m library.tools.review_gate show   --project <dir> --step <id>
+#     python3 -m library.tools.review_gate answer --project <dir> --step <id> \
+#         --approve | --reject | --revise '<json>'  [--note "..."]
+
+def _summarise(value: Any, depth: int = 0) -> str:
+    """One line describing a value, without printing the whole thing."""
+    pad = "  " * depth
+    if isinstance(value, dict):
+        return f"{pad}{{{len(value)} keys}}"
+    if isinstance(value, list):
+        return f"{pad}[{len(value)} items]"
+    text = str(value)
+    return pad + (text if len(text) <= 100 else text[:97] + "...")
+
+
+def _main(argv: Optional[List[str]] = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m library.tools.review_gate",
+        description="Read and answer a pipeline review gate.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_list = sub.add_parser("list", help="Every gate this project has")
+    p_list.add_argument("--project", required=True)
+
+    p_show = sub.add_parser("show", help="One gate's snapshot, summarised")
+    p_show.add_argument("--project", required=True)
+    p_show.add_argument("--step", required=True)
+    p_show.add_argument("--full", action="store_true",
+                        help="Print the whole step output as JSON")
+
+    p_answer = sub.add_parser("answer", help="Approve, reject or revise")
+    p_answer.add_argument("--project", required=True)
+    p_answer.add_argument("--step", required=True)
+    action = p_answer.add_mutually_exclusive_group(required=True)
+    action.add_argument("--approve", action="store_true")
+    action.add_argument("--reject", action="store_true")
+    action.add_argument("--revise", metavar="JSON",
+                        help="A JSON object, deep-merged into the step "
+                             "output before the run continues")
+    p_answer.add_argument("--note", default="",
+                          help="Free text recorded with the answer")
+
+    args = parser.parse_args(argv)
+    project = os.path.abspath(args.project)
+
+    if args.command == "list":
+        statuses = get_all_gate_statuses(project)
+        if not statuses:
+            print("  (no gates)")
+            return 0
+        for step_id in sorted(statuses):
+            print(f"  {step_id:<28} {statuses[step_id]}")
+        return 0
+
+    if args.command == "show":
+        snapshot = load_gate_snapshot(project, args.step)
+        if snapshot is None:
+            print(f"  no snapshot for {args.step}")
+            return 2
+        print(f"  Step:    {snapshot.step_id} ({snapshot.step_name})")
+        print(f"  Taken:   {snapshot.created_at}")
+        print(f"  Status:  {get_gate_status(project, args.step)}")
+        print(f"  Upstream inputs: "
+              f"{', '.join(sorted(snapshot.upstream_context)) or '(none)'}")
+        print("  Output:")
+        if args.full:
+            print(json.dumps(snapshot.step_output, indent=2))
+        else:
+            for key, value in (snapshot.step_output or {}).items():
+                print(f"    {key}: {_summarise(value)}")
+        feedback = load_gate_feedback(project, args.step)
+        if feedback:
+            print(f"  Answer:  {feedback.action} - {feedback.feedback}")
+        return 0
+
+    if args.approve:
+        act, revisions = "approved", {}
+    elif args.reject:
+        act, revisions = "rejected", {}
+    else:
+        try:
+            revisions = json.loads(args.revise)
+        except ValueError as exc:
+            print(f"  --revise is not JSON: {exc}")
+            return 2
+        if not isinstance(revisions, dict):
+            print("  --revise must be a JSON object, so it can be merged "
+                  "into the step output.")
+            return 2
+        act = "revised"
+    path = save_gate_feedback(project, args.step, act,
+                              feedback=args.note, revisions=revisions)
+    print(f"  {args.step}: {act} -> {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

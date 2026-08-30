@@ -34,6 +34,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `library/schemas/`: Pydantic schemas for pipeline state and project configuration.
 - `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
 - `library/templates/`: brand templates defining styles, effects and content rules.
+- `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
 - `library/presets/`: Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
@@ -79,6 +80,9 @@ Run with `python3 manage_project.py run <slug>`:
 | `--only <step_id>` | run this step and whatever it cannot run without; repeatable |
 | `--skip <step_id>` | leave a step out; repeatable |
 | `--with <step_id>` | turn on a step that is off by default; repeatable |
+| `--profile <name>` | run under a DECLARED run configuration; `none` declines the one the project adopts |
+| `--break <step_id>` | stop after this step for review; repeatable, `*` means every step |
+| `--no-break <step_id>` | do not stop after this step; repeatable, `*` disarms every breakpoint |
 
 ### Scoping a run
 
@@ -94,6 +98,27 @@ One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags 
 - `--step` and `--from` narrow the scope further and behave exactly as they always have. `--step <id>` names a step outright and outranks the default-off list.
 - **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
 - `tests/test_run_scope.py`.
+
+### Configuring a run
+
+**A run shape is DECLARED as data, and it has no power `run_scope` does not already have.**
+One enumeration, `library/tools/run_profile.py`. [why - a run shape used to be a code change, and what driving the gate loop on 001 found](docs/RULE_EVIDENCE.md#a-run-shape-was-a-code-change)
+
+- A profile carries `goals` (or a built-in `target`), `skip`, `with` and `breakpoints`, and hands the first four to `run_scope.resolve` as a `Selection`. **The dependency refusal, the hard/soft edge derivation and the pre-run failure all apply unchanged**; `tests/test_run_profile.py` asserts a declared profile and the equivalent flags produce the SAME refusal string.
+- **Two directories, and a name resolves in the project first**: `<project>/profiles/<name>.yaml` (`Kind.INPUT`, the captain's) shadows `library/profiles/<name>.yaml` (the engine's), and the run header says which file answered. There is no `extends:` - the three layers that compose are engine profile -> a project ADOPTS it (`pipeline.run_profile`) -> one run OVERRIDES it.
+- **Naming a step on the command line outranks the profile.** `--skip`/`--with` ADD to what it said; `--target`/`--only` REPLACE its goals; `--only`/`--with` take a step OUT of its skip list. `--skip X --only X` is still the contradiction `run_scope` refuses.
+- **A profile is refused by name** for an unknown key, an unknown step, an unknown target, no `description`, a `name` disagreeing with its filename, or declaring both `target` and `goals`.
+- YAML, because a profile that leaves a step out wants to say WHY on the line above it.
+
+**A breakpoint is armed PER STEP, and `--review` is the every-step case.**
+One enumeration, `library/tools/breakpoints.py`. The gate machinery is unchanged - `review_gate.py` still writes the snapshot and still takes approve/reject/revise; this is the selector it never had.
+
+- **An unreachable breakpoint is NAMED, never refused.** A breakpoint strands no consumer, so refusing would make `--profile podcast --only catalog` impossible for no gain; the header says "armed at X, which this run does not run - it will NOT stop there" before the run starts, and `pipeline_run.json` records it.
+- An unknown step id, or a step both `--break` and `--no-break`, IS refused by name.
+- **Arming a gate makes it `pending` and throws away the previous run's answer.** A gate that pauses is by definition unanswered.
+- **The pause prints the command that answers it and the command that carries on**, and the resume command DROPS `--rerun` (`breakpoints._NOT_CARRIED`): carrying it would clear the ledger entry the pause just wrote and stop in the same place forever.
+- Answer one without a browser: `python3 -m library.tools.review_gate list|show|answer`.
+- `tests/test_run_profile.py`, `tests/test_breakpoints.py`, `tests/test_run_configuration_end_to_end.py`.
 
 ### State the pipeline did not produce
 
@@ -459,7 +484,7 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 
 - Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
 - **A step never composes a project path.** It names an `Area` and gets a path: `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state. All sixteen steps that used to join `project_folder` with a name of their own choosing now do this. [why](docs/RULE_EVIDENCE.md#nothing-owned-the-project-folder)
-- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/` and `external/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
+- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/`, `external/` and `profiles/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Reads are unaffected.
 - `assert_writable(path)` is the guard for a path that arrives from outside the layout - a manifest key, a CLI flag. Outside the project, at the bare project root, or inside an input area all raise.
 - **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads - the steps in run order, what each reads and what each writes - and runs on `manage_project.py new` and at step 1.01 of every run.
 - **`classification.per_clip_artifacts` names an AREA, not a directory**: `{area:temporal_index}/{clip_id}.json`. [why - the two steps left pointing at a moved directory](docs/RULE_EVIDENCE.md#a-declaration-that-went-stale)

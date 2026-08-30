@@ -398,6 +398,14 @@ def cmd_run(args):
         cmd.extend(["--skip", step_id])
     for step_id in getattr(args, "with_steps", None) or []:
         cmd.extend(["--with", step_id])
+    # The run configuration. See library/tools/run_profile.py and
+    # library/tools/breakpoints.py.
+    if getattr(args, "profile", None):
+        cmd.extend(["--profile", args.profile])
+    for step_id in getattr(args, "break_at", None) or []:
+        cmd.extend(["--break", step_id])
+    for step_id in getattr(args, "no_break_at", None) or []:
+        cmd.extend(["--no-break", step_id])
     if getattr(args, "full_auto", None):
         cmd.extend(["--full-auto", args.full_auto])
     if getattr(args, "llm_timeout", None):
@@ -582,7 +590,8 @@ def main():
     p_run.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     p_run.add_argument("--auto", action="store_true", help="Auto-complete hybrid steps")
     p_run.add_argument("--review", action="store_true",
-                       help="Enable review gates for dashboard inspection")
+                       help="Arm a review gate after EVERY step - the "
+                            "every-step case of --break")
     p_run.add_argument(
         "--rerun", action="append", metavar="TARGET", default=[],
         help="Redo finished work. Repeatable. TARGET is a stage "
@@ -593,6 +602,12 @@ def main():
     # wrapper and the runner it launches accept exactly the same words.
     from library.tools.run_scope import add_scope_arguments
     add_scope_arguments(p_run)
+    # The run configuration, registered from its own modules for the same
+    # reason: a flag defined in two CLIs is a flag that will differ.
+    from library.tools.run_profile import add_profile_arguments
+    from library.tools.breakpoints import add_breakpoint_arguments
+    add_profile_arguments(p_run)
+    add_breakpoint_arguments(p_run)
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
     p_run.add_argument("--full-auto", choices=["agy", "api"],

@@ -1,0 +1,39 @@
+# A podcast cut, as a run shape.
+#
+# The captain, 2026-08-30: "a podcast may not need anything but
+# colorgrading and transitions after the rough cut, and it's creative
+# direction is also not needed because it just needs to cut silences".
+#
+# WHAT THIS PROFILE DOES NOT SAY, AND WHY.
+# Four of the steps that ask are NOT left out here - creative_direction,
+# music_selection, music_analysis and select_broll - because on this DAG
+# they cannot be.  Eleven steps declare `creative_direction` a REQUIRED
+# input and six declare `music_selection`, so excluding any of them makes
+# `run_scope` refuse the run by name, which is correct and is the whole
+# point of the refusal.  Turning those edges soft is a change to eleven
+# manifests and a captain's call about what a step may run without; it is
+# not a thing a profile may quietly do.  Reproduce it with:
+#
+#     python3 manage_project.py run <project> --profile podcast \
+#         --skip creative_direction --dry-run
+#
+name: podcast
+description: >
+  A talking-head cut: the rough cut, graded and with its transitions
+  planned, and none of the decoration a podcast has no use for. VFX,
+  sound effects, motion graphics, the cohesion review, the SFX-library
+  validation and the finished-master QA are all left out - each falls
+  out of the goals below rather than being named, so a step inserted
+  upstream is still picked up.
+goals:
+  # A rendered cut with subtitles burned in. Everything render cannot do
+  # without comes with it, walked off the DAG on every run.
+  - render
+  # Both of the two the captain named. They reach compile_manifest on
+  # OPTIONAL edges, so a `render` goal alone would leave them behind.
+  - color_grade
+  - plan_transitions
+breakpoints:
+  # The one place a talking-head edit is worth stopping: the cut is
+  # decided and nothing expensive has been drawn on top of it yet.
+  - review_rough_cut

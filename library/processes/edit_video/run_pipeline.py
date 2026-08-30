@@ -35,6 +35,8 @@ from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
 from library.tools import external_inputs, run_scope, run_archive
+from library.tools import breakpoints as run_breakpoints
+from library.tools import run_profile
 
 logger = logging.getLogger(__name__)
 
@@ -1721,6 +1723,9 @@ def run_pipeline(
     only: list = None,
     skip: list = None,
     with_steps: list = None,
+    profile: str = None,
+    break_at: list = None,
+    no_break_at: list = None,
 ):
     """Execute the pipeline DAG.
 
@@ -1728,6 +1733,17 @@ def run_pipeline(
     against the DAG BEFORE anything is deleted, saved or executed, so a
     selection that cannot be met refuses in a second rather than dying
     forty minutes in.  See library/tools/run_scope.py.
+
+    `profile` names a DECLARED run configuration - which steps fire and
+    where the run stops - read from `<project>/profiles/` or
+    `library/profiles/`, or adopted by the project's own project.yaml.
+    It contributes the same four words the flags above do and is handed
+    to the same resolver, so it cannot express a selection `run_scope`
+    would refuse.  See library/tools/run_profile.py.
+
+    `break_at`/`no_break_at` arm and disarm the review gate PER STEP.
+    `review_mode` is the special case "every step".  See
+    library/tools/breakpoints.py.
     """
     # Initialize logger
     get_logger(project_dir)
@@ -1747,15 +1763,51 @@ def run_pipeline(
               f"'steps_completed' ledger into preflight/edit",
               file=sys.stderr)
 
+    # The run profile, read first: it contributes to the selection and to
+    # the breakpoints, and a profile that cannot be read must refuse
+    # before --rerun deletes anything.  A profile carries no power of its
+    # own - it hands `run_scope.resolve` the same four words the flags do.
+    try:
+        active_profile = run_profile.resolve_for_run(
+            project_dir, profile, known_steps=set(nodes))
+    except run_profile.ProfileError as exc:
+        print("\n  ✗ REFUSED - run profile\n", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("", file=sys.stderr)
+        summary = {"status": "REFUSED", "reason": str(exc)}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
+
     # The scope, resolved first.  --rerun below DELETES artifacts, and
     # apply_source_identity WRITES state, so a selection that cannot be
     # met has to be refused before either of them runs.
-    selection = run_scope.Selection(
+    selection = run_profile.compose(
+        active_profile,
         target=target,
         only=tuple(only or ()),
         skip=tuple(skip or ()),
         with_steps=tuple(with_steps or ()),
     )
+
+    # Where this run stops.  Armed per step; `--review` is the every-step
+    # case.  A breakpoint never strands a consumer, so an unreachable one
+    # is NAMED in the header below rather than refused.
+    try:
+        gates = run_breakpoints.resolve(
+            known_steps=set(nodes),
+            profile_breakpoints=active_profile.breakpoints,
+            review_all=bool(review_mode),
+            break_at=tuple(break_at or ()),
+            no_break_at=tuple(no_break_at or ()),
+            profile_name=active_profile.name,
+        )
+    except run_breakpoints.BreakpointError as exc:
+        print("\n  ✗ REFUSED - breakpoints\n", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("", file=sys.stderr)
+        summary = {"status": "REFUSED", "reason": str(exc)}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
     # State the captain produced outside the pipeline, VERIFIED once for
     # the whole run: the resolver counts it and `gather_step_inputs`
     # hands the step the same value, so the two cannot disagree. A file
@@ -1820,6 +1872,8 @@ def run_pipeline(
     print(f"  Order: {' → '.join(universe)}", file=sys.stderr)
     for line in external_inputs.describe(external):
         print(line, file=sys.stderr)
+    for line in run_profile.describe(active_profile):
+        print(line, file=sys.stderr)
     for line in run_scope.describe(scope):
         print(line, file=sys.stderr)
     print(f"{'═'*60}\n", file=sys.stderr)
@@ -1854,6 +1908,11 @@ def run_pipeline(
             steps_to_run.append(node_id)
     
     print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
+    # Where this run stops, and - loudly - anywhere it was asked to stop
+    # and will not reach.  Printed against `steps_to_run` rather than the
+    # scope, because --step and --from narrow it further.
+    for line in gates.describe(steps_to_run):
+        print(line, file=sys.stderr)
 
     if dry_run:
         for node_id in steps_to_run:
@@ -1868,6 +1927,9 @@ def run_pipeline(
               f"{estimate['skipped']}s skipped)", file=sys.stderr)
         summary = {
             "status": "DRY_RUN",
+            "profile": active_profile.name,
+            "profile_path": active_profile.path,
+            "breakpoints": gates.as_record(steps_to_run),
             "steps_to_run": steps_to_run,
             "skipped": list(scope.skipped),
             "skip_reasons": dict(scope.reasons),
@@ -1890,10 +1952,16 @@ def run_pipeline(
     run_mode = run_control.describe_mode(
         full_auto=full_auto, auto_mode=auto_mode, review_mode=review_mode,
         resume_mode=resume_mode, single_step=single_step, from_step=from_step,
-        rerun=rerun, scope=scope,
+        rerun=rerun, scope=scope, profile=active_profile, breakpoints=gates,
     )
+    # The profile and the breakpoints go on the run's own account of
+    # itself, so a reader that never saw the command line - the Resolve
+    # panel, the dashboard, the captain tomorrow - can tell what this run
+    # was configured to do and where it meant to stop.
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
-                                 argv=sys.argv[1:])
+                                 argv=sys.argv[1:],
+                                 profile=active_profile,
+                                 breakpoints=gates.as_record(steps_to_run))
     print(f"  Mode: {run_mode}", file=sys.stderr)
 
     # This run's identity, and the ledger every artifact it writes is
@@ -2217,10 +2285,21 @@ def run_pipeline(
                                 _provenance.snapshot())
             _steps_this_run.append(node_id)
 
-            if review_mode:
+            if gates.armed_at(node_id):
                 _save_review_gate(project_dir, node_id, node["name"], output, inputs, state)
-                print(f"     ⏸ Review gate saved. Inspect at dashboard.", file=sys.stderr)
-                
+                gate_dir = ProjectLayout(project_dir).read_path(
+                    Area.GATES, node_id)
+                print(f"\n     ⏸ BREAKPOINT after {node_id}. The run stops "
+                      f"here.", file=sys.stderr)
+                print(f"       Snapshot: {gate_dir / 'snapshot.json'}",
+                      file=sys.stderr)
+                print(f"       Answer it: python3 -m library.tools.review_gate "
+                      f"answer --project {project_dir} --step {node_id} "
+                      f"--approve|--reject|--revise <json>", file=sys.stderr)
+                print(f"       Then carry on: "
+                      f"{run_breakpoints.resume_command(sys.argv, sys.executable)}",
+                      file=sys.stderr)
+
                 try:
                     from library.tools.step_exporter import load_step_summary, generate_summary
                     summary_md = load_step_summary(project_dir, node_id)
@@ -2550,7 +2629,9 @@ def main():
     parser.add_argument("--auto", action="store_true", 
                        help="Auto-complete hybrid steps (use bridge output as final)")
     parser.add_argument("--review", action="store_true",
-                       help="Enable review gates: export step outputs and save gate snapshots for dashboard review")
+                       help="Arm a review gate after EVERY step. The "
+                            "every-step case of --break; see "
+                            "library/tools/breakpoints.py")
     parser.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
     parser.add_argument(
@@ -2561,6 +2642,8 @@ def main():
              "supported way to re-run a completed step; --from only "
              "trims the plan.")
     run_scope.add_scope_arguments(parser)
+    run_profile.add_profile_arguments(parser)
+    run_breakpoints.add_breakpoint_arguments(parser)
     parser.add_argument("--full-auto", choices=["agy", "api", "mock"], help="Run full pipeline autonomously using specified LLM backend")
     parser.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agy backend")
@@ -2591,6 +2674,9 @@ def main():
         only=args.only,
         skip=args.skip,
         with_steps=args.with_steps,
+        profile=args.profile,
+        break_at=args.break_at,
+        no_break_at=args.no_break_at,
     )
     # A refused selection never started, and must not look like a run.
     if (summary or {}).get("status") == "REFUSED":
