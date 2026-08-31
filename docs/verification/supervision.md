@@ -345,7 +345,7 @@ Harness identity is read from the executable path and `argv[0]` as well as the c
 The same suite ingests a keyed remote-secondmate parent reply through the real adapter, establishes the incremental OPEN DECISIONS cursor, interrupts supervision, and proves re-arm replays every unacknowledged queue row plus the still-open decision through the ordinary drain path.
 It also covers decision-only recovery, interrupted handling, handling-window generation reuse, non-fatal moved-generation acknowledgement with sequence-bounded consumption, and a persistent successor remaining live after recovery is acknowledged.
 
-The Claude product live path ran with Claude Code 2.1.219 on 2026-07-24:
+The Claude product live path ran with Claude Code 2.1.231 on 2026-08-31:
 
 ```sh
 claude --version
@@ -355,8 +355,8 @@ FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh
 Observed output:
 
 ```text
-2.1.219 (Claude Code)
-ok - Claude 2.1.219 (Claude Code) live E2E reclaimed a stale session lock through session start, completed two tokenless Stop-owned rewake cycles, and preserved the competing-live-owner boundary
+2.1.231 (Claude Code)
+ok - Claude 2.1.231 (Claude Code) live E2E delivered the session-start digest before the first turn, reclaimed a stale session lock, completed two tokenless Stop-owned rewake cycles, and preserved the competing-live-owner boundary
 ```
 
 Current entry points:
@@ -462,11 +462,11 @@ fm-claude-stop-autoarm: ok
 
 ## Watcher continuity
 
-The cross-harness evidence combines the 2026-07-17 live pass with Claude's replacement Stop-owned path revalidated on 2026-07-24, all against isolated project and home state.
+The cross-harness evidence combines the 2026-07-17 live pass with Claude's replacement Stop-owned path revalidated on 2026-08-31, all against isolated project and home state.
 No credential material was copied into a fixture.
 
 ```text
-Claude Code 2.1.219
+Claude Code 2.1.231
 codex-cli 0.144.4
 OpenCode 1.17.18
 Pi 0.80.10
@@ -475,7 +475,7 @@ grok 0.2.103 (89c3d36fb6f1) [stable]
 
 | Harness | Exact opt-in command | Observed guarantee |
 | --- | --- | --- |
-| Claude | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | Session start reclaimed a stale owner before two Stop-owned cycles, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
+| Claude | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | The run-tier `SessionStart` hook delivered its digest and reclaimed a stale owner before the first model turn, two Stop-owned cycles then completed on one wake drain each with no model-issued arm, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
 | Codex | `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` | The one-second foreground checkpoint returned without switching to the arm wrapper. |
 | OpenCode | `FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh` | A verified successor existed before prompt handling, with no model re-arm or turn-end fallback. |
 | Pi | `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` | One initial tool call led to extension-owned successors and clean child retirement on exit. |
