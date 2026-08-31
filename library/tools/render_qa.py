@@ -5,16 +5,19 @@ point: a plan can declare a limiter, a fill and a duck, and none of it
 reaches the picture or the mix unless something applied it.  A gate that
 reads the manifest cannot tell the difference; these can.
 
-Four of the baseline-craft properties live here.  P1 (the picture fills
-the delivery frame, and one video has one geometry) and P4 (deliverable
-loudness without clipping) FAIL a build.  P2 (somewhere in the frame
-there is colour) and P3 (where someone speaks, the speech is above the
-bed) REPORT A NUMBER and do not fail, because their thresholds are open
-captain decisions - see the two `_GATES` booleans below, which are the
-whole of what promoting them costs.
+Five of the baseline-craft properties live here.  P1 (the picture fills
+the delivery frame, and one video has one geometry), P4 (deliverable
+loudness without clipping) and P8 (no picture plays over digital
+silence) FAIL a build.  P2 (somewhere in the frame there is colour) and
+P3 (where someone speaks, the speech is above the bed) REPORT A NUMBER
+and do not fail, because their thresholds are open captain decisions -
+see the two `_GATES` booleans below, which are the whole of what
+promoting them costs.  P8 has a reporting half of the same kind, its
+near-silence ladder, and it is reported for the same reason.
 """
 
 import json
+import math
 import subprocess
 import os
 import statistics
@@ -374,6 +377,13 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
 # means "black" means one thing across this module.
 LIT_LUMA_THRESHOLD = 12.0
 
+# blackdetect's own `picture_black_ratio_th` default, which is the
+# predicate `detect_black_frames` already judges this pipeline's black
+# by. Reused rather than reinvented so "there is no picture here" means
+# one thing across this module: a frame is black when at least this share
+# of its pixels sit under LIT_LUMA_THRESHOLD.
+BLACK_PIXEL_RATIO = 0.98
+
 # ── What a letterbox bar IS, as opposed to a dark picture ──
 # Darkness alone cannot tell one from the other, and reading it as if it
 # could failed a correctly-framed master (issue #221,
@@ -400,6 +410,34 @@ BAR_ROW_MAX_STD = 2.0
 # picture because it changes down the frame. A real bar's adjacent-row
 # means differ by 0.0.
 BAR_ROW_MAX_STEP = 2.0
+
+# ...and a bar carries NO LIGHT. This is the half that was missing, and
+# it is not the darkness rule coming back: DARK is a range and BLACK is a
+# value. A bar is not exposed - nothing was drawn there - so it sits at
+# the bottom of the scale, while a graded shadow is exposed picture that
+# happens to be dim.
+#
+# Measured, and the gap is three orders of magnitude wide. Real bars: a
+# 1080x608 picture padded into 1080x1920 and re-encoded measures a
+# maximum bar row mean of 0.000 at crf 18 and crf 23 and 0.006 at crf 30,
+# 0.000 again with noise added and the picture lanczos-scaled first, and
+# project 001's own shipped master measures 0.00 to 0.14 over the 81
+# samples whose A-roll is letterboxed. The dark PICTURE that trips this:
+# on the captain's craft reference at 1121.0s - a full-bleed concert shot
+# with a dark ceiling - the 363 rows the walk ate measure a row mean of
+# 8.56 to 9.33 with a within-row standard deviation of 0.88 to 1.97. The
+# variance half cannot carry that: at 3840 columns a graded shadow really
+# IS flat to within a luma level, and BAR_ROW_MAX_STD's own measured gap
+# (real bar 0.0-2.9, 001's dark picture 3.95+) does not exist on footage
+# this dark. The reference's median frame luma is 38.9 of 255 against a
+# 5th percentile of 6.7; our own footage has never been that dark, which
+# is why nothing caught it.
+#
+# 1.0 is an order of magnitude above every real bar measured and an order
+# of magnitude below the dark picture that trips it. Swept from 0.25 to
+# 8.0 on 001's master, detection of its real bars is invariant: median
+# 0.3167, min 0.3167, max 1.0000 at every value.
+BAR_ROW_MAX_LUMA = 1.0
 
 # 1 Hz is enough to ESTABLISH a defect at the magnitudes measured on 001,
 # but a gate wants finer: a single filled B-roll cutaway shorter than a
@@ -526,7 +564,10 @@ def _probe_video_size(video_path: str) -> Optional[tuple]:
 def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
                        width: int, height: int,
                        sample_fps: float,
-                       scaled: bool = False) -> Iterator["object"]:
+                       scaled: bool = False,
+                       start_seconds: Optional[float] = None,
+                       duration_seconds: Optional[float] = None
+                       ) -> Iterator["object"]:
     """Yield sampled frames as (planes, height, width) uint8 arrays.
 
     Streamed one frame at a time rather than read whole: a 55-second
@@ -540,6 +581,13 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
     the chain does not produce gets frames reshaped across frame
     boundaries and measures noise - silently, because the byte count
     still divides.
+
+    ``start_seconds`` / ``duration_seconds`` restrict the stream to one
+    window of the master, for a caller that already knows which seconds
+    it needs - `measure_silence_under_picture` looks only at the stretches
+    the audio flagged, so a twenty-minute film costs one second of decode
+    rather than twenty minutes of it.  The first frame yielded is the one
+    at ``start_seconds``.
     """
     import numpy as np
 
@@ -559,9 +607,14 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
     if scaled:
         chain += f',scale={width}:{height}'
     chain += f',format={pix_fmt}'
-    cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-i', video_path,
-           '-vf', chain,
-           '-f', 'rawvideo', '-pix_fmt', pix_fmt, '-']
+    cmd = ['ffmpeg', '-nostdin', '-v', 'error']
+    if start_seconds:
+        cmd += ['-ss', f'{float(start_seconds):.6f}']
+    cmd += ['-i', video_path]
+    if duration_seconds is not None:
+        cmd += ['-t', f'{float(duration_seconds):.6f}']
+    cmd += ['-vf', chain,
+            '-f', 'rawvideo', '-pix_fmt', pix_fmt, '-']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     try:
@@ -580,7 +633,7 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
 
 
 def _bar_rows(row_mean, row_std,
-              lit_threshold: float = LIT_LUMA_THRESHOLD,
+              max_luma: float = BAR_ROW_MAX_LUMA,
               max_std: float = BAR_ROW_MAX_STD,
               max_step: float = BAR_ROW_MAX_STEP) -> int:
     """How many rows of letterbox bar run inward from index 0.
@@ -589,23 +642,44 @@ def _bar_rows(row_mean, row_std,
     the first row that fails any of them - which is what makes the answer
     a BAR rather than a count of dark rows scattered through the picture.
 
-    * dark - mean luma below `lit_threshold`;
+    * black - mean luma at or under `max_luma`, so an exposed shadow is
+      picture however dim it is.  This is a stricter statement than the
+      `LIT_LUMA_THRESHOLD` the walk used to take, and a different one: a
+      bar is not merely DARK, it carries no light at all;
     * flat along the row - standard deviation below `max_std`, so a dim
       row carrying a window highlight is picture;
     * flat against the row before it - the means differ by less than
       `max_step`, so a dark vertical gradient is picture.
 
-    Call it on a reversed pair of arrays to measure the bottom bar.
+    Call it on a reversed pair of arrays to measure the bottom bar, and
+    on a transposed frame to measure the side bars of an inset.
     """
     n = int(row_mean.shape[0])
     i = 0
     while i < n:
-        if row_mean[i] >= lit_threshold or row_std[i] >= max_std:
+        if row_mean[i] > max_luma or row_std[i] >= max_std:
             break
         if i and abs(float(row_mean[i]) - float(row_mean[i - 1])) >= max_step:
             break
         i += 1
     return i
+
+
+def _frame_is_black(luma, lit_threshold: float = LIT_LUMA_THRESHOLD,
+                    black_ratio: float = BLACK_PIXEL_RATIO) -> bool:
+    """Whether a frame carries no picture at all.
+
+    blackdetect's own predicate - at least `black_ratio` of the pixels
+    under `lit_threshold` - which is what `detect_black_frames` already
+    judges this pipeline's black by, so "there is no picture here" means
+    one thing across this module.
+
+    The bar walk used to answer this by proxy: a black frame was one
+    whose two bar runs met in the middle.  That worked only while a bar
+    row and a black picture row were the same thing, which `max_luma`
+    ends - a fade held at luma 2 is black to any viewer and is not a bar.
+    """
+    return float((luma < lit_threshold).mean()) >= black_ratio
 
 
 class FramingSpan(NamedTuple):
@@ -660,12 +734,21 @@ def measure_frame_occupancy(
     and failed the render (issue #221).  Requiring flatness discards a
     dim row that carries structure; requiring contiguity from an edge
     discards a dark region in the MIDDLE of the picture, which is where
-    506 of that frame's 621 dark rows were.
+    506 of that frame's 621 dark rows were; and requiring the row to be
+    BLACK rather than dark discards a graded shadow, which is flat to
+    within a luma level at 4K and which failed the captain's craft
+    reference on 478 of 2418 samples.
 
-    A frame whose two bar runs meet carries no picture at all.  That is a
-    black frame, which `detect_black_frames` judges against the beats the
-    plan declared; there is no geometry to measure on it, so it is
-    counted out rather than entered as an occupancy of zero.
+    Two kinds of frame carry no geometry and are counted out rather than
+    entered as an occupancy, each under its own name on the result:
+
+    * a BLACK frame, by `_frame_is_black` - blackdetect's own predicate,
+      so it is the same black `detect_black_frames` judges against the
+      beats the plan declared;
+    * a frame whose picture is INSET IN BLACK ON ALL FOUR SIDES, which a
+      conform cannot produce - fitting one rectangle inside another
+      leaves bars on one axis, never both - and which the craft
+      reference uses as a compositional device.
 
     Every sample is attributed to the clip playing over it, through
     `framing_spans`, and the two assertions are then made PER DECLARED
@@ -748,19 +831,47 @@ def measure_frame_occupancy(
         bands = []
         bars = []
         black_frames = 0
+        inset_frames = 0
         index = 0
         for frame in _stream_raw_frames(video_path, 'gray', 1,
                                         width, height, sample_fps):
             luma = frame[0].astype(np.float32)
+            timestamp = index / sample_fps
+            index += 1
+            if _frame_is_black(luma):
+                black_frames += 1
+                continue
             measured = luma if overlay_free is None else luma[:, overlay_free]
             row_mean = measured.mean(axis=1)
             row_std = measured.std(axis=1)
             top = _bar_rows(row_mean, row_std)
             bottom = _bar_rows(row_mean[::-1], row_std[::-1])
-            timestamp = index / sample_fps
-            index += 1
-            if top + bottom >= height:
-                black_frames += 1
+            # A conform letterbox is the consequence of fitting a source
+            # of a different aspect into the delivery frame, so the
+            # picture between its bars spans the FULL WIDTH: fitting one
+            # rectangle inside another leaves bars on one axis, never on
+            # both.  Black on all four sides is a COMPOSITION - the craft
+            # reference presents archival home video as a small rounded
+            # rectangle inside black, and runs a three-panel split screen
+            # with black gutters - and no conform geometry can be read
+            # off it, so it is counted out and named rather than entered
+            # as a letterbox.  Measured at 2 Hz: 277 of the reference's
+            # 2441 samples, and 0 of project 001's 114, whose real bars
+            # measure 0 side columns on every frame.
+            #
+            # The two bar runs meeting is the same thing seen from the
+            # other side: the frame is not black (that was asked first)
+            # and yet the picture never reaches the columns the bars were
+            # measured on, so it is inset past them.
+            inset = top + bottom >= height
+            if not inset:
+                band = luma[top:height - bottom, :]
+                column_mean = band.mean(axis=0)
+                column_std = band.std(axis=0)
+                inset = bool(_bar_rows(column_mean, column_std)
+                             or _bar_rows(column_mean[::-1], column_std[::-1]))
+            if inset:
+                inset_frames += 1
                 continue
             fractions.append((height - top - bottom) / height)
             times.append(timestamp)
@@ -768,11 +879,17 @@ def measure_frame_occupancy(
             bars.append((top, bottom))
 
         if not fractions:
+            unreadable = []
+            if black_frames:
+                unreadable.append(f"{black_frames} entirely black")
+            if inset_frames:
+                unreadable.append(f"{inset_frames} inset in black on all "
+                                  f"four sides")
             return RenderQAResult(
                 "frame_occupancy", False, None, None, "error",
                 f"Could not measure a picture in any sampled frame "
-                f"({black_frames} sampled frames were entirely black)"
-                if black_frames else
+                f"({', '.join(unreadable)})"
+                if unreadable else
                 "Could not sample any frame from the render")
 
         spans = [FramingSpan(float(a), float(b), float(c))
@@ -849,6 +966,10 @@ def measure_frame_occupancy(
         if unattributed:
             detail += (f"; {unattributed} of {len(fractions)} samples fall "
                        f"outside every declared span and were not judged")
+        if inset_frames:
+            detail += (f"; {inset_frames} samples carry a picture inset in "
+                       f"black on all four sides, which is a composition "
+                       f"and not a conform - no geometry was read off them")
         if overlay_note:
             detail += f"; {overlay_note}"
         if faults:
@@ -864,6 +985,7 @@ def measure_frame_occupancy(
                 "spread": round(spread, 4),
                 "frames_sampled": len(fractions),
                 "black_frames_skipped": black_frames,
+                "inset_frames_skipped": inset_frames,
                 "picture_band_first_frame": bands[0],
                 "max_top_bar_rows": max(t for t, _ in bars),
                 "max_bottom_bar_rows": max(b for _, b in bars),
@@ -880,6 +1002,7 @@ def measure_frame_occupancy(
             threshold={"min_fill_fraction": min_fill_fraction,
                        "max_spread": max_spread,
                        "lit_luma_threshold": LIT_LUMA_THRESHOLD,
+                       "bar_row_max_luma": BAR_ROW_MAX_LUMA,
                        "bar_row_max_std": BAR_ROW_MAX_STD,
                        "bar_row_max_step": BAR_ROW_MAX_STEP,
                        "fill_floor_applies": fill_applies,
@@ -1410,6 +1533,316 @@ def measure_speech_above_bed(
                               "warning", f"Error measuring the mix: {e}")
 
 
+# ── P8: the mix is never digitally silent under picture ──
+#
+# "Every frame of the timeline must show a clip" (AGENTS.md section 10.2)
+# has no audio twin, and nothing in this repository looked for one.
+# `detect_black_frames` asks whether the picture went away;
+# `verify_audio_streams` asks only whether an audio stream EXISTS;
+# `measure_lufs` asks whether the whole master is deliverable, which an
+# 11% hole barely moves.  So a render could - and did - put four seconds
+# of picture on screen with absolutely nothing on any track and pass
+# every gate here.
+#
+# Measured on project 001's shipped master (`Pipeline_Edit_2.mp4`):
+# 316,248 of its 2,718,656 mono samples are exactly zero (11.63%), in two
+# runs - 41.643-43.943s (2.301s) and 52.627-56.639s (4.011s, the last
+# four seconds of the video) - 6.312s of 56.639s, 11.14%.  The captain's
+# craft reference, twenty minutes of finished documentary, has one run of
+# 0.783s at 1219.379s, 0.06%, and it sits over black.  Both numbers are
+# reproduced by this check.
+#
+# The mechanism on 001 is fully traceable and no part of it is a bug: a
+# `transition_slot` declaring `music_behavior: silent` and an `outro`
+# declaring `fade_out`, both covered by V2 cutaways placed `video_only`,
+# with no A-roll under them because they are non-speech blocks.  Silencing
+# the MUSIC is not silencing the FILM, and the vocabulary has no way to
+# say the second - `music_behavior` names what the bed does and nothing
+# declares that the master carries nothing.  Nothing here excuses a run
+# for a declared behaviour, therefore: there is no declaration to read.
+# If one is ever added, this is where it would be read, the way
+# `segment_is_declared` reads `intentional_black_beat`.
+
+# Digital zero, stated as a level so it sits on the same axis as the
+# ladder below.  A 16-bit sample is zero exactly when its magnitude is
+# under half an LSB, which is 20*log10(1/32768) dBFS.  This is not a
+# chosen threshold: it is the resolution of the delivery quantisation,
+# the finest distinction a delivered PCM stream can carry, and it is what
+# reproduces the craft report's own count on both masters.
+DIGITAL_ZERO_DBFS = -90.30899869919436
+
+# ...and everything ABOVE that line is QUIET, not zero, and how quiet a
+# declared "silent" moment may be is an OPEN CAPTAIN DECISION
+# (`craft-silence-under-picture`).  So this ladder is REPORTED at every
+# rung and gates at none of them: the numbers are there for whoever
+# answers that question, and inventing a level here would answer it
+# instead.  Only DIGITAL_ZERO_DBFS decides anything.
+NEAR_SILENCE_LADDER_DBFS = (-80.0, -70.0, -60.0)
+
+# The shortest silence that can be a hole in the sound, in FRAMES of the
+# master's own timebase.  Mechanical, not a taste call, and it is
+# AGENTS.md section 10.5's own floor: "The only floor is the timebase -
+# two frames, one at level plus one of de-click ramp". That is the
+# shortest sound this pipeline is able to place, so a gap shorter than it
+# is a gap no plan could have filled. Below one frame the question does
+# not arise at all - ordinary audio crosses zero constantly.
+MIN_SILENCE_FRAMES = 2
+
+
+def _probe_frame_rate(video_path: str) -> Optional[float]:
+    """The first video stream's `r_frame_rate`, or None."""
+    cmd = ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
+           '-show_entries', 'stream=r_frame_rate', '-of', 'json', video_path]
+    res = subprocess.run(cmd, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace", timeout=30)
+    streams = json.loads(res.stdout or "{}").get("streams", [])
+    if not streams or "r_frame_rate" not in streams[0]:
+        return None
+    num, _, den = streams[0]["r_frame_rate"].partition("/")
+    try:
+        fps = float(num) / max(float(den or 1), 1.0)
+    except ValueError:
+        return None
+    return fps if fps > 0 else None
+
+
+def _decode_mono_pcm16(path: str, sample_rate: int = 48000):
+    """Decode to mono 16-bit PCM at `sample_rate`, as int16.
+
+    16-bit and not float, because the question this answers is whether
+    the DELIVERED sample is zero, and "zero" is a statement about the
+    quantisation the delivery carries.  A lossy decode to float leaves
+    tiny non-zero values in a region that is silent at any playable
+    resolution: on project 001 the float decode finds 192,512 exact zeros
+    and the 16-bit decode 316,248, and the second is the number that
+    describes what a listener gets.
+    """
+    import numpy as np
+
+    cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-i', path,
+           '-map', '0:a:0', '-ac', '1', '-ar', str(sample_rate),
+           '-f', 's16le', '-acodec', 'pcm_s16le', '-']
+    res = subprocess.run(cmd, capture_output=True, timeout=600)
+    return np.frombuffer(res.stdout, dtype='<i2')
+
+
+def _level_runs(magnitude, ceiling: float, sample_rate: int,
+                min_seconds: float) -> List[tuple]:
+    """Stretches where every sample sits at or under `ceiling`.
+
+    `magnitude` is |sample| in the same units as `ceiling`.  Returned as
+    (start, end, duration) in seconds, only for runs reaching
+    `min_seconds` - a shorter one is a zero crossing, not a hole.
+    """
+    import numpy as np
+
+    mask = (magnitude <= ceiling).astype(np.int8)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], mask, [0]))))
+    runs = []
+    for start, end in zip(edges[0::2], edges[1::2]):
+        duration = (end - start) / sample_rate
+        if duration >= min_seconds:
+            runs.append((start / sample_rate, end / sample_rate, duration))
+    return runs
+
+
+def _merge_windows(windows: Sequence[tuple]) -> List[list]:
+    """Overlapping (start, end) pairs merged into the fewest spans."""
+    merged: List[list] = []
+    for start, end in sorted(windows):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return merged
+
+
+def _picture_map(video_path: str, windows: Sequence[list], fps: float,
+                 width: int, height: int) -> dict:
+    """Which frames inside `windows` carry a picture rather than black.
+
+    Sampled at the master's OWN frame rate, so every frame of every
+    window is examined and nothing falls between two samples.  Only the
+    windows are decoded, which is what keeps this cheap: a healthy render
+    has almost nothing to look at.
+
+    Returns `{frame_index: is_black}` keyed on `round(t * fps)`.  A frame
+    the video does not have - the audio stream outrunning the video, as
+    it does on the craft reference by 0.07s - is simply absent from the
+    map and carries no picture.
+    """
+    seen = {}
+    for start, end in windows:
+        duration = end - start
+        if duration <= 0:
+            continue
+        for offset, frame in enumerate(
+                _stream_raw_frames(video_path, 'gray', 1, width, height,
+                                   fps, start_seconds=start,
+                                   duration_seconds=duration)):
+            index = int(round((start + offset / fps) * fps))
+            seen[index] = _frame_is_black(frame[0])
+    return seen
+
+
+def _picture_seconds(run: tuple, picture: dict, fps: float) -> float:
+    """Seconds of `run` that have a picture on screen, to the frame."""
+    start, end, _ = run
+    first = int(math.floor(start * fps))
+    last = int(math.ceil(end * fps))
+    lit = 0
+    for index in range(first, last):
+        if picture.get(index, True):        # absent means black or no video
+            continue
+        covered = min(end, (index + 1) / fps) - max(start, index / fps)
+        if covered > 0:
+            lit += covered
+    return float(lit)
+
+
+def measure_silence_under_picture(
+        video_path: str,
+        ladder: Sequence[float] = NEAR_SILENCE_LADDER_DBFS,
+        sample_rate: int = 48000) -> RenderQAResult:
+    """P8: no stretch of picture plays over digital silence.
+
+    Two halves, and only the first decides anything.
+
+    **The gate** is DIGITAL ZERO under a picture.  A run of samples that
+    are all exactly zero, lasting at least `MIN_SILENCE_FRAMES` of the
+    master's own timebase, with a frame of picture on screen over it, is
+    a defect on its own terms: the plan placed a clip there, so it asked
+    for that moment to exist, and the master delivers nothing for a
+    listener to hear while it plays.  No taste is involved - the level is
+    the delivery quantisation and the duration is the shortest sound this
+    pipeline can place.
+
+    **The ladder REPORTS** how much of the render sits under each of
+    `NEAR_SILENCE_LADDER_DBFS` while a picture is on screen, and where.
+    It fails nothing, because how quiet a declared quiet moment may be is
+    an open captain decision and a number chosen here would answer it.
+
+    Black is not picture: a fade, a declared beat, the tail of a film all
+    play over nothing on purpose, and `detect_black_frames` owns whether
+    the black itself was declared.  A frame counts as black by
+    `BLACK_PIXEL_RATIO` of `LIT_LUMA_THRESHOLD`, which is blackdetect's
+    own predicate and the one `detect_black_frames` already uses.
+    """
+    try:
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - numpy is a hard dependency
+        return RenderQAResult("silence_under_picture", False, str(e), None,
+                              "error", f"numpy unavailable: {e}")
+
+    try:
+        size = _probe_video_size(video_path)
+        fps = _probe_frame_rate(video_path)
+        if not size or not fps:
+            return RenderQAResult(
+                metric="silence_under_picture", passed=False, value=None,
+                threshold=None, severity="error",
+                detail="No video stream to measure a picture against")
+        width, height = size
+
+        samples = _decode_mono_pcm16(video_path, sample_rate)
+        if samples.size == 0:
+            return RenderQAResult(
+                metric="silence_under_picture", passed=False, value=None,
+                threshold={"digital_zero_dbfs": DIGITAL_ZERO_DBFS},
+                severity="error",
+                detail="The master carries no decodable audio at all, so "
+                       "every frame of picture plays over silence - "
+                       "`audio_streams` owns the missing stream itself")
+
+        runtime = samples.size / sample_rate
+        magnitude = np.abs(samples.astype(np.int32))
+        floor_seconds = MIN_SILENCE_FRAMES / fps
+
+        levels = [DIGITAL_ZERO_DBFS] + [float(x) for x in ladder]
+        runs_by_level = {}
+        for level in levels:
+            ceiling = (0.0 if level <= DIGITAL_ZERO_DBFS
+                       else 32768.0 * (10.0 ** (level / 20.0)))
+            runs_by_level[level] = _level_runs(magnitude, ceiling,
+                                               sample_rate, floor_seconds)
+
+        # One decode pass over the union of everything any rung named.
+        windows = _merge_windows([(s, e) for runs in runs_by_level.values()
+                                  for s, e, _ in runs])
+        picture = _picture_map(video_path, windows, fps, width, height)
+
+        by_level = {}
+        for level in levels:
+            rows = []
+            for run in runs_by_level[level]:
+                lit = _picture_seconds(run, picture, fps)
+                rows.append({"start": round(run[0], 3),
+                             "end": round(run[1], 3),
+                             "duration": round(run[2], 3),
+                             "seconds_under_picture": round(lit, 3)})
+            total = sum(r["duration"] for r in rows)
+            lit_total = sum(r["seconds_under_picture"] for r in rows)
+            by_level[f"{level:.2f}" if level > DIGITAL_ZERO_DBFS
+                     else "digital_zero"] = {
+                "dbfs": round(level, 2),
+                "runs": len(rows),
+                "seconds": round(total, 3),
+                "fraction_of_runtime": round(total / runtime, 4) if runtime else 0.0,
+                "seconds_under_picture": round(lit_total, 3),
+                "fraction_under_picture": (round(lit_total / runtime, 4)
+                                           if runtime else 0.0),
+                "gates": level <= DIGITAL_ZERO_DBFS,
+                "where": rows,
+            }
+
+        zero = by_level["digital_zero"]
+        offenders = [r for r in zero["where"]
+                     if r["seconds_under_picture"] >= floor_seconds]
+        faults = []
+        for row in offenders:
+            faults.append(
+                f"{row['seconds_under_picture']:.3f}s of picture plays over "
+                f"digital silence at {row['start']:.3f}-{row['end']:.3f}s")
+
+        detail = (
+            f"{zero['seconds']:.3f}s of the {runtime:.3f}s master is at "
+            f"digital zero ({zero['fraction_of_runtime']:.1%}), "
+            f"{zero['seconds_under_picture']:.3f}s of it with a picture on "
+            f"screen ({zero['fraction_under_picture']:.1%})")
+        near = ", ".join(
+            f"{by_level[f'{lvl:.2f}']['seconds_under_picture']:.3f}s under "
+            f"{lvl:g} dBFS" for lvl in (float(x) for x in ladder))
+        if near:
+            detail += f"; reported and not judged: {near}"
+        if faults:
+            detail += " - " + "; ".join(faults)
+
+        return RenderQAResult(
+            metric="silence_under_picture",
+            passed=not faults,
+            value={
+                "runtime_seconds": round(runtime, 3),
+                "frame_rate": round(fps, 3),
+                "minimum_run_seconds": round(floor_seconds, 4),
+                "by_level": by_level,
+            },
+            threshold={
+                "digital_zero_dbfs": DIGITAL_ZERO_DBFS,
+                "near_silence_ladder_dbfs": [float(x) for x in ladder],
+                "ladder_gates": False,
+                "minimum_run_frames": MIN_SILENCE_FRAMES,
+                "black_pixel_ratio": BLACK_PIXEL_RATIO,
+                "lit_luma_threshold": LIT_LUMA_THRESHOLD,
+            },
+            severity="error" if faults else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("silence_under_picture", False, str(e), None,
+                              "error",
+                              f"Error measuring silence under picture: {e}")
+
+
 def verify_resolution(video_path: str, expected_width: int = 1080, expected_height: int = 1920) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=width,height', '-of', 'json', video_path]
@@ -1544,6 +1977,11 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     black-frame check judges the render by the same ruling
     `compile_manifest` judged the manifest by.
 
+    P8 (`measure_silence_under_picture`) needs nothing but the file: it
+    finds the stretches of digital zero in the master's own audio and
+    decodes only those seconds of picture, so it costs 2.8 seconds on a
+    twenty-minute 4K master.
+
     `expected_resolution` is THE DELIVERY FORMAT, taken from the
     manifest the render was built from. The resolution gate used to
     compare against a hardcoded 1080x1920 while step 6.02 computed the
@@ -1580,6 +2018,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))
+    results.append(measure_silence_under_picture(video_path))
     if music_path and music_automation and music_offset_seconds is not None:
         results.append(measure_speech_above_bed(
             video_path, music_path, music_automation, music_offset_seconds,

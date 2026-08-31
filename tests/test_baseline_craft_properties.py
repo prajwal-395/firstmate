@@ -120,17 +120,23 @@ def _lit_frame_with_an_interior_black_band(top: int, bottom: int):
     return frame
 
 
-def _letterboxed_frame(picture_rows: int, bar_luma: int = 0, noise: float = 0.0):
+def _letterboxed_frame(picture_rows: int, speckle: int = 0):
     """A real letterbox: flat bars from both edges around a picture band.
 
-    `noise` puts a per-row wobble into the bars, because an encoded bar
-    is not always pristine - measured at crf 30 it is 0.0 everywhere
-    except one ringing row against the picture edge, at 2.9.
+    `speckle` puts one lifted pixel every `speckle` columns into the
+    bars, because an encoded bar is not always pristine.  Its shape is
+    measured, not invented: on a 1080x608 picture padded into 1080x1920
+    and re-encoded, the maximum bar row mean is 0.000 at crf 18 and 23
+    and 0.006 at crf 30 - and 0.000 again with noise added and the
+    picture lanczos-scaled before the pad.  Project 001's own shipped
+    master is the loosest real bar measured: row means from 0.00 to 0.14
+    and within-row standard deviations to 0.35, which is a handful of
+    pixels sitting one level off black.  A bar is not a slightly grey
+    field; it carries no light.
     """
     luma = np.zeros((H, W), dtype=np.float32)
-    if bar_luma or noise:
-        rows = np.arange(H, dtype=np.float32)
-        luma += bar_luma + noise * np.sin(rows / 3.0)[:, None]
+    if speckle:
+        luma[:, ::speckle] = 1.0
     top = (H - picture_rows) // 2
     luma[top:top + picture_rows, :] = _dark_textured_picture(picture_rows, W) + 150.0
     return _frame(np.clip(luma, 0, 255))
@@ -389,26 +395,39 @@ class TestP1FrameOccupancy:
         assert "changes size within one declared framing" in result.detail
 
     def test_an_imperfectly_encoded_bar_is_still_a_bar(self):
-        """A bar is not always pristine, and the bound is measured for that.
+        """A bar is not always pristine, and the bounds are measured for that.
 
-        At crf 30 with noise added before the encode, real bar rows still
-        measure a within-row standard deviation of 0.0 everywhere except
-        the one ringing row against the picture edge, at 2.9. A wobbling,
-        slightly-lifted bar must not read as picture.
+        Project 001's shipped master is the loosest real bar measured:
+        row means to 0.14, within-row standard deviations to 0.35. A bar
+        speckled with pixels one level off black must not read as
+        picture.
         """
-        frames = [_letterboxed_frame(round(H * 0.32), bar_luma=3, noise=1.5)] * 10
+        frames = [_letterboxed_frame(round(H * 0.32), speckle=8)] * 10
+        bar_row = frames[0][0, 0, :].astype(np.float32)
+        assert 0.0 < bar_row.mean() <= 0.14, "the fixture must be a real bar"
         result = _occupancy_of(frames)
         assert not result.passed
         assert "letterboxed and nothing asked for bars" in result.detail
 
     def test_the_bar_bounds_sit_between_a_real_bar_and_a_dark_picture(self):
-        """Both bounds are measured, and the gap they sit in is real.
+        """Every bound is measured, and the gap each sits in is real.
 
-        Below: every row of a real encoded bar, 0.0 to 2.9. Above: every
-        dark PICTURE row this gate used to fail, 3.80 and up here and 3.95
-        on 001's own master. Widening the bound past the picture side is
-        how the false failure comes back.
+        Level - below: real encoded bars measure a maximum row mean of
+        0.000 at crf 18 and 23, 0.006 at crf 30, and 0.14 on 001's own
+        shipped master. Above: the dark PICTURE that trips this measures
+        8.56 to 9.33 on the captain's craft reference at 1121.0s.
+
+        Variance - below: every row of a real encoded bar, 0.0 to 2.9.
+        Above: every dark PICTURE row this gate used to fail, 3.80 and up
+        here and 3.95 on 001's own master. That gap is real on our
+        footage and CLOSES on the reference, whose dark picture rows
+        measure 0.88 to 1.97 - which is why the level bound is the half
+        that carries it there.
+
+        Widening either bound past the picture side is how the false
+        failure comes back.
         """
+        assert render_qa.BAR_ROW_MAX_LUMA == 1.0
         assert render_qa.BAR_ROW_MAX_STD == 2.0
         assert render_qa.BAR_ROW_MAX_STEP == 2.0
         dark = _dark_textured_picture()

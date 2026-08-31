@@ -5651,3 +5651,163 @@ from, and it had been run from a worktree. It now says so, detecting a LINKED wo
 `.git` being a file rather than a directory - exact, where a path-name guess would not be - and
 installs anyway, because it is the captain's machine. And a stamped path that has gone away now
 produces a stated error rather than another silent death.
+
+## a-dark-picture-is-not-a-black-bar
+
+The gate `docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render` repaired on
+2026-08-30 was pointed at the captain's craft reference the same day - twenty minutes of finished
+documentary, correctly framed, filling its 2.39:1 frame for the whole of its runtime - and it
+failed it by twenty times its own bound. Two more defects in one check, both about the instrument
+reading CONTENT as GEOMETRY.
+
+**A graded shadow read as a bar.** The walk asked whether a row was DARK (`LIT_LUMA_THRESHOLD`,
+12.0) and FLAT (`BAR_ROW_MAX_STD`, 2.0). The variance half was the discriminator and it cannot
+carry footage this dark. At 1121.0s a full-bleed concert shot has 363 rows of dark ceiling:
+
+```
+ row      0: mean  8.56  std 0.98   max pixel 12
+ row     90: mean  8.92  std 0.96   max pixel 13
+ row    181: mean  9.01  std 1.08   max pixel 15
+ row    272: mean  9.08  std 1.03   max pixel 14
+ row    362: mean  9.33  std 1.97   max pixel 41    <- the last row the walk ate
+```
+
+Every one of those is flat by the bound, because at 3840 columns a graded shadow really is flat to
+within a luma level. The gap `BAR_ROW_MAX_STD = 2.0` sits in was measured on 001's own footage -
+real bar 0.0-2.9, dark picture 3.95 and up - and it does not exist here. The reference's median
+frame luma is 38.9 of 255 with a 5th percentile of 6.7; our own footage has never been that dark.
+
+A bar has a second property the walk never asked for: **it carries no light at all**. Measured, on
+1080x608 picture padded into 1080x1920 and re-encoded:
+
+```
+ crf 18                      bar row-mean max 0.000   row-std max 0.000   pixel max 0
+ crf 23                      bar row-mean max 0.000   row-std max 0.000   pixel max 0
+ crf 30                      bar row-mean max 0.006   row-std max 0.074   pixel max 1
+ noise + lanczos, crf 30     bar row-mean max 0.000   row-std max 0.000   pixel max 0
+ 001's shipped master        bar row-mean max 0.14    row-std max 0.35    pixel max 15
+```
+
+against the shadow's 8.5-9.4. `BAR_ROW_MAX_LUMA = 1.0` is an order of magnitude above every real
+bar and an order of magnitude below the picture that trips it. Swept from 0.25 to 8.0 on 001's
+master, detection of its real bars is invariant: median 0.3167, min 0.3167, max 1.0000 at every
+value.
+
+DARK is a range and BLACK is a value. The variance bound stays, because it is what separates a bar
+from a dark picture on our own footage; the level bound is what carries it on the reference.
+
+**A composition read as a conform.** The reference presents archival home video as a small rounded
+rectangle inside black (t=764.5s, 90-93s) and runs a three-panel split screen with black gutters
+(t=529-541s). Those bars are real black and no predicate on a row can say otherwise. But a conform
+letterbox is the consequence of fitting a source of a different aspect into the delivery frame, and
+fitting one rectangle inside another leaves bars on ONE axis, never both: black on all four sides
+was never produced by a conform. Measured at 2 Hz: 277 of the reference's 2441 samples are inset on
+all four sides, and **0 of 001's 114** - its real bars measure 0 side columns on every frame.
+
+**A black frame is judged by the pipeline's own predicate now.** The check used to answer "is there
+a picture here" by proxy - a black frame was one whose two bar runs met - which held only while a
+bar row and a black picture row were the same thing. The level bound ends that, so `_frame_is_black`
+asks blackdetect's own question directly: at least `BLACK_PIXEL_RATIO` (0.98, its default) of the
+pixels under `LIT_LUMA_THRESHOLD`, the same predicate `detect_black_frames` already judges by.
+
+**The verdict, both masters, 2 Hz, the real function:**
+
+```
+REFERENCE (3840x1608, 1220s, no manifest so one declared framing)
+before   passed: False
+         2418 judged, 478 (19.8%) read letterboxed
+         median 1.0000  min 0.0006  max 1.0000  spread 0.9994   bound 0.05
+after    passed: True
+         2090 judged, 277 counted out as compositions, 74 as black
+         median 1.0000  min 0.9577  max 1.0000  spread 0.0423   bound 0.05
+
+001 (Pipeline_Edit_2.mp4, its own manifest)
+before   passed: True    framing 0: n=81 spread 0.0000 | framing 1: n=33 spread 0.0135
+after    passed: True    framing 0: n=81 spread 0.0000 | framing 1: n=33 spread 0.0000
+```
+
+001's fill group tightened because two of its cutaways end in a few genuinely dark picture rows -
+16 and 26 of 1920, at a row mean of 6.1 and 7.5 - which the old walk subtracted and the level bound
+now leaves as picture.
+
+**What is left, stated rather than folded in.** Two of the reference's 2090 judged samples still
+read under 0.99: 276.5s and 277.0s, a title card over a concert shot whose bottom 62 and 68 rows are
+literally at black. They pass, at a margin of 0.0077 on a bound of 0.05. No predicate on a picture
+can separate a shot that is black at the frame edge from a bar - the difference is in the manifest,
+which the reference has not got - so the remaining question is the consistency half's STATISTIC:
+the fill floor is a median over the group and the consistency half is a min against a max, which
+makes one frame anywhere in twenty minutes decide the verdict. Changing that is a re-specification
+of the gate and is the captain's.
+
+## the-render-that-ended-on-four-seconds-of-nothing
+
+"Every frame of the timeline must show a clip" (AGENTS.md §10.2) had no audio twin, and the
+asymmetry was not defended anywhere. `detect_black_frames` asks whether the picture went away.
+`verify_audio_streams` asks only whether an audio stream EXISTS. `measure_lufs` asks whether the
+whole master is deliverable, which an 11% hole barely moves. Nothing asked whether a listener could
+hear anything while a picture was on screen.
+
+Counted as exact-zero samples of a mono 16-bit decode, on both masters:
+
+```
+001 (Pipeline_Edit_2.mp4, 56.639s)
+  316,248 of 2,718,656 samples are exactly zero = 11.63%
+  runs at or over one video frame:
+     41.643 -  43.943   2.301s
+     52.627 -  56.639   4.011s   <- the last four seconds of the video
+  6.312s = 11.14% of the runtime, of which 6.274s has a picture on screen
+
+REFERENCE (ref_best.mp4, 1220.162s)
+  53,186 of 58,567,776 samples are exactly zero = 0.09%
+  runs at or over one video frame:
+   1219.379 - 1220.162   0.783s   <- the intended tail, and nothing else
+  0.783s = 0.06% of the runtime, of which 0.000s has a picture on screen
+```
+
+The reference's tail sits over frames measuring a mean luma of 1.86 with a maximum pixel of 3: the
+film has faded out. 001's two runs are both under picture.
+
+The mechanism on 001 is fully traceable and no part of it is a bug: spine block 9 is a
+`transition_slot` declaring `music_behavior: silent` and block 12 is an `outro` declaring
+`fade_out`; both are covered by V2 cutaways placed `video_only: True`, so the clip's own audio is
+never heard (§10.5, correctly); and there is no A-roll under them because they are non-speech
+blocks. The plan asked for silence and got it exactly.
+
+**Silencing the MUSIC is not silencing the FILM**, and the vocabulary has no way to say the second.
+When the reference's bed drops out, room tone, footsteps, applause and equipment noise carry the
+moment; 001 has no ambient bed and no room tone at all, so `music_behavior: silent` over a
+`video_only` cutaway resolves to nothing on every track. Nothing excuses a run for a declared
+behaviour because there is no declaration to read: if one is ever added, `measure_silence_under_picture`
+is where it would be read, the way `segment_is_declared` reads `intentional_black_beat`.
+
+**Two decisions this check does NOT take.**
+
+*The level.* The gate is DIGITAL ZERO and nothing else. A 16-bit sample is zero exactly when its
+magnitude is under half an LSB, `20*log10(1/32768)` = -90.309 dBFS - the resolution of the delivery
+quantisation, not a chosen number, and the one that reproduces the count above on both masters.
+Everything above that line is QUIET, and how quiet a declared quiet moment may be is the captain's
+open decision `craft-silence-under-picture`. `NEAR_SILENCE_LADDER_DBFS` is therefore reported at
+every rung and gates at none:
+
+```
+001, seconds under a picture at each rung
+  digital zero   6.274s   GATES
+  -80 dBFS       6.611s   reports
+  -70 dBFS       6.952s   reports
+  -60 dBFS       6.962s   reports
+REFERENCE: 0.000s at every rung
+```
+
+*The duration.* The floor is the timebase, `MIN_SILENCE_FRAMES = 2` frames of the master's own
+frame rate - §10.5's own mechanical floor, "one at level plus one of de-click ramp", which is the
+shortest sound this pipeline can place. Below one frame the question does not arise: ordinary audio
+crosses zero constantly.
+
+**Why the decode is 16-bit and not float.** The question is whether the DELIVERED sample is zero,
+which is a statement about the quantisation the delivery carries. On 001 the float decode of the
+same AAC stream finds 192,512 exact zeros (7.08%) and the 16-bit decode 316,248 (11.63%); the
+second is what a listener gets.
+
+**What it costs.** Only the stretches the audio flagged are decoded, at the master's own frame rate
+so no frame between two samples is missed. The whole check on the 20-minute 4K reference takes 2.8
+seconds.

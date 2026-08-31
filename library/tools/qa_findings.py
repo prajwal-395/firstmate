@@ -138,6 +138,13 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "Reports its number and does not gate: the target is a "
         "SEPARATION and clip gain cannot buy one (AGENTS.md 10.4)."),
     FindingReader(
+        "silence_under_picture", "mesh_spine",
+        "Picture on screen with nothing at all on any track. The spine "
+        "sets every gap and every music_behavior, and silencing the bed "
+        "is not silencing the film - `audio_mix` writes the levels and "
+        "`compile_manifest` sees both tracks. The near-silence ladder "
+        "beside it reports and judges nothing."),
+    FindingReader(
         "resolution", "render",
         "The delivery format the render was actually made at."),
     FindingReader(

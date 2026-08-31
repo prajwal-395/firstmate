@@ -921,17 +921,29 @@ One enumeration, `library/tools/cohesion_scope.py`. `creative_cohesion` (5.03) c
 **A gate that FAILS correct output is no more coverage than one that cannot fail.**
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
-**Six baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
-A seventh, a face cut by the frame edge, is measured on the render and gates through the same `framing` check (§10.3).
+**Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
+An eighth, a face cut by the frame edge, is measured on the render and gates through the same `framing` check (§10.3).
 
 `render_qa.py` measures the RENDER:
 
 - the picture fills the delivery frame and keeps ONE GEOMETRY PER DECLARED FRAMING
   (`measure_frame_occupancy`).
-  **A letterbox bar is FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make one.**
-  A row joins a bar only while it is dark, has near-zero variance along itself and matches the
-  row before it; the walk runs inward from the top and bottom boundaries and stops at the first
-  row that is picture. [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
+  **A letterbox bar is BLACK, FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make
+  one.** A row joins a bar only while it carries no light (`BAR_ROW_MAX_LUMA`), has near-zero
+  variance along itself and matches the row before it; the walk runs inward from the top and
+  bottom boundaries and stops at the first row that is picture.
+  [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
+  **DARK is a range and BLACK is a value, and the variance half cannot carry the difference on
+  its own.** A graded shadow at 4K is flat to within a luma level, so on the captain's craft
+  reference 478 of 2418 samples read as letterboxed and the gate failed a correct 20-minute
+  master by twenty times its own bound. A real bar measures a row mean of 0.000-0.14 against a
+  shadow's 8.5; the level bound is the half that separates them, and the variance bound stays
+  because it is what separates a bar from a dark picture on OUR footage.
+  **A picture inset in black on ALL FOUR SIDES is a COMPOSITION, not a conform**, and carries no
+  geometry: fitting one rectangle inside another leaves bars on one axis, never both. Such a
+  frame is counted out and named, the way an entirely black one is - and a frame with no picture
+  is judged by `blackdetect`'s own predicate (`_frame_is_black`), not by the bar walk eating the
+  whole frame. [why](docs/RULE_EVIDENCE.md#a-dark-picture-is-not-a-black-bar)
   **Every sample is attributed to the clip playing over it** through `framing_spans`, which step
   6.02 builds off the manifest's `framing_delivered` (§10.3) with V2 winning an overlap. The fill
   floor applies to the FILL stretches and the consistency bound applies WITHIN each declared
@@ -948,7 +960,23 @@ A seventh, a face cut by the frame edge, is measured on the render and gates thr
   [why - both, measured on 001's correct render](docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render)
 - colour exists somewhere in the frame (`measure_chroma_presence`);
 - speech sits above the bed (`measure_speech_above_bed`);
-- the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`).
+- the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`);
+- no picture plays over digital silence (`measure_silence_under_picture`).
+  **Picture with nothing at all on any track is a defect on its own terms**, and it had no
+  detector: `detect_black_frames` asks whether the picture went away, `verify_audio_streams` only
+  that a stream exists, and `measure_lufs` barely moves on an 11% hole. 001 shipped 6.312s of
+  exact digital zero, 11.1% of its runtime, including the last four seconds; the craft reference
+  has 0.783s in twenty minutes, all of it over black.
+  **The gate is DIGITAL ZERO alone, and it needs no taste**: the level is the delivery
+  quantisation (a 16-bit sample is zero under half an LSB) and the duration floor is the timebase
+  (§10.5's two frames). Black is not picture, so a fade or a declared beat is exempt by
+  measurement rather than by rule.
+  **How quiet a declared quiet moment may be is the captain's** (`craft-silence-under-picture`),
+  so `NEAR_SILENCE_LADDER_DBFS` is REPORTED at every rung and gates at none. Do not encode a
+  near-silence level here.
+  **Silencing the MUSIC is not silencing the FILM.** `music_behavior: silent` is a legitimate
+  decision (§10.5) and is not a declaration that the master carries nothing; nothing excuses a
+  run today because no declaration exists to read. [why](docs/RULE_EVIDENCE.md#the-render-that-ended-on-four-seconds-of-nothing)
 
 **`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
 A B-roll breath is time the plan chose to have no words in. All four of 001's reported gaps - 3.0, 3.5, 3.0 and 3.0s - were the planned beats at spine blocks 1, 4, 6 and 9, and the finding reaches a creative step (§10.4, the QA findings) carrying a legend. A caller with no spine gets the old whole-timeline measurement and the result says which it made.
