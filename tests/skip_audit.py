@@ -89,7 +89,7 @@ ENVIRONMENT_CONDITIONS = (
                    "asks for - the .venv this pipeline runs in has it",
     ),
     EnvironmentCondition(
-        pattern=r"ffmpeg/ffprobe not (available|installed)",
+        pattern=r"ffmpeg(/ffprobe)? (is )?not (available|installed|on this machine)",
         false_when="ffmpeg and ffprobe are on PATH (AGENTS.md 9 requires "
                    "them for a real run)",
     ),
@@ -148,6 +148,11 @@ ENVIRONMENT_CONDITIONS = (
         pattern=r"PIPELINE_PROJECTS_ROOT was unset before pytest started",
         false_when="PIPELINE_PROJECTS_ROOT is configured, which it is on "
                    "any machine that has run the pipeline",
+    ),
+    EnvironmentCondition(
+        pattern=r'could not import "mlx_vlm"',
+        false_when="mlx and mlx_vlm are installed - they are macOS-only "
+                   "Apple Silicon dependencies and unavailable on Linux CI",
     ),
 )
 

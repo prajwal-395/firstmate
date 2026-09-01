@@ -14,11 +14,18 @@ import pytest
 
 # ── 1. Speech fields ────────────────────────────────────────────────────
 
-from library.tools.analysis.vision_pipeline_v3 import (
-    compute_deterministic_assessment,
+try:
+    from library.tools.analysis.vision_pipeline_v3 import (
+        compute_deterministic_assessment,
+    )
+except ImportError:
+    compute_deterministic_assessment = None
+
+
+@pytest.mark.skipif(
+    compute_deterministic_assessment is None,
+    reason='could not import "mlx_vlm" - mlx is a macOS-only dependency',
 )
-
-
 class TestSpeechFieldsWithoutTemporalIndex:
     """When temporal_index is absent, speech fields must say so, not assert
     ``False`` / ``0.0``.
@@ -77,10 +84,14 @@ class TestSpeechFieldsWithoutTemporalIndex:
 
 # ── 2. Music analysis failure reasons ───────────────────────────────────
 
-from library.tools.analysis.music_pipeline import (
-    analyze_key,
-    analyze_chord_progression,
-)
+try:
+    from library.tools.analysis.music_pipeline import (
+        analyze_key,
+        analyze_chord_progression,
+    )
+except ImportError:
+    analyze_key = None
+    analyze_chord_progression = None
 
 
 class TestMusicAnalysisFailureRecording:

@@ -20,10 +20,15 @@ produces has to be an admitted absence rather than a value.
 
 import pytest
 
-from library.tools.analysis.vision_pipeline_v3 import (
-    analyze_assessment,
-    compute_deterministic_assessment,
-)
+try:
+    from library.tools.analysis.vision_pipeline_v3 import (
+        analyze_assessment,
+        compute_deterministic_assessment,
+    )
+except ImportError:
+    analyze_assessment = None
+    compute_deterministic_assessment = None
+
 from library.tools.semantic_index import clip_observations
 from library.tools.vision_schema_adapter import (
     UNMEASURED_SUMMARY,
@@ -36,6 +41,10 @@ try:                                              # analyze_assessment only
 except ImportError:                               # pragma: no cover
     MagicMock = None
 
+pytestmark = pytest.mark.skipif(
+    compute_deterministic_assessment is None,
+    reason='could not import "mlx_vlm" - mlx is a macOS-only dependency',
+)
 
 # Every value that reads as "nothing measured this". A field of the
 # deterministic assessment must hold one of these when nothing did.

@@ -65,16 +65,25 @@ from library.tools.analysis.picture_quality import (
     sharpness_threshold,
     soft_picture_ranges,
 )
-from library.tools.analysis.vision_pipeline_v3 import (
-    _compute_usable_ranges,
-    compute_deterministic_assessment,
-)
+try:
+    from library.tools.analysis.vision_pipeline_v3 import (
+        _compute_usable_ranges,
+        compute_deterministic_assessment,
+    )
+except ImportError:
+    _compute_usable_ranges = None
+    compute_deterministic_assessment = None
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg/ffprobe not installed",
+)
+
+needs_mlx = pytest.mark.skipif(
+    compute_deterministic_assessment is None,
+    reason='could not import "mlx_vlm" - mlx is a macOS-only dependency',
 )
 
 RATE = picture_quality.SAMPLE_RATE_HZ
@@ -89,6 +98,7 @@ def _track(values, rate=RATE):
 #  The non-negotiable: an unmeasured clip claims nothing
 # ═══════════════════════════════════════════════════════════════════════
 
+@needs_mlx
 class TestUnmeasuredClaimsNothing:
     def test_no_signal_at_all_yields_no_usable_range(self):
         """No temporal index and no picture sample -> no range asserted."""
@@ -139,6 +149,7 @@ class TestUnmeasuredClaimsNothing:
 #  A measurement that found nothing soft is NOT an absent measurement
 # ═══════════════════════════════════════════════════════════════════════
 
+@needs_mlx
 class TestMeasuredAndClean:
     def test_empty_soft_ranges_are_a_measurement(self):
         usable, unusable, method, signals = _compute_usable_ranges(
@@ -327,6 +338,7 @@ def test_a_real_decode_finds_the_window_that_is_actually_blurred(tmp_path):
     assert found["end"] == pytest.approx(3.2, abs=1.0 / RATE)
 
 
+@needs_mlx
 @needs_ffmpeg
 def test_the_blurred_window_is_excluded_from_the_usable_ranges(tmp_path):
     """The whole route: file -> measurement -> usable_ranges."""
