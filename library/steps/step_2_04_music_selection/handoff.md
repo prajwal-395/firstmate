@@ -67,7 +67,8 @@ is the half that used to be missing.
 2. **Energy should mirror** the video's pacing and energy arc
 3. **Not genre-locked** - genre serves the content, not the other way around
 4. **BPM is critical** - needed for beatmatching transitions in Phase 4
-5. **Never hard-start or hard-stop** - fades required
+5. **Entry and exit matter** - consider how the track starts and stops in
+   context: fades, hard starts, or cuts to silence are all tools
 6. **Duration has to be plausible.** The track must be at least as long as
    the edit, because music is placed at 0 and run to the end of the
    timeline. It must also be no longer than
@@ -82,16 +83,15 @@ is the half that used to be missing.
 ### If you go outside the library
 
 - Include the mood/vibe (e.g., "chill", "cinematic", "sparse piano")
-- Include "instrumental" or "beat" (we need music without vocals)
+- Consider whether vocal or instrumental better serves the content
 - Include "no copyright" or "royalty free" for safe usage
 - Set `source` to `external` and give the `source_url`; the post-bridge
   fetches it and re-measures its real duration
 
 ### Splice guidance
 
-- Identify at least one "intro/hook" splice (for the video opening)
-- Identify at least one "background" splice (for under speech)
-- Identify transition splices if the track has distinct energy shifts
+- Identify the sections of the track you intend to use
+- A single continuous section is as valid as multiple splices
 - Splices should be clean cut points - on beat boundaries when possible
 
 ---
@@ -131,7 +131,7 @@ use it as a secondary search hint alongside the brief's guidance.
    longer than `max_track_duration_seconds`
 4. **Practical splicing**: Splices must have valid timestamps within the
    track, with clean entry/exit points
-5. **Completeness**: At least one intro and one background splice identified
+5. **Completeness**: Selected splices cover the intended use in the video
 6. **BPM accuracy**: BPM must be documented for beatmatching downstream
 7. **Intentional placement**: Every splice has a clear intended_use - no
    orphan splices without a purpose

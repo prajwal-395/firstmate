@@ -108,8 +108,8 @@ For each block, read its `visual_note` and the speech around it, then filter
 
 ### Other criteria:
 - **Mood/energy match** with creative direction
-- **Variety** — avoid reusing the same B-roll clip more than once, and never
-  reuse the same source range twice
+- **Variety** — consider whether reusing a clip is a deliberate callback
+  or lazy repetition, and never reuse the same source range twice
 - **Consider the visual_note** from the spine — it hints at what visual fits
 
 

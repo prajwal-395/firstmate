@@ -671,3 +671,129 @@ def test_plan_sfx_drops_an_entry_that_names_no_level(sfx_library):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
     assert placed == [], f"a level was substituted: {placed}"
+
+
+# ── The bridges must not inject creative defaults ─────────────────────
+#
+# 2026-09-02 sweep.  The gap this closes: the ONLY guard was
+# test_prompt_surfaces_demand_no_count, which read prompts (handoff.md,
+# manifest.json).  A creative default or floor living in bridge.py or
+# post_bridge.py was invisible to it - and that is exactly how
+# `inject_default_ken_burns` survived in step_4_03_plan_vfx/post_bridge.py
+# after the first removal attempt.  This guard reads CODE, and a creative
+# floor hiding in code will fail it.
+#
+# What counts as a creative default in a bridge:
+#   - A function that injects a creative value the plan did not name
+#     (inject_default_*, *_default_*, DEFAULT_*)
+#   - A hardcoded count that rejects or warns on a plan size
+#     ("Recommended is N", "at least N", min_* = N where N is a count)
+#   - A hardcoded energy/density/style word used as a creative choice
+#     (but NOT as a technical lookup key or a schema constant)
+
+# Bridge files that must not contain creative defaults.
+# Every bridge and post_bridge under the creative-planning steps.
+BRIDGE_FILES = [
+    step / script
+    for step in CREATIVE_PLANNING_STEPS
+    for script in ("bridge.py", "post_bridge.py")
+    if (step / script).exists()
+]
+
+# Patterns that indicate an injected creative default in bridge code.
+# These are searched ONLY in non-comment lines.
+BRIDGE_DEFAULT_PATTERNS = [
+    # A function that injects defaults the plan didn't ask for.
+    (r"\bdef\s+inject_default_", "inject_default_* function"),
+    # A hardcoded plan-size recommendation.
+    (r"recommended is \d+", "hardcoded plan-size recommendation"),
+    # A creative density scaler (the pattern that scale_sfx_density used).
+    (r"\bdef\s+scale_\w+_density\b", "density scaling function"),
+]
+
+
+@pytest.mark.parametrize(
+    "path",
+    BRIDGE_FILES,
+    ids=lambda p: f"{p.parent.name}/{p.name}",
+)
+def test_bridges_inject_no_creative_default(path):
+    """Bridge and post-bridge code must not inject creative defaults.
+
+    This is the gap that let `inject_default_ken_burns` survive: the
+    prompt guard read handoff.md but not the code that ran after it.
+    A floor that lives in code pads the edit identically to one in a
+    prompt.
+    """
+    source = path.read_text(encoding="utf-8")
+    hits = []
+    for i, line in enumerate(source.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for pattern, label in BRIDGE_DEFAULT_PATTERNS:
+            if re.search(pattern, stripped, re.IGNORECASE):
+                hits.append(f"L{i}: {label}: {stripped[:120]}")
+    assert not hits, (
+        f"{path.relative_to(REPO)} contains a creative default in code:\n"
+        + "\n".join(hits)
+    )
+
+
+# Also guard against the prompt-level patterns IN bridge code (not just
+# handoff.md).  A bridge that prints "you MUST plan at least N" to stderr
+# is a floor wearing a warning's clothes.
+@pytest.mark.parametrize(
+    "path",
+    BRIDGE_FILES,
+    ids=lambda p: f"{p.parent.name}/{p.name}",
+)
+def test_bridges_demand_no_count(path):
+    """Bridge code must not demand a creative count, even in warnings."""
+    source = path.read_text(encoding="utf-8").lower()
+    hits = []
+    for i, line in enumerate(source.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for phrase in QUOTA_PHRASES:
+            if phrase in stripped:
+                hits.append(f"L{i}: phrase {phrase!r}: {stripped[:120]}")
+        for pattern in QUOTA_PATTERNS:
+            m = re.search(pattern, stripped)
+            if m:
+                hits.append(f"L{i}: pattern {m.group(0)!r}: {stripped[:120]}")
+    assert not hits, (
+        f"{path.relative_to(REPO)} demands a count in code:\n"
+        + "\n".join(hits)
+    )
+
+
+def test_bridge_guard_can_fire():
+    """The bridge guard is not a tautology - these are the literal patterns
+    that survived before it existed."""
+    removed_lines = [
+        # inject_default_ken_burns lived in post_bridge.py
+        "def inject_default_ken_burns(creative_plan, spine_blocks):",
+        # The passage-count recommendation that lived in 2.02 post_bridge
+        'print(f"WARNING: Selected {len(body)} speech passages. Recommended is 10-15.")',
+        # scale_sfx_density that deleted plan entries
+        "def scale_sfx_density(sfx_plan, energy_label):",
+    ]
+    for line in removed_lines:
+        hits = []
+        stripped = line.strip().lower()
+        for pattern, label in BRIDGE_DEFAULT_PATTERNS:
+            if re.search(pattern, stripped):
+                hits.append(label)
+        for phrase in QUOTA_PHRASES:
+            if phrase in stripped:
+                hits.append(phrase)
+        for pattern in QUOTA_PATTERNS:
+            m = re.search(pattern, stripped)
+            if m:
+                hits.append(m.group(0))
+        assert hits, (
+            f"the bridge guard does not catch {line!r} - add a pattern"
+        )
+

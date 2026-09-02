@@ -886,10 +886,10 @@ def main():
 
     enriched = enrich_speech_sequence(speech_sequence, ti_dir)
 
+    # No passage count check. How many passages the edit needs is a
+    # creative decision driven by the duration target and the footage.
+    # Captain's directive 2026-09-02: remove hardcoded creative values.
     body = enriched.get("body_sequence", [])
-    if len(body) < 8 or len(body) > 20:
-        print(f"WARNING: Selected {len(body)} speech passages. Recommended is 10-15.", file=sys.stderr)
-        
     total_duration = 0.0
     hook = enriched.get("hook_segment")
     if hook:

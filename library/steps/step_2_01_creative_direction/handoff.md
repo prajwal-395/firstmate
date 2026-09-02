@@ -41,7 +41,7 @@ define the creative direction for this shortform video.
 1. Read through ALL semantic analysis documents
 2. Identify the strongest narrative thread — what is this footage really about?
 3. Map the emotional landscape — what emotional territory does the footage cover?
-4. Identify the 2-3 key moments that MUST appear in the final video
+4. Identify the key moments that MUST appear in the final video
 5. Determine the target mood, energy, and energy arc
 
 ### What to produce:
@@ -51,14 +51,15 @@ A creative direction document containing:
 - **narrative_theme**: 1-2 sentence description of what this video is about
 - **target_mood**: The overarching mood (e.g., "motivational", "reflective",
   "playful", "cinematic and aspirational", "raw and vulnerable")
-- **target_energy**: Overall energy feel ("low" | "medium" | "high" |
-  "building" | "dynamic")
+- **target_energy**: Overall energy feel - describe the energy in terms
+  that match the footage (e.g., "low and contemplative", "building to a
+  peak", "high throughout", "dynamic with contrasting moments")
 - **energy_arc**: How energy flows through the video (e.g., "start high
   with hook → sustain energy → build to key moment → resolve")
 - **emotional_landscape**: Description of the emotional territory across the
   footage — the contour of feelings that the music selector can match against
 - **audience_emotion**: What should the viewer feel after watching?
-- **key_moments**: The 2-3 strongest moments from the footage that MUST
+- **key_moments**: The strongest moments from the footage that MUST
   appear. Described by content, not timestamps.
 - **rationale**: Why this direction was chosen over alternatives
 

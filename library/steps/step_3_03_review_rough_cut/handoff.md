@@ -130,20 +130,21 @@ consecutive pair of blocks, evaluate:
   failure.
 
 Rate each transition as: `smooth` | `acceptable` | `jarring` | `broken`.
-Any `broken` transition is a rejection. More than two `jarring` transitions
-is a rejection.
+Any `broken` transition is a rejection. A high density of `jarring`
+transitions may indicate a structural problem - evaluate in context.
 
 ### Check 8: Emotional Arc Integrity
 
 Compare the reconstructed script's emotional trajectory against the
 creative direction's `energy_arc` and `emotional_landscape`:
 
-- Does the opening establish vulnerability / stakes?
-- Is there development (context, backstory, the "why")?
-- Is there a climax (the insight, the turn)?
-- Is there resolution (the declaration, the commitment)?
+- Does the edit deliver the emotional journey the creative direction
+  described?
+- Are the key emotional beats landing?
+- Is the arc coherent, or does it wander without purpose?
 
-If any major arc element is missing or incoherent, flag it.
+If any major arc element that the creative direction called for is missing
+or incoherent, flag it.
 
 ### Check 9: Key Moments Preservation
 
@@ -181,7 +182,6 @@ Flag any key moment that was intended but is not present in the final cut.
 | Parameter | Value |
 |-----------|-------|
 | Duration tolerance | 0.1 seconds |
-| Max jarring transitions | 2 |
 | Key moments coverage target | 100% (all must be present or justified) |
 
 ---

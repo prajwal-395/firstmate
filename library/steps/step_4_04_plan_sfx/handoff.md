@@ -36,23 +36,24 @@ Select and place sound effects at appropriate moments in the timeline.
 
 ### SFX toolkit:
 
-| Type | When to use |
-|------|------------|
-| `whoosh` / `swish` | On cuts, transitions, camera movements |
-| `bass_impact` | Reveals, title drops, emphasis moments |
-| `riser` | Before a reveal or punchline — can span MULTIPLE clips (5-10s) |
-| `foley` / `ambient` | Establishing scenes, adding texture |
-| `click` / `tick` | Subtitle appearances, small visual elements |
-| `reverse_cymbal` / `swell` | Between major sections |
+| Type | Character |
+|------|-----------|
+| `whoosh` / `swish` | Air movement, directional sweep |
+| `bass_impact` | Low-frequency weight, thud |
+| `riser` | Ascending tension - can span MULTIPLE clips (5-10s) |
+| `foley` / `ambient` | Environmental texture, atmosphere |
+| `click` / `tick` | Small, precise mechanical accent |
+| `reverse_cymbal` / `swell` | Transitional wash, breath between sections |
 
 ### Rules:
 - **Less is more.** There is no required number of SFX. Place a sound where
   a moment earns one and nowhere else. Do NOT add an effect to reach a
   count, and never write a rationale that justifies a sound by how many
   there are.
-- Volume: "subtle" or "low" for most; "medium" only for emphasis
-- Never louder than speech or music
-- Don't fight the music (avoid loud SFX during prominent music)
+- Volume levels: `subtle`, `low`, `medium`, `prominent` - choose what
+  the moment calls for
+- Be aware of how SFX interact with speech and music - balance is a
+  creative decision, not a formula
 - Layering is allowed: two or more sounds at the same position is how
   real sound design works (whoosh + bass hit, riser under a textural bed).
   Each layered sound carries its own volume_level
@@ -94,7 +95,7 @@ moments in the spine decide the density - there is no default count.
 
 1. Every SFX earns its place - none exists to reach a count
 2. SFX timing aligns with events they accompany
-3. Volume levels appropriate — mostly "subtle" or "low"
+3. Volume levels are deliberate choices, not defaults
 4. Layered sounds at the same position each carry a distinct purpose
 5. SFX don't compete with prominent music moments
 
@@ -114,4 +115,4 @@ moments in the spine decide the density - there is no default count.
 | Failure Mode | Action |
 |-------------|--------|
 | SFX asset not found | Skip and flag for human to source |
-| Too many SFX placed | Reduce — restraint is key |
+| SFX not serving the edit | Re-evaluate - every sound must earn its place |

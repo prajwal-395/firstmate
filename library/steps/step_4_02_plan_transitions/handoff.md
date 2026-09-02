@@ -61,8 +61,8 @@ J/L cuts are audio edits and are handled by the audio pass, not here.
 
 ### Rules:
 - You MUST output a transition entry for EVERY single cut point in the shot list.
-- Hard cuts dominate — use `hard_cut` as the default for most cuts.
-- Never repeat the same creative transition type consecutively
+- A hard cut is the absence of decoration; a creative transition adds it.
+  Let the creative direction, the footage and the music guide the mix.
 - Beat-align major transitions when BPM data is available
 - Match energy of surrounding content
 
@@ -109,10 +109,8 @@ energy profile.
 ## Evaluation Criteria
 
 1. Every cut point has a transition entry
-2. No consecutive creative transitions of the same type
-3. Hard cuts are the majority
-4. Beat alignment attempted for major transitions
-5. J/L-cut overlaps ≤ 1 second
+2. Transition choices serve the creative direction, pacing and energy
+3. Beat alignment attempted for major transitions
 
 ---
 

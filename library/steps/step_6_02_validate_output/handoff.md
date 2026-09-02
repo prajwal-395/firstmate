@@ -37,8 +37,8 @@ below. Produce a structured validation result.
    no sync issues
 3. **Subtitle accuracy**: Subtitles are readable, correctly timed, don't
    overlap important visual content
-4. **Timing accuracy**: Duration is within the 30-60 second target,
-   transitions land correctly
+4. **Timing accuracy**: Duration is within the project's target duration
+   zone (if declared), transitions land correctly
 
 ---
 

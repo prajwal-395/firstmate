@@ -37,10 +37,10 @@ have no reader.
 
 | Type | When to use |
 |------|------------|
-| `slow_zoom_in` | Nearly always on talking head clips — makes static shots feel alive |
-| `slow_zoom_out` | The same, drifting the other way; alternate for variety |
+| `slow_zoom_in` | Gradual drift inward - adds life to static holds |
+| `slow_zoom_out` | Gradual drift outward - the reverse, alternate for variety |
 | `zoom_emphasis` | Key words/moments — punches in and settles back |
-| `screen_shake` | Emphasis moments — an impact that settles. Use sparingly (max 2-3 per video) |
+| `screen_shake` | Emphasis moments - an impact that settles |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam |
 
 **DaVinci Resolve Built-in Fusion Clip Effects:**
@@ -63,10 +63,6 @@ You can also use any of the built-in Fusion clip effects listed below by providi
 - A static talking-head shot held for a long time is where `slow_zoom_in` /
   `slow_zoom_out` earns its place - use it where it helps and leave it off
   where it does not.
-- Screen shake: sparingly — max 2-3 per video
-- Zoom emphasis: only for genuinely important moments
-- Animation timing: 100-200ms for micro-animations, never >500ms
-- Easing: Bezier curves, not linear
 - Effects modify display, not timeline positions
 
 ### Context data available:
@@ -107,9 +103,8 @@ to the creative direction's energy profile.
 
 1. Every effect earns its place - it is there because the moment wants it,
    not to satisfy a count
-2. Screen shake used ≤3 times
-3. Parameters within style spec ranges
-4. No effect changes clip in/out points or timeline position
+2. Parameters within style spec ranges
+3. No effect changes clip in/out points or timeline position
 
 ---
 

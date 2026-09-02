@@ -119,8 +119,9 @@ This value comes from the project's `project.json`.
   only the strongest passages. If all candidate passages sum to more than
   the target, aggressively cut - keep only passages that directly serve the
   creative direction's narrative theme and key moments.
-- Aim for ~75% of the target as your speech content duration (leaving room
-  for B-roll and transitions).
+- Leave room for B-roll, transitions, intro and outro - how much speech
+  vs. visual content the piece needs is a creative call that depends on
+  the footage and the creative direction.
 - Document in `excluded_passages` any passages cut to meet the duration
   target, with `reason_excluded: "cut to meet duration target of Xs"`.
 
@@ -197,4 +198,4 @@ downstream mesh_spine step will coordinate speech and music timing.
 |-------------|--------|
 | No coherent narrative possible | FAIL — footage may not support shortform video |
 | No good hook found | FLAG — use highest-scoring passage, note the weakness |
-| Insufficient speech content for 30s video | FLAG — may need to accept shorter duration or add more footage |
+| Insufficient speech content for target duration | FLAG — may need to accept shorter duration or add more footage |

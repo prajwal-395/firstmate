@@ -76,10 +76,13 @@ card.
 - `"fade_out"` — transitioning from prominent to background/silent
 - `"silent"` — no music (for dramatic effect, raw moments, emphasis)
 
-### Structural rules:
-- Spine MUST start with a "hook" block
-- Hook is followed by an "intro" block (music + B-roll before speech)
-- Speech blocks should not exceed ~8-10 seconds without a transition slot
+### Structural guidance:
+- Spine structure is a creative decision. A hook followed by an intro is a
+  common shortform pattern, but not the only one - cold opens, direct
+  speech starts and other structures serve different content.
+- Long unbroken speech blocks can feel monotonous; transition slots give
+  breathing room, but how long speech runs before a break depends on the
+  delivery and the content.
 - Spine MUST have a defined ending (outro or final speech block)
 - Music and speech CAN overlap — music_behavior controls the relationship
 - Every block must have music_behavior specified
