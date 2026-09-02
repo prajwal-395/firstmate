@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""
-Step 4.06: Render Motion Graphics (Remotion)
+"""Step 4.06 post-bridge: render the planned motion-graphics layer.
 
-Takes the enhancement spec from step 4.03 and creative direction, then
-renders per-spine-block motion graphics overlays to ProRes 4444 videos
-with alpha channel using Remotion.
+Takes the model's `motion_graphics_plan` (see `handoff.md` and
+`library/tools/motion_graphics_plan.py`), resolves it against the brand
+template's palette when there is one, cuts it into non-overlapping
+overlay segments and renders each to a ProRes 4444 clip with alpha.
 
-Each spine block gets its own rendered overlay clip, which the Resolve
-builder places at the correct timeline position on V4.
+**The layer is planned, not derived.**  This file used to resolve the
+whole thing from `effect.motion_accents` and `effect.motion_progress_bar`,
+so a project naming no brand template rendered eight fully transparent
+segments and reported motion graphics as delivered.  The captain's
+ruling of 2026-09-02 is that the gate was the bug.
+
+**Every element carries its own timing.**  A segment's span comes from
+the entries clustered into it, never from a spine block; several
+elements can be on screen at once, on different rows, inside one
+segment.
 
 This step is also where the OTHER two Remotion-rendered things a brand
 template may declare become files, because they need the same prepped
@@ -21,51 +29,14 @@ reference them:
   moments renders none, and says so in the output rather than emitting
   ``available: false``, which the runner reads as a failed step.
 
-Classification: Deterministic / Direct Action
-Idempotent: Yes (same inputs -> same rendered overlays)
-
-Input:  {
-    "enhancement_spec": { ... },
-    "audio_spine": { structure: [...] },
-    "creative_direction": { ... }
-}
-Output: {
-    "motion_graphics_overlay": {
-        "available": bool,
-        "segments": [
-            {
-                "overlay_path": str,
-                "timeline_start": float,
-                "timeline_end": float,
-                "block_position": int,
-                "total_frames": int
-            }
-        ],
-        "format": "ProRes 4444",
-        "has_alpha": true,
-        "fps": 30
-    },
-    "timed_text_overlay": {
-        "declared": bool,
-        "available": bool,     # only when declared
-        "segments": [
-            {
-                "overlay_path": str,
-                "timeline_start": float,
-                "timeline_end": float,
-                "total_frames": int,
-                "moment_count": int
-            }
-        ]
-    }
-}
+Classification: Hybrid / Content generation
 """
 import json
 import os
 import subprocess
 import sys
 
-from generate_motion_props import generate_motion_props, props_draw_ink
+from generate_motion_props import PLAN_KEY, generate_motion_props
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
@@ -98,30 +69,41 @@ def _timed_text_output(segments: list, fps: int) -> dict:
     }
 
 
-def _nothing_to_draw_output(reason: str) -> dict:
+def _nothing_to_draw_output(reason: str, basis: dict = None) -> dict:
     """The motion_graphics_overlay output when no segment would draw.
 
     Shaped like `_timed_text_output`'s undeclared case and for the same
     reason: no `available` key at all. `check_output_is_real` in
     run_pipeline reads `available: false` anywhere in a step's output as
-    a failed run, and "this template declares no motion graphics" is the
-    normal case for every template that has not opted in.
+    a failed run, and an empty layer is a legitimate answer.
+
+    **It carries the basis.** An empty layer that says WHICH absence it
+    is cannot be misread as a clean one: `no_elements_planned` is a
+    decision the model took and `every_entry_dropped` is the absence of
+    one surviving, and the dropped entries are named with their reasons.
+    Same line `vfx_plan_basis` draws.
     """
-    return {
+    out = {
         "declared": False,
         "segments": [],
         "total_segments": 0,
         "reason": reason,
     }
+    if basis is not None:
+        out["planning_basis"] = basis
+    return out
 
 
 def main():
     import sys
     data = json.loads(sys.stdin.read())
-    enhancement_spec = data.get("enhancement_spec", {})
     audio_spine = data.get("audio_spine", {})
-    creative_direction = data.get("creative_direction", {})
     project_folder = data.get("project_folder", "")
+    # The model's answer. `enhancement_spec` and `creative_direction`
+    # are declared and routed for the PROMPT, which is where they are
+    # read now that this step has one - the runner projects them into
+    # the context and the plan comes back here already decided.
+    motion_graphics_plan = data.get(PLAN_KEY)
 
     # Find Remotion project (repo-relative)
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
@@ -160,7 +142,8 @@ def main():
     mg_output_dir = str(layout.write_dir(
         Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
 
-    # Generate per-block props
+    # The timebase. Every planned span is expressed in timeline
+    # seconds and converted here; nothing is derived from a block.
     fps = data.get("project_fps", 30)
     # The overlay is rendered AT THE DELIVERY FORMAT, so it composites
     # 1:1 onto the timeline. Reading a source-derived resolution here is
@@ -225,76 +208,52 @@ def main():
 
     timed_text_overlay = _timed_text_output(timed_text_segments, fps)
 
-    props_list = generate_motion_props(
-        enhancement_spec, creative_direction, audio_spine,
+    segments_plan, resolved = generate_motion_props(
+        motion_graphics_plan,
+        audio_spine,
         fps=fps, width=width, height=height,
-        # Brand slots, injected by the pipeline runner for any step whose
-        # manifest declares them. They drive the accent colour and whether
-        # the corner accents and progress bar are drawn at all (P3.1).
+        # The palette REFINES an entry's colour_role. A project that
+        # names no template resolves nothing here and its plan states
+        # its own colours; the layer is not reduced by the absence.
         brand_style=data.get("brand_style", {}),
-        brand_effect=data.get("brand_effect", {}),
         project_folder=project_folder,
+        asked=motion_graphics_plan is not None,
     )
+    basis = resolved.basis_record()
 
-    if not props_list:
-        print("WARNING: No motion graphics blocks to render", file=sys.stderr)
+    for dropped in resolved.dropped:
+        print(f"  dropped {dropped.element}: {dropped.reason}"
+              + (f" - {dropped.detail}" if dropped.detail else ""),
+              file=sys.stderr)
+
+    if not segments_plan:
+        print(f"No motion graphics to draw ({basis['basis']}): "
+              f"{basis['what_the_basis_means']}", file=sys.stderr)
         json.dump({
             "motion_graphics_overlay": _nothing_to_draw_output(
-                "No motion graphics blocks found in audio spine"),
+                basis["what_the_basis_means"], basis),
             "timed_text_overlay": timed_text_overlay,
         }, sys.stdout, indent=2)
         return
 
-    # Skip the render when the RESOLVED props would draw nothing. Not a
-    # capability change: a template that declares accents, a progress bar
-    # or a title still renders exactly as before. What stops is the
-    # fully-transparent render - eight ProRes 4444 files on project 001
-    # in which no pixel is ever opaque, placed on V4 and counted as
-    # motion graphics delivered. See `props_draw_ink`.
-    drawable = [p for p in props_list if props_draw_ink(p)]
-    if not drawable:
-        print(f"No motion graphics to draw: all {len(props_list)} resolved "
-              f"props have no upper-third text, no accents and no progress "
-              f"bar. Skipping the render.", file=sys.stderr)
-        json.dump({
-            "motion_graphics_overlay": _nothing_to_draw_output(
-                f"all {len(props_list)} resolved motion graphics props draw "
-                f"nothing: the brand template declares neither "
-                f"effect.motion_accents nor effect.motion_progress_bar, and "
-                f"the creative direction supplies no title or subtitle"),
-            "timed_text_overlay": timed_text_overlay,
-        }, sys.stdout, indent=2)
-        return
-
-    skipped = len(props_list) - len(drawable)
-    if skipped:
-        print(f"Skipping {skipped} motion graphics segment(s) that would "
-              f"draw nothing", file=sys.stderr)
-
-    props_list = drawable
-
-    print(f"Rendering {len(props_list)} motion graphics segments...",
-          file=sys.stderr)
+    print(f"Rendering {len(segments_plan)} motion graphics segments "
+          f"({basis['resolved']} elements)...", file=sys.stderr)
 
     segments = []
-    for i, props in enumerate(props_list):
-        block_pos = props.get("_block_position")
-        tl_start = props.get("_timeline_start")
-        tl_end = props.get("_timeline_end")
-        block_type = props.get("_block_type")
-        total_frames = props["durationInFrames"]
-        safe_pos = str(block_pos).replace(" ", "_")
-        segment_name = f"mg_block_{safe_pos}"
+    for i, planned in enumerate(segments_plan):
+        props = planned["props"]
+        segment_name = f"mg_{planned['index']:03d}"
         overlay_path = os.path.join(mg_output_dir, f"{segment_name}.mov")
         props_path = os.path.join(mg_output_dir, f"{segment_name}_props.json")
 
-        # Write props file
-        with open(props_path, "w") as f:
+        with open(props_path, "w", encoding="utf-8") as f:
             json.dump(props, f, indent=2)
 
-        print(f"  [{i+1}/{len(props_list)}] {segment_name} "
-              f"({block_type}, {total_frames}f, "
-              f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+        print(f"  [{i+1}/{len(segments_plan)}] {segment_name} "
+              f"({', '.join(planned['elements'])}, "
+              f"{planned['total_frames']}f, "
+              f"tl:{planned['timeline_start']:.2f}-"
+              f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
 
         # Render via Remotion
         try:
@@ -328,25 +287,29 @@ def main():
 
         segments.append({
             "overlay_path": overlay_path,
-            "timeline_start": tl_start,
-            "timeline_end": tl_end,
-            "block_position": block_pos,
-            "total_frames": total_frames,
+            "timeline_start": planned["timeline_start"],
+            "timeline_end": planned["timeline_end"],
+            "total_frames": planned["total_frames"],
+            "element_count": planned["element_count"],
+            "elements": planned["elements"],
         })
 
-    print(f"\nRendered {len(segments)}/{len(props_list)} motion graphics segments",
-          file=sys.stderr)
+    print(f"\nRendered {len(segments)}/{len(segments_plan)} motion graphics "
+          f"segments", file=sys.stderr)
 
     if segments:
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.qa.asset_qa import verify_alpha_channel
             if not verify_alpha_channel(segments[0]["overlay_path"]):
-                print("WARNING: QA Check 2.1 Failed: First motion graphics segment missing alpha or purely black", file=sys.stderr)
+                print("WARNING: QA Check 2.1 Failed: First motion graphics "
+                      "segment missing alpha or purely black", file=sys.stderr)
             else:
-                print("QA Check 2.1 Passed: Motion graphics alpha verified", file=sys.stderr)
+                print("QA Check 2.1 Passed: Motion graphics alpha verified",
+                      file=sys.stderr)
         except Exception as e:
-            print(f"WARNING: QA Check 2.1 execution failed: {e}", file=sys.stderr)
+            print(f"WARNING: QA Check 2.1 execution failed: {e}",
+                  file=sys.stderr)
 
     json.dump({
         "motion_graphics_overlay": {
@@ -356,6 +319,7 @@ def main():
             "has_alpha": True,
             "fps": fps,
             "total_segments": len(segments),
+            "planning_basis": basis,
         },
         "timed_text_overlay": timed_text_overlay,
     }, sys.stdout, indent=2)

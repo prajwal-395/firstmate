@@ -223,7 +223,11 @@ def test_a_pipeline_step_reads_the_slot():
                     or "plan_timed_text_segments" in src
                     or "render_timed_text_segments" in src):
                 readers.append(os.path.relpath(path, PROJECT_ROOT))
-    assert "library/steps/step_4_06_render_motion_graphics/step.py" in readers, (
+    # `post_bridge.py`, not `step.py`: 4.06 became a hybrid step on
+    # 2026-09-02 and the renderer half moved to the post-bridge, which
+    # is the file the hybrid runner executes.
+    assert ("library/steps/step_4_06_render_motion_graphics/post_bridge.py"
+            in readers), (
         f"no pipeline step reads effect.timed_text_overlay; readers found: "
         f"{readers}. A declared moment would render nothing and warn about "
         f"nothing - the exact defect this slot spent four months in.")

@@ -87,20 +87,42 @@ def _template(name):
         return yaml.safe_load(f) or {}
 
 
-def _fixture_props():
-    """The real generator, at fixture size, for a template that declares.
+#: A plan a model could write for `SPINE`. Three elements, all live at
+#: once on different rows, and each spanning the whole piece rather than
+#: a block - the timebase and the rows, exercised against a real render
+#: rather than asserted in isolation.
+#:
+#: `colour_role: accent` is what makes this the TEMPLATE REFINING the
+#: plan: `#ff0055` is `shortform_energetic`'s own palette accent and is
+#: not a colour this test picked.
+A_PLAN = [
+    {"element": "title_lockup", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "top_left", "row": 0,
+     "copy": {"display": "A NAME"}, "colour_role": "accent",
+     "entrance": "fade", "exit": "cut"},
+    {"element": "frame_accents", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "centre", "row": 0,
+     "colour_role": "accent", "entrance": "fade", "exit": "cut"},
+    {"element": "progress_bar", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "bottom_centre", "row": 0,
+     "colour_role": "accent", "entrance": "fade", "exit": "cut"},
+]
 
-    `shortform_energetic` is the shipped template that says yes to both
-    elements, and `#ff0055` is its own palette's accent - not a colour
-    this test picked.
+
+def _fixture_props():
+    """The real resolver, at fixture size, for a plan and a template.
+
+    `shortform_energetic` supplies the palette the plan's `colour_role`
+    resolves against. Nothing here turns an element on: the plan does.
     """
     tmpl = _template("shortform_energetic")
-    got = generate_motion_props(
-        {}, {}, SPINE,
+    segments, resolved = generate_motion_props(
+        A_PLAN, SPINE,
         fps=FIXTURE_FPS, width=FIXTURE_WIDTH, height=FIXTURE_HEIGHT,
-        brand_style=tmpl.get("style"), brand_effect=tmpl.get("effect"))
-    assert got, "the generator produced no props for a declaring template"
-    return [p for p in got if props_draw_ink(p)]
+        brand_style=tmpl.get("style"))
+    assert not resolved.dropped, resolved.basis_record()["dropped"]
+    assert segments, "the resolver produced no segment for a real plan"
+    return [s["props"] for s in segments if props_draw_ink(s["props"])]
 
 
 def _render(props: dict, out_dir: str) -> str:
@@ -186,7 +208,7 @@ def test_a_declared_motion_graphic_reaches_pixels(rendered):
     accent = (0xFF, 0x00, 0x55)
     assert any(_near((r, g, b), accent) for _, _, r, g, b in lit), (
         f"none of the {len(lit)} lit pixels carries the template's own "
-        f"accent {props['accentColor']}. Something drew, but not what "
+        f"accent. Something drew, but not what "
         f"the declaration asked for.")
 
 

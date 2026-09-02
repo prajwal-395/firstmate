@@ -165,6 +165,11 @@ DECLINED_OUTPUTS = {
     "total_a_roll_segments": "3.01 - a count",
     "subtitle_plan": "4.01 renders decisions already taken into caption cards",
     "subtitle_overlay": "4.05 - a rendered artifact",
+    # 4.06 became hybrid on 2026-09-02 and its outputs are therefore no
+    # longer required to be accounted for here.  The rows stay because
+    # the claim they make is unchanged - both are rendered artifacts,
+    # not measurements - and deleting a true row to satisfy a coverage
+    # check is how a table starts disagreeing with the system.
     "motion_graphics_overlay": "4.06 - a rendered artifact",
     "timed_text_overlay": "4.06 - a rendered artifact",
     "color_grade_spec": "5.01 carries a declared look; a declaration is not a measurement",

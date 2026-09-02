@@ -180,12 +180,21 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
         "2.01 authors the direction; it has nothing inherited to "
         "contradict"
     )
-    for deterministic in ("color_grade", "creative_cohesion",
-                          "render_motion_graphics"):
+    # `render_motion_graphics` used to be in this list. It stopped being
+    # deterministic on 2026-09-02, when step 4.06 grew a handoff asking a
+    # model to plan the overlay layer instead of resolving it from two
+    # brand-template booleans - so it now has a prompt to say it in, and
+    # the derived set above picks it up with no edit to either module.
+    for deterministic in ("color_grade", "creative_cohesion"):
         assert not dc.flags(deterministic), (
             f"{deterministic} declares creative_direction but reaches no "
             "model, so it has nothing to say it in"
         )
+    assert dc.flags("render_motion_graphics"), (
+        "4.06 reaches a model now; a step that starts reaching one and is "
+        "left out of the derivation is exactly the staleness the "
+        "derivation exists to prevent"
+    )
 
 
 def test_every_flagging_step_has_at_least_one_routed_measurement():

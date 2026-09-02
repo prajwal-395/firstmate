@@ -305,6 +305,27 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                         direction_contradiction.schema_entry())
                     # Per step, because its evidence sources are.
                     prompt += direction_contradiction.prompt_block(node_id)
+            try:
+                from library.tools import brief_attachment, briefing_interview
+            except ImportError:
+                notes.append("this tree has no "
+                             "library.tools.briefing_interview: the schema "
+                             "is reconstructed without the "
+                             "briefing_questions field")
+            else:
+                # CONDITIONAL, unlike the two above: asked only on a run
+                # with no brief attached.  The condition is the archived
+                # inputs' own `creative_brief`, which is the same fact
+                # `present_llm_step` reads at the same point.
+                _attached = bool(inputs.get("creative_brief"))
+                if briefing_interview.asks(node_id, _attached):
+                    schema_outputs.append(briefing_interview.schema_entry())
+                    try:
+                        _a = brief_attachment.read_declaration(project_dir)
+                        _reading, _basis = _a.reading, _a.basis
+                    except Exception:  # noqa: BLE001 - wording only
+                        _reading, _basis = "", ""
+                    prompt += briefing_interview.prompt_block(_reading, _basis)
             expected_schema = json.dumps(schema_outputs)
             schema_text = generate_output_schema_text(schema_outputs)
             marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"

@@ -67,6 +67,12 @@ class PipelineConfig:
     # library/tools/subtitle_style.py, "And the PROJECT".
     subtitle_typography: Optional[dict] = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
+    # Whether that brief is ATTACHED to the planning prompts. Three
+    # states, and None is not "false": an undeclared key means the PATH
+    # is the declaration. See library/tools/brief_attachment.py, which
+    # is what the runner reads - this field exists so manage_project.py
+    # validates and round-trips the key rather than dropping it.
+    attach_creative_brief: Optional[bool] = None
     # Headings of the brief this project wants carried INLINE rather than
     # reached by path.  Clause 3 of the rule in
     # library/tools/brief_reference.py: which sections are about THIS
@@ -181,6 +187,22 @@ class ProjectConfig:
                                         "pipeline.framing_intent")
             except (TypeError, ValueError) as exc:
                 errors.append(str(exc))
+        if self.pipeline.attach_creative_brief is not None:
+            # The three-state reading is the whole point, so a value
+            # that is neither boolean is refused rather than coerced -
+            # a truthy string would silently attach a brief the project
+            # meant to decline. library/tools/brief_attachment.py holds
+            # the runtime half of the same refusal.
+            if not isinstance(self.pipeline.attach_creative_brief, bool):
+                errors.append(
+                    "pipeline.attach_creative_brief must be true or false, "
+                    f"got {type(self.pipeline.attach_creative_brief).__name__}")
+            elif (self.pipeline.attach_creative_brief
+                  and not self.pipeline.creative_brief):
+                errors.append(
+                    "pipeline.attach_creative_brief is true and no "
+                    "pipeline.creative_brief path is declared. Declare the "
+                    "path, or set attach_creative_brief to false.")
         if self.pipeline.subtitle_typography is not None:
             from library.tools.subtitle_style import TYPOGRAPHY_KEYS
             declared = self.pipeline.subtitle_typography
@@ -233,6 +255,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         framing_intent=pipeline_data.get("framing_intent"),
         subtitle_typography=pipeline_data.get("subtitle_typography"),
         creative_brief=pipeline_data.get("creative_brief", ""),
+        attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
             pipeline_data.get("creative_brief_inline", []) or []),
         sfx_library=pipeline_data.get("sfx_library", ""),
@@ -294,6 +317,12 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
                else {"subtitle_typography":
                      dict(config.pipeline.subtitle_typography)}),
             "creative_brief": config.pipeline.creative_brief,
+            # Omitted when undeclared: an explicit null in every
+            # project.yaml reads as a decision nobody made, and the
+            # undeclared reading is a real third state.
+            **({} if config.pipeline.attach_creative_brief is None
+               else {"attach_creative_brief":
+                     bool(config.pipeline.attach_creative_brief)}),
             # Only when declared, for the same reason framing_intent is:
             # an empty list in every project.yaml reads as a decision
             # nobody made.

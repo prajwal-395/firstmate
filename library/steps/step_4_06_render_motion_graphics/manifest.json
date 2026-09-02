@@ -2,7 +2,7 @@
   "id": "step_4_06_render_motion_graphics",
   "name": "Render Motion Graphics (Remotion)",
   "version": "1.0.0",
-  "description": "Renders motion graphics overlays (upper third, accent shapes, progress bar) to per-segment ProRes 4444 videos with alpha using Remotion. Takes the enhancement spec from step 4.03 and creative direction for styling, then produces one overlay per spine block.",
+  "description": "Plans the motion-graphics layer with a model, then renders it to ProRes 4444 overlay segments with alpha using Remotion. The plan carries its own timebase - an element is timed in timeline seconds and is not tied to a spine block - and several elements may be on screen at once, in rows, composited into one segment. A brand template REFINES the plan by resolving a colour role against its palette; it does not gate the layer. See library/tools/motion_graphics_plan.py.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -16,25 +16,25 @@
         "name": "brand_effect",
         "type": "object",
         "required": false,
-        "description": "Brand template effect slots (injected by pipeline runner). motion_accents and motion_progress_bar control whether the corner accents and the progress bar are drawn; timed_text_overlay declares the text moments rendered for V6."
+        "description": "Brand template effect slots (injected by the pipeline runner). timed_text_overlay declares the text moments rendered for V6. The motion_accents and motion_progress_bar booleans no longer gate the layer - the model plans it; see library/tools/motion_graphics_plan.py."
       },
       {
         "name": "brand_style",
         "type": "object",
         "required": false,
-        "description": "Brand template style slots (injected by pipeline runner). color_palette drives the motion-graphics accent colour; see library/tools/brand_palette.py."
+        "description": "Brand template style slots (injected by the pipeline runner). color_palette REFINES the plan by resolving an entry's colour_role; a project that names no template plans the same layer and states its own colours. See library/tools/brand_palette.py."
       },
       {
         "name": "creative_direction",
         "type": "object",
         "required": true,
-        "description": "Creative direction for accent colors, title text, style choices"
+        "description": "Step 2.01's creative direction. Read by the model when it plans the layer: what the piece is doing is what decides whether it wants a title, a quote or nothing at all."
       },
       {
         "name": "enhancement_spec",
         "type": "object",
         "required": true,
-        "description": "VFX plan from step 4.03 with effect entries"
+        "description": "The VFX plan from step 4.03, so the overlay layer is planned knowing what the picture treatment is already doing and does not double it."
       },
       {
         "name": "project_fps",
@@ -47,7 +47,7 @@
       {
         "name": "motion_graphics_overlay",
         "type": "object",
-        "description": "Per-segment overlay paths and metadata for Resolve placement"
+        "description": "Per-segment overlay paths and metadata for Resolve placement, plus planning_basis - what was proposed, what resolved and every entry that was dropped with its reason."
       },
       {
         "name": "timed_text_overlay",
@@ -56,28 +56,37 @@
       }
     ],
     "preconditions": [
-      "'enhancement_spec' exists in state",
       "'audio_spine' exists in state",
       "'creative_direction' exists in state",
+      "'enhancement_spec' exists in state",
       "Remotion project is set up in remotion-subtitles/",
       "Node.js and npx are available"
     ],
     "postconditions": [
-      "'motion_graphics_overlay' is written to state with segment overlay paths",
+      "'motion_graphics_overlay' is written to state with segment overlay paths and planning_basis",
       "'timed_text_overlay' is written to state: one rendered segment per cluster of declared moments, or declared:false"
+    ],
+    "llm_outputs": [
+      {
+        "name": "motion_graphics_plan",
+        "type": "list",
+        "required": true,
+        "may_be_empty": true,
+        "description": "The motion graphics this video carries. Each entry: element (a key from the roster), start_seconds and duration_seconds in TIMELINE seconds, anchor, row, copy, color or colour_role, entrance, exit, why. An empty list is a decision that the piece wants none."
+      }
     ]
   },
   "classification": {
     "stage": "edit",
-    "determinism": "deterministic",
-    "archetype": "direct_action",
-    "idempotent": true
+    "determinism": "hybrid",
+    "archetype": "content_generation",
+    "idempotent": false
   },
   "dependencies": [
     "step_4_03_plan_vfx"
   ],
   "tags": [
-    "direct_action",
+    "content_generation",
     "video-editing",
     "remotion",
     "motion-graphics"
@@ -86,7 +95,7 @@
   "implementation": {
     "default": {
       "runtime": "python",
-      "entry_point": "step.py"
+      "entry_point": "bridge.py"
     },
     "variants": {},
     "test_entry_point": ""
@@ -94,7 +103,12 @@
   "metadata": {
     "author": "prajwal",
     "created": "2026-08-07",
-    "last_modified": "2026-08-07",
+    "last_modified": "2026-09-02",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "creative_direction",
+    "enhancement_spec",
+    "project_fps"
+  ]
 }

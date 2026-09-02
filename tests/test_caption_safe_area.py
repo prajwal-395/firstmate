@@ -312,9 +312,17 @@ def test_consumer_motion_props_carries_the_inset():
         "block_type": "speech", "position": 1,
         "timeline_start": 0.0, "timeline_end": 4.0,
     }]}
-    props = generate_motion_props({}, {}, spine)
-    assert props
-    assert props[0]["safeArea"] == {
+    # The layer is planned now (AGENTS.md 10.2), so the inset travels on
+    # a segment resolved from a plan rather than on a per-block props
+    # dict. What is asserted is unchanged: the insets reach the props
+    # the renderer is handed, from library/tools/safe_area.py.
+    segments, resolved = generate_motion_props(
+        [{"element": "title_lockup", "start_seconds": 0.5,
+          "duration_seconds": 2.0, "anchor": "top_left",
+          "copy": {"display": "A NAME"}, "color": "#F5F5F0"}],
+        spine)
+    assert segments, resolved.basis_record()
+    assert segments[0]["props"]["safeArea"] == {
         "top": 120, "right": 120, "bottom": 320, "left": 90}
 
 

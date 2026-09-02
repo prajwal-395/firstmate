@@ -102,6 +102,10 @@ def test_every_step_that_reaches_a_model_declares():
         "creative_direction", "speech_sequence", "music_selection",
         "mesh_spine", "select_broll", "review_rough_cut",
         "plan_transitions", "plan_vfx", "plan_sfx",
+        # Joined 2026-09-02: step 4.06 stopped deriving the motion
+        # graphics layer from two brand-template booleans and grew a
+        # handoff asking a model to plan it.
+        "render_motion_graphics",
     })
     assert not undetermined.declares("semantic_analysis"), (
         "its schema is empty and its call is skipped"
@@ -272,15 +276,19 @@ def test_expected_schema_and_the_prompt_describe_the_same_schema(tmp_path):
         tmp_path, "plan_transitions", {"a_verdict": "fine"},
         inputs={"timeline_notes": {"notes": [{"id": "n1", "text": "tighter"}]}},
         times=3)
-    from library.tools import direction_contradiction
+    from library.tools import briefing_interview, direction_contradiction
     assert direction_contradiction.flags("plan_transitions"), (
         "this step carries BOTH appended fields, which is what makes it "
         "the case where one appender could clobber the other")
+    # And the THIRD appender, which this fixture project triggers by
+    # declaring no creative brief - see library/tools/briefing_interview.py.
+    assert briefing_interview.asks("plan_transitions", False)
     for request in seen:
         names = [e["name"] for e in json.loads(request["expected_schema"])]
         assert names == ["a_verdict", "note_acknowledgements",
                          undetermined.FIELD,
-                         direction_contradiction.FIELD], names
+                         direction_contradiction.FIELD,
+                         briefing_interview.FIELD], names
         for name in names:
             assert f'"{name}"' in request["prompt"], (
                 f"{name} is promised in expected_schema and is not in the "

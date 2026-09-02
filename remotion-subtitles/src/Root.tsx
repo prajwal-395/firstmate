@@ -165,14 +165,13 @@ export const RemotionRoot: React.FC = () => {
         width={1080}
         height={1920}
         defaultProps={{
-          title: "Post A Day Challenge",
-          subtitle: "Day 001 • Getting Started",
-          accentColor: "#00D4FF",
-          showUpperThird: true,
-          showProgress: true,
-          showAccents: true,
-          timelineProgressStart: 0,
-          timelineProgressEnd: 0.2,
+          // Empty, like TimedTextOverlay's `moments`. A studio default
+          // carrying copy and a colour is a title and a palette nobody
+          // chose sitting in the repository, and #00D4FF - the cyan
+          // that used to be here - is the one colour
+          // generate_motion_props keeps a name for precisely so tests
+          // can assert it never reaches a frame again.
+          elements: [],
           fps: 30,
           width: 1080,
           height: 1920,

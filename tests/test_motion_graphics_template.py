@@ -1,26 +1,38 @@
-"""P3.1: motion graphics under template control.
+"""A brand template REFINES the motion-graphics layer. It may not GATE one.
 
-`generate_motion_props.py` set `show_accents = True` unconditionally, so
-four glowing L-shaped corner brackets and a 12px progress bar sat on every
-frame of every video, in `#00D4FF` - a cyan that is not any shipped
-template's colour, because it was a hardcoded default rather than a
-choice. Nothing in any config the pipeline reads could turn them off or
-change the colour.
+**The history in one paragraph.** `generate_motion_props.py` once set
+`show_accents = True` unconditionally, so four glowing L-brackets and a
+12px progress bar sat on every frame of every video in `#00D4FF` - a
+cyan that is not any shipped template's colour. P3.1 (2026-08-16)
+replaced that with two template booleans and the captain's ruling that
+*a template declaring NOTHING gets NOTHING*. That was right about the
+colour and wrong about the layer: it made a template the thing that
+decided whether the video had motion graphics at all, and 001 - which
+declares `default_brand` - rendered eight fully transparent segments
+that nobody had been asked about.
 
-The colour now comes from the brand palette and the two elements are
-template flags. Q3, answered 2026-08-16 by reframing rather than by
-picking an option: templates are a growing library, so there is no
-universal default. A template that declares NOTHING gets NOTHING, and
-declaring is what turns an element on. That is the opposite of the old
-behaviour, deliberately - preserving the old behaviour is precisely what
-was rejected. A template that asks for accents it cannot colour from its
-own palette fails, rather than falling back to the withdrawn cyan.
+**The captain, 2026-09-02:** *"it does not matter, the LLM was still
+meant to plan these things and implement them properly, the brand
+template is only a secondary, we are still trying to get the LLM to
+produce well reasoned outputs on its own."*
+
+So the line moved, and this file holds the new one:
+
+* **A template REFINES.** Its palette resolves an entry's `colour_role`,
+  and that is the whole of what it does to the layer now.
+* **A template GATES nothing.** A project with no template plans the
+  same layer and states its own colours; there is no element, no
+  anchor and no timing a template can switch off.
+* **Nothing is drawn in a colour nobody chose.** That half of P3.1 is
+  untouched: no palette role and no stated colour means the entry is
+  DROPPED, never drawn in a constant, and the withdrawn cyan still
+  reaches no frame.
 """
-import json
 import os
 import sys
 
 import pytest
+import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STEP_DIR = os.path.join(PROJECT_ROOT, "library", "steps",
@@ -29,13 +41,13 @@ for _p in (PROJECT_ROOT, STEP_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from generate_motion_props import (
-    NEUTRAL_TEXT_COLOR,
+from generate_motion_props import (  # noqa: E402
     WITHDRAWN_LEGACY_ACCENT_COLOR,
-    MissingAccentColor,
-    _as_bool,
+    brand_palette_roles,
     generate_motion_props,
+    timeline_duration,
 )
+from library.tools import motion_graphics_plan as mgp  # noqa: E402
 
 SPINE = {
     "structure": [
@@ -48,361 +60,155 @@ SPINE = {
     ]
 }
 
+#: A palette whose most saturated entry would read on screen.
+READABLE_PALETTE = {"color_palette": ["#ff0055", "#ffffff", "#000000"]}
 
-def props(**kw):
-    return generate_motion_props({}, kw.pop("creative", {}), SPINE, **kw)
-
-
-# ─────────────────────────────────────────────────────────
-# The accent colour
-# ─────────────────────────────────────────────────────────
-
-ON = {"motion_accents": True, "motion_progress_bar": True}
-
-# A palette to go with ON: enabling the accents without one is refused
-# by design (MissingAccentColor), so a test about a different element
-# still has to supply it.
-PALETTE = {"color_palette": ["#ff0055", "#ffffff", "#000000"]}
+#: `cinematic_narrative`'s shape: the most saturated entry is a dark
+#: muted navy, which 6px brackets would read as a smudge in.
+UNREADABLE_PALETTE = {"color_palette": ["#223344", "#aabbcc", "#111111"]}
 
 
-def test_accent_comes_from_the_brand_palette():
-    got = props(brand_style={"color_palette": ["#ff0055", "#ffffff", "#000000"]},
-                brand_effect=ON)
-    assert got, "no props generated"
-    assert all(p["accentColor"] == "#ff0055" for p in got)
+def plan(**kw):
+    """One entry naming a colour_role and nothing else."""
+    base = {"element": "frame_accents", "start_seconds": 0.5,
+            "duration_seconds": 2.0, "anchor": "centre",
+            "colour_role": "accent"}
+    base.update(kw)
+    return [base]
 
 
-def test_palette_beats_creative_direction():
-    """A brand palette is the brand; creative_direction is per-video."""
-    got = props(creative={"accent_color": "#123456"},
-                brand_style={"color_palette": ["#ff0055", "#ffffff", "#000000"]},
-                brand_effect=ON)
-    assert all(p["accentColor"] == "#ff0055" for p in got)
-
-
-def test_a_creative_direction_cannot_colour_the_accents():
-    """The route that was never a route.
-
-    This file used to assert that `creative_direction["accent_color"]`
-    coloured the brackets when the palette had none. Step 2.01 is asked
-    for eight fields of prose and an accent colour is not one of them
-    (library/tools/creative_direction.DIRECTION_KEYS), so the value was
-    None on every run and the branch could not fire. A test asserting it
-    passed only because it handed the generator a key no model ever
-    writes.
-
-    A direction carrying one now changes nothing, and a template that
-    enables accents with no usable palette colour fails the same way it
-    would with no direction at all.
-    """
-    with pytest.raises(MissingAccentColor):
-        props(creative={"accent_color": "#123456"}, brand_effect=ON)
-
-    off = props(creative={"accent_color": "#123456"})
-    assert all(p["accentColor"] != "#123456" for p in off)
-
-
-def test_enabling_accents_without_a_usable_colour_raises():
-    """cinematic_narrative's palette has no accent that would read.
-
-    Its most saturated entry is a dark muted navy. Drawing 6px brackets in
-    it would read as a smudge, and drawing them in a hardcoded cyan is
-    what P3.1 removed - so a template that asks for accents it cannot
-    colour is a contradiction, and it fails.
-    """
-    with pytest.raises(MissingAccentColor):
-        props(brand_style={"color_palette": ["#223344", "#aabbcc", "#111111"]},
-              brand_effect=ON)
-
-
-def test_enabling_accents_with_no_palette_at_all_raises():
-    with pytest.raises(MissingAccentColor):
-        props(brand_effect=ON)
-
-
-def test_the_withdrawn_cyan_never_reaches_a_frame():
-    """It was never any template's colour, only an unconditional default."""
-    for kwargs in (
-        {},
-        {"brand_style": {"color_palette": ["#ff0055", "#ffffff", "#000000"]},
-         "brand_effect": ON},
-        {"creative": {"accent_color": "#123456"}},
-    ):
-        for p in props(**kwargs):
-            assert p["accentColor"] != WITHDRAWN_LEGACY_ACCENT_COLOR
-
-
-# ─────────────────────────────────────────────────────────
-# The flags: declaring is what turns an element on
-# ─────────────────────────────────────────────────────────
-
-def test_a_template_that_declares_nothing_gets_nothing():
-    """The captain's ruling: templates are a library, not a default.
-
-    This is the OPPOSITE of the old behaviour, which drew brackets and a
-    progress bar on every frame of every video.
-    """
-    got = props()
-    assert got, "no props generated"
-    assert not any(p["showAccents"] for p in got)
-    assert not any(p["showProgress"] for p in got)
-
-
-def test_declaring_accents_turns_them_on():
-    got = props(brand_style={"color_palette": ["#ff0055", "#ffffff", "#000000"]},
-                brand_effect={"motion_accents": True})
-    assert all(p["showAccents"] for p in got)
-
-
-def test_declaring_the_progress_bar_turns_it_on():
-    got = props(brand_effect={"motion_progress_bar": True})
-    speech = [p for p in got if p["_block_position"] == 1]
-    assert speech and speech[0]["showProgress"]
-
-
-def test_the_two_elements_are_independent():
-    got = props(brand_effect={"motion_progress_bar": True})
-    assert not any(p["showAccents"] for p in got)
-    assert any(p["showProgress"] for p in got)
-
-
-def test_the_upper_third_is_unaffected_by_the_accent_flags():
-    """It is a different element and it is not part of Q3.
-
-    Independent in BOTH directions: turning the accents on does not
-    raise the upper third, and turning them off does not lower it. What
-    the flag follows is the copy - and nothing declares the copy, so it
-    is False either way. It used to be True on the hook and the first
-    two speech blocks, from a rule this file wrote, beside a `title` of
-    "" that could never fill it.
-    """
-    assert not any(p["showUpperThird"] for p in props())
-    assert not any(p["showUpperThird"] for p in props(
-        brand_style=PALETTE, brand_effect=ON))
-
-
-def test_the_upper_third_is_never_claimed_without_copy():
-    """The flag and the copy agree on every block, whatever is declared.
-
-    This is the invariant, not the current value: `showUpperThird` is
-    true exactly when there is a word to draw. It holds today because
-    nothing declares the copy (an open captain decision - see
-    generate_motion_props), and it is what stops the props file on disk
-    claiming an element the composition draws as an empty div, which is
-    how eight fully transparent 001 renders read as eight delivered
-    graphics.
-    """
-    for effect in ({}, ON, {"motion_accents": True},
-                   {"motion_progress_bar": True}):
-        for p_ in props(brand_style=PALETTE, brand_effect=effect):
-            assert p_["showUpperThird"] == bool(
-                str(p_["title"]).strip() or str(p_["subtitle"]).strip()), p_
-
-
-def test_the_upper_third_stays_legible_with_no_palette():
-    got = props()
-    assert all(p["accentColor"] == NEUTRAL_TEXT_COLOR for p in got)
-
-
-def test_the_upper_third_prefers_the_palette_text_colour():
-    got = props(brand_style={"color_palette": ["#223344", "#aabbcc", "#111111"]})
-    assert all(p["accentColor"] == "#aabbcc" for p in got)
-
-
-def test_broll_still_has_no_progress_bar_when_enabled():
-    """The pre-existing per-block rule must survive the new flag."""
-    got = props(brand_effect={"motion_progress_bar": True})
-    broll = [p for p in got if p["_block_position"] == 2]
-    assert broll and not broll[0]["showProgress"]
-
-
-class TestFlagCoercion:
-    """YAML flags, and a typo that must not silently change the look."""
-
-    @pytest.mark.parametrize("value,expected", [
-        (True, True), (False, False),
-        ("true", True), ("False", False), ("yes", True), ("no", False),
-        ("on", True), ("off", False), ("1", True), ("0", False),
-    ])
-    def test_recognised_values(self, value, expected):
-        assert _as_bool(value, not expected) is expected
-
-    @pytest.mark.parametrize("value", ["maybe", "", 42, [], {}, object()])
-    def test_unrecognised_values_keep_the_default(self, value):
-        """A typo must not read as false and switch the house style off."""
-        assert _as_bool(value, True) is True
-        assert _as_bool(value, False) is False
-
-    def test_none_keeps_the_default(self):
-        assert _as_bool(None, True) is True
-        assert _as_bool(None, False) is False
-
-
-# ─────────────────────────────────────────────────────────
-# The wiring, so the flags actually arrive
-# ─────────────────────────────────────────────────────────
-
-def test_the_step_declares_the_brand_slots():
-    """Without the declaration the runner never injects them, and every
-    flag above would be dead config."""
-    with open(os.path.join(STEP_DIR, "manifest.json"), encoding="utf-8") as f:
-        manifest = json.load(f)
-    inputs = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert {"brand_style", "brand_effect"} <= inputs
-
-
-def test_the_step_passes_the_brand_slots_through():
-    with open(os.path.join(STEP_DIR, "step.py"), encoding="utf-8") as f:
-        src = f.read()
-    assert 'brand_style=data.get("brand_style"' in src
-    assert 'brand_effect=data.get("brand_effect"' in src
-
-
-def test_the_schema_carries_the_flags():
-    from library.schemas.brand_template import BrandTemplate
-    tmpl = BrandTemplate.from_dict(
-        {"series_id": "x", "effect": {"motion_accents": False,
-                                      "motion_progress_bar": False}})
-    assert tmpl.effect.motion_accents is False
-    assert tmpl.effect.motion_progress_bar is False
-    # Unset must stay None, not False, or "said nothing" would read as
-    # "turn it off".
-    assert BrandTemplate.from_dict(
-        {"series_id": "x"}).effect.motion_accents is None
-
-
-def test_no_hardcoded_cyan_outside_the_named_constant():
-    """The default must be nameable, so it can be discussed and changed."""
-    with open(os.path.join(STEP_DIR, "generate_motion_props.py"),
-              encoding="utf-8") as f:
-        src = f.read()
-    code = "\n".join(l for l in src.splitlines()
-                     if not l.lstrip().startswith("#"))
-    assert code.count("#00D4FF") == 1, (
-        "the withdrawn cyan must appear once, as "
-        "WITHDRAWN_LEGACY_ACCENT_COLOR, and never as a live fallback")
-
-
-# ─────────────────────────────────────────────────────────
-# The shipped library: which templates declare accents
-# ─────────────────────────────────────────────────────────
-
-import glob
-
-import yaml
-
-TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
-
-# Approved 2026-08-16. Each is one flag to reverse, but a change here
-# should be a decision rather than a drift.
-EXPECTED_DECLARATIONS = {
-    "shortform_energetic": {"motion_accents": True, "motion_progress_bar": True},
-    "interview_professional": {"motion_accents": True, "motion_progress_bar": False},
-    "cinematic_narrative": {},
-    "default_brand": {},
-    # A client's brand arrives as its own cards (content.bookends), not as
-    # the engine's corner accents.
-    "lucie_client": {},
-}
+def segments(motion_plan, brand_style=None):
+    return generate_motion_props(
+        motion_plan, SPINE, fps=30, width=1080, height=1920,
+        brand_style=brand_style or {}, project_folder="")
 
 
 def _template(name):
-    with open(os.path.join(TEMPLATE_DIR, f"{name}.yaml"), encoding="utf-8") as f:
+    with open(os.path.join(PROJECT_ROOT, "library", "templates",
+                           f"{name}.yaml"), encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
-def test_every_template_is_accounted_for():
-    on_disk = {os.path.basename(p)[:-5]
-               for p in glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))}
-    assert on_disk == set(EXPECTED_DECLARATIONS), (
-        "a template was added or removed without deciding whether it "
-        "carries motion accents")
+def _elements(segs):
+    return [e for s in segs for e in s["props"]["elements"]]
 
 
-@pytest.mark.parametrize("name", sorted(EXPECTED_DECLARATIONS))
-def test_templates_declare_what_was_approved(name):
-    effect = _template(name).get("effect") or {}
-    declared = {k: effect[k] for k in
-                ("motion_accents", "motion_progress_bar") if k in effect}
-    assert declared == EXPECTED_DECLARATIONS[name]
+# ── The template refines ─────────────────────────────────────────────
+
+def test_a_palette_resolves_a_colour_role():
+    segs, resolved = segments(plan(), READABLE_PALETTE)
+    assert resolved.basis == mgp.ELEMENTS_PLANNED
+    drawn = _elements(segs)
+    assert all(e["color"] == "#ff0055" for e in drawn)
+    assert all("brand palette" in e["colorBasis"] for e in drawn)
 
 
-def test_cinematic_narrative_cannot_carry_accents():
-    """Its accent-free state is a mechanism's answer, not an oversight.
+def test_a_palette_beats_a_colour_the_plan_also_stated():
+    """A declared role is a request for the brand's own colour, so the
+    brand answers it. The plan's own value is what a role-less entry
+    uses, not a second guess at the same question."""
+    segs, _ = segments(plan(color="#123456"), READABLE_PALETTE)
+    assert all(e["color"] == "#ff0055" for e in _elements(segs))
 
-    The palette is ["#223344", "#aabbcc", "#111111"] and its most
-    saturated entry is a dark muted navy that would sit almost on top of
-    its own near-black outline. `brand_palette` rejects it, so the choice
-    was made by the palette rather than by taste.
 
-    This test exists so that turning them on "helpfully" fails here, with
-    the reason, rather than at render time or - worse - not at all.
+def test_a_palette_with_no_readable_accent_does_not_answer_the_role():
+    """P3.1's other half, unchanged: a colour that would read as a smudge
+    is not an accent, and the entry is dropped rather than drawn in it."""
+    segs, resolved = segments(plan(), UNREADABLE_PALETTE)
+    assert not segs
+    assert resolved.dropped[0].reason == "no_colour_to_draw_it_in"
+
+
+# ── The template gates nothing ───────────────────────────────────────
+
+def test_the_same_plan_draws_with_a_template_and_without_one():
+    """The regression. `default_brand` declares neither motion flag, and
+    that used to be the whole decision."""
+    stated = plan(color="#FF8A3D")
+    del stated[0]["colour_role"]
+
+    without, _ = segments(stated, {})
+    with_default, _ = segments(stated, _template("default_brand").get("style"))
+
+    assert _elements(without), "no template must not empty the layer"
+    assert len(_elements(with_default)) == len(_elements(without))
+    assert {e["color"] for e in _elements(without)} == {"#FF8A3D"}
+
+
+def test_no_template_flag_can_switch_an_element_off():
+    """`motion_accents` and `motion_progress_bar` are no longer read at
+    all, so a template setting them false cannot remove a planned
+    element. `brand_effect` is not even a parameter of the resolver."""
+    import inspect
+    signature = inspect.signature(generate_motion_props)
+    assert "brand_effect" not in signature.parameters, (
+        "brand_effect is back in the resolver's signature - the gate "
+        "this file exists to keep out has a route again")
+
+    # Scoped past the module docstring, which CITES both flags as the
+    # evidence for why they are no longer read. Evidence is what a
+    # [why] link carries in this repository; the scan is pointed at the
+    # code, the same way test_motion_graphics_vocabulary's is.
+    import ast
+    source = open(mgp.__file__, encoding="utf-8").read()
+    docstring = ast.parse(source).body[0]
+    assert isinstance(docstring, ast.Expr)
+    code = "\n".join(source.splitlines()[docstring.end_lineno:])
+    for flag in ("motion_accents", "motion_progress_bar"):
+        assert flag not in code, (
+            f"{flag} is read by the planner. A template boolean that "
+            f"removes a planned element is the gate again.")
+
+
+def test_a_project_with_no_template_resolves_no_roles_and_that_drops_nothing():
+    assert brand_palette_roles({}) == {}
+    assert brand_palette_roles(None) == {}
+    stated = plan(color="#FF8A3D")
+    del stated[0]["colour_role"]
+    _segs, resolved = segments(stated, {})
+    assert not resolved.dropped
+
+
+# ── Nothing is drawn in a colour nobody chose ────────────────────────
+
+def test_the_withdrawn_cyan_never_reaches_a_frame():
+    """It was never any template's colour, only an unconditional default."""
+    for style in ({}, READABLE_PALETTE, UNREADABLE_PALETTE):
+        segs, _ = segments(plan(), style)
+        for element in _elements(segs):
+            assert element["color"] != WITHDRAWN_LEGACY_ACCENT_COLOR
+
+
+def test_an_entry_with_no_colour_anywhere_is_dropped_by_name():
+    bare = plan()
+    del bare[0]["colour_role"]
+    segs, resolved = segments(bare, {})
+    assert not segs
+    assert resolved.dropped[0].reason == "no_colour_to_draw_it_in"
+    assert "no fallback" in mgp.DROP_REASONS["no_colour_to_draw_it_in"]
+
+
+# ── The one thing still read off the edit ────────────────────────────
+
+def test_the_spine_supplies_the_length_and_nothing_else():
+    """It bounds a span. It does not time one - which is the timebase.
+
+    A block boundary at 3.0s and 8.0s is nowhere in the resolved
+    element: it starts at 0.5s and holds for 2.0s because the plan said
+    so.
     """
-    tmpl = _template("cinematic_narrative")
-    with pytest.raises(MissingAccentColor):
-        generate_motion_props({}, {}, SPINE, brand_style=tmpl.get("style"),
-                              brand_effect={"motion_accents": True})
+    assert timeline_duration(SPINE) == 11.0
+    segs, _ = segments(plan(color="#FF8A3D"), {})
+    element = _elements(segs)[0]
+    assert element["timeline_start"] == 0.5
+    assert element["timeline_end"] == 2.5
+    starts = {b["timeline_start"] for b in SPINE["structure"]}
+    assert element["timeline_start"] not in starts
 
 
-def test_the_templates_that_declare_accents_can_actually_draw_them():
-    """A declaration that raises at render time is worse than none."""
-    for name, expected in EXPECTED_DECLARATIONS.items():
-        if not expected.get("motion_accents"):
-            continue
-        tmpl = _template(name)
-        got = generate_motion_props(
-            {}, {}, SPINE, brand_style=tmpl.get("style"),
-            brand_effect=tmpl.get("effect"))
-        assert got, name
-        assert all(p["showAccents"] for p in got), name
-        assert all(p["accentColor"] != WITHDRAWN_LEGACY_ACCENT_COLOR
-                   for p in got), name
-
-
-def test_default_brand_declares_nothing():
-    """The fallback template must not paint anything in its placeholder
-    palette of three pure RGB primaries."""
-    effect = _template("default_brand").get("effect") or {}
-    assert "motion_accents" not in effect
-    got = generate_motion_props({}, {}, SPINE,
-                                brand_style=_template("default_brand").get("style"),
-                                brand_effect=effect)
-    assert not any(p["showAccents"] for p in got)
-    assert not any(p["showProgress"] for p in got)
-
-
-def test_the_fallback_template_has_a_real_palette():
-    """default_brand is what a project gets when it names no template.
-
-    Its palette used to be three pure RGB primaries - placeholder data
-    that stopped being harmless once colour started coming from the
-    palette: the upper-third subtitle rendered in #ff0000. A fallback
-    whose job is to work should render something legible.
-    """
-    from library.tools.brand_palette import (
-        hex_to_rgb, is_usable_accent, roles_from_palette,
-    )
-    palette = (_template("default_brand").get("style") or {}).get("color_palette")
-    assert palette, "the fallback template must carry a palette"
-
-    primaries = {"#ff0000", "#00ff00", "#0000ff"}
-    assert not {c.lower() for c in palette} & primaries, (
-        "pure RGB primaries are placeholder data, not a palette")
-
-    roles = roles_from_palette(palette)
-    assert "text" in roles and "outline" in roles
-
-    # Deliberately NO accent: a fallback should not invent a brand colour.
-    assert "accent" not in roles, (
-        "the fallback template must not carry an accent - anything it "
-        "declared would be mistaken for a brand colour")
-    assert not any(is_usable_accent(hex_to_rgb(c)) for c in palette)
-
-
-def test_the_fallback_upper_third_is_legible():
-    """The concrete regression: it rendered #ff0000 before."""
-    tmpl = _template("default_brand")
-    got = generate_motion_props({}, {}, SPINE, brand_style=tmpl.get("style"),
-                                brand_effect=tmpl.get("effect"))
-    assert all(p["accentColor"] == "#F5F5F5" for p in got)
-    assert all(p["accentColor"].lower() != "#ff0000" for p in got)
+@pytest.mark.parametrize("start,duration", [(0.0, 11.0), (10.5, 4.0)])
+def test_a_span_is_bounded_by_the_spine_length(start, duration):
+    segs, _ = segments(
+        plan(color="#FF8A3D", start_seconds=start, duration_seconds=duration),
+        {})
+    assert _elements(segs)[0]["timeline_end"] <= timeline_duration(SPINE)

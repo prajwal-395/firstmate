@@ -30,7 +30,8 @@ import re
 import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
-from library.tools import (direction_contradiction, post_bridge_retry,
+from library.tools import (brief_attachment, briefing_interview,
+                           direction_contradiction, post_bridge_retry,
                            run_restart, undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
@@ -304,22 +305,38 @@ def load_pipeline_state(project_dir: str) -> dict:
     # is downstream of scan's project_config. Absolute paths are kept as
     # given, so a brief may live in a read-only planning tree outside the
     # project and is never copied in.
+    #
+    # ATTACHING IT IS THE PROJECT'S CHOICE, and every reading of that
+    # choice is stated.  It used to be automatic - a declared path went
+    # into eight prompts on every run with no way to say "not this
+    # time", and a project that declared none got silence.  The
+    # captain's ruling of 2026-09-02 made it an opt-in whose refusal is
+    # answered by an INTERVIEW rather than by nothing.  The path reaches
+    # state only when the reading is ATTACHED, so every consumer
+    # downstream - the whitelist, gather_step_inputs, the replay bench -
+    # sees exactly what a project with no brief sees, with no second
+    # place able to reach a different answer.
+    # See library/tools/brief_attachment.py.
     if "creative_brief" not in state:
-        project_yaml = os.path.join(project_dir, "project.yaml")
-        if os.path.exists(project_yaml):
-            try:
-                import yaml
-                with open(project_yaml, "r", encoding="utf-8") as f:
-                    y = yaml.safe_load(f) or {}
-                brief = (y.get("creative_brief")
-                         or (y.get("pipeline") or {}).get("creative_brief")
-                         or "")
-                if brief:
-                    state["creative_brief"] = brief
-            except Exception as e:
-                import sys
-                print(f"Warning: failed to read creative_brief from "
-                      f"project.yaml: {e}", file=sys.stderr)
+        import sys
+        try:
+            attachment = brief_attachment.read_declaration(project_dir)
+        except brief_attachment.BriefAttachmentError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"Warning: failed to read creative_brief from "
+                  f"project.yaml: {e}", file=sys.stderr)
+            attachment = brief_attachment.Attachment(
+                brief_attachment.NONE_DECLARED,
+                basis="project.yaml could not be read")
+        state["creative_brief_attachment"] = {
+            "reading": attachment.reading,
+            "path": attachment.path,
+            "basis": attachment.basis,
+        }
+        if attachment.attached:
+            state["creative_brief"] = attachment.path
+        print(brief_attachment.describe(attachment), file=sys.stderr)
 
     # The brand this project renders under, declared per project.
     #
@@ -1376,6 +1393,29 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             schema_outputs.append(direction_contradiction.schema_entry())
             prompt += direction_contradiction.prompt_block(node_id)
 
+        # No creative brief was attached, so the step is asked what it
+        # would have needed to know rather than planning in silence.
+        # CONDITIONAL, unlike its two siblings: a step handed the
+        # captain's own brief and then asked what it wished the captain
+        # had said is being invited to manufacture a gap.
+        #
+        # The condition is read off `inputs` and not off state, because
+        # that is the same fact at the point of use: for a step whose
+        # manifest declares `creative_brief`, the key is in `inputs`
+        # exactly when the project attached one. One source, no second
+        # place that can answer differently.
+        # See library/tools/briefing_interview.py.
+        brief_attached = bool(inputs.get("creative_brief"))
+        if briefing_interview.asks(node_id, brief_attached):
+            schema_outputs.append(briefing_interview.schema_entry())
+            try:
+                _attachment = brief_attachment.read_declaration(
+                    inputs.get("project_folder", ""))
+                _reading, _basis = _attachment.reading, _attachment.basis
+            except Exception:  # noqa: BLE001 - wording only; never fatal
+                _reading, _basis = "", ""
+            prompt += briefing_interview.prompt_block(_reading, _basis)
+
         # `schema_outputs` is now complete, and it is rendered TWICE: as
         # prose for the prompt, and as JSON for the agy request file's
         # `expected_schema`.  The two renderings are kept adjacent and
@@ -1593,6 +1633,18 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # which is also what makes compliance structural: the output that
         # leaves here is the one the step would have produced without the
         # field, so a step that flags cannot deviate.
+        parsed_result, _interview = briefing_interview.take(
+            node_id, parsed_result, bool(inputs.get("creative_brief")))
+        if briefing_interview.asks(
+                node_id, bool(inputs.get("creative_brief"))):
+            briefing_interview.record(_interview)
+            if logger:
+                logger.log(
+                    step_id=node_id,
+                    event_type="briefing_questions",
+                    detail=briefing_interview.as_records([_interview])[0],
+                )
+
         parsed_result, _flag = direction_contradiction.take(
             node_id, parsed_result)
         if direction_contradiction.flags(node_id):
@@ -2115,6 +2167,7 @@ def run_pipeline(
     # one, and a declaration from the previous run is not this run's.
     undetermined.reset()
     direction_contradiction.reset()
+    briefing_interview.reset()
     _previous_status = run_control.read_run_status(project_dir)
     _restart = run_restart.classify(_previous_status, state)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
@@ -2744,6 +2797,28 @@ def run_pipeline(
         print(f"  WARNING: could not read the contradiction flags: {exc}",
               file=sys.stderr)
 
+    # What the planning steps would have asked the captain, on a run
+    # with no creative brief attached.  This is the READER that closes
+    # the loop the captain asked for: they read these, and answer them
+    # by writing or extending the brief and attaching it.  Printed after
+    # `status` is decided; nothing here fails or assigns.
+    # See library/tools/briefing_interview.py.
+    briefing_records = []
+    try:
+        for _line in briefing_interview.summary_lines():
+            print(f"  {_line}", file=sys.stderr)
+        briefing_records = briefing_interview.as_records()
+        if briefing_records:
+            # MERGED, not replaced - the two sibling keys' reasoning
+            # exactly (see the `undetermined` block above).
+            briefing_records = briefing_interview.merge_records(
+                state.get("briefing_questions"), briefing_records)
+            state["briefing_questions"] = briefing_records
+            save_pipeline_state(project_dir, state)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the briefing questions: {exc}",
+              file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
@@ -2751,6 +2826,7 @@ def run_pipeline(
         "status": status,
         "undetermined_declarations": undetermined_records,
         "direction_contradictions": contradiction_records,
+        "briefing_questions": briefing_records,
         "restart": (run_restart.as_record(_restart)
                     if _restart.is_restart else None),
         "qa_findings": qa_summary,

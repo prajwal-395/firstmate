@@ -295,24 +295,36 @@ def test_the_runner_decides_which_steps_have_a_prompt(dag, rows):
         assert row.has_prompt is expected, row.node_id
 
 
-def test_the_motion_graphics_step_declares_two_inputs_it_never_reads(rows):
-    """The regression case, in the survey's own output.
+def test_the_motion_graphics_steps_two_declarations_now_reach_a_prompt(rows):
+    """The regression case, and its repair, in the survey's own output.
 
-    Both are named in `step.py` and handed to `generate_motion_props`,
-    which never mentions either parameter - so the KEY reads as read and
-    the VALUE goes nowhere. A survey that stopped at `code_reads` calls
-    this consumed, which is why the fix is a dataflow read and not just
-    an honest `prompt_reads`.
+    `render_motion_graphics` declared `creative_direction` and
+    `enhancement_spec` REQUIRED and read neither: both were named in
+    `step.py` and handed to `generate_motion_props`, which never
+    mentioned either parameter - the KEY read as read and the VALUE went
+    nowhere. It surveyed clean because a prompt-less step's absent
+    `context_fields` read as "handed every byte".
+
+    Step 4.06 grew a `handoff.md` on 2026-09-02, and both declarations
+    are now what they always claimed to be: a model reads them and plans
+    the motion-graphics layer from them. So the survey's answer changed,
+    and it changed the honest way - through `prompt_reads` on a step
+    that really has a prompt, not by widening what counts as a read.
+
+    The dataflow read that found the defect is unchanged and is still
+    exercised, on a step built in this file, by
+    `test_a_value_handed_to_a_function_that_ignores_it_is_not_read`.
     """
     by_key = {(r.node_id, r.name): r for r in rows}
     for name in ("creative_direction", "enhancement_spec"):
         row = by_key[("render_motion_graphics", name)]
         assert row.required
-        assert row.code_reads, "the key IS named; that was the blind spot"
-        assert row.code_consumes is False, row.value_evidence
-        assert not row.consumed
-        assert "step.py:" in row.value_evidence
-        assert row in input_contract.unread_by_a_prompt_less_step(rows)
+        assert row.has_prompt, "4.06 has a handoff now"
+        assert row.prompt_reads, (
+            f"{name} is declared required and reaches no prompt - the "
+            f"declaration is back to claiming a read that never happens")
+        assert row.consumed
+        assert row not in input_contract.unread_by_a_prompt_less_step(rows)
 
 
 def test_a_value_handed_to_a_function_that_ignores_it_is_not_read(tmp_path):

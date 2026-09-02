@@ -1,21 +1,39 @@
 #!/usr/bin/env python3
-"""
-Generate Remotion MotionGraphics input props from pipeline data.
+"""Turn the model's motion-graphics PLAN into Remotion props.
 
-Takes the enhancement_spec, creative_direction, and audio_spine and produces
-per-spine-block MotionGraphics prop files for Remotion rendering.
+**What changed, and why.**  This file used to derive the whole layer
+from two brand-template booleans - `effect.motion_accents` and
+`effect.motion_progress_bar` - and a title `creative_direction` has no
+field for.  A project that named no template therefore got nothing, and
+project 001's run of record recorded exactly that: eight resolved props
+that draw nothing, on a video no model had ever been asked about.
+
+The captain's ruling of 2026-09-02 is that the gate itself was the bug:
+the model plans the layer, and a brand template REFINES it.  So the plan
+arrives as `motion_graphics_plan` from this step's own handoff, and this
+file resolves it - see `library/tools/motion_graphics_plan.py`, which is
+where the vocabulary, the drop reasons and the timebase live.
+
+What survives from before: the safe area still comes from
+`library/tools/safe_area.py` and every element is still positioned from
+it, and the accent COLOUR still comes from a template's own palette when
+there is one.  What is gone is the gate: no palette and no template
+still draws, in whatever colour the plan itself stated.
 """
 
-import json
 import os
 import sys
 from typing import Optional
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-from library.tools.brand_palette import (
-    accent_color as brand_accent_color,
-    roles_from_palette,
+from library.tools.brand_palette import roles_from_palette
+from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
+    PLAN_KEY,
+    ResolvedPlan,
+    plan_segments,
+    props_draw_ink,
+    resolve_plan,
 )
 from library.tools.safe_area import resolve_safe_area
 
@@ -27,261 +45,70 @@ from library.tools.safe_area import resolve_safe_area
 # from a constant in this file.
 WITHDRAWN_LEGACY_ACCENT_COLOR = "#00D4FF"
 
-# What the upper third's text uses when a template supplies no colour at
-# all. Not an accent - just legible.
-NEUTRAL_TEXT_COLOR = "#FFFFFF"
 
+def timeline_duration(audio_spine: dict) -> float:
+    """How long the piece is, off the spine.
 
-class MissingAccentColor(ValueError):
-    """A template asked for accents but supplies no colour to draw them in.
-
-    Raised rather than defaulted. Drawing 6px corner brackets in a
-    hardcoded cyan is exactly what P3.1 removed, and drawing them in the
-    text colour would be a silent substitution of a different design.
+    The spine is the ONE thing the overlay layer still reads from the
+    edit, and it reads a single number from it: where the picture ends.
+    That bounds a span; it does not time one. Every element's start and
+    hold come from the plan (AGENTS.md 10.1, "The timeline's length comes
+    from the spine").
     """
+    return max(
+        (float(block.get("timeline_end", 0) or 0)
+         for block in audio_spine.get("structure", [])),
+        default=0.0,
+    )
 
 
-def props_draw_ink(props: dict) -> bool:
-    """Would Remotion put a single pixel on this frame?
+def brand_palette_roles(brand_style: Optional[dict]) -> dict:
+    """The colour roles a brand template's palette resolves to.
 
-    The MotionGraphics composition draws exactly three things and each
-    one is behind its own flag: the upper third (which is nothing but
-    `title` and `subtitle`, so it draws nothing when both are empty), the
-    corner accents, and the progress bar. Every other pixel of the frame
-    is transparent by construction - the clip is ProRes 4444 with alpha
-    and no background.
-
-    A template that declares no accents and no progress bar, on a
-    `creative_direction` that carries no title (its schema has no
-    `title`, `subtitle`, `series_name` or `episode_label` at all), leaves
-    every flag off and every string empty. Project 001 rendered eight
-    such segments: 53.8 MB of ProRes in which `max(alpha)` is 0 on every
-    frame of every file, placed on V4 so `render.json` reported
-    "V4: 8" - which reads as motion graphics delivered.
-
-    This predicate must stay in step with
-    `remotion-subtitles/src/compositions/MotionGraphics/index.tsx`: a new
-    element drawn there needs its flag adding here, or the step will skip
-    a render that would have drawn it.
+    `{}` for a project that named no template, and that is not a
+    degraded layer: `motion_graphics_plan.resolve_colour` then reads the
+    colour the plan itself stated. The template refines; it does not
+    gate.
     """
-    if props.get("showAccents") or props.get("showProgress"):
-        return True
-    if props.get("showUpperThird"):
-        return bool(str(props.get("title") or "").strip()
-                    or str(props.get("subtitle") or "").strip())
-    return False
-
-
-def _as_bool(value, default: bool) -> bool:
-    """Template flags arrive from YAML, so accept what YAML produces.
-
-    An unrecognised value keeps the default rather than being read as
-    falsey - a typo silently switching the house style off is the kind of
-    quiet change this repo keeps having to undo.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in ("true", "yes", "on", "1"):
-            return True
-        if text in ("false", "no", "off", "0"):
-            return False
-    return default
+    return roles_from_palette((brand_style or {}).get("color_palette")) or {}
 
 
 def generate_motion_props(
-    enhancement_spec: dict,
-    creative_direction: dict,
+    motion_graphics_plan,
     audio_spine: dict,
     fps: int = 30,
     width: int = 1080,
     height: int = 1920,
-    brand_style: dict = None,
-    brand_effect: dict = None,
+    brand_style: Optional[dict] = None,
     project_folder: str = "",
-) -> list[dict]:
-    """Generate MotionGraphics props for each spine block.
+    asked: bool = True,
+) -> tuple:
+    """Resolve the plan and cut it into placeable overlay segments.
 
-    Returns a list of prop dicts, one per spine block, each with:
-    - title, subtitle, accentColor, show flags
-    - timelineProgressStart/End for global progress bar
-    - durationInFrames, fps, width, height
-    - safeArea, the platform's keep-clear insets in pixels
-    - block_position, timeline_start, timeline_end (metadata for placement)
+    Returns `(segments, resolved_plan)`.  Each segment carries a `props`
+    dict ready for `npx remotion render MotionGraphics`, its own
+    `timeline_start`/`timeline_end` in seconds and its own
+    `total_frames`; overlapping elements are composited into ONE segment
+    so several graphics play at once on a single video lane.
 
-    `project_folder` resolves the delivery format, and through it the
-    safe area. The corner accents used to be drawn 60px from every edge -
-    5.6% of a 1080px width, well inside the like/comment/share rail - by
-    two literals in `MotionGraphics/index.tsx`. See
-    `library/tools/safe_area.py`.
-
-    NOTHING PLANS A MOTION GRAPHIC, and that is the state of the
-    capability rather than a defect in this function. `enhancement_spec`
-    (the VFX plan, step 4.03) and `creative_direction` (step 2.01) are
-    both declared REQUIRED by this step's manifest, both routed by the
-    DAG, and neither is read here: 4.03 emits `visual_effects` and
-    nothing else, and 2.01's eight fields are prose about mood and
-    narrative. So which blocks carry decoration, and what the upper
-    third says, are decided by a brand template's two booleans and by
-    nobody at all respectively.
-
-    `library/tools/input_contract.py` now REPORTS both, by name and with
-    the line each is bound on: a step with no `handoff.md` reaches no
-    prompt, and naming a key is not reading it (AGENTS.md section 3, "A
-    declaration must be true"). It could not see them while a prompt-less
-    step's absent `context_fields` read as "handed every byte". The two
-    parameters are kept in the signature because they are the route a
-    plan will arrive by; when a step emits motion-graphics entries, this
-    is where they land.
+    `resolved_plan` is the account of what was dropped and why. An empty
+    layer that says which absence it is cannot be misread as a clean one.
     """
-    structure = audio_spine.get("structure", [])
-    if not structure:
-        return []
-
+    duration = timeline_duration(audio_spine)
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
 
-    # ── Whether the accents are drawn at all (P3.1 / Q3) ──
-    # `show_accents` was hardcoded True, so four glowing L-brackets and a
-    # progress bar sat on every frame of every video the pipeline has ever
-    # made, and nothing in any config turned them off.
-    #
-    # The captain's ruling of 2026-08-16: templates are a growing library,
-    # so there is no universal default. A template that declares NOTHING
-    # gets NOTHING. Declaring is what turns an element on. That is the
-    # opposite of the old behaviour, and deliberately so - preserving the
-    # old behaviour is the thing that was rejected.
-    effect = brand_effect or {}
-    accents_enabled = _as_bool(effect.get("motion_accents"), False)
-    progress_enabled = _as_bool(effect.get("motion_progress_bar"), False)
+    resolved = resolve_plan(
+        motion_graphics_plan,
+        timeline_duration=duration,
+        fps=fps,
+        palette_roles=brand_palette_roles(brand_style),
+        asked=asked,
+    )
+    if not resolved.moments:
+        return [], resolved
 
-    # ── The accent colour (P3.1) ──
-    # The template's own palette, and nothing else. There is no constant
-    # fallback: a template that wants accents must supply a colour to
-    # draw them in.
-    #
-    # This used to read `creative_direction["visual_style"]["accent_color"]`
-    # and then `creative_direction["accent_color"]`, and step 2.01 is
-    # asked for neither - so `declared_accent` was None on every run the
-    # pipeline has ever made and the branch was a route that could not
-    # carry a value. See WITHDRAWN_DIRECTION_KEYS in
-    # library/tools/creative_direction.py.
-    accent_color = brand_accent_color(
-        (brand_style or {}).get("color_palette"), None)
-
-    if accents_enabled and not accent_color:
-        raise MissingAccentColor(
-            "A brand template enabled motion_accents but supplies no usable "
-            "accent colour. style.color_palette must contain one that would "
-            "read on screen - saturated, and vivid if it is dark; see "
-            "library/tools/brand_palette.py. Corner brackets are not drawn "
-            "in a default colour."
-        )
-
-    if not accent_color:
-        # Nothing is being drawn in an accent colour, but the upper third
-        # still needs to be legible. Prefer the palette's own text colour.
-        palette_roles = roles_from_palette((brand_style or {}).get("color_palette"))
-        accent_color = palette_roles.get("text", NEUTRAL_TEXT_COLOR)
-    # ── The upper third's copy ──
-    # Nothing declares it, so nothing is drawn, and `props_draw_ink`
-    # skips the render.
-    #
-    # These four strings used to come from `creative_direction`'s
-    # `title`, `subtitle`, `series_name` and `episode_label`, and step
-    # 2.01 is asked for none of them - its handoff says in as many words
-    # that the direction "is NOT a script or shot list". So every one
-    # returned "" on every run, and the upper third has never carried a
-    # word.
-    #
-    # The fix is not to ask 2.01 for them. On-screen copy is ARTWORK and
-    # belongs to the PROJECT (AGENTS.md section 14), which is why a brand
-    # template may not contain it either: `content.series_title` exists
-    # as a per-series parameter and drawing it would make it copy. No
-    # project-side declaration feeds this upper third today; that is an
-    # open question, not a value for this file to invent.
-    title = ""
-    subtitle = ""
-
-    # Determine total timeline duration for progress calculation
-    total_duration = 0
-    for block in structure:
-        block_end = block.get("timeline_end", 0)
-        if block_end > total_duration:
-            total_duration = block_end
-
-    if total_duration == 0:
-        return []
-
-    # Which blocks get motion graphics? All speech and hook blocks.
-    # B-roll / music-only blocks can optionally get accents.
-    mg_blocks = []
-    for block in structure:
-        block_type = block.get("block_type", "")
-        if block_type in ("hook", "speech", "broll"):
-            mg_blocks.append(block)
-
-    props_list = []
-    for block in mg_blocks:
-        block_start = block.get("timeline_start", 0)
-        block_end = block.get("timeline_end", 0)
-        block_dur = block_end - block_start
-        if block_dur <= 0:
-            continue
-
-        block_type = block.get("block_type", "")
-        block_position = block.get("position", 0)
-        total_frames = max(1, round(block_dur * fps))
-
-        # Progress bar range for this block within the full timeline
-        progress_start = block_start / total_duration
-        progress_end = block_end / total_duration
-
-        # The upper third is offered where there is copy to put in it,
-        # and nowhere else.
-        #
-        # This used to read `block_type == "hook" or (speech and
-        # block_idx <= 2)` - "the title card belongs on the hook and the
-        # first two body passages" is a creative judgement, taken by this
-        # file, on behalf of nobody (AGENTS.md section 10.5). It also
-        # made the props file lie: every 001 segment was written to disk
-        # carrying `showUpperThird: true` beside `title: ""`, which is
-        # what made eight fully transparent renders read like eight
-        # delivered graphics.
-        #
-        # Nothing declares the copy today (see above), so this is False
-        # on every block of every project - which is the honest state.
-        # When a producer for the copy is settled, WHICH blocks carry it
-        # is that producer's decision to state, not this loop's to guess.
-        show_upper_third = bool(title.strip() or subtitle.strip())
-
-        # B-roll blocks: show accents but not the progress bar
-        show_progress = (block_type != "broll") and progress_enabled
-        show_accents = accents_enabled
-
-        props = {
-            "title": title,
-            "subtitle": subtitle,
-            "accentColor": accent_color,
-            "showUpperThird": show_upper_third,
-            "showProgress": show_progress,
-            "showAccents": show_accents,
-            "timelineProgressStart": round(progress_start, 4),
-            "timelineProgressEnd": round(progress_end, 4),
-            "fps": fps,
-            "width": width,
-            "height": height,
-            "safeArea": safe_area,
-            "durationInFrames": total_frames,
-            # Metadata for placement (not consumed by Remotion)
-            "_block_position": block_position,
-            "_timeline_start": block_start,
-            "_timeline_end": block_end,
-            "_block_type": block_type,
-        }
-        props_list.append(props)
-
-    return props_list
+    segments = plan_segments(
+        resolved.moments, fps=fps, width=width, height=height,
+        safe_area=safe_area)
+    return segments, resolved

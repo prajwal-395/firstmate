@@ -230,29 +230,44 @@ def test_the_roster_is_far_larger_than_what_the_renderer_draws():
                               "frame_accents"}, reachable
 
 
-def test_the_three_elements_the_composition_draws_are_all_in_the_roster():
+def test_every_reachable_entry_is_drawn_by_the_composition_by_name():
     """The implicit roster nobody wrote down, absorbed rather than discarded.
 
-    `MotionGraphics/index.tsx` draws an upper third, corner brackets and
-    a progress bar behind three booleans. Those are `title_lockup`,
-    `frame_accents` and `progress_bar` here, and each is marked
-    reachable with a note saying which of its axes the composition does
-    not yet honour.
+    `MotionGraphics/index.tsx` used to draw an upper third, corner
+    brackets and a progress bar behind three booleans, and this test
+    grepped for the boolean NAMES. Since 2026-09-02 the composition
+    dispatches on the ROSTER KEY itself - `element.element ===
+    "title_lockup"` - so the grep is now for the keys, which is the
+    stronger statement: it fails if an entry claims to be reachable and
+    the renderer has no arm for it.
     """
-    for key in ("title_lockup", "frame_accents", "progress_bar"):
-        element = mgv.ELEMENTS_BY_KEY[key]
-        assert element.reachable == mgv.REACHABLE_NOW
-        assert element.reachability_note
-
     composition = os.path.join(
         PROJECT_ROOT, "remotion-subtitles", "src", "compositions",
         "MotionGraphics", "index.tsx")
     with open(composition, "r", encoding="utf-8") as handle:
         tsx = handle.read()
-    for flag in ("showUpperThird", "showAccents", "showProgress"):
-        assert flag in tsx, (
-            f"{flag} has gone from the composition. The roster's "
-            f"reachable_now entries are a claim about it.")
+
+    reachable = [e for e in mgv.ROSTER if e.reachable == mgv.REACHABLE_NOW]
+    assert reachable
+    for element in reachable:
+        assert element.reachability_note
+        assert f'"{element.key}"' in tsx, (
+            f"{element.key} is marked reachable_now and the composition "
+            f"has no arm for it. The roster's reachable_now entries are a "
+            f"claim about that file.")
+
+
+def test_the_drawable_set_the_planner_uses_is_the_rosters_own():
+    """`motion_graphics_plan.DRAWABLE` is DERIVED, not a second list.
+
+    A second list of what the renderer can draw is a list that goes
+    stale, and the way it goes stale is silent: an entry that becomes
+    reachable keeps being dropped as unreachable and the drop is
+    recorded as if it were a fact about the renderer.
+    """
+    from library.tools import motion_graphics_plan as mgp
+    assert mgp.DRAWABLE == frozenset(
+        e.key for e in mgv.ROSTER if e.reachable == mgv.REACHABLE_NOW)
 
 
 def test_every_unreachable_entry_says_what_is_missing():

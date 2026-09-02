@@ -7,7 +7,7 @@ not asking for more, and until this module nothing invited them to.
 "Where are the pipeline's bottlenecks" therefore stayed a judgement call
 made from outside, with no demand signal from the steps themselves.
 
-This asks the nine steps that reach a model to SAY what the material
+This asks the ten steps that reach a model to SAY what the material
 they were routed did not let them decide, as a structured field rather
 than as prose encouragement.
 
@@ -36,7 +36,7 @@ declaration or acts on it: that would be this module deciding which gaps
 matter, and whatever picks which findings matter becomes the reviewer
 (AGENTS.md 10.4).
 
-**Why all nine steps and not a subset.**  Choosing a subset would be
+**Why every model-reaching step and not a subset.**  Choosing a subset would be
 answering, in advance and from outside, the question this exists to
 collect data for.  Every step here makes a judgement from material an
 allow-list narrowed, so any of them can be short of something; the point
@@ -52,9 +52,16 @@ from typing import Any, Dict, List, Optional
 # spelled twice is this repository's dominant bug class.
 FIELD = "could_not_determine"
 
-# The nine steps that reach a model on a default run, by DAG node id.
+# The ten steps that reach a model on a default run, by DAG node id.
 # `semantic_analysis` is not one: its schema is empty and its call is
 # skipped.  `render` and `validate` are not creative judgements.
+#
+# `render_motion_graphics` joined on 2026-09-02, when step 4.06 stopped
+# resolving the overlay layer from two brand-template booleans and grew
+# a handoff that asks a model to plan it.  It is here because it reaches
+# a model and makes a creative judgement, which is the whole membership
+# rule - a step that starts reaching one and is left off this list is
+# the subset this module refuses to choose.
 DECLARING_STEPS = frozenset({
     "creative_direction",
     "speech_sequence",
@@ -65,6 +72,7 @@ DECLARING_STEPS = frozenset({
     "plan_transitions",
     "plan_vfx",
     "plan_sfx",
+    "render_motion_graphics",
 })
 
 # The three readings.  Spelled differently on purpose.
