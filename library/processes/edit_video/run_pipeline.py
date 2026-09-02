@@ -30,7 +30,8 @@ import re
 import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
-from library.tools import post_bridge_retry, run_restart, undetermined
+from library.tools import (direction_contradiction, post_bridge_retry,
+                           run_restart, undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -1363,6 +1364,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             schema_outputs.append(undetermined.schema_entry())
             prompt += undetermined.prompt_block()
 
+        # Where a step's own MEASUREMENTS disagree with the creative
+        # direction it inherited.  Same route, same reason, and the same
+        # rule that it never becomes one of the step's outputs.
+        # See library/tools/direction_contradiction.py.
+        if direction_contradiction.flags(node_id):
+            schema_outputs.append(direction_contradiction.schema_entry())
+            prompt += direction_contradiction.prompt_block(node_id)
+
         # Inject dynamic schema into prompt
         schema_text = generate_output_schema_text(schema_outputs)
         marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
@@ -1554,6 +1563,21 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                     step_id=node_id,
                     event_type="undetermined_declaration",
                     detail=undetermined.as_records([_declaration])[0],
+                )
+
+        # And the contradiction flag, split out for the same reasons -
+        # which is also what makes compliance structural: the output that
+        # leaves here is the one the step would have produced without the
+        # field, so a step that flags cannot deviate.
+        parsed_result, _flag = direction_contradiction.take(
+            node_id, parsed_result)
+        if direction_contradiction.flags(node_id):
+            direction_contradiction.record(_flag)
+            if logger:
+                logger.log(
+                    step_id=node_id,
+                    event_type="direction_contradiction",
+                    detail=direction_contradiction.as_records([_flag])[0],
                 )
 
         def validate_for_llm(nid, out, man):
@@ -2066,6 +2090,7 @@ def run_pipeline(
     # dashboard and the tests drive `run_pipeline` more than once inside
     # one, and a declaration from the previous run is not this run's.
     undetermined.reset()
+    direction_contradiction.reset()
     _previous_status = run_control.read_run_status(project_dir)
     _restart = run_restart.classify(_previous_status, state)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
@@ -2664,12 +2689,29 @@ def run_pipeline(
         print(f"  WARNING: could not read the step declarations: {exc}",
               file=sys.stderr)
 
+    # Where a step's measurements contradicted the creative direction it
+    # was handed.  The step FLAGGED and COMPLIED - nothing in the
+    # pipeline acts on this, and escalating it is the captain's.
+    # See library/tools/direction_contradiction.py.
+    contradiction_records = []
+    try:
+        for _line in direction_contradiction.summary_lines():
+            print(f"  {_line}", file=sys.stderr)
+        contradiction_records = direction_contradiction.as_records()
+        if contradiction_records:
+            state["direction_contradictions"] = contradiction_records
+            save_pipeline_state(project_dir, state)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the contradiction flags: {exc}",
+              file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
     summary = {
         "status": status,
         "undetermined_declarations": undetermined_records,
+        "direction_contradictions": contradiction_records,
         "restart": (run_restart.as_record(_restart)
                     if _restart.is_restart else None),
         "qa_findings": qa_summary,

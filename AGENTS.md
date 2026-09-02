@@ -192,6 +192,17 @@ One enumeration, `library/tools/undetermined.py`. Across all nine model response
 - **It reports and never gates.** The run summary prints it after `status` is decided and it lands on `state["undetermined_declarations"]`. Nothing reads a declaration's CONTENT - whatever picks which gaps matter becomes the reviewer (§10.4).
 - `tests/test_undetermined_declaration.py`.
 
+### A step says where its measurements contradict the direction, and complies anyway
+
+One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run "emotion" and "energy" appear ZERO times in the semantic documents and FOUR times each in the `creative_direction` block at stations 2 and 3: step 2.01 reads the footage once and every creative step after it inherits that reading whole, with no way to say what it measured disagrees. Prosody (#417) is the first deterministic measurement that CAN disagree with an inherited affect reading.
+
+- **Captain's ruling, 2026-09-01: a step MAY FLAG and MAY NOT ACT.** Nothing reads a flag's content, nothing gates on one, and the field is SPLIT OUT of the answer before validation - so the output a flagging step produces is byte-for-byte the one it would have produced silently. Escalation to the captain happens OUTSIDE the pipeline.
+- **It is `undetermined.py`'s twin carrying different cargo** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA beside the context because the handoffs are frozen. Do not build a second mechanism.
+- **FOUR readings, not the sibling's three.** A gap is named by naming it; a CONTRADICTION is a claim ABOUT a measurement, and a claim with no measurement is a model politely disagreeing with its brief. `contradicted` needs an entry naming a `direction_field` in `DIRECTION_KEYS`, a `measurement`, and a `measured_in` the step was really routed. Everything else is `unevidenced` - kept verbatim, reported as itself, and NEVER counted as a contradiction. `nothing_contradicted` (`[]`) and `not_declared` (key absent) are the other two, and they are not each other.
+- **Eight steps: every step that reaches a model except the one that authors the direction.** A step needs a prompt to say it in, an inherited direction claim and a routed measurement. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`; the routed half is DERIVED from `dag.json`, so a new edge cannot leave it stale. `color_grade`, `creative_cohesion` and `render_motion_graphics` declare `creative_direction` and are deterministic, so they have nothing to say it in.
+- **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
+- `tests/test_direction_contradiction.py`.
+
 ### A contract rejection reaches the model that caused it
 
 One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a retry-with-feedback path, but `PostBridgeError` is raised from `run_hybrid_step` AFTER it returns, so the one failure class that most needs feedback bypassed it. On 001's 29 Aug run both `mesh_spine` attempts logged raw 247,336 -> projected 4,911 -> toon 4,070: a BYTE-IDENTICAL context. Recovery from a contract violation was resampling until something passed.
