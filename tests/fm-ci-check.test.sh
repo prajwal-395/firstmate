@@ -17,6 +17,13 @@ set -u
 # shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# fm_pr_file_mode is the repo's single owner of reading a file's mode; stat's
+# own flags differ between BSD and GNU, and a hand-rolled read passed on macOS
+# while silently comparing the wrong string on Linux.
+# shellcheck source=bin/fm-pr-lib.sh
+# shellcheck disable=SC1091
+. "$ROOT/bin/fm-pr-lib.sh"
+
 CI="$ROOT/bin/fm-ci-check.sh"
 TMP_ROOT=$(fm_test_tmproot fm-ci-check)
 PR=https://github.com/acme/widget/pull/7
@@ -95,8 +102,7 @@ home=$(new_home green)
 out=$(arm "$home" build-green) || fail "arming a GitHub PR must succeed: $out"
 assert_contains "$out" "armed: state/build-green.check.sh (registered)" \
   "arm must report the registered check"
-[ "$(stat -f '%Lp' "$home/state/build-green.check.sh" 2>/dev/null \
-  || stat -c '%a' "$home/state/build-green.check.sh")" = 700 ] \
+[ "$(fm_pr_file_mode "$home/state/build-green.check.sh")" = 700 ] \
   || fail "the published check must be mode 0700"
 
 GH_FIXTURE="$TMP_ROOT/green.json"
