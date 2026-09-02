@@ -163,10 +163,11 @@ MEASUREMENT_LEGEND = {
     "window_spread_db":
         "The same p95 minus p5 read, over the played window only.",
     "window_envelope_dbfs":
-        "Per-second RMS over the played window - the first "
-        "target_duration_seconds, which is all that plays because music is "
-        "placed at source_in 0 - averaged into "
-        f"{ENVELOPE_BUCKETS} equal buckets, in dBFS, in time order.",
+        "Per-second RMS over the first target_duration_seconds from the "
+        "head of the file - the section that plays when no section is "
+        "declared - averaged into "
+        f"{ENVELOPE_BUCKETS} equal buckets, in dBFS, in time order. "
+        "track_sections below describes every other playable span.",
     "window_seconds":
         "How long the played window is, in seconds. Each envelope bucket "
         "covers window_seconds / "
