@@ -1215,6 +1215,8 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
 
     projected_input_tokens = len(str(inputs).split()) * 1.3
         
+    prompt_additions = inputs.pop("__prompt_additions", {})
+
     from library.tools.toon_serializer import json_to_toon
     toon_str = json_to_toon(inputs)
     
@@ -1236,6 +1238,10 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         
     with open(prompt_path) as f:
         prompt = f.read()
+        
+    for marker, text in prompt_additions.items():
+        if marker in prompt:
+            prompt = prompt.replace(marker, text)
 
     # A table the prompt describes, arriving with zero rows, is reported
     # HERE - on the run that produces it - rather than found by an audit

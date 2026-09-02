@@ -160,8 +160,16 @@ def run(inputs: dict) -> dict:
             }
         }
 
-        if "visual_qa" in result:
+        if "visual_qa" in result and result["visual_qa"]:
             output_payload["visual_qa"] = result["visual_qa"]
+            output_payload["__prompt_additions"] = {
+                "<!-- VISUAL_QA_INSTRUCTIONS -->": (
+                    "### Visual QA Findings\n\n"
+                    "The `visual_qa` table contains observations from a local vision model "
+                    "that watched the render. Use these findings to evaluate visual correctness, "
+                    "such as framing, subject visibility, and transition boundaries."
+                )
+            }
 
         return output_payload
         

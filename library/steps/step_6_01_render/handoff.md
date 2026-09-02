@@ -102,3 +102,5 @@ sharing the same interface contract.
   (music ducking) need manual refinement after the script runs
 
 
+
+<!-- VISUAL_QA_INSTRUCTIONS -->

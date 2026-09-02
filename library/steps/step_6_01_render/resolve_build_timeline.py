@@ -1785,7 +1785,8 @@ def build_timeline(
                 res = execute_video_segment_check(resolve, project, timeline, seg_req)
                 visual_qa_results.append(format_segment_result_for_llm(res))
                 
-            results["visual_qa"] = visual_qa_results
+            if visual_qa_results:
+                results["visual_qa"] = visual_qa_results
             print(f"  ✓ Completed {len(qa_plan.frame_grabs)} frame grabs and {len(qa_plan.segment_checks)} segment checks", file=sys.stderr)
 
             # ── Perceptual observation (Q8) ──
