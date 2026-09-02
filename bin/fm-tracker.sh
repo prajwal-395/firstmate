@@ -231,8 +231,8 @@ $(printf '%s' "$csv" | tr ',' '\n')
 EOF
 }
 
-ensure_labels() {
-  local t name desc color
+ensure_labels() {  # [project-name]
+  local t name desc color proj=${1-}
   for t in $FM_TRACKER_TYPES; do
     name=$(fm_tracker_type_label "$t")
     case "$t" in
@@ -247,20 +247,27 @@ ensure_labels() {
   gh_api -X POST "/repos/$OWNER/$REPO/labels" \
     -f "name=$FM_TRACKER_HELD_LABEL" \
     -f 'description=not available to pick up yet' -f 'color=6a737d' >/dev/null 2>&1 || true
+  if [ -n "$proj" ]; then
+    name=$(fm_tracker_project_label "$proj")
+    gh_api -X POST "/repos/$OWNER/$REPO/labels" \
+      -f "name=$name" -f "description=work item in $proj" -f 'color=5319e7' >/dev/null 2>&1 || true
+  fi
 }
 
-create_issue() {  # <title> <body> <type> [extra-label]
-  local title=$1 body=$2 type=$3 extra=${4-} label num
+create_issue() {  # <title> <body> <type> [extra-labels...]
+  local title=$1 body=$2 type=$3 label num
+  shift 3
   label=$(fm_tracker_type_label "$type")
-  if [ -n "$extra" ]; then
-    num=$(gh_api -X POST "/repos/$OWNER/$REPO/issues" \
-      -f "title=$title" -f "body=$body" -f "labels[]=$label" -f "labels[]=$extra" --jq .number) \
-      || die "could not create the issue in $OWNER/$REPO"
-  else
-    num=$(gh_api -X POST "/repos/$OWNER/$REPO/issues" \
-      -f "title=$title" -f "body=$body" -f "labels[]=$label" --jq .number) \
-      || die "could not create the issue in $OWNER/$REPO"
-  fi
+  local -a args=(-X POST "/repos/$OWNER/$REPO/issues"
+    -f "title=$title" -f "body=$body" -f "labels[]=$label")
+  local extra
+  for extra in "$@"; do
+    [ -n "$extra" ] || continue
+    args+=(-f "labels[]=$extra")
+  done
+  args+=(--jq .number)
+  num=$(gh_api "${args[@]}") \
+    || die "could not create the issue in $OWNER/$REPO"
   fm_tracker_issue_number_valid "$num" || die "GitHub returned no usable issue number"
   printf '%s\n' "$num"
 }
@@ -574,9 +581,9 @@ graph_load() {
   return 0
 }
 
-ensure_labels_once() {
+ensure_labels_once() {  # [project-name]
   [ "$LABELS_ENSURED" -eq 1 ] && return 0
-  ensure_labels
+  ensure_labels "${1-}"
   LABELS_ENSURED=1
 }
 
@@ -622,7 +629,7 @@ claim_issue() {  # <number>
   gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/assignees" -f "assignees[]=$me" >/dev/null 2>&1
 }
 
-# Create, reopen, re-attach, re-body and claim one task ticket until it says what
+# Create, reopen, re-body and claim one task ticket until it says what
 # this task actually is, then print its number. Idempotent by construction: it
 # writes only where the ticket and the intent disagree, so a sync that changes
 # nothing makes no write at all.
@@ -631,10 +638,11 @@ claim_issue() {  # <number>
 # (fm_tracker_task_prose owns why), so convergence never has to merge with
 # anything a human typed. Comments are untouched and are where discussion lives.
 #
-# Returns 1 without creating anything when the repository has no single open
-# destination to hang the ticket off. An orphan is precisely what `validate`
-# exists to report, and creating one to avoid an error message would trade a
-# loud failure for a quiet wrong answer.
+# Task tickets are NOT parented under the destination. GitHub imposes a hard
+# ceiling of 100 sub-issues per parent, and a destination that accumulates every
+# dispatched task hits it. Tasks are grouped by a project label instead, which
+# is unbounded, queryable, and keeps the destination's children curated to the
+# small set a person reads: decisions, unknowns, and epics.
 #
 # Callers invoke this through a command substitution, which is also what bounds
 # the `die` inside its GitHub helpers to this one ticket rather than the whole
@@ -657,7 +665,9 @@ compose_task_body() {  # <task-id> <kind> <project> <hold> <blocker-csv> <existi
 # hold is `unhold`, which is somebody deciding it.
 ensure_task_ticket() {  # <task-id> <title> <kind> <project> <hold> <blocker-numbers-csv> <claim:0|1> <held:0|1>
   local task=$1 title=$2 kind=$3 project=$4 hold=$5 blockers=$6 claim=$7 held=${8:-0}
-  local row num state parent assignees body current labels
+  local row num state parent assignees body current labels proj_label
+  proj_label=
+  [ -z "$project" ] || proj_label=$(fm_tracker_project_label "$project")
   if row=$(task_index_row "$task"); then
     read -r num state parent assignees <<EOF
 $row
@@ -675,8 +685,14 @@ EOF
       gh_api -X PATCH "/repos/$OWNER/$REPO/issues/$num" -f "body=$body" --jq .number >/dev/null \
         || printf 'warning: could not update the body of #%s for %s\n' "$num" "$task" >&2
     fi
-    if [ "$parent" = '-' ] && [ -n "$DESTINATION" ]; then
-      attach_parent "$num" "$DESTINATION" || true
+    # Add the project label to existing tickets that predate this grouping scheme.
+    if [ -n "$proj_label" ]; then
+      labels=$(printf '%s\n' "$GRAPH_CACHE" | fm_tracker_labels_of "$num") || labels=
+      case " $labels " in
+        *" $proj_label "*) ;;
+        *) gh_api -X POST "/repos/$OWNER/$REPO/issues/$num/labels" \
+             -f "labels[]=$proj_label" >/dev/null 2>&1 || true ;;
+      esac
     fi
     if [ "$claim" = 1 ] && [ -z "$assignees" ]; then
       claim_issue "$num" || true
@@ -688,20 +704,13 @@ EOF
     printf '%s\n' "$num"
     return 0
   fi
-  if [ -z "$DESTINATION" ]; then
-    printf 'error: %s/%s has no single open destination ticket, so a task ticket would\n' "$OWNER" "$REPO" >&2
-    printf '       hang off nothing and report as orphaned. Run fm-tracker.sh init first.\n' >&2
-    return 1
-  fi
   body=$(compose_task_body "$task" "$kind" "$project" "$hold" "$blockers" '')
   fm_tracker_body_prose_blocker_refuse "$body" || return 1
-  ensure_labels_once
-  if [ "$held" = 1 ]; then
-    num=$(create_issue "$title" "$body" task "$FM_TRACKER_HELD_LABEL") || return 1
-  else
-    num=$(create_issue "$title" "$body" task) || return 1
-  fi
-  attach_parent "$num" "$DESTINATION" || true
+  ensure_labels_once "$project"
+  local -a extra_labels=()
+  [ -z "$proj_label" ] || extra_labels+=("$proj_label")
+  [ "$held" != 1 ] || extra_labels+=("$FM_TRACKER_HELD_LABEL")
+  num=$(create_issue "$title" "$body" task "${extra_labels[@]}") || return 1
   if [ "$claim" = 1 ]; then
     claim_issue "$num" || true
   fi
@@ -714,7 +723,7 @@ task_index_record() {  # <task-id> <number> <claim:0|1>
   local holder=''
   [ "$3" = 1 ] && holder=$GH_LOGIN
   TASK_INDEX="${TASK_INDEX:+$TASK_INDEX
-}$1 $2 OPEN ${DESTINATION:--} $holder"
+}$1 $2 OPEN - $holder"
 }
 
 cmd_task_open() {
@@ -986,8 +995,7 @@ cmd_sync() {
     return 0
   fi
   if [ -z "$DESTINATION" ]; then
-    sync_report "$repo has no single open destination ticket, so no task ticket was filed"
-    return 0
+    sync_report "note: $repo has no single open destination ticket; task tickets will be filed without a parent"
   fi
 
   # The withhold check runs HERE, before a title is composed and before the row
@@ -1087,7 +1095,6 @@ EOF
         fi
       else
         skipped=$((skipped + 1))
-        sync_report "could not file a task ticket for $id in $repo"
       fi
     done <<EOF
 $rows
@@ -1099,6 +1106,9 @@ EOF
   fi
   if [ "$capped" -eq 1 ]; then
     sync_report "stopped at the $limit-ticket limit for one pass in $repo; rerun to continue"
+  fi
+  if [ "$skipped" -gt 0 ]; then
+    sync_report "$skipped task ticket(s) could not be filed in $repo"
   fi
   # The dispatched task getting no ticket while everything around it does is the
   # one silence worth breaking: it means the work has no row in firstmate's own
