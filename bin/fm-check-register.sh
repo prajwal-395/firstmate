@@ -39,3 +39,4 @@ mv -f -- "$TMP" "$TRUST" || exit 1
 TMP=
 fm_custom_check_registered "$STATE" "$ID" || { rm -f -- "$TRUST"; exit 1; }
 printf 'registered: state/%s.check.sh\n' "$ID"
+echo $CI_PROOF_UNQUOTED
