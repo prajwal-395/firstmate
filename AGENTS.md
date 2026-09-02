@@ -104,6 +104,7 @@ state/               runtime records and signals; gitignored
   <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Presentation spaces"
   <id>.check.sh      authenticated slow poll; the watcher dispatches validated PR data and the byte-identified Relay shim through trusted repository scripts, runs registered custom checks from hash-validated private snapshots, and rejects every other state check without execution
   <id>.check-trust   private content binding created by fm-check-register.sh for an intentional custom check
+  <id>.ci-watch <id>.ci-watch-fired  private build-verdict watch sidecar and its single-fire marker, written only by bin/fm-ci-check.sh; removed by teardown
   <id>.pr-poll       private validated data sidecar for the byte-static PR merge poll
   <id>.pr-poll-registration  private transactional provenance record binding the task, canonical metadata identity, sidecar, and static poll publication
   <id>.pr-poll-retirement  private identity-bound crash-recovery receipt for one exact validated merged result; removed after its poll artifacts retire
@@ -323,7 +324,7 @@ If fast-path risk needs more rigor, escalate whether to use no-mistakes instead 
 The path's worker, automated gates, and captain approval remain authoritative:
 
 - **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
-- **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, wait for the check set to reach a complete verdict, then waits for the configured merge authority.
+- **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, arm the build watch with `bin/fm-ci-check.sh` and declare that wait rather than polling the check set; firstmate relays the verdict back to that same worker, which still fixes its own failures, and the PR then waits for the configured merge authority.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before firstmate uses the guarded fast-forward merge path.
 
 Delivery mode and `yolo` are orthogonal.
@@ -408,7 +409,7 @@ Handle actionable wakes as follows:
 
 1. For `signal:`, read the listed event lines first, then reconcile current state only where action depends on it.
 2. For `stale:`, inspect the recorded endpoint and load `stuck-crewmate-recovery` for a stopped, exited, looping, confused, or unresponsive worker; a deep-inspection reason also requires current-state and validation-log inspection.
-3. For `check:`, act on the named poll result, including merges, Relay events, and process-to-event source results.
+3. For `check:`, act on the named poll result, including build verdicts relayed to the waiting worker, merges, Relay events, and process-to-event source results.
 4. For `heartbeat:`, review the whole fleet from the structured fleet view, reconcile suspicious tasks and PR state, update the backlog, and never report an unchanged fleet as progress.
 
 When any wake reports a merged PR for a project cloned in this home, refresh that clone through the guarded fleet-sync path.
