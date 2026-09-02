@@ -41,8 +41,10 @@ from tools.manifest_validator import validate_manifest
 from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from tools.beat_grid import assert_music_offset_is_the_chosen_section
-from library.tools.music_section import describe as describe_music_section
-from library.tools.music_section import resolve_section
+from library.tools.music_bed import bed_clips
+from library.tools.sfx_level import read_volume_db
+from library.tools.music_bed import describe as describe_music_bed
+from library.tools.music_bed import resolve_bed
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
@@ -188,6 +190,17 @@ def _apply_manifest_qa_checks(manifest: dict):
             for i in range(len(clips) - 1):
                 curr_out = clips[i].get('timeline_out', clips[i].get('timeline_out_seconds', 0))
                 next_in = clips[i+1].get('timeline_in', clips[i+1].get('timeline_in_seconds', 0))
+                # A2 overlaps itself exactly where the plan declared a
+                # CROSSFADE, and nowhere else: two pieces of music have
+                # to play at once for one to fade into the other, and the
+                # renderer spreads them across lanes the way it already
+                # does for SFX. An overlap larger than the declared fade
+                # is still a collision. See library/tools/music_bed.py.
+                declared_fade = float(
+                    clips[i + 1].get('crossfade_in_seconds') or 0.0)
+                if declared_fade and \
+                        curr_out <= next_in + declared_fade + 0.01:
+                    continue
                 if curr_out > next_in + 0.01:
                     raise ValueError(
                         f"Track {track_name}: clip {i} "
@@ -1461,30 +1474,19 @@ def compile_manifest(out_dir: str) -> dict:
 
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
-    music_path = ms.get("audio_path", "")
-    # Also check tracks[0].audio_path (step_2_04 nests it there)
-    if not music_path and ms.get("tracks"):
-        music_path = ms["tracks"][0].get("audio_path", "")
-    music_clips = []
-    if music_path:
-        # WHICH PART of the track plays is the model's decision, and this
-        # is where it lands. `source_in: 0.0` used to be a literal here,
-        # so the `splices` step 2.04's handoff has always asked for
-        # reached nothing (AGENTS.md 10.2). `resolve_section` raises if
-        # the declared section cannot cover the finished timeline; it
-        # never slides it to fit, because moving the start is choosing
-        # which part plays. See library/tools/music_section.py.
-        music_section = resolve_section(
-            ms, ms.get("duration_seconds") or 0.0, total_duration)
-        print("  " + describe_music_section(music_section), file=sys.stderr)
-        music_clips.append({
-            "source_file": music_path,
-            "source_in": music_section.source_in,
-            "source_out": music_section.source_out(total_duration),
-            "timeline_in": 0.0,
-            "timeline_out": total_duration,
-            "label": "background_music",
-        })
+    # WHICH PARTS of WHICH TRACKS play, and WHERE, is the plan's decision
+    # and this is where it lands. `source_in: 0.0` used to be a literal
+    # here, so the `splices` step 2.04's handoff has always asked for
+    # reached nothing (AGENTS.md 10.2); then one `section` landed, and a
+    # bed that is several sections of several tracks still could not be
+    # expressed at all. `music_bed.resolve_bed` is the whole of it: the
+    # spine conducts the pieces, this places them, and a selection that
+    # declares no bed still gets exactly the one-section placement it
+    # always got. It RAISES rather than sliding a segment to fit, because
+    # moving a start is choosing which part plays.
+    music_bed = resolve_bed(ms, spine, total_duration)
+    print("  " + describe_music_bed(music_bed), file=sys.stderr)
+    music_clips = bed_clips(music_bed, fps=fps)
 
     # ── Subtitles (from Step 4.01 — single source of truth) ──
     subtitles = subtitle_data if isinstance(subtitle_data, list) else (
@@ -1563,7 +1565,20 @@ def compile_manifest(out_dir: str) -> dict:
                 f"SFX entry {sfx_entry.get('label', si)} has no timeline "
                 f"position (timeline_in / timeline_start)"
             )
-        vol_db = sfx_entry.get("volume_db", -14)
+        # No default. A -14 dB fallback used to sit here, on top of a
+        # track level of -12 dB annotated "Subtle - felt more than
+        # heard", and the one sound of the run of record was inaudible in
+        # the finished video. How loud a sound plays is the plan's
+        # decision and nothing substitutes one - see
+        # library/tools/sfx_level.py.
+        vol_db, vol_reason = read_volume_db(sfx_entry)
+        if vol_db is None:
+            raise ValueError(
+                f"SFX entry {sfx_entry.get('label', si)} names no level: "
+                f"{vol_reason}. Re-run step 4.04 (plan_sfx) so the plan "
+                f"says how loud each sound plays: "
+                f"manage_project.py run <slug> --rerun plan_sfx"
+            )
 
         tl_end_sec = sfx_entry.get("timeline_out",
                                    sfx_entry.get("timeline_end"))
@@ -1910,7 +1925,7 @@ def compile_manifest(out_dir: str) -> dict:
     # chosen section's offset. The bed has to be placed at that same
     # offset or every snap moves by the difference - so say it out loud
     # rather than leave it implicit.
-    assert_music_offset_is_the_chosen_section(manifest, ms)
+    assert_music_offset_is_the_chosen_section(manifest, ms, spine)
 
     # The captions in the manifest and the captions on screen must agree.
     _assert_subtitle_overlay_matches_plan(manifest)

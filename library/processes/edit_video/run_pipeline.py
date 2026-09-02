@@ -32,7 +32,7 @@ import logging
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
                            direction_contradiction, post_bridge_retry,
-                           run_restart, undetermined)
+                           run_restart, second_pass, undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -1722,7 +1722,13 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     # was resampling the same byte-identical context until an answer
     # happened to pass.  The feedback now goes back in, BOUNDED.
     # See library/tools/post_bridge_retry.py.
+    # A post-bridge may also ask for ANOTHER PASS rather than reject -
+    # a valid answer that is incomplete by design, which is what step
+    # 2.04 does when it has measured the sections the model shortlisted
+    # and wants the choice made against them. Same plumbing, different
+    # cargo; the bound is its own. See library/tools/second_pass.py.
     retry_feedback = ""
+    passes_made = 1
     for attempt in range(1, post_bridge_retry.MAX_ATTEMPTS + 1):
         # LLM creative decision on compressed context
         try:
@@ -1745,6 +1751,11 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
 
         merge_data = dict(inputs)
         merge_data.update(pre_output)
+        # Which pass this is. A post-bridge that asks for another pass
+        # needs to know when it is already answering one, or it asks
+        # forever and re-measures on every attempt. See
+        # library/tools/second_pass.py.
+        merge_data[second_pass.PASS_KEY] = passes_made
         if isinstance(llm_output, dict):
             merge_data.update(llm_output)
         else:
@@ -1777,6 +1788,31 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
             retry_feedback += post_bridge_retry.feedback_block(
                 violation, attempt)
             continue
+
+        # A request for another pass is SPLIT OUT of the answer before
+        # anything reads it - it is a message to this loop, not one of
+        # the step's outputs.
+        final, pass_request = second_pass.take(final)
+        if pass_request and passes_made < second_pass.MAX_PASSES:
+            passes_made += 1
+            reason = (pass_request["reason"]
+                      or "measurements for the shortlist the answer named")
+            print(f"  {node_id}: second pass - {reason}", file=sys.stderr)
+            _logger = get_logger()
+            if _logger:
+                _logger.log(step_id=node_id, event_type="second_pass",
+                            detail={"pass": passes_made,
+                                    "of": second_pass.MAX_PASSES,
+                                    "reason": pass_request["reason"]})
+            retry_feedback += second_pass.block(pass_request, passes_made)
+            continue
+        if pass_request:
+            # At the bound the request is IGNORED and this answer stands:
+            # unlike a contract rejection, an unanswered second pass
+            # leaves a perfectly valid output.
+            print(f"  {node_id}: a further pass was requested and the "
+                  f"bound of {second_pass.MAX_PASSES} is reached - this "
+                  f"answer stands", file=sys.stderr)
 
         # Ensure bridge outputs are preserved if post-bridge didn't explicitly return them
         result = dict(pre_output)

@@ -215,7 +215,7 @@ def test_compile_manifest_asserts_the_domain():
                         "step_5_04_compile_manifest", "step.py")
     with open(path, encoding="utf-8") as f:
         src = f.read()
-    assert "assert_music_offset_is_the_chosen_section(manifest, ms)" in src, (
+    assert "assert_music_offset_is_the_chosen_section(manifest, ms, spine)" in src, (
         "compile_manifest must assert the time domain the beat grid "
         "depends on, or an offset silently moves every snapped cut")
 

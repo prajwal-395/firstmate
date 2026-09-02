@@ -274,7 +274,7 @@ def _sfx_payload(n_sfx: int):
             {
                 "spine_block_position": i + 1,
                 "sfx_id": SFX_ID,
-                "volume_level": "subtle",
+                "volume_db": -18,
                 "rationale": "marks the cut",
             }
             for i in range(n_sfx)
@@ -577,7 +577,10 @@ CREATIVE_SUBSTITUTIONS = [
      "how strong that effect is"),
     (SFX / "post_bridge.py", '"sfx_type", "whoosh"',
      "which sound plays"),
-    (SFX / "post_bridge.py", '"volume_level", "subtle"',
+    # The `VOLUME_MAP` that resolved subtle|low|medium|prominent into
+    # -18|-14|-10|-6 dB is REMOVED, on the same ruling that removed
+    # `INTENSITY_MAP`. The level is the plan's own number in dB.
+    (SFX / "post_bridge.py", '"volume_db", -14',
      "how loud it plays"),
     (TRANSITIONS / "post_bridge.py", '"duration_feel", "medium"',
      "how long a transition holds"),
@@ -636,10 +639,10 @@ def test_plan_sfx_refuses_an_entry_that_names_no_playable_sound(sfx_library):
     ships an edit missing a sound nobody decided to cut.
     """
     for entry in (
-        {"spine_block_position": 1, "volume_level": "subtle",
+        {"spine_block_position": 1, "volume_db": -18,
          "rationale": "marks the cut"},
         {"spine_block_position": 1, "sfx_id": "not_in_the_library.wav",
-         "volume_level": "subtle", "rationale": "marks the cut"},
+         "volume_db": -18, "rationale": "marks the cut"},
     ):
         payload = _sfx_payload(1)
         payload["sfx_creative"] = [entry]
@@ -655,7 +658,7 @@ def test_plan_sfx_drops_an_entry_that_names_no_level(sfx_library):
     payload = _sfx_payload(1)
     payload["sfx_creative"] = [{
         "spine_block_position": 1, "sfx_id": SFX_ID,
-        "volume_level": "deafening", "rationale": "marks the cut",
+        "rationale": "marks the cut",
     }]
     proc = _run_bridge(SFX / "post_bridge.py", payload, sfx_library)
     assert proc.returncode == 0, proc.stdout + proc.stderr

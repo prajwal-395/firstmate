@@ -79,7 +79,8 @@ def test_sfx_transient_placement(monkeypatch, tmp_path):
                 "source_file": "/mock/delayed_hit.mp3",
                 "source_in": 0.53,
                 "timeline_in": 2.40,
-                "timeline_out": 2.70
+                "timeline_out": 2.70,
+                "volume_db": -12
             },
             {
                 # No `source_file`: an sfx_id alone still resolves,
@@ -87,7 +88,8 @@ def test_sfx_transient_placement(monkeypatch, tmp_path):
                 "label": "sfx_002",
                 "sfx_id": "broken.mp3",
                 "timeline_in": 5.0,
-                "timeline_out": 6.0
+                "timeline_out": 6.0,
+                "volume_db": -12
             }
         ]
     }

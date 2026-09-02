@@ -173,7 +173,7 @@ def _payload(library, duration=None):
     sfx = {
         "spine_block_position": 1,
         "sfx_id": WHOOSH,
-        "volume_level": "subtle",
+        "volume_db": -18,
         "rationale": "under the defocus blur, where the talking head ends",
     }
     if duration is not None:

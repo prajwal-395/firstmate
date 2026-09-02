@@ -134,7 +134,11 @@ def test_run_hybrid_step_mocked(mock_present_llm, mock_run_subprocess, tmp_path)
     # Verify post-bridge was called with merged LLM output + pre-bridge output + original inputs
     args, kwargs = mock_run_subprocess.call_args_list[1]
     assert args[0] == step_dir / "post_bridge.py"
-    assert args[1] == {"raw_input": "data", "compressed_context": "yes", "llm_decision": "approved"}
+    # `__pass` is the runner telling the post-bridge which pass this is,
+    # so a post-bridge that asks for another does not ask forever. See
+    # library/tools/second_pass.py.
+    assert args[1] == {"raw_input": "data", "compressed_context": "yes",
+                       "llm_decision": "approved", "__pass": 1}
     
     # Final result should be post-bridge output merged with pre-bridge output
     assert result == {"compressed_context": "yes", "final_output": "success"}

@@ -84,6 +84,7 @@ from library.tools.project_layout import Area, layout_for
 from library.tools.music_measurement import (
     BED_UNDER_THE_BLOCK_LEGEND, bed_reading, bed_under_block,
 )
+from library.tools.sfx_level import SPEECH_REFERENCE_LEGEND
 from library.tools.sfx_library import (
     CATALOG_DOCUMENT_NAME,
     catalog_document,
@@ -373,7 +374,8 @@ def main():
         # defines what a key IS and never what to conclude: no
         # separation target is declared anywhere in this pipeline and
         # none is supplied here (AGENTS.md 10.4, 10.5).
-        "sfx_candidates_legend": BED_UNDER_THE_BLOCK_LEGEND,
+        "sfx_candidates_legend": {**BED_UNDER_THE_BLOCK_LEGEND,
+                                  **SPEECH_REFERENCE_LEGEND},
         "transitions_toon": format_toon(
             ["spine_block_position", "transition_type", "draws_on_screen",
              "duration_frames", "cut_point_seconds"],

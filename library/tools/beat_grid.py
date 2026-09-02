@@ -24,12 +24,20 @@ knows the producer's shape, so there is one name to change if it ever
 moves, and `tests/test_beat_grid.py` asserts the two ends still agree.
 
 **Time domain.** Beat times come from the music file. The bed is placed at
-`timeline_in: 0.0` and at whatever `source_in` the model's chosen section
-names (`library/tools/music_section.py`), so timeline time is
+whatever `source_in` the model's chosen section names
+(`library/tools/music_section.py`), so timeline time is
 `file time - source_in` and a grid used unmapped is wrong by the offset on
 every cut. `beat_positions` and `downbeat_positions` therefore take the
-selection and RETURN TIMELINE TIME; the offset is read in one place, by
-`music_section.section_offset_seconds`.
+selection and RETURN TIMELINE TIME.
+
+**A SPLICED bed has one offset PER SEGMENT.** `library/tools/music_bed.py`
+is the shape: the bed may be several sections of several tracks, and
+`music_analysis` measures exactly ONE file - the selection's primary
+track. So a beat is on the timeline only where that file plays, and it
+maps through the offset of the segment playing it. Pass the spine and the
+timeline duration and the grid is mapped per segment; pass neither and it
+is the single-section reading, which is what every run with no declared
+bed gets.
 
 The selection argument is required rather than defaulted. A default of
 "no offset" is the value that is silently wrong, and this module exists
@@ -46,7 +54,9 @@ MIN_USABLE_BEATS = 8
 
 
 def beat_positions(music_analysis: Optional[Dict[str, Any]],
-                   music_selection: Optional[Dict[str, Any]]) -> List[float]:
+                   music_selection: Optional[Dict[str, Any]],
+                   audio_spine: Optional[Dict[str, Any]] = None,
+                   timeline_duration: Optional[float] = None) -> List[float]:
     """Every detected beat, in TIMELINE seconds, ascending.
 
     Empty when the analysis is absent, unavailable or too sparse to be a
@@ -56,22 +66,29 @@ def beat_positions(music_analysis: Optional[Dict[str, Any]],
     `music_selection` is required: it carries the chosen section, and a
     grid read without it is off by that section's offset on every beat.
     """
-    return _times(music_analysis, "beats", music_selection)
+    return _times(music_analysis, "beats", music_selection,
+                  audio_spine, timeline_duration)
 
 
 def downbeat_positions(music_analysis: Optional[Dict[str, Any]],
-                       music_selection: Optional[Dict[str, Any]]) -> List[float]:
+                       music_selection: Optional[Dict[str, Any]],
+                       audio_spine: Optional[Dict[str, Any]] = None,
+                       timeline_duration: Optional[float] = None) -> List[float]:
     """Bar starts, in TIMELINE seconds, ascending.
 
     The stronger grid: a cut on a downbeat reads as intentional where a
     cut on any beat can read as busy. `plan_sfx` wants these - it was
     asking for `beat_grid.bars`, which is what a bar start is.
     """
-    return _times(music_analysis, "downbeats", music_selection)
+    return _times(music_analysis, "downbeats", music_selection,
+                  audio_spine, timeline_duration)
 
 
 def _times(music_analysis: Optional[Dict[str, Any]], key: str,
-           music_selection: Optional[Dict[str, Any]]) -> List[float]:
+           music_selection: Optional[Dict[str, Any]],
+           audio_spine: Optional[Dict[str, Any]] = None,
+           timeline_duration: Optional[float] = None) -> List[float]:
+    from library.tools.music_bed import beat_windows, read_bed
     from library.tools.music_section import section_offset_seconds
 
     if not music_analysis or not isinstance(music_analysis, dict):
@@ -80,7 +97,6 @@ def _times(music_analysis: Optional[Dict[str, Any]], key: str,
     if music_analysis.get("available") is False:
         return []
 
-    offset = section_offset_seconds(music_selection)
     tempo = music_analysis.get("tempo")
     if not isinstance(tempo, dict):
         return []
@@ -89,20 +105,46 @@ def _times(music_analysis: Optional[Dict[str, Any]], key: str,
     if not isinstance(raw, list):
         return []
 
+    # A SPLICED bed maps the grid PER SEGMENT. `music_analysis` measures
+    # exactly one file - the selection's primary track - so a beat is on
+    # the timeline only where that file plays, and the offset it maps
+    # through is that segment's own. A single offset across a splice
+    # would be wrong by the difference on every snapped cut, which is the
+    # defect this module was written for. See library/tools/music_bed.py.
+    windows = []
+    if audio_spine is not None and timeline_duration is not None:
+        try:
+            bed = read_bed(music_selection, audio_spine, timeline_duration)
+        except Exception:
+            bed = None
+        if bed is not None and bed.declared:
+            primary = (music_selection or {}).get("audio_path") or ""
+            windows = beat_windows(bed, primary)
+    if not windows:
+        offset = section_offset_seconds(music_selection)
+        windows = [{"source_in": offset, "source_out": float("inf"),
+                    "timeline_start": 0.0, "offset": offset}]
+
     out = []
     for value in raw:
         try:
-            t = float(value) - offset
+            beat = float(value)
         except (TypeError, ValueError):
             continue
-        # A beat before the chosen section starts is not in the edit.
-        if t >= 0:
-            out.append(round(t, 4))
+        for window in windows:
+            if not (window["source_in"] <= beat < window["source_out"]):
+                continue
+            t = beat - window["offset"]
+            # A beat before the chosen section starts is not in the edit.
+            if t >= 0:
+                out.append(round(t, 4))
+            break
 
     out.sort()
     if len(out) < MIN_USABLE_BEATS:
         return []
     return out
+
 
 
 def bpm(music_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -125,23 +167,71 @@ def bpm(music_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
 
 def assert_music_offset_is_the_chosen_section(
         manifest: Dict[str, Any],
-        music_selection: Optional[Dict[str, Any]]) -> None:
-    """The bed was placed at the offset the grid was mapped for.
+        music_selection: Optional[Dict[str, Any]],
+        audio_spine: Optional[Dict[str, Any]] = None) -> None:
+    """The bed was placed where the grid was mapped for.
 
-    `beat_positions` subtracts the chosen section's `source_in` from every
-    beat, so the two ends have to agree. Raises rather than warning: a
-    snapped cut silently off by the music's offset looks exactly like a
-    snapped cut that is correct.
+    `beat_positions` maps every beat through the segment of the bed that
+    plays the analysed track, so the two ends have to agree. Raises rather
+    than warning: a snapped cut silently off by the music's offset looks
+    exactly like a snapped cut that is correct.
 
-    It also holds the other half of the invariant - the bed starts at
-    timeline 0 - because that is what makes `file time - source_in` a
-    timeline time at all.
+    With no bed declared this is the invariant it has always been - ONE
+    clip, at timeline 0, at the chosen section's `source_in`. With a bed
+    declared it is the same statement per segment, and the first segment
+    still starts the timeline, because that is what makes
+    `file time - source_in` a timeline time at all.
     """
+    from library.tools.music_bed import MusicBedError, read_bed
     from library.tools.music_section import section_offset_seconds
 
-    expected = section_offset_seconds(music_selection)
     tracks = manifest.get("tracks") or {}
     clips = (tracks.get("A2") or {}).get("clips") or []
+    if not clips:
+        return
+
+    bed = None
+    if audio_spine is not None:
+        try:
+            bed = read_bed(music_selection, audio_spine,
+                           float((manifest.get("project") or {})
+                                 .get("duration_seconds", 0.0) or 0.0))
+        except MusicBedError:
+            bed = None
+
+    if bed is not None and bed.declared:
+        if len(clips) != len(bed.segments):
+            raise ValueError(
+                f"The bed the spine conducts has {len(bed.segments)} "
+                f"segments and the manifest placed {len(clips)} music "
+                f"clips. Every segment is placed or the run says which was "
+                f"not; a dropped segment is a hole in the sound."
+            )
+        ordered = sorted(clips, key=lambda c: float(c.get("timeline_in", 0.0)))
+        for index, (clip, seg) in enumerate(zip(ordered, bed.segments)):
+            if abs(float(clip.get("source_in", 0.0) or 0.0)
+                   - seg.source_in) > 1e-6:
+                raise ValueError(
+                    f"Music bed segment {index} is placed with source_in "
+                    f"{clip.get('source_in')} but the spine conducts it "
+                    f"from {seg.source_in}. Every beat-snapped cut inside "
+                    f"that segment would be off by the difference."
+                )
+            if abs(float(clip.get("timeline_in", 0.0) or 0.0)
+                   - seg.placed_start) > 1e-6:
+                raise ValueError(
+                    f"Music bed segment {index} is placed at timeline "
+                    f"{clip.get('timeline_in')} but the spine conducts it "
+                    f"in at {seg.placed_start}."
+                )
+        if abs(float(ordered[0].get("timeline_in", 0.0) or 0.0)) > 1e-6:
+            raise ValueError(
+                f"The bed's first segment is placed at timeline "
+                f"{ordered[0].get('timeline_in')}, not 0."
+            )
+        return
+
+    expected = section_offset_seconds(music_selection)
     for clip in clips:
         source_in = float(clip.get("source_in", 0.0) or 0.0)
         timeline_in = float(clip.get("timeline_in", 0.0) or 0.0)

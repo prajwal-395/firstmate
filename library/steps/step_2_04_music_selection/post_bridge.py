@@ -39,12 +39,20 @@ REPO_ROOT = STEP_DIR.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from library.tools.second_pass import (
+    SecondPassError,
+    is_final_pass,
+    read_shortlist,
+)
+from library.tools.second_pass import request as second_pass_request
 from library.tools.music_section import (  # noqa: E402
     describe as describe_section,
     read_section,
     validate_section,
 )
 from library.tools.music_measurement import (  # noqa: E402
+    SECTION_ENVELOPE_LEGEND,
+    section_envelopes,
     selection_measurements,
 )
 from library.tools.music_selection_contract import (  # noqa: E402
@@ -155,6 +163,63 @@ def resolve_selection(
     return selection
 
 
+def _shortlist_track(row: dict, selection: dict, candidates: list) -> str:
+    """The file a shortlisted section names, matched EXACTLY.
+
+    A section naming no track is the selection's own track, which is the
+    single-track case.  No nearest match: choosing a different track is a
+    decision (AGENTS.md 10.5).
+    """
+    reference = (row.get("track") or "").strip()
+    if not reference:
+        return (selection.get("audio_path") or "").strip()
+    for candidate in candidates:
+        if candidate.get("audio_path") == reference:
+            return reference
+        if (candidate.get("title") or "") == reference:
+            return (candidate.get("audio_path") or "").strip()
+    return reference
+
+
+def _measure_shortlist(shortlist: list, selection: dict,
+                       candidates: list) -> list:
+    """The envelope of every shortlisted section, grouped by file.
+
+    One decode per FILE however many sections of it are named - the
+    per-second windows are read once and each section is bucketed out of
+    them (`music_measurement.section_envelopes`).
+    """
+    if not shortlist:
+        return []
+    by_path = {}
+    for row in shortlist:
+        path = _shortlist_track(row, selection, candidates)
+        by_path.setdefault(path, []).append(row)
+    out = []
+    for path, rows in by_path.items():
+        if not path or not os.path.exists(path):
+            for row in rows:
+                out.append({**row, "measured": False,
+                            "measurement_note":
+                                f"no readable file for track {path!r}"})
+            continue
+        for measured in section_envelopes(path, rows):
+            out.append({**measured, "audio_path": path})
+    return out
+
+
+def _shortlist_block(measurements: list) -> str:
+    """The measurements, plus the legend that says what each key IS.
+
+    The legend never says what to conclude - the same line
+    `MEASUREMENT_LEGEND` holds.
+    """
+    return json.dumps({
+        "section_measurements": measurements,
+        "section_measurements_legend": SECTION_ENVELOPE_LEGEND,
+    }, indent=2)
+
+
 def main():
     data = json.loads(sys.stdin.read())
 
@@ -190,12 +255,41 @@ def main():
         merged.update(selection["tracks"][0])
         selection = merged
 
+    # ── Pass one: measure the SHAPE of the sections the model named ──
+    # `measure_track` buckets the envelope of seconds 0 to the length of
+    # the edit and nothing else, so the richest evidence in this step
+    # described only the head of every track - the answer the section
+    # feature exists to let the model move AWAY from. The model names the
+    # sections it is CONSIDERING - several of them, across several tracks
+    # if the bed is to be spliced - and this measures those and asks
+    # again. Captain's choice, 2026-09-02: "Two-pass: summaries first,
+    # envelope for the section the model names."
+    # See library/tools/second_pass.py.
+    try:
+        shortlist = read_shortlist(selection)
+    except SecondPassError as exc:
+        print(json.dumps({"error": str(exc), "step": "2.04_post_bridge"}))
+        sys.exit(1)
+    measurements = _measure_shortlist(shortlist, selection, candidates)
+    if shortlist and not is_final_pass(data):
+        json.dump(second_pass_request(
+            "You named sections you are considering and only their mean "
+            "level and spread were measured. Here is the SHAPE of each "
+            "one.",
+            _shortlist_block(measurements),
+        ), sys.stdout, indent=2)
+        return
+
     try:
         resolved = resolve_selection(
             selection, candidates, target_duration, project_folder)
     except Exception as exc:
         print(json.dumps({"error": str(exc), "step": "2.04_post_bridge"}))
         sys.exit(1)
+
+    # The evidence the choice was made from travels with the choice.
+    if shortlist:
+        resolved["section_measurements"] = measurements
 
     resolved.setdefault("source_url", "")
     resolved.setdefault("bpm", None)

@@ -71,6 +71,7 @@ from library.tools.sfx_duration import (
     full_playable_seconds,
     resolve_played_seconds,
 )
+from library.tools.sfx_level import read_volume_db
 from library.tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
@@ -79,13 +80,11 @@ from library.tools.spine_contract import (
 )
 
 
-# Volume level → dB mapping
-VOLUME_MAP = {
-    "subtle": -18,
-    "low": -14,
-    "medium": -10,
-    "prominent": -6,
-}
+# There is no VOLUME_MAP. How loud a sound plays is the plan's own
+# number in dB, and the four-word ladder that used to resolve
+# subtle|low|medium|prominent into -18|-14|-10|-6 is withdrawn - the same
+# ruling that removed step 4.03's INTENSITY_MAP. The record of what it
+# held is library/tools/sfx_level.WITHDRAWN_VOLUME_LADDER.
 
 # There is no DURATION_DEFAULTS table. How long a sound runs is a
 # property of the sound, and the library measures it. The table used to
@@ -486,17 +485,14 @@ def resolve_sfx(
         # `whoosh` at -14 dB, so a malformed plan entry put a sound on the
         # timeline that nobody chose.
         entry = entry_by_index[plan_index]
-        volume = sfx.get("volume_level")
-        if volume not in VOLUME_MAP:
+        volume_db, level_reason = read_volume_db(sfx)
+        if volume_db is None:
             print(
                 f"  Dropped SFX {entry['sfx_id']!r} on block "
-                f"{block.get('position')!r}: volume_level {volume!r} is "
-                f"not one of {', '.join(sorted(VOLUME_MAP))}. No level is "
-                f"substituted.",
+                f"{block.get('position')!r}: {level_reason}.",
                 file=sys.stderr,
             )
             continue
-        volume_db = VOLUME_MAP[volume]
         source_in = _entry_source_in(entry)
         # How long it plays is the PLAN's decision, bounded by the
         # sound's measured length. A request past that is refused by
@@ -548,7 +544,6 @@ def resolve_sfx(
             # silence clicks. 0.0 where the sound ends by itself.
             "fade_out_seconds": round(fade_out, 4),
             "volume_db": volume_db,
-            "volume_level": volume,
             "rationale": sfx.get("rationale", ""),
             "placement_method": _describe_placement(entry.get("envelope") or ""),
             "shift_from_original": round(shift, 3),

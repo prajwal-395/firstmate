@@ -281,9 +281,9 @@ def test_a_plan_naming_a_sound_the_library_has_not_got_fails_here(tmp_path):
     library = _library(tmp_path)
     proc = _run_post_bridge(_payload([
         {"spine_block_position": 1, "sfx_id": "present.wav",
-         "volume_level": "subtle", "rationale": "punctuates the decision"},
+         "volume_db": -18, "rationale": "punctuates the decision"},
         {"spine_block_position": 2, "sfx_id": "reverse_cymbal",
-         "volume_level": "low", "rationale": "marks the section"},
+         "volume_db": -14, "rationale": "marks the section"},
     ]), library)
 
     assert proc.returncode == 1, proc.stdout + proc.stderr
@@ -299,7 +299,7 @@ def test_a_plan_naming_real_sounds_resolves_to_real_files(tmp_path):
     library = _library(tmp_path)
     proc = _run_post_bridge(_payload([
         {"spine_block_position": 1, "sfx_id": "present.wav",
-         "volume_level": "subtle", "rationale": "punctuates the decision"},
+         "volume_db": -18, "rationale": "punctuates the decision"},
     ]), library)
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -327,7 +327,7 @@ def test_a_sound_that_builds_plays_from_its_own_beginning(tmp_path):
     library = _library(tmp_path)
     proc = _run_post_bridge(_payload([
         {"spine_block_position": 1, "sfx_id": "builder.wav",
-         "volume_level": "low", "rationale": "resolves at the cut"},
+         "volume_db": -14, "rationale": "resolves at the cut"},
     ]), library)
 
     assert proc.returncode == 0, proc.stdout + proc.stderr

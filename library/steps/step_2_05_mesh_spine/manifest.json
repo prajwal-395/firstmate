@@ -108,6 +108,13 @@
         "type": "list",
         "required": true,
         "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"transition_slot\"|\"intro\"|\"outro\" - the handoff's own block-type table) and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position. Do NOT write \"intro_card\", \"outro_card\" or \"end_card\" blocks: those are CARDS, they come from the brand template's content.bookends, and the bridge REFUSES the step by name if the plan writes one. \"intro\" and \"outro\" are not cards - they are a breath of music and B-roll, they are yours to write, and nothing drops them."
+      },
+      {
+        "name": "music_bed",
+        "type": "list",
+        "required": false,
+        "may_be_empty": true,
+        "description": "How the music is CONDUCTED across the piece - ordered, one entry per piece of music that plays. The bed is not one continuous stretch of one track unless you decide it is: it may be several sections of one track, disjoint sections included, or sections of several tracks. music_selection.splices names the pieces step 2.04 picked out and music_selection.tracks names every track it chose; you decide which piece plays where. Each entry: track (string, the audio_path or title of one of the chosen tracks - omit it for the primary track, which is the single-track case); source_in (number, the second of THAT file this piece starts at); starts_at_block (the spine block position this piece comes in on - REQUIRED on every entry after the first, which starts the video); crossfade_seconds (OPTIONAL number - how long this piece fades up over the one it replaces. Leave it out for a hard splice: that is the absence of a crossfade, not a request for a default one, and nothing substitutes a length); why (string, what in the measurements and in this moment of the edit decided it). Omit music_bed entirely and the one chosen section plays under the whole video - the absence of a decision, not a decision. A piece runs until the next piece comes in, so its length is the blocks it covers; do not name an end."
       }
     ]
   },

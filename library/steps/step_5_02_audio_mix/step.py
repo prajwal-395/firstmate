@@ -56,9 +56,23 @@ from library.tools.speech_loudness import (
     measure_speech_blocks,
     separation_delivered_db,
 )
+from library.tools.sfx_level import WITHDRAWN_TRACK_LEVELS
 from library.tools.spine_contract import is_speech_block
 
-# Audio level parameters (from style spec)
+# Audio level parameters.
+#
+# A3_sfx and A4_transition_audio are GONE, and were not renumbered. They
+# carried `base_level_db` -12 and -10 with the notes "Subtle - felt more
+# than heard" and "Brief, paired with transition visuals": a creative
+# brief written into the engine and applied to every sound of every
+# project, which nothing read and which nonetheless stated a taste in the
+# shipped manifest as though the mix had been decided. How loud a sound
+# plays is now the plan's own `volume_db`, and the record of what was
+# withdrawn is library/tools/sfx_level.WITHDRAWN_TRACK_LEVELS.
+#
+# A1_speech's 0 dB is the mix's REFERENCE - the definition every other
+# level is relative to - not a chosen level. A2_music's two numbers are
+# `music_behavior`'s, which is a registered open captain decision.
 TRACK_LEVELS = {
     "A1_speech": {
         "base_level_db": 0,
@@ -71,12 +85,8 @@ TRACK_LEVELS = {
         "fade_duration_seconds": 1.0,
     },
     "A3_sfx": {
-        "base_level_db": -12,
-        "notes": "Subtle — felt more than heard",
-    },
-    "A4_transition_audio": {
-        "base_level_db": -10,
-        "notes": "Brief, paired with transition visuals",
+        "levels_are_per_sound": True,
+        "notes": WITHDRAWN_TRACK_LEVELS["A3_sfx.base_level_db"],
     },
 }
 

@@ -18,7 +18,7 @@ sys.modules.setdefault('DaVinciResolveScript', mock_dvr)
 # Add library path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/steps/step_6_01_render')))
 
-from resolve_build_timeline import build_timeline, _preflight_check, _allocate_sfx_tracks
+from resolve_build_timeline import build_timeline, _preflight_check, _allocate_audio_tracks
 
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
@@ -282,7 +282,7 @@ def test_two_pass_architecture(mock_resolve, sample_manifest):
     assert "Append_2" in call_order
     assert call_order.index("Append_1") < call_order.index("Append_2")
 
-def test_allocate_sfx_tracks():
+def test_allocate_audio_tracks():
     """Test the standalone SFX overlap calculation."""
     sfx_clips = [
         {"timeline_in_frame": 0, "timeline_out_frame": 30},
@@ -290,7 +290,7 @@ def test_allocate_sfx_tracks():
         {"timeline_in_frame": 35, "timeline_out_frame": 60}
     ]
     
-    allocations = _allocate_sfx_tracks(sfx_clips, base_track_index=3)
+    allocations = _allocate_audio_tracks(sfx_clips, base_track_index=3)
     
     assert len(allocations) == 3
     assert allocations[0][1] == 3

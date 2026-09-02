@@ -216,7 +216,9 @@ def _volume_parameter_of(clip: dict):
 # ── Turning the plan into a curve ───────────────────────────────────
 
 def music_curve(automation: list, *, fps: float, clip_start_frame: int,
-                clip_frame_count: int, fade_seconds: float) -> dict:
+                clip_frame_count: int, fade_seconds: float,
+                crossfade_in_seconds: float = 0.0,
+                crossfade_out_seconds: float = 0.0) -> dict:
     """The bed's level over one music clip, as clip-relative keyframes.
 
     `automation` is `audio_mix.music_automation` verbatim - one entry per
@@ -235,11 +237,12 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
     if clip_frame_count <= 0:
         return {}
 
-    segments = _merge_runs(automation, fps=fps, origin=clip_start_frame)
+    last_frame = clip_frame_count - 1
+    segments = _merge_runs(automation, fps=fps, origin=clip_start_frame,
+                           limit_frame=last_frame)
     if not segments:
         return {}
 
-    last_frame = clip_frame_count - 1
     half_limit = max(1, int(round(fade_seconds * fps / 2.0)))
 
     keys = [(0, segments[0][2])]
@@ -253,10 +256,44 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
         keys.append((end + half, next_level))
     keys.append((last_frame, segments[-1][2]))
 
-    return _tidy(keys, last_frame)
+    # THE SPLICE. A bed that is several pieces has a boundary between two
+    # of them, and a boundary the plan declared a crossfade for is
+    # delivered as a real OVERLAP: the outgoing segment plays on past the
+    # boundary while the incoming one plays from it, and these are the two
+    # halves of the fade across that overlap. A splice that declared NO
+    # crossfade gets nothing here - a hard splice is the absence of
+    # decoration, and no length is invented for it (AGENTS.md 10.5, and
+    # library/tools/music_bed.py).
+    if crossfade_in_seconds > 0:
+        ramp = min(last_frame, max(1, int(round(crossfade_in_seconds * fps))))
+        keys = ([(0, MIN_VOLUME_DB), (ramp, _level_at(keys, ramp))]
+                + [(f, v) for f, v in keys if f > ramp])
+    if crossfade_out_seconds > 0:
+        ramp = min(last_frame, max(1, int(round(crossfade_out_seconds * fps))))
+        hold = max(0, last_frame - ramp)
+        keys = ([(f, v) for f, v in keys if f < hold]
+                + [(hold, _level_at(keys, hold)), (last_frame, MIN_VOLUME_DB)])
+
+    return _tidy(sorted(keys), last_frame)
 
 
-def _merge_runs(automation: list, *, fps: float, origin: int) -> list:
+def _level_at(keys: list, frame: int) -> float:
+    """The planned level at ``frame``, read off the keys already built.
+
+    A crossfade ramps to whatever the block under it planned; it never
+    substitutes a level of its own.
+    """
+    level = keys[0][1]
+    for key_frame, key_level in keys:
+        if key_frame <= frame:
+            level = key_level
+        else:
+            break
+    return level
+
+
+def _merge_runs(automation: list, *, fps: float, origin: int,
+                limit_frame: int | None = None) -> list:
     """`(start_frame, end_frame, level_db)` runs, clip-relative.
 
     Consecutive blocks planning the same level are one run: two
@@ -268,6 +305,13 @@ def _merge_runs(automation: list, *, fps: float, origin: int) -> list:
         level = float(entry["target_level_db"])
         start = int(round(float(entry.get("timeline_start", 0.0)) * fps)) - origin
         end = int(round(float(entry.get("timeline_end", 0.0)) * fps)) - origin
+        # A bed SEGMENT covers part of the timeline, so the blocks outside
+        # it are not this clip's to carry. Clamping rather than dropping
+        # keeps the block that straddles the splice boundary on both
+        # sides of it, at the level it was planned at.
+        if limit_frame is not None:
+            start = max(0, min(start, limit_frame))
+            end = max(0, min(end, limit_frame))
         if end <= start:
             continue
         if runs and runs[-1][2] == level and runs[-1][1] == start:
@@ -337,7 +381,11 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
             "level_db": 0.0,
             "keyframes": music_curve(
                 automation, fps=fps, clip_start_frame=start,
-                clip_frame_count=frames, fade_seconds=fade_seconds),
+                clip_frame_count=frames, fade_seconds=fade_seconds,
+                crossfade_in_seconds=float(
+                    clip.get("crossfade_in_seconds") or 0.0),
+                crossfade_out_seconds=float(
+                    clip.get("crossfade_out_seconds") or 0.0)),
             "label": clip.get("label", os.path.basename(source)),
         })
 

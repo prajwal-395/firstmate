@@ -227,7 +227,7 @@ def test_the_runner_reports_the_empty_table_before_it_asks(tmp_path, capsys):
     (bak / "plan_sfx.json").write_text(
         json.dumps({"sfx_creative": [{"spine_block_position": 1,
                                       "sfx_type": "whoosh",
-                                      "volume_level": "subtle",
+                                      "volume_db": -18,
                                       "rationale": "marks the cut"}]}),
         encoding="utf-8",
     )
@@ -266,7 +266,7 @@ def test_a_full_table_makes_the_runner_say_nothing(tmp_path, capsys):
     (bak / "plan_sfx.json").write_text(
         json.dumps({"sfx_creative": [{"spine_block_position": 1,
                                       "sfx_type": "whoosh",
-                                      "volume_level": "subtle",
+                                      "volume_db": -18,
                                       "rationale": "marks the cut"}]}),
         encoding="utf-8",
     )

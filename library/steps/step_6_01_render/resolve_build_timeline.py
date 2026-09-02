@@ -144,14 +144,21 @@ def _read_file_duration(filepath):
 
 # ─── SFX Overlap-Aware Track Allocator ───────────────────────
 
-def _allocate_sfx_tracks(sfx_clips, base_track_index=3, fps=30.0):
-    """Allocate SFX clips across multiple audio tracks to avoid overlap.
+def _allocate_audio_tracks(clips, base_track_index=3, fps=30.0):
+    """Allocate audio clips across tracks so none overlaps another.
 
     Returns list of (clip, track_index) tuples.
     Clips that overlap in time get placed on separate tracks.
+
+    Used for SFX, and for the MUSIC BED, which overlaps itself wherever a
+    splice declared a crossfade: two clips cannot share one Resolve audio
+    track, so a crossfade needs the second piece on a lane of its own
+    (library/tools/music_bed.py). A bed with no crossfade never overlaps
+    and stays on A2 alone, which is every run before this one.
     """
-    if not sfx_clips:
+    if not clips:
         return []
+    sfx_clips = clips
 
     # Sort by timeline start
     sorted_clips = sorted(sfx_clips, key=lambda c: c.get('timeline_in_frame', 0))
@@ -764,8 +771,16 @@ def build_timeline(
     has_generators = bool(generator_overlays)
 
     # Calculate how many SFX tracks we need
-    sfx_allocations = _allocate_sfx_tracks(a3_clips, base_track_index=3, fps=fps)
-    max_sfx_track = max((t for _, t in sfx_allocations), default=2)
+    # The bed is allocated FIRST, because a crossfade puts two music
+    # clips on the timeline at once and the SFX bucket has to start above
+    # whatever the bed used. With no crossfade the bed is one lane, A2,
+    # and SFX start at A3 exactly as they always have.
+    music_allocations = _allocate_audio_tracks(a2_clips, base_track_index=2,
+                                               fps=fps)
+    max_music_track = max((t for _, t in music_allocations), default=2)
+    sfx_allocations = _allocate_audio_tracks(
+        a3_clips, base_track_index=max_music_track + 1, fps=fps)
+    max_sfx_track = max((t for _, t in sfx_allocations), default=max_music_track)
     num_audio_tracks_needed = max(max_sfx_track, 2)  # at least A1(speech) + A2(music)
 
     # Add video tracks (V1 exists, add V2+)
@@ -1227,9 +1242,11 @@ def build_timeline(
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
     # ══════════════════════════════════════════════════════════
-    if a2_clips:
-        print(f"\n── A2 Music: {len(a2_clips)} clips ──", file=sys.stderr)
-        for ci, clip in enumerate(a2_clips):
+    if music_allocations:
+        print(f"\n── A2+ Music: {len(a2_clips)} clips across "
+              f"{len({t for _, t in music_allocations})} track(s) ──",
+              file=sys.stderr)
+        for ci, (clip, music_track_idx) in enumerate(music_allocations):
             basename = os.path.basename(clip['source_file'])
             pool_item = _find_pool_clip(clip['source_file'])
             if not pool_item:
@@ -1248,15 +1265,18 @@ def build_timeline(
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
                 "endFrame": src_in_f + src_dur_f,
-                "trackIndex": 2,  # A2
+                "trackIndex": music_track_idx,  # A2, or a lane above it
+                                                # when a crossfade overlaps
                 "recordFrame": round(tl_in_sec * fps),
                 "mediaType": 2,  # audio-only placement
             }])
 
             if result:
                 placed = result[0] if isinstance(result, list) else result
-                print(f"  ✓ {basename}: {placed.GetDuration()}f on A2", file=sys.stderr)
-                results["tracks"]["A2"] = 1
+                print(f"  ✓ {basename}: {placed.GetDuration()}f on "
+                      f"A{music_track_idx}", file=sys.stderr)
+                results["tracks"][f"A{music_track_idx}"] = (
+                    results["tracks"].get(f"A{music_track_idx}", 0) + 1)
                 # No level is set here. `SetProperty("Volume", ...)`
                 # returns False on every audio TimelineItem - the object
                 # has no property dictionary at all - so the call that
@@ -1264,7 +1284,8 @@ def build_timeline(
                 # mix. Levels are delivered together, after placement,
                 # by deliver_mix below.
             else:
-                print(f"  ✗ {basename}: failed", file=sys.stderr)
+                print(f"  ✗ {basename} on A{music_track_idx}: failed",
+                      file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # PLACE A3+: SFX (overlap-aware multi-track)

@@ -41,7 +41,8 @@ ROUND_RANGE_TOLERANCE = 1e-6
 
 # Tracks whose clips must lie end-to-end. A3 is deliberately absent: it is
 # a logical SFX bucket that the timeline builder spreads across A3, A4, ...
-# so overlapping SFX are sound design, not a collision.
+# so overlapping SFX are sound design, not a collision. A2 IS checked, and
+# a declared crossfade is the one overlap it allows - see check_clip.
 NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 
 # ── P6: no caption card flashes ──
@@ -148,9 +149,16 @@ def _validate_structure(manifest: dict) -> list[str]:
         # Overlap detection on every sequential track, not just V1. A
         # B-roll clip sitting on top of another is just as broken as an
         # A-roll collision, and V2 was never checked.
+        # A2 overlaps itself exactly where the plan declared a CROSSFADE
+        # and nowhere else: two pieces of a spliced bed have to play at
+        # once for one to fade into the other, and the timeline builder
+        # spreads them across lanes the way it already does for SFX. An
+        # overlap LARGER than the declared fade is still a collision, and
+        # an undeclared one still is. See library/tools/music_bed.py.
+        declared_crossfade = float(clip.get("crossfade_in_seconds") or 0.0)
         if track_name in NON_OVERLAPPING_TRACKS and prev_clip:
             prev_out = prev_clip.get("timeline_out", 0)
-            if prev_out - timeline_in > overlap_tolerance:
+            if prev_out - timeline_in > declared_crossfade + overlap_tolerance:
                 errors.append(
                     f"Track {track_name} clip {index} "
                     f"({clip.get('label', '?')}): overlaps the previous clip "

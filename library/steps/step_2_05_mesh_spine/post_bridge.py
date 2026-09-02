@@ -49,6 +49,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from tools.frame_utils import seconds_to_frame
 
 
+from library.tools.music_bed import BED_KEY
+from library.tools.music_bed import describe as describe_bed
+from library.tools.music_bed import resolve_bed
+
+
 def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
     """
     Enrich the LLM's creative spine with execution-layer data.
@@ -241,15 +246,31 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     validate_spine_blocks(
         enriched_blocks, total_dur - bookend_dur, target_duration_zone)
 
-    return {
-        "audio_spine": {
-            "total_estimated_duration_seconds": round(total_dur, 2),
-            "total_duration_frames": frame_cursor,
-            "frame_rate": fps,
-            "structure": enriched_blocks,
-            "music_selection": music,
-        }
+    # ── The bed the spine conducts ──
+    # This is the first step that has the spine, the chosen tracks and the
+    # music analysis together, so it is where "this piece here, that piece
+    # there" can be said at all. Step 2.04 chose the pieces in SOURCE
+    # time; this places them, anchored to a spine block position. A plan
+    # that declares nothing here gets the one-section bed every run before
+    # this got. See library/tools/music_bed.py.
+    spine_out = {
+        "total_estimated_duration_seconds": round(total_dur, 2),
+        "total_duration_frames": frame_cursor,
+        "frame_rate": fps,
+        "structure": enriched_blocks,
+        "music_selection": music,
     }
+    declared_bed = spine.get(BED_KEY) or (data or {}).get(BED_KEY)
+    if declared_bed:
+        spine_out[BED_KEY] = declared_bed
+    # Resolve it HERE, so a bed that cannot be played is refused by the
+    # post-bridge that can carry the violation back to the model
+    # (library/tools/post_bridge_retry.py) rather than four steps later in
+    # compile_manifest, where the only recovery is a re-run.
+    bed = resolve_bed(music, spine_out, round(total_dur, 3))
+    print("  " + describe_bed(bed), file=sys.stderr)
+
+    return {"audio_spine": spine_out}
 
 
 def main():

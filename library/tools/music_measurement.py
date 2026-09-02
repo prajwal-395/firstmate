@@ -689,6 +689,85 @@ def measure_track(audio_path: str, window_seconds: float) -> Dict[str, object]:
     return out
 
 
+def section_envelopes(audio_path: str,
+                      sections: List[Dict[str, object]]
+                      ) -> List[Dict[str, object]]:
+    """The twelve-bucket envelope of each NAMED span of one file.
+
+    Pass two of the two-pass shape (``library/tools/second_pass.py``).
+    ``measure_track`` buckets the played window - seconds 0 to
+    ``window_seconds`` - and nothing else, so the richest evidence in the
+    step described only the head of the track, which is the answer the
+    section feature exists to let the model move away from.  This
+    measures the SHAPE of the spans the model says it is considering, and
+    only those.
+
+    One decode per file however many sections are named: the per-second
+    RMS windows are read once and every section is bucketed out of them.
+    A section that cannot be measured says so and carries no numbers -
+    never a curve of zeroes (AGENTS.md 10.3).
+    """
+    try:
+        windows = rms_windows(audio_path)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [{"source_in": s.get("source_in"),
+                 "source_out": s.get("source_out"),
+                 "measured": False,
+                 "measurement_note": f"ffmpeg could not read the file: {exc}"}
+                for s in sections]
+
+    out: List[Dict[str, object]] = []
+    for section in sections:
+        start = int(round(float(section.get("source_in", 0.0))
+                          / RMS_WINDOW_SECONDS))
+        end = int(round(float(section.get("source_out", 0.0))
+                        / RMS_WINDOW_SECONDS))
+        start = max(0, min(start, len(windows)))
+        end = max(start, min(end, len(windows)))
+        span = windows[start:end]
+        row: Dict[str, object] = {
+            "source_in": round(float(section.get("source_in", 0.0)), 2),
+            "source_out": round(float(section.get("source_out", 0.0)), 2),
+        }
+        if section.get("track"):
+            row["track"] = section["track"]
+        audible = [v for v in span if v > SILENCE_FLOOR_DBFS]
+        if len(audible) < 2:
+            row["measured"] = False
+            row["measurement_note"] = (
+                f"only {len(audible)} of {len(span)} one-second windows in "
+                f"this span carry any level - nothing to shape")
+            out.append(row)
+            continue
+        row["measured"] = True
+        row["envelope_dbfs"] = _bucket_envelope(span)
+        row["mean_dbfs"] = (lambda m: None if m is None else round(m, 1))(
+            _power_mean_db(span))
+        row["spread_db"] = _spread(span)
+        out.append(row)
+    return out
+
+
+SECTION_ENVELOPE_LEGEND = {
+    "envelope_dbfs":
+        "the SHAPE of this span: its level averaged into twelve equal "
+        "buckets, in time order, in dBFS. This is the measurement that "
+        "used to exist only for seconds 0 to the length of the edit, "
+        "which is why you are being asked again - a section that rises "
+        "across the minute and one that falls across it have the same "
+        "mean and the same spread.",
+    "mean_dbfs":
+        "the power mean of this span, the same statistic track_sections "
+        "reports, repeated here so the shape and the level are read "
+        "together.",
+    "spread_db":
+        "how far the loud and quiet parts of this span are apart.",
+    "measured":
+        "false with a stated note means this span could not be measured. "
+        "It never means the span is silent.",
+}
+
+
 def measure_candidates(candidates: List[dict],
                        window_seconds: float) -> List[dict]:
     """Every candidate, measured where measuring it can change the answer.
