@@ -958,6 +958,16 @@ def step_timeout_seconds():
     return value if value > 0 else None
 
 
+def _truncate_log(s: str, max_len: int = 4000) -> str:
+    """Return the string with the middle elided if it exceeds max_len."""
+    if not s or len(s) <= max_len:
+        return s
+    # 1/4 head, 3/4 tail. The actual failure is typically at the very end.
+    head_len = max_len // 4
+    tail_len = max_len - head_len - 15  # 15 for "\n...[elided]...\n"
+    return s[:head_len] + "\n...[elided]...\n" + s[-tail_len:]
+
+
 def _run_step_subprocess(argv: list, inputs: dict, label: str):
     """Run a step, streaming its stderr as it arrives.
 
@@ -1049,9 +1059,9 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
         # for a stated cause reached step_errors, pipeline_log.jsonl and
         # the run summary as an exit code and a truncated log. The reason
         # existed the whole time and nothing read it.
-        detail = f"Step failed (exit {code}):\n  stderr: {stderr}"
+        detail = f"Step failed (exit {code}):\n  stderr: {_truncate_log(stderr)}"
         if (stdout or "").strip():
-            detail += f"\n  stdout: {stdout}"
+            detail += f"\n  stdout: {_truncate_log(stdout)}"
         raise RuntimeError(detail)
 
     try:
@@ -1059,8 +1069,8 @@ def run_deterministic_step(entry: str, inputs: dict) -> dict:
     except json.JSONDecodeError:
         raise RuntimeError(
             f"Step produced invalid JSON:\n"
-            f"  stdout: {stdout[:500]}\n"
-            f"  stderr: {stderr[:500]}"
+            f"  stdout: {_truncate_log(stdout, 500)}\n"
+            f"  stderr: {_truncate_log(stderr, 500)}"
         )
 
 
@@ -1523,15 +1533,15 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
     if code != 0:
         raise RuntimeError(
             f"Script {script_path.name} failed (exit {code}):\n"
-            f"  stderr: {stderr}"
+            f"  stderr: {_truncate_log(stderr)}"
         )
     try:
         return json.loads(stdout)
     except json.JSONDecodeError:
         raise RuntimeError(
             f"Script {script_path.name} produced invalid JSON:\n"
-            f"  stdout: {stdout[:500]}\n"
-            f"  stderr: {stderr[:500]}"
+            f"  stdout: {_truncate_log(stdout, 500)}\n"
+            f"  stderr: {_truncate_log(stderr, 500)}"
         )
 
 @step_timer(step_id_kwarg="node_id")

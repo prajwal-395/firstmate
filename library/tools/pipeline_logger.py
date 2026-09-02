@@ -74,8 +74,17 @@ def step_timer(step_id_kwarg="node_id"):
                 duration_ms = (time.time() - start) * 1000
                 
                 # Try to find node_id in args/kwargs
-                # This is a bit hacky, normally we'd pass it explicitly
                 node_id = kwargs.get(step_id_kwarg, "unknown_step")
+                if node_id == "unknown_step":
+                    import inspect
+                    try:
+                        sig = inspect.signature(func)
+                        bound = sig.bind(*args, **kwargs)
+                        bound.apply_defaults()
+                        if step_id_kwarg in bound.arguments:
+                            node_id = bound.arguments[step_id_kwarg]
+                    except (ValueError, TypeError):
+                        pass
                 
                 logger = get_logger()
                 if logger:
