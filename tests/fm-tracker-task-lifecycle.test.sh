@@ -316,6 +316,8 @@ assert_contains "$out" "4 reconciled" "sync must file every eligible row"
 
 calls=$(gh_calls "$HOME_C")
 assert_contains "$calls" "labels[]=fm:task" "a task ticket's type must be sent as a label"
+assert_contains "$calls" "labels[]=fm:project:proj" \
+  "a task ticket must carry its project-grouping label"
 titles=$(gh_titles "$HOME_C")
 assert_contains "$titles" "A worker is on this right now" \
   "the task summary must be the ticket TITLE"
@@ -325,7 +327,7 @@ assert_contains "$titles" "A worker is on this right now" \
 case $titles in
   *fm:task*|*'[ship]'*|*'[task]'*) fail "the title must not carry the ticket's type" ;;
 esac
-pass "a filed ticket carries its type as a label and its summary as the title"
+pass "a filed ticket carries its type and project as labels and its summary as the title"
 
 bodies=$(gh_bodies "$HOME_C")
 assert_contains "$bodies" "<!-- fm-task: live-work -->" \
@@ -391,7 +393,7 @@ reindex_home_from_calls() {  # <home>
     [ -f "$f" ] || continue
     num=$(cat "$f")
     body=$(cat "${f%.issue}.body" 2>/dev/null) || continue
-    graph_record "$num" OPEN 'fm:task' '' 156 '' 'a task' "$body" >> "$1/gh/graph"
+    graph_record "$num" OPEN 'fm:task' '' '-' '' 'a task' "$body" >> "$1/gh/graph"
   done
 }
 reindex_home_from_calls "$HOME_C"
@@ -506,12 +508,13 @@ assert_contains "$(gh_calls "$HOME_D")" "state=open" "a re-dispatch must reopen 
 pass "re-dispatching closed work reopens its ticket rather than filing a duplicate"
 
 # ===========================================================================
-# An orphan is never created to avoid an error message
+# Task tickets are filed even without a destination
 # ===========================================================================
 #
-# `validate` reports a ticket with no parent as orphaned, so filing one to dodge
-# a failure would trade a loud refusal for a quiet malformed record - exactly the
-# trade this whole layer refuses to make.
+# Task tickets group by a project label, not by a sub-issue edge to the
+# destination.  Filing still works when no destination exists, because the
+# label association needs nothing to hang off.  The missing destination is
+# reported as a note so a human knows the project has not been fully initialised.
 
 HOME_E=$(make_home e)
 printf '%s\n' 'proj proj/repo' > "$HOME_E/config/tracker-repos"
@@ -520,9 +523,9 @@ cp "$HOME_B/data/backlog.md" "$HOME_E/data/backlog.md"
 out=$(run_tracker "$HOME_E" sync --project proj 2>&1)
 rc=$?
 expect_code_out 0 "$rc" "$out" "a repository with no destination must not fail the dispatch"
-assert_contains "$out" "no single open destination" "the missing destination must be named"
-[ -z "$(gh_titles "$HOME_E")" ] || fail "no ticket may be filed without a destination to hang it off"
-pass "a repository with no destination reports rather than filing orphans"
+assert_contains "$out" "no single open destination" "the missing destination must be noted"
+[ -n "$(gh_titles "$HOME_E")" ] || fail "task tickets must be filed even without a destination"
+pass "a repository with no destination files task tickets and notes the absence"
 
 # ===========================================================================
 # A ticket someone wrote by hand keeps what they wrote
@@ -771,8 +774,8 @@ HOME_H=$(make_home h)
 printf '%s\n' 'proj proj/repo' > "$HOME_H/config/tracker-repos"
 {
   graph_record 156 OPEN 'fm:destination' '' '-' '' 'The destination' 'body'
-  graph_record 157 OPEN 'fm:task' '' '156' '' 'available work' ''
-  graph_record 158 OPEN 'fm:task fm:state:held' '' '156' '' 'held work' ''
+  graph_record 157 OPEN 'fm:task' '' '-' '' 'available work' ''
+  graph_record 158 OPEN 'fm:task fm:state:held' '' '-' '' 'held work' ''
 } > "$HOME_H/gh/graph"
 
 out=$(run_tracker "$HOME_H" frontier proj/repo 2>&1)

@@ -32,6 +32,13 @@ FM_TRACKER_LABEL_PREFIX='fm:'
 FM_TRACKER_STATE_PREFIX='fm:state:'
 FM_TRACKER_HELD_LABEL='fm:state:held'
 
+# Task tickets are grouped by project through a label rather than through a
+# sub-issue edge to the destination.  GitHub imposes a hard ceiling of 100
+# sub-issues per parent, and a destination that accumulates every dispatched task
+# hits it.  The label is unbounded and queryable, so the same association is
+# cheaper and never stops working.
+FM_TRACKER_PROJECT_LABEL_PREFIX='fm:project:'
+
 # The one heading blocking edges live under, and the one line shape allowed
 # beneath it. GitHub builds a queryable trackedIssues edge only from a markdown
 # task-list reference, so this shape is what makes a blocker visible to the
@@ -283,6 +290,10 @@ fm_tracker_type_valid() {  # <type>
 
 fm_tracker_type_label() {  # <type>
   printf '%s%s\n' "$FM_TRACKER_LABEL_PREFIX" "$1"
+}
+
+fm_tracker_project_label() {  # <project-name>
+  printf '%s%s\n' "$FM_TRACKER_PROJECT_LABEL_PREFIX" "$1"
 }
 
 fm_tracker_all_labels() {
@@ -723,8 +734,10 @@ fm_tracker_answer_comment() {  # <decision> <settles> <not-settles>
 # The issue graph: one query, one record format
 # ---------------------------------------------------------------------------
 
-# Native sub-issue attachment, so hierarchy and its completion rollup come from
-# GitHub rather than from a convention this script would have to re-derive.
+# Native sub-issue attachment for decisions and unknowns only.  Task tickets
+# group by a project label instead: GitHub imposes a hard ceiling of 100
+# sub-issues per parent, and a destination accumulating every dispatched task
+# hits it.  Decisions and unknowns are the curated set a person reads.
 # shellcheck disable=SC2016 # $name is a GraphQL variable, not a shell one.
 FM_TRACKER_ADD_SUB_ISSUE='mutation($parentId:ID!,$subIssueId:ID!){
   addSubIssue(input:{issueId:$parentId,subIssueId:$subIssueId}){ subIssue{ number } }
@@ -965,7 +978,7 @@ EOF
         problems=$((problems + 1))
       fi
     fi
-    if [ "$type" != destination ] && [ "$parent" = '-' ]; then
+    if [ "$type" != destination ] && [ "$type" != task ] && [ "$parent" = '-' ]; then
       printf '  #%s orphaned - no parent, so it hangs off no destination and never rolls up\n' "$number"
       problems=$((problems + 1))
     fi

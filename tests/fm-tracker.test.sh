@@ -351,9 +351,10 @@ reset_gh
   graph_record 2 OPEN '' '' '1' '' 'DECISION: untyped' ''
   graph_record 3 OPEN 'fm:task' '' '1' '' 'invisible blocker' 'Blocked by: #2 - must land first.'
   graph_record 4 OPEN 'fm:task fm:decision' '' '1' '' 'two types' ''
-  graph_record 5 OPEN 'fm:task' '' '-' '' 'orphan' ''
+  graph_record 5 OPEN 'fm:decision' '' '-' '' 'orphaned decision' ''
   graph_record 6 OPEN 'fm:task' '' '1' '2|OPEN|decision|' 'off-convention heading' \
     "$(printf '**Blocked by:**\n- [ ] #2\n')"
+  graph_record 7 OPEN 'fm:task' '' '-' '' 'unparented task' ''
 } > "$FAKE_GH_DIR/graphql.out"
 
 out=$(run_tracker "$HOME_A" validate o/r 2>&1)
@@ -364,8 +365,9 @@ assert_contains "$out" "#3 line 1 names #2 as a blocker with no resolved edge" \
   "a prose blocker with no edge must be reported as invisible"
 assert_contains "$out" "reports READY while blocked" "the consequence must be stated"
 assert_contains "$out" "#4 carries 2 type labels" "an ambiguous type must be reported"
-assert_contains "$out" "#5 orphaned" "a ticket with no parent must be reported"
-pass "validate reports missing type, invisible prose blockers, ambiguity and orphans"
+assert_contains "$out" "#5 orphaned" "a decision with no parent must be reported"
+assert_not_contains "$out" "#7 orphaned" "a task ticket with no parent is intentional"
+pass "validate reports missing type, invisible prose blockers, ambiguity and orphans (task tickets excluded)"
 
 # The distinction that keeps validate honest: an off-convention heading over a
 # reference GitHub DID resolve is not invisible, and must not be reported as if
