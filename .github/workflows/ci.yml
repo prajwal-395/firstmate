@@ -19,8 +19,17 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip'
-        
+        # Removed cache: 'pip' to avoid filling disk with heavy ML dependency wheels
+
+    - name: Report disk usage and free space
+      run: |
+        echo "Disk usage before freeing space:"
+        df -h
+        # Reclaim tens of gigabytes of space by removing preinstalled toolchains we don't need
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+        echo "Disk usage after freeing space:"
+        df -h
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -29,7 +38,12 @@ jobs:
         # Filter out GPU and heavy ML deps for CI, plus praat-parselmouth,
         # which publishes no cp314 wheel (the pipeline env is 3.12).
         grep -vE 'torch|sam2|whisperx|parselmouth' requirements.txt > ci_requirements.txt
-        pip install -r ci_requirements.txt
+        pip install --no-cache-dir -r ci_requirements.txt
+        
+    - name: Report disk usage (after install)
+      run: |
+        echo "Disk usage after dependency installation:"
+        df -h
         
     - name: Run Pytest
       run: |
