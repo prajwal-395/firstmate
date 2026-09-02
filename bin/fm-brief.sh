@@ -233,6 +233,7 @@ shell_quote() {
 }
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
+CI_CHECK=$(shell_quote "$FM_ROOT/bin/fm-ci-check.sh")
 
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
@@ -466,22 +467,27 @@ This task ships **direct-PR**: you raise the PR yourself, without the no-mistake
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`.
 
-**Wait for the check set to reach a verdict before reporting done.**
-After opening the PR, poll its check rollup until EVERY check has \`status: COMPLETED\`.
-A check set is a **verdict** only when ALL of these hold:
-- The rollup is non-empty (at least one check exists).
-- Every check has \`status: COMPLETED\`.
-- The PR's \`mergeable\` state is not \`CONFLICTING\`.
+**Hand the build wait to firstmate - never poll the check set yourself.**
+Re-checking a build from here costs a full model turn per check and delivers nothing.
+The moment the PR exists, arm the build watch, declare the wait, and END YOUR TURN:
 
-A check set is **not a verdict** when any of these are true:
-- Any check has \`status: QUEUED\` or \`IN_PROGRESS\` - it is still running.
-- The rollup is empty - checks may not have been created yet, or the PR may be conflicting.
-- The PR's \`mergeable\` state is \`CONFLICTING\` - a conflicted branch often gets no check suite and reports "No CI checks configured", which is not a pass.
+\`\`\`sh
+$CI_CHECK arm --task $ID --pr {url}
+echo "working: PR {url} opened, build watch armed" >> $STATUS_FILE
+echo "$PAUSED_VERB: awaiting the build verdict on PR {url}" >> $STATUS_FILE
+\`\`\`
 
-Once you have a verdict, report the result:
-- All checks passed (\`conclusion\` is \`SUCCESS\`, \`NEUTRAL\`, or \`SKIPPED\` for every check): append \`done: PR {url} checks complete\` and stop.
-- Any check failed (\`conclusion\` is \`FAILURE\`, \`ERROR\`, \`TIMED_OUT\`, \`CANCELLED\`, or \`ACTION_REQUIRED\`): diagnose and fix. Push the fix commit and wait for the new check set to reach a verdict. Repeat until green, then append \`done: PR {url} checks complete\` and stop.
+Then stop this turn. Do not look at the build again.
+Both lines are required: the \`$PAUSED_VERB:\` line is what tells firstmate your idle pane is a declared wait rather than a wedge.
+If arming refuses, append \`blocked: build watch could not be armed - {the exact error}\` and stop; do not fall back to polling.
+
+**You still own your own build failures.** Firstmate is woken once the check set reaches a verdict and relays it to you:
+- **Passed** - append \`done: PR {url} checks complete\` and stop.
+- **Failed** - diagnose and fix on the same branch, push the fix, then arm the watch again and repeat the declare-and-stop above. Repeat until it passes.
   If you cannot fix the failure, append \`blocked: PR {url} checks failed - {summary}\` and stop.
+- **Conflicting, or no checks at all** - that is not a pass. Resolve it (rebase the branch, or report what is missing) and re-arm, or append \`blocked: {why}\` and stop.
+
+A red, empty, or unknown check set is NEVER \`done:\`. Only a relayed pass earns that line.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
     ;;
@@ -599,7 +605,8 @@ $RULE1
    known wait you expect to clear on its own (a long local test suite, build, or render; an upstream
    release, a rate-limit reset, a scheduled window): firstmate then leaves your idle pane alone
    and rechecks it on a long cadence instead of treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-   Never end a turn with uncommitted work, an unopened PR, or no terminal status line - the status line is the only thing that makes your work visible, and without it the task has produced nothing from the supervisor's side.
+   A \`$PAUSED_VERB:\` line IS a legal end of turn: firstmate wakes you when the wait clears, so hand a long wait over instead of burning turns sitting through it.
+   Never end a turn with uncommitted work, an unopened PR, or no status line saying what firstmate should do next - a terminal \`done:\`/\`failed:\`, an open \`needs-decision:\`/\`blocked:\`, or a declared \`$PAUSED_VERB:\` wait. The status line is the only thing that makes your work visible, and without it the task has produced nothing from the supervisor's side.
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
    append \`needs-decision: {summary of options}\` and stop. Firstmate will apply the configured authority and reply with the decision.

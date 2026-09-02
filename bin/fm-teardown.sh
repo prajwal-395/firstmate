@@ -2334,6 +2334,7 @@ cleanup_firstmate_home_children() {
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
     status_retire_presentation_task "$sub_state" "$child_id" || return 1
     rm -f "$sub_state/$child_id.turn-ended" \
+      "$sub_state/$child_id.ci-watch" "$sub_state/$child_id.ci-watch-fired" \
       "$sub_state/$child_id.meta" "$sub_state/$child_id.pi-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
       "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
@@ -2722,6 +2723,7 @@ if [ "$KIND" != secondmate ]; then
   fi
 fi
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.stopped" \
+  "$STATE/$ID.ci-watch" "$STATE/$ID.ci-watch-fired" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \

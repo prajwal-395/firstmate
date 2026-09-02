@@ -1123,6 +1123,88 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
 }
 
+# --- a LIVE worker parked with its wake ARMED --------------------------------
+#
+# The steady state a direct-PR handoff creates: the worker pushed, opened its PR,
+# armed the build watch, declared the pause, and ended its turn. It is idle by
+# design, alive, and wanted. Before the armed-pause rule it classified exactly
+# like the live external-decision gate above and burned a supervision turn on a
+# bare "stale:" alarm within minutes - measured live on 2026-09-02 across three
+# healthy workers that had correctly stopped polling.
+#
+# The rule is narrow, so this case asserts the DIVERGENCE rather than only the
+# absorb: the same live pane, the same paused line, and the same crew state,
+# separated only by whether a registered check is armed for that task. Without
+# that pairing the case could go quietly vacuous the day the surfacing path
+# changed for some unrelated reason.
+test_live_parked_worker_with_armed_watch_is_absorbed() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid armed_wakes bare_wakes
+
+  # Arm side: a registered custom check exists for this task.
+  dir=$(make_case live-parked-armed); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/parked.status"
+  window="test:fm-parked"
+  printf 'idle, build watch armed\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
+  printf 'paused: awaiting the build verdict on PR https://example.invalid/pr/1\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle, build watch armed")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$state/parked.check.sh"
+  chmod 0700 "$state/parked.check.sh"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" parked >/dev/null \
+    || fail "could not register the parked worker's check"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the build verdict' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; fail "watcher exited for a parked worker with an armed watch: $(cat "$out")"
+  fi
+  reap "$pid"
+  armed_wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
+    "$state/.wake-queue" 2>/dev/null || printf 0)
+  [ "$armed_wakes" -eq 0 ] \
+    || fail "a live worker parked with its wake armed raised $armed_wakes stale alarms; it must be absorbed"
+  [ ! -s "$out" ] || fail "a parked worker with an armed watch printed a wake reason: $(cat "$out")"
+  [ -e "$state/.paused-$key" ] || fail "the armed pause did not take the bounded pause cadence"
+  [ ! -e "$state/.stale-since-$key" ] || fail "an armed pause must not start the wedge timer"
+
+  # Disconfirming side: identical in every respect EXCEPT that nothing is armed.
+  # It must still surface, because an unsubstantiated pause on a live pane may be
+  # a worker stuck at a gate it cannot report. If this ever stops surfacing, the
+  # rule above has stopped being narrow and supervision has gone blind.
+  dir=$(make_case live-parked-unarmed); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/parked.status"
+  printf 'idle, build watch armed\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
+  printf 'paused: awaiting the build verdict on PR https://example.invalid/pr/1\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the build verdict' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "an unarmed live pause did not surface; the armed-pause rule must not blind supervision"
+  bare_wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
+    "$state/.wake-queue" 2>/dev/null || printf 0)
+  [ "$bare_wakes" -ge 1 ] \
+    || fail "an unarmed live pause raised no stale alarm; the divergence this case asserts is vacuous"
+  pass "a live worker parked with its wake armed is absorbed, while the same pause with nothing armed still surfaces"
+}
+
 # A captain-held crew can leave a stable backend endpoint after its agent exits.
 # fm-crew-state then authoritatively reports stopped rather than paused, but the
 # confirmed-dead agent plus the declared wait or captain-held transfer must retain
@@ -2437,6 +2519,7 @@ test_self_died_worker_still_surfaces_immediately
 test_declared_stop_cannot_silence_a_later_incarnation
 test_declared_stop_absorbed_in_away_mode
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+test_live_parked_worker_with_armed_watch_is_absorbed
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
 test_secondmate_unpause_clears_pause_tracking

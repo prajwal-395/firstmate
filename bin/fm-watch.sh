@@ -606,7 +606,8 @@ declared_stop_absorb() {  # <window> <task> <hash>
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # Only a confidently dead ordinary crew may recover paused classification after
-# fm-crew-state has fallen back to stopped or unknown.
+# fm-crew-state has fallen back to stopped or unknown - EXCEPT when the wait is
+# armed (below), which is the one live-agent pause backed by evidence.
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive
   key=${win//:/_}
@@ -617,6 +618,28 @@ pause_state_class() {  # <window> <task>
   if ! status_is_paused_or_captain_held "$last"; then
     rm -f "$recheck_file"
     crew_absorb_class "$task"
+    return
+  fi
+  # An ARMED pause: idle by design, alive, and wanted.
+  #
+  # A live agent's declared pause otherwise surfaces once on purpose, because an
+  # idle pane may be sitting at a decision gate the worker cannot report - the
+  # dead-agent requirement below is what buys that one look. That look is worth a
+  # supervision turn when the wait is only a claim. It is not when the wait is a
+  # registered watcher check on this very task: that check is an independent
+  # artifact, hash-bound by bin/fm-check-register.sh, whose whole job is to wake
+  # firstmate the moment the wait clears. The pause is then substantiated by the
+  # fleet's own state rather than by the worker's word, which is what makes this
+  # narrower than trusting the status line.
+  #
+  # This state - parked, alive, and wanted, with its wake already armed - is the
+  # steady state of every worker that hands a build off instead of polling it. It
+  # takes the bounded cadence, so a park whose check never fires still re-surfaces
+  # on PAUSE_RESURFACE_SECS and cannot rot invisibly. A pause with nothing armed
+  # is completely unchanged.
+  if fm_custom_check_registered "$STATE" "$task"; then
+    date +%s > "$recheck_file"
+    printf 'paused'
     return
   fi
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then

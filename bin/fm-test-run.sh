@@ -273,6 +273,7 @@ family_for_basename() {
     fm-teardown-endpoint-safety.test.sh|fm-tracker-task-lifecycle.test.sh)
       printf '%s\n' backend-dispatch
       ;;
+    fm-ci-check.test.sh|\
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|\
     fm-teardown.test.sh|fm-x-mode.test.sh)
       printf '%s\n' pr-forge
@@ -1077,7 +1078,7 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-gotmp.test.sh"
       ;;
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
-    bin/fm-x-*|bin/fm-check*)
+    bin/fm-x-*|bin/fm-check*|bin/fm-ci-*)
       printf '%s\n' pr-forge
       ;;
     bin/fm-tracker*)
