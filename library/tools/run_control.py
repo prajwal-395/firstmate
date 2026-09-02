@@ -168,7 +168,8 @@ def write_run_status(project_dir: str, **fields: Any) -> Dict[str, Any]:
 def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      argv: Optional[List[str]] = None,
                      profile: Any = None,
-                     breakpoints: Optional[Dict[str, Any]] = None
+                     breakpoints: Optional[Dict[str, Any]] = None,
+                     state: Optional[Dict[str, Any]] = None
                      ) -> Dict[str, Any]:
     """Replace the run status wholesale at the start of a run.
 
@@ -178,7 +179,23 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
     dashboard, the captain tomorrow) otherwise has no way to tell a run
     that stopped at a breakpoint from one that stopped for any other
     reason.
+
+    "Wholesale" used to mean the outgoing account was simply lost, and
+    that is how a restart became invisible: a run that halted on a
+    contract violation and was re-run 49 seconds later left a status file
+    describing one clean pass.  The previous account is now READ before
+    it is replaced and carried forward as `restart` plus a bounded
+    `run_history`.  See library/tools/run_restart.py.
     """
+    from library.tools import run_restart
+
+    previous = read_run_status(project_dir)
+    restart = run_restart.classify(previous, state)
+    history = list(previous.get("run_history") or [])
+    if previous:
+        history.append(run_restart.history_entry(previous, restart))
+        del history[:-run_restart.MAX_HISTORY]
+
     record = {
         "pid": os.getpid(),
         "mode": mode,
@@ -200,6 +217,12 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         "last_completed_step": None,
         "held_before_step": None,
         "finished_at": None,
+        # How the run BEFORE this one ended, and what this run is
+        # therefore a restart of.  `None` when it followed a clean run
+        # or when there was no previous run to read.
+        "restart": (run_restart.as_record(restart)
+                    if restart.is_restart else None),
+        "run_history": history,
     }
     try:
         _write_json(run_status_path(project_dir), record)

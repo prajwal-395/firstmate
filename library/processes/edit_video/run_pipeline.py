@@ -30,6 +30,7 @@ import re
 import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
+from library.tools import post_bridge_retry, run_restart, undetermined
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -1173,10 +1174,18 @@ def project_step_context(inputs: dict, manifest: dict = None,
 
 
 @step_timer(step_id_kwarg="node_id")
-def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None) -> dict:
+def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None, retry_feedback: str = "") -> dict:
     """Present an LLM step and execute it using LLMClient or AGY backend.
     
     In automated mode, this calls the LLM and returns the parsed output.
+
+    `retry_feedback` is text a caller has already established this
+    model's previous answer violated.  It seeds the SAME context the QA
+    loop appends its own feedback to, before the first attempt, so a
+    rejection raised after this function returned - a post-bridge
+    contract violation - reaches the model that caused it instead of
+    being answered by a resample against a byte-identical context.  See
+    library/tools/post_bridge_retry.py.
     """
     raw_input_tokens = len(str(inputs).split()) * 1.3
 
@@ -1289,6 +1298,8 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     from library.tools.qa_feedback_loop import LLMStepQA
     qa_loop = LLMStepQA(max_retries=2)
     current_context = toon_str
+    if retry_feedback:
+        current_context += retry_feedback
     best_output = None
     
     expected_schema_str = ""
@@ -1342,8 +1353,18 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             llm_manifest["interface"] = dict(manifest["interface"])
             llm_manifest["interface"]["outputs"] = llm_outputs
 
+        # The declaration is asked for in the RENDERED schema and is NOT
+        # added to `llm_manifest`: it is not one of the step's outputs,
+        # `validate_step_output` would then demand it, and the answer is
+        # taken back out below before anything validates or reads it.
+        # See library/tools/undetermined.py.
+        schema_outputs = list(llm_outputs)
+        if undetermined.declares(node_id):
+            schema_outputs.append(undetermined.schema_entry())
+            prompt += undetermined.prompt_block()
+
         # Inject dynamic schema into prompt
-        schema_text = generate_output_schema_text(llm_outputs)
+        schema_text = generate_output_schema_text(schema_outputs)
         marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
         if marker in prompt:
             prompt = prompt.replace(marker, schema_text)
@@ -1521,6 +1542,20 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                         "__llm_raw_output": result_text
                     }
                     
+        # What the model could not determine is SPLIT OUT here, before
+        # anything validates or reads the answer: it is a demand signal,
+        # not one of the step's outputs.  An absent field is recorded as
+        # a non-answer and never as "nothing was missing".
+        parsed_result, _declaration = undetermined.take(node_id, parsed_result)
+        if undetermined.declares(node_id):
+            undetermined.record(_declaration)
+            if logger:
+                logger.log(
+                    step_id=node_id,
+                    event_type="undetermined_declaration",
+                    detail=undetermined.as_records([_declaration])[0],
+                )
+
         def validate_for_llm(nid, out, man):
             issues = validate_step_output(nid, out, man)
             if issues:
@@ -1580,43 +1615,78 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
                 compressed["project_folder"] = inputs.get("project_folder", "")
         except Exception as e:
             raise PreBridgeError(f"Pre-bridge failed: {e}")
-    
-    # LLM creative decision on compressed context
-    try:
-        llm_output = present_llm_step(
-            prompt_path, compressed, node_id, manifest, full_auto,
-            llm_timeout, bridge_supplied=set(pre_output),
-        )
-    except Exception as e:
-        raise LLMError(f"LLM generation failed: {e}")
-    
-    if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
-        return llm_output
-    if 'pre_output' not in locals():
-        pre_output = {}
-        
-    if post_bridge.exists():
+
+    # A post-bridge rejection is a CONTRACT violation, and it used to
+    # reach nobody: `present_llm_step` had already returned, so the
+    # retry-with-feedback path it owns was bypassed and the only recovery
+    # was resampling the same byte-identical context until an answer
+    # happened to pass.  The feedback now goes back in, BOUNDED.
+    # See library/tools/post_bridge_retry.py.
+    retry_feedback = ""
+    for attempt in range(1, post_bridge_retry.MAX_ATTEMPTS + 1):
+        # LLM creative decision on compressed context
         try:
-            merge_data = dict(inputs)
-            merge_data.update(pre_output)
-            if isinstance(llm_output, dict):
-                merge_data.update(llm_output)
-            else:
-                merge_data["llm_raw_response"] = llm_output
-            final = run_subprocess(post_bridge, merge_data)
-            
-            # Ensure bridge outputs are preserved if post-bridge didn't explicitly return them
-            result = dict(pre_output)
-            if isinstance(final, dict):
-                result.update(final)
-            return result
+            llm_output = present_llm_step(
+                prompt_path, compressed, node_id, manifest, full_auto,
+                llm_timeout, bridge_supplied=set(pre_output),
+                retry_feedback=retry_feedback,
+            )
         except Exception as e:
-            raise PostBridgeError(f"Post-bridge failed: {e}")
-    
-    result = dict(pre_output)
-    if isinstance(llm_output, dict):
-        result.update(llm_output)
-    return result
+            raise LLMError(f"LLM generation failed: {e}")
+
+        if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
+            return llm_output
+
+        if not post_bridge.exists():
+            result = dict(pre_output)
+            if isinstance(llm_output, dict):
+                result.update(llm_output)
+            return result
+
+        merge_data = dict(inputs)
+        merge_data.update(pre_output)
+        if isinstance(llm_output, dict):
+            merge_data.update(llm_output)
+        else:
+            merge_data["llm_raw_response"] = llm_output
+        try:
+            final = run_subprocess(post_bridge, merge_data)
+        except Exception as e:
+            violation = str(e)
+            if attempt >= post_bridge_retry.MAX_ATTEMPTS:
+                # At the bound the step FAILS carrying the last
+                # violation.  It does not proceed on a best attempt the
+                # way the QA loop does: a rejected post-bridge means the
+                # downstream contract is unsatisfied and there is no
+                # partial output to proceed with.
+                raise PostBridgeError(
+                    f"Post-bridge failed after "
+                    f"{post_bridge_retry.MAX_ATTEMPTS} attempts "
+                    f"(the violation was carried back to the model on "
+                    f"each retry): {violation}")
+            print(f"  Post-bridge rejected attempt {attempt} for "
+                  f"{node_id}, carrying the violation back to the model: "
+                  f"{violation.splitlines()[0][:200]}", file=sys.stderr)
+            _logger = get_logger()
+            if _logger:
+                _logger.log(step_id=node_id,
+                            event_type="post_bridge_rejection",
+                            error=violation,
+                            detail={"attempt": attempt,
+                                    "of": post_bridge_retry.MAX_ATTEMPTS})
+            retry_feedback += post_bridge_retry.feedback_block(
+                violation, attempt)
+            continue
+
+        # Ensure bridge outputs are preserved if post-bridge didn't explicitly return them
+        result = dict(pre_output)
+        if isinstance(final, dict):
+            result.update(final)
+        return result
+
+    raise PostBridgeError(
+        f"Post-bridge for {node_id} neither succeeded nor failed within "
+        f"{post_bridge_retry.MAX_ATTEMPTS} attempts")
 
 
 # Steps whose output is allowed to say "I could not run" without stopping
@@ -1986,11 +2056,29 @@ def run_pipeline(
     # itself, so a reader that never saw the command line - the Resolve
     # panel, the dashboard, the captain tomorrow - can tell what this run
     # was configured to do and where it meant to stop.
+    # The previous run's account of itself is read BEFORE it is
+    # replaced.  A run that halted on a contract violation and was
+    # re-run 49 seconds later used to leave a status file describing one
+    # clean pass; the restart now goes on the status file, on the
+    # provenance run record and on the state file, so a reader of the
+    # OUTPUTS sees it. See library/tools/run_restart.py.
+    # A fresh collector per run: the runner is a process, but the
+    # dashboard and the tests drive `run_pipeline` more than once inside
+    # one, and a declaration from the previous run is not this run's.
+    undetermined.reset()
+    _previous_status = run_control.read_run_status(project_dir)
+    _restart = run_restart.classify(_previous_status, state)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
                                  argv=sys.argv[1:],
                                  profile=active_profile,
-                                 breakpoints=gates.as_record(steps_to_run))
+                                 breakpoints=gates.as_record(steps_to_run),
+                                 state=state)
     print(f"  Mode: {run_mode}", file=sys.stderr)
+    for _line in run_restart.summary_lines(_restart):
+        print(_line, file=sys.stderr)
+    if _restart.is_restart:
+        run_restart.append_to_state(state, _restart)
+        save_pipeline_state(project_dir, state)
 
     # This run's identity, and the ledger every artifact it writes is
     # recorded against. `run_control` owns the handbrake protocol and
@@ -1998,7 +2086,9 @@ def run_pipeline(
     # which outlives the run by a lot. See library/tools/provenance.py.
     _run_id = provenance.new_run_id()
     _provenance = provenance.ProvenanceLedger(project_dir)
-    _provenance.start_run(_run_id, mode=run_mode)
+    _provenance.start_run(
+        _run_id, mode=run_mode,
+        restart=run_restart.as_record(_restart) if _restart.is_restart else None)
     _steps_this_run = []
     print(f"  Run:  {_run_id}", file=sys.stderr)
 
@@ -2556,11 +2646,32 @@ def run_pipeline(
         print(f"  WARNING: could not read the passage alignment report: "
               f"{exc}", file=sys.stderr)
 
+    # What the creative steps said they could NOT determine from the
+    # material they were routed.  Printed after `status` is decided, and
+    # recorded onto the state file so an audit of the outputs sees it
+    # without the process that collected it.  It is a demand signal, not
+    # a verdict: nothing here fails or assigns.
+    # See library/tools/undetermined.py.
+    undetermined_records = []
+    try:
+        for _line in undetermined.summary_lines():
+            print(f"  {_line}", file=sys.stderr)
+        undetermined_records = undetermined.as_records()
+        if undetermined_records:
+            state["undetermined_declarations"] = undetermined_records
+            save_pipeline_state(project_dir, state)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the step declarations: {exc}",
+              file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
     summary = {
         "status": status,
+        "undetermined_declarations": undetermined_records,
+        "restart": (run_restart.as_record(_restart)
+                    if _restart.is_restart else None),
         "qa_findings": qa_summary,
         "rough_cut_review_findings": review_findings,
         "passage_alignment": alignment_summary,

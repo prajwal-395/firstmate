@@ -172,6 +172,35 @@ The run summary reports `SUCCESS` only when the whole DAG is complete and `faile
 - `failed_steps` is current state, not a log: a step that later succeeds is removed from it.
 - **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** Never drop one: going quiet about a recorded failure is what `failed_steps` exists to prevent. 
 
+### A run that was RESTARTED says so, in its own outputs
+
+One enumeration, `library/tools/run_restart.py`. `begin_run_status` used to replace `pipeline_run.json` wholesale, so the outgoing account of how a run ended was overwritten by the run that followed it: 001's 29 Aug run halted on the spine contract and was re-run 49 seconds later, and nothing a reader of the OUTPUTS opens recorded it.
+
+- The previous account is READ before it is replaced, and the classification is off what a file SAYS. `interrupted` (no ending was ever written) is a different claim from `after_failure` (an ending was written saying FAILED); a predecessor this cannot see is `unknown`, never `clean`. A clean predecessor is not a restart at all.
+- **The status file records THAT a run failed; `pipeline_data.json` records WHAT it failed on.** The cause is read out of `step_errors`, never inferred from the status.
+- It lands three places - `pipeline_run.json` (`restart` plus a bounded `run_history`), the provenance run record, and `state["run_restarts"]` - because the complaint was that the outputs did not carry it.
+- **A restart already on disk can be RECONSTRUCTED, but its cause cannot.** `reconstruct_from_ledger` reads consecutive provenance run records; every row carries `cause: ""`, because the state file that held the words was overwritten by the run that followed.
+- `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/test_run_restart_is_recorded.py`.
+
+### A step says what it could not determine
+
+One enumeration, `library/tools/undetermined.py`. Across all nine model responses of 001's 29 Aug run there is exactly ONE hedge; nothing invited the models to declare their own gaps, so "where are the bottlenecks" had no demand signal to read.
+
+- The nine steps that reach a model are asked for `could_not_determine` in the RENDERED schema, with the instruction carried as DATA beside the context (the `CUTS_LEGEND`/`MEASUREMENT_LEGEND` route, because the handoffs are frozen). **All nine, not a subset**: choosing a subset answers, in advance and from outside, the question the field exists to collect data for.
+- **THREE readings, not two.** `[]` is `nothing_missing` - a complete answer; an absent key is `not_declared` - a non-answer, recorded as one and never read as "nothing was missing". Same line as `usable_ranges` `[]`/`unmeasured` (§10.3).
+- **The field is SPLIT OUT of the answer** before anything validates or reads it: it is a demand signal, not one of the step's outputs, and `validate_step_output` refuses an unexpected key.
+- **It reports and never gates.** The run summary prints it after `status` is decided and it lands on `state["undetermined_declarations"]`. Nothing reads a declaration's CONTENT - whatever picks which gaps matter becomes the reviewer (§10.4).
+- `tests/test_undetermined_declaration.py`.
+
+### A contract rejection reaches the model that caused it
+
+One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a retry-with-feedback path, but `PostBridgeError` is raised from `run_hybrid_step` AFTER it returns, so the one failure class that most needs feedback bypassed it. On 001's 29 Aug run both `mesh_spine` attempts logged raw 247,336 -> projected 4,911 -> toon 4,070: a BYTE-IDENTICAL context. Recovery from a contract violation was resampling until something passed.
+
+- The violation is carried into the retry context by the QA path's own plumbing - `present_llm_step(retry_feedback=...)` seeds `current_context` - so it reaches the archived request file the same way QA feedback does. **Extend that path; do not build a second one.**
+- **The retry is BOUNDED at `MAX_ATTEMPTS` model calls**, and at the bound the step FAILS carrying the last violation rather than proceeding on a best attempt: a rejected post-bridge means the downstream contract is unsatisfied and there is no partial output to proceed with.
+- Feedback blocks ACCUMULATE, each elided to `MAX_VIOLATION_CHARS` from the middle, so a model that failed twice the same way sees that it did and the context still grows by a fixed, small amount.
+- `tests/test_post_bridge_rejection_reaches_the_model.py`.
+
 ## 4. Dashboard
 
 

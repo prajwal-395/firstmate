@@ -158,6 +158,13 @@ class RunRecord:
     steps: list = field(default_factory=list)
     ended_at: str = ""
     status: str = ""
+    restart: dict | None = None
+    """How the run BEFORE this one ended, when it did not end cleanly.
+
+    None on a run that followed a clean one, and on every run recorded
+    before this field existed - which is not the same claim, and
+    `run_restart.reconstruct_from_ledger` is what answers for those.
+    """
 
 
 def new_run_id(now=None, pid=None) -> str:
@@ -310,10 +317,11 @@ class ProvenanceLedger:
 
     # ── Runs ────────────────────────────────────────────────────────
 
-    def start_run(self, run_id: str, mode: str = "") -> RunRecord:
+    def start_run(self, run_id: str, mode: str = "",
+                  restart: dict | None = None) -> RunRecord:
         rec = RunRecord(run_id=run_id,
                         started_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        mode=mode)
+                        mode=mode, restart=restart)
         self._append(RUNS_FILE, asdict(rec))
         return rec
 
@@ -336,7 +344,8 @@ class ProvenanceLedger:
                 continue
             cur = merged.setdefault(rid, {"run_id": rid, "started_at": "",
                                           "mode": "", "steps": [],
-                                          "ended_at": "", "status": ""})
+                                          "ended_at": "", "status": "",
+                                          "restart": None})
             for k, v in row.items():
                 if v:
                     cur[k] = v
