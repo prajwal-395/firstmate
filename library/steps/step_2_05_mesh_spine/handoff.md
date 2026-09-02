@@ -54,7 +54,7 @@ construct the complete audio spine.
 
 | Type | Description | Music Behavior |
 |------|-------------|---------------|
-| `hook` | Opening attention-grabber (1-3s speech snippet) | prominent or background |
+| `hook` | Opening attention-grabber (a speech passage) | prominent or background |
 | `intro` | Music + visual moment before speech (no speech) | prominent |
 | `speech` | Contiguous spoken A-roll audio | background (music under) |
 | `transition_slot` | Non-speech moment for B-roll + music | prominent |
@@ -156,9 +156,13 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 Every `hook` or `speech` block MUST include `content.passage_ref` which
 links back to the speech_sequence passage it came from:
-- For the hook block: `"passage_ref": "hook"`
-- For body speech blocks: `"passage_ref": <position>` matching the
-  passage's `position` field from the speech_sequence body_sequence
+- `"passage_ref": <position>` matching that passage's `position` field in
+  the speech_sequence `body_sequence`.
+
+There is no other way to name a passage. A block that OPENS the video is
+addressed exactly like every other one - by the position of the passage
+step 2.2 gave it. Which passage opens is your decision, made here; step
+2.2 hands you an ordered sequence and names no opener.
 
 This linkage is how the post-bridge injects the block's clip_id, source
 range, word_timestamps and execution-layer timing data. A `hook`/`speech`
@@ -170,7 +174,7 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 
 ## Evaluation Criteria
 
-1. **Structural completeness**: Starts with hook, has speech, has ending
+1. **Structural completeness**: Has speech and has a defined ending
 2. **Pacing variety**: Not a monotone monologue — transition slots and
    music moments create breathing room
 3. **Energy arc coherence**: The spine follows the creative direction's

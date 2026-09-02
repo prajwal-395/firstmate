@@ -125,7 +125,8 @@ def test_the_refusal_question_is_recorded_not_answered():
     """
     assert "captain" in THE_REFUSAL_QUESTION or "Not settled" in THE_REFUSAL_QUESTION
     spec, _ = _run([{"target_block_position": 7, "effect_type": "glitch",
-                     "intensity": "subtle", "rationale": "x"}])
+                     "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+                     "rationale": "x"}])
     assert spec["visual_effects"] == []
     assert spec["planning_basis"]["basis"] == "every_entry_dropped"
 
@@ -150,21 +151,19 @@ def test_a_plan_the_model_left_empty_says_so():
 def test_a_plan_whose_every_entry_was_dropped_says_that_instead():
     spec, stderr = _run([
         {"target_block_position": 14, "effect_type": "slow_zoom",
-         "intensity": "subtle", "rationale": "a"},
+         "params": {}, "rationale": "a"},
         {"target_block_position": 7, "effect_type": "glitch",
-         "intensity": "moderate", "rationale": "b"},
+         "params": {}, "rationale": "b"},
         {"target_block_position": 99, "effect_type": "slow_zoom_in",
-         "intensity": "subtle", "rationale": "c"},
-        {"target_block_position": 15, "effect_type": "slow_zoom_in",
-         "intensity": "gentle", "rationale": "d"},
+         "params": {}, "rationale": "c"},
     ])
     assert spec["visual_effects"] == []
     basis = spec["planning_basis"]
     assert basis["basis"] == "every_entry_dropped"
-    assert basis["proposed"] == 4 and basis["resolved"] == 0
+    assert basis["proposed"] == 3 and basis["resolved"] == 0
     assert [d["reason"] for d in basis["dropped"]] == [
         "withdrawn_alias", "unknown_effect_type",
-        "not_a_spine_block", "unknown_intensity",
+        "not_a_spine_block",
     ]
     for drop in basis["dropped"]:
         assert drop["detail"], "a drop states its own sentence"
@@ -175,7 +174,8 @@ def test_the_two_empty_plans_are_not_the_same_bytes():
     """The whole point, stated as the comparison that used to fail."""
     chosen, _ = _run([])
     dropped, _ = _run([{"target_block_position": 7,
-                        "effect_type": "glitch", "intensity": "subtle",
+                        "effect_type": "glitch",
+                        "params": {"zoom_start": 1.0},
                         "rationale": "x"}])
     assert chosen["visual_effects"] == dropped["visual_effects"] == []
     assert json.dumps(chosen, sort_keys=True) != json.dumps(dropped, sort_keys=True)
@@ -184,9 +184,10 @@ def test_the_two_empty_plans_are_not_the_same_bytes():
 def test_a_partly_dropped_plan_is_planned_and_names_its_casualties():
     spec, _ = _run([
         {"target_block_position": 14, "effect_type": "slow_zoom_in",
-         "intensity": "subtle", "rationale": "the one long static hold"},
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+         "rationale": "the one long static hold"},
         {"target_block_position": 7, "effect_type": "glitch",
-         "intensity": "moderate", "rationale": "b"},
+         "params": {"zoom_start": 1.0, "zoom_end": 1.04}, "rationale": "b"},
     ])
     basis = spec["planning_basis"]
     assert basis["basis"] == "planned"
@@ -198,9 +199,9 @@ def test_a_partly_dropped_plan_is_planned_and_names_its_casualties():
 def test_a_fully_resolved_plan_drops_nothing():
     spec, _ = _run([
         {"target_block_position": 14, "effect_type": "slow_zoom_in",
-         "intensity": "subtle", "rationale": "a"},
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03}, "rationale": "a"},
         {"target_block_position": 7, "effect_type": "zoom_emphasis",
-         "intensity": "subtle", "rationale": "b"},
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03}, "rationale": "b"},
     ])
     basis = spec["planning_basis"]
     assert basis == {"basis": "planned", "proposed": 2, "resolved": 2,
@@ -227,7 +228,8 @@ def test_the_record_carries_no_creative_value():
     verbatim echo of what the planner asked for.
     """
     spec, _ = _run([{"target_block_position": 7, "effect_type": "glitch",
-                     "intensity": "moderate", "rationale": "x"}])
+                     "params": {"zoom_start": 1.0, "zoom_end": 1.04},
+                     "rationale": "x"}])
     drop = spec["planning_basis"]["dropped"][0]
     assert drop["effect_type"] == "glitch"
     assert drop["target_block_position"] == 7

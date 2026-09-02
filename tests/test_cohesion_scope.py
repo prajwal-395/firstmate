@@ -125,7 +125,14 @@ SPINE_60S = {"structure": [
 
 
 def _review_with_every_finding():
-    """One input that fires all three findings at once."""
+    """One input that fires every finding the step can still make.
+
+    The sequence opens on a passage the model ranked third and its
+    strongest is last - two ORDERINGS disagreeing, which is the whole of
+    what the engagement observation reads since the closed role
+    vocabulary and the 0-100 composite were withdrawn (captain,
+    2026-09-02).
+    """
     return review_creative_cohesion({
         "creative_direction": {"target_energy": "high"},
         "transition_spec": [
@@ -133,13 +140,13 @@ def _review_with_every_finding():
         "sfx_spec": [],
         "audio_spine": SPINE_60S,
         "speech_sequence": {
-            "hook_segment": {
-                "clip_id": "clip_002", "source_start": 1.0, "source_end": 3.0,
-                "engagement": {"rank": 3, "composite": 55, "basis": "a tease"}},
             "body_sequence": [
+                {"clip_id": "clip_002", "source_start": 1.0,
+                 "source_end": 3.0,
+                 "engagement": {"rank": 3, "basis": "a tease"}},
                 {"clip_id": "clip_016", "source_start": 48.065,
                  "source_end": 52.0,
-                 "engagement": {"rank": 1, "composite": 92,
+                 "engagement": {"rank": 1,
                                 "basis": "the floor of the piece"}}],
         },
     })
@@ -309,3 +316,5 @@ def test_the_review_step_emits_the_basis():
     })
     assert review["adjustments"] == []
     assert review["adjustments_basis"]["basis"] == "no_proposal_was_made"
+
+

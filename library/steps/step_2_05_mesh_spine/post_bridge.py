@@ -55,13 +55,19 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     """
     structure = spine.get("structure", [])
 
-    # Build lookup: passage position → resolved passage data
+    # Build lookup: passage position → resolved passage data.
+    #
+    # `position` is the ONLY name a spine block may reference. Step 2.2
+    # emits one ordered `body_sequence` and names no opener: the closed
+    # role vocabulary, and the separately mandated `hook_segment` it used
+    # to address as the literal `"hook"`, were withdrawn on the captain's
+    # ruling of 2026-09-02. Which passage opens the video is decided HERE,
+    # by putting it in a `hook` block - and that block references its
+    # passage by position like every other one.
     passage_lookup = {}
-    if speech_sequence.get("hook_segment"):
-        passage_lookup["hook"] = speech_sequence["hook_segment"]
     for p in speech_sequence.get("body_sequence", []):
         pos = p.get("position")
-        if pos:
+        if pos is not None:
             passage_lookup[pos] = p
 
     enriched_blocks = []
@@ -95,9 +101,9 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
             if passage is None:
                 unresolved.append(
                     f"block position {block.get('position')!r} references "
-                    f"passage_ref {passage_ref!r}, which is not in the "
-                    f"speech_sequence (available: "
-                    f"{sorted(passage_lookup, key=str)})"
+                    f"passage_ref {passage_ref!r}, which is not a "
+                    f"position in the speech_sequence body_sequence "
+                    f"(available: {sorted(passage_lookup, key=str)})"
                 )
                 continue
 
@@ -211,7 +217,7 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
         b["timeline_start_frame"] = start_f
         b["timeline_end_frame"] = end_f
         b["duration_frames"] = end_f - start_f
-        
+
     frame_cursor = enriched_blocks[-1]["timeline_end_frame"] if enriched_blocks else 0
 
     # Recalculate total duration from enriched blocks
@@ -264,12 +270,6 @@ def main():
         # Generate dummy structure for auto mode
         seq = data.get("speech_sequence", {})
         dummy_struct = []
-        if seq.get("hook_segment"):
-            dummy_struct.append({
-                "position": "hook",
-                "block_type": "hook",
-                "content": {"passage_ref": "hook"}
-            })
         for i, p in enumerate(seq.get("body_sequence", [])):
             dummy_struct.append({
                 "position": p.get("position", f"body_{i+1}"),

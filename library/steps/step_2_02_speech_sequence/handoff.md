@@ -50,32 +50,21 @@ speech sequence for the video.
 
 ### What to produce:
 
-**Hook segment**: The opening attention-grabber — a 1-3 second speech snippet
-pulled from the most compelling moment. This CAN be a snippet of a passage
-that also appears in the body (common shortform technique: tease a moment,
-then play it in full context later). It may not BE that passage: a body
-passage covering essentially the same source range as the hook is dropped
-by the bridge, because the video would open with a line and replay it
-verbatim moments later.
-
 **Body sequence**: Ordered list of speech passages forming the narrative arc.
 Each passage needs:
 - clip_id (which clip it's from)
 - text (exact verbatim words from the temporal index transcript)
 - source_start / source_end (source timestamps from the temporal index)
-- role ("opening" | "development" | "climax" | "resolution")
+- role (describe the structural function of this passage in your own words, e.g. "hook", "development", "punchline")
 - flow_note (how this passage connects to the next)
 - engagement (how strongly this passage holds a viewer, judged ONLY
-  against the other passages in this sequence - rank the hook segment
-  in the same ordering, and give it this field too):
-  `{"rank": 1..N, 1 is the strongest, no ties; "composite": 0-100;
+  against the other passages in this sequence - rank the hook
+  in the same ordering):
+  `{"rank": 1..N, 1 is the strongest, no ties;
   "basis": "one sentence naming what makes it strong or weak"}`.
-  If you genuinely cannot judge a passage, set `rank` and `composite`
-  to null and say why in `basis`. An unjudged passage must read as
-  unjudged, never as a low score.
-
-The hook segment needs the same `clip_id`, `text`, `source_start` and
-`source_end` fields.
+  If you genuinely cannot judge a passage, set `rank` to null
+  and say why in `basis`. An unjudged passage must read as
+  unjudged.
 
 ### Timestamp resolution:
 For each passage you select, look up the `transcripts_toon` data for that
@@ -160,7 +149,6 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 |-----------|-------|
 | Target body passages | However many the duration limit above and the creative direction call for. There is no count to hit. |
 | Target total duration| Should serve the creative direction; if project_config sets a target, respect it |
-| Hook duration target | 1-3 seconds (per style spec) |
 | Default sequence order | Chronological source_order |
 
 ---

@@ -61,7 +61,6 @@
         "type": "object",
         "description": "State output: speech_sequence",
         "expected_schema": {
-          "hook_segment": "object",
           "body_sequence": "list",
           "excluded_passages": "list"
         }

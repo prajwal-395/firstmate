@@ -181,12 +181,18 @@ def test_a_composition_renders_to_the_path_the_compiler_reads():
 # ─────────────────────────────────────────────────────────
 
 def _speech_spine():
+    # The opening block references its passage by POSITION, like every
+    # other block.  Step 2.2 emits one ordered body_sequence and names no
+    # opener - the `hook_segment` this fixture used to address as the
+    # literal "hook" was withdrawn with the closed role vocabulary on the
+    # captain's ruling of 2026-09-02.  Which passage opens is decided in
+    # mesh_spine, by which passage the `hook` BLOCK points at.
     return {
         "structure": [
             {"position": "hook", "block_type": "hook",
-             "content": {"passage_ref": "hook"}, "duration_seconds": 3.0},
+             "content": {"passage_ref": 1}, "duration_seconds": 3.0},
             {"position": 1, "block_type": "speech",
-             "content": {"passage_ref": 1}, "duration_seconds": 4.0},
+             "content": {"passage_ref": 2}, "duration_seconds": 4.0},
         ],
         "frame_rate": 30.0,
     }
@@ -194,14 +200,14 @@ def _speech_spine():
 
 def _speech_sequence():
     return {
-        "hook_segment": {
-            "clip_id": "clip_001", "source_start": 1.234, "source_end": 4.234,
+        "body_sequence": [{
+            "position": 1, "clip_id": "clip_001",
+            "source_start": 1.234, "source_end": 4.234,
             "text": "what even is today?", "alignment_method": "whisperx",
             "word_timestamps": [
                 {"word": "what", "source_start": 1.234, "source_end": 1.9}],
-        },
-        "body_sequence": [{
-            "position": 1, "clip_id": "clip_001",
+        }, {
+            "position": 2, "clip_id": "clip_001",
             "source_start": 10.111, "source_end": 14.111,
             "text": "a small announcement", "alignment_method": "whisperx",
             "word_timestamps": [

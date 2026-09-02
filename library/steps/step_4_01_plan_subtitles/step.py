@@ -16,7 +16,7 @@ Idempotent: Yes
 
 Input:  {
     "audio_spine": { structure: [...] },
-    "speech_sequence": { hook_segment, body_sequence (with word_timestamps) }
+    "speech_sequence": { body_sequence (with word_timestamps) }
 }
 Output: { "subtitle_entries": [...], "total_subtitles": int }
 """

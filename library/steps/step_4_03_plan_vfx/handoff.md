@@ -30,18 +30,34 @@ apply. Focus on talking head clips that need subtle movement.
 
 ### Effect toolkit:
 
-Every effect takes exactly one parameter: `intensity`, one of `subtle`,
-`moderate` or `strong`. The bridge turns that into the concrete Fusion
-parameters — do not send zoom percentages, pixel counts or durations, they
-have no reader.
+Every effect carries a `params` object, and the VALUES in it are yours.
+How far a drift travels, how hard a shake hits and how tight a reframe
+sits are the decisions this step exists to make: there is no scale to
+pick from, no default, and no ceiling.
 
-| Type | When to use |
-|------|------------|
-| `slow_zoom_in` | Gradual drift inward - adds life to static holds |
-| `slow_zoom_out` | Gradual drift outward - the reverse, alternate for variety |
-| `zoom_emphasis` | Key words/moments — punches in and settles back |
-| `screen_shake` | Emphasis moments - an impact that settles |
-| `cut_in` | Tighter framing held for the shot — simulates multi-cam |
+What is NOT yours is the parameter NAMES. The renderer dispatches on
+them, so a name it does not read draws nothing and reports nothing - the
+plan would record an effect the viewer never sees. Use the names in the
+table; an entry whose `params` name none of them is dropped, with the
+reason, rather than passed on to draw nothing.
+
+| Type | When to use | Parameter names |
+|------|------------|-----------------|
+| `slow_zoom_in` | Gradual drift inward - adds life to static holds | `zoom_start`, `zoom_end`, optional `pan_end` |
+| `slow_zoom_out` | Gradual drift outward - the reverse, alternate for variety | `zoom_start`, `zoom_end`, optional `pan_end` |
+| `zoom_emphasis` | Key words/moments — punches in and settles back | `zoom_start`, `zoom_mid`, `zoom_end` (the mid point is the punch) |
+| `screen_shake` | Emphasis moments - an impact that settles | `shake_x`, `shake_y` (a FRACTION of frame width), `shake_decay_frames` (modifies the shake; draws nothing alone) |
+| `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
+
+A zoom value of `1.0` is the untouched frame; above it is tighter, below
+it is wider.
+
+One MECHANICAL refusal applies, and it is not a taste bound: the comp
+builder rejects an ANIMATED Transform Size whose peak exceeds 1.04
+(`library/tools/fusion/nodes.py`, AGENTS.md §5) because of what it does
+to the .comp file, and it refuses rather than clamping. A HELD reframe -
+`cut_in`, where all three points carry the same value - is not animated
+and is not bounded by it.
 
 **DaVinci Resolve Built-in Fusion Effects Vocabulary (143 presets):**
 You can use any of the built-in Fusion effects listed below by providing their exact snake_case name as the `effect_type`.

@@ -137,7 +137,6 @@
     "-audio_spine.music_selection.candidates_evaluated",
     "-audio_spine.music_selection.direction_justification.why_not_forbidden",
     "speech_sequence",
-    "-speech_sequence.hook_segment.word_timestamps",
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.alignment_report",
     "view:alignment"

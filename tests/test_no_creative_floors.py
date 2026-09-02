@@ -385,7 +385,7 @@ def _vfx_payload(positions, n_blocks=4):
             {
                 "target_block_position": pos,
                 "effect_type": "slow_zoom_in",
-                "intensity": "subtle",
+                "params": {"zoom_start": 1.0, "zoom_end": 1.03},
                 "rationale": "the shot is held long enough to go dead",
             }
             for pos in positions
@@ -561,13 +561,18 @@ def test_nothing_scales_the_sfx_plan_by_energy():
 #
 # The other half of the captain's 2026-08-26 ruling: the pipeline never
 # invents a creative judgement on the model's behalf. A plan entry that
-# names no effect, no intensity, no sound or no level is DROPPED with the
-# reason, never completed from a constant.
+# names no effect, no parameter the renderer reads, no sound or no level
+# is DROPPED with the reason, never completed from a constant.
 
 CREATIVE_SUBSTITUTIONS = [
     # (file, the literal that must not be a fallback, what it decided)
     (VFX / "post_bridge.py", '"effect_type", "slow_zoom_in"',
      "which effect a block gets"),
+    # The `INTENSITY_MAP` that resolved subtle|moderate|strong into fixed
+    # zoom numbers is REMOVED (captain, 2026-09-02): a scale of three is
+    # still the engine choosing how strong an effect is, and its ceiling
+    # cited AGENTS.md, which this step never reads. The values are the
+    # plan's; only the parameter NAMES are checked.
     (VFX / "post_bridge.py", '"intensity", "moderate"',
      "how strong that effect is"),
     (SFX / "post_bridge.py", '"sfx_type", "whoosh"',
@@ -610,7 +615,8 @@ def test_plan_vfx_drops_an_entry_that_names_no_effect():
     """No effect_type used to mean `slow_zoom_in`."""
     payload = _vfx_payload([])
     payload["vfx_creative"] = [
-        {"target_block_position": 1, "intensity": "subtle",
+        {"target_block_position": 1,
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03},
          "rationale": "the shot is held"}
     ]
     proc = _run_bridge(VFX / "post_bridge.py", payload)
@@ -619,22 +625,6 @@ def test_plan_vfx_drops_an_entry_that_names_no_effect():
         "an entry naming no effect was completed from a constant"
     )
     assert "names no effect_type" in proc.stderr
-
-
-def test_plan_vfx_drops_an_entry_that_names_no_intensity():
-    """No intensity, and an unrecognised one, both used to mean
-    "moderate"."""
-    for entry in (
-        {"target_block_position": 1, "effect_type": "slow_zoom_in"},
-        {"target_block_position": 1, "effect_type": "slow_zoom_in",
-         "intensity": "quite strong actually"},
-    ):
-        payload = _vfx_payload([])
-        payload["vfx_creative"] = [entry]
-        proc = _run_bridge(VFX / "post_bridge.py", payload)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        effects = json.loads(proc.stdout)["enhancement_spec"]["visual_effects"]
-        assert effects == [], f"intensity was substituted for {entry}"
 
 
 def test_plan_sfx_refuses_an_entry_that_names_no_playable_sound(sfx_library):

@@ -10,49 +10,11 @@ from library.tools import cohesion_scope
 from library.tools.creative_direction import direction_value
 from library.tools.passage_engagement import (
     NO_ENGAGEMENT_BASIS,
-    engagement_of,
     engagement_rank,
     unjudged_summary,
 )
 from library.tools.timeline_duration import measure_timeline_duration
 from library.tools.transition_vocabulary import is_cut
-
-def engagement_score(passage) -> float:
-    """The composite engagement of one passage, or None if it has none.
-
-    One reader: library/tools/passage_engagement.py. Kept as a name here
-    because this step is where the gate lives.
-    """
-    return engagement_of(passage)
-
-
-# Sub-millisecond slop is float noise, not a shared moment.
-_SOURCE_EPSILON = 1e-3
-
-
-def _is_the_hooks_moment(hook, passage) -> bool:
-    """Is this body passage the moment the hook was cut from?
-
-    The hook is meant to tease a body passage - `_drop_hook_duplicates`
-    in step 2.02 allows exactly that and only forbids the hook BEING the
-    passage. So a hook teasing the strongest line is the technique
-    working, and reporting it as a buried peak would be a finding that
-    fires on a correct edit (AGENTS.md 10.4).
-
-    Same clip, overlapping source audio. Anything the passages do not
-    carry answers no, which leaves the finding to fire - an unknown is
-    not an exemption.
-    """
-    if not isinstance(hook, dict) or not isinstance(passage, dict):
-        return False
-    if not hook.get("clip_id") or hook.get("clip_id") != passage.get("clip_id"):
-        return False
-    try:
-        h_start, h_end = float(hook["source_start"]), float(hook["source_end"])
-        p_start, p_end = float(passage["source_start"]), float(passage["source_end"])
-    except (KeyError, TypeError, ValueError):
-        return False
-    return h_start < p_end - _SOURCE_EPSILON and h_end > p_start + _SOURCE_EPSILON
 
 
 def _passage_label(passage, index) -> str:
@@ -71,17 +33,6 @@ def _passage_label(passage, index) -> str:
             where += ")"
     return where
 
-
-def _composite_note(top_passage, hook) -> str:
-    """The two composites, reported beside the finding and never firing it.
-
-    A number the model wrote is worth showing a reader; measured spread
-    is why it is not the thing compared.
-    """
-    top, hook_score = engagement_of(top_passage), engagement_of(hook)
-    if top is None or hook_score is None:
-        return ""
-    return f" (composite {top:g} against the hook's {hook_score:g})"
 
 
 def review_creative_cohesion(inputs: dict) -> dict:
@@ -203,17 +154,30 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # not. The composite is REPORTED beside the finding for magnitude and
     # is never what fires it.
     #
-    # A hook that teases the top-ranked passage is the shortform
-    # technique working, not a defect, so the finding fires only when the
-    # strongest passage is a DIFFERENT moment from the hook - which is
-    # the case #246 describes, the piece's own emotional floor landing at
-    # 48.065s of a 59.437s cut with nothing able to weigh it.
+    # It compares TWO ORDERINGS the model itself wrote and nothing else:
+    # the order the passages play in (`body_sequence` is ordered, so the
+    # sequence OPENS with the first one) against the engagement rank. It
+    # fires when the passage ranked strongest is not the one the edit
+    # opens with - the case #246 describes, the piece's own emotional
+    # floor landing at 48.065s of a 59.437s cut with nothing able to
+    # weigh it.
+    #
+    # It named `hook_segment` until 2026-09-02, when the captain
+    # withdrew the closed role vocabulary and the separately mandated
+    # hook along with the composite. What survived by design is the
+    # ORDERING, and this is the whole of what the finding now reads: no
+    # role name, no score, no threshold. "Which passage is strongest" is
+    # a signal and "is passage five better than seven" is not - measured
+    # across three answers to the identical prompt, the two strongest
+    # came back in the same order every time while ranks in the middle
+    # moved by two places (MEASURED_SPREAD in
+    # library/tools/passage_engagement.py) - so only the TOP of the
+    # ordering is compared.
     #
     # It is an OBSERVATION, not an adjustment. Re-ordering the narrative
     # is step 2.02's decision and eleven steps of timing rest on it; see
     # library/tools/cohesion_scope.py.
     if isinstance(speech_sequence, dict):
-        hook = speech_sequence.get("hook_segment") or {}
         body = speech_sequence.get("body_sequence") or []
         if not isinstance(body, list):
             body = []
@@ -221,16 +185,14 @@ def review_creative_cohesion(inputs: dict) -> dict:
         # State what was NOT judged, on the run that carries it - the
         # same rule `view:prosody` follows. A passage the model declined
         # to judge is a stated absence, never a low score.
-        not_judged = unjudged_summary([hook] + list(body))
+        not_judged = unjudged_summary(list(body))
         if not_judged:
             warnings.append(not_judged)
 
-        hook_rank = engagement_rank(hook)
-        ranked_body = [(engagement_rank(b), i, b)
-                       for i, b in enumerate(body)
-                       if engagement_rank(b) is not None]
+        ranked = [(engagement_rank(b), i, b) for i, b in enumerate(body)
+                  if engagement_rank(b) is not None]
 
-        if hook_rank is None or not ranked_body:
+        if not ranked or engagement_rank(body[0] if body else None) is None:
             # Stated, not silent: an absent judgement is not a defect in
             # the edit, and it produces no finding of any kind.
             warnings.append(
@@ -240,19 +202,22 @@ def review_creative_cohesion(inputs: dict) -> dict:
             # ties and a model can still write one, and comparing the
             # passage dicts that follow would raise rather than choose.
             top_rank, top_index, top_passage = min(
-                ranked_body, key=lambda entry: (entry[0], entry[1]))
-            if top_rank < hook_rank and not _is_the_hooks_moment(hook, top_passage):
-                where = _passage_label(top_passage, top_index)
+                ranked, key=lambda entry: (entry[0], entry[1]))
+            if top_index != 0:
+                opening_rank = engagement_rank(body[0])
                 finding = (
-                    f"Hook ranks {hook_rank} of the sequence; the passage "
-                    f"the model ranked strongest ({top_rank}) is "
-                    f"{where}{_composite_note(top_passage, hook)}")
+                    f"The edit opens on the passage the model ranked "
+                    f"{opening_rank} of the sequence; the passage it "
+                    f"ranked strongest ({top_rank}) is "
+                    f"{_passage_label(top_passage, top_index)}")
                 warnings.append(finding)
                 proposals.append({
                     "target_step": "speech_sequence",
                     "field": "segment_order",
                     "finding": finding,
                 })
+
+
 
     # 3. Duration Warning
     # Check the TIMELINE against the target duration zone. This used to

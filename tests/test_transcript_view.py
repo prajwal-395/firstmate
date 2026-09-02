@@ -251,11 +251,10 @@ def test_the_post_bridge_still_reads_every_word_timing(tmp_path):
         "project_folder": str(project),
         "temporal_index": {"index_dir": str(index_dir)},
         "speech_sequence": {
-            "hook_segment": {
+            "body_sequence": [{
                 "clip_id": "clip_006", "text": CONTRACTION,
                 "source_start": 14.68, "source_end": 16.085,
-            },
-            "body_sequence": [],
+            }],
         },
     }
 
@@ -266,7 +265,7 @@ def test_the_post_bridge_still_reads_every_word_timing(tmp_path):
         env={**os.environ, "PYTHONPATH": str(REPO)},
     )
     assert proc.returncode == 0, proc.stderr
-    hook = json.loads(proc.stdout)["speech_sequence"]["hook_segment"]
+    hook = json.loads(proc.stdout)["speech_sequence"]["body_sequence"][0]
 
     words = [w["word"] for w in hook["word_timestamps"]]
     assert words == ["okay,", "we're", "here,", "we're", "here."], (

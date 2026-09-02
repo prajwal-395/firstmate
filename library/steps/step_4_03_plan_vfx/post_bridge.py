@@ -2,10 +2,10 @@
 """
 Step 4.3 Bridge: Resolve VFX Creative Plan to Execution Data
 
-Takes the LLM's creative VFX selections (effect_type, intensity,
+Takes the LLM's creative VFX selections (effect_type, params,
 target_block_position) and resolves:
 - target_block_position → timeline_start/end from timed spine
-- intensity → concrete zoom parameters from style spec ranges
+- params → checked against the parameter names the renderer reads
 - Optionally: OpenCV motion detection to skip already-dynamic clips
 
 Classification: Deterministic / Data Transformation
@@ -21,56 +21,53 @@ from library.tools.vfx_plan_basis import (
 )
 
 
-# Style spec ranges for VFX parameters.
+# The step's own effect toolkit, and the parameter NAMES each one is
+# drawn from. This is a CAPABILITY statement, not a creative one: it
+# carries no value, no default and no bound. How far a zoom travels and
+# how hard a shake hits are the planner's decisions, and an `INTENSITY_MAP`
+# resolving `subtle|moderate|strong` into fixed numbers here was removed
+# on the captain's ruling of 2026-09-02 - it hardcoded creativity, and it
+# justified its ceiling by citing AGENTS.md, a document this step never
+# reads.
 #
-# EVERY parameter name here must be one the renderer reads. The renderer
-# (library/tools/execution/apply_fusion_comps.py) dispatches on parameter
-# NAMES, so `zoom_percent`, `intensity_px` and `scale_factor` - the names
-# this map used to emit for zoom_emphasis, screen_shake and cut_in - had
-# no reader at all: three of the five advertised effects rendered nothing
-# while the manifest recorded them as planned.
-#
-# AGENTS.md: "NEVER set transition zoom > 1.04". That bound is about
-# transitions between shots; cut_in is a framing change on one
-# shot, which is the whole point of them, so they are not clamped to it.
-INTENSITY_MAP = {
-    # Ken Burns drift across the clip.
-    "slow_zoom_in": {
-        "subtle": {"zoom_start": 1.0, "zoom_end": 1.03},
-        "moderate": {"zoom_start": 1.0, "zoom_end": 1.04},
-        "strong": {"zoom_start": 1.0, "zoom_end": 1.04},
-    },
-    "slow_zoom_out": {
-        "subtle": {"zoom_start": 1.03, "zoom_end": 1.0},
-        "moderate": {"zoom_start": 1.04, "zoom_end": 1.0},
-        "strong": {"zoom_start": 1.04, "zoom_end": 1.0},
-    },
+# What the map DID guarantee has to survive it. The renderer
+# (`library/tools/fusion/comp_builder.build_effect_comp`) dispatches on
+# parameter NAMES, so a plan emitting a name nothing reads produces a comp
+# without that effect in it and NO WARNING (AGENTS.md §10.2) - which is
+# exactly how `zoom_percent`, `intensity_px` and `scale_factor` left three
+# of the five advertised effects rendering nothing while the manifest
+# recorded them as planned. So the names are enumerated here, checked
+# against the renderer's own dispatch by
+# tests/test_vfx_reaches_the_manifest.py, and an entry carrying none of
+# its effect's names is DROPPED with the reason rather than passed on to
+# draw nothing.
+TOOLKIT_PARAMETERS = {
+    # Ken Burns drift across the clip: fx.zoom's start and end, plus an
+    # optional static re-centre. `pan_start` is deliberately ABSENT:
+    # `fx.zoom` accepts it and draws nothing with it - animated Center
+    # drift needs a `Path{}`, which AGENTS.md §5 bans wherever a Merge
+    # exists downstream - so advertising it would be advertising a name
+    # with no reader, which is the whole defect this enumeration exists
+    # to prevent.
+    "slow_zoom_in": ("zoom_start", "zoom_end", "pan_end"),
+    "slow_zoom_out": ("zoom_start", "zoom_end", "pan_end"),
     # Punch in and settle back - fx.zoom's three-point spline, so the
     # emphasis reads as a push rather than a permanent reframe.
-    "zoom_emphasis": {
-        "subtle": {"zoom_start": 1.0, "zoom_mid": 1.03, "zoom_end": 1.0},
-        "moderate": {"zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.0},
-        "strong": {"zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.0},
-    },
-    # fx.shake offsets the frame centre as a FRACTION of frame width, so
-    # the old pixel counts are converted here: 2/3/4 px of a 1080-wide
-    # frame. shake_decay_frames makes it an impact that settles, which is
-    # what the old (unread) duration_frames was asking for.
-    "screen_shake": {
-        "subtle": {"shake_x": 0.00185, "shake_y": 0.00185, "shake_decay_frames": 3},
-        "moderate": {"shake_x": 0.00278, "shake_y": 0.00278, "shake_decay_frames": 4},
-        "strong": {"shake_x": 0.0037, "shake_y": 0.0037, "shake_decay_frames": 5},
-    },
-    # Static reframes: a constant Size on the Transform, held for the clip.
-    "cut_in": {
-        "subtle": {"zoom_start": 1.15, "zoom_mid": 1.15, "zoom_end": 1.15},
-        "moderate": {"zoom_start": 1.25, "zoom_mid": 1.25, "zoom_end": 1.25},
-        "strong": {"zoom_start": 1.4, "zoom_mid": 1.4, "zoom_end": 1.4},
-    },
+    "zoom_emphasis": ("zoom_start", "zoom_mid", "zoom_end"),
+    # fx.shake offsets the frame centre as a FRACTION of frame width.
+    # `shake_x`/`shake_y` are what reach the dispatch; `shake_decay_frames`
+    # MODIFIES the shake they start and draws nothing on its own, which is
+    # why an entry must carry at least one readable name rather than a
+    # particular one.
+    "screen_shake": ("shake_x", "shake_y", "shake_decay_frames"),
+    # A static reframe: a constant Size on the Transform, held for the
+    # clip, so all three points of the spline carry the same value.
+    "cut_in": ("zoom_start", "zoom_mid", "zoom_end"),
     # cut_out: DELETED per captain's ruling 2026-08-17.
     # Superseded by the framing parameter (PR 109); a pull-back is now a
     # lower framing value, so a separate sub-1.0 zoom effect is redundant.
 }
+
 
 # Spellings that mean an existing effect. An alias may only RENAME an
 # effect, never decide one: `push_in` and `zoom_emphasis` are two names
@@ -198,36 +195,21 @@ def resolve_vfx(
         raw_type = vfx.get("effect_type")
         if not raw_type:
             _drop(
-                pos, "", "no_effect_type",
+                pos, raw_type, "no_effect_type",
                 f"Dropped VFX on block {pos!r}: it names no effect_type. "
                 f"No effect is substituted - choose one of "
-                f"{', '.join(sorted(INTENSITY_MAP))}.",
+                f"{', '.join(sorted(TOOLKIT_PARAMETERS))}.",
             )
             covered_positions.discard(str(pos))
             continue
         effect_type = EFFECT_ALIASES.get(raw_type, raw_type)
-        intensity = vfx.get("intensity")
+        params = vfx.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
 
-        # Resolve intensity -> concrete parameters
-        type_map = INTENSITY_MAP.get(effect_type)
-        if type_map:
-            # How strong an effect is is part of the choice. Both a
-            # missing intensity and an unrecognised one used to land on
-            # "moderate", so a typo silently changed the picture.
-            if intensity not in type_map:
-                _drop(
-                    pos, raw_type, "unknown_intensity",
-                    f"Dropped VFX {raw_type!r} on block {pos!r}: "
-                    f"intensity {intensity!r} is not one of "
-                    f"{', '.join(sorted(type_map))}. No intensity is "
-                    f"substituted.",
-                )
-                covered_positions.discard(str(pos))
-                continue
-            params = dict(type_map[intensity])
-        elif effect_type in _builtin_effect_names():
+        if effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.
-            # It takes no intensity parameters.
+            # It is applied whole and takes no parameters.
             params = {}
         elif effect_type in _generator_effect_names():
             # Generator preset: produces pixels from nothing, has no image
@@ -243,10 +225,27 @@ def resolve_vfx(
             )
             covered_positions.discard(str(pos))
             continue
+        elif effect_type in TOOLKIT_PARAMETERS:
+            # The plan supplies the values; this checks only that the
+            # NAMES reach a reader. A name the renderer does not dispatch
+            # on draws nothing and says nothing (AGENTS.md §10.2), so an
+            # entry carrying none of its effect's names is dropped with
+            # the reason rather than recorded as a planned effect the
+            # viewer never sees. Nothing is substituted and no value is
+            # bounded - what a name is set TO is the plan's decision.
+            readable = TOOLKIT_PARAMETERS[effect_type]
+            params = {k: v for k, v in params.items() if k in readable}
+            if not params:
+                _drop(
+                    pos, raw_type, "no_readable_parameters",
+                    f"Dropped VFX {raw_type!r} on block {pos!r}: its "
+                    f"params name nothing the renderer reads. "
+                    f"{raw_type!r} is drawn from "
+                    f"{', '.join(readable)}; nothing is substituted.",
+                )
+                covered_positions.discard(str(pos))
+                continue
         else:
-            # No silent default. An unknown type used to become the
-            # default 3% zoom while keeping its own name, so the manifest
-            # claimed an effect the viewer never saw.
             withdrawn = WITHDRAWN_ALIASES.get(raw_type)
             _drop(
                 pos, raw_type,
@@ -254,8 +253,8 @@ def resolve_vfx(
                 f"Dropped VFX {raw_type!r} on block {pos!r}: "
                 + (f"{withdrawn}. " if withdrawn else "")
                 + f"not in the effect toolkit "
-                f"({', '.join(sorted(INTENSITY_MAP))}) and not a built-in "
-                f"Fusion clip effect",
+                f"({', '.join(sorted(TOOLKIT_PARAMETERS))}) and not a "
+                f"built-in Fusion clip effect",
             )
             covered_positions.discard(str(pos))
             continue
@@ -389,7 +388,7 @@ def main():
     require_keys(data, ["a_roll_assignments"], "step_4_03_plan_vfx/post_bridge.py")
     if "timed_spine" in data and not isinstance(data["timed_spine"], dict):
         raise ValueError("timed_spine must be a dictionary")
-        
+
     creative = data.get("vfx_creative")
     if not creative and "llm_raw_response" in data:
         try:
@@ -397,11 +396,11 @@ def main():
             creative = parsed if isinstance(parsed, list) else parsed.get("vfx_creative", [])
         except Exception:
             creative = data["llm_raw_response"]
-        
+
     if not isinstance(creative, list):
         print(f"  Warning: LLM returned invalid response for plan_vfx. Defaulting to empty list. Response was: {str(creative)[:100]}", file=sys.stderr)
         creative = []
-        
+
     creative = [v for v in creative if isinstance(v, dict)]
 
     spine = data.get("timed_spine", {})

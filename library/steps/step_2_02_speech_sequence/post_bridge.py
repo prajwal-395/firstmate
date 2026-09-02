@@ -52,10 +52,6 @@ class PassageAlignmentError(ValueError):
 # is not the passage the LLM meant - refuse it rather than cut to it.
 MIN_TEXT_OVERLAP = 0.5
 
-# Two ranges on the same clip overlapping by more than this fraction of
-# their union are the same moment.  The hook is allowed to tease a longer
-# body passage (a small IoU); it is not allowed to BE one.
-MAX_HOOK_BODY_IOU = 0.8
 
 # Full-clip text alignment may anchor to a repeated phrase far from where
 # the LLM said the passage was. Beyond this drift, re-align inside the
@@ -743,14 +739,6 @@ def enrich_speech_sequence(
     result = dict(speech_sequence)
     failures = []
 
-    # Enrich hook segment
-    hook = result.get("hook_segment")
-    if hook:
-        try:
-            apply_enrichment(hook, enrich_passage(hook, "Hook"))
-        except PassageAlignmentError as e:
-            failures.append(str(e))
-
     # Enrich body passages
     body = result.get("body_sequence", [])
     aligned_body = []
@@ -779,65 +767,9 @@ def enrich_speech_sequence(
             f"timings:\n  - " + "\n  - ".join(failures)
         )
 
-    result["body_sequence"] = _drop_hook_duplicates(hook, aligned_body, result)
+    result["body_sequence"] = aligned_body
     result["alignment_report"] = alignment_report
     return result
-
-
-def _drop_hook_duplicates(hook: dict, body: list, result: dict) -> list:
-    """Remove body passages that are the same moment as the hook.
-
-    The hook is allowed to tease a longer body passage - that is a
-    deliberate shortform technique.  It is not allowed to be byte-identical
-    to one: that opens the video with a line and replays it verbatim a few
-    seconds later.
-    """
-    if not hook or hook.get("source_start") is None:
-        return body
-
-    hook_clip = hook.get("clip_id")
-    hook_start = hook["source_start"]
-    hook_end = hook["source_end"]
-
-    kept = []
-    for passage in body:
-        if passage.get("clip_id") != hook_clip:
-            kept.append(passage)
-            continue
-
-        overlap = min(hook_end, passage["source_end"]) - max(
-            hook_start, passage["source_start"]
-        )
-        union = max(hook_end, passage["source_end"]) - min(
-            hook_start, passage["source_start"]
-        )
-        iou = overlap / union if union > 0 else 0.0
-
-        if overlap > 0 and iou > MAX_HOOK_BODY_IOU:
-            print(
-                f"  Dropped Body[{passage.get('position')}]: same moment as "
-                f"the hook ({hook_clip} {passage['source_start']:.3f}-"
-                f"{passage['source_end']:.3f}, IoU {iou:.2f}) - the video "
-                f"would open with this line and repeat it verbatim",
-                file=sys.stderr,
-            )
-            result.setdefault("excluded_passages", []).append({
-                "clip_id": hook_clip,
-                "text": passage.get("text", ""),
-                "source_start": passage["source_start"],
-                "source_end": passage["source_end"],
-                "reason_excluded": (
-                    f"duplicate of hook_segment (IoU {iou:.2f})"
-                ),
-            })
-            continue
-
-        kept.append(passage)
-
-    # Renumber so positions stay contiguous after a drop.
-    for i, passage in enumerate(kept, start=1):
-        passage["position"] = i
-    return kept
 
 
 def main():
@@ -865,7 +797,7 @@ def main():
         first = temporal_index[0]
         if isinstance(first, dict) and "index_path" in first:
             ti_dir = os.path.dirname(first["index_path"])
-            
+
     if not ti_dir or not os.path.isdir(ti_dir):
         # Fallback to pipeline_data.json like bridge.py
         project_dir = data.get("project_folder", "")
@@ -878,7 +810,7 @@ def main():
                     ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
             if not ti_dir or not os.path.isdir(ti_dir):
                 ti_dir = str(layout.read_dir(Area.TEMPORAL_INDEX))
-                    
+
     if not ti_dir or not os.path.isdir(ti_dir):
         print(json.dumps({"error": f"Invalid temporal_index.index_dir: {ti_dir}",
                           "step": "2.02_bridge"}))
@@ -891,19 +823,12 @@ def main():
     # Captain's directive 2026-09-02: remove hardcoded creative values.
     body = enriched.get("body_sequence", [])
     total_duration = 0.0
-    hook = enriched.get("hook_segment")
-    if hook:
-        start = hook.get("start_time")
-        end = hook.get("end_time")
-        if start is not None and end is not None:
-            total_duration += (end - start)
-            
     for passage in body:
         start = passage.get("start_time")
         end = passage.get("end_time")
         if start is not None and end is not None:
             total_duration += (end - start)
-            
+
     from library.tools.duration_targets import (
         NO_TARGET_DECLARED, get_target_duration_zone)
     zone = get_target_duration_zone(data)

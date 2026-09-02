@@ -296,16 +296,13 @@ def _summary_creative_direction(name: str, out: dict) -> str:
 
 def _summary_speech_sequence(name: str, out: dict) -> str:
     seq = out.get("speech_sequence", out)
-    hook = seq.get("hook", {})
+    # No separate hook section: the closed role vocabulary and the
+    # mandated `hook_segment` were withdrawn on the captain's ruling of
+    # 2026-09-02, so the sequence is one ordered list and whichever
+    # passage opens the video is simply its first entry.
     body = seq.get("body", [])
     excluded = seq.get("excluded_passages", [])
     lines = [f"# {name}", ""]
-    if hook:
-        lines.append("## Hook")
-        lines.append(f"**Clip**: {hook.get('clip_id', '?')} | "
-                     f"**Time**: {hook.get('start', '?')}s - {hook.get('end', '?')}s")
-        lines.append(f"> {hook.get('text', '')}")
-        lines.append("")
     lines.append("## Body Sequence")
     lines.append("")
     for i, block in enumerate(body):

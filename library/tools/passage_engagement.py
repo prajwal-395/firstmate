@@ -10,37 +10,37 @@ ordering rested on was a constant.
 The scorers are withdrawn rather than repaired, because none of the three
 was reading a measurement this pipeline produces.  `WITHDRAWN_SCORERS`
 records why for each, so nobody re-derives it.  What survived them is the
-READER half: `engagement_of` answers "does this passage carry a score",
-and `NO_ENGAGEMENT_BASIS` is the sentence a reader prints when nothing
-does - which is still the right answer for a sequence that carries no
-judgement, and is why the arithmetic never has to come back.
+READER half, and `NO_ENGAGEMENT_BASIS` is the sentence a reader prints
+when nothing carries a judgement at all - which is still the right answer
+for a sequence that carries none, and is why the arithmetic never has to
+come back.
 
 **A missing measurement must never resolve to a value that reads as a real
-one.**  That is the whole rule this module exists to hold.  `engagement_of`
-returns None - not 0, and not a plausible-looking middle - and every reader
-must say it has no basis rather than compare Nones coerced to zero.
+one.**  That is the whole rule this module exists to hold.
+`engagement_rank` returns None - not 0, and not last - and every reader
+must say it has no basis rather than compare Nones coerced to a number.
 
-Restoring a real signal means a step that MEASURES or JUDGES one and writes
-it onto the passage.  `engagement_of` reads the composite off whatever
-lands there, so a future scored judgement needs no change here.
+**THE ORDERING IS THE WHOLE JUDGEMENT, AND THERE IS NO SCORE.**  The
+captain ruled on 2026-09-02 that the 0-100 composite goes with the closed
+role vocabulary: only the rank ordering was ever consumed, and the number
+beside it was noise that read like magnitude.  So step 2.02's handoff asks
+the model that already reads every passage to place it in ONE ordering
+against the others and to say plainly when it cannot, the shape that lands
+is `{"rank": 1..N, "basis": "one sentence"}`, and this module is the whole
+reading of it - `engagement_rank` for the ordering and `unjudged_summary`
+for the line a reader prints about the passages that were NOT judged.
+`engagement_of`, which read the composite off whatever landed, is GONE
+with the number it read; do not reintroduce a magnitude reader without a
+step that measures one.
 
-That judgement now exists: step 2.02's handoff asks the model that already
-reads every passage to place it in ONE ordering against the others, and to
-say plainly when it cannot.  So the shape that lands is
-`{"rank": 1..N, "composite": 0-100, "basis": "one sentence"}`, and this
-module is the whole reading of it - `engagement_of` for the magnitude,
-`engagement_rank` for the ordering, and `unjudged_summary` for the line a
-reader prints about the passages that were NOT judged.
-
-**Compare RANKS, and only near the top.  The composite is reported, not
-acted on.**  `MEASURED_SPREAD` is the measurement that settles it: three
-answers to the identical prompt, at one revision, against project 001's
-frozen snapshot.  The two strongest passages came back in the same order
-all three times; ranks in the middle of the list moved by up to two
-places, and the composite on those same passages moved by up to twenty
-points.  So "which passage is strongest" is a real signal and "is passage
-five better than passage seven" is not, and a reader that gates on the
-number is gating on run-to-run noise.
+**Compare RANKS, and only near the top.**  `MEASURED_SPREAD` is the
+measurement that settles it: three answers to the identical prompt, at one
+revision, against project 001's frozen snapshot.  The two strongest
+passages came back in the same order all three times; ranks in the middle
+of the list moved by up to two places, and the composite on those same
+passages - before it was withdrawn - moved by up to twenty points.  So
+"which passage is strongest" is a real signal and "is passage five better
+than passage seven" is not.
 """
 
 # Why each scorer is withdrawn, in the terms of what it actually read.
@@ -94,6 +94,8 @@ MEASURED_SPREAD = {
     "rank_1_identical_across_all_three": True,
     "rank_2_identical_across_all_three": True,
     "rank_spread": {"min": 0, "median": 2, "max": 2},
+    # Recorded as history: the composite is WITHDRAWN (captain,
+    # 2026-09-02).  This is the spread that made it noise.
     "composite_spread": {"min": 1, "median": 7, "max": 20},
     "note": (
         "The selection itself moves between answers at ONE revision - "
@@ -103,35 +105,11 @@ MEASURED_SPREAD = {
     ),
 }
 
-# What a reader says instead of comparing scores that are not there.
+# What a reader says instead of comparing judgements that are not there.
 NO_ENGAGEMENT_BASIS = (
-    "no passage carries an engagement score, and the pipeline measures "
+    "no passage carries an engagement rank, and the pipeline measures "
     "none: see library/tools/passage_engagement.py"
 )
-
-
-def engagement_of(passage) -> float:
-    """The composite engagement of one passage, or None if it has none.
-
-    None means "not measured".  Callers must report that, never coerce it
-    to 0 - a hook that scored nothing is not a hook that scored zero, and
-    the gate in step 5.03 read exactly that way for months.
-
-    Both shapes are accepted: the `{rank, composite, basis}` dict step
-    2.02's handoff asks for, and a bare number, which nothing emits.
-    """
-    if not isinstance(passage, dict):
-        return None
-    value = passage.get("engagement")
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, dict):
-        composite = value.get("composite")
-        if isinstance(composite, (int, float)) and not isinstance(composite, bool):
-            return float(composite)
-    return None
 
 
 def engagement_rank(passage) -> int:
@@ -141,8 +119,8 @@ def engagement_rank(passage) -> int:
     it selected and nothing else, so a rank is only ever comparable
     inside one speech_sequence - never across projects or across runs.
 
-    None means "not judged", exactly as `engagement_of` does, and a
-    reader must say so rather than sort the passage to the bottom.
+    None means "not judged", and a reader must say so rather than sort
+    the passage to the bottom.
     """
     if not isinstance(passage, dict):
         return None
@@ -179,13 +157,14 @@ def is_unjudged(passage) -> bool:
     Distinct from carrying nothing at all.  A passage the model looked at
     and could not place is a stated absence with a reason attached; a
     passage with no `engagement` key was never asked about.  Both read as
-    absent to `engagement_of`, and only this one has something to report.
+    absent to `engagement_rank`, and only this one has something to
+    report.
     """
     if not isinstance(passage, dict):
         return False
     if not isinstance(passage.get("engagement"), dict):
         return False
-    return engagement_of(passage) is None and engagement_rank(passage) is None
+    return engagement_rank(passage) is None
 
 
 def unjudged_summary(passages) -> str:

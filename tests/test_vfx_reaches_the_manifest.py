@@ -101,9 +101,10 @@ def _compile_with(recorded_run, enhancement_spec):
 def test_a_planned_effect_reaches_the_manifest_and_the_comp(recorded_run):
     """End to end: a model answer, through both bridges, into a comp.
 
-    The plan names one block of the recorded spine and one effect from
-    the step's own toolkit, at an intensity the toolkit offers - which is
-    the whole of what the handoff asks a planner for.
+    The plan names one block of the recorded spine, one effect from the
+    step's own toolkit, and its own values under the parameter names the
+    renderer reads - which is the whole of what the handoff asks a
+    planner for.
     """
     _, _, outputs, _ = recorded_run
     block = outputs["mesh_spine"]["audio_spine"]["structure"][0]["position"]
@@ -111,7 +112,7 @@ def test_a_planned_effect_reaches_the_manifest_and_the_comp(recorded_run):
     spec, _ = _plan_through_the_post_bridge(outputs, [{
         "target_block_position": block,
         "effect_type": "slow_zoom_in",
-        "intensity": "subtle",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
         "rationale": "a long static hold that wants a drift",
     }])
 
@@ -166,7 +167,7 @@ def test_an_unbuildable_plan_compiles_too_and_is_told_apart(recorded_run):
     block = outputs["mesh_spine"]["audio_spine"]["structure"][0]["position"]
     spec, _ = _plan_through_the_post_bridge(outputs, [{
         "target_block_position": block,
-        "effect_type": "glitch", "intensity": "subtle",
+        "effect_type": "glitch", "params": {"zoom_start": 1.0, "zoom_end": 1.03},
         "rationale": "an effect the toolkit has not got",
     }])
     assert spec["visual_effects"] == []
@@ -192,7 +193,7 @@ def test_compile_manifest_reads_the_basis_and_names_the_casualties(
     block = outputs["mesh_spine"]["audio_spine"]["structure"][0]["position"]
     spec, _ = _plan_through_the_post_bridge(outputs, [{
         "target_block_position": block,
-        "effect_type": "glitch", "intensity": "subtle",
+        "effect_type": "glitch", "params": {"zoom_start": 1.0, "zoom_end": 1.03},
         "rationale": "an effect the toolkit has not got",
     }])
 

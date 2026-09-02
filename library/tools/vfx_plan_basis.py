@@ -96,10 +96,13 @@ DROP_REASONS = {
         "no direction, and picking one would be the engine inventing "
         "taste (AGENTS.md §10.5)"
     ),
-    "unknown_intensity": (
-        "the intensity is missing or outside subtle|moderate|strong.  "
-        "How strong an effect is is part of the choice, so no intensity "
-        "is substituted"
+    "no_readable_parameters": (
+        "the entry names a toolkit effect but its `params` carry none of "
+        "the parameter names the renderer dispatches on, so the comp "
+        "would be built without the effect in it and nothing would say "
+        "so (AGENTS.md §10.2).  The names are enumerated in step 4.03's "
+        "`TOOLKIT_PARAMETERS`; what they are set TO is the plan's "
+        "decision and nothing is substituted"
     ),
     "generator_not_a_clip_effect": (
         "the effect_type is a generator preset, which produces pixels "

@@ -11,7 +11,7 @@ from library.tools.house_look import resolve_look
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
 class TestIntegration(unittest.TestCase):
-    
+
     def test_brand_template_pipeline_integration(self):
         # 1. Load default_brand.yaml
         bt_path = "library/templates/default_brand.yaml"
@@ -20,25 +20,25 @@ class TestIntegration(unittest.TestCase):
         self.assertIsNotNone(bt.style)
         self.assertIsNotNone(bt.effect)
         self.assertIsNotNone(bt.content)
-        
+
         # 2. Verify gather_step_inputs injects slots
         dag = {"edges": []}
         state = {"brand_template": bt_path}
-        
+
         inputs_5_01 = gather_step_inputs("step_5_01", dag, state, {"interface": {"inputs": [{"name": "brand_style"}]}})
         self.assertIn("brand_style", inputs_5_01)
-        
+
         inputs_4_02 = gather_step_inputs("step_4_02", dag, state, {"interface": {"inputs": [{"name": "brand_effect"}]}})
         self.assertIn("brand_effect", inputs_4_02)
-        
+
         inputs_2_01 = gather_step_inputs("step_2_01", dag, state, {"interface": {"inputs": [{"name": "brand_content"}]}})
         self.assertIn("brand_content", inputs_2_01)
-        
+
         # 3. Missing brand_template gracefully returns defaults or doesn't crash
         state_empty = {}
         inputs_empty = gather_step_inputs("step_5_01", dag, state_empty, {"interface": {"inputs": [{"name": "brand_style"}]}})
         # As long as it doesn't crash, we're good. It might not contain brand_style or contain None/Defaults.
-        
+
     @patch("library.steps.step_5_01_color_grade.step.measure_luma")
     def test_color_grade_manifest_integration(self, mock_measure):
         shot_list = {
@@ -136,7 +136,7 @@ class TestIntegration(unittest.TestCase):
         }
         with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: inputs):
             manifest = compile_manifest("dummy")
-        
+
         self.assertIn("color_grade", manifest)
         self.assertIn("per_clip_adjustments", manifest["color_grade"])
         # The look's name travels with the CDL; its Fusion half rides on
@@ -209,21 +209,21 @@ class TestIntegration(unittest.TestCase):
             "color_grade_spec": {},
             "audio_mix_spec": {}
         }
-        
+
         with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: inputs):
             manifest = compile_manifest("dummy")
-        
+
         v1_clips = manifest.get("tracks", {}).get("V1", {}).get("clips", [])
         self.assertEqual(len(v1_clips), 4)
-        
+
         neural_directives = manifest.get("neural_engine_directives", {})
-        
+
         def get_dir(source_file):
             for c in v1_clips:
                 if c.get("source_file") == source_file or os.path.basename(c.get("source_file", "")) == os.path.basename(source_file):
                     return neural_directives.get(c["label"], {})
             return {}
-            
+
         self.assertTrue(get_dir(files["h.mov"]).get("stabilize"))
         # A locked-off camera must NOT be stabilised.
         self.assertNotIn("stabilize", get_dir(files["i.mov"]))
@@ -232,19 +232,21 @@ class TestIntegration(unittest.TestCase):
         # Magic Mask is withdrawn - see library/tools/neural_engine.py.
         for name in files.values():
             self.assertNotIn("magic_mask", get_dir(name))
-        
+
         # Verify directives appear in compile_manifest() as well
         # We can't easily test compile_manifest() since it reads from files,
         # but the prompt asks to "Verify directives appear in both compile_manifest() and compile_manifest_from_inputs() output".
         # If the code uses the same inner function, we can just assert they share it or assume the implementation is shared.
 
-    def test_a_passage_carries_no_invented_engagement_score(self):
+    def test_a_passage_carries_no_invented_engagement_judgement(self):
         """`compute_engagement` is withdrawn: it scored every passage off
         `prosody_data.get("energy_rms", 0)`, a key nothing emits, on an
-        object no DAG edge routed. See tests/test_passage_engagement.py
-        and library/tools/passage_engagement.py."""
-        from library.tools.passage_engagement import engagement_of
-        self.assertIsNone(engagement_of({"text": "Hello world"}))
+        object no DAG edge routed. The 0-100 composite it fed went with
+        it on the captain's ruling of 2026-09-02, so the ordering is what
+        this reads. See tests/test_passage_engagement.py and
+        library/tools/passage_engagement.py."""
+        from library.tools.passage_engagement import engagement_rank
+        self.assertIsNone(engagement_rank({"text": "Hello world"}))
 
 if __name__ == '__main__':
     unittest.main()

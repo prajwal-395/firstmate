@@ -153,7 +153,6 @@
     "creative_direction.emotional_landscape",
     "creative_direction.audience_emotion",
     "speech_sequence",
-    "-speech_sequence.hook_segment.word_timestamps",
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.alignment_report",
     "music_selection",

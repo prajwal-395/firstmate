@@ -9,12 +9,15 @@ rationale}`. So `hook_eng` was permanently 0 and `eng_values` permanently
 this one now compares composites where they exist.
 
 The scorer that produced those composites is itself withdrawn (#236): it
-gave nine of project 001's eleven passages an identical 49. What writes a
-judgement now is step 2.02's own model, asked in the handoff to place the
-passages it selected in ONE ordering - so the gate compares RANKS, and
-reports the composite beside the finding without ever firing on it. Where
-a sequence carries no judgement at all the gate still STATES that it has
-no basis; see tests/test_passage_engagement.py.
+gave nine of project 001's eleven passages an identical 49, and the
+composite it fed went the same way on the captain's ruling of 2026-09-02
+- only the rank ordering was ever consumed. What writes a judgement now
+is step 2.02's own model, asked in the handoff to place the passages it
+selected in ONE ordering, and the gate compares nothing else: two
+orderings the model itself wrote, the order the passages PLAY in against
+the order it RANKED them in. Where a sequence carries no judgement at all
+the gate still STATES that it has no basis; see
+tests/test_passage_engagement.py.
 
 **The duration check measured the wrong quantity.** It used
 `body_sequence[-1]["end_time"]`, a SOURCE timestamp - where the last
@@ -42,29 +45,22 @@ from library.tools.timeline_duration import (
 )
 
 
-def engagement_score(passage):
-    """Imported lazily so this module still COLLECTS against a tree
-    without the fix - a collection error is not a test failure."""
-    from library.steps.step_5_03_creative_cohesion.step import (
-        engagement_score as _impl,
-    )
-    return _impl(passage)
-
 STEP_DIR = REPO / "library" / "steps" / "step_5_03_creative_cohesion"
 
 
-def _engagement(rank, composite):
+def _engagement(rank):
     """The shape step 2.02's handoff asks for: a place in the sequence's
-    own ordering, a magnitude, and one sentence for itself."""
-    return {"rank": rank, "composite": composite,
+    own ordering and one sentence for itself. No number: the 0-100
+    composite is withdrawn (captain, 2026-09-02)."""
+    return {"rank": rank,
             "basis": "a judgement of this passage against the others"}
 
 
-def _passage(clip_id, start, rank, composite):
+def _passage(clip_id, start, rank):
     """A passage the gate can locate, so a finding can name where it is."""
     return {"clip_id": clip_id, "source_start": start,
             "source_end": start + 3.0,
-            "engagement": _engagement(rank, composite)}
+            "engagement": _engagement(rank)}
 
 
 # ── The duration gate measures the timeline ───────────────────────────
@@ -79,7 +75,7 @@ SPINE_001 = {"structure": [
 ]}
 SPEECH_001 = {"body_sequence": [
     {"start_time": 33.0, "end_time": 40.1,
-     "engagement": _engagement(1, 60)},
+     "engagement": _engagement(1)},
 ]}
 
 
@@ -194,34 +190,28 @@ def test_the_dag_routes_the_spine_into_the_step():
 
 # ── The engagement gate can fire ──────────────────────────────────────
 
-class TestEngagementScore:
-    def test_the_real_dict_shape_is_read(self):
-        assert engagement_score({"engagement": _engagement(2, 71)}) == 71.0
+def test_a_buried_peak_is_detected():
+    """The gate's whole purpose: the strongest passage is not the opener.
 
-    def test_a_bare_number_is_still_accepted(self):
-        assert engagement_score({"engagement": 71}) == 71.0
-
-    def test_a_passage_with_no_score_is_none(self):
-        assert engagement_score({}) is None
-        assert engagement_score({"engagement": None}) is None
-        assert engagement_score({"engagement": {"rationale": "x"}}) is None
-
-
-def test_a_buried_hook_is_now_detected():
-    """The gate's whole purpose: the strongest passage is not the hook."""
-    speech = {
-        "hook_segment": _passage("clip_002", 1.0, rank=3, composite=55),
-        "body_sequence": [
-            _passage("clip_007", 20.0, rank=2, composite=60),
-            _passage("clip_016", 48.065, rank=1, composite=92),
-        ],
-    }
+    It reads TWO ORDERINGS and nothing else - where the passage sits in
+    `body_sequence`, which is the order it plays in, against the rank the
+    model gave it. The `hook_segment` this used to compare against was
+    withdrawn with the closed role vocabulary; the ordering is the thing
+    that survived, so the ordering is what the finding is made of.
+    """
+    speech = {"body_sequence": [
+        _passage("clip_002", 1.0, rank=3),
+        _passage("clip_007", 20.0, rank=2),
+        _passage("clip_016", 48.065, rank=1),
+    ]}
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
     joined = " ".join(review["warnings"])
     assert "ranked strongest" in joined, (
         f"the engagement gate still cannot fire: {review['warnings']}")
     assert "clip_016" in joined and "48.065" in joined, joined
-    assert "composite 92 against the hook's 55" in joined, joined
+
+    # No number is reported, because none is written any more.
+    assert "composite" not in joined
 
     # It is an OBSERVATION, not an adjustment. Re-ordering the
     # narrative is step 2.02's decision and eleven steps of timing
@@ -241,20 +231,19 @@ def test_a_buried_hook_is_now_detected():
     assert "suggested_value" not in ordering[0]
 
 
-def test_a_strong_hook_is_not_flagged():
+def test_an_edit_that_opens_on_its_strongest_passage_is_not_flagged():
     """It must not fire on a correct edit either."""
-    speech = {
-        "hook_segment": _passage("clip_016", 48.065, rank=1, composite=92),
-        "body_sequence": [
-            _passage("clip_007", 20.0, rank=3, composite=60),
-            _passage("clip_009", 30.0, rank=2, composite=70),
-        ],
-    }
+    speech = {"body_sequence": [
+        _passage("clip_016", 48.065, rank=1),
+        _passage("clip_007", 20.0, rank=3),
+        _passage("clip_009", 30.0, rank=2),
+    ]}
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
     assert not any("ranked strongest" in w for w in review["warnings"])
 
 
-def test_a_speech_sequence_with_no_scores_at_all_is_silent():
-    speech = {"hook_segment": {}, "body_sequence": [{}, {}]}
+def test_a_speech_sequence_with_no_judgement_at_all_is_silent():
+    speech = {"body_sequence": [{}, {}]}
     review = review_creative_cohesion(_inputs(speech_sequence=speech))
     assert not any("ranked strongest" in w for w in review["warnings"])
+

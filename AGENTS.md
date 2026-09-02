@@ -839,12 +839,14 @@ Every field of `compute_deterministic_assessment` with nothing to measure must b
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
-**Passage engagement is a JUDGEMENT the model writes, and a reader acts on the ORDERING, not the number.**
-One enumeration, `library/tools/passage_engagement.py` - `engagement_of`, `engagement_rank`, `engagement_basis`, `unjudged_summary`. Step 2.02's handoff asks for `engagement` on every passage it selects: `{rank, composite, basis}`, ranked against that sequence and nothing else.
+**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
+One enumeration, `library/tools/passage_engagement.py` - `engagement_rank`, `engagement_basis`, `unjudged_summary`. Step 2.02's handoff asks for `engagement` on every passage it selects: `{rank, basis}`, ranked against that sequence and nothing else.
 
-- **Compare ranks, and only near the top.** Report the composite; never fire on it. `MEASURED_SPREAD` records how far ranks and composites move between answers to the identical prompt. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+- **The 0-100 composite is WITHDRAWN** (captain, 2026-09-02), along with `engagement_of`, the reader that read it: only the ordering was ever consumed, and the number beside it read as magnitude it did not have. `MEASURED_SPREAD` keeps the measurement that settled it - between answers to the identical prompt, ranks in the middle moved two places and the composite moved twenty points. Do not reintroduce a magnitude reader without a step that MEASURES one.
+- **Compare ranks, and only near the top.** [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 - **A rank is comparable only inside ONE speech_sequence.** It is the model's ordering over the passages it chose, not a scale.
-- **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated. `engagement_of` and `engagement_rank` return **None**; never coerce either to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
+- **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated. `engagement_rank` returns **None**; never coerce it to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
+- **Step 2.02 names no roles and no opener.** The closed `opening|development|climax|resolution` vocabulary, the separately mandated `hook_segment` and its 1-3 second target all went on the same ruling: the model proposes the structure the footage wants. What survived is one ORDERED `body_sequence`, and every consumer works from that ordering - `mesh_spine` addresses a passage by its `position` (never by a role name), and 5.03's engagement observation compares the play order against the rank order.
 `tests/test_passage_engagement.py`.
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.**
@@ -999,7 +1001,8 @@ One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#th
 A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect, a sound, an energy word) and it goes. A MECHANICAL default is a safe technical value (a frame rate, a timeout, a codec) and it stays. Where a creative value is genuinely absent, FAIL or REPORT PLAINLY. [why](docs/RULE_EVIDENCE.md#the-pipeline-invented-taste-where-no-step-ran)
 
 - Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `house_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
-- A plan entry that names no effect, no sound, no intensity or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
+- A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
+- **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP`, which resolved `subtle|moderate|strong` into fixed zoom and shake values and justified its ceiling by citing this file - a document that step never reads - is REMOVED (captain, 2026-09-02). `plan_vfx.TOOLKIT_PARAMETERS` replaces it and carries NO value, default or bound: it enumerates only the parameter NAMES `build_effect_comp` dispatches on, because a name with no reader draws nothing and says nothing (§10.2). An entry whose `params` name none of them is dropped as `no_readable_parameters`; the values in them are never checked, clamped or substituted.
 - An alias may RENAME a capability and may not CHOOSE one. `push_in` -> `zoom_emphasis` is a fact; `slow_zoom` -> `slow_zoom_in` answered "which way?" for the planner and is withdrawn.
 - Dead code that states taste is removed, not left.
 
