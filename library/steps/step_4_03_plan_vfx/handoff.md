@@ -43,11 +43,24 @@ have no reader.
 | `screen_shake` | Emphasis moments - an impact that settles |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam |
 
-**DaVinci Resolve Built-in Fusion Clip Effects:**
-You can also use any of the built-in Fusion clip effects listed below by providing their exact snake_case name as the `effect_type`. These presets modify the picture - they take the clip's image as input.
-`advanced_camera_shake`, `chromatic_aberration`, `edge_control`, `chrome`, `cloth`, `posterize`, `3d_tube_maker`, `reflections`, `lens_flare_v11`, `lens_flare_v12`, `lens_flare_v13`, `lens_flare_v14`, `lens_flare_v15`, `lens_flare_v16`, `lens_flare_v17`, `lens_flare_v18`, `lens_flare_v19`, `lens_flare_v21`, `lens_flare_v22`, `lens_flare_v23`, `lens_flare_v24`, `lens_flare_v25`, `lens_flare_v26`, `lens_flare_v28`, `lens_flare_v30`, `lens_flare_v31`, `lens_flare_v32`, `lens_flare_v35`, `lens_flare_v36`, `lens_flare_v38`, `lens_flare_v39`, `lens_flare_v40`
+**DaVinci Resolve Built-in Fusion Effects Vocabulary (143 presets):**
+You can use any of the built-in Fusion effects listed below by providing their exact snake_case name as the `effect_type`.
 
-**Not available as clip effects:** Generator presets (particles, backgrounds, shaders, standalone text, and standalone lens flares) produce content from nothing and have no image input. They cannot be used as clip effects. However, you CAN select them as overlay effects - the post-bridge will automatically route generator presets to the overlay track (V5) where they are composited over the picture. To use a generator, include it in your VFX plan with its exact snake_case name as the `effect_type`. Examples: `fireworks`, `snow`, `embers`, `bubbles`, `matrix`, `rain`.
+**Clip Effects:**
+These modify the picture and take the clip's image as input.
+- **tools** (Utility effects for correcting or distorting the image): `advanced_camera_shake`, `chromatic_aberration`, `edge_control`
+- **looks** (Stylized visual color filters): `posterize`
+- **how_to** (Advanced compositing, tracking, and displacement techniques): `reflections`, `variblur`, `lightwrap`, `corner_position_tracking`, `ambient_occlusion`, `shine`, `glow_mask`, `vectorblur`, `coordinate_rays`, `perspective_tracking`, `displace_2d`, `displace_3d`
+
+**Generator / Overlay Effects:**
+These produce content from nothing and have no image input. The post-bridge automatically routes them to the overlay track (V5) where they are composited over the picture.
+- **particles** (Atmospheric and environmental overlays to add life): `bokeh_edges`, `from_text`, `smokestack`, `matrix`, `burning_engine`, `lens_leaks`, `steam`, `blowing_leaves`, `galaxy_swarm`, `bubbles`, `portal_spawn_point`, `glitter`, `shape_drift`, `flash_bulbs`, `lava`, `snow`, `fireworks`, `bokeh_full_frame`, `embers`, `fireflies`, `bubble_bar`, `bubbles_3d`
+- **motion_graphics** (Animated HUD and data elements for technical aesthetics): `radar`, `scrollbar`, `radar_2`, `crazy_circle`, `circle_values`
+- **styled_text** (Structural animated titles and typography): `odometer`, `circle_layout`, `fade_rotate`, `war_games`, `shading_2d`, `flip_follower`, `scramble_modifier`, `3d_follower`, `word_level_transforms`, `swap_color`, `jiggle_follower`, `path_layout`, `alien`, `rotate_follower`, `stretch_follower`, `character_level_transforms`
+- **backgrounds** (Abstract moving backdrops): `circular_cube`, `rotate_rays`, `bender`, `rectangle_flythrough`, `platform_flythrough`, `bullseye`, `plasmic`, `helix`, `waver`, `visualizer`, `blue_rays`, `spot_ground`, `optics`
+- **shaders** (Procedural material textures): `carbon_fiber`, `moon`, `rusty_metal`, `brick`, `cool_metal`, `gold_bump`, `chrome`, `rock`, `cobblestone`, `tiles`, `chrome_checkerplate`, `checkerplate`, `cloth`, `sand`, `anisotropic`, `marble`, `plywood`, `brushed_metal`, `metal_grill`, `car_paint`, `steel`, `concrete`, `honeycomb`, `planet`, `wood`, `lizard`, `glass_dot`
+- **generators** (Basic procedural patterns): `color_wheel`, `3d_tube_maker`, `checker`, `color_bars`
+- **lens_flares** (Optical camera artifacts): 40 varieties are available. To use one, provide the name `lens_flare_vXX` where XX is a two-digit number from `01` to `40` (e.g., `lens_flare_v12`, `lens_flare_v03`).
 
 ### Rules:
 - How many effects the video gets is a creative decision, not a quota. Plan
