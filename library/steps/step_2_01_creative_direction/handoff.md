@@ -87,6 +87,10 @@ from the footage analysis.
 
 ---
 
+
+### Timeline Notes
+If the input includes `timeline_notes`, you MUST read and weigh them. Your output MUST include a `note_acknowledgements` array saying what was done about each note and why - including 'I did not act on this and here is why', since a note you cannot act on should be left alone rather than guessed at.
+
 <!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ---

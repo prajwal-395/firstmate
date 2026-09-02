@@ -1302,7 +1302,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # through to "proceeding with best attempt".
         # `interface.llm_outputs` declares the LLM's actual contribution.
         if "llm_outputs" in interface:
-            llm_outputs = interface["llm_outputs"]
+            llm_outputs = list(interface["llm_outputs"])
         else:
             outputs = interface.get("outputs", [])
             # Never ask for a key the step already has: pre-bridge outputs
@@ -1311,6 +1311,15 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             llm_outputs = [
                 o for o in outputs if o.get("name") not in already_have
             ]
+            
+        if inputs.get("timeline_notes") and llm_outputs:
+            llm_outputs.append({
+                "name": "note_acknowledgements",
+                "type": "list",
+                "required": True,
+                "description": "Per-note acknowledgements. Each: note_id (the exact ID of the note you are acknowledging), action (what you did about it), rationale (why you did it, or why you declined to act - a reasoned decline is a valid acknowledgement)."
+            })
+
         expected_schema_str = json.dumps(llm_outputs)
 
         # Nothing to ask.  A step reaches here with an empty schema when
