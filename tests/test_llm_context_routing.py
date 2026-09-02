@@ -203,7 +203,6 @@ def test_a_step_with_nothing_to_ask_does_not_call_the_model(tmp_path):
 
 
 @pytest.mark.parametrize("node_id,produced_by_step_py", [
-    ("render", {"render_output"}),
     ("validate", {"validation_result"}),
 ])
 def test_the_qa_calls_still_have_something_to_ask(node_id, produced_by_step_py):

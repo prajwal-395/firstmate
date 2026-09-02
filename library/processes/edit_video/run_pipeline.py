@@ -1520,8 +1520,11 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             print(f"  QA failed on attempt {attempt+1}, retrying: {feedback}", file=sys.stderr)
             current_context += f"\n\nQA Feedback from previous attempt:\nThe previous output failed validation: {feedback}\nPlease correct this."
             
+    if not best_output:
+        raise RuntimeError(f"Step '{node_id}' produced no LLM output (silent no-answer).")
     print(f"  Warning: QA failed after {qa_loop.max_retries} retries for {node_id}, proceeding with best attempt.", file=sys.stderr)
-    return best_output or {}
+    return best_output
+
 
 
 

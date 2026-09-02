@@ -24,12 +24,6 @@
         "name": "render_output",
         "type": "object",
         "description": "State output: render_output"
-      },
-      {
-        "name": "render_review",
-        "type": "array",
-        "required": false,
-        "description": "Visual QA verdicts"
       }
     ],
     "preconditions": [
