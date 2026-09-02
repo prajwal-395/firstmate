@@ -326,63 +326,244 @@ EOF
   return "$recorded"
 }
 
-# --- launches already in flight ---------------------------------------------
+# --- reservations against the ACCOUNT, not against a home --------------------
 #
 # A reading describes quota as of the moment it was taken. Launches made since
 # then are spending against it and are invisible to it, so at 26% remaining an
 # unbounded burst of concurrent workers can all pass a 25% floor and drive the
 # true figure well under it before anything is re-read. The ledger below is how
-# many launches a rung owes but no reading has yet seen.
+# many launches a model owes but no reading has yet seen.
 #
-# One append-only file per home, pruned on read. Appends of a single short line
-# are atomic, and bin/fm-spawn.sh serializes agy dispatch behind its spawn
-# locks, so the prune's read-rewrite cannot lose a concurrent record in
-# practice; if it ever did, the loss is one reservation, which under-reserves by
-# the margin rather than over-reserving, and the next poll corrects it.
+# THE LEDGER IS SCOPED TO THE ACCOUNT, BECAUSE THE QUOTA IS. It used to live in
+# the calling home's own state/ directory, and that was the wrong scope by one
+# whole level. Every firstmate home that runs agy out of the same credential
+# store draws on ONE quota pool, so a home's own ledger described only the
+# launches that home had made itself. On 2026-09-02 the primary home and the
+# Lucie secondmate both dispatched agy workers against the same Claude pool
+# while it fell from 100% to 0%, and neither home's gate could see the other's
+# launches: each reserved headroom against itself alone and authorised straight
+# past the other.
+#
+# So the ledger is keyed by ACCOUNT and stored machine-wide, outside every
+# FM_HOME, exactly as bin/fm-procevent-lib.sh stores its cross-home source
+# claims and for the same reason it does: a rule about a resource several homes
+# share cannot live inside any one of them.
+#
+# WHAT IS SHARED IS THE ACCOUNTING, NEVER THE ACTION, and that is the whole of
+# the coupling. No home reads another home's tasks, durable records, backlog, or
+# panes, and no home ever acts on another home's worker; bin/fm-agy-descent-lib.sh
+# still moves only the workers of the home that runs it. The file below is a
+# record about the ACCOUNT - an external resource both homes already draw on and
+# already read the same figures from - not a record about either home, so the
+# FM_HOME separation is not weakened to obtain it.
+#
+# THE KEY IS THE MODEL, NOT THE RUNG. A rung NUMBER is home-local policy: the
+# order comes from each home's own config/crew-dispatch.json, so rung 2 in one
+# home need not name the model rung 2 names in another, and a number written by
+# one home would be counted against a different model by the next. A display
+# name is the ACCOUNT's own vocabulary and means the same thing in every home,
+# so that is what a reservation records. Entries written in the older
+# rung-number format simply match no model and age out within
+# FM_AGY_INFLIGHT_TTL, which under-reserves by that margin for one TTL rather
+# than mismatching a model outright.
+#
+# WHICH ACCOUNT. agy answers for whichever account its credential store is
+# logged into, and that store is fm_agy_config_home() - one per machine and OS
+# user. Two homes draw on one pool exactly when they resolve to the same store,
+# so that path IS the account identity here, and establishing it needs no
+# network call and no read of the credential itself. It is a proxy and is
+# documented as one: logging agy into a DIFFERENT account without moving that
+# store keeps the same key, which counts the previous account's launches for at
+# most FM_AGY_INFLIGHT_TTL before they expire. That errs toward reserving too
+# much, which costs a launch that can be made a moment later - the direction
+# every trade in this file already leans.
+#
+# A REMOTE SECONDMATE IS NOT COVERED, and that is stated rather than implied. A
+# remote home (docs/remote-secondmates.md) runs on another machine with its own
+# filesystem and its own agy credential store, so nothing here reaches it. If a
+# remote home is ever logged into the SAME agy account, its launches are
+# invisible to this ledger exactly as another local home's were before this
+# change. Covering that needs a transport and an ownership story that do not
+# exist yet, so never describe this ledger as fleet-wide; it is machine-wide.
+#
+# A HOME ALONE STILL WORKS, and so does a machine that cannot offer a shared
+# location at all. Every path below degrades to the home-local ledger this used
+# to be - no HOME, an unwritable state root, a read-only filesystem, a symlinked
+# directory - and a home that is the only home then reserves against itself
+# exactly as before. Nothing here can refuse a launch by failing.
 
+# FM_AGY_SHARED_ROOT: machine-wide root for account-scoped agy records. A test
+# points it at a scratch directory; `off` forces the home-local ledger.
+FM_AGY_SHARED_ROOT=${FM_AGY_SHARED_ROOT:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/firstmate/agy-account}
+
+# FM_AGY_INFLIGHT_LOCK_WAIT: seconds to wait for the account's reservation lock
+# before deciding without it. Bounded rather than patient on purpose. This lock
+# sits on the spawn path, so a home that waited indefinitely on it would turn a
+# shared ACCOUNTING record into a shared AVAILABILITY dependency - one wedged
+# home stalling every other home's dispatch - which is a worse coupling than the
+# blindness the ledger exists to close.
+FM_AGY_INFLIGHT_LOCK_WAIT=${FM_AGY_INFLIGHT_LOCK_WAIT:-5}
+
+# fm_agy_account_key: a stable, path-safe id for the agy account a home draws
+# on. Derived from the credential store's PATH, never from its contents: the
+# token inside rotates on every refresh and is a secret, while the path is
+# stable and answers exactly the question being asked - which homes reach the
+# same account. fm_agy_quota_key is reused so this file has one hasher.
+fm_agy_account_key() {
+  local config_home
+  config_home=$(fm_agy_config_home) || return 1
+  [ -n "$config_home" ] || return 1
+  fm_agy_quota_key "$config_home"
+}
+
+# fm_agy_shared_inflight_dir: the account's own directory, created on demand, or
+# a failure when this machine cannot offer one. A symlink is refused rather than
+# followed: this path is shared between homes, so it is exactly the kind of file
+# that must not be redirected by whatever created it first.
+fm_agy_shared_inflight_dir() {
+  local root key dir
+  root=${FM_AGY_SHARED_ROOT:-}
+  [ -n "$root" ] && [ "$root" != off ] || return 1
+  key=$(fm_agy_account_key) || return 1
+  [ -n "$key" ] || return 1
+  dir="$root/$key"
+  [ -d "$dir" ] || (umask 077; mkdir -p "$dir") 2>/dev/null || return 1
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  printf '%s' "$dir"
+}
+
+# fm_agy_inflight_path: the ledger this home must read and write - the account's
+# shared one whenever the machine can offer it, and the home's own otherwise.
+# The single owner of that choice, so no caller can reach one ledger while
+# another reaches the other.
 fm_agy_inflight_path() {  # <state_dir>
+  local dir
+  if dir=$(fm_agy_shared_inflight_dir); then
+    printf '%s/inflight' "$dir"
+    return 0
+  fi
   printf '%s/.agy-inflight' "$1"
 }
 
-# fm_agy_inflight_record: note that a launch on <rung> has been authorized.
-fm_agy_inflight_record() {  # <rung> <state_dir> [<now>]
-  local rung=$1 state_dir=$2 now=${3:-}
-  [ -n "$rung" ] || return 1
-  [ -d "$state_dir" ] || return 1
-  [ -n "$now" ] || now=$(date +%s)
-  printf '%s %s\n' "$now" "$rung" >> "$(fm_agy_inflight_path "$state_dir")"
+# fm_agy_inflight_lock_path: the lock that serializes decide-and-reserve against
+# every other home on this account. Beside the ledger, so it is shared exactly
+# when the ledger is and home-local exactly when the ledger is.
+fm_agy_inflight_lock_path() {  # <state_dir>
+  printf '%s.lock' "$(fm_agy_inflight_path "$1")"
 }
 
-# fm_agy_inflight_count: how many launches on <rung> are still unreflected in a
-# current reading. Prints a count, always. Expired entries are dropped from the
-# ledger as a side effect so it cannot grow without bound.
-fm_agy_inflight_count() {  # <rung> <state_dir> [<now>]
-  local rung=$1 state_dir=$2 now=${3:-} file ts entry count=0 kept tmp expired=0
+# fm_agy_inflight_lock: take the account's reservation lock, printing the lock
+# path so a caller releases exactly what it took.
+#
+#   0  held; the caller MUST release it
+#   1  not held, for any reason
+#
+# Failing to take it is an ordinary outcome and never refuses a launch. The
+# caller proceeds against the same shared ledger unserialized, which still
+# counts every home's launches instead of only its own and leaves a race window
+# of milliseconds where there used to be no cross-home accounting at all.
+fm_agy_inflight_lock() {  # <state_dir>
+  local lock tries
+  declare -f fm_lock_try_acquire >/dev/null 2>&1 || return 1
+  [ -n "${1:-}" ] || return 1
+  lock=$(fm_agy_inflight_lock_path "$1") || return 1
+  tries=$((${FM_AGY_INFLIGHT_LOCK_WAIT:-5} * 10))
+  [ "$tries" -gt 0 ] || tries=1
+  while [ "$tries" -gt 0 ]; do
+    if fm_lock_try_acquire "$lock"; then
+      printf '%s' "$lock"
+      return 0
+    fi
+    tries=$((tries - 1))
+    sleep 0.1
+  done
+  return 1
+}
 
-  file=$(fm_agy_inflight_path "$state_dir")
+# fm_agy_inflight_record: note that a launch on <model> has been authorized.
+# <model> is a DISPLAY NAME, which is what makes the entry mean the same model
+# in every home drawing on this account.
+#
+# A name carrying a newline is refused rather than written. On a ledger only one
+# home could read, a malformed line cost that home its own count; on a shared
+# one it would corrupt every home's, so the check is worth its one line.
+fm_agy_inflight_record() {  # <model> <state_dir> [<now>]
+  local model=$1 state_dir=$2 now=${3:-} file
+  [ -n "$model" ] || return 1
+  case $model in *$'\n'*) return 1 ;; esac
+  [ -d "$state_dir" ] || return 1
+  [ -n "$now" ] || now=$(date +%s)
+  file=$(fm_agy_inflight_path "$state_dir") || return 1
+  printf '%s %s\n' "$now" "$model" >> "$file"
+}
+
+# _fm_agy_inflight_prune: drop expired entries. Re-reads the ledger itself
+# rather than trusting a list its caller read earlier, because between that read
+# and this rewrite another home may have appended - and on a SHARED ledger a
+# lost append is another home's reservation, which is precisely the blindness
+# this ledger exists to remove. Callers run it only while holding the account
+# lock.
+_fm_agy_inflight_prune() {  # <file> <now>
+  local file=$1 now=$2 ts entry tmp kept=''
+  [ -f "$file" ] || return 0
+  while read -r ts entry; do
+    fm_agy_is_number "$ts" || continue
+    [ $((now - ts)) -lt "$FM_AGY_INFLIGHT_TTL" ] || continue
+    kept="$kept$ts $entry
+"
+  done < "$file"
+  tmp="$file.tmp.${BASHPID:-$$}"
+  if printf '%s' "$kept" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  else
+    rm -f "$tmp" 2>/dev/null
+  fi
+}
+
+# fm_agy_inflight_count: how many launches on <model> are still unreflected in a
+# current reading. Prints a count, always.
+#
+# THE COUNT IS UNLOCKED AND THE PRUNE IS NOT. Appending one short line is atomic
+# from any number of homes at once, so counting needs no lock and must not wait
+# for one while a spawn holds its own locks. Dropping expired entries is a
+# read-modify-write, which is not atomic, so it happens only under the account
+# lock - and when that lock cannot be taken the count is still exact and only
+# the prune is skipped, leaving the entries for the next reader that does hold
+# it. Both of those are why a ledger that grew unbounded is impossible and a
+# reservation that is silently dropped is not.
+fm_agy_inflight_count() {  # <model> <state_dir> [<now>]
+  local model=$1 state_dir=$2 now=${3:-} file ts entry count=0 expired=0 lock=''
+
+  file=$(fm_agy_inflight_path "$state_dir") || { printf '0'; return 0; }
   if [ ! -f "$file" ]; then
     printf '0'
     return 0
   fi
   [ -n "$now" ] || now=$(date +%s)
 
-  kept=
   while read -r ts entry; do
     if ! fm_agy_is_number "$ts" || [ $((now - ts)) -ge "$FM_AGY_INFLIGHT_TTL" ]; then
       expired=1
       continue
     fi
-    kept="$kept$ts $entry
-"
-    [ "$entry" = "$rung" ] && count=$((count + 1))
+    [ "$entry" = "$model" ] && count=$((count + 1))
   done < "$file"
 
   if [ "$expired" -eq 1 ]; then
-    tmp="$file.tmp.$$"
-    if printf '%s' "$kept" > "$tmp" 2>/dev/null; then
-      mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
-    else
-      rm -f "$tmp" 2>/dev/null
+    if [ -n "${_FM_AGY_INFLIGHT_LOCK_HELD:-}" ]; then
+      # Already inside the gate's own hold: prune directly rather than reaching
+      # for a lock this very process holds, which the shared lock library would
+      # reclaim out from under the caller.
+      _fm_agy_inflight_prune "$file" "$now"
+    elif ! fm_agy_shared_inflight_dir >/dev/null 2>&1; then
+      # A home-local ledger: only this home appends to it, and bin/fm-spawn.sh's
+      # own locks already serialize agy dispatch within a home. That is the
+      # trade this ledger shipped with and it is unchanged - a lost append here
+      # could only ever be this home's own, and the next poll corrects it.
+      _fm_agy_inflight_prune "$file" "$now"
+    elif lock=$(fm_agy_inflight_lock "$state_dir"); then
+      _fm_agy_inflight_prune "$file" "$now"
+      fm_lock_release "$lock" || true
     fi
   fi
 

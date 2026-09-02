@@ -244,6 +244,9 @@ unset FM_STATE_OVERRIDE
 export FM_AGY_QUOTA_POLL=off
 export FM_AGY_QUOTA_MAX_AGE=300
 export FM_AGY_INFLIGHT_TTL=300
+# The in-flight ledger is scoped to the agy ACCOUNT and stored machine-wide, so
+# this suite is pointed at a scratch root rather than the operator's own.
+export FM_AGY_SHARED_ROOT="$TMP_ROOT/agy-shared"
 export FM_AGY_LADDER_INFLIGHT_MARGIN=1
 export FM_AGY_DESCENT_INTERVAL=60
 export FM_AGY_DESCENT_GRACE=900

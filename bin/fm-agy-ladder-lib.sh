@@ -64,7 +64,9 @@
 # a secondmate that has never drawn an agy pane of its own knows nothing about
 # the rungs even while the primary home does. That resolves to rung 1 under the
 # rule below, which is the right answer anyway: a home with no evidence starts
-# at the top of the ladder rather than assuming somebody else spent it.
+# at the top of the ladder rather than assuming somebody else spent it - and the
+# poll above then gives it the account's own current figures before it decides,
+# so no home decides on another home's staleness.
 #
 # THE ASYMMETRY, WHICH IS THE WHOLE DESIGN. Quota evidence can still be absent
 # after the poll: agy may not be installed, jq may be missing, the call may time
@@ -101,7 +103,11 @@
 # could all clear a 25% floor before any of them was counted. Each authorized
 # launch is recorded, and FM_AGY_LADDER_INFLIGHT_MARGIN percentage points are
 # reserved per launch still unreflected in the reading. The comparison is
-# against that reserved figure, not the bare reading.
+# against that reserved figure, not the bare reading. That ledger is scoped to
+# the AGY ACCOUNT and not to this home, so the launches it counts are every
+# home's on this machine; bin/fm-agy-quota-lib.sh owns that scope, what it does
+# and does not reach, and why. fm_agy_ladder_gate below records the reservation
+# itself, under the same lock it decides on.
 #
 # OFF-LADDER MODELS. agy offers models the ladder does not name (Gemini 3.1 Pro
 # (Low), Claude Sonnet 4.6, GPT-OSS 120B, and so on), and a launch with no
@@ -357,7 +363,7 @@ fm_agy_ladder_state() {  # <rung> <state-dir> [<now>]
     unknown|'') printf 'unknown'; return 0 ;;
   esac
   percent=${reading%% *}
-  in_flight=$(fm_agy_inflight_count "$rung" "$state_dir" "$now")
+  in_flight=$(fm_agy_inflight_count "$display" "$state_dir" "$now")
   effective=$(fm_agy_ladder_reserved "$percent" "$in_flight")
   if fm_agy_ladder_at_or_below "$effective" "$(fm_agy_ladder_floor "$rung")"; then
     printf 'exhausted %s %s' "$percent" "$in_flight"
@@ -464,14 +470,40 @@ fm_agy_ladder_check() {  # <model> <state-dir> [<now>]
   return 0
 }
 
-# fm_agy_ladder_gate: fm_agy_ladder_check with the captain override applied and
-# the output a caller should show. Prints nothing on an ordinary clean allow so
-# routine dispatch stays quiet, and prints one line for everything a reader
-# would want to know about: an off-ladder model, a used override, or a refusal.
+# fm_agy_ladder_gate: fm_agy_ladder_check with the captain override applied, the
+# launch's own headroom reserved, and the output a caller should show. Prints
+# nothing on an ordinary clean allow so routine dispatch stays quiet, and prints
+# one line for everything a reader would want to know about: an off-ladder
+# model, a used override, or a refusal.
 #   0  launch may proceed
 #   1  launch is refused; the printed line is the reason
+#
+# DECIDING AND RESERVING ARE ONE STEP, and that is why the reservation lives
+# here rather than in bin/fm-spawn.sh where it used to. Between a gate that had
+# decided and a caller that had not yet recorded, the reading both leaned on
+# said the same thing to everyone, so two launches an instant apart could each
+# be told they were the only one. Holding the account's reservation lock across
+# the decision and the record closes that window instead of narrowing it, and
+# because the lock and the ledger are scoped to the AGY ACCOUNT rather than to
+# this home (bin/fm-agy-quota-lib.sh owns why), it closes it between homes too -
+# which is the case that actually cost the captain the reserve on 2026-09-02.
+#
+# THE LOCK IS BOUNDED AND FAILING TO GET IT IS NOT A REFUSAL. bin/fm-spawn.sh
+# calls this while holding its own spawn locks, so waiting indefinitely on
+# another home would let one wedged home stall the whole fleet's dispatch. When
+# the lock does not come, the decision is still made against the same shared
+# ledger - every home's launches, not just this home's - and the reservation is
+# still recorded. Only the serialization is lost.
+#
+# THE POLL STAYS OUTSIDE THE LOCK. It is the multi-second part, it reads the
+# account rather than the ledger, and two homes polling at once is simply two
+# reads of the same external truth.
 fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
-  local reason rc=0
+  local reason rc=0 gate=0 out='' display='' rung='' lock=''
+  # Dynamically scoped for the duration of this call so fm_agy_inflight_count,
+  # reached through fm_agy_ladder_check below, prunes under the hold this
+  # function already has instead of reaching for the same lock again.
+  local _FM_AGY_INFLIGHT_LOCK_HELD=
 
   # Refresh the evidence before deciding on it, once, for every rung at a time.
   # Only for a model the ladder actually ranks: an off-ladder or unmodelled
@@ -480,13 +512,22 @@ fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
   # whatever was recorded in place and is remembered, not raised: the gate still
   # decides, and says which fallback it decided on.
   FM_AGY_LADDER_POLL_STATUS=skipped
-  if [ "${1:-}" != '' ] && [ "${1:-}" != default ] && fm_agy_ladder_rung "$1" >/dev/null 2>&1; then
+  if [ "${1:-}" != '' ] && [ "${1:-}" != default ] && rung=$(fm_agy_ladder_rung "$1" 2>/dev/null); then
+    display=$(fm_agy_ladder_display "$rung" 2>/dev/null) || display=''
     if [ "${FM_AGY_QUOTA_POLL:-on}" = off ]; then
       FM_AGY_LADDER_POLL_STATUS=off
     elif fm_agy_quota_poll "${2:-}" "${3:-}"; then
       FM_AGY_LADDER_POLL_STATUS=ok
     else
       FM_AGY_LADDER_POLL_STATUS=unavailable
+    fi
+  fi
+
+  if [ -n "$display" ]; then
+    if lock=$(fm_agy_inflight_lock "${2:-}"); then
+      _FM_AGY_INFLIGHT_LOCK_HELD=1
+    else
+      lock=
     fi
   fi
 
@@ -500,23 +541,36 @@ fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
       if [ "$FM_AGY_LADDER_POLL_STATUS" = unavailable ]; then
         case "$reason" in
           *'no current quota reading'*)
-            printf 'notice: agy ladder could not read current quota, so this launch is unchecked against the floor: %s\n' "$reason"
+            out=$(printf 'notice: agy ladder could not read current quota, so this launch is unchecked against the floor: %s\n' "$reason")
             ;;
         esac
       fi
-      return 0
       ;;
     2)
-      printf 'notice: agy ladder not applied: %s\n' "$reason"
-      return 0
+      out=$(printf 'notice: agy ladder not applied: %s\n' "$reason")
+      ;;
+    *)
+      if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
+        out=$(printf 'notice: agy ladder OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=%s - launching anyway past: %s\n' \
+          "$FM_AGY_LADDER_OVERRIDE" "$reason")
+      else
+        gate=1
+        out=$(printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or set FM_AGY_LADDER_OVERRIDE=<reason> to launch on the captain'"'"'s explicit request (its use is printed).\n' \
+          "$reason")
+      fi
       ;;
   esac
-  if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
-    printf 'notice: agy ladder OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=%s - launching anyway past: %s\n' \
-      "$FM_AGY_LADDER_OVERRIDE" "$reason"
-    return 0
+
+  # Reserve this launch's headroom the moment it is authorized, before the lock
+  # is dropped, so the next launch on this account sees it before any reading
+  # could possibly reflect it. A launch the captain overrode is reserved too: it
+  # spends the same quota, and leaving it uncounted would let the launches
+  # BEHIND it read headroom that is already gone.
+  if [ "$gate" -eq 0 ] && [ -n "$display" ]; then
+    fm_agy_inflight_record "$display" "${2:-}" "${3:-}" || true
   fi
-  printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or set FM_AGY_LADDER_OVERRIDE=<reason> to launch on the captain'"'"'s explicit request (its use is printed).\n' \
-    "$reason"
-  return 1
+  [ -z "$lock" ] || fm_lock_release "$lock" || true
+
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return "$gate"
 }
