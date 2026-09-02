@@ -269,6 +269,7 @@ def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):
 
 BRIDGE_TABLES = {
     "speech_sequence": ("transcripts_toon", "topics_toon"),
+    "mesh_spine": ("duration_zone",),
     "select_broll": ("broll_candidates_toon",),
     "plan_transitions": ("cuts_toon",),
     "plan_vfx": ("vfx_candidates_toon",),

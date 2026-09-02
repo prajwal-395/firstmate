@@ -65,6 +65,24 @@ def get_target_duration_zone(data: dict) -> Optional[Tuple[float, float, float]]
     return None
 
 
+# What the three resolved numbers ARE.  Shipped in the context alongside
+# the numbers so a model judged against the zone can read what it is being
+# judged against - the same route ``music_measurement.MEASUREMENT_LEGEND``
+# takes for step 2.04.  Definitions only; what to conclude is the model's
+# call.
+DURATION_ZONE_LEGEND = {
+    "minimum_seconds":
+        "The shortest acceptable total spine duration, in seconds. "
+        "A spine shorter than this fails the duration gate.",
+    "target_seconds":
+        "The declared target duration for the project, in seconds. "
+        "The centre of the zone.",
+    "maximum_seconds":
+        "The longest acceptable total spine duration, in seconds. "
+        "A spine longer than this fails the duration gate.",
+}
+
+
 NO_TARGET_DECLARED = (
     "no target length is declared: neither the project's "
     "`target_duration_seconds` nor a selected brand template's "

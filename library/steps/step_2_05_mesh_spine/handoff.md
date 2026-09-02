@@ -30,6 +30,7 @@ direction. Now they must be woven into one coherent timeline plan.
 Speech and music are two halves of one backbone — neither anchors the other.
 You must not let either input silently stretch the timeline past the target duration band.
 Your spine's `total_estimated_duration_seconds` must fall within the project's target duration zone.
+The resolved zone is in `duration_zone` in your context: `minimum_seconds`, `target_seconds`, `maximum_seconds`.
 If the music track is longer than the target duration, do NOT fill the timeline to match the music length; the music will be trimmed or faded out downstream.
 If the speech content is shorter than the target duration, you may add non-speech blocks (transition slots, intro, outro) to reach the target, but do NOT add dead air or silence at the head of the video. Silence at the head of a video is a gap, not spine.
 If the speech content is longer than the target duration, you may need to adjust pacing or recommend speech cuts, but do not just blindly accept a longer video that exceeds the target band.
