@@ -127,7 +127,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Sound effects at DISTINCT positions - as many as the piece earns, with no minimum and no maximum. Each: spine_block_position, sfx_id (an exact sfx_id out of the catalogue sfx_catalog_reference points at - no other value is playable), volume_level (subtle|low|medium|prominent), duration_seconds (OPTIONAL - how long the sound plays for, which may be less than the sound's own measured length but never more; leave it out and the whole sound plays, which is the absence of a decision rather than a decision), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
+        "description": "Sound effects - as many as the piece earns, with no minimum and no maximum. Multiple entries MAY share a spine_block_position when layering serves the moment (e.g. whoosh + bass hit, riser under a textural bed); each carries its own volume_level. Each: spine_block_position, sfx_id (an exact sfx_id out of the catalogue sfx_catalog_reference points at - no other value is playable), volume_level (subtle|low|medium|prominent), duration_seconds (OPTIONAL - how long the sound plays for, which may be less than the sound's own measured length but never more; leave it out and the whole sound plays, which is the absence of a decision rather than a decision), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
       }
     ]
   },

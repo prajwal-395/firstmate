@@ -319,13 +319,35 @@ def test_sfx_collapse_is_still_caught():
         _assert_sfx_distributed,
     )
 
-    with pytest.raises(ValueError, match="distinct timeline position"):
+    with pytest.raises(ValueError, match="collapse"):
         _assert_sfx_distributed(
             [
                 {"timeline_in": 0.0},
                 {"timeline_in": 0.0},
             ]
         )
+
+
+def test_layered_sfx_at_same_position_are_not_a_collapse():
+    """Two sounds at the same position is layering, not a collapse.
+
+    Whoosh + bass hit on an important transition is standard sound design.
+    The old check rejected ANY duplicate positions; the new one only catches
+    a full collapse (every sound on one frame).
+    """
+    from library.steps.step_4_04_plan_sfx.post_bridge import (
+        _assert_sfx_distributed,
+    )
+
+    # Two sounds layered at position 1.0, one sound alone at 5.0 -
+    # three SFX, two distinct positions: legitimate layering.
+    _assert_sfx_distributed(
+        [
+            {"timeline_in": 1.0},
+            {"timeline_in": 1.0},
+            {"timeline_in": 5.0},
+        ]
+    )
 
 
 # ── The VFX post-bridge must not pad the plan ─────────────────────────

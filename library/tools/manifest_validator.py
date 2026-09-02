@@ -357,15 +357,20 @@ def _check_distinct_cut_points(manifest: dict) -> list[str]:
 
 
 def _check_sfx_distributed(manifest: dict) -> list[str]:
-    """SFX must be spread across the timeline, not stacked on one frame."""
+    """SFX must not all collapse onto one frame.
+
+    Layering - two or more sounds at the same position - is legitimate
+    sound design and the timeline builder already spreads them across
+    A3, A4, ....  A collapse is every clip at the same position.
+    """
     clips = manifest.get("tracks", {}).get("A3", {}).get("clips", [])
     if len(clips) < 2:
         return []
     positions = {round(c.get("timeline_in", 0.0), 3) for c in clips}
-    if len(positions) < len(clips):
+    if len(positions) == 1:
         return [
-            f"{len(clips)} SFX occupy only {len(positions)} distinct "
-            f"timeline position(s): {sorted(positions)}"
+            f"{len(clips)} SFX all occupy the same timeline position "
+            f"({next(iter(positions))}s)"
         ]
     return []
 

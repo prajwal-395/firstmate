@@ -584,18 +584,24 @@ def resolve_sfx(
 
 
 def _assert_sfx_distributed(resolved: list) -> None:
-    """Fail when every planned SFX lands on the same timeline position.
+    """Fail when every planned SFX collapses onto one timeline position.
 
     Five whooshes all at 0.000s is a collapse, not a sound design pass, and
     it used to survive all the way into the manifest.
+
+    Layering - two or more sounds at the SAME position (whoosh + bass hit,
+    riser under a textural bed) - is legitimate sound design and is NOT
+    caught here.  A collapse is distinguished from layering by having only
+    ONE distinct position across the entire plan.
     """
     if len(resolved) < 2:
         return
     positions = {round(s["timeline_in"], 3) for s in resolved}
-    if len(positions) < len(resolved):
+    if len(positions) == 1:
         raise ValueError(
-            f"{len(resolved)} SFX resolved to only {len(positions)} "
-            f"distinct timeline position(s): {sorted(positions)}. "
+            f"{len(resolved)} SFX all resolved to the same timeline "
+            f"position ({next(iter(positions))}s). A plan that places "
+            f"every sound on one frame is a collapse, not layering. "
             f"Each SFX must name its own spine_block_position."
         )
 

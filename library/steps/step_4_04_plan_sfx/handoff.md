@@ -53,8 +53,9 @@ Select and place sound effects at appropriate moments in the timeline.
 - Volume: "subtle" or "low" for most; "medium" only for emphasis
 - Never louder than speech or music
 - Don't fight the music (avoid loud SFX during prominent music)
-- No two SFX overlap at the same position
-- Layer with purpose (whoosh + bass hit for important transitions)
+- Layering is allowed: two or more sounds at the same position is how
+  real sound design works (whoosh + bass hit, riser under a textural bed).
+  Each layered sound carries its own volume_level
 - Match the music rhythm and energy
 
 ### Context data available:
@@ -92,11 +93,10 @@ moments in the spine decide the density - there is no default count.
 ## Evaluation Criteria
 
 1. Every SFX earns its place - none exists to reach a count
-2. Every creative transition has at most one SFX
-3. SFX timing aligns with events they accompany
-4. Volume levels appropriate — mostly "subtle" or "low"
-5. SFX don't overlap
-6. SFX don't compete with prominent music moments
+2. SFX timing aligns with events they accompany
+3. Volume levels appropriate — mostly "subtle" or "low"
+4. Layered sounds at the same position each carry a distinct purpose
+5. SFX don't compete with prominent music moments
 
 ---
 
