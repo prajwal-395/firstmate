@@ -203,6 +203,39 @@ each; `clip_catalog` and `semantic_analysis_documents` arrive at
 `mesh_spine`. The `mesh_spine` figure the bench measures at HEAD - 9,857
 `o200k_base` tokens - is the figure #194's own commit message claims.
 
+### Why `round3-20260829` does not verify
+
+Snapshot `round3-20260829` captures 001's 29 Aug run (LLM traffic
+12:25-12:42, render 19:01) with its archive frozen from
+`run_archives/20260829T190117-64163`. It does not verify at any single
+revision because the archive and state are from different runs at
+different code revisions:
+
+- The LLM archive files are from the **12:25 run** at `bcac1b2`.
+  `render.json` is from **Aug 26**, not Aug 29 at all.
+- The `pipeline_data.json` is from **19:01:47**, after four intermediate
+  runs (18:15, 18:21, 18:27, 19:01) rewrote every step's output.
+- The `capture_repo_head` (`cada863`) was committed at **19:14**, after
+  the render run, so reconstructing there uses code that did not exist
+  during any of the archived runs.
+
+At `81ca86c` (the last commit before the 19:01 run), `plan_transitions`
+closes (7/10 exact), confirming the code-revision mismatch. The 3
+remaining steps diverge for structural reasons:
+
+- `render`: archive from Aug 26, state from Aug 29
+  (`assembly_manifest` -10,056 B)
+- `review_rough_cut`: `render_qa_findings` comes from the render step's
+  Aug 26 output (-2,468 B)
+- `select_broll`: `marker_feedback/` not captured by the snapshot
+  (`timeline_notes` -1,724 B)
+
+Re-snapshotting cannot fix this without per-step state snapshots, which
+the bench does not support. The lesson: capture the state and archive
+from the SAME run boundary, before any later run overwrites either.
+`001-2026-08-26T1058Z` verifies because both halves were copied out
+before the next run began.
+
 ## Two limits worth knowing before trusting a result
 
 **A frozen snapshot ages against the tree, and the bench cannot tell you
