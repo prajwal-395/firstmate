@@ -120,7 +120,6 @@
     "semantic_analysis_documents.*.analysis.motion",
     "semantic_analysis_documents.*.analysis.emotion",
     "semantic_analysis_documents.*.analysis.energy",
-    "semantic_analysis_documents.*.assessment.interest_score",
     "semantic_analysis_documents.*.assessment.moment_type",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.usable_portions",
