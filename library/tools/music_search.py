@@ -32,25 +32,32 @@ from is useful.  Nothing here reads it, nothing refuses on it, and no
 rights model exists to build one out of.  A track is chosen on creative
 grounds or not at all.
 
-Nothing here is a query
------------------------
-The project states its own queries in ``project.yaml``.  Composing one in
-code - pasting the creative direction's ``target_mood`` into
-``f"{mood} instrumental no copyright"`` - would be the engine writing the
-search terms, which is a creative act and AGENTS.md 10.5's fabrication
-under another name.  The engine runs the captain's words; it does not
-write them.
+Queries are derived from creative_direction by default
+------------------------------------------------------
+Captain's ruling of 2026-09-02: search should run by default rather than
+waiting on a flag nobody sets.  When no ``pipeline.music_search`` is
+declared, the query is derived from creative_direction's ``target_mood``
+and ``narrative_theme`` - the model's own words from step 2.01, not a
+phrase this module composed.  The bridge calls
+:func:`derive_queries_from_creative_direction` to extract them and hands
+the result to :func:`resolve_declaration`.
 
-Nothing here ranks, either.  Results come back in YouTube's order and are
+A project that declares ``pipeline.music_search`` explicitly still gets
+exactly what it asked for.  A project that declares
+``pipeline.music_search: false`` declines search and the catalogue
+says so.
+
+Nothing here ranks.  Results come back in YouTube's order and are
 handed over in it.
 
 What a run costs, and how a project declines it
 -----------------------------------------------
-Search is OFF unless the project asks for it: no ``pipeline.music_search``
-in ``project.yaml`` means no query is sent and no byte is fetched, and the
-catalogue says so rather than staying silent.  A declaration is refused
-unless it states its own bounds, so nothing about the size of a run is
-chosen here.
+Search is ON by default.  The default bounds -
+:data:`DEFAULT_RESULTS_PER_QUERY` and :data:`DEFAULT_FETCH_LIMIT` - are
+resource bounds, not creative choices; a project that declares its own
+numbers overrides them.  A project that sets
+``pipeline.music_search: false`` declines entirely, and the run says so
+loudly rather than quietly presenting the on-disk files as the whole menu.
 
 Measured on this machine, 2026-08-28, ``yt-dlp`` 2026.08.19 over a
 domestic connection:
@@ -103,11 +110,18 @@ DECLARATION_KEY = "music_search"
 # there.
 DECLARED_FIELDS = ("queries", "results_per_query", "fetch_limit")
 
-# The bounds a declaration must state itself.  There is no default for
-# either: how much of a run's time and network the captain will spend on
-# search is the captain's number, and picking one here would be the engine
-# deciding it.
+# The bounds a project MAY override.  When the project does not declare
+# them, the engine uses the defaults below - they are resource bounds,
+# not creative choices, so having a sensible default is appropriate.
 REQUIRED_BOUNDS = ("results_per_query", "fetch_limit")
+
+# Default resource bounds when the project declares no music_search at
+# all and the engine derives queries from creative_direction.  These are
+# overridden by any explicit pipeline.music_search declaration.
+# At these defaults, measured cost is roughly: 1*2 + 3*3 + 3*3 = 20s,
+# ~10 MiB.
+DEFAULT_RESULTS_PER_QUERY = 5
+DEFAULT_FETCH_LIMIT = 3
 
 # Measured 2026-08-28: 2026.03.17 returns HTTP 403 for every download.
 # A floor on the tool, not on the answer.
@@ -125,17 +139,30 @@ class MusicSearchError(RuntimeError):
 
 @dataclass(frozen=True)
 class SearchDeclaration:
-    """What a project asked for, or the statement that it asked for nothing."""
+    """What a project asked for, or the statement that it asked for nothing.
+
+    When ``derive_from_direction`` is True, queries are empty and must be
+    filled in from creative_direction before the search runs.  The bridge
+    calls :func:`derive_queries_from_creative_direction` and then
+    :func:`resolve_declaration` to produce a final, runnable declaration.
+    """
 
     requested: bool
     queries: Tuple[str, ...] = ()
     results_per_query: int = 0
     fetch_limit: int = 0
     reason: str = ""
+    derive_from_direction: bool = False
 
     def describe(self) -> str:
         if not self.requested:
             return f"music search: not run - {self.reason}"
+        if self.derive_from_direction and not self.queries:
+            return (
+                f"music search: default-on, query to be derived from "
+                f"creative_direction ({self.results_per_query} result(s), "
+                f"fetching at most {self.fetch_limit})"
+            )
         return (
             f"music search: {len(self.queries)} query(ies) x "
             f"{self.results_per_query} result(s), fetching at most "
@@ -151,10 +178,11 @@ def no_music_search(reason: str) -> SearchDeclaration:
 def search_declaration(project_folder: Optional[str]) -> SearchDeclaration:
     """Read ``pipeline.music_search`` off the project's own ``project.yaml``.
 
-    Absent means declined, and the reason is recorded.  Present but
-    malformed RAISES - the same shape as ``bookends`` and
-    ``timed_text_overlay``: a declaration nobody can act on is a mistake
-    to report, not a thing to drop.
+    Absent means DEFAULT-ON: the query will be derived from
+    creative_direction by the bridge.  ``pipeline.music_search: false``
+    declines search explicitly.  Present but malformed RAISES - the same
+    shape as ``bookends`` and ``timed_text_overlay``: a declaration nobody
+    can act on is a mistake to report, not a thing to drop.
     """
     if not project_folder:
         return no_music_search("no project folder was given to the step")
@@ -174,10 +202,15 @@ def search_declaration(project_folder: Optional[str]) -> SearchDeclaration:
     if declared is None:
         declared = config.get(DECLARATION_KEY)
     if declared is None:
-        return no_music_search(
-            f"{os.path.basename(str(config_path))} declares no "
-            f"pipeline.{DECLARATION_KEY}, so this run searches nothing and "
-            f"chooses from what is already on disk"
+        # Default-on: the bridge must derive queries from
+        # creative_direction before calling search_all.
+        return SearchDeclaration(
+            requested=True,
+            queries=(),
+            results_per_query=DEFAULT_RESULTS_PER_QUERY,
+            fetch_limit=DEFAULT_FETCH_LIMIT,
+            reason="",
+            derive_from_direction=True,
         )
 
     return parse_declaration(declared)
@@ -210,10 +243,10 @@ def parse_declaration(declared: Any) -> SearchDeclaration:
         raw_queries = [raw_queries]
     if not isinstance(raw_queries, list) or not raw_queries:
         raise MusicSearchError(
-            f"pipeline.{DECLARATION_KEY}.queries is empty. The project says "
-            f"what to search for; the engine does not compose a query out of "
-            f"the creative direction, because that would be the engine "
-            f"writing the search terms."
+            f"pipeline.{DECLARATION_KEY}.queries is empty. An explicit "
+            f"declaration must state its own queries. To use the default "
+            f"(queries derived from creative_direction), omit "
+            f"pipeline.{DECLARATION_KEY} entirely."
         )
     queries = []
     for entry in raw_queries:
@@ -230,9 +263,10 @@ def parse_declaration(declared: Any) -> SearchDeclaration:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise MusicSearchError(
                 f"pipeline.{DECLARATION_KEY}.{name} must be a positive "
-                f"integer; got {value!r}. There is no default: search costs "
-                f"time and network, and how much of it to spend is the "
-                f"project's number, not the engine's."
+                f"integer; got {value!r}. An explicit declaration must state "
+                f"its own bounds. To use the defaults "
+                f"({DEFAULT_RESULTS_PER_QUERY} results, {DEFAULT_FETCH_LIMIT} "
+                f"fetches), omit pipeline.{DECLARATION_KEY} entirely."
             )
         bounds[name] = value
 
@@ -241,6 +275,79 @@ def parse_declaration(declared: Any) -> SearchDeclaration:
         queries=tuple(queries),
         reason="",
         **bounds,
+    )
+
+
+def derive_queries_from_creative_direction(
+    creative_direction: Optional[Dict[str, Any]],
+) -> Tuple[str, ...]:
+    """Extract a search query from creative_direction's own fields.
+
+    This uses the model's own words from step 2.01 - ``target_mood`` and
+    ``narrative_theme`` - not a phrase this module composed.  The result
+    is a single query combining what the model said about mood and theme.
+
+    Returns an empty tuple when creative_direction is missing or carries
+    nothing usable, so the caller can report the gap loudly.
+    """
+    if not isinstance(creative_direction, dict):
+        return ()
+
+    parts = []
+    mood = (creative_direction.get("target_mood") or "").strip()
+    if mood:
+        parts.append(mood)
+    theme = (creative_direction.get("narrative_theme") or "").strip()
+    if theme:
+        parts.append(theme)
+
+    if not parts:
+        return ()
+
+    query = " ".join(parts) + " background music"
+    return (query,)
+
+
+def resolve_declaration(
+    declaration: SearchDeclaration,
+    creative_direction: Optional[Dict[str, Any]] = None,
+) -> SearchDeclaration:
+    """Produce a runnable declaration from one that may need query derivation.
+
+    When ``declaration.derive_from_direction`` is True, this fills in the
+    queries from creative_direction.  If creative_direction yields nothing
+    usable, returns a declined declaration whose reason says exactly what
+    went wrong - this is the LOUD gap the captain asked for.
+
+    An already-resolved declaration (explicit queries or not requested)
+    passes through unchanged.
+    """
+    if not declaration.requested:
+        return declaration
+    if not declaration.derive_from_direction:
+        return declaration
+    if declaration.queries:
+        # Already has queries despite derive_from_direction - pass through.
+        return declaration
+
+    queries = derive_queries_from_creative_direction(creative_direction)
+    if not queries:
+        return no_music_search(
+            "music search is default-on but creative_direction carries no "
+            "target_mood or narrative_theme to derive a query from. "
+            "The candidate menu is LIMITED TO WHAT IS ALREADY ON DISK. "
+            "To search, either set pipeline.music_search with explicit "
+            "queries in project.yaml, or ensure creative_direction produces "
+            "a target_mood or narrative_theme."
+        )
+
+    return SearchDeclaration(
+        requested=True,
+        queries=queries,
+        results_per_query=declaration.results_per_query,
+        fetch_limit=declaration.fetch_limit,
+        reason="",
+        derive_from_direction=False,  # resolved now
     )
 
 

@@ -165,10 +165,11 @@ from youtube and then use the sections from the music you find is best ... don't
 minus the licence gate, which is now explicitly not a thing that exists.
 
 **Search reaches the model as results.** `library/tools/music_search.py` replaces the never-called
-`search_youtube.py`. A project declares `pipeline.music_search` with its own `queries`,
-`results_per_query` and `fetch_limit`; a project that declares nothing searches nothing and the
-catalogue says so. The engine does not compose a query out of the creative direction - that
-would be the engine writing the search terms.
+`search_youtube.py`. Search is default-on (captain's ruling 2026-09-02): when a project declares no
+`pipeline.music_search`, the query is derived from creative_direction's `target_mood` and
+`narrative_theme`.  A project can override with explicit `queries`, `results_per_query` and
+`fetch_limit`, or set `pipeline.music_search: false` to decline.  When search does not run, the
+reason is stated loudly rather than quietly presenting the on-disk files as the whole menu.
 
 **A searched candidate arrives measured.** Results that cannot cover the edit are dropped on the
 duration YouTube states for free, before a byte is downloaded; the survivors are fetched through

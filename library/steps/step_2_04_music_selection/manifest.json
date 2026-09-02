@@ -35,7 +35,7 @@
       {
         "name": "music_candidates",
         "type": "object",
-        "description": "Bridge output: every track available to choose from - PIPELINE_MUSIC_LIBRARY, the project's music/ folder, and, when the project declares pipeline.music_search, what a YouTube search returned and the bridge fetched. All measured the same way, with duplicate recordings marked from those measurements, and with the target duration the choice must serve. The bridge picks none of them."
+        "description": "Bridge output: every track available to choose from - PIPELINE_MUSIC_LIBRARY, the project's music/ folder, and YouTube search results (default-on, query derived from creative_direction's target_mood and narrative_theme; the project can override with pipeline.music_search or set it to false to decline). All measured the same way, with duplicate recordings marked from those measurements, and with the target duration the choice must serve. The bridge picks none of them."
       },
       {
         "name": "music_selection",

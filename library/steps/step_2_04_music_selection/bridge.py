@@ -35,14 +35,15 @@ measures without classifying - no mood, no genre, no ranking.
 
 Captain's ruling 2026-08-28: *"flush out the search functionality ...
 just download what you need from youtube"*.  So the catalogue is no
-longer only what is on disk.  When the project declares
-`pipeline.music_search`, this bridge searches, drops what cannot cover
-the edit on the free metadata, fetches the survivors, and MEASURES them -
-so a searched candidate reaches the model in the same columns a local one
-does.  A candidate the model cannot see measured is the defect #296 just
-fixed and this must not reintroduce it by another door.  Search is off
-unless the project asks; `library/tools/music_search.py` is the whole of
-it, including what a run costs.
+longer only what is on disk.  Captain's ruling 2026-09-02: search should
+run by default rather than waiting on a flag nobody sets.  When the
+project declares no `pipeline.music_search`, this bridge derives a query
+from creative_direction's `target_mood` and `narrative_theme` - the
+model's own words from step 2.01.  A project can still set
+`pipeline.music_search: false` to decline.  When search does not run,
+the reason is stated LOUDLY rather than quietly presenting the on-disk
+files as the whole menu.  `library/tools/music_search.py` is the whole
+of it, including what a run costs.
 
 And two of 001's four surviving candidates were the same recording, which
 no filename said.  `library/tools/music_duplicates.py` establishes it from
@@ -97,6 +98,7 @@ from library.tools.music_duplicates import (  # noqa: E402
 from library.tools.music_search import (  # noqa: E402
     MusicSearchError,
     provenance,
+    resolve_declaration,
     search_all,
     search_declaration,
     within_duration,
@@ -252,7 +254,8 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
 
 
 def fetch_searched(project_folder: str, target_duration: float,
-                   ceiling: float, already: list) -> tuple:
+                   ceiling: float, already: list,
+                   creative_direction: dict = None) -> tuple:
     """Search as the project declared it, and fetch what could be chosen.
 
     Returns `(new_candidates, report)`.  Every result is judged on the
@@ -261,13 +264,19 @@ def fetch_searched(project_folder: str, target_duration: float,
     are only spent on tracks that could actually be selected.  What was
     rejected is reported, never silently dropped.
 
+    When the project declares no ``pipeline.music_search``, queries are
+    derived from ``creative_direction`` (default-on per the captain's
+    ruling of 2026-09-02).  If derivation yields nothing, the report
+    says so LOUDLY rather than quietly falling back to on-disk files.
+
     `already` is the local catalogue: a track fetched by an earlier run
     is already on disk under `pipeline_output`, so it is annotated in
     place rather than added twice.
     """
     from download_track import download_audio
 
-    declaration = search_declaration(project_folder)
+    raw_declaration = search_declaration(project_folder)
+    declaration = resolve_declaration(raw_declaration, creative_direction)
     report = {
         "requested": declaration.requested,
         "declaration": declaration.describe(),
@@ -279,9 +288,21 @@ def fetch_searched(project_folder: str, target_duration: float,
     }
     print(f"  {declaration.describe()}", file=sys.stderr)
     if not declaration.requested:
+        # LOUD gap: say WHY search is not running.  A silent fallback to
+        # on-disk files is the defect this change fixes.
+        print(
+            f"  *** MUSIC SEARCH DID NOT RUN: {declaration.reason}",
+            file=sys.stderr,
+        )
         report["cost"] = {"queries": 0, "results": 0, "search_seconds": 0.0,
                           "considered_after_duration": 0, "errors": []}
         return [], report
+
+    # Log the resolved query so the run record shows what was searched.
+    print(
+        f"  search query(ies): {list(declaration.queries)}",
+        file=sys.stderr,
+    )
 
     results, cost = search_all(declaration)
     report["cost"] = cost.as_dict()
@@ -359,18 +380,22 @@ def fetch_searched(project_folder: str, target_duration: float,
 
 def run(inputs: dict) -> dict:
     project_folder = inputs.get("project_folder", "") or "./"
+    creative_direction = inputs.get("creative_direction") or {}
     target_duration = _target_duration(inputs)
     catalogue = catalogue_music(project_folder, target_duration)
     local_count = len(catalogue["candidates"])
 
-    # Search, if the project asked for one. A fetched track joins the same
-    # list and is measured by the same pass, so it reaches the model in
-    # the same columns a local one does.
+    # Search is default-on (captain's ruling 2026-09-02).  When the
+    # project declares no pipeline.music_search, queries are derived from
+    # creative_direction.  A fetched track joins the same list and is
+    # measured by the same pass, so it reaches the model in the same
+    # columns a local one does.
     try:
         fetched, search_report = fetch_searched(
             project_folder, target_duration,
             catalogue["max_track_duration_seconds"],
-            catalogue["candidates"])
+            catalogue["candidates"],
+            creative_direction=creative_direction)
     except MusicSearchError as exc:
         # A malformed declaration is a mistake to report, not one to
         # search around.

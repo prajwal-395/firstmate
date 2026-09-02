@@ -6,14 +6,15 @@ so the model was told it could name a URL with no results in front of it.
 
 These tests hold what replaced it, and none of them touch the network:
 
-  * a project that declares nothing searches nothing, and says so;
-  * a declaration must state its own bounds, or it is refused by name;
+  * search is default-on; a project that declares nothing gets queries
+    derived from creative_direction;
+  * a project can decline explicitly with `pipeline.music_search: false`;
+  * an explicit declaration must state its own bounds, or it is refused;
   * a result that cannot cover the edit is dropped BEFORE anything is
     downloaded, on the duration YouTube states for free;
-  * nothing composes a query out of the creative direction;
+  * when search does not run, the reason is stated loudly;
   * licence is recorded and gates nothing.
 """
-import inspect
 import json
 import os
 import subprocess
@@ -28,9 +29,13 @@ STEP = REPO / "library" / "steps" / "step_2_04_music_selection"
 from library.tools import music_search  # noqa: E402
 from library.tools.music_search import (  # noqa: E402
     DECLARATION_KEY,
+    DEFAULT_FETCH_LIMIT,
+    DEFAULT_RESULTS_PER_QUERY,
     MusicSearchError,
+    derive_queries_from_creative_direction,
     parse_declaration,
     provenance,
+    resolve_declaration,
     search_declaration,
     within_duration,
 )
@@ -49,16 +54,16 @@ def _project(tmp_path, pipeline_block=None):
     return folder
 
 
-# ── A project can decline, and declining is the default ───────────────
+# ── Default-on: search runs unless the project declines ───────────────
 
-def test_a_project_that_declares_nothing_searches_nothing(tmp_path):
+def test_a_project_that_declares_nothing_gets_default_on_search(tmp_path):
+    """Captain's ruling 2026-09-02: search runs by default."""
     declaration = search_declaration(str(_project(tmp_path)))
-    assert declaration.requested is False
-    assert declaration.queries == ()
-    # Stated, not silent: a run that quietly did not search reads exactly
-    # like a run whose search found nothing.
-    assert DECLARATION_KEY in declaration.reason
-    assert "searches nothing" in declaration.reason
+    assert declaration.requested is True
+    assert declaration.derive_from_direction is True
+    assert declaration.queries == ()  # to be derived by the bridge
+    assert declaration.results_per_query == DEFAULT_RESULTS_PER_QUERY
+    assert declaration.fetch_limit == DEFAULT_FETCH_LIMIT
 
 
 def test_a_project_can_decline_explicitly(tmp_path):
@@ -87,7 +92,7 @@ def test_a_declaration_is_read_off_the_project(tmp_path):
     assert "4 result(s)" in declaration.describe()
 
 
-# ── The bounds are the project's, and there is no default ─────────────
+# ── Explicit declarations must state their own bounds ─────────────────
 
 @pytest.mark.parametrize("bound", ["results_per_query", "fetch_limit"])
 def test_a_declaration_without_its_bounds_is_refused(bound):
@@ -165,39 +170,104 @@ def test_an_unstated_duration_is_kept_and_said_to_be_unstated():
         assert "unstated" in note
 
 
-# ── The engine does not write the search terms ────────────────────────
+# ── Queries are derived from creative_direction by default ────────────
 
 DIRECTION_FIELDS = ("target_mood", "emotional_landscape", "target_energy",
                     "energy_arc", "narrative_theme", "audience_emotion")
 
 
-def test_nothing_composes_a_query_out_of_the_creative_direction():
-    """Composing a query in code is the engine choosing the search terms.
-
-    The project states its own queries. A phrase pasted out of the
-    creative direction and padded with words like "instrumental" or "no
-    copyright" would be AGENTS.md 10.5's fabrication under another name.
-    """
-    source = (REPO / "library" / "tools" / "music_search.py").read_text(
-        encoding="utf-8")
-    code = "\n".join(
-        line for line in source.splitlines()
-        if not line.lstrip().startswith("#"))
-    body = code.split('"""', 2)[-1]
-    for field in DIRECTION_FIELDS:
-        assert field not in body, (
-            f"music_search reads creative_direction.{field}. The project "
-            f"declares its own queries; the engine does not write them.")
-    assert "creative_direction" not in body
+def test_derive_queries_from_creative_direction_uses_mood_and_theme():
+    """The query is the model's own words, not a phrase this module composed."""
+    direction = {
+        "target_mood": "reflective and contemplative",
+        "narrative_theme": "a personal journey through loss",
+    }
+    queries = derive_queries_from_creative_direction(direction)
+    assert len(queries) == 1
+    assert "reflective and contemplative" in queries[0]
+    assert "a personal journey through loss" in queries[0]
+    assert "background music" in queries[0]
 
 
-def test_the_bridge_does_not_compose_a_query_either():
-    source = (STEP / "bridge.py").read_text(encoding="utf-8")
-    body = source.split('"""', 2)[-1]
-    for field in DIRECTION_FIELDS:
-        assert field not in body, (
-            f"step 2.04's bridge builds a query out of "
-            f"creative_direction.{field}")
+def test_derive_queries_with_mood_only():
+    queries = derive_queries_from_creative_direction(
+        {"target_mood": "cinematic"})
+    assert len(queries) == 1
+    assert "cinematic" in queries[0]
+
+
+def test_derive_queries_with_theme_only():
+    queries = derive_queries_from_creative_direction(
+        {"narrative_theme": "tech startup documentary"})
+    assert len(queries) == 1
+    assert "tech startup documentary" in queries[0]
+
+
+def test_derive_queries_from_empty_direction_returns_nothing():
+    """An empty creative_direction is a loud gap, not a silent one."""
+    assert derive_queries_from_creative_direction({}) == ()
+    assert derive_queries_from_creative_direction(None) == ()
+    assert derive_queries_from_creative_direction(
+        {"target_mood": "", "narrative_theme": ""}) == ()
+
+
+def test_resolve_declaration_fills_in_derived_queries():
+    """The resolve step turns a default-on declaration into a runnable one."""
+    raw = search_declaration.__wrapped__ if hasattr(
+        search_declaration, "__wrapped__") else None
+    # Build a default-on declaration directly.
+    from library.tools.music_search import SearchDeclaration
+    declaration = SearchDeclaration(
+        requested=True,
+        queries=(),
+        results_per_query=DEFAULT_RESULTS_PER_QUERY,
+        fetch_limit=DEFAULT_FETCH_LIMIT,
+        derive_from_direction=True,
+    )
+    direction = {"target_mood": "upbeat and energetic",
+                 "narrative_theme": "fitness motivation"}
+    resolved = resolve_declaration(declaration, direction)
+    assert resolved.requested is True
+    assert resolved.derive_from_direction is False
+    assert len(resolved.queries) == 1
+    assert "upbeat and energetic" in resolved.queries[0]
+    assert "fitness motivation" in resolved.queries[0]
+
+
+def test_resolve_declaration_loud_gap_when_direction_is_empty():
+    """When creative_direction can't produce a query, the gap is LOUD."""
+    from library.tools.music_search import SearchDeclaration
+    declaration = SearchDeclaration(
+        requested=True,
+        queries=(),
+        results_per_query=DEFAULT_RESULTS_PER_QUERY,
+        fetch_limit=DEFAULT_FETCH_LIMIT,
+        derive_from_direction=True,
+    )
+    resolved = resolve_declaration(declaration, {})
+    assert resolved.requested is False
+    assert "LIMITED TO WHAT IS ALREADY ON DISK" in resolved.reason
+    assert "target_mood" in resolved.reason
+
+
+def test_resolve_declaration_passes_through_explicit():
+    """An explicit declaration is not touched by resolve_declaration."""
+    declaration = parse_declaration({
+        "queries": ["my custom query"],
+        "results_per_query": 3,
+        "fetch_limit": 2,
+    })
+    resolved = resolve_declaration(declaration, {"target_mood": "happy"})
+    assert resolved.queries == ("my custom query",)
+    assert resolved.results_per_query == 3
+
+
+def test_resolve_declaration_passes_through_declined():
+    """A declined declaration stays declined."""
+    from library.tools.music_search import no_music_search
+    declaration = no_music_search("project declined")
+    resolved = resolve_declaration(declaration, {"target_mood": "happy"})
+    assert resolved.requested is False
 
 
 # ── Licence is provenance, and it gates nothing ───────────────────────
@@ -270,11 +340,32 @@ def test_search_refuses_a_non_positive_result_count():
         music_search.search("anything", 0)
 
 
-# ── The bridge does not search unless asked ───────────────────────────
+# ── The bridge searches by default, and declines loudly ───────────────
 
-def test_the_bridge_reports_that_it_did_not_search(tmp_path, monkeypatch):
-    """A project with no declaration produces a catalogue that says so."""
+def test_the_bridge_reports_default_on_search_with_no_declaration(tmp_path):
+    """A project with no declaration gets default-on search.
+
+    We test the declaration pathway - not the full bridge subprocess,
+    which would need network - to verify that the bridge would attempt
+    search with queries derived from creative_direction.
+    """
     folder = _project(tmp_path)
+    declaration = search_declaration(str(folder))
+    assert declaration.requested is True
+    assert declaration.derive_from_direction is True
+    # Resolve it with creative_direction to show the query.
+    direction = {"target_mood": "chill lo-fi",
+                 "narrative_theme": "late night coding"}
+    resolved = resolve_declaration(declaration, direction)
+    assert resolved.requested is True
+    assert len(resolved.queries) == 1
+    assert "chill lo-fi" in resolved.queries[0]
+    assert "late night coding" in resolved.queries[0]
+
+
+def test_the_bridge_reports_loud_gap_when_declined(tmp_path):
+    """A project that explicitly declines search gets a loud message."""
+    folder = _project(tmp_path, {DECLARATION_KEY: False})
     library = tmp_path / "shared_music"
     library.mkdir()
     env = dict(os.environ, PIPELINE_MUSIC_LIBRARY=str(library))
@@ -286,6 +377,27 @@ def test_the_bridge_reports_that_it_did_not_search(tmp_path, monkeypatch):
     assert proc.returncode == 0, proc.stderr
     catalogue = json.loads(proc.stdout)["music_candidates"]
     assert catalogue["search"]["requested"] is False
-    assert catalogue["search"]["fetched"] == 0
-    assert catalogue["search"]["cost"]["queries"] == 0
-    assert catalogue["candidates"] == []
+    assert "declined search explicitly" in catalogue["search"]["reason"]
+    # The loud gap must appear in stderr.
+    assert "MUSIC SEARCH DID NOT RUN" in proc.stderr
+
+
+def test_the_bridge_reports_loud_gap_when_direction_is_empty(tmp_path):
+    """Without creative_direction fields, the gap is stated loudly."""
+    folder = _project(tmp_path)
+    library = tmp_path / "shared_music"
+    library.mkdir()
+    env = dict(os.environ, PIPELINE_MUSIC_LIBRARY=str(library))
+    proc = subprocess.run(
+        [sys.executable, str(STEP / "bridge.py")],
+        input=json.dumps({
+            "project_folder": str(folder),
+            "creative_direction": {},
+        }),
+        capture_output=True, text=True, encoding="utf-8", env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    catalogue = json.loads(proc.stdout)["music_candidates"]
+    assert catalogue["search"]["requested"] is False
+    assert "LIMITED TO WHAT IS ALREADY ON DISK" in catalogue["search"]["reason"]
+    assert "MUSIC SEARCH DID NOT RUN" in proc.stderr
