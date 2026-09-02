@@ -251,8 +251,8 @@ export FM_AGY_CLIMB=on
 export FM_AGY_CLIMB_MARGIN=10
 export FM_AGY_CLIMB_DWELL=300
 
-RUNG1='Claude Opus 4.6 (Thinking)'
-RUNG2='Gemini 3.1 Pro (High)'
+RUNG1='Gemini 3.1 Pro (High)'
+RUNG2='Claude Opus 4.6 (Thinking)'
 RUNG3='Gemini 3.7 Flash (High)'
 
 NOW=$(date +%s)
@@ -548,11 +548,16 @@ test_a_ladder_name_resolves_against_the_pickers_own_rows() {
   [ "$resolved" = "$(printf 'Gemini 3.7 Flash\thigh')" ] \
     || fail "rung 3 must resolve to its family row plus a high effort, got '$resolved'"
 
-  # ...while a Claude rung carries its qualifier inline and needs no slider.
   resolved=$(fm_agy_descent_row_for "$rows" "$RUNG1") \
     || fail "rung 1 must resolve against the picker"
+  [ "$resolved" = "$(printf 'Gemini 3.1 Pro\thigh')" ] \
+    || fail "rung 1 must resolve to its family row plus a high effort, got '$resolved'"
+
+  # ...while a Claude rung carries its qualifier inline and needs no slider.
+  resolved=$(fm_agy_descent_row_for "$rows" "$RUNG2") \
+    || fail "rung 2 must resolve against the picker"
   [ "$resolved" = "$(printf 'Claude Opus 4.6 (Thinking)\t')" ] \
-    || fail "rung 1 must resolve to an exact row with no effort to set, got '$resolved'"
+    || fail "rung 2 must resolve to an exact row with no effort to set, got '$resolved'"
 
   # An effort this walk saturates rather than counts must be refused outright.
   ! fm_agy_descent_row_for "$rows" 'Gemini 3.1 Pro (Low)' >/dev/null \
@@ -617,7 +622,7 @@ test_confirmation_needs_both_signals() {
 test_the_target_is_whatever_the_ladder_authorizes() {
   local state target
   state=$(fresh_state target-one-step)
-  record "$state" "$RUNG1" 4.0 '3h 41m'
+  record "$state" "$RUNG1" 0.0 '3h 41m'
   record "$state" "$RUNG2" 94.6 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   target=$(fm_agy_descent_target 1 "$state" "$NOW") \
@@ -665,19 +670,19 @@ test_the_target_is_whatever_the_ladder_authorizes() {
 test_crossing_the_floor_uses_the_ladders_own_reading() {
   local state
   state=$(fresh_state needed)
-  record "$state" "$RUNG1" 25.0 '3h 41m'
-  fm_agy_descent_needed 1 "$state" "$NOW" \
-    || fail "rung 1 AT the captain's 25% floor must count as crossed"
+  record "$state" "$RUNG2" 25.0 '3h 41m'
+  fm_agy_descent_needed 2 "$state" "$NOW" \
+    || fail "Opus AT the captain's 25% floor must count as crossed"
 
-  record "$state" "$RUNG1" 25.1 '3h 41m'
-  ! fm_agy_descent_needed 1 "$state" "$NOW" \
-    || fail "rung 1 above its floor must not be moved"
+  record "$state" "$RUNG2" 25.1 '3h 41m'
+  ! fm_agy_descent_needed 2 "$state" "$NOW" \
+    || fail "Opus above its floor must not be moved"
 
   # Absence of evidence is not a crossing. Acting on an unknown reading would
   # move live workers for no reason, and the ladder's own asymmetry says only
   # positive evidence refuses a rung's own floor.
   state=$(fresh_state needed-unknown)
-  ! fm_agy_descent_needed 1 "$state" "$NOW" \
+  ! fm_agy_descent_needed 2 "$state" "$NOW" \
     || fail "no reading at all must never be treated as a crossing"
   pass "fm_agy_descent_needed: the crossing is the ladder's verdict on the ladder's evidence"
 }
@@ -749,11 +754,12 @@ test_a_disagreeing_record_refuses_rather_than_guessing() {
   # catalogue rather than whatever agy the host happens to have installed.
   local PATH="$fakebin:$outer_path"
   state=$(fresh_state tick-disagree)
-  meta "$state" drifted "$RUNG1"
+  meta "$state" drifted "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
-  # The worker is actually running rung 2 while the durable record still says
-  # rung 1. Every move count below is derived from that record, so acting on it
+  record "$state" "$RUNG2" 4.0 '3h 37m'
+  record "$state" "$RUNG3" 100.0 '4h 59m'
+  # The worker is actually running rung 1 while the durable record still says
+  # rung 2. Every move count below is derived from that record, so acting on it
   # would be moving a worker on a description that does not fit it. These are two
   # rows of the catalogue, so no spelling rule can reconcile them and none may.
   FAKE_PANE=$(settled_on_rung3 | sed 's/^Gemini 3.7 Flash (High) | ctx/Gemini 3.1 Pro (High) | ctx/')
@@ -788,7 +794,7 @@ test_the_two_spellings_of_one_model_are_not_a_disagreement() {
   state=$(fresh_state tick-kebab)
   meta "$state" kebabbed claude-opus-4-6-thinking
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 4.0 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
@@ -800,10 +806,10 @@ test_the_two_spellings_of_one_model_are_not_a_disagreement() {
     "the ladder must act normally on a worker whose record uses the kebab id"
 
   # The move really happened, rather than the refusal merely having gone quiet.
-  [ "$(fake_settled)" = "$RUNG2" ] \
-    || fail "the selection must have been committed to rung 2; got '$(fake_settled)'"
-  [ "$(fm_meta_get "$state/kebabbed.meta" model)" = "$RUNG2" ] \
-    || fail "the task's durable record must now name rung 2"
+  [ "$(fake_settled)" = "$RUNG3" ] \
+    || fail "the selection must have been committed to rung 3; got '$(fake_settled)'"
+  [ "$(fm_meta_get "$state/kebabbed.meta" model)" = "$RUNG3" ] \
+    || fail "the task's durable record must now name rung 3"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: the kebab id and the display name are one model, and the ladder acts"
 }
@@ -824,7 +830,7 @@ test_a_model_list_that_cannot_be_read_refuses_rather_than_guessing() {
   state=$(fresh_state tick-nocatalog)
   meta "$state" unreadable claude-opus-4-6-thinking
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 4.0 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
@@ -943,28 +949,28 @@ test_the_evaluation_can_be_turned_off() {
 test_a_crossed_floor_moves_the_worker_and_records_it() {
   local state out
   state=$(fresh_state tick-descend)
-  meta "$state" runner "$RUNG1"
+  meta "$state" runner "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 0.0 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "descended runner" "a worker below its floor must be moved"
-  assert_contains "$out" "$RUNG1 -> $RUNG2" "the move must be one rung, and must name both ends"
+  assert_contains "$out" "$RUNG2 -> $RUNG3" "the move must be one rung, and must name both ends"
 
   # The picker really was walked to the target rather than the target being
   # asserted from the plan alone.
-  [ "$(fake_selection)" = 'Gemini 3.1 Pro' ] \
-    || fail "the walk must have left the picker on rung 2's row; got '$(fake_selection)'"
-  [ "$(fake_settled)" = "$RUNG2" ] \
-    || fail "the selection must have been committed to rung 2; got '$(fake_settled)'"
+  [ "$(fake_selection)" = 'Gemini 3.7 Flash' ] \
+    || fail "the walk must have left the picker on rung 3's row; got '$(fake_selection)'"
+  [ "$(fake_settled)" = "$RUNG3" ] \
+    || fail "the selection must have been committed to rung 3; got '$(fake_settled)'"
 
   # The durable record has to follow the worker, or the next evaluation would
   # decide about a model this worker is no longer running.
-  [ "$(fm_meta_get "$state/runner.meta" model)" = "$RUNG2" ] \
-    || fail "the task's durable record must now name rung 2"
+  [ "$(fm_meta_get "$state/runner.meta" model)" = "$RUNG3" ] \
+    || fail "the task's durable record must now name rung 3"
 
   # ...and the episode is over, so nothing repeats on the next evaluation.
   [ ! -f "$state/.agy-descent-below-runner" ] \
@@ -979,9 +985,10 @@ test_a_crossed_floor_moves_the_worker_and_records_it() {
 test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
   local state out
   state=$(fresh_state tick-mismatch)
-  meta "$state" adrift "$RUNG1"
+  meta "$state" adrift "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 0.0 '3h 37m'
+  record "$state" "$RUNG3" 94.6 '4h 59m'
   # The navigation keys do nothing, which is exactly how a picker whose list no
   # longer matches the parsed walk behaves. The counted moves are sent and the
   # selection stays put.
@@ -990,7 +997,7 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "refused adrift" "a walk that missed its target must refuse"
-  assert_contains "$out" "settled on Claude Opus 4.6 (Thinking) instead of $RUNG2" \
+  assert_contains "$out" "settled on Claude Opus 4.6 (Thinking) instead of $RUNG3" \
     "the refusal must name what it found and what it wanted"
   assert_not_contains "$out" "descended" "nothing may be committed after a missed walk"
 
@@ -1002,7 +1009,7 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
     || fail "a missed walk must leave the worker out of the picker; phase is '$(fake_phase)'"
 
   # And the durable record is untouched, so the worker is still described by it.
-  [ "$(fm_meta_get "$state/adrift.meta" model)" = "$RUNG1" ] \
+  [ "$(fm_meta_get "$state/adrift.meta" model)" = "$RUNG2" ] \
     || fail "a refused descent must leave the durable record exactly as it was"
   FAKE_MODE=static
   FAKE_STICKY=0
@@ -1012,9 +1019,10 @@ test_a_walk_that_does_not_land_on_the_target_commits_nothing() {
 test_the_model_command_carries_exactly_one_enter() {
   local state out
   state=$(fresh_state tick-one-enter)
-  meta "$state" single "$RUNG1"
+  meta "$state" single "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 0.0 '3h 37m'
+  record "$state" "$RUNG3" 94.6 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
 
@@ -1025,9 +1033,9 @@ test_the_model_command_carries_exactly_one_enter() {
   # against agy 1.1.16 before the retry count was pinned to one.
   out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "descended single" "the descent must still complete"
-  [ "$(fake_settled)" = "$RUNG2" ] \
-    || fail "an extra Enter committed the wrong model: settled on '$(fake_settled)', not $RUNG2"
-  [ "$(fm_meta_get "$state/single.meta" model)" = "$RUNG2" ] \
+  [ "$(fake_settled)" = "$RUNG3" ] \
+    || fail "an extra Enter committed the wrong model: settled on '$(fake_settled)', not $RUNG3"
+  [ "$(fm_meta_get "$state/single.meta" model)" = "$RUNG3" ] \
     || fail "the durable record must name the model that was actually selected"
   FAKE_MODE=static
   pass "fm_agy_descent_switch: the model command carries exactly one Enter, so no retry commits a selection"
@@ -1064,33 +1072,33 @@ climb_worker() {  # <state-dir> <id> <ladder-display> <picker-row>
 test_a_reset_rung_climbs_the_worker_back_and_records_it() {
   local state out t
   state=$(fresh_state climb-back)
-  climb_worker "$state" returner "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" returner "$RUNG3" 'Gemini 3.7 Flash'
 
-  # Rung 1 has reset well clear of the captain's quarter. One reading is not
-  # enough on its own - that is the dwell - so the first evaluation is silent.
+  # Rung 2 (Opus) has reset well clear of the captain's quarter. One reading is
+  # not enough on its own - that is the dwell - so the first evaluation is silent.
   t=$NOW
-  out=$(climb_tick "$state" "$t" 100.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "a single reading must never authorize a climb, got: $out"
-  [ "$(fm_meta_get "$state/returner.meta" model)" = "$RUNG2" ] \
+  [ "$(fm_meta_get "$state/returner.meta" model)" = "$RUNG3" ] \
     || fail "nothing may move inside the dwell"
 
   t=$((t + FM_AGY_CLIMB_DWELL))
-  out=$(climb_tick "$state" "$t" 100.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 100.0 94.6)
   assert_contains "$out" "climbed returner" "a rung held clear for the dwell must climb the worker back"
-  assert_contains "$out" "$RUNG2 -> $RUNG1" "the climb must name both ends"
+  assert_contains "$out" "$RUNG3 -> $RUNG2" "the climb must name both ends"
 
-  # The picker really was walked upwards to rung 1's own row, rather than the
+  # The picker really was walked upwards to rung 2's own row, rather than the
   # outcome being asserted from the plan alone.
   [ "$(fake_selection)" = 'Claude Opus 4.6 (Thinking)' ] \
-    || fail "the walk must have left the picker on rung 1's row; got '$(fake_selection)'"
-  [ "$(fake_settled)" = "$RUNG1" ] \
-    || fail "the selection must have been committed to rung 1; got '$(fake_settled)'"
-  [ "$(fm_meta_get "$state/returner.meta" model)" = "$RUNG1" ] \
-    || fail "the task's durable record must now name rung 1"
+    || fail "the walk must have left the picker on rung 2's row; got '$(fake_selection)'"
+  [ "$(fake_settled)" = "$RUNG2" ] \
+    || fail "the selection must have been committed to rung 2; got '$(fake_settled)'"
+  [ "$(fm_meta_get "$state/returner.meta" model)" = "$RUNG2" ] \
+    || fail "the task's durable record must now name rung 2"
 
   # And the worker is where it belongs, so the next evaluation says nothing.
-  out=$(climb_tick "$state" "$((t + 120))" 100.0 94.6)
-  [ -z "$out" ] || fail "a worker already back on rung 1 must be silent, got: $out"
+  out=$(climb_tick "$state" "$((t + 120))" 0.0 100.0 94.6)
+  [ -z "$out" ] || fail "a worker already back on rung 2 must be silent, got: $out"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: a rung that has reset clear of its floor climbs the worker back and records it"
 }
@@ -1103,27 +1111,27 @@ test_the_climb_never_reaches_into_the_captains_reserve() {
   # the policy and never a wait that had not finished.
   for pct in 25.0 24.9 30.0 34.9; do
     state=$(fresh_state "climb-reserve-$pct")
-    climb_worker "$state" reserved "$RUNG2" 'Gemini 3.1 Pro'
+    climb_worker "$state" reserved "$RUNG3" 'Gemini 3.7 Flash'
     t=$NOW
     for _ in 1 2 3 4; do
-      out=$(climb_tick "$state" "$t" "$pct" 94.6)
-      [ -z "$out" ] || fail "rung 1 at $pct% must never climb a running worker, got: $out"
+      out=$(climb_tick "$state" "$t" 0.0 "$pct" 94.6)
+      [ -z "$out" ] || fail "rung 2 at $pct% must never climb a running worker, got: $out"
       t=$((t + FM_AGY_CLIMB_DWELL))
     done
-    [ "$(fm_meta_get "$state/reserved.meta" model)" = "$RUNG2" ] \
-      || fail "the worker must still be recorded on rung 2 with rung 1 at $pct%"
+    [ "$(fm_meta_get "$state/reserved.meta" model)" = "$RUNG3" ] \
+      || fail "the worker must still be recorded on rung 3 with rung 2 at $pct%"
     [ -z "$(fake_settled)" ] \
-      || fail "nothing may be selected with rung 1 at $pct%; it settled on '$(fake_settled)'"
+      || fail "nothing may be selected with rung 2 at $pct%; it settled on '$(fake_settled)'"
   done
 
   # The contrast, so the refusals above are about the reserve and not about a
   # climb that never fires: the same worker, one notch higher, does climb.
   state=$(fresh_state climb-reserve-clear)
-  climb_worker "$state" cleared "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" cleared "$RUNG3" 'Gemini 3.7 Flash'
   t=$NOW
-  out=$(climb_tick "$state" "$t" 35.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 35.0 94.6)
   [ -z "$out" ] || fail "the dwell must still apply at the edge of the band, got: $out"
-  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 35.0 94.6)
+  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 0.0 35.0 94.6)
   assert_contains "$out" "climbed cleared" \
     "the first figure clear of the floor by the whole margin must climb"
   FAKE_MODE=static
@@ -1133,16 +1141,16 @@ test_the_climb_never_reaches_into_the_captains_reserve() {
 test_an_unread_rung_above_is_never_climbed_into() {
   local state out t
   state=$(fresh_state climb-unread)
-  climb_worker "$state" blind "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" blind "$RUNG3" 'Gemini 3.7 Flash'
 
   t=$NOW
   for _ in 1 2 3 4; do
-    out=$(climb_tick "$state" "$t" '' 94.6)
+    out=$(climb_tick "$state" "$t" 0.0 '' 94.6)
     [ -z "$out" ] || fail "a rung with no reading at all must never climb a worker, got: $out"
     t=$((t + FM_AGY_CLIMB_DWELL))
   done
-  [ "$(fm_meta_get "$state/blind.meta" model)" = "$RUNG2" ] \
-    || fail "an unread rung 1 must leave the durable record alone"
+  [ "$(fm_meta_get "$state/blind.meta" model)" = "$RUNG3" ] \
+    || fail "an unread rung above must leave the durable record alone"
 
   # ...and that same absence really does authorize a LAUNCH at the top of the
   # ladder. Without this the assertions above could be passing because absence
@@ -1156,7 +1164,7 @@ test_an_unread_rung_above_is_never_climbed_into() {
 test_a_rung_hovering_at_its_boundary_never_flaps_the_worker() {
   local state out t i pct
   state=$(fresh_state climb-hover)
-  climb_worker "$state" steady "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" steady "$RUNG3" 'Gemini 3.7 Flash'
 
   # Rung 1 crosses the climb line and falls back under it, over and over, for
   # six times the dwell. Under a bare threshold every one of those crossings is
@@ -1167,14 +1175,14 @@ test_a_rung_hovering_at_its_boundary_never_flaps_the_worker() {
   i=0
   while [ "$i" -lt 12 ]; do
     if [ $((i % 2)) -eq 0 ]; then pct=40.0; else pct=30.0; fi
-    out=$(climb_tick "$state" "$t" "$pct" 94.6)
+    out=$(climb_tick "$state" "$t" 0.0 "$pct" 94.6)
     [ -z "$out" ] || fail "a rung hovering at the boundary must move nothing (step $i, rung 1 at $pct%), got: $out"
     t=$((t + FM_AGY_CLIMB_DWELL))
     i=$((i + 1))
   done
 
-  [ "$(fm_meta_get "$state/steady.meta" model)" = "$RUNG2" ] \
-    || fail "the hovering rung must have left the durable record on rung 2"
+  [ "$(fm_meta_get "$state/steady.meta" model)" = "$RUNG3" ] \
+    || fail "the hovering rung must have left the durable record on rung 3"
   [ -z "$(fake_settled)" ] \
     || fail "the hovering rung must have committed nothing; it settled on '$(fake_settled)'"
   [ "$(fake_phase)" = composer ] \
@@ -1183,10 +1191,10 @@ test_a_rung_hovering_at_its_boundary_never_flaps_the_worker() {
   # And the hold is the hysteresis doing its job rather than a climb that never
   # works: the SAME rung, at the SAME percentage it kept crossing to, moves the
   # worker as soon as it stops falling back.
-  out=$(climb_tick "$state" "$t" 40.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 40.0 94.6)
   [ -z "$out" ] || fail "the first steady evaluation is still inside the dwell, got: $out"
   t=$((t + FM_AGY_CLIMB_DWELL))
-  out=$(climb_tick "$state" "$t" 40.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 40.0 94.6)
   assert_contains "$out" "climbed steady" \
     "a rung that stops hovering and holds for the dwell must climb the worker back"
   FAKE_MODE=static
@@ -1196,12 +1204,11 @@ test_a_rung_hovering_at_its_boundary_never_flaps_the_worker() {
 test_a_worker_on_a_spent_rung_climbs_instead_of_being_reported_stuck() {
   local state out t
   state=$(fresh_state climb-from-spent)
-  climb_worker "$state" stranded "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" stranded "$RUNG3" 'Gemini 3.7 Flash'
 
-  # Rung 2 is dead and rung 1 has reset. Descending to rung 3 is correctly
-  # refused - rung 1 is not exhausted, so rung 3 is not the highest available
-  # rung - and before the climb existed this worker was reported stuck on a
-  # spent ladder while the top of that ladder sat free.
+  # Rung 2 (Opus) is dead and rung 1 (Gemini Pro) has reset. The climb finds
+  # rung 1 available while rung 2 is spent, so it moves the worker all the way
+  # to rung 1 rather than leaving it stuck on a spent ladder.
   t=$NOW
   out=$(climb_tick "$state" "$t" 100.0 0.0 100.0)
   [ -z "$out" ] || fail "a climb merely waiting out its dwell is a bounded wait, not a refusal to report, got: $out"
@@ -1209,7 +1216,7 @@ test_a_worker_on_a_spent_rung_climbs_instead_of_being_reported_stuck() {
   t=$((t + FM_AGY_CLIMB_DWELL))
   out=$(climb_tick "$state" "$t" 100.0 0.0 100.0)
   assert_contains "$out" "climbed stranded" "a worker on a spent rung must be climbed to the rung that reset"
-  assert_contains "$out" "$RUNG2 -> $RUNG1" "the move must be to rung 1, not down to rung 3"
+  assert_contains "$out" "$RUNG3 -> $RUNG1" "the move must be to rung 1, not down to rung 3"
   assert_not_contains "$out" "descended" "nothing may descend while a rung above is available"
   [ "$(fm_meta_get "$state/stranded.meta" model)" = "$RUNG1" ] \
     || fail "the durable record must follow the worker up"
@@ -1222,7 +1229,7 @@ test_a_spent_ladder_is_still_reported_when_nothing_above_has_reset() {
   # have made a genuinely spent ladder silent.
   local state out
   state=$(fresh_state climb-still-spent)
-  climb_worker "$state" wedged "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" wedged "$RUNG3" 'Gemini 3.7 Flash'
   out=$(climb_tick "$state" "$NOW" 0.0 0.0 0.0)
   assert_contains "$out" "refused wedged" "a ladder with nothing left anywhere must still be reported"
   assert_not_contains "$out" "climbed" "nothing may climb into a spent rung"
@@ -1233,14 +1240,14 @@ test_a_spent_ladder_is_still_reported_when_nothing_above_has_reset() {
 test_a_failed_climb_is_reported_once_and_not_retried_every_minute() {
   local state out t
   state=$(fresh_state climb-failed)
-  climb_worker "$state" balky "$RUNG2" 'Gemini 3.1 Pro'
-  # The navigation keys do nothing, so the walk cannot land on rung 1's row.
+  climb_worker "$state" balky "$RUNG3" 'Gemini 3.7 Flash'
+  # The navigation keys do nothing, so the walk cannot land on rung 2's row.
   FAKE_STICKY=1
 
   t=$((NOW + FM_AGY_CLIMB_DWELL))
-  out=$(climb_tick "$state" "$NOW" 100.0 94.6)
+  out=$(climb_tick "$state" "$NOW" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "the dwell must not be skipped, got: $out"
-  out=$(climb_tick "$state" "$t" 100.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 100.0 94.6)
   assert_contains "$out" "refused balky" "a climb that missed its target must be reported"
   assert_not_contains "$out" "climbed" "nothing may be committed after a missed walk"
   [ -z "$(fake_settled)" ] || fail "a missed climb must commit nothing; it selected '$(fake_settled)'"
@@ -1250,7 +1257,7 @@ test_a_failed_climb_is_reported_once_and_not_retried_every_minute() {
   # The rung is still climbable, so a retry loop here would drive the modal
   # picker into a live pane once a minute for an optimisation. It must not.
   printf 'composer' > "$FAKE_DIR/phase"
-  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 100.0 94.6)
+  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "a failed climb must not be retried while the rung stays climbable, got: $out"
   [ "$(fake_phase)" = composer ] \
     || fail "a failed climb must not reopen the picker; phase is '$(fake_phase)'"
@@ -1258,12 +1265,12 @@ test_a_failed_climb_is_reported_once_and_not_retried_every_minute() {
   # Once the rung stops being climbable the episode is over, so a later reset
   # is attempted again rather than suppressed forever.
   t=$((t + 2 * FM_AGY_CLIMB_DWELL))
-  out=$(climb_tick "$state" "$t" 20.0 94.6)
+  out=$(climb_tick "$state" "$t" 0.0 20.0 94.6)
   [ -z "$out" ] || fail "a lapsed rung must be silent, got: $out"
   FAKE_STICKY=0
-  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 100.0 94.6)
+  out=$(climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "the dwell restarts with the rung, got: $out"
-  out=$(climb_tick "$state" "$((t + 2 * FM_AGY_CLIMB_DWELL))" 100.0 94.6)
+  out=$(climb_tick "$state" "$((t + 2 * FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
   assert_contains "$out" "climbed balky" "a fresh episode must be attempted again"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: a failed climb is reported once and left alone until the rung lapses and returns"
@@ -1272,23 +1279,23 @@ test_a_failed_climb_is_reported_once_and_not_retried_every_minute() {
 test_the_captains_override_holds_a_worker_down_and_says_nothing() {
   local state out
   state=$(fresh_state climb-override)
-  climb_worker "$state" pinned "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" pinned "$RUNG3" 'Gemini 3.7 Flash'
 
   out=$(FM_AGY_LADDER_OVERRIDE='captain: keep this one on gemini' \
-    climb_tick "$state" "$NOW" 100.0 94.6)
+    climb_tick "$state" "$NOW" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "an override inside the dwell must be silent, got: $out"
   out=$(FM_AGY_LADDER_OVERRIDE='captain: keep this one on gemini' \
-    climb_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))" 100.0 94.6)
+    climb_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "a pinned worker on a slower rung is what the captain asked for, so it must not wake them, got: $out"
-  [ "$(fm_meta_get "$state/pinned.meta" model)" = "$RUNG2" ] \
+  [ "$(fm_meta_get "$state/pinned.meta" model)" = "$RUNG3" ] \
     || fail "an overridden worker must not be climbed"
 
   # The downward side of the same override still speaks, so silence here is a
   # deliberate asymmetry and not the override having stopped being honoured.
   state=$(fresh_state climb-override-down)
-  climb_worker "$state" pinned "$RUNG1" 'Claude Opus 4.6 (Thinking)'
+  climb_worker "$state" pinned "$RUNG2" 'Claude Opus 4.6 (Thinking)'
   out=$(FM_AGY_LADDER_OVERRIDE='captain: finish this run on opus' \
-    climb_tick "$state" "$NOW" 0.0 94.6)
+    climb_tick "$state" "$NOW" 0.0 0.0 94.6)
   assert_contains "$out" "override pinned" "a pinned worker below its floor must still be reported"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: the override holds a worker down silently and still speaks when it holds one below its floor"
@@ -1297,20 +1304,20 @@ test_the_captains_override_holds_a_worker_down_and_says_nothing() {
 test_the_climb_can_be_turned_off_on_its_own() {
   local state out
   state=$(fresh_state climb-off)
-  climb_worker "$state" grounded "$RUNG2" 'Gemini 3.1 Pro'
+  climb_worker "$state" grounded "$RUNG3" 'Gemini 3.7 Flash'
 
-  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$NOW" 100.0 94.6)
+  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$NOW" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "the disabled climb must do nothing, got: $out"
-  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))" 100.0 94.6)
+  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
   [ -z "$out" ] || fail "the disabled climb must still do nothing after the dwell, got: $out"
-  [ "$(fm_meta_get "$state/grounded.meta" model)" = "$RUNG2" ] \
+  [ "$(fm_meta_get "$state/grounded.meta" model)" = "$RUNG3" ] \
     || fail "FM_AGY_CLIMB=off must leave the worker where it is"
 
   # ...while the descent it shares a tick with is untouched, so the two halves
   # really are separately controllable.
   state=$(fresh_state climb-off-descent)
-  climb_worker "$state" sinking "$RUNG1" 'Claude Opus 4.6 (Thinking)'
-  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$NOW" 0.0 94.6)
+  climb_worker "$state" sinking "$RUNG2" 'Claude Opus 4.6 (Thinking)'
+  out=$(FM_AGY_CLIMB=off climb_tick "$state" "$NOW" 0.0 0.0 94.6)
   assert_contains "$out" "descended sinking" "FM_AGY_CLIMB=off must not disable the descent"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: FM_AGY_CLIMB=off disables the climb alone"
@@ -1353,7 +1360,7 @@ test_the_dwell_timer_belongs_to_the_rung_not_to_a_worker() {
 
   # And the timer is destroyed the moment the condition lapses, so the next
   # crossing starts from zero instead of resuming a part-served wait.
-  record_at "$state" "$RUNG1" 20.0 '3h 41m' "$((NOW + FM_AGY_CLIMB_DWELL))"
+  record_at "$state" "$RUNG1" 5.0 '3h 41m' "$((NOW + FM_AGY_CLIMB_DWELL))"
   fm_agy_climb_dwell_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))"
   [ ! -f "$state/.agy-climb-since-1" ] \
     || fail "a lapsed condition must destroy the timer, not pause it"
@@ -1373,9 +1380,9 @@ test_the_dwell_timer_belongs_to_the_rung_not_to_a_worker() {
 test_a_move_leaves_a_record_naming_only_the_model_the_worker_is_on() {
   local state out
   state=$(fresh_state record-replaces)
-  meta "$state" scribe "$RUNG1"
+  meta "$state" scribe "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 0.0 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
@@ -1387,10 +1394,10 @@ test_a_move_leaves_a_record_naming_only_the_model_the_worker_is_on() {
   # last matching line happens to give the right answer even when an older one
   # survives above it, so a record that still carries the reserved model is one
   # careless reader away from the failure this exists to stop.
-  ! grep -q "^model=$RUNG1\$" "$state/scribe.meta" \
+  ! grep -q "^model=$RUNG2\$" "$state/scribe.meta" \
     || fail "the durable record must no longer name the reserved rung anywhere:
 $(cat "$state/scribe.meta")"
-  [ "$(fm_meta_get "$state/scribe.meta" model)" = "$RUNG2" ] \
+  [ "$(fm_meta_get "$state/scribe.meta" model)" = "$RUNG3" ] \
     || fail "the durable record must name the model the worker is actually on"
 
   # Everything else the record carried is still there: this replaces one field,
@@ -1406,9 +1413,9 @@ $(cat "$state/scribe.meta")"
 test_a_move_that_cannot_be_recorded_is_never_reported_as_a_success() {
   local state out
   state=$(fresh_state record-fails)
-  meta "$state" mute "$RUNG1"
+  meta "$state" mute "$RUNG2"
   record "$state" "$RUNG1" 0.0 '3h 41m'
-  record "$state" "$RUNG2" 94.6 '3h 37m'
+  record "$state" "$RUNG2" 0.0 '3h 37m'
   record "$state" "$RUNG3" 100.0 '4h 59m'
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
@@ -1421,14 +1428,14 @@ test_a_move_that_cannot_be_recorded_is_never_reported_as_a_success() {
 
   out=$(fm_agy_descent_tick "$state" "$NOW")
 
-  [ "$(fake_settled)" = "$RUNG2" ] \
+  [ "$(fake_settled)" = "$RUNG3" ] \
     || fail "this case is only meaningful if the worker really was moved first"
   assert_not_contains "$out" "descended mute" \
     "a move whose record was lost must not be reported as a completed descent"
   assert_contains "$out" "unrecorded mute" \
     "an unrecorded move must be escalated in its own right"
-  assert_contains "$out" "$RUNG2" "the escalation must name the model the worker is now on"
-  assert_contains "$out" "relaunch would bring it back onto $RUNG1" \
+  assert_contains "$out" "$RUNG3" "the escalation must name the model the worker is now on"
+  assert_contains "$out" "relaunch would bring it back onto $RUNG2" \
     "the escalation must name the consequence: recovery onto the reserved rung"
   FAKE_MODE=static
   pass "fm_agy_descent_tick: a move that could not be written down is escalated, not announced as done"
@@ -1448,9 +1455,9 @@ test_a_move_that_cannot_be_recorded_is_never_reported_as_a_success() {
 test_the_reserve_is_enforced_across_a_gap_with_no_evaluation() {
   local state out later
   state=$(fresh_state unwatched-gap)
-  meta "$state" holdout "$RUNG1"
-  record_at "$state" "$RUNG1" 28.7 '3h 41m' "$NOW"
-  record_at "$state" "$RUNG2" 94.6 '3h 37m' "$NOW"
+  meta "$state" holdout "$RUNG2"
+  record_at "$state" "$RUNG1" 0.0 '3h 41m' "$NOW"
+  record_at "$state" "$RUNG2" 28.7 '3h 37m' "$NOW"
   record_at "$state" "$RUNG3" 100.0 '4h 59m' "$NOW"
   FAKE_STICKY=0
   fake_worker_start "$state" 'Claude Opus 4.6 (Thinking)'
@@ -1458,15 +1465,15 @@ test_the_reserve_is_enforced_across_a_gap_with_no_evaluation() {
   # 18:48. Above the floor, so the right answer is to do nothing.
   out=$(fm_agy_descent_tick "$state" "$NOW")
   [ -z "$out" ] || fail "a rung above its floor must move nobody, got: $out"
-  [ "$(fm_meta_get "$state/holdout.meta" model)" = "$RUNG1" ] \
+  [ "$(fm_meta_get "$state/holdout.meta" model)" = "$RUNG2" ] \
     || fail "nothing should have moved while the rung was above its floor"
 
   # Ten minutes inside a single firstmate turn. NOTHING evaluates in this gap -
   # not once, for ten times the evaluation interval - and the rung falls well
   # inside the captain's reserve while the worker keeps spending it.
   later=$((NOW + 600))
-  record_at "$state" "$RUNG1" 19.6 '3h 31m' "$later"
-  record_at "$state" "$RUNG2" 94.6 '3h 27m' "$later"
+  record_at "$state" "$RUNG1" 0.0 '3h 31m' "$later"
+  record_at "$state" "$RUNG2" 19.6 '3h 27m' "$later"
   record_at "$state" "$RUNG3" 100.0 '4h 49m' "$later"
   [ "$(cat "$state/.agy-descent-last")" = "$NOW" ] \
     || fail "this case is only meaningful if nothing re-evaluated during the gap"
@@ -1476,9 +1483,9 @@ test_the_reserve_is_enforced_across_a_gap_with_no_evaluation() {
   fm_agy_descent_turn_end "$state" "$later" \
     || fail "the turn-end driver must publish its outcome"
 
-  [ "$(fm_meta_get "$state/holdout.meta" model)" = "$RUNG2" ] \
+  [ "$(fm_meta_get "$state/holdout.meta" model)" = "$RUNG3" ] \
     || fail "the worker must be off the reserved rung, not still spending it"
-  [ "$(fake_settled)" = "$RUNG2" ] \
+  [ "$(fake_settled)" = "$RUNG3" ] \
     || fail "the move must have been committed in the worker's own session"
   assert_grep "descended holdout" "$state/.wake-queue" \
     "the move must be queued where firstmate finds it, with no watcher running"

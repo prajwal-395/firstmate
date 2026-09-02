@@ -2,20 +2,22 @@
 # fm-agy-ladder-lib.sh - the agy model ladder, enforced at the dispatch layer.
 # Usage: . bin/fm-agy-ladder-lib.sh
 # Sourced by bin/fm-spawn.sh. This file has no side effects on source beyond
-# pulling in its own quota-reading dependency.
+# pulling in its own quota-reading dependency and loading the ladder from config.
 #
 # THE POLICY. The captain's standing rule for agy dispatch is a fixed three-rung
-# ladder run by STRICT EXHAUSTION, not load balancing:
-#
-#   rung 1  Claude Opus 4.6 (Thinking)   claude-opus-4-6-thinking
-#   rung 2  Gemini 3.1 Pro (High)        gemini-3.1-pro-high
-#   rung 3  Gemini 3.7 Flash (High)      gemini-3.7-flash-high
+# ladder run by STRICT EXHAUSTION, not load balancing.
+# The rung order is DERIVED from config/crew-dispatch.json's "default" array,
+# which is the one place the captain sets it.
+# When the config file is absent (a fresh home, a test), the built-in default
+# order applies.
 #
 # Work runs on the highest non-exhausted rung. A lower rung is valid only once
 # EVERY rung above it is exhausted, and work climbs straight back the moment a
-# rung above resets. Rung 1's exhaustion floor is 25 percent remaining, because
-# that last quarter of Opus 4.6 is reserved for the captain on explicit request
-# and automatic dispatch never touches it. Rungs 2 and 3 exhaust to 0.
+# rung above resets. The exhaustion floor is a property of the MODEL, not the
+# rung position: Claude Opus 4.6 (Thinking) stops at 25 percent remaining
+# wherever it sits on the ladder, because that last quarter is reserved for the
+# captain on explicit request and automatic dispatch never touches it. Every
+# other model exhausts to 0.
 #
 # This file gates LAUNCHES. bin/fm-agy-descent-lib.sh applies the same rule, in
 # both directions, to a worker already running, by putting each candidate rung
@@ -23,8 +25,8 @@
 #
 # The authoritative statement of the policy is the captain-private
 # config/crew-dispatch.json "_ladder_note"; this file is its enforcement, not a
-# second copy of it. The rung order and the floors are restated here because a
-# gate cannot consult a gitignored file that a fresh home may not have.
+# second copy of it. The rung order derives from that config's "default" array
+# at load time, so a reorder there is a reorder here with no second edit.
 #
 # WHY A GATE AND NOT PROSE. The ladder used to live only in instructions, so
 # every dispatch depended on an agent remembering it. The captain asked for it
@@ -123,39 +125,194 @@ if ! declare -f fm_agy_quota_read >/dev/null 2>&1; then
   . "$_FM_AGY_LADDER_LIB_DIR/fm-agy-quota-lib.sh"
 fi
 
+# --- the ladder: derived from config, not restated ---------------------------
+#
+# THE ORDER comes from config/crew-dispatch.json's "default" array, which is the
+# single place the captain sets the rung sequence. This file reads it once at
+# load time and derives the enforcement tables from it, so a reorder there takes
+# effect here with no second edit - the one-owner rule.
+#
+# THE FLOOR is a property of the MODEL, not of the rung position. When the
+# captain moved Opus from rung 1 to rung 2, the 25 percent reserve must travel
+# with the model rather than staying pinned to whatever rung number it used to
+# occupy. _FM_LADDER_MODEL_FLOOR is the table, keyed by display name.
+#
+# THE KEBAB IDS are the alternative spellings agy accepts for each display name.
+# They are properties of the model catalogue, not of the order, and cannot be
+# derived mechanically from a display name (e.g. "4.6" becomes "4-6" in Claude
+# but stays "3.1" in Gemini). _FM_LADDER_KNOWN_KEBAB maps display name to kebab
+# id for every model the ladder can rank.
+#
+# When the config file is absent - a fresh home, a secondmate that has not been
+# seeded, a test that does not set FM_AGY_LADDER_CONFIG - the built-in default
+# order applies. That default matches the captain's current order so a fleet
+# that has never had the config is correct by default.
+
+# _FM_LADDER_DISPLAYS: newline-separated display names, rung 1 first.
+# Populated by _fm_agy_ladder_init below.
+_FM_LADDER_DISPLAYS=''
+# _FM_LADDER_COUNT: how many rungs the ladder has.
+_FM_LADDER_COUNT=0
+
+# Model-to-floor: keyed by display name. Only models with a non-zero floor need
+# an entry; every other model exhausts to 0. This is where the captain's 25
+# percent reserve lives - it follows the model, not the position.
+_FM_LADDER_MODEL_FLOOR_Claude_Opus_4_6_Thinking=25
+
+# _fm_agy_ladder_model_floor: the floor for a model by display name.
+_fm_agy_ladder_model_floor() {  # <display-name>
+  case "$1" in
+    'Claude Opus 4.6 (Thinking)') printf '25' ;;
+    *) printf '0' ;;
+  esac
+}
+
+# Known kebab IDs for every model the ladder can rank. This map is a property
+# of agy's catalogue, not of the rung order; it is stated here so the gate can
+# match either spelling without a network call.
+_FM_LADDER_KNOWN_KEBAB_claude_opus_4_6_thinking='Claude Opus 4.6 (Thinking)'
+_FM_LADDER_KNOWN_KEBAB_gemini_3_1_pro_high='Gemini 3.1 Pro (High)'
+_FM_LADDER_KNOWN_KEBAB_gemini_3_7_flash_high='Gemini 3.7 Flash (High)'
+
+# _fm_agy_ladder_kebab_to_display: if <model> is a known kebab ID, print the
+# display name. Returns 1 when no match.
+_fm_agy_ladder_kebab_to_display() {  # <model>
+  case "$1" in
+    claude-opus-4-6-thinking)  printf 'Claude Opus 4.6 (Thinking)' ;;
+    gemini-3.1-pro-high)       printf 'Gemini 3.1 Pro (High)' ;;
+    gemini-3.7-flash-high)     printf 'Gemini 3.7 Flash (High)' ;;
+    *) return 1 ;;
+  esac
+}
+
+# _fm_agy_ladder_init: populate the rung order from config or defaults.
+# Called once at source time.
+_fm_agy_ladder_init() {
+  local config_file displays='' count=0 line
+
+  # The config path: tests override with FM_AGY_LADDER_CONFIG; production uses
+  # FM_CONFIG_OVERRIDE (set by fm-spawn.sh's test harness) or FM_HOME/config.
+  config_file="${FM_AGY_LADDER_CONFIG:-${FM_CONFIG_OVERRIDE:-${FM_HOME:+$FM_HOME/config}}/crew-dispatch.json}"
+
+  if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1; then
+    # Extract the agy models from the "default" array in config order.
+    # Only entries with harness "agy" and a non-empty model are ladder rungs.
+    displays=$(jq -r '.default[]? | select(.harness == "agy" and .model != null and .model != "") | .model' "$config_file" 2>/dev/null) || displays=''
+  fi
+
+  # Validate: every model from config must be one the ladder knows about.
+  # An unknown model in the config is a configuration error, not a silent
+  # acceptance of something the gate cannot enforce. Fall back to defaults
+  # if validation fails.
+  if [ -n "$displays" ]; then
+    local validated='' m
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      # The model must be a display name we know, or a kebab ID we can resolve.
+      if ! _fm_agy_ladder_is_known_display "$m"; then
+        local resolved
+        if resolved=$(_fm_agy_ladder_kebab_to_display "$m"); then
+          m=$resolved
+        else
+          # Unknown model in config - fall back to defaults entirely.
+          displays=''
+          break
+        fi
+      fi
+      if [ -n "$validated" ]; then
+        validated="$validated
+$m"
+      else
+        validated="$m"
+      fi
+    done <<EOF
+$displays
+EOF
+    displays=$validated
+  fi
+
+  # Fall back to built-in defaults when the config is absent or unusable.
+  if [ -z "$displays" ]; then
+    displays='Gemini 3.1 Pro (High)
+Claude Opus 4.6 (Thinking)
+Gemini 3.7 Flash (High)'
+  fi
+
+  # Count the rungs.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    count=$((count + 1))
+  done <<EOF
+$displays
+EOF
+
+  _FM_LADDER_DISPLAYS=$displays
+  _FM_LADDER_COUNT=$count
+}
+
+# _fm_agy_ladder_is_known_display: 0 when <name> is a display name the ladder
+# knows about, regardless of whether it is currently ON the ladder.
+_fm_agy_ladder_is_known_display() {  # <name>
+  case "$1" in
+    'Claude Opus 4.6 (Thinking)') return 0 ;;
+    'Gemini 3.1 Pro (High)') return 0 ;;
+    'Gemini 3.7 Flash (High)') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Load the ladder on source. This runs once per shell that sources this file.
+_fm_agy_ladder_init
+
 # fm_agy_ladder_rung: the rung number a model sits on, or failure when the model
 # is not on the ladder. BOTH spellings agy accepts are honoured - the kebab id
 # and the display name - matching fm_agy_catalog_has_model's exact-match
 # contract, so the gate and the catalogue check agree on what a model name is.
 fm_agy_ladder_rung() {  # <model>
-  case "$1" in
-    'Claude Opus 4.6 (Thinking)'|claude-opus-4-6-thinking) printf '1' ;;
-    'Gemini 3.1 Pro (High)'|gemini-3.1-pro-high) printf '2' ;;
-    'Gemini 3.7 Flash (High)'|gemini-3.7-flash-high) printf '3' ;;
-    *) return 1 ;;
-  esac
+  local want=$1 display rung=0 line
+  # Resolve a kebab ID to its display name first.
+  if ! _fm_agy_ladder_is_known_display "$want"; then
+    want=$(_fm_agy_ladder_kebab_to_display "$want") || return 1
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    rung=$((rung + 1))
+    if [ "$line" = "$want" ]; then
+      printf '%s' "$rung"
+      return 0
+    fi
+  done <<EOF
+$_FM_LADDER_DISPLAYS
+EOF
+  return 1
 }
 
 # fm_agy_ladder_display: a rung's display name. This is the spelling the pane
 # footer draws, so it is also the key bin/fm-agy-quota-lib.sh stores readings
 # under; a lookup by kebab id would never find one.
 fm_agy_ladder_display() {  # <rung>
-  case "$1" in
-    1) printf 'Claude Opus 4.6 (Thinking)' ;;
-    2) printf 'Gemini 3.1 Pro (High)' ;;
-    3) printf 'Gemini 3.7 Flash (High)' ;;
-    *) return 1 ;;
-  esac
+  local target=$1 rung=0 line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    rung=$((rung + 1))
+    if [ "$rung" -eq "$target" ]; then
+      printf '%s' "$line"
+      return 0
+    fi
+  done <<EOF
+$_FM_LADDER_DISPLAYS
+EOF
+  return 1
 }
 
 # fm_agy_ladder_floor: the percent-remaining at or below which a rung counts as
-# exhausted. Rung 1 stops at the captain's reserved quarter; the rest run dry.
+# exhausted. The floor is a property of the MODEL, not the rung position:
+# Claude Opus 4.6 (Thinking) carries the captain's reserved 25 percent wherever
+# it sits on the ladder, and every other model exhausts to 0.
 fm_agy_ladder_floor() {  # <rung>
-  case "$1" in
-    1) printf '25' ;;
-    2|3) printf '0' ;;
-    *) return 1 ;;
-  esac
+  local display
+  display=$(fm_agy_ladder_display "$1") || return 1
+  _fm_agy_ladder_model_floor "$display"
 }
 
 # fm_agy_ladder_at_or_below: numeric comparison of two decimal percentages.
@@ -286,9 +443,9 @@ fm_agy_ladder_check() {  # <model> <state-dir> [<now>]
   percent=${percent%% *}
   case "$state" in
     exhausted*)
-      if [ "$rung" = 1 ]; then
-        printf 'rung 1 (%s) is at %s%% remaining%s, at or below the %s%% floor reserved for the captain; automatic dispatch never takes that last quarter' \
-          "$display" "$percent" "$(fm_agy_ladder_inflight_clause "$percent" "$in_flight")" "$floor"
+      if [ "$floor" = 25 ]; then
+        printf 'rung %s (%s) is at %s%% remaining%s, at or below the %s%% floor reserved for the captain; automatic dispatch never takes that last quarter' \
+          "$rung" "$display" "$percent" "$(fm_agy_ladder_inflight_clause "$percent" "$in_flight")" "$floor"
       else
         printf 'rung %s (%s) is exhausted at %s%% remaining%s (floor %s%%), so it cannot take this launch' \
           "$rung" "$display" "$percent" "$(fm_agy_ladder_inflight_clause "$percent" "$in_flight")" "$floor"
