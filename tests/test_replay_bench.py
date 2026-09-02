@@ -180,6 +180,62 @@ def test_replay_rebuilds_a_real_step_off_frozen_state(project, store):
     assert result["staleness"]["sealed"]
 
 
+def test_the_reconstruction_carries_what_the_runner_appends_to_the_schema(
+        project, store):
+    """`present_llm_step` appends `could_not_determine` to the RENDERED
+    schema of the nine declaring steps and its instruction to the prompt.
+    A reconstruction without it makes every declaring step read as a
+    difference `verify` cannot account for - and `verify` is a gate, so a
+    reconstruction that cannot reproduce the past cannot be trusted to
+    compare futures."""
+    from library.tools import undetermined
+    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    result = bench.replay("fx", "creative_direction", store=store)
+
+    assert undetermined.declares("creative_direction")
+    names = [o["name"] for o in json.loads(result["expected_schema"])]
+    assert undetermined.FIELD in names, (
+        "the runner asks for it; the reconstruction must too")
+    assert undetermined.FIELD in result["prompt"]
+    assert "Return `[]` when the material was sufficient" in result["prompt"]
+
+
+def test_the_reconstruction_asks_each_module_rather_than_appending_blindly(
+        project, store):
+    """The runner appends TWO fields on TWO different predicates.  This
+    fixture's edges only satisfy `creative_direction`, which is the step
+    that DECLARES and does not FLAG - it authors the direction - so it is
+    the case that separates the two: a reconstruction that appended
+    whatever the runner appends, rather than asking each module, would
+    carry `contradicts_direction` here and the runner does not.
+
+    The presence side is pinned against the real runner in
+    tests/test_undetermined_declaration.py, over every declaring and
+    flagging step."""
+    from library.tools import direction_contradiction as dc
+    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    result = bench.replay("fx", "creative_direction", store=store)
+    assert dc.flags("creative_direction") is False, (
+        "2.01 authors the direction, so it has nothing to contradict")
+    names = [o["name"] for o in json.loads(result["expected_schema"])]
+    assert dc.FIELD not in names
+    assert dc.FIELD not in result["prompt"]
+
+
+def test_a_declaration_is_not_claimed_as_a_step_output(project, store):
+    """`undetermined.take` splits the field out before anything records
+    the answer, so it is never in the recorded state the archive
+    explanation subtracts from."""
+    from library.tools import undetermined
+    from library.tools import direction_contradiction as dc
+    authored = bench._llm_authored_from_archive({
+        "expected_schema": json.dumps([
+            {"name": "creative_direction"},
+            undetermined.schema_entry(),
+            dc.schema_entry()])})
+    assert authored == ["creative_direction"]
+
+
 def test_the_context_carries_the_project_folder_the_run_recorded(project, store):
     """A replay runs against the frozen copy and must not leak its path."""
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)

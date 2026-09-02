@@ -261,15 +261,52 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             already_have = set(inputs)
             llm_outputs = [o for o in interface.get("outputs", [])
                            if o.get("name") not in already_have]
-        expected_schema = json.dumps(llm_outputs)
         if not llm_outputs:
+            expected_schema = json.dumps(llm_outputs)
             notes.append("empty schema: nothing to ask, the runner skips "
                          "this call entirely")
         else:
             from library.processes.edit_video.run_pipeline import (
                 generate_output_schema_text,
             )
-            schema_text = generate_output_schema_text(llm_outputs)
+            # The runner appends TWO fields to the RENDERED schema and
+            # their instructions to the prompt - `could_not_determine` for
+            # the nine declaring steps, `contradicts_direction` for the
+            # eight flagging ones.  Reconstructing without it makes
+            # every declaring step read as a difference `verify` cannot
+            # account for - and `verify` is a gate, so a reconstruction
+            # that cannot reproduce the past cannot be trusted to compare
+            # futures.  Mirrors `present_llm_step`, in the same order.
+            # A revision that predates one of the modules has nothing to
+            # import, and that is a real difference between the trees
+            # rather than something to paper over - so it is NOTED, not
+            # swallowed.  A third appender in the runner needs a block here.
+            schema_outputs = list(llm_outputs)
+            try:
+                from library.tools import undetermined
+            except ImportError:
+                notes.append("this tree has no library.tools.undetermined: "
+                             "the schema is reconstructed without the "
+                             "could_not_determine field")
+            else:
+                if undetermined.declares(node_id):
+                    schema_outputs.append(undetermined.schema_entry())
+                    prompt += undetermined.prompt_block()
+            try:
+                from library.tools import direction_contradiction
+            except ImportError:
+                notes.append("this tree has no "
+                             "library.tools.direction_contradiction: the "
+                             "schema is reconstructed without the "
+                             "contradicts_direction field")
+            else:
+                if direction_contradiction.flags(node_id):
+                    schema_outputs.append(
+                        direction_contradiction.schema_entry())
+                    # Per step, because its evidence sources are.
+                    prompt += direction_contradiction.prompt_block(node_id)
+            expected_schema = json.dumps(schema_outputs)
+            schema_text = generate_output_schema_text(schema_outputs)
             marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
             if marker in prompt:
                 prompt = prompt.replace(marker, schema_text)

@@ -316,6 +316,29 @@ def test_the_run_records_it_on_the_state_shape():
         "step_id": "speech_sequence",
         "reading": dc.CONTRADICTED,
         "entries": [PROSODY_CONTRADICTION],
+        # Which model call this was.  A step whose answer fails QA is
+        # asked again, so one step can produce several flags in a run;
+        # unnumbered they are indistinguishable rows that make a reader
+        # counting steps count model calls.  Sibling of
+        # `undetermined.Declaration.attempt`, same reason.
+        "attempt": 1,
     }]
     assert json.loads(json.dumps(records)) == records
     dc.reset()
+
+
+def test_a_flag_built_positionally_still_binds_its_entries():
+    """`Flag` is constructed positionally here and in the module, so a
+    field added anywhere above `entries` silently rebinds every such
+    call - `entries` lands in the new field and the real entries in the
+    next one along, with no error until something compares them.  That
+    is exactly what adding `attempt` above `entries` did.  Any future
+    field goes at the END."""
+    flag = dc.Flag("speech_sequence", dc.CONTRADICTED,
+                   [PROSODY_CONTRADICTION])
+    assert flag.entries == [PROSODY_CONTRADICTION]
+    assert flag.attempt == 1
+    import dataclasses
+    names = [f.name for f in dataclasses.fields(dc.Flag)]
+    assert names[:3] == ["step_id", "reading", "entries"], names
+    assert names[-1] == "attempt", names

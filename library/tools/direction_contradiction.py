@@ -300,7 +300,17 @@ def evidence_sources(step_id: str) -> Dict[str, str]:
 
 @dataclass
 class Flag:
-    """One step's answer to the question, on one attempt."""
+    """One step's answer to the question, on one attempt.
+
+    `attempt` is the sibling's field, for the sibling's reason
+    (`undetermined.Declaration`): a step whose answer fails QA is asked
+    again, so one step can produce three flags in a run, and unnumbered
+    they are indistinguishable rows that make a reader counting steps
+    count model calls. Every attempt is kept - a step flagging the SAME
+    contradiction three times running is evidence, not noise - and
+    `final_by_step` is what a reader wanting one row per step calls.
+    It is declared LAST, below.
+    """
 
     step_id: str
     reading: str
@@ -319,6 +329,11 @@ class Flag:
     """Set when the key was present but not a shape this could read. A
     model that answered in the wrong shape did answer, and that is a
     different thing to fix from a model that stayed silent."""
+
+    attempt: int = 1
+    """Which model call this was, stamped by `record`. LAST in the field
+    order deliberately: `Flag` is constructed positionally, so inserting
+    a field above `entries` silently rebinds every such call."""
 
     @property
     def contradicted(self) -> bool:
@@ -495,6 +510,14 @@ _collected: List[Flag] = []
 
 
 def record(flag: Flag) -> None:
+    """Collect one attempt's flag, NUMBERING it as it lands.
+
+    Counted off what has actually arrived rather than passed in by the
+    retry loop, for the reason `undetermined.record` states: a call that
+    raises before an answer is parsed records nothing, so a loop index
+    and the stored rows can drift apart.
+    """
+    flag.attempt = 1 + sum(1 for f in _collected if f.step_id == flag.step_id)
     _collected.append(flag)
 
 
@@ -511,13 +534,49 @@ def as_records(flags_=None) -> List[dict]:
     rows = []
     for f in (collected() if flags_ is None else flags_):
         row = {"step_id": f.step_id, "reading": f.reading,
-               "entries": list(f.entries)}
+               "entries": list(f.entries), "attempt": f.attempt}
         if f.unevidenced:
             row["unevidenced"] = list(f.unevidenced)
         if f.malformed:
             row["malformed"] = f.malformed
         rows.append(row)
     return rows
+
+
+def final_by_step(flags_=None) -> List[Flag]:
+    """One flag per step - the LAST attempt, in first-seen order.
+
+    The last attempt is the one whose answer the step returned. The
+    earlier ones are still in `collected()` with their own numbers.
+    """
+    rows = collected() if flags_ is None else flags_
+    latest: Dict[str, Flag] = {}
+    for f in rows:
+        latest[f.step_id] = f
+    return list(latest.values())
+
+
+def merge_records(previous, current) -> List[dict]:
+    """Fold this run's flag rows onto what a previous run recorded.
+
+    `state["direction_contradictions"]` was REPLACED, so a `--rerun` of
+    one step erased every other step's flags - the narrowest possible run
+    destroying the record. Same shape and same reasoning as
+    `undetermined.merge_records`: a step this run answered replaces its
+    own rows at every attempt, and a step it did not reach keeps them,
+    MARKED, because a carried flag is a claim about measurements that may
+    since have moved.
+    """
+    fresh = {row.get("step_id") for row in current}
+    merged = []
+    for row in previous or []:
+        if not isinstance(row, dict) or row.get("step_id") in fresh:
+            continue
+        carried = dict(row)
+        carried["from_a_previous_run"] = True
+        merged.append(carried)
+    merged.extend(current)
+    return merged
 
 
 def summary_lines(flags_=None) -> List[str]:
@@ -527,10 +586,15 @@ def summary_lines(flags_=None) -> List[str]:
     nothing and it fails nothing. Escalating a contradiction to the
     captain happens outside the pipeline.
     """
-    rows = collected() if flags_ is None else flags_
-    if not rows:
+    every_attempt = collected() if flags_ is None else flags_
+    if not every_attempt:
         return []
+    # One row per STEP - the last attempt.  Printing every attempt made a
+    # reader counting names count model calls.
+    rows = final_by_step(every_attempt)
     lines = ["Where a step's measurements contradicted the direction:"]
+    retried = sorted(f"{f.step_id} ({f.attempt} attempts)"
+                     for f in rows if f.attempt > 1)
     contradicted = [f for f in rows if f.reading == CONTRADICTED]
     empty = [f for f in rows if f.reading == NOTHING_CONTRADICTED]
     unevidenced = [f for f in rows if f.reading == UNEVIDENCED]
@@ -564,4 +628,8 @@ def summary_lines(flags_=None) -> List[str]:
         lines.append("  did not answer the question (recorded as a "
                      "non-answer, not as \"nothing contradicted\"): "
                      + ", ".join(sorted(f.step_id for f in silent)))
+    if retried:
+        # Said rather than hidden: the reading above is the LAST attempt's.
+        lines.append("  answered more than once (the reading above is the "
+                     "last attempt): " + ", ".join(retried))
     return lines

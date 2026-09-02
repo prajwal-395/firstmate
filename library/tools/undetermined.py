@@ -81,7 +81,22 @@ ENTRY_KEYS = ("what", "why_it_mattered", "what_would_have_helped")
 
 @dataclass
 class Declaration:
-    """One step's answer to the question, on one attempt."""
+    """One step's answer to the question, on one attempt.
+
+    `attempt` is what keeps the per-STEP counts and the per-ATTEMPT
+    evidence from having to be traded against each other.  A step whose
+    answer fails QA is asked again, so one step can produce three
+    declarations in a run; before the field existed those three rows were
+    indistinguishable, the summary read `mesh_spine, mesh_spine,
+    mesh_spine`, and a reader counting steps counted attempts.
+
+    Deduplicating to the last attempt would have fixed the count and
+    thrown away the evidence that a step failed the SAME way three times
+    running - which is the evidence `post_bridge_retry` deliberately
+    accumulates one module over.  So every attempt is kept and NUMBERED,
+    and `final_by_step` is what a reader who wants one row per step calls.
+    Nothing is dropped and nothing has to be inferred from position.
+    """
 
     step_id: str
     reading: str
@@ -93,6 +108,12 @@ class Declaration:
     that answered in the wrong shape did answer, and that is a different
     thing to fix from a model that stayed silent.
     """
+
+    attempt: int = 1
+    """Which model call this was, stamped by `record`. LAST in the field
+    order deliberately: these dataclasses are constructed positionally,
+    so a field inserted above `entries` silently rebinds every such
+    call - which is how the sibling's `Flag` first broke."""
 
     @property
     def declared_a_gap(self) -> bool:
@@ -235,6 +256,17 @@ _collected: List[Declaration] = []
 
 
 def record(declaration: Declaration) -> None:
+    """Collect one attempt's declaration, NUMBERING it as it lands.
+
+    The attempt number is stamped here rather than passed in, because the
+    caller is a retry loop that already knows which attempt it is on and
+    has been wrong about it before: `present_llm_step`'s loop index counts
+    model calls, and a call that raises before an answer is parsed records
+    nothing.  Counting what actually arrived cannot drift from what is
+    actually stored.
+    """
+    declaration.attempt = 1 + sum(
+        1 for d in _collected if d.step_id == declaration.step_id)
     _collected.append(declaration)
 
 
@@ -251,11 +283,54 @@ def as_records(declarations=None) -> List[dict]:
     rows = []
     for d in (collected() if declarations is None else declarations):
         row = {"step_id": d.step_id, "reading": d.reading,
-               "entries": list(d.entries)}
+               "entries": list(d.entries), "attempt": d.attempt}
         if d.malformed:
             row["malformed"] = d.malformed
         rows.append(row)
     return rows
+
+
+def final_by_step(declarations=None) -> List[Declaration]:
+    """One declaration per step - the LAST attempt, in first-seen order.
+
+    The last attempt is the one whose answer the step returned, so it is
+    the one a reader asking "what did this step say it was short of"
+    wants.  The earlier attempts are not discarded; they are still in
+    `collected()` with their own `attempt` numbers.
+    """
+    rows = collected() if declarations is None else declarations
+    latest: Dict[str, Declaration] = {}
+    for d in rows:
+        latest[d.step_id] = d
+    return list(latest.values())
+
+
+def merge_records(previous, current) -> List[dict]:
+    """Fold this run's declaration rows onto what a previous run recorded.
+
+    `state["undetermined_declarations"]` used to be REPLACED, so a
+    `--rerun music_selection` answering one step erased the other eight
+    steps' declarations from the state file - the demand signal a
+    supervisor reads is destroyed by the narrowest possible run.
+
+    A step this run declared for REPLACES every row that step had, at
+    every attempt: the material changed, so the old answer is not an
+    answer about this run.  A step this run did not reach keeps its rows
+    and is MARKED `from_a_previous_run`, because a carried row describes
+    material that may since have moved and reading it as fresh is the
+    confident-wrong-answer failure this whole field exists to avoid.  The
+    mark, once set, stays set.
+    """
+    fresh = {row.get("step_id") for row in current}
+    merged = []
+    for row in previous or []:
+        if not isinstance(row, dict) or row.get("step_id") in fresh:
+            continue
+        carried = dict(row)
+        carried["from_a_previous_run"] = True
+        merged.append(carried)
+    merged.extend(current)
+    return merged
 
 
 def summary_lines(declarations=None) -> List[str]:
@@ -264,10 +339,16 @@ def summary_lines(declarations=None) -> List[str]:
     This is the READER, and it is the only one.  It prints; it assigns
     nothing and it fails nothing.
     """
-    rows = collected() if declarations is None else declarations
-    if not rows:
+    every_attempt = collected() if declarations is None else declarations
+    if not every_attempt:
         return []
+    # One row per STEP - the last attempt.  Printing every attempt made
+    # the summary read `mesh_spine, mesh_spine, mesh_spine` for one step
+    # and a reader counting names counted model calls.
+    rows = final_by_step(every_attempt)
     lines = ["What the steps could not determine:"]
+    retried = sorted(f"{d.step_id} ({d.attempt} attempts)"
+                     for d in rows if d.attempt > 1)
     declared = [d for d in rows if d.reading == DECLARED]
     empty = [d for d in rows if d.reading == NOTHING_MISSING]
     silent = [d for d in rows if d.reading == NOT_DECLARED]
@@ -284,4 +365,9 @@ def summary_lines(declarations=None) -> List[str]:
         lines.append("  did not answer the question (recorded as a "
                      "non-answer, not as \"nothing missing\"): "
                      + ", ".join(sorted(d.step_id for d in silent)))
+    if retried:
+        # Said rather than hidden: the reading above is the LAST attempt's,
+        # and a step that was asked more than once answered more than once.
+        lines.append("  answered more than once (the reading above is the "
+                     "last attempt): " + ", ".join(retried))
     return lines

@@ -1332,7 +1332,11 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 "description": "Per-note acknowledgements. Each: note_id (the exact ID of the note you are acknowledging), action (what you did about it), rationale (why you did it, or why you declined to act - a reasoned decline is a valid acknowledgement)."
             })
 
-        expected_schema_str = json.dumps(llm_outputs)
+        # `expected_schema_str` is NOT built here: it is built from
+        # `schema_outputs` below, which is `llm_outputs` plus whatever
+        # else the RENDERED schema asks for.  Building it here asked the
+        # agy request file to describe a schema that did not yet exist.
+        # See the note beside `schema_outputs`.
 
         # Nothing to ask.  A step reaches here with an empty schema when
         # every key it declares has already been produced - by its own
@@ -1372,7 +1376,27 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             schema_outputs.append(direction_contradiction.schema_entry())
             prompt += direction_contradiction.prompt_block(node_id)
 
-        # Inject dynamic schema into prompt
+        # `schema_outputs` is now complete, and it is rendered TWICE: as
+        # prose for the prompt, and as JSON for the agy request file's
+        # `expected_schema`.  The two renderings are kept adjacent and
+        # BELOW every appender on purpose.
+        #
+        # The JSON one used to be built from `llm_outputs`, above the
+        # appenders, so `could_not_determine` reached the answering agent
+        # in `prompt` and not in `expected_schema` - and an agent reading
+        # the machine-readable half, a completely natural shortcut, never
+        # emitted it.  All nine declaring steps then recorded
+        # `not_declared`: the NON-ANSWER reading, filled with false
+        # non-answers, in the one mode the pipeline actually runs in.
+        # `direction_contradiction` above is the second appender and would
+        # have been lost the same way.  Anything appended next goes ABOVE
+        # this line, and then it cannot be.
+        #
+        # `expected_schema_str` feeds the agy request file and nothing
+        # else: the api path renders its schema out of `prompt` via
+        # `generate_output_schema_text`, so there is no second injection
+        # site for either field to duplicate into.
+        expected_schema_str = json.dumps(schema_outputs)
         schema_text = generate_output_schema_text(schema_outputs)
         marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
         if marker in prompt:
@@ -2683,6 +2707,14 @@ def run_pipeline(
             print(f"  {_line}", file=sys.stderr)
         undetermined_records = undetermined.as_records()
         if undetermined_records:
+            # MERGED, not replaced.  A `--rerun music_selection` answers
+            # one step, and replacing the key erased the other eight
+            # steps' declarations - the narrowest possible run destroying
+            # the signal.  A step this run answered replaces its own rows;
+            # a step it did not reach keeps them, marked as coming from a
+            # previous run so a carried row is never read as fresh.
+            undetermined_records = undetermined.merge_records(
+                state.get("undetermined_declarations"), undetermined_records)
             state["undetermined_declarations"] = undetermined_records
             save_pipeline_state(project_dir, state)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
@@ -2699,6 +2731,13 @@ def run_pipeline(
             print(f"  {_line}", file=sys.stderr)
         contradiction_records = direction_contradiction.as_records()
         if contradiction_records:
+            # MERGED, not replaced - the sibling key's reasoning exactly
+            # (see the `undetermined` block above).  A step this run
+            # answered replaces its own rows; a step it did not reach
+            # keeps them, marked so a carried flag about measurements
+            # that may since have moved is never read as fresh.
+            contradiction_records = direction_contradiction.merge_records(
+                state.get("direction_contradictions"), contradiction_records)
             state["direction_contradictions"] = contradiction_records
             save_pipeline_state(project_dir, state)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
