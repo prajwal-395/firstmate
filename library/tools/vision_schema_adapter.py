@@ -136,18 +136,49 @@ def camera_prose(doc: dict) -> str:
     return " ".join(lines).strip()
 
 
+# Rendered as the ``visual`` field of a block whose action window could not
+# be parsed.  The creative director sees a gap it can reason about rather
+# than a gap it cannot see.  Follows the same rule as
+# ``UNMEASURED_SUMMARY`` for usable ranges.
+UNPARSED_WINDOW_VISUAL = "unmeasured - VLM response could not be parsed"
+
+
 def _blocks_from_actions(doc: dict) -> list:
     """One `blocks` entry per observed action, with its own time bounds.
 
     The retired schema carried 1-3 blocks for clips up to 188s; the v3
     action windows are the same information at the resolution it was
     actually measured.
+
+    A window whose VLM response could not be parsed carries
+    ``parse_error: true`` and an empty ``actions`` list.  Rather than
+    silently producing no block for that window (making it vanish from
+    every view), a sentinel block is emitted so the picture view can
+    report the gap as *unmeasured* rather than omitting it.
     """
     blocks = []
     for window in doc.get("actions") or []:
         if not isinstance(window, dict):
             continue
-        for action in window.get("actions") or []:
+        actions_list = window.get("actions") or []
+        if not actions_list and window.get("parse_error"):
+            # Unparsed window: emit a sentinel block so the gap is
+            # visible rather than absent.
+            w_bounds = window.get("window") or [None, None]
+            w_start = w_bounds[0] if len(w_bounds) > 0 else None
+            w_end = w_bounds[1] if len(w_bounds) > 1 else None
+            blocks.append({
+                "timestamp_range": f"{_fmt_clock(w_start)}-{_fmt_clock(w_end)}",
+                "start": w_start,
+                "end": w_end,
+                "label": _scene_location_at(doc, w_start) or "action",
+                "visual": UNPARSED_WINDOW_VISUAL,
+                "body_language": "",
+                "speech_cue": None,
+                "parse_error": True,
+            })
+            continue
+        for action in actions_list:
             if not isinstance(action, dict):
                 continue
             start = action.get("start", (window.get("window") or [None])[0])

@@ -1282,9 +1282,14 @@ def analyze_camera(analyzer, video_path, duration):
 
 
 def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript):
-    """Analyze actions/behavior — one model call per 10s video clip.
+    """Analyze actions/behavior - one model call per 10s video clip.
 
-    Returns list of window results.
+    Returns list of window results.  Each entry carries ``parse_error``
+    when the VLM response could not be parsed into valid JSON, so
+    consumers can distinguish *unparsed* (the model returned gibberish)
+    from *genuinely empty* (the model saw nothing happening).
+
+    An answer that came back without a key is not an answer of ``[]``.
     """
     results = []
 
@@ -1316,17 +1321,31 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
             label=f"Actions [{w_start:.0f}-{w_end:.0f}s]"
         )
 
+        # `parse_json_object` returns {} on total parse failure.
+        # An empty dict is falsy; a dict with `actions: []` is truthy.
+        # The distinction matters: {} means the model's response could
+        # not be parsed at all, while {"actions": []} means the model
+        # saw nothing happening in this window.
+        parse_failed = not result
+
         # Ensure the result has the window field
         if result and "window" not in result:
             result["window"] = [w_start, w_end]
         if result and "actions" not in result:
             result["actions"] = []
 
-        results.append({
+        entry = {
             "window": [w_start, w_end],
             "actions": result.get("actions", []),
             "analysis_time_s": round(elapsed, 2),
-        })
+        }
+        if parse_failed:
+            entry["parse_error"] = True
+            print(f"    ⚠ Actions [{w_start:.0f}-{w_end:.0f}s]: "
+                  f"window recorded as UNPARSED (VLM response was not "
+                  f"valid JSON after retry)", file=sys.stderr)
+
+        results.append(entry)
 
     return results
 
@@ -1538,7 +1557,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         w = a["window"]
         n_acts = len(a.get("actions", []))
         t = a.get("analysis_time_s", 0)
-        print(f"    [{w[0]:.0f}-{w[1]:.0f}s] {n_acts} action(s) ({t:.1f}s)")
+        tag = " ⚠ UNPARSED" if a.get("parse_error") else ""
+        print(f"    [{w[0]:.0f}-{w[1]:.0f}s] {n_acts} action(s) ({t:.1f}s){tag}")
+    unparsed = [a for a in actions if a.get("parse_error")]
+    if unparsed:
+        print(f"  ⚠ {len(unparsed)} of {len(actions)} action window(s) "
+              f"could not be parsed and are recorded as UNPARSED",
+              file=sys.stderr)
 
     # 4. Objects — coarse sweep
     print(f"  [Objects] Coarse sweep ({len(frames)} frames, {n_obj_coarse_calls} batch(es))...",

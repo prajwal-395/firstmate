@@ -218,7 +218,7 @@ def _picture(data: dict) -> dict:
 
     joined = _catalog_clip_ids(data)
 
-    rows, undescribed, unjoined = [], [], []
+    rows, undescribed, unjoined, unparsed = [], [], [], []
     for doc in docs:
         if not isinstance(doc, dict):
             continue
@@ -234,12 +234,17 @@ def _picture(data: dict) -> dict:
             if not visual:
                 continue
             described = True
-            rows.append({
+            row = {
                 "clip_id": clip_id,
                 "start": _seconds(block.get("start")),
                 "end": _seconds(block.get("end")),
                 "visual": visual,
-            })
+            }
+            rows.append(row)
+            if block.get("parse_error"):
+                unparsed.append(
+                    f"{clip_id} [{_seconds(block.get('start'))}-"
+                    f"{_seconds(block.get('end'))}s]")
         if not described and clip_id:
             undescribed.append(str(clip_id))
 
@@ -251,6 +256,12 @@ def _picture(data: dict) -> dict:
         view["not_described"] = (
             f"{len(undescribed)} clip(s) have no observed action to show: "
             + ", ".join(sorted(undescribed))
+        )
+    if unparsed:
+        view["unparsed_windows"] = (
+            f"{len(unparsed)} window(s) could not be parsed and are shown "
+            f"as unmeasured rather than omitted: "
+            + ", ".join(unparsed)
         )
     if unjoined:
         # A MIXED table is the dangerous one: some rows key to the clip
