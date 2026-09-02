@@ -43,6 +43,13 @@
       "estimated_duration_seconds": 120
     },
     {
+      "id": "prosody_analysis",
+      "name": "Prosody Analysis (Praat)",
+      "step_ref": "steps/step_1_05_prosody_analysis",
+      "type": "step",
+      "estimated_duration_seconds": 60
+    },
+    {
       "id": "ocr_extraction",
       "name": "OCR Extraction",
       "step_ref": "steps/step_1_07_ocr_extraction",
@@ -227,6 +234,20 @@
       }
     },
     {
+      "from": "scan",
+      "to": "prosody_analysis",
+      "data_mapping": {
+        "raw_footage_files": "raw_footage_files"
+      }
+    },
+    {
+      "from": "temporal_index",
+      "to": "prosody_analysis",
+      "data_mapping": {
+        "full_indices": "temporal_index"
+      }
+    },
+    {
       "from": "semantic_analysis",
       "to": "creative_direction",
       "data_mapping": {
@@ -248,6 +269,13 @@
       }
     },
     {
+      "from": "prosody_analysis",
+      "to": "creative_direction",
+      "data_mapping": {
+        "prosody_analysis": "prosody_analysis"
+      }
+    },
+    {
       "from": "semantic_analysis",
       "to": "speech_sequence",
       "data_mapping": {
@@ -259,6 +287,13 @@
       "to": "speech_sequence",
       "data_mapping": {
         "full_indices": "temporal_index"
+      }
+    },
+    {
+      "from": "prosody_analysis",
+      "to": "speech_sequence",
+      "data_mapping": {
+        "prosody_analysis": "prosody_analysis"
       }
     },
     {
@@ -948,6 +983,7 @@
         ],
         [
           "temporal_index",
+          "prosody_analysis",
           "ocr_extraction"
         ]
       ],

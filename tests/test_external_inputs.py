@@ -425,7 +425,7 @@ def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
                               project_folder=str(project))
     assert scope.steps_to_run == ("validate",)
     assert set(scope.from_external) == {"assembly_manifest", "render_output"}
-    assert len(scope.skipped) == 24
+    assert len(scope.skipped) == 25
 
 
 def _render_a_real_video(path):

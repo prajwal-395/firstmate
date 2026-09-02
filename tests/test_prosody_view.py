@@ -109,18 +109,25 @@ CONSUMER_FIELDS = [
 ]
 
 
-def test_no_step_declares_prosody_any_more():
-    """The declaration that held every 001 run at FAILED. 2.01 could not
-    assemble at all once step 1.05 correctly refused a hollow profile."""
+def test_prosody_is_declared_by_its_wired_consumers():
+    """Prosody was re-wired on 2026-09-01: its deterministic measurements
+    are unbiased signal the model lacks. Steps 2.01 and 2.02 declare it
+    as an optional input and project it via view:prosody."""
+    expected_consumers = {
+        "step_2_01_creative_direction",
+        "step_2_02_speech_sequence",
+    }
+    actual = set()
     for path in sorted((REPO / "library" / "steps").glob("*/manifest.json")):
         if path.parent.name == "step_1_05_prosody_analysis":
             continue
         m = json.loads(path.read_text())
         names = [i.get("name") for i in
                  (m.get("interface") or {}).get("inputs") or []]
-        assert "prosody_analysis" not in names, path.parent.name
-        assert "view:prosody" not in (m.get("context_fields") or []), \
-            path.parent.name
+        if "prosody_analysis" in names:
+            actual.add(path.parent.name)
+    assert actual == expected_consumers, (
+        f"Expected {expected_consumers}, got {actual}")
 
 
 def test_projecting_through_the_view_carries_no_error_records():

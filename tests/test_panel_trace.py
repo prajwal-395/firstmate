@@ -73,25 +73,24 @@ def test_status_comes_from_the_two_ledgers(tmp_path):
 
 
 def test_an_unwired_step_reads_unwired_not_pending(tmp_path):
-    """`prosody_analysis` and `object_segmentation` are implemented and
-    not in the DAG. Reporting them as `pending` says a run will get to
-    them, which nothing will."""
+    """`object_segmentation` is implemented and not in the DAG.
+    Reporting it as `pending` says a run will get to it, which nothing
+    will."""
     rows = {row.node_id: row for row in
             trace.step_rows(_project(tmp_path, _state()))}
-    assert rows["prosody_analysis"].status == "unwired"
     assert rows["object_segmentation"].status == "unwired"
 
 
 def test_a_stranded_failure_is_named(tmp_path):
     """`failed_steps` is cleared when a step SUCCEEDS, so a step with no
-    DAG node can never clear one - unwiring `prosody_analysis` left
-    exactly that on 001. Counting it as `unwired` and moving on is the
+    DAG node can never clear one - unwiring `object_segmentation` left
+    exactly that. Counting it as `unwired` and moving on is the
     going-quiet AGENTS.md section 3 forbids."""
     state = _state()
-    state["failed_steps"] = ["prosody_analysis", "validate"]
+    state["failed_steps"] = ["object_segmentation", "validate"]
     project = _project(tmp_path, state)
     rows = trace.step_rows(project, state)
-    assert trace.stranded_failures(rows, state) == ["prosody_analysis"]
+    assert trace.stranded_failures(rows, state) == ["object_segmentation"]
 
 
 # ── Reading a level costs a level ────────────────────────────────────

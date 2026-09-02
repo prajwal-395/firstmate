@@ -35,6 +35,12 @@
         "type": "object",
         "required": false,
         "description": "The captain's own notes typed onto the built timeline in DaVinci Resolve, routed to this step because this step owns the decision each note is about. Injected by the runner from <project>/marker_feedback/ and absent when there are none. See library/tools/marker_routing.py."
+      },
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "required": false,
+        "description": "Per-clip prosody data from step 1.05: pitch contour, speaking rate, voice quality, intensity. Deterministic signal-processing measurements via parselmouth. Projected through view:prosody which filters hollow profiles."
       }
     ],
     "outputs": [
@@ -108,6 +114,7 @@
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "view:picture",
     "view:transcript",
+    "view:prosody",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds"

@@ -95,9 +95,9 @@ def test_the_summary_returns_the_stranded_half():
     raise AssertionError("the summary dict never carries the two halves")
 
 
-def test_prosody_analysis_is_the_case_this_was_written_for():
-    """Read off the DAG rather than asserted: 1.05 has no node, so a
+def test_object_segmentation_is_the_case_this_was_written_for():
+    """Read off the DAG rather than asserted: 1.06 has no node, so a
     recorded failure of it is stranded by definition."""
     nodes = {n["id"] for n in json.loads(DAG.read_text(encoding="utf-8"))["nodes"]}
-    assert "prosody_analysis" not in nodes
+    assert "object_segmentation" not in nodes
     assert "creative_direction" in nodes

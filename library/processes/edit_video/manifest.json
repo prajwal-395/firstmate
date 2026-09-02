@@ -132,6 +132,11 @@
         "role": "WhisperX transcription + energy analysis"
       },
       {
+        "step_ref": "steps/step_1_05_prosody_analysis",
+        "version_constraint": ">=1.0.0",
+        "role": "Prosody analysis via parselmouth (pitch, rate, voice quality, intensity)"
+      },
+      {
         "step_ref": "steps/step_2_01_creative_direction",
         "version_constraint": ">=1.0.0",
         "role": "LLM infers editorial mood and style"

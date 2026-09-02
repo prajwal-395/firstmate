@@ -143,19 +143,11 @@ UNCONSUMED_DECLARATIONS = {
 # the key the captain has ruled and the entry is stale too.
 
 UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT = {
-    ("creative_direction", "prosody_analysis"):
-        "Step 1.05 refuses a hollow profile, so the key was absent from "
-        "`step_outputs` and `gather_step_inputs` raised - 2.01 could not "
-        "assemble at all, and prosody was one of the two entries holding "
-        "every 001 run at FAILED. The declaration was removed rather "
-        "than satisfied: `view:prosody` rendered one line reading "
-        "`not_measured: 17 of 17 clip(s)`, and 2.01's prompt never asks "
-        "the model to do anything with prosody - its only mention is the "
-        "State Interaction row. `handoff.md:127` `| Reads | "
-        "prosody_analysis |` is therefore a documented read that no "
-        "longer happens; the file is frozen and the captain has the open "
-        "decision. Measured in "
-        "data/vep-prosody-usefulness-test/report.md sections 5 and 5.1.",
+    # (creative_direction, prosody_analysis): CLOSED 2026-09-01.
+    # The captain ruled that prosody is deterministic measurement the
+    # model lacks, and wired step 1.05 back into the DAG with its output
+    # routed to 2.01 and 2.02.  The handoff line (127) and the
+    # declaration now agree.
 }
 
 
