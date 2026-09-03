@@ -900,6 +900,7 @@ _fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
 _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <last-row>
   local screen=$1 styled=$2 ambiguous=$3 first=$4 last=$5
   local row raw content plain state unknown_seen=0 pending_count=0 prompt_seen=0 glyph=''
+  local single_pending_plain=''
   row=$first
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
@@ -909,14 +910,24 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
     state=$(fm_composer_classify_content 1 "$content" \
       "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 1 "$styled")
     case "$state" in
-      pending) pending_count=$((pending_count + 1)) ;;
+      pending)
+        pending_count=$((pending_count + 1))
+        single_pending_plain="$plain"
+        ;;
       unknown) unknown_seen=1 ;;
     esac
     row=$((row + 1))
   done
-  if [ "$prompt_seen" = 0 ] && [ "$pending_count" -gt 0 ]; then
-    printf 'dialog'
-    return 0
+  if [ "$prompt_seen" = 0 ]; then
+    if [ "$pending_count" -gt 1 ]; then
+      printf 'dialog'
+      return 0
+    elif [ "$pending_count" -eq 1 ]; then
+      if ! printf '%s\n' "$single_pending_plain" | grep -qiE "(${FM_DELIVERY_BUSY_REGEX_DEFAULT}|${FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT}|${FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT})"; then
+        printf 'dialog'
+        return 0
+      fi
+    fi
   fi
   if [ "$pending_count" -gt 0 ]; then
     if [ "$ambiguous" = 1 ]; then printf 'pending-unproven'; else printf 'pending'; fi
