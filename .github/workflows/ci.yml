@@ -40,6 +40,20 @@ jobs:
         grep -vE 'torch|sam2|whisperx|parselmouth' requirements.txt > ci_requirements.txt
         pip install --no-cache-dir -r ci_requirements.txt
         
+    - name: Install ffmpeg
+      run: |
+        # 27 library files shell out to ffmpeg/ffprobe and the runner image
+        # carries neither, so every audio and video measurement path skipped
+        # itself on every build this workflow has ever run.  The suite skips
+        # HONESTLY - `shutil.which("ffmpeg") is None` - which is why the
+        # build stayed green while declining to look.
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends ffmpeg
+        # Record what the measurement paths were verified AGAINST.  A build
+        # that measures audio should say which decoder answered.
+        ffmpeg -version | head -1
+        ffprobe -version | head -1
+
     - name: Report disk usage (after install)
       run: |
         echo "Disk usage after dependency installation:"
@@ -47,14 +61,32 @@ jobs:
         
     - name: Run Pytest
       run: |
-        python -m pytest tests/ -v --tb=short
+        # -rs prints every skip WITH ITS REASON.  Without it the summary
+        # says "131 skipped" and nothing says what went unmeasured.
+        python -m pytest tests/ -v -rs --tb=short
         
     - name: Compile check
       run: |
         python -m py_compile manage_project.py
         find library/steps -name "step.py" -o -name "bridge.py" | xargs -I {} python -m py_compile {}
         
-    - name: Ruff Check
+    - name: Ruff - the classes that indicate a real defect (FAILS THE BUILD)
+      # Independent of the suite: run it even when pytest failed, so one
+      # build answers both questions.
+      if: ${{ !cancelled() }}
       run: |
-        # Run ruff check, but don't fail the build if it finds issues
+        # See ruff-ci-gate.toml for what is enforced, what is deferred and
+        # why.  No `|| true`: this half is the gate.
+        ruff check library/ tests/ --config ruff-ci-gate.toml --output-format=github
+
+    - name: Ruff - everything else (report only)
+      # Independent of the suite: run it even when pytest failed, so one
+      # build answers both questions.
+      if: ${{ !cancelled() }}
+      run: |
+        # The cosmetic classes still annotate every PR and still cannot fail
+        # the build.  This runs under ruff's OWN config discovery, not the
+        # gate's, so a finding deferred above is still reported here.
         ruff check library/ tests/ --output-format=github || true
+        echo "--- what the report-only half found ---"
+        ruff check library/ tests/ --statistics || true

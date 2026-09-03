@@ -560,6 +560,18 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 - **Every `subprocess.run` capturing text must pass `encoding="utf-8"`.** `text=True` decodes with the locale codec, and this pipeline writes UTF-8 status glyphs. [why](docs/RULE_EVIDENCE.md#text-true-decodes-with-the-locale-codec)
 - **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. Only `LC_CTYPE` is restored - `LC_NUMERIC` is untouched, because handing fusionscript a decimal comma would corrupt every number crossing the boundary. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - `resolve_relinker`, `timeline_serializer`, `resolve_health`, `resolve_project_sync`, `qa/timeline_sync_qa`, `execution/resolve_render`, `execution/apply_fusion_comps` and `probe_resolve_capabilities`.
 
+### What CI actually checks
+
+**The build has one gate that CAN fail and one report that cannot, and the two run under DIFFERENT ruff configs.**
+`ruff-ci-gate.toml` at the repository root is the enforcing half - what is enforced, what is deferred and the count of each are written down in it.
+`.github/workflows/ci.yml` runs it with NO `|| true`; the unfiltered run beside it keeps `|| true` and keeps annotating everything.
+[why - run 33667912850 emitted 2,896 error annotations and concluded SUCCESS](docs/RULE_EVIDENCE.md#the-build-that-declined-to-look)
+
+- **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is exempt from that rule entirely, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
+- **The runner installs ffmpeg**, because 27 library files shell out to it and every audio and video measurement path skipped itself without it. The suite skipped HONESTLY, which is what made it invisible.
+- **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
+- `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
+
 ## 10. Cross-cutting rules
 
 These hold across steps and cost a full audit cycle each. Do not undo them.

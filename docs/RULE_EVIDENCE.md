@@ -986,6 +986,56 @@ Measured after the fix, with `whisperx` absent from the interpreter:
 
 `tests/test_cli_ml_preflight.py` holds all three, and blocks the ML packages in a CHILD interpreter rather than reloading `library.dashboard` in process - the first attempt did reload it, and handed the rest of the session a second copy of the module the other dashboard tests key their global state off, turning 27 unrelated tests red.
 
+### the-build-that-declined-to-look
+
+Two holes in `.github/workflows/ci.yml`, both verified on 2026-09-02 against the workflow file
+and against run 33667912850. They are one defect: the build reported SUCCESS while declining
+to look.
+
+**The style check could not fail.** Line 60 read
+
+```
+ruff check library/ tests/ --output-format=github || true
+```
+
+and the trailing clause swallowed the exit code. Run 33667912850 emitted **2,896 error
+annotations** and concluded `success`. They are not all cosmetic. `ruff check library/ tests/
+--statistics` at commit `2abbdff`, top of the list:
+
+```
+650  UP006     non-pep585-annotation
+372  UP045     non-pep604-annotation-optional
+276  I001      unsorted-imports
+243  F401      unused-import
+212  BLE001    blind-except
+108  PLW1510   subprocess-run-without-check
+ 24  B023      function-uses-loop-variable
+```
+
+`PLW1510` is a `subprocess.run` whose exit code nobody checks, and **51 of the 108 are inside the
+test suite itself** - 51 tests that run a command, ignore whether it failed, and carry on.
+All 24 `B023` are in one file, `library/processes/edit_video/run_pipeline.py`: a closure built in
+a loop that reads the loop variable after the loop has moved on.
+
+**The build machine had no ffmpeg, and never had.** `ffmpeg` appears nowhere in the workflow, and
+its git history shows it was never added or removed - an original gap, not a regression. 27
+library files shell out to it. On run 33667912850 that is 118 reported skips, among them
+`test_music_measurement` (11), `test_subtitle_qa_sampling` (10), `test_night_card_delivery` (8),
+`test_silence_under_picture` (6) and `test_timed_text_delivery` (6). Those tests skip HONESTLY -
+`shutil.which("ffmpeg") is None` - which is exactly why nothing objected: every audio and video
+measurement path had only ever been verified on the captain's laptop.
+
+**Why they were fixed together.** ffmpeg alone surfaces new failures into a build whose lint half
+still cannot fail; lint alone leaves the measurement paths unverified.
+
+**Why the swallow clause was not simply deleted.** 2,896 findings in a red build blocks every PR
+and gets reverted within the hour. The path is staged instead: `ruff-ci-gate.toml` selects the
+classes where a hit means the code is WRONG rather than untidy, and it runs with no `|| true`.
+Of those classes, all but three find nothing in the tree today and are enforced with no exception
+at all. The three that do are recorded by file with their counts - 133 findings across 67 files -
+and everything else keeps reporting without failing. `tests/test_ci_can_fail.py` reads the
+workflow and fails if either hole reopens.
+
 ---
 
 ## Section 10 - cross-cutting rules

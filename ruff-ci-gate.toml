@@ -1,0 +1,159 @@
+# The half of CI's style check that CAN FAIL THE BUILD.
+#
+# Until this file existed, `.github/workflows/ci.yml` ran
+#
+#     ruff check library/ tests/ --output-format=github || true
+#
+# and the trailing clause swallowed the exit code.  Run 33667912850
+# emitted 2,896 error annotations and concluded SUCCESS.  That is the
+# shape AGENTS.md 10.4 names - a gate that cannot fail is worse than no
+# gate, because it reads as coverage.
+#
+# Deleting `|| true` outright would have pushed ~2,900 findings into a
+# red build and blocked every PR, so the check is STAGED instead, in two
+# ruff invocations:
+#
+#   1. THIS config, run WITHOUT `|| true`.  It selects only the rule
+#      classes that indicate a real defect, and it fails the build.
+#   2. The unfiltered `ruff check library/ tests/ ... || true`, which
+#      still annotates every cosmetic finding and still cannot fail.
+#
+# The two run under DIFFERENT configs on purpose: the grandfathering
+# below is invisible to the reporting half, so a deferred finding is
+# still annotated on every PR rather than disappearing behind the gate.
+#
+# HOW TO CHANGE IT
+#
+#   Promoting a rule class:  add it to `select`, run
+#   `ruff check library/ tests/ --config ruff-ci-gate.toml`, and either
+#   fix what it finds or record the files under `per-file-ignores` with
+#   the count, as below.  Never add a class silently ignored everywhere.
+#
+#   Fixing a grandfathered file:  delete its line.  A line that is no
+#   longer needed is a lie about what this repository still owes.
+#
+# WHAT THIS IS NOT
+#
+#   It is not the project's lint configuration.  Nothing outside CI reads
+#   it; `ruff check` with no `--config` still sees every rule, which is
+#   what a developer running ruff locally should get.
+
+[lint]
+
+# ── Enforced, and clean today ─────────────────────────────────────────
+#
+# Every rule below finds NOTHING in `library/` or `tests/` as of this
+# commit, so it is enforced with no exceptions at all: the first thing
+# each one fails on will be new.  They were chosen on one test - does a
+# hit mean the code is WRONG, rather than untidy.
+select = [
+    # pyflakes: names that do not resolve, or resolve twice
+    "F502", "F506", "F601", "F632", "F701", "F702", "F811", "F821", "F823",
+    # pycodestyle: comparisons and handlers that do not do what they read as
+    "E713", "E714", "E721", "E722", "E902",
+    # flake8-bugbear: the defect half, not the style half
+    "B002", "B004", "B006", "B008", "B015", "B018", "B020", "B023",
+    "B026", "B032", "B033",
+    # pylint errors, and the warnings that are really errors
+    "PLE",
+    "PLW0127", "PLW0128", "PLW0129", "PLW0131", "PLW0133",
+    "PLW0602", "PLW1509", "PLW1510",
+    # bandit: the two that execute or trust something
+    "S307", "S506",
+    # ruff's own: a discarded handle, a mutable class default
+    "RUF006", "RUF008", "RUF009", "RUF017",
+    # asyncio: a call that blocks the loop
+    "ASYNC100",
+]
+
+# ── Enforced, with the existing occurrences RECORDED ──────────────────
+#
+# 133 findings across 67 files, deferred by FILE with the count stated.
+# This is a staged path and it is weaker than it looks in one specific
+# way, said plainly rather than left to be discovered: a file listed here
+# is exempt from that rule ENTIRELY, so a NEW `subprocess.run` with no
+# `check=` added to `library/tools/render_qa.py` still passes.  A new one
+# in any of the ~500 files NOT listed does not.
+#
+# The counts, from `ruff check library/ tests/ --select PLW1510,B023,F811
+# --statistics` at commit 2abbdff:
+#
+#   PLW1510  subprocess-run-without-check   108   (57 in library/, 51 in tests/)
+#   B023     function-uses-loop-variable      24   (all of them in ONE file)
+#   F811     redefined-while-unused            1
+#
+# B023 is the one worth reading twice: all 24 are in
+# `library/processes/edit_video/run_pipeline.py`, so the rule is already
+# enforced with no exception across every other file in the repository.
+#
+# Nothing here is fixed by this commit - fixing them is a separate task,
+# deliberately, because a lint sweep and a CI change do not belong in one
+# diff.
+[lint.per-file-ignores]
+"library/processes/edit_video/run_pipeline.py" = ["B023"]          # 24
+"library/steps/step_1_02_catalog_footage/step.py" = ["PLW1510"]    # 1
+"library/steps/step_1_04_temporal_index/step.py" = ["PLW1510"]     # 7
+"library/steps/step_1_05_prosody_analysis/step.py" = ["PLW1510"]   # 1
+"library/steps/step_2_04_music_selection/bridge.py" = ["PLW1510"]  # 1
+"library/steps/step_2_04_music_selection/download_track.py" = ["PLW1510"] # 3
+"library/steps/step_2_04_music_selection/post_bridge.py" = ["PLW1510"] # 1
+"library/steps/step_2_06_music_analysis/step.py" = ["PLW1510"]     # 1
+"library/steps/step_4_05_render_subtitles/step.py" = ["PLW1510"]   # 1
+"library/steps/step_4_06_render_motion_graphics/post_bridge.py" = ["PLW1510"] # 1
+"library/steps/step_5_01_color_grade/step.py" = ["PLW1510"]        # 1
+"library/steps/step_6_01_render/resolve_build_timeline.py" = ["PLW1510"] # 3
+"library/steps/step_6_01_render/step.py" = ["PLW1510"]             # 1
+"library/steps/step_6_02_validate_output/bridge.py" = ["PLW1510"]  # 2
+"library/tools/analysis/vision_pipeline_v3.py" = ["PLW1510"]       # 4
+"library/tools/execution/resolve_render.py" = ["PLW1510"]          # 1
+"library/tools/fusion/tests/test_parser.py" = ["PLW1510"]          # 2
+"library/tools/music_measurement.py" = ["PLW1510"]                 # 1
+"library/tools/music_search.py" = ["PLW1510"]                      # 2
+"library/tools/qa/asset_qa.py" = ["PLW1510"]                       # 3
+"library/tools/qa/subtitle_qa.py" = ["PLW1510"]                    # 1
+"library/tools/render_qa.py" = ["PLW1510"]                         # 17
+"library/tools/sfx_library.py" = ["PLW1510"]                       # 1
+"library/tools/speech_loudness.py" = ["PLW1510"]                   # 1
+"library/tools/thumbnail_extractor.py" = ["PLW1510"]               # 1
+"library/tools/window_frames.py" = ["PLW1510"]                     # 1
+"tests/test_brief_reference.py" = ["PLW1510"]                      # 2
+"tests/test_broll_context_share.py" = ["PLW1510"]                  # 2
+"tests/test_caption_case.py" = ["F811"]                            # 1
+"tests/test_caption_safe_area.py" = ["PLW1510"]                    # 1
+"tests/test_cli_ml_preflight.py" = ["PLW1510"]                     # 2
+"tests/test_cut_decisions_reach_a_reader.py" = ["PLW1510"]         # 1
+"tests/test_dotenv_encoding.py" = ["PLW1510"]                      # 1
+"tests/test_mesh_spine_duration_zone.py" = ["PLW1510"]             # 1
+"tests/test_motion_graphics_delivery.py" = ["PLW1510"]             # 2
+"tests/test_motion_graphics_empty_render.py" = ["PLW1510"]         # 1
+"tests/test_music_measurement.py" = ["PLW1510"]                    # 1
+"tests/test_music_search.py" = ["PLW1510"]                         # 2
+"tests/test_music_selection_contract.py" = ["PLW1510"]             # 1
+"tests/test_night_card_delivery.py" = ["PLW1510"]                  # 1
+"tests/test_no_creative_floors.py" = ["PLW1510"]                   # 1
+"tests/test_no_unfailable_tests.py" = ["PLW1510"]                  # 1
+"tests/test_pacing_and_sfx_are_not_remembered.py" = ["PLW1510"]    # 1
+"tests/test_perceptual_qa.py" = ["PLW1510"]                        # 1
+"tests/test_pipeline_validation.py" = ["PLW1510"]                  # 1
+"tests/test_plan_sfx_candidate_table.py" = ["PLW1510"]             # 1
+"tests/test_plan_transitions_context.py" = ["PLW1510"]             # 1
+"tests/test_prosody_failure_is_loud.py" = ["PLW1510"]              # 4
+"tests/test_renderer_tooling_imports.py" = ["PLW1510"]             # 1
+"tests/test_second_pass.py" = ["PLW1510"]                          # 1
+"tests/test_select_broll_bridge.py" = ["PLW1510"]                  # 1
+"tests/test_sfx_catalogue_by_reference.py" = ["PLW1510"]           # 2
+"tests/test_sfx_choice_from_the_catalogue.py" = ["PLW1510"]        # 1
+"tests/test_sfx_duration.py" = ["PLW1510"]                         # 1
+"tests/test_sfx_level.py" = ["PLW1510"]                            # 1
+"tests/test_speech_sequence_bridge.py" = ["PLW1510"]               # 1
+"tests/test_step_stdout_contract.py" = ["PLW1510"]                 # 1
+"tests/test_timed_text_delivery.py" = ["PLW1510"]                  # 1
+"tests/test_transcript_view.py" = ["PLW1510"]                      # 1
+"tests/test_transition_carriers.py" = ["PLW1510"]                  # 1
+"tests/test_validate_sfx_library.py" = ["PLW1510"]                 # 1
+"tests/test_vfx_bridge.py" = ["PLW1510"]                           # 1
+"tests/test_vfx_plan_basis.py" = ["PLW1510"]                       # 1
+"tests/test_vfx_reaches_the_manifest.py" = ["PLW1510"]             # 1
+"tests/test_vision_schema_adapter.py" = ["PLW1510"]                # 1
+"tests/test_window_frames.py" = ["PLW1510"]                        # 1
+"tests/test_workflow_integration_plugin.py" = ["PLW1510"]          # 1
