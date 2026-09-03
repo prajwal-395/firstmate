@@ -1416,13 +1416,10 @@ case "$HARNESS" in
       exit 1
     }
     [ -z "$AGY_LADDER_NOTE" ] || printf '%s\n' "$AGY_LADDER_NOTE" >&2
-    # Reserve this launch's headroom the moment it is authorized, so the NEXT
-    # launch sees it before any reading could possibly reflect it. Without this
-    # a burst of concurrent dispatches all read the same pre-burst percentage
-    # and all clear a floor that only one of them fits above.
-    if AGY_LADDER_RUNG=$(fm_agy_ladder_rung "$MODEL" 2>/dev/null); then
-      fm_agy_inflight_record "$AGY_LADDER_RUNG" "$STATE" || true
-    fi
+    # This launch's headroom is already reserved: fm_agy_ladder_gate records it
+    # under the same account-wide lock it decided on, so no launch can slip
+    # between a decision and its reservation. Reserving it a second time here
+    # would double-count it.
     if [ -n "$MODEL" ] && [ "$MODEL" != default ]; then
       if AGY_MODELS=$(fm_agy_list_models "$AGY_BIN"); then
         if ! printf '%s\n' "$AGY_MODELS" | fm_agy_catalog_has_model "$MODEL"; then

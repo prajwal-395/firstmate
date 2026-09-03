@@ -64,7 +64,9 @@
 # a secondmate that has never drawn an agy pane of its own knows nothing about
 # the rungs even while the primary home does. That resolves to rung 1 under the
 # rule below, which is the right answer anyway: a home with no evidence starts
-# at the top of the ladder rather than assuming somebody else spent it.
+# at the top of the ladder rather than assuming somebody else spent it - and the
+# poll above then gives it the account's own current figures before it decides,
+# so no home decides on another home's staleness.
 #
 # THE ASYMMETRY, WHICH IS THE WHOLE DESIGN. Quota evidence can still be absent
 # after the poll: agy may not be installed, jq may be missing, the call may time
@@ -101,7 +103,11 @@
 # could all clear a 25% floor before any of them was counted. Each authorized
 # launch is recorded, and FM_AGY_LADDER_INFLIGHT_MARGIN percentage points are
 # reserved per launch still unreflected in the reading. The comparison is
-# against that reserved figure, not the bare reading.
+# against that reserved figure, not the bare reading. That ledger is scoped to
+# the AGY ACCOUNT and not to this home, so the launches it counts are every
+# home's on this machine; bin/fm-agy-quota-lib.sh owns that scope, what it does
+# and does not reach, and why. fm_agy_ladder_gate below records the reservation
+# itself, under the same lock it decides on.
 #
 # OFF-LADDER MODELS. agy offers models the ladder does not name (Gemini 3.1 Pro
 # (Low), Claude Sonnet 4.6, GPT-OSS 120B, and so on), and a launch with no
@@ -140,8 +146,9 @@ fi
 # THE KEBAB IDS are the alternative spellings agy accepts for each display name.
 # They are properties of the model catalogue, not of the order, and cannot be
 # derived mechanically from a display name (e.g. "4.6" becomes "4-6" in Claude
-# but stays "3.1" in Gemini). _FM_LADDER_KNOWN_KEBAB maps display name to kebab
-# id for every model the ladder can rank.
+# but stays "3.1" in Gemini). _fm_agy_ladder_kebab_to_display is that map, and
+# _fm_agy_ladder_is_known_display is the set it draws from; both are stated
+# once, as arms of a case, so the two spellings of one model cannot drift.
 #
 # When the config file is absent - a fresh home, a secondmate that has not been
 # seeded, a test that does not set FM_AGY_LADDER_CONFIG - the built-in default
@@ -154,12 +161,10 @@ _FM_LADDER_DISPLAYS=''
 # _FM_LADDER_COUNT: how many rungs the ladder has.
 _FM_LADDER_COUNT=0
 
-# Model-to-floor: keyed by display name. Only models with a non-zero floor need
-# an entry; every other model exhausts to 0. This is where the captain's 25
-# percent reserve lives - it follows the model, not the position.
-_FM_LADDER_MODEL_FLOOR_Claude_Opus_4_6_Thinking=25
-
-# _fm_agy_ladder_model_floor: the floor for a model by display name.
+# _fm_agy_ladder_model_floor: the floor for a model by display name, and the
+# ONE place the captain's reserved quarter is written down. Only a model with a
+# non-zero floor needs an arm; every other model exhausts to 0. The reserve
+# follows the MODEL, not the rung position.
 _fm_agy_ladder_model_floor() {  # <display-name>
   case "$1" in
     'Claude Opus 4.6 (Thinking)') printf '25' ;;
@@ -167,15 +172,10 @@ _fm_agy_ladder_model_floor() {  # <display-name>
   esac
 }
 
-# Known kebab IDs for every model the ladder can rank. This map is a property
-# of agy's catalogue, not of the rung order; it is stated here so the gate can
-# match either spelling without a network call.
-_FM_LADDER_KNOWN_KEBAB_claude_opus_4_6_thinking='Claude Opus 4.6 (Thinking)'
-_FM_LADDER_KNOWN_KEBAB_gemini_3_1_pro_high='Gemini 3.1 Pro (High)'
-_FM_LADDER_KNOWN_KEBAB_gemini_3_7_flash_high='Gemini 3.7 Flash (High)'
-
 # _fm_agy_ladder_kebab_to_display: if <model> is a known kebab ID, print the
-# display name. Returns 1 when no match.
+# display name. Returns 1 when no match. A property of agy's catalogue, not of
+# the rung order, stated here so the gate can match either spelling without a
+# network call.
 _fm_agy_ladder_kebab_to_display() {  # <model>
   case "$1" in
     claude-opus-4-6-thinking)  printf 'Claude Opus 4.6 (Thinking)' ;;
@@ -204,6 +204,14 @@ _fm_agy_ladder_init() {
   # An unknown model in the config is a configuration error, not a silent
   # acceptance of something the gate cannot enforce. Fall back to defaults
   # if validation fails.
+  #
+  # The fallback is deliberate here and is NOT where the error is reported.
+  # This function runs at source time inside bin/fm-spawn.sh, bin/fm-watch.sh,
+  # and bin/fm-agy-ladder-tick.sh, whose output is parsed; a library that
+  # complained on load would put its complaint into a wake reason. So the
+  # runtime stays safe and silent, and fm_agy_ladder_config_problem below is
+  # what bin/fm-bootstrap.sh asks at session start to make the same condition
+  # loud once, where a person is reading.
   if [ -n "$displays" ]; then
     local validated='' m
     while IFS= read -r m; do
@@ -259,6 +267,77 @@ _fm_agy_ladder_is_known_display() {  # <name>
     'Gemini 3.7 Flash (High)') return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# fm_agy_ladder_config_problem: why <config-file>'s ladder order cannot be used,
+# or nothing at all when it can.
+#   0  the config states a usable ladder, or states none and the defaults apply
+#   1  the config states a ladder this gate cannot enforce; the printed line is
+#      the reason
+#
+# WHY THIS IS SEPARATE FROM THE LOADER. _fm_agy_ladder_init must never refuse:
+# a home whose config it cannot read still has to dispatch, so it falls back to
+# the built-in order and says nothing. That is safe and it is also silent, and a
+# silently ignored config is how the captain reorders the ladder, mistypes one
+# model, and gets the opposite order for weeks without a word. This function is
+# the loud half, asked once per session by bin/fm-bootstrap.sh, so the two
+# properties do not have to be traded against each other.
+#
+# It reports only what actually changes the enforced ladder. A config with no
+# agy entry in "default" is not an error - the built-in order is the right
+# answer for a fleet that has not ranked one.
+fm_agy_ladder_config_problem() {  # <config-file>
+  local file=${1:-} models m seen='' dupes='' unknown=''
+
+  [ -n "$file" ] && [ -f "$file" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    # Malformed JSON is already bin/fm-bootstrap.sh's own diagnostic, reported
+    # once there rather than twice between us.
+    return 0
+  fi
+
+  models=$(jq -r '.default[]? | select(.harness == "agy" and .model != null and .model != "") | .model' "$file" 2>/dev/null) || return 0
+  [ -n "$models" ] || return 0
+
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    if ! _fm_agy_ladder_is_known_display "$m"; then
+      local resolved
+      if resolved=$(_fm_agy_ladder_kebab_to_display "$m"); then
+        m=$resolved
+      else
+        case "$unknown" in
+          *"[$m]"*) ;;
+          *) unknown="${unknown}[$m]" ;;
+        esac
+        continue
+      fi
+    fi
+    case "$seen" in
+      *"[$m]"*)
+        case "$dupes" in
+          *"[$m]"*) ;;
+          *) dupes="${dupes}[$m]" ;;
+        esac
+        ;;
+      *) seen="${seen}[$m]" ;;
+    esac
+  done <<EOF
+$models
+EOF
+
+  if [ -n "$unknown" ]; then
+    printf 'default names agy model(s) the ladder cannot rank: %s - the whole ladder order is being ignored and the built-in order used instead' \
+      "$(printf '%s' "$unknown" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
+    return 1
+  fi
+  if [ -n "$dupes" ]; then
+    printf 'default lists agy model(s) more than once: %s - a repeated model gives the ladder two rungs that exhaust together, so descending one rung no longer reaches a different model' \
+      "$(printf '%s' "$dupes" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
+    return 1
+  fi
+  return 0
 }
 
 # Load the ladder on source. This runs once per shell that sources this file.
@@ -357,7 +436,7 @@ fm_agy_ladder_state() {  # <rung> <state-dir> [<now>]
     unknown|'') printf 'unknown'; return 0 ;;
   esac
   percent=${reading%% *}
-  in_flight=$(fm_agy_inflight_count "$rung" "$state_dir" "$now")
+  in_flight=$(fm_agy_inflight_count "$display" "$state_dir" "$now")
   effective=$(fm_agy_ladder_reserved "$percent" "$in_flight")
   if fm_agy_ladder_at_or_below "$effective" "$(fm_agy_ladder_floor "$rung")"; then
     printf 'exhausted %s %s' "$percent" "$in_flight"
@@ -464,14 +543,40 @@ fm_agy_ladder_check() {  # <model> <state-dir> [<now>]
   return 0
 }
 
-# fm_agy_ladder_gate: fm_agy_ladder_check with the captain override applied and
-# the output a caller should show. Prints nothing on an ordinary clean allow so
-# routine dispatch stays quiet, and prints one line for everything a reader
-# would want to know about: an off-ladder model, a used override, or a refusal.
+# fm_agy_ladder_gate: fm_agy_ladder_check with the captain override applied, the
+# launch's own headroom reserved, and the output a caller should show. Prints
+# nothing on an ordinary clean allow so routine dispatch stays quiet, and prints
+# one line for everything a reader would want to know about: an off-ladder
+# model, a used override, or a refusal.
 #   0  launch may proceed
 #   1  launch is refused; the printed line is the reason
+#
+# DECIDING AND RESERVING ARE ONE STEP, and that is why the reservation lives
+# here rather than in bin/fm-spawn.sh where it used to. Between a gate that had
+# decided and a caller that had not yet recorded, the reading both leaned on
+# said the same thing to everyone, so two launches an instant apart could each
+# be told they were the only one. Holding the account's reservation lock across
+# the decision and the record closes that window instead of narrowing it, and
+# because the lock and the ledger are scoped to the AGY ACCOUNT rather than to
+# this home (bin/fm-agy-quota-lib.sh owns why), it closes it between homes too -
+# which is the case that actually cost the captain the reserve on 2026-09-02.
+#
+# THE LOCK IS BOUNDED AND FAILING TO GET IT IS NOT A REFUSAL. bin/fm-spawn.sh
+# calls this while holding its own spawn locks, so waiting indefinitely on
+# another home would let one wedged home stall the whole fleet's dispatch. When
+# the lock does not come, the decision is still made against the same shared
+# ledger - every home's launches, not just this home's - and the reservation is
+# still recorded. Only the serialization is lost.
+#
+# THE POLL STAYS OUTSIDE THE LOCK. It is the multi-second part, it reads the
+# account rather than the ledger, and two homes polling at once is simply two
+# reads of the same external truth.
 fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
-  local reason rc=0
+  local reason rc=0 gate=0 out='' display='' rung='' lock=''
+  # Dynamically scoped for the duration of this call so fm_agy_inflight_count,
+  # reached through fm_agy_ladder_check below, prunes under the hold this
+  # function already has instead of reaching for the same lock again.
+  local _FM_AGY_INFLIGHT_LOCK_HELD=
 
   # Refresh the evidence before deciding on it, once, for every rung at a time.
   # Only for a model the ladder actually ranks: an off-ladder or unmodelled
@@ -480,13 +585,22 @@ fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
   # whatever was recorded in place and is remembered, not raised: the gate still
   # decides, and says which fallback it decided on.
   FM_AGY_LADDER_POLL_STATUS=skipped
-  if [ "${1:-}" != '' ] && [ "${1:-}" != default ] && fm_agy_ladder_rung "$1" >/dev/null 2>&1; then
+  if [ "${1:-}" != '' ] && [ "${1:-}" != default ] && rung=$(fm_agy_ladder_rung "$1" 2>/dev/null); then
+    display=$(fm_agy_ladder_display "$rung" 2>/dev/null) || display=''
     if [ "${FM_AGY_QUOTA_POLL:-on}" = off ]; then
       FM_AGY_LADDER_POLL_STATUS=off
     elif fm_agy_quota_poll "${2:-}" "${3:-}"; then
       FM_AGY_LADDER_POLL_STATUS=ok
     else
       FM_AGY_LADDER_POLL_STATUS=unavailable
+    fi
+  fi
+
+  if [ -n "$display" ]; then
+    if lock=$(fm_agy_inflight_lock "${2:-}"); then
+      _FM_AGY_INFLIGHT_LOCK_HELD=1
+    else
+      lock=
     fi
   fi
 
@@ -500,23 +614,36 @@ fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
       if [ "$FM_AGY_LADDER_POLL_STATUS" = unavailable ]; then
         case "$reason" in
           *'no current quota reading'*)
-            printf 'notice: agy ladder could not read current quota, so this launch is unchecked against the floor: %s\n' "$reason"
+            out=$(printf 'notice: agy ladder could not read current quota, so this launch is unchecked against the floor: %s\n' "$reason")
             ;;
         esac
       fi
-      return 0
       ;;
     2)
-      printf 'notice: agy ladder not applied: %s\n' "$reason"
-      return 0
+      out=$(printf 'notice: agy ladder not applied: %s\n' "$reason")
+      ;;
+    *)
+      if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
+        out=$(printf 'notice: agy ladder OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=%s - launching anyway past: %s\n' \
+          "$FM_AGY_LADDER_OVERRIDE" "$reason")
+      else
+        gate=1
+        out=$(printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or set FM_AGY_LADDER_OVERRIDE=<reason> to launch on the captain'"'"'s explicit request (its use is printed).\n' \
+          "$reason")
+      fi
       ;;
   esac
-  if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
-    printf 'notice: agy ladder OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=%s - launching anyway past: %s\n' \
-      "$FM_AGY_LADDER_OVERRIDE" "$reason"
-    return 0
+
+  # Reserve this launch's headroom the moment it is authorized, before the lock
+  # is dropped, so the next launch on this account sees it before any reading
+  # could possibly reflect it. A launch the captain overrode is reserved too: it
+  # spends the same quota, and leaving it uncounted would let the launches
+  # BEHIND it read headroom that is already gone.
+  if [ "$gate" -eq 0 ] && [ -n "$display" ]; then
+    fm_agy_inflight_record "$display" "${2:-}" "${3:-}" || true
   fi
-  printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or set FM_AGY_LADDER_OVERRIDE=<reason> to launch on the captain'"'"'s explicit request (its use is printed).\n' \
-    "$reason"
-  return 1
+  [ -z "$lock" ] || fm_lock_release "$lock" || true
+
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return "$gate"
 }

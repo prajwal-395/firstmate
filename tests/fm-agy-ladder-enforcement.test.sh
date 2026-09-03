@@ -35,6 +35,12 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The shared lock helpers, loaded before the ladder exactly as bin/fm-spawn.sh
+# loads them on the real dispatch path. The gate takes the account's reservation
+# lock across its decide-and-reserve step, so a suite without these would
+# exercise a gate that never locks - which is not the gate any dispatch runs.
+# shellcheck source=bin/fm-wake-lib.sh
+. "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-agy-ladder-lib.sh
 . "$ROOT/bin/fm-agy-ladder-lib.sh"
 
@@ -50,6 +56,11 @@ export FM_AGY_QUOTA_POLL=off
 # this suite asserts against.
 export FM_AGY_QUOTA_MAX_AGE=300
 export FM_AGY_INFLIGHT_TTL=300
+# The in-flight ledger is scoped to the agy ACCOUNT and stored machine-wide, so
+# this suite is pointed at a scratch root. Without it these cases would read and
+# write the operator's own reservations, and every fresh_state would inherit
+# whatever the fleet had in flight.
+export FM_AGY_SHARED_ROOT="$TMP_ROOT/agy-shared"
 export FM_AGY_LADDER_INFLIGHT_MARGIN=1
 
 RUNG1='Gemini 3.1 Pro (High)'
@@ -70,11 +81,18 @@ record() {
   fm_agy_quota_observe "$model | ctx: 3.0% | quota: $percent% ($window)" "$state"
 }
 
-# fresh_state: a state dir with no agy readings at all.
+# fresh_state: a state dir with no agy readings at all, and no reservations
+# standing against the account either.
+#
+# The in-flight ledger deliberately does NOT live under state/ - it is scoped to
+# the agy account so every home on it reserves against one figure - so clearing
+# the state dir alone would leave each case inheriting the launches the previous
+# case authorized. A case that wants a clean slate wants a clean ACCOUNT.
 fresh_state() {
   local dir="$TMP_ROOT/state-$1"
   rm -rf "$dir"
   mkdir -p "$dir"
+  rm -f "$(fm_agy_inflight_path "$dir")" 2>/dev/null || true
   printf '%s\n' "$dir"
 }
 
@@ -357,18 +375,16 @@ test_a_burst_just_above_the_floor_is_refused() {
   out=$(gate_out "$state" "$RUNG2") || rc=$?
   [ "$rc" -eq 0 ] || fail "the first launch at 26% must be allowed (rc=$rc)"
 
-  # Each authorized launch reserves its margin. bin/fm-spawn.sh records this the
-  # moment the gate allows; here the same ledger is driven directly.
-  for _ in 1 2; do
-    fm_agy_inflight_record 2 "$state"
-    rc=0
-    out=$(gate_out "$state" "$RUNG2") || rc=$?
-  done
+  # Nothing hand-writes the ledger here. The gate reserves each launch's own
+  # margin as it authorizes it, so the burst is refused by the same calls that
+  # made it - which is the whole point: a caller cannot forget to reserve.
+  rc=0
+  out=$(gate_out "$state" "$RUNG2") || rc=$?
 
   [ "$rc" -eq 1 ] || fail "a burst at 26% must be refused before it crosses the floor (rc=$rc)"
   assert_contains "$out" "is at 26.0%" "the refusal must still report the evidence it read"
   assert_contains "$out" "in flight" "the refusal must say headroom was reserved for launches in flight"
-  assert_contains "$out" "leaving 24.0%" "the refusal must show the figure it actually compared"
+  assert_contains "$out" "leaving 25.0%" "the refusal must show the figure it actually compared"
   assert_contains "$out" "reserved for the captain" "the refusal is still the captain's floor"
 
   # The reading itself never moved, so this is the reservation refusing and not
@@ -389,8 +405,8 @@ test_in_flight_reservations_expire() {
 
   # Two inflight records at margin=1 reserve 2%, so effective = 1.0 - 2 = -1.0,
   # which is below the 0% floor. This must be refused.
-  fm_agy_inflight_record 1 "$state" "$now"
-  fm_agy_inflight_record 1 "$state" "$now"
+  fm_agy_inflight_record "$RUNG1" "$state" "$now"
+  fm_agy_inflight_record "$RUNG1" "$state" "$now"
   rc=0
   fm_agy_ladder_check "$RUNG1" "$state" "$now" >/dev/null || rc=$?
   [ "$rc" -eq 1 ] || fail "two launches in flight at 1% must be refused (rc=$rc)"
@@ -611,19 +627,19 @@ test_spawn_reserves_headroom_for_the_launch_it_authorized() {
   state=$(fresh_state spawn-inflight)
   record "$state" "$RUNG1" 91.0 '4h 0m'
 
-  [ "$(fm_agy_inflight_count 1 "$state")" = 0 ] \
+  [ "$(fm_agy_inflight_count "$RUNG1" "$state")" = 0 ] \
     || fail "a fresh state must owe no headroom"
 
   out=$(spawn_agy "$state" "$RUNG1") || rc=$?
   assert_contains "$out" "no brief at" "the launch must have been authorized"
-  [ "$(fm_agy_inflight_count 1 "$state")" = 1 ] \
+  [ "$(fm_agy_inflight_count "$RUNG1" "$state")" = 1 ] \
     || fail "an authorized rung-1 launch must reserve headroom against the NEXT launch"
 
   # A refused launch spends nothing, so it must reserve nothing either.
   rc=0
   spawn_agy "$state" "$RUNG3" >/dev/null 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || fail "the rung-3 probe must be refused while rung 1 is healthy"
-  [ "$(fm_agy_inflight_count 3 "$state")" = 0 ] \
+  [ "$(fm_agy_inflight_count "$RUNG3" "$state")" = 0 ] \
     || fail "a refused launch must not reserve headroom"
   pass "fm-spawn.sh: an authorized launch reserves its headroom and a refused one does not"
 }
@@ -640,6 +656,217 @@ test_spawn_records_the_override() {
     "the overridden launch must proceed past the gate"
   [ "$rc" -ne 0 ] || fail "this probe spawn cannot succeed; it has no brief"
   pass "fm-spawn.sh: the override launches a refused request and prints that it did"
+}
+
+
+# --- 9. Two homes, one account ----------------------------------------------
+#
+# On 2026-09-02 the primary home and the Lucie secondmate both dispatched agy
+# workers against the same Claude Opus pool while it fell from 100% to 0%,
+# straight through the captain's reserved quarter. Each home reserved headroom
+# in its own state/ directory, so neither gate could see what the other had
+# already committed, and each could authorise a launch the other had spent the
+# quota for. These cases drive the REAL bin/fm-spawn.sh from two separate homes.
+
+# spawn_agy_home: spawn_agy against a home of its own - its own state, data,
+# config, and projects - so the two callers below are genuinely two FM_HOMEs and
+# not one home called twice.
+spawn_agy_home() {  # <home-name> <state-dir> <model> [<env-assignment>...]
+  local home=$1 state=$2 model=$3
+  shift 3
+  local dir="$TMP_ROOT/home-$home" fakebin
+  mkdir -p "$dir/data" "$dir/config" "$dir/projects" "$state"
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/agy" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = models ]; then
+  printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
+  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+  printf 'gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/agy"
+  env "$@" PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" \
+    FM_CONFIG_OVERRIDE="$dir/config" FM_PROJECTS_OVERRIDE="$dir/projects" \
+    "$ROOT/bin/fm-spawn.sh" agy-ladder-probe "$dir/projects" --scout \
+    --harness agy --model "$model" 2>&1
+}
+
+# two_home_second_launch: set up two homes that each independently believe Opus
+# is at 26%, run an authorized rung-2 launch in the first, then return what the
+# SECOND home's gate says about the same launch. The extra environment is passed
+# through to both, so a case can run this against the shared ledger and against
+# the home-local one and compare.
+two_home_second_launch() {  # <tag> [<env-assignment>...]
+  local tag=$1
+  shift
+  local a="$TMP_ROOT/state-$tag-a" b="$TMP_ROOT/state-$tag-b" out
+
+  rm -rf "$a" "$b"
+  mkdir -p "$a" "$b"
+  rm -f "$(fm_agy_inflight_path "$a")" 2>/dev/null || true
+
+  # Each home records its own readings, because state/ is per-home and stays so.
+  # Both see the identical account: rung 1 spent, so rung 2 is reachable, and
+  # rung 2 at 26% - one point of room above the captain's 25%, which fits
+  # exactly one launch.
+  record "$a" "$RUNG1" 0.0 '4h 0m'
+  record "$a" "$RUNG2" 26.0 '4h 0m'
+  record "$b" "$RUNG1" 0.0 '4h 0m'
+  record "$b" "$RUNG2" 26.0 '4h 0m'
+
+  out=$(spawn_agy_home "$tag-a" "$a" "$RUNG2" "$@")
+  case "$out" in
+    *'no brief at'*) ;;
+    *) fail "the first home's launch at 26% must be authorized, got: $out" ;;
+  esac
+
+  spawn_agy_home "$tag-b" "$b" "$RUNG2" "$@"
+}
+
+test_two_homes_cannot_authorize_past_each_other() {
+  local out
+  out=$(two_home_second_launch shared)
+
+  assert_contains "$out" "error: agy ladder refuses this launch" \
+    "the second home must be refused because the first home already spent the room"
+  assert_contains "$out" "in flight" \
+    "the refusal must name the launch in flight that took the headroom"
+  assert_contains "$out" "reserved for the captain" \
+    "the second home must be stopped by the captain's floor, not by some other rule"
+  assert_contains "$out" "is at 26.0%" \
+    "the refusal must act on the reading, which never moved: only the reservation did"
+  pass "two homes on one account: the second launch is refused because of the first home's worker"
+}
+
+test_the_refusal_is_the_shared_ledger_and_not_some_other_rule() {
+  local out
+  # The SAME scenario with the account-wide ledger switched off, which is
+  # exactly the per-home accounting this fleet ran on before. The second home
+  # sees only its own empty ledger, reads 26% as untouched, and launches - the
+  # defect, reproduced on demand. Asserting the divergence is what stops the
+  # case above from passing for some unrelated reason.
+  out=$(two_home_second_launch local FM_AGY_SHARED_ROOT=off)
+
+  assert_contains "$out" "no brief at" \
+    "with per-home accounting the second home must launch, which is the defect being fixed"
+  assert_not_contains "$out" "agy ladder refuses" \
+    "per-home accounting cannot see the other home's launch, so nothing refuses it"
+  pass "with per-home accounting the same second launch is allowed, which is the defect this closes"
+}
+
+
+# --- 10. A ladder the gate cannot enforce must be loud -----------------------
+#
+# The rung order came from config/crew-dispatch.json for the first time on
+# 2026-09-02. _fm_agy_ladder_init falls back to the built-in order rather than
+# refusing, which is right at dispatch time - a home whose config it cannot read
+# still has to launch work - but it is also silent, and a silently ignored
+# config is how the captain reorders the ladder, mistypes one model, and runs
+# the opposite order without a word. The loud half is asked once per session by
+# bin/fm-bootstrap.sh.
+
+ladder_config() {  # <json>
+  local f="$TMP_ROOT/ladder-config.json"
+  printf '%s' "$1" > "$f"
+  printf '%s\n' "$f"
+}
+
+test_a_config_the_ladder_cannot_enforce_is_reported() {
+  local f out rc=0
+
+  # The control: the captain's real order reports nothing.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (High)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a usable ladder order must report nothing (rc=$rc)"
+  [ -z "$out" ] || fail "a usable ladder order must print nothing, got '$out'"
+
+  # A mistyped model. The gate discards the WHOLE order over one bad entry, so
+  # the report has to say that rather than merely naming the entry.
+  rc=0
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (Hgih)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a model the ladder cannot rank must be reported (rc=$rc)"
+  assert_contains "$out" "Gemini 3.1 Pro (Hgih)" "the report must name the model it could not rank"
+  assert_contains "$out" "whole ladder order is being ignored" \
+    "the report must say the captain's order is not the one being enforced"
+
+  # And the runtime really does silently ignore it, which is what makes the
+  # report necessary rather than decorative. Asserting both halves keeps the
+  # case from passing while the loader quietly changed behaviour.
+  out=$(FM_AGY_LADDER_CONFIG="$f" ROOT="$ROOT" bash -c '. "$ROOT/bin/fm-agy-ladder-lib.sh" 2>&1; fm_agy_ladder_display 1')
+  [ "$out" = "$RUNG1" ] \
+    || fail "the loader must still fall back silently to the built-in order, got '$out'"
+  pass "a model the ladder cannot rank is reported, while dispatch still falls back silently"
+}
+
+test_a_repeated_rung_is_reported() {
+  local f out rc=0
+
+  # Both spellings agy accepts name one model, so a config using one of each is
+  # a duplicate the gate would otherwise accept as two distinct rungs.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"claude-opus-4-6-thinking"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a model listed twice must be reported (rc=$rc)"
+  assert_contains "$out" "Claude Opus 4.6 (Thinking)" "the report must name the repeated model"
+  assert_contains "$out" "more than once" "the report must say what is wrong with it"
+
+  # A config that ranks no agy model at all is not an error: the built-in order
+  # is the right answer for a fleet that has not stated one.
+  rc=0
+  f=$(ladder_config '{"default":[{"harness":"claude","model":"claude-opus-5"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a config that ranks no agy model must not be reported as broken (rc=$rc)"
+  [ -z "$out" ] || fail "a config with no agy rung must print nothing, got '$out'"
+  pass "a model repeated across its two spellings is reported, and a config with no agy rung is not"
+}
+
+
+test_simultaneous_launches_across_homes_are_serialized() {
+  local n=10 i allowed refused root="$TMP_ROOT/race-account" dir="$TMP_ROOT/race"
+
+  # Two homes deciding an instant apart is the ordinary case; two homes
+  # deciding at the SAME instant is the one a ledger alone does not answer.
+  # Ten homes are released together against one point of room, so the ledger
+  # has to be read and written as one step or more than one of them clears a
+  # floor only one of them fits above.
+  rm -rf "$dir" "$root"
+  mkdir -p "$dir"
+
+  for i in $(seq 1 "$n"); do
+    mkdir -p "$dir/h$i"
+    # Each home records its own readings, as each really does.
+    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG1" 0.0 '4h 0m'
+    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG2" 26.0 '4h 0m'
+  done
+
+  # A file every worker spins on, so they are released together rather than
+  # staggered by however long each took to start.
+  : > "$dir/go"
+  for i in $(seq 1 "$n"); do
+    (
+      while [ -f "$dir/go" ]; do :; done
+      if FM_AGY_SHARED_ROOT="$root" fm_agy_ladder_gate "$RUNG2" "$dir/h$i" >/dev/null 2>&1; then
+        echo allowed > "$dir/out.$i"
+      else
+        echo refused > "$dir/out.$i"
+      fi
+    ) &
+  done
+  sleep 0.3
+  rm -f "$dir/go"
+  wait
+
+  allowed=$(grep -lx allowed "$dir"/out.* 2>/dev/null | wc -l | tr -d ' ')
+  refused=$(grep -lx refused "$dir"/out.* 2>/dev/null | wc -l | tr -d ' ')
+
+  [ "$((allowed + refused))" -eq "$n" ] \
+    || fail "every simultaneous launch must reach a verdict (allowed=$allowed refused=$refused of $n)"
+  [ "$allowed" -eq 1 ] \
+    || fail "exactly one launch fits above the floor; $allowed were authorized"
+  pass "simultaneous launches from $n homes on one account authorize exactly the one that fits"
 }
 
 test_both_spellings_resolve_to_one_rung
@@ -663,3 +890,8 @@ test_spawn_refuses_a_ladder_violation
 test_spawn_passes_an_honest_launch_through
 test_spawn_records_the_override
 test_spawn_reserves_headroom_for_the_launch_it_authorized
+test_two_homes_cannot_authorize_past_each_other
+test_the_refusal_is_the_shared_ledger_and_not_some_other_rule
+test_a_config_the_ladder_cannot_enforce_is_reported
+test_a_repeated_rung_is_reported
+test_simultaneous_launches_across_homes_are_serialized

@@ -627,7 +627,7 @@ fm_agy_climb_clears_margin() {  # <rung> <state-dir> [<now>]
   esac
   percent=${reading%% *}
   fm_agy_is_number "$percent" || return 1
-  in_flight=$(fm_agy_inflight_count "$rung" "$state_dir" "$now")
+  in_flight=$(fm_agy_inflight_count "$display" "$state_dir" "$now")
   effective=$(fm_agy_ladder_reserved "$percent" "$in_flight")
   awk -v p="$effective" -v f="$floor" -v m="$FM_AGY_CLIMB_MARGIN" \
     'BEGIN { exit !(p >= f + m) }'

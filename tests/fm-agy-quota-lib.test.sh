@@ -24,10 +24,22 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The shared lock helpers, loaded exactly as every production caller of the
+# quota library loads them (bin/fm-spawn.sh, bin/fm-watch.sh, and
+# bin/fm-agy-ladder-tick.sh all source this first). The account-scoped ledger
+# prunes under that lock, so a suite without it would exercise a configuration
+# no dispatch path ever runs in.
+# shellcheck source=bin/fm-wake-lib.sh
+. "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-agy-quota-lib.sh
 . "$ROOT/bin/fm-agy-quota-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-agy-quota-lib)
+
+# The in-flight ledger is scoped to the agy ACCOUNT and stored machine-wide, so
+# every case below is pointed at a scratch root. Without this the suite would
+# read and write the operator's own reservations.
+export FM_AGY_SHARED_ROOT="$TMP_ROOT/agy-shared"
 
 # The library reads its bounds at call time, so a case can drive them directly.
 export FM_AGY_QUOTA_MAX_AGE=300
@@ -290,24 +302,80 @@ fi
 echo "Testing the in-flight ledger"
 state=$(new_state inflight)
 
-assert_eq "0" "$(fm_agy_inflight_count 1 "$state" "$NOW")"
+MODEL_A='Gemini 3.1 Pro (High)'
+MODEL_B='Claude Opus 4.6 (Thinking)'
+MODEL_C='Gemini 3.7 Flash (High)'
 
-fm_agy_inflight_record 1 "$state" "$NOW"
-fm_agy_inflight_record 1 "$state" "$NOW"
-fm_agy_inflight_record 2 "$state" "$NOW"
-assert_eq "2" "$(fm_agy_inflight_count 1 "$state" "$NOW")"
-assert_eq "1" "$(fm_agy_inflight_count 2 "$state" "$NOW")"
-assert_eq "0" "$(fm_agy_inflight_count 3 "$state" "$NOW")"
+assert_eq "0" "$(fm_agy_inflight_count "$MODEL_A" "$state" "$NOW")"
+
+fm_agy_inflight_record "$MODEL_A" "$state" "$NOW"
+fm_agy_inflight_record "$MODEL_A" "$state" "$NOW"
+fm_agy_inflight_record "$MODEL_B" "$state" "$NOW"
+assert_eq "2" "$(fm_agy_inflight_count "$MODEL_A" "$state" "$NOW")"
+assert_eq "1" "$(fm_agy_inflight_count "$MODEL_B" "$state" "$NOW")"
+assert_eq "0" "$(fm_agy_inflight_count "$MODEL_C" "$state" "$NOW")"
 
 # Just inside the TTL a launch still counts; past it, a current reading already
 # includes its consumption and counting it again would reserve headroom that is
 # not at risk.
-assert_eq "2" "$(fm_agy_inflight_count 1 "$state" "$((NOW + 299))")"
-assert_eq "0" "$(fm_agy_inflight_count 1 "$state" "$((NOW + 300))")"
+assert_eq "2" "$(fm_agy_inflight_count "$MODEL_A" "$state" "$((NOW + 299))")"
+assert_eq "0" "$(fm_agy_inflight_count "$MODEL_A" "$state" "$((NOW + 300))")"
 
 # Expiry prunes the ledger rather than letting it grow for the life of the home.
-fm_agy_inflight_count 1 "$state" "$((NOW + 300))" >/dev/null
-[ ! -s "$state/.agy-inflight" ] || fail "expired reservations must be pruned from the ledger"
-pass "the in-flight ledger counts recent launches per rung and forgets expired ones"
+fm_agy_inflight_count "$MODEL_A" "$state" "$((NOW + 300))" >/dev/null
+[ ! -s "$(fm_agy_inflight_path "$state")" ] \
+  || fail "expired reservations must be pruned from the ledger"
+pass "the in-flight ledger counts recent launches per model and forgets expired ones"
+
+# A model name is the account's own vocabulary, so it must survive the ledger
+# round trip intact - including the spaces and parentheses every display name
+# carries. A record split on whitespace would count every Gemini launch as the
+# same model.
+state=$(new_state inflight-names)
+fm_agy_inflight_record "$MODEL_A" "$state" "$NOW"
+fm_agy_inflight_record 'Gemini 3.1 Pro (Low)' "$state" "$NOW"
+assert_eq "1" "$(fm_agy_inflight_count "$MODEL_A" "$state" "$NOW")"
+assert_eq "1" "$(fm_agy_inflight_count 'Gemini 3.1 Pro (Low)' "$state" "$NOW")"
+pass "a display name round-trips through the ledger without colliding with its neighbours"
+
+# --- 8. The ledger is scoped to the account, not to the home ----------------
+#
+# This is the defect that cost the captain the reserve on 2026-09-02: two homes
+# drawing on one agy account each reserved headroom against themselves alone, so
+# each could authorise a launch the other had already committed the quota for.
+
+echo "Testing the account scope of the ledger"
+
+home_a=$(new_state account-home-a)
+home_b=$(new_state account-home-b)
+
+# Two SEPARATE homes, one account: a reservation made by either is counted by
+# both, because the ledger is keyed by the account rather than by state/.
+fm_agy_inflight_record "$MODEL_B" "$home_a" "$NOW"
+assert_eq "1" "$(fm_agy_inflight_count "$MODEL_B" "$home_b" "$NOW")"
+fm_agy_inflight_record "$MODEL_B" "$home_b" "$NOW"
+assert_eq "2" "$(fm_agy_inflight_count "$MODEL_B" "$home_a" "$NOW")"
+assert_eq "$(fm_agy_inflight_path "$home_a")" "$(fm_agy_inflight_path "$home_b")"
+pass "a reservation made in one home is counted by the other home on the same account"
+
+# A DIFFERENT account is a different ledger. Two homes must not reserve against
+# each other when they are not drawing on the same pool.
+other=$(FM_AGY_CONFIG_HOME="$TMP_ROOT/other-account" bash -c '
+  . "'"$ROOT"'/bin/fm-agy-quota-lib.sh"
+  fm_agy_inflight_count "'"$MODEL_B"'" "'"$home_a"'" "'"$NOW"'"')
+assert_eq "0" "$other"
+pass "a home logged into a different agy account keeps a ledger of its own"
+
+# No shared location at all - the single-home case, and every machine that
+# cannot offer one. The home falls back to its own ledger and still works.
+solo=$(new_state account-solo)
+solo_path=$(FM_AGY_SHARED_ROOT=off bash -c '
+  . "'"$ROOT"'/bin/fm-agy-quota-lib.sh"
+  fm_agy_inflight_record "'"$MODEL_B"'" "'"$solo"'" "'"$NOW"'"
+  fm_agy_inflight_path "'"$solo"'"
+  printf " "
+  fm_agy_inflight_count "'"$MODEL_B"'" "'"$solo"'" "'"$NOW"'"')
+assert_eq "$solo/.agy-inflight 1" "$solo_path"
+pass "with no shared location a home reserves against its own ledger exactly as before"
 
 echo "ALL TESTS PASSED"

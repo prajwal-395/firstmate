@@ -1799,6 +1799,18 @@ unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID \
   HERDR_SOCKET_PATH HERDR_SESSION 2>/dev/null || true
 
 RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run.XXXXXX")
+
+# The agy ladder's launch reservations are scoped to the agy ACCOUNT and stored
+# machine-wide, deliberately outside every FM_HOME, so that homes drawing on one
+# quota pool reserve against one figure. That puts them outside the per-test
+# isolation every other piece of firstmate state gets from FM_HOME overrides: a
+# test that drives bin/fm-spawn.sh with --harness agy would otherwise reserve
+# headroom in the OPERATOR's own ledger and hold it there until it expired.
+# Scoping the root here rather than in each suite is what makes that impossible
+# to forget, including for a test nobody has written yet. A suite that needs a
+# ledger of its own still points this at its own scratch directory.
+export FM_AGY_SHARED_ROOT="$RUN_TMP/agy-account"
+
 RECORDS="$RUN_TMP/records.tsv"
 FAMILIES_TSV="$RUN_TMP/families.tsv"
 : >"$RECORDS"
