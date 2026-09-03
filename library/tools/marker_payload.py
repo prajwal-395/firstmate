@@ -79,6 +79,27 @@ The envelope is the whole of what may go in `customData`.  Resolve
 round-tripped 4 KB of UTF-8 including apostrophes and en-dashes byte for
 byte (measured, see `marker_capture`), so there is no escaping layer here
 and none is wanted: it is `json.dumps` and `json.loads`.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying a list of
+self-describing records, with the reasoning for that shape in the module docstring.
+- `schema` versions the ENVELOPE, `writer_version` versions one writer's own keys, and they move
+  independently so a second writer can grow without every reader relearning the envelope.
+- **An attachment is a record with a `path`, not a record of a particular kind**, so a writer
+  pointing at a file gets "a reader can open this" for free.
+- **`customData` this module did not write is kept under `foreign`, never overwritten.** The UI
+  does not show the field, so nobody would notice it going missing.
+- `pull` and `show` surface attachments, and a note with one prints differently from one without.
+  **A path the captain TYPED into a note is surfaced too**, told apart by `origin`, matched
+  conservatively (absolute POSIX path or `file://`) and never rewritten out of the text.
+- `tests/test_marker_payload.py`, `tests/test_marker_capture_against_resolve.py`.
 """
 
 from __future__ import annotations

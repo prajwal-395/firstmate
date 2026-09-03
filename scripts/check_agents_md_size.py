@@ -25,35 +25,41 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 87173
+CEILING = 69653
 
-# RATCHET, per section: lowered 2026-09-03 when section 10's detail moved to the
-# modules that own it (81,459 -> 17,591), and again when section 3's did
-# (28,708 -> 5,601). Lower a row as its content moves to the
-# module that owns it; never raise one.
+# RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
+# modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
+# `## 15` 20,149 -> 1,800.  Lower a row as its content moves; never raise one.
 #
-# ONE row has been raised, once: `## 9` +1,849 in the same change, to document
-# these two gates in the file they govern - the file had 0 spare before section 10
-# moved, so the gate could not describe itself until a move made room. It is
-# recorded here rather than left to be discovered, and the sum rule below is what
-# made it payable: raising it without the 63,868 that left would have failed.
+# TWO rows have been raised, both on `## 9` and both to document these gates in
+# the file they govern: +1,849 for the two gates themselves, and +842 for the
+# captain's rule that CI is the full-suite gate.  The file had 0 spare before
+# `## 10` moved, so the gate could not describe itself until a move made room.
+# They are recorded here rather than left to be discovered, and the sum rule
+# below is what made them payable: either raise without the characters that left
+# would have failed.
+#
+# `## 5` is 9,962 rather than the 9,975 seeded earlier.  #484 edited that section
+# while #483 was in flight, so the budget it landed with was 13 characters loose;
+# reseeding from the file corrects it downward.  A budget that is looser than the
+# section is the same lie as one for a section that no longer exists.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
     "## 2. Repo layout": 2144,
     "## 3. Pipeline execution": 5590,
     "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 9975,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 9962,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 7809,
-    "## 9. Environment and dependencies": 5483,
+    "## 9. Environment and dependencies": 6325,
     "## 10. Cross-cutting rules": 17591,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 4803,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2127,
-    "## 15. Notes the captain types onto the timeline": 20149,
+    "## 15. Notes the captain types onto the timeline": 1800,
     "## 16. Motion graphics": 2271,
     "## Maintaining this file": 553,
 }

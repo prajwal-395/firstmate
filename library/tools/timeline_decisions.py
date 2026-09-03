@@ -109,6 +109,36 @@ markers that exist.
     python3 -m library.tools.timeline_decisions stamp  --project <dir>
 
 `tests/test_timeline_decisions.py`.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+**Every clip on the built timeline carries the decision that produced it, and the routing
+reads that instead of inferring - but only where inference has nothing.**
+One enumeration, `library/tools/timeline_decisions.py`, and it is the producer half of the
+loop above.
+- **`TRACK_DECISIONS` is one row per track of the manifest, and a track with no row is
+  REPORTED, never attributed to the nearest step.** **V1 A-roll is `speech_sequence` (2.02), not `assign_aroll` (3.01)**; **a bookend card is not stamped at all** (§13). `UNSTAMPED_PLACEMENTS` records both.
+- `DECISION_BASES` keeps `chosen` and `declared` apart, the same line §10.5 draws.
+- **A1 is not a placement.** `LINKED_AUDIO_OF` says so: `compile_manifest` builds A1 from the
+  same V1 clip dicts, and surveying it would stamp two records where the timeline has one clip.
+- **The build writes a LEDGER and creates NO marker.** Step 6.01 writes `timeline_decisions.json` from the manifest and merges decisions into existing markers via `UpdateMarkerCustomData`.
+  `pipeline_output/steps/6_01_render/timeline_decisions.json` from the manifest alone, and
+- **The stamp ranks BELOW the captain's own words.** Order: declared > vocabulary > stamped. The stamp closes the UNROUTED case without touching the routed ones.
+  ones. `STAMP_RANKS_BELOW_THE_WORDS` is the record.
+- **A MOMENT note is never routed by the stamp**, only a note attached to ONE clip. That is
+  the captain's own selection, not the stack at a frame, so it is not
+  `marker_routing.WITHDRAWN_ROUTERS["the_clip_under_the_playhead_decides"]` coming back. What
+  was playing under a moment is recorded as `decision_context` and routes nothing.
+- A marker's own stamp outranks the ledger, because it was written when the marker was made
+  and the ledger describes the LAST build. Neither is guessed at: a placement that matches no
+  row comes back as a stated reason.
+- `tests/test_timeline_decisions.py`.
 """
 
 from __future__ import annotations

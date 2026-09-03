@@ -22,6 +22,24 @@ Resolve sets it (the capture button's traceback runs through its
 connect to Resolve, and one of them leaves through `os._exit`.  The
 defect is in the module body and in `_repo_root`, and both are reachable
 without that.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+**`__file__` IS NOT DEFINED there, and an entry point verified by running it as a FILE has not been verified.**
+Both entry points in `resolve_scripts/` are launched by Resolve's own script host, which defines `__name__` as `"__main__"` but does NOT define `__file__` - and `importlib`, `exec_module` and `python3 the_file.py` all define it, so every route a test or a screenshot takes hides this. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
+Resolve's script host defines `__name__` as `"__main__"` but NOT `__file__`. [why](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
+- **Read `__file__` in ONE place per entry point, inside a helper that answers `""` when it is absent.** Nowhere else, and `tests/test_resolve_scripts_bootstrap.py` fails on a second reader.
+- **A fallback chain is evaluated LAZILY, or the last candidate can kill the first.** `_repo_root()` built its candidates as a tuple, so the `__file__` fallback raised before the stamped `REPO_ROOT` beside it - correct, and pointing at a directory that existed - was ever tested.
+- **A bootstrap failure must reach the SCREEN.** `print` is the floor (reaches Resolve's Console), and a window built from `fusion`/`bmd` MAY NOT RAISE. Failures are held in `BOOTSTRAP_ERROR`.
+- **Verify from the MENU.** `tests/test_resolve_scripts_bootstrap.py` executes each entry point's bootstrap the way the host does - `exec(compile(...))` into a namespace with no `__file__` - and that is the substitute for a click, not a replacement for one.
+- **The two copies of `_repo_root` stay two.** Its whole job is to find the repository a shared copy would have to be imported from. The duplication is held by ONE test over BOTH files rather than by one function.
+- `sys.argv` and the working directory are not relied on by either file, and the same test keeps it that way.
 """
 
 from __future__ import annotations

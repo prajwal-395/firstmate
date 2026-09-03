@@ -102,6 +102,39 @@ No colour vocabulary.  The captain chose typed notes over colour codes,
 so colour is recorded as data and read by nothing.  No acknowledgement
 marker is written back and no marker is deleted: this module is a reader
 plus a durable writer to disk, and the timeline is the captain's.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+The captain reviews a built timeline **inside DaVinci Resolve** and drops markers on it carrying
+natural language - what looks wrong, what to change, what to go and find out.
+One enumeration, `library/tools/marker_feedback.py`, which reads them and writes them to disk.
+It is proved against a real running Resolve by `tests/test_marker_feedback_against_resolve.py`;
+its recorded per-call findings are in the module docstring, in the shape `neural_engine.py` uses.
+- **A MARKER CARRIES TWO PIECES OF TYPED TEXT AND BOTH ARE READ.** `GetMarkers()` returns `name`
+  (the Add Marker dialog's **Name** field, where the cursor lands) and `note` (its **Notes**
+  field). Reading only `note` loses everything typed into Name, silently, with the marker still
+  on the timeline. Both are kept verbatim; nothing is summarised, truncated or normalised.
+  `Timeline.AddMarker` REFUSES a marker whose name is empty.
+- **A timeline marker's frame is relative to `Timeline.GetStartFrame()`; `TimelineItem.GetStart()`
+  is absolute.** A clip marker's frame is a SOURCE frame, the same space as `GetLeftOffset()`, so
+  `timeline_frame = item.GetStart() + (key - item.GetLeftOffset())` and only inside the range the
+  clip plays. Resolve bounds-checks neither. A key outside that range is kept UNPLACED with the
+  reason, never clamped to the clip's head.
+- **`TimelineItem.GetProperty("Comments")` is always None.** Clip comments are a MEDIA POOL
+  property. A timeline item's property dict holds transform keys only - read it with no argument
+  (§5) before trusting a name.
+- **The record goes to `<project>/marker_feedback/`, and that is why `Kind.CAPTURED` exists.**
+  Everything under `pipeline_output/` is `Kind.OUTPUT` - safe to delete because a re-run
+- **The build path REFUSES to delete a timeline carrying uncollected notes.** `guard_timeline_deletion` fails the build, naming the notes. `PIPELINE_DISCARD_TIMELINE_MARKERS=1` is the override.
+- **The reader READS, and the two things that write to a marker write only `customData`** -
+  the capture button and the decision stamp. Neither creates a marker, touches `name`/`note`/colour/duration, or deletes one.
+  No colour vocabulary; no acknowledgement marker is written back.
 """
 
 from __future__ import annotations

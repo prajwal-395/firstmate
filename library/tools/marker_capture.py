@@ -106,6 +106,26 @@ NOTE FOR ANY SIZE HEURISTIC: an exported still is a FIXED SIZE whatever
 is in it.  All four PNGs from one 1080x1920 timeline came out at exactly
 6,232,792 bytes, the black one included, so §5's "under 2KB is a broken
 frame" rule does not transfer to this route.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the
+frame plus whatever the captain typed is captured. `library/tools/marker_capture.py` is the whole
+of it; `resolve_scripts/` is the entry point Resolve calls.
+- **The repository is the source of truth.** The installer stamps the checkout's path. **Nothing else may write into the application support folder.**
+- **`GrabStill` returns the GRADED, CONFORMED frame** regardless of the active Resolve page.
+- **The still goes to `<project>/marker_feedback/stills/`** (`Kind.CAPTURED`). A timeline whose footage sits under no project is REFUSED.
+- **The gallery is put back.** `GrabStill` leaves the still in the current album and Resolve saves
+  it; the button deletes it again and reports the before/after count.
+- **A marker that is already there is UPDATED, never replaced** - `AddMarker` refuses an occupied
+  frame anyway, and the captain's `name` and `note` are what must survive. The playhead inside a
+  marker with a duration resolves to that marker's start frame.
 """
 
 from __future__ import annotations

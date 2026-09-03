@@ -132,6 +132,46 @@ step, rather than being assembled into a context that does not carry it.
     python3 -m library.tools.marker_routing steps
 
 `tests/test_marker_routing.py`.
+
+
+Rules relocated from AGENTS.md 15
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+**A collected note is routed to the step that owns the decision it is about, and an
+ambiguous one is reported as ambiguous rather than sent somewhere.**
+One enumeration, `library/tools/marker_routing.py`.
+- **A CLIP note and a MOMENT note are different things and are never flattened together.**
+  A `clip_marker`/`media_pool_marker`/`clip_comment` carries `clip`; a `timeline_marker` carries `clips_under` (CONTEXT).
+  `marker_feedback.MarkerNote.attached_clip` records the placement; a pull file written
+  refused - reported `unresolved` - unless the candidates are one clip. Resolve's linked
+  `MarkerNote.attached_clip` records the placement; legacy recovery is refused unless candidates are one clip.
+- **`STEP_DECISIONS` is the whole of what a note can be routed to**, each row naming the
+  decision that step makes. A step outside it cannot be routed to, and a note naming one is
+  refused BY NAME.
+- **Two bases, and two non-answers.** `declared` is authoritative. Otherwise the note's words must name EXACTLY ONE step's decision. Two is `ambiguous`; none is `unrouted`. No score, no ranking, no tie-break, no default.
+- **Delivery is `prompt` or `report`, declared per step.** A step with a `handoff.md` declares
+  the `timeline_notes` input and `gather_step_inputs` hands it `prompt_block()` - the words
+  plus a legend, the route `MEASUREMENT_LEGEND` and `CUTS_LEGEND` take, because the handoffs
+  are frozen. A deterministic step has no prompt at all; the note is still routed, recorded
+  and reported, with that reason stated. `run_pipeline.project_step_context` restores
+  `timeline_notes` BY NAME, so a `context_fields` allow-list neither has to list it nor can
+  drop it (§10.1).
+- **Nothing may silently drop a routed note.** `assert_deliverable` fails the run when a note
+  is routed to a prompt step whose manifest does not declare the input, because a context
+  assembled without it reads exactly like a run with no notes. `undelivered` accounts for
+  every note that reaches no prompt, by name.
+- **A note that reached NOBODY is named in the run summary and recorded on the note.** The summary prints them after `status` is decided. Resolving an ambiguity is the captain's call.
+  after `status` is decided and `record_non_delivery` appends them to the same log the
+  deliveries go to. **It stops at visibility**: `WITHDRAWN_ROUTERS` records why every tie-break
+- The delivery log is APPENDED by the runner, in the `Kind.CAPTURED` area beside the pull
+  files: a delivery is a thing that happened, and a later run delivering the same note does
+  not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
+  never hand-edited.
+- `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
 """
 
 from __future__ import annotations

@@ -444,6 +444,20 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
 - `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
 
+**Run the tests that cover what you changed. CI runs the rest.**
+Captain's standing rule, 2026-09-03: *"is there a reason why we run all these test
+locally and fry the CPU? ... i feel like we spend more time on testing than actual
+implementaion"*. The workflow above already runs the whole suite on every push, so a
+local full run pays the same 5-6 minutes and ~3,600 tests twice for one answer.
+
+- **Pick the narrowest selection that answers your question** - the test files covering
+  the files you changed, or a runner-scoped family. Then push, and let CI find what the
+  scoped run missed. That is the system working, not a failure.
+- **The one exception is genuinely wide fan-out, and you must NAME it in one line when
+  you claim it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
+  AGENTS.md restructure is not.
+
+
 ### This file is an INDEX, and two gates keep it one
 
 **A rule lives with the code it governs; AGENTS.md keeps the headline and points at it.**
@@ -809,172 +823,46 @@ One enumeration, `library/tools/timed_text_overlay.py`.
 
 ## 15. Notes the captain types onto the timeline
 
-The captain reviews a built timeline **inside DaVinci Resolve** and drops markers on it carrying
-natural language - what looks wrong, what to change, what to go and find out.
-One enumeration, `library/tools/marker_feedback.py`, which reads them and writes them to disk.
-It is proved against a real running Resolve by `tests/test_marker_feedback_against_resolve.py`;
-its recorded per-call findings are in the module docstring, in the shape `neural_engine.py` uses.
-
-- **A MARKER CARRIES TWO PIECES OF TYPED TEXT AND BOTH ARE READ.** `GetMarkers()` returns `name`
-  (the Add Marker dialog's **Name** field, where the cursor lands) and `note` (its **Notes**
-  field). Reading only `note` loses everything typed into Name, silently, with the marker still
-  on the timeline. Both are kept verbatim; nothing is summarised, truncated or normalised.
-  `Timeline.AddMarker` REFUSES a marker whose name is empty.
-- **A timeline marker's frame is relative to `Timeline.GetStartFrame()`; `TimelineItem.GetStart()`
-  is absolute.** A clip marker's frame is a SOURCE frame, the same space as `GetLeftOffset()`, so
-  `timeline_frame = item.GetStart() + (key - item.GetLeftOffset())` and only inside the range the
-  clip plays. Resolve bounds-checks neither. A key outside that range is kept UNPLACED with the
-  reason, never clamped to the clip's head.
-- **`TimelineItem.GetProperty("Comments")` is always None.** Clip comments are a MEDIA POOL
-  property. A timeline item's property dict holds transform keys only - read it with no argument
-  (§5) before trusting a name.
-- **The record goes to `<project>/marker_feedback/`, and that is why `Kind.CAPTURED` exists.**
-  Everything under `pipeline_output/` is `Kind.OUTPUT` - safe to delete because a re-run
-- **The build path REFUSES to delete a timeline carrying uncollected notes.** `guard_timeline_deletion` fails the build, naming the notes. `PIPELINE_DISCARD_TIMELINE_MARKERS=1` is the override.
-- **The reader READS, and the two things that write to a marker write only `customData`** -
-  the capture button and the decision stamp. Neither creates a marker, touches `name`/`note`/colour/duration, or deletes one.
-  No colour vocabulary; no acknowledgement marker is written back.
+**inside DaVinci Resolve**
+Detail: `library/tools/marker_feedback.py`.
 
 ### Where a note goes
 
 **A collected note is routed to the step that owns the decision it is about, and an
 ambiguous one is reported as ambiguous rather than sent somewhere.**
-One enumeration, `library/tools/marker_routing.py`.
-
-- **A CLIP note and a MOMENT note are different things and are never flattened together.**
-  A `clip_marker`/`media_pool_marker`/`clip_comment` carries `clip`; a `timeline_marker` carries `clips_under` (CONTEXT).
-  `marker_feedback.MarkerNote.attached_clip` records the placement; a pull file written
-  refused - reported `unresolved` - unless the candidates are one clip. Resolve's linked
-  `MarkerNote.attached_clip` records the placement; legacy recovery is refused unless candidates are one clip.
-- **`STEP_DECISIONS` is the whole of what a note can be routed to**, each row naming the
-  decision that step makes. A step outside it cannot be routed to, and a note naming one is
-  refused BY NAME.
-- **Two bases, and two non-answers.** `declared` is authoritative. Otherwise the note's words must name EXACTLY ONE step's decision. Two is `ambiguous`; none is `unrouted`. No score, no ranking, no tie-break, no default.
-- **Delivery is `prompt` or `report`, declared per step.** A step with a `handoff.md` declares
-  the `timeline_notes` input and `gather_step_inputs` hands it `prompt_block()` - the words
-  plus a legend, the route `MEASUREMENT_LEGEND` and `CUTS_LEGEND` take, because the handoffs
-  are frozen. A deterministic step has no prompt at all; the note is still routed, recorded
-  and reported, with that reason stated. `run_pipeline.project_step_context` restores
-  `timeline_notes` BY NAME, so a `context_fields` allow-list neither has to list it nor can
-  drop it (§10.1).
-- **Nothing may silently drop a routed note.** `assert_deliverable` fails the run when a note
-  is routed to a prompt step whose manifest does not declare the input, because a context
-  assembled without it reads exactly like a run with no notes. `undelivered` accounts for
-  every note that reaches no prompt, by name.
-- **A note that reached NOBODY is named in the run summary and recorded on the note.** The summary prints them after `status` is decided. Resolving an ambiguity is the captain's call.
-  after `status` is decided and `record_non_delivery` appends them to the same log the
-  deliveries go to. **It stops at visibility**: `WITHDRAWN_ROUTERS` records why every tie-break
-- The delivery log is APPENDED by the runner, in the `Kind.CAPTURED` area beside the pull
-  files: a delivery is a thing that happened, and a later run delivering the same note does
-  not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
-  never hand-edited.
-- `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
+Detail: `library/tools/marker_routing.py`.
 
 ### What decided the clip the note is on
 
 **Every clip on the built timeline carries the decision that produced it, and the routing
 reads that instead of inferring - but only where inference has nothing.**
-One enumeration, `library/tools/timeline_decisions.py`, and it is the producer half of the
-loop above.
+Detail: `library/tools/timeline_decisions.py`.
 
-- **`TRACK_DECISIONS` is one row per track of the manifest, and a track with no row is
-  REPORTED, never attributed to the nearest step.** **V1 A-roll is `speech_sequence` (2.02), not `assign_aroll` (3.01)**; **a bookend card is not stamped at all** (§13). `UNSTAMPED_PLACEMENTS` records both.
-- `DECISION_BASES` keeps `chosen` and `declared` apart, the same line §10.5 draws.
-- **A1 is not a placement.** `LINKED_AUDIO_OF` says so: `compile_manifest` builds A1 from the
-  same V1 clip dicts, and surveying it would stamp two records where the timeline has one clip.
-- **The build writes a LEDGER and creates NO marker.** Step 6.01 writes `timeline_decisions.json` from the manifest and merges decisions into existing markers via `UpdateMarkerCustomData`.
-  `pipeline_output/steps/6_01_render/timeline_decisions.json` from the manifest alone, and
-- **The stamp ranks BELOW the captain's own words.** Order: declared > vocabulary > stamped. The stamp closes the UNROUTED case without touching the routed ones.
-  ones. `STAMP_RANKS_BELOW_THE_WORDS` is the record.
-- **A MOMENT note is never routed by the stamp**, only a note attached to ONE clip. That is
-  the captain's own selection, not the stack at a frame, so it is not
-  `marker_routing.WITHDRAWN_ROUTERS["the_clip_under_the_playhead_decides"]` coming back. What
-  was playing under a moment is recorded as `decision_context` and routes nothing.
-- A marker's own stamp outranks the ledger, because it was written when the marker was made
-  and the ledger describes the LAST build. Neither is guessed at: a placement that matches no
-  row comes back as a stated reason.
-- `tests/test_timeline_decisions.py`.
 ### The panel beside the timeline
 
 **The pipeline is readable from inside Resolve, and the panel's whole reason to exist is that it knows where the PLAYHEAD is.**
-`resolve_scripts/VEP Pipeline Panel.py` is the entry point; everything it DECIDES is in `library/tools/panel/`, which imports no Qt and no Resolve. [why](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
-
-- **The split is the rule.** Nothing under `library/tools/panel/` may import `DaVinciResolveScript`, `BlackmagicFusion` or a Qt binding; live Resolve facts arrive as `clip_context.ResolveContext`. `tests/test_panel_boundary.py`.
-- **The clip under the playhead is joined to what the pipeline measured** - the catalog id, the vision observations, the transcript of the seconds that PLAY, and which step chose the placement (`timeline_decisions`). Every fact is a READING, never a document pasted in, and what could not be joined is SAID.
-- **The picture is not the topmost item.** Use `clip_context.picture_at` (highest track carrying FOOTAGE), not `GetCurrentVideoItem()`. `clip_context.picture_at` takes the highest track carrying FOOTAGE and `overlays_at` reports the rest.
-- **What the captain is LOOKING AT outranks what they last clicked**, and the prompt says which is which. `prompt_block` is bounded and says what it cut.
-- **A large output is drilled down, never dumped.** `panel/trace.py` navigates one LEVEL at a time; a path that does not exist is refused by name.
-- **The run is previewed before it starts**: the profile, the steps it will and will not fire with each reason, and the `run_scope` refusal VERBATIM. `panel/run_view.py` calls the same resolver the runner does and has no opinion of its own.
-- **The panel launches the runner with the checkout's `.venv/bin/python3`, never `sys.executable`.** A checkout with no venv is REFUSED by name.
-- **The handbrake stays advisory** and the panel never kills the runner.
-- **It holds no credential**: the model is reached by shelling out to the already-authenticated `claude` CLI, overridable with `VEP_PANEL_MODEL`. Nothing secret is written into Resolve's application-support folder.
-- **The FRAME under the playhead goes with the question.** `library/tools/panel/frame_attach.py` decides placement; `marker_capture.grab_still` is the ONE grabber. Stills go to `~/.vep_panel/frames/`, never under the project. A grab that cannot happen degrades to text-only with a stated reason. `VEP_PANEL_NO_FRAME=1` declines it. [why](docs/RULE_EVIDENCE.md#the-model-was-told-a-filename-and-not-shown-the-frame)
-- **The model call runs where it can READ what the prompt points at.** The CLI will not open a file outside its working directory, and the panel's call set none, so it inherited whatever Resolve was launched with. The failure that comes out is the model answering *"I need permission to read the screenshot file"* - exit code 0, a plausible sentence, and nothing that looks like a bug. `frame_attach.call_site` names the directory and `frame_attach.reaches_the_file` is what the test pins, so the guarantee is *the call can read the still* and not *the call sets cwd* - `--add-dir` satisfies it too. Any future feature that hands the model a path depends on this. `tests/test_panel_frame_attach.py`.
-- **Every slow thing goes on a worker thread** (`StepLoop(False)`), and the heartbeat under the header is proof it has not stuck.
-- Toolkit facts that bite, all measured: `hasattr` is True for widgets that do not exist; `Stack.CurrentIndex` is broken and `Hidden` is the page switch; `Label.Pixmap` draws nothing and `<img>` in a read-only `TextEdit` does; `ui.Timer` never fires; `MinimumSize` is ignored by the layout and a stretch RATIO is not; Qt decides a string is rich text by looking for a tag.
-- **A process that connected to Resolve leaves through `os._exit`, never `sys.exit`.** `fusionscript.so` does not join its own `RemoteApp` thread before its static destructor frees the pool that thread is using, so the C runtime's teardown can SEGFAULT. The panel's `_leave` flushes both streams and hands the status to the kernel.
-- **A column is sized to the longest value it really holds, and a truncation may never read as a word.** A column that cannot be widened is dropped whole to the detail pane.
-- **A screenshot of this panel is opened and read before it is committed.** Nothing else tells a picture of the panel from a picture of what was behind it; `docs/panel/README.md` records the one that got through.
-- **Footage Search is deliberately not in the panel.** `library/dashboard/footage_search.py` is the only authorised caller of the footage index (§2) and widening that is the captain's call.
+Detail: `library/tools/panel/__init__.py`. [why](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
 
 ### What Resolve's script host does not give an entry point
 
 **`__file__` IS NOT DEFINED there, and an entry point verified by running it as a FILE has not been verified.**
-Both entry points in `resolve_scripts/` are launched by Resolve's own script host, which defines `__name__` as `"__main__"` but does NOT define `__file__` - and `importlib`, `exec_module` and `python3 the_file.py` all define it, so every route a test or a screenshot takes hides this. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
-Resolve's script host defines `__name__` as `"__main__"` but NOT `__file__`. [why](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
+Detail: `tests/test_resolve_scripts_bootstrap.py`. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
 
-- **Read `__file__` in ONE place per entry point, inside a helper that answers `""` when it is absent.** Nowhere else, and `tests/test_resolve_scripts_bootstrap.py` fails on a second reader.
-- **A fallback chain is evaluated LAZILY, or the last candidate can kill the first.** `_repo_root()` built its candidates as a tuple, so the `__file__` fallback raised before the stamped `REPO_ROOT` beside it - correct, and pointing at a directory that existed - was ever tested.
-- **A bootstrap failure must reach the SCREEN.** `print` is the floor (reaches Resolve's Console), and a window built from `fusion`/`bmd` MAY NOT RAISE. Failures are held in `BOOTSTRAP_ERROR`.
-- **Verify from the MENU.** `tests/test_resolve_scripts_bootstrap.py` executes each entry point's bootstrap the way the host does - `exec(compile(...))` into a namespace with no `__file__` - and that is the substitute for a click, not a replacement for one.
-- **The two copies of `_repo_root` stay two.** Its whole job is to find the repository a shared copy would have to be imported from. The duplication is held by ONE test over BOTH files rather than by one function.
-- `sys.argv` and the working directory are not relied on by either file, and the same test keeps it that way.
 ### The plugin inside Resolve's own window
 
 **A Workflow Integration is the OTHER surface, and it is an Electron app driven through Resolve's JavaScript API.**
-`resolve_workflow_integration/com.videoeditingpilot.vep`, installed by `scripts/install_workflow_integration.sh`; [`resolve_workflow_integration/README.md`](resolve_workflow_integration/README.md) is what it settled and what it costs.
-It is PHASE 1 - it reads the playhead, plays video and reaches this repository's Python - and the Qt panel (§15 above) is untouched and still the surface the captain uses.
-
-- **Resolve scans the plugin root ON STARTUP ONLY, and `Initialize()` fails for every plugin id Resolve did not launch itself** - Blackmagic's own sample included, with `Failed to open IPC`. So a newly installed plugin needs a Resolve restart, and self-launching the Electron app gives the whole UI and no Resolve data. Never restart Resolve to get one: it is the captain's application and one shared instance.
-- **A Workflow Integration NEVER docks; it is a separate window, and that is structural.** Resolve launches it as its OWN process - `--plugin-id=<id>` under Resolve's bundled Electron, renderer `--enable-sandbox` - so the window belongs to a different pid and cannot be docked into Resolve's Qt workspace. Blackmagic's README is right and the marketing claim that a plugin docks is wrong for this mechanism. Settled by process ownership, not by eye. [why](docs/workflow_integration/README.md)
-- **The JavaScript API is at parity with the Python one for what this project needs, and it has NO stream.** Enumerated live off the objects: 238 methods across `resolve` (29), `Project` (50), `Timeline` (63) and `TimelineItem` (96), recorded in `docs/workflow_integration/live_api_surface.json`. The whole marker vocabulary is reachable - `GetMarkers`, `GetMarkerCustomData`, `UpdateMarkerCustomData`, `AddMarker` - so §15's marker work does not need the Python bridge. Nothing anywhere is a transport control or a viewer mirror, which is what makes "playback is a FILE seeked to the playhead" a measured statement rather than an assumption.
-- **The plugin READS, and the DEFAULT IS REFUSAL.** `js/readonly.js` is the complete list of methods it may call, `main.js`'s `guard` is the one door, and a name nobody thought to withhold is refused rather than permitted by omission. `WITHHELD` beats `READ_ONLY`, so slipping a call through takes two edits. `GrabStill`/`ExportStills` are withheld deliberately: a grab round-trips the GALLERY, which writes into the captain's project. The test EXERCISES the predicate under `node` rather than grepping for it.
-- **The judgements do not cross the bridge.** `library/tools/workflow_bridge.py` is the one route into Python - one request on stdin, one answer on stdout, one process per request - and `OPERATIONS` is the whole of what may be asked. The catalog join it serves is `panel/clip_context.py` UNCHANGED, so the two surfaces cannot develop different answers about the same clip. Measured: 32-45 ms of process spawn, and 86-117 ms for the whole join.
-- **`js/picture.js` is a deliberate second implementation of `clip_context.picture_at`, and it is GATED.** `tests/test_workflow_integration_plugin.py` runs it under `node` against the Python over a recorded timeline and over constructed cases the recording cannot reach - 001's V2 cutaways sit in the GAPS between V1 clips and every source runs at the timeline's rate, so the recording alone exercises neither the track preference nor the two-frame-rate arithmetic.
-- **Playback is a FILE seeked to the playhead, never Resolve's viewer.** There is no STREAM in the API. Single frames are reachable - `GrabStill` (graded and conformed) and `GetCurrentClipThumbnailImage` (base64, Color page) - and neither is playback: a grab costs seconds and round-trips the gallery, so it writes into the captain's project, and neither is in `READ_ONLY_CALLS`. The source clip is ungraded with no comps, captions or mix; the rendered master is complete and only as current as the last render. Say which.
-- **A fixture run says so on screen.** `VEP_WFI_FIXTURE` drives the whole page off a recording with no Resolve, and the header states it - a picture of the page must never be mistakable for a picture of live Resolve.
-- `tests/test_workflow_bridge.py`, `tests/test_workflow_integration_plugin.py`.
+Detail: `resolve_workflow_integration/README.md`. [why](docs/workflow_integration/README.md)
 
 ### The button that captures the frame
 
-Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the
-frame plus whatever the captain typed is captured. `library/tools/marker_capture.py` is the whole
-of it; `resolve_scripts/` is the entry point Resolve calls.
-
-- **The repository is the source of truth.** The installer stamps the checkout's path. **Nothing else may write into the application support folder.**
-- **`GrabStill` returns the GRADED, CONFORMED frame** regardless of the active Resolve page.
-- **The still goes to `<project>/marker_feedback/stills/`** (`Kind.CAPTURED`). A timeline whose footage sits under no project is REFUSED.
-- **The gallery is put back.** `GrabStill` leaves the still in the current album and Resolve saves
-  it; the button deletes it again and reports the before/after count.
-- **A marker that is already there is UPDATED, never replaced** - `AddMarker` refuses an occupied
-  frame anyway, and the captain's `name` and `note` are what must survive. The playhead inside a
-  marker with a duration resolves to that marker's start frame.
+**Workspace > Scripts > Capture Frame for Firstmate**
+Detail: `library/tools/marker_capture.py`.
 
 ### What goes in `customData`
 
-One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying a list of
-self-describing records, with the reasoning for that shape in the module docstring.
+One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying a list of self-describing records, with the reasoning for that shape in the module docstring.
+Detail: `library/tools/marker_payload.py`.
 
-- `schema` versions the ENVELOPE, `writer_version` versions one writer's own keys, and they move
-  independently so a second writer can grow without every reader relearning the envelope.
-- **An attachment is a record with a `path`, not a record of a particular kind**, so a writer
-  pointing at a file gets "a reader can open this" for free.
-- **`customData` this module did not write is kept under `foreign`, never overwritten.** The UI
-  does not show the field, so nobody would notice it going missing.
-- `pull` and `show` surface attachments, and a note with one prints differently from one without.
-  **A path the captain TYPED into a note is surfaced too**, told apart by `origin`, matched
-  conservatively (absolute POSIX path or `file://`) and never rewritten out of the text.
-- `tests/test_marker_payload.py`, `tests/test_marker_capture_against_resolve.py`.
 ## 16. Motion graphics
 
 **The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.**

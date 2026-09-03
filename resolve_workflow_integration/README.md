@@ -220,3 +220,24 @@ cause is ruled out and the real one is NOT established. It is recorded
 here undiagnosed rather than guessed at, because a diagnosis nobody
 verified is worth less than a stated unknown. It is a defect in what the
 page REPORTS about the master, not in whether the master plays.
+
+
+## Rules relocated from AGENTS.md 15
+
+These are the engine's rules for this file.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 15
+keeps the headline and points here.
+
+**A Workflow Integration is the OTHER surface, and it is an Electron app driven through Resolve's JavaScript API.**
+`resolve_workflow_integration/com.videoeditingpilot.vep`, installed by `scripts/install_workflow_integration.sh`; [`resolve_workflow_integration/README.md`](resolve_workflow_integration/README.md) is what it settled and what it costs.
+It is PHASE 1 - it reads the playhead, plays video and reaches this repository's Python - and the Qt panel (§15 above) is untouched and still the surface the captain uses.
+- **Resolve scans the plugin root ON STARTUP ONLY, and `Initialize()` fails for every plugin id Resolve did not launch itself** - Blackmagic's own sample included, with `Failed to open IPC`. So a newly installed plugin needs a Resolve restart, and self-launching the Electron app gives the whole UI and no Resolve data. Never restart Resolve to get one: it is the captain's application and one shared instance.
+- **A Workflow Integration NEVER docks; it is a separate window, and that is structural.** Resolve launches it as its OWN process - `--plugin-id=<id>` under Resolve's bundled Electron, renderer `--enable-sandbox` - so the window belongs to a different pid and cannot be docked into Resolve's Qt workspace. Blackmagic's README is right and the marketing claim that a plugin docks is wrong for this mechanism. Settled by process ownership, not by eye. [why](docs/workflow_integration/README.md)
+- **The JavaScript API is at parity with the Python one for what this project needs, and it has NO stream.** Enumerated live off the objects: 238 methods across `resolve` (29), `Project` (50), `Timeline` (63) and `TimelineItem` (96), recorded in `docs/workflow_integration/live_api_surface.json`. The whole marker vocabulary is reachable - `GetMarkers`, `GetMarkerCustomData`, `UpdateMarkerCustomData`, `AddMarker` - so §15's marker work does not need the Python bridge. Nothing anywhere is a transport control or a viewer mirror, which is what makes "playback is a FILE seeked to the playhead" a measured statement rather than an assumption.
+- **The plugin READS, and the DEFAULT IS REFUSAL.** `js/readonly.js` is the complete list of methods it may call, `main.js`'s `guard` is the one door, and a name nobody thought to withhold is refused rather than permitted by omission. `WITHHELD` beats `READ_ONLY`, so slipping a call through takes two edits. `GrabStill`/`ExportStills` are withheld deliberately: a grab round-trips the GALLERY, which writes into the captain's project. The test EXERCISES the predicate under `node` rather than grepping for it.
+- **The judgements do not cross the bridge.** `library/tools/workflow_bridge.py` is the one route into Python - one request on stdin, one answer on stdout, one process per request - and `OPERATIONS` is the whole of what may be asked. The catalog join it serves is `panel/clip_context.py` UNCHANGED, so the two surfaces cannot develop different answers about the same clip. Measured: 32-45 ms of process spawn, and 86-117 ms for the whole join.
+- **`js/picture.js` is a deliberate second implementation of `clip_context.picture_at`, and it is GATED.** `tests/test_workflow_integration_plugin.py` runs it under `node` against the Python over a recorded timeline and over constructed cases the recording cannot reach - 001's V2 cutaways sit in the GAPS between V1 clips and every source runs at the timeline's rate, so the recording alone exercises neither the track preference nor the two-frame-rate arithmetic.
+- **Playback is a FILE seeked to the playhead, never Resolve's viewer.** There is no STREAM in the API. Single frames are reachable - `GrabStill` (graded and conformed) and `GetCurrentClipThumbnailImage` (base64, Color page) - and neither is playback: a grab costs seconds and round-trips the gallery, so it writes into the captain's project, and neither is in `READ_ONLY_CALLS`. The source clip is ungraded with no comps, captions or mix; the rendered master is complete and only as current as the last render. Say which.
+- **A fixture run says so on screen.** `VEP_WFI_FIXTURE` drives the whole page off a recording with no Resolve, and the header states it - a picture of the page must never be mistakable for a picture of live Resolve.
+- `tests/test_workflow_bridge.py`, `tests/test_workflow_integration_plugin.py`.
