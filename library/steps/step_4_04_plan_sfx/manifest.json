@@ -103,6 +103,21 @@
         "description": "State output: sfx_candidates_toon"
       },
       {
+        "name": "sfx_candidates_legend",
+        "type": "object",
+        "description": "Bridge output: what `music_behavior`, `bed_under_it` and `volume_db` mean, carried as DATA because handoff.md is frozen (the MEASUREMENT_LEGEND route). Declared here because the bridge emits it on every run and validate_step_output would otherwise report it as an unexpected extra field."
+      },
+      {
+        "name": "sfx_envelope_legend",
+        "type": "object",
+        "description": "Bridge output: what each MEASURED envelope shape is and what the placement pass does with a sound carrying it - including that a `swelling` sound is anchored by its END so its climax lands on the moment, which is where a build comes from. Rendered from the same table post_bridge._describe_placement reads (library/tools/sfx_envelope.py), so the prompt and the code cannot drift. Declared for the same reason as sfx_candidates_legend."
+      },
+      {
+        "name": "sfx_library_shape",
+        "type": "object",
+        "description": "Bridge output: what the library holds per envelope, counted on this run - measured on the captain's library 2026-09-03 as 42 of 78 swelling, 31 of those 2s or longer, the longest 76s. It is here because a catalogue ordered by folder reads like its folder names and nothing had ever totalled the envelope column. It counts and recommends nothing. Declared for the same reason as sfx_candidates_legend."
+      },
+      {
         "name": "sfx_spec",
         "type": "object",
         "description": "State output: sfx_spec",
@@ -164,6 +179,8 @@
   },
   "context_fields": [
     "sfx_catalog_reference",
+    "sfx_library_shape",
+    "sfx_envelope_legend",
     "transitions_toon",
     "b_roll_assignments",
     "creative_direction",

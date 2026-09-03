@@ -180,16 +180,22 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
         "2.01 authors the direction; it has nothing inherited to "
         "contradict"
     )
-    # `render_motion_graphics` used to be in this list. It stopped being
-    # deterministic on 2026-09-02, when step 4.06 grew a handoff asking a
-    # model to plan the overlay layer instead of resolving it from two
-    # brand-template booleans - so it now has a prompt to say it in, and
-    # the derived set above picks it up with no edit to either module.
-    for deterministic in ("color_grade", "creative_cohesion"):
-        assert not dc.flags(deterministic), (
-            f"{deterministic} declares creative_direction but reaches no "
-            "model, so it has nothing to say it in"
-        )
+    # `render_motion_graphics` used to be in this list, and `color_grade`
+    # with it. Each stopped being deterministic and grew a handoff - 4.06
+    # on 2026-09-02, 5.01 on 2026-09-03 - so each now has a prompt to say
+    # it in, and the derived set above picked both up with no edit to
+    # either module. `creative_cohesion` is the one left: it declares the
+    # direction, reaches no model, and is excluded with a reason rather
+    # than by omission.
+    assert not dc.flags("creative_cohesion"), (
+        "creative_cohesion declares creative_direction but reaches no "
+        "model, so it has nothing to say it in"
+    )
+    assert dc.flags("color_grade"), (
+        "5.01 became hybrid and is routed the vision documents; it is the "
+        "clearest case the channel has - a direction that calls the piece "
+        "vibrant, held against a clip measuring 53 luma"
+    )
     assert dc.flags("render_motion_graphics"), (
         "4.06 reaches a model now; a step that starts reaching one and is "
         "left out of the derivation is exactly the staleness the "

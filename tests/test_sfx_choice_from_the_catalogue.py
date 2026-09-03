@@ -28,6 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 SFX_STEP = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 
 from library.tools import sfx_library  # noqa: E402
+from library.tools.sfx_envelope import placement_of  # noqa: E402
 from library.tools.sfx_library import (  # noqa: E402
     CATALOG_COLUMNS,
     catalog_document,
@@ -311,7 +312,7 @@ def test_a_plan_naming_real_sounds_resolves_to_real_files(tmp_path):
     # file's own transient lands on `timeline_in`, so playback starts
     # there and what plays is what is LEFT of the sound.
     assert placed["sfx_envelope"] == "punchy"
-    assert placed["placement_method"].startswith("onset-snap")
+    assert placed["placement_method"] == placement_of("punchy")
     assert placed["source_in"] == 0.05
     assert placed["duration_seconds"] == pytest.approx(0.35)
     assert placed["timeline_out"] - placed["timeline_in"] == pytest.approx(0.35)
@@ -333,7 +334,7 @@ def test_a_sound_that_builds_plays_from_its_own_beginning(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     placed, = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
     assert placed["sfx_envelope"] == "swelling"
-    assert placed["placement_method"].startswith("end-at-energy-peak")
+    assert placed["placement_method"] == placement_of("swelling")
     assert placed["source_in"] == 0.0
     assert placed["duration_seconds"] == pytest.approx(2.0)
 

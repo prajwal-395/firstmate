@@ -71,6 +71,7 @@ from library.tools.sfx_duration import (
     full_playable_seconds,
     resolve_played_seconds,
 )
+from library.tools.sfx_envelope import placement_of
 from library.tools.sfx_level import read_volume_db
 from library.tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from library.tools.spine_contract import (
@@ -602,14 +603,16 @@ def _assert_sfx_distributed(resolved: list) -> None:
 
 
 def _describe_placement(envelope: str) -> str:
-    """Human-readable description of the placement method used."""
-    methods = {
-        "punchy": "onset-snap (±200ms) → energy-peak → beat-snap",
-        "swelling": "end-at-energy-peak → backfill duration",
-        "fading": "scene-boundary/block-edge → onset-snap (±100ms)",
-        "sustained": "scene-boundary/block-edge → onset-snap (±100ms)",
-    }
-    return methods.get(envelope, "onset-snap fallback (envelope unmeasured)")
+    """What the engine did with this sound, in one line.
+
+    Read out of `library/tools/sfx_envelope.py`, which is the SAME table
+    the pre-bridge renders into the prompt as `sfx_envelope_legend`. It
+    used to be a private four-row dict here, so the sentence the manifest
+    recorded and the sentence the planner would have needed could not
+    have been checked against each other - and the planner was never told
+    any of it.
+    """
+    return placement_of(envelope)
 
 
 def main():

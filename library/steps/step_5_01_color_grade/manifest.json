@@ -2,7 +2,7 @@
   "id": "step_5_01_color_grade",
   "name": "Color Grade",
   "version": "1.0.0",
-  "description": "Specifies color grading settings for A-roll and B-roll clips.",
+  "description": "Decides the colour correction this cut needs and turns it, plus any declared brand look, into one ASC CDL per clip.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -34,20 +34,64 @@
         "name": "creative_direction",
         "type": "object",
         "required": true,
-        "description": "State input: creative_direction"
+        "description": "State input: creative_direction. Read in the prompt - the mood and theme the grade is serving. It was declared and unread for the whole life of the deterministic step (library/tools/input_contract.py reported it as UNREAD on every survey); it is in context_fields now."
       },
       {
         "name": "project_folder",
         "type": "string",
         "required": false,
         "description": "Path to the project folder, needed for ffprobe media analysis"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": true,
+        "description": "State input: semantic_analysis_documents. Read by the BRIDGE and kept out of context_fields entirely (AGENTS.md 10.1): the bridge joins each clip's `analysis.scene` - where the shot is and how it is lit - onto its measured luma row, because average luma cannot tell a dim car interior from an underexposed one and that is the difference between a fault and the content."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog. The bridge's join key: the vision documents are keyed by FILE STEM and every other table here by clip_XXX, and library/tools/semantic_index.py needs the catalog to bridge them."
+      },
+      {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none. Declared here because colour is one of the most brief-driven decisions there is - 001's brief carries a whole 'Color System Philosophy' section - and no colour step had ever seen it."
+      },
+      {
+        "name": "timeline_notes",
+        "type": "object",
+        "required": false,
+        "description": "The captain's own notes typed onto the built timeline in DaVinci Resolve, routed to this step because this step owns the decision each note is about. See library/tools/marker_routing.py."
       }
     ],
     "outputs": [
       {
+        "name": "clip_exposure",
+        "type": "array",
+        "description": "Bridge output: one measured row per clip, in the order it first plays - average luma, the method, the sample count, how many placements it carries and the vision pass's description of the shot. It is the table the prompt reads AND the measurement post_bridge.py joins the answer to, so ffprobe runs once and the two halves of the step cannot disagree. Declared here because the bridge emits it on every run and validate_step_output would otherwise report it as an unexpected extra field."
+      },
+      {
+        "name": "cut_adjacency",
+        "type": "array",
+        "description": "Bridge output: one row per cut where the clip changes, with the gap between the two shots in stops. The axis that decides whether a luma difference matters - two clips far apart that never touch cost nothing. Declared for the same reason as clip_exposure."
+      },
+      {
+        "name": "declared_look",
+        "type": "object",
+        "description": "Bridge output: what the project's brand template declared under style.house_look, as the colourist sees it, or the stated absence of one. Declared for the same reason as clip_exposure."
+      },
+      {
+        "name": "grade_terms_legend",
+        "type": "object",
+        "description": "Bridge output: what each correction term IS, what neutral is for it and the exact order it composes with a declared look in. The MEASUREMENT_LEGEND route - it defines the vocabulary and never says what to conclude. Declared for the same reason as clip_exposure."
+      },
+      {
         "name": "color_grade_spec",
         "type": "object",
-        "description": "State output: color_grade_spec"
+        "description": "State output: color_grade_spec. Carries the per-clip CDL, the declared look's Fusion half, and `correction_basis` - which of the four absences an ungraded run is (library/tools/color_correction.py)."
       }
     ],
     "preconditions": [
@@ -55,34 +99,52 @@
       "'a_roll_assignments' exists in state",
       "'b_roll_assignments' exists in state",
       "'b_roll_interjections' exists in state",
+      "'semantic_analysis_documents' exists in state",
+      "'clip_catalog' exists in state",
       "'project_folder' exists in state (optional)",
       "'brand_template' exists in state (optional)"
     ],
     "postconditions": [
       "'color_grade_spec' is written to state"
+    ],
+    "llm_outputs": [
+      {
+        "name": "color_correction",
+        "type": "list",
+        "required": true,
+        "may_be_empty": true,
+        "description": "Per-clip colour corrections - only the clips you are moving. Each: clip_id (exactly as clip_exposure spells it), any of exposure_stops (number, in stops, + is brighter), slope / offset / power ([r,g,b], neutral [1,1,1] / [0,0,0] / [1,1,1]), saturation (number, neutral 1.0), and `why` in your own words. `why` is REQUIRED - an entry without one is dropped, because a grade value nobody can review is what the last run shipped nine of. An entry whose terms are all neutral is dropped too: leaving a clip alone is said by not naming it. An empty list is a legitimate answer and is recorded as your decision that the footage needs no correction. There is no bound on any value and nothing is substituted for a term you leave out - see grade_terms_legend."
+      },
+      {
+        "name": "grade_assessment",
+        "type": "string",
+        "required": true,
+        "description": "What you saw across the cut as a whole and why the corrections are what they are - including which differences you decided were the content rather than a fault. Written whether or not you correct anything: it is what makes a judged no-correction legible as a decision rather than as an absence."
+      }
     ]
   },
   "classification": {
     "stage": "edit",
-    "determinism": "deterministic",
-    "archetype": "data_transformation",
-    "idempotent": true
+    "determinism": "hybrid",
+    "archetype": "creative_selection",
+    "idempotent": false
   },
   "dependencies": [
     "step_2_01_creative_direction",
     "step_3_01_assign_aroll",
-    "step_3_02_select_broll"
+    "step_3_02_select_broll",
+    "step_1_03_semantic_analysis"
   ],
   "tags": [
-    "data_transformation",
+    "creative_selection",
     "video-editing",
-    "deterministic"
+    "nondeterministic"
   ],
   "domain": "video-editing",
   "implementation": {
     "default": {
       "runtime": "python",
-      "entry_point": "step.py"
+      "entry_point": "bridge.py"
     },
     "variants": {},
     "test_entry_point": ""
@@ -92,5 +154,12 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "clip_exposure",
+    "cut_adjacency",
+    "declared_look",
+    "grade_terms_legend",
+    "creative_direction"
+  ]
 }

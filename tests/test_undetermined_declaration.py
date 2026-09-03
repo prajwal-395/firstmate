@@ -93,7 +93,7 @@ def test_the_summary_tells_the_three_apart():
     assert "mesh_spine" in lines.split("did not answer")[1]
 
 
-# ── Nine steps, argued rather than assumed ──────────────────────────
+# ── Every model-reaching step, argued rather than assumed ───────────
 
 def test_every_step_that_reaches_a_model_declares():
     """Choosing a subset would answer, from outside and in advance, the
@@ -106,6 +106,11 @@ def test_every_step_that_reaches_a_model_declares():
         # graphics layer from two brand-template booleans and grew a
         # handoff asking a model to plan it.
         "render_motion_graphics",
+        # Joined 2026-09-03: step 5.01 stopped writing the identity CDL
+        # whenever no brand template declared an exposure reference and
+        # grew a handoff asking a colourist whether the footage needs
+        # correcting.
+        "color_grade",
         "validate",
     })
     assert not undetermined.declares("semantic_analysis"), (

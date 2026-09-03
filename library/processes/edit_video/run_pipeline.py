@@ -31,8 +31,9 @@ import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
-                           direction_contradiction, post_bridge_retry,
-                           run_restart, second_pass, undetermined)
+                           craft_role, direction_contradiction,
+                           post_bridge_retry, run_restart, second_pass,
+                           undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -1380,6 +1381,16 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # `validate_step_output` would then demand it, and the answer is
         # taken back out below before anything validates or reads it.
         # See library/tools/undetermined.py.
+        # Who the model IS when it answers this step.  PREPENDED rather
+        # than appended, which is the one thing this does differently
+        # from the three schema appenders below: they ask for an extra
+        # FIELD and belong beside the schema, and a role is the frame the
+        # rest of the document is read in.  Empty for a step with no
+        # declared role, so this is one unconditional line and a step
+        # that gains a role needs no change here.
+        # See library/tools/craft_role.py.
+        prompt = craft_role.prompt_block(node_id) + prompt
+
         schema_outputs = list(llm_outputs)
         if undetermined.declares(node_id):
             schema_outputs.append(undetermined.schema_entry())

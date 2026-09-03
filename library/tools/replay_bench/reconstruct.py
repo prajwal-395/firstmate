@@ -269,10 +269,11 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             from library.processes.edit_video.run_pipeline import (
                 generate_output_schema_text,
             )
-            # The runner appends TWO fields to the RENDERED schema and
+            # The runner appends fields to the RENDERED schema and
             # their instructions to the prompt - `could_not_determine` for
-            # the nine declaring steps, `contradicts_direction` for the
-            # eight flagging ones.  Reconstructing without it makes
+            # the declaring steps, `contradicts_direction` for the
+            # flagging ones - and PREPENDS a role for the steps that
+            # declare one.  Reconstructing without it makes
             # every declaring step read as a difference `verify` cannot
             # account for - and `verify` is a gate, so a reconstruction
             # that cannot reproduce the past cannot be trusted to compare
@@ -280,7 +281,21 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             # A revision that predates one of the modules has nothing to
             # import, and that is a real difference between the trees
             # rather than something to paper over - so it is NOTED, not
-            # swallowed.  A third appender in the runner needs a block here.
+            # swallowed.  A further appender in the runner needs a block
+            # here.
+            #
+            # `craft_role` is the fourth contribution and the only one
+            # that PREPENDS: it is the role the rest of the prompt is
+            # read in, not an extra field, so it carries no schema entry.
+            try:
+                from library.tools import craft_role
+            except ImportError:
+                notes.append("this tree has no library.tools.craft_role: "
+                             "the prompt is reconstructed with no role "
+                             "block prepended")
+            else:
+                prompt = craft_role.prompt_block(node_id) + prompt
+
             schema_outputs = list(llm_outputs)
             try:
                 from library.tools import undetermined

@@ -37,6 +37,7 @@ LLM_STEPS = {
     "plan_transitions": "step_4_02_plan_transitions",
     "plan_vfx": "step_4_03_plan_vfx",
     "plan_sfx": "step_4_04_plan_sfx",
+    "color_grade": "step_5_01_color_grade",
     "render": "step_6_01_render",
     "validate": "step_6_02_validate_output",
 }
@@ -273,6 +274,10 @@ BRIDGE_TABLES = {
     "plan_transitions": ("cuts_toon",),
     "plan_vfx": ("vfx_candidates_toon",),
     "plan_sfx": ("sfx_candidates_toon",),
+    # 5.01 became hybrid on 2026-09-03. Its tables carry no `_toon`
+    # suffix because they are lists the serialiser renders, not strings
+    # the bridge formats - the stem check below is the same either way.
+    "color_grade": ("clip_exposure", "cut_adjacency"),
 }
 
 

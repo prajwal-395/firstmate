@@ -273,7 +273,7 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
 def test_the_grade_actually_reads_a_declared_look(tmp_path):
     """The delivery half: a look the template DECLARES changes the CDL
     the grade emits, not just the dict handed to the step."""
-    from library.steps.step_5_01_color_grade.step import define_color_grade
+    from library.steps.step_5_01_color_grade.grade import define_color_grade
 
     declaration = {
         "name": "geo_declaration",

@@ -68,7 +68,7 @@ select = [
 
 # ── Enforced, with the existing occurrences RECORDED ──────────────────
 #
-# 133 findings across 67 files, deferred by FILE with the count stated.
+# 132 findings across 66 files, deferred by FILE with the count stated.
 # This is a staged path and it is weaker than it looks in one specific
 # way, said plainly rather than left to be discovered: a file listed here
 # is exempt from that rule ENTIRELY, so a NEW `subprocess.run` with no
@@ -79,6 +79,12 @@ select = [
 # --statistics` at commit 2abbdff:
 #
 #   PLW1510  subprocess-run-without-check   108   (57 in library/, 51 in tests/)
+#
+# One of the 108 has since been FIXED rather than moved:
+# `step_5_01_color_grade/step.py` became `grade.py` when 5.01 turned
+# hybrid, and its `subprocess.run` now passes `check=False`. Its line
+# is deleted rather than renamed - a deferral for a file that no
+# longer owes anything is a lie about what is still owed.
 #   B023     function-uses-loop-variable      24   (all of them in ONE file)
 #   F811     redefined-while-unused            1
 #
@@ -100,7 +106,6 @@ select = [
 "library/steps/step_2_06_music_analysis/step.py" = ["PLW1510"]     # 1
 "library/steps/step_4_05_render_subtitles/step.py" = ["PLW1510"]   # 1
 "library/steps/step_4_06_render_motion_graphics/post_bridge.py" = ["PLW1510"] # 1
-"library/steps/step_5_01_color_grade/step.py" = ["PLW1510"]        # 1
 "library/steps/step_6_01_render/resolve_build_timeline.py" = ["PLW1510"] # 3
 "library/steps/step_6_01_render/step.py" = ["PLW1510"]             # 1
 "library/steps/step_6_02_validate_output/bridge.py" = ["PLW1510"]  # 2

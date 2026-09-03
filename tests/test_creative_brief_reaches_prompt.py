@@ -80,6 +80,12 @@ def test_the_brief_is_documented_by_the_steps_we_think_it_is():
         "step_2_04_music_selection",
         "step_3_02_select_broll",
         "step_4_02_plan_transitions",
+        # The ninth, 2026-09-03: 5.01 became hybrid and its NEW handoff
+        # names the brief, so it is in this group rather than being a
+        # second mesh_spine (manifest-only) exception. 001's brief carries
+        # a whole "Color System Philosophy" section no colour step had
+        # ever seen.
+        "step_5_01_color_grade",
         "step_4_03_plan_vfx",
         "step_4_04_plan_sfx",
     }, names

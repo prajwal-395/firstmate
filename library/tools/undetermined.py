@@ -52,7 +52,7 @@ from typing import Any, Dict, List, Optional
 # spelled twice is this repository's dominant bug class.
 FIELD = "could_not_determine"
 
-# The ten steps that reach a model on a default run, by DAG node id.
+# The steps that reach a model on a default run, by DAG node id.
 # `semantic_analysis` is not one: its schema is empty and its call is
 # skipped.  `render` is not a creative judgement.
 #
@@ -62,6 +62,11 @@ FIELD = "could_not_determine"
 # a model and makes a creative judgement, which is the whole membership
 # rule - a step that starts reaching one and is left off this list is
 # the subset this module refuses to choose.
+#
+# `color_grade` joined on 2026-09-03 for the same reason: step 5.01
+# stopped writing the identity CDL whenever no brand template declared an
+# `exposure_reference` and grew a handoff that asks a colourist whether
+# the footage needs correcting (library/tools/color_correction.py).
 DECLARING_STEPS = frozenset({
     "creative_direction",
     "speech_sequence",
@@ -73,6 +78,7 @@ DECLARING_STEPS = frozenset({
     "plan_vfx",
     "plan_sfx",
     "render_motion_graphics",
+    "color_grade",
     "validate",
 })
 

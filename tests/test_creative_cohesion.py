@@ -215,7 +215,7 @@ def test_step_501_really_emits_neither_key():
     grade starts declaring a mood and the check can come back with
     something real to read.
     """
-    from library.steps.step_5_01_color_grade.step import define_color_grade
+    from library.steps.step_5_01_color_grade.grade import define_color_grade
     spec = define_color_grade({})["color_grade_spec"]
     assert "mood" not in spec and "grade_name" not in spec, spec.keys()
     # What it does carry, so a reader knows what a future check has.

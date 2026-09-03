@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from library.steps.step_5_01_color_grade.step import (
+from library.steps.step_5_01_color_grade.grade import (
     GRADE_PIPELINE,
     GRADE_PIPELINE_DELIVERY,
     LUMA_METHOD,
@@ -52,7 +52,7 @@ NOT_MEASURED = {"luma": None, "method": LUMA_UNMEASURED, "samples": 0,
 
 
 def _spec(house_look=None, measurement=None):
-    with patch("library.steps.step_5_01_color_grade.step.measure_luma",
+    with patch("library.steps.step_5_01_color_grade.grade.measure_luma",
                return_value=dict(measurement or MEASURED)):
         return define_color_grade(
             {"entries": [{"track": "V1", "clip_id": "c1", "entry_id": "e1",
@@ -213,9 +213,13 @@ def test_the_consistency_note_carries_its_denominator():
     spec = _spec(DECLARED)
     note = spec["consistency_notes"]
     assert "1 distinct CDL value(s) across 1 clip(s)" in note
-    # And it says why one value across every clip is correct here, rather
-    # than leaving a reader to read it as a broken per-clip mechanism.
-    assert "correct answer rather than a defect" in note
+    # Three denominators, not one. "how many clips were measured" and
+    # "how many the colourist moved" are different facts, and one
+    # distinct CDL across every clip is only correct when the second is
+    # zero on purpose - which is why the basis is in the same sentence.
+    assert "luma measured on 1 of 1" in note
+    assert "the colourist corrected 0 of 1" in note
+    assert "correction_basis: no_correction_decision" in note
 
 
 def test_the_probe_parses_the_output_ffprobe_actually_writes():
@@ -230,14 +234,14 @@ def test_the_probe_parses_the_output_ffprobe_actually_writes():
     from a run against 001's IMG_1816.MOV on 2026-08-28.
     """
     import subprocess
-    from library.steps.step_5_01_color_grade.step import measure_luma
+    from library.steps.step_5_01_color_grade.grade import measure_luma
 
     real_output = "140.914,\n140.613,\n140.202,\n144.676,\n145.304,\n"
     completed = subprocess.CompletedProcess(
         args=[], returncode=0, stdout=real_output, stderr="")
-    with patch("library.steps.step_5_01_color_grade.step.os.path.exists",
+    with patch("library.steps.step_5_01_color_grade.grade.os.path.exists",
                return_value=True), \
-         patch("library.steps.step_5_01_color_grade.step.subprocess.run",
+         patch("library.steps.step_5_01_color_grade.grade.subprocess.run",
                return_value=completed):
         measurement = measure_luma("/nowhere/clip.mov")
 
@@ -253,14 +257,14 @@ def test_the_probe_parses_the_output_ffprobe_actually_writes():
 def test_a_failed_probe_is_reported_and_not_returned_as_a_number(
         failure, reason_fragment):
     import subprocess
-    from library.steps.step_5_01_color_grade.step import measure_luma
+    from library.steps.step_5_01_color_grade.grade import measure_luma
 
     completed = subprocess.CompletedProcess(
         args=[], returncode=failure["returncode"],
         stdout=failure["stdout"], stderr="")
-    with patch("library.steps.step_5_01_color_grade.step.os.path.exists",
+    with patch("library.steps.step_5_01_color_grade.grade.os.path.exists",
                return_value=True), \
-         patch("library.steps.step_5_01_color_grade.step.subprocess.run",
+         patch("library.steps.step_5_01_color_grade.grade.subprocess.run",
                return_value=completed):
         measurement = measure_luma("/nowhere/clip.mov")
 
@@ -270,7 +274,7 @@ def test_a_failed_probe_is_reported_and_not_returned_as_a_number(
 
 
 def test_a_missing_file_is_an_absence_with_a_reason():
-    from library.steps.step_5_01_color_grade.step import measure_luma
+    from library.steps.step_5_01_color_grade.grade import measure_luma
 
     measurement = measure_luma("/definitely/not/here.mov")
     assert measurement["luma"] is None

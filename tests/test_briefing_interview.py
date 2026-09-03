@@ -53,6 +53,11 @@ def test_every_step_that_asked_for_a_brief_can_be_interviewed():
         "creative_direction", "speech_sequence", "music_selection",
         "mesh_spine", "select_broll", "plan_transitions", "plan_vfx",
         "plan_sfx",
+        # The ninth, from 2026-09-03: 5.01 became hybrid and a colourist
+        # with no brief has as much to ask as any other planner - 001's
+        # brief carries a whole "Color System Philosophy" section that no
+        # colour step had ever seen.
+        "color_grade",
     })
 
 

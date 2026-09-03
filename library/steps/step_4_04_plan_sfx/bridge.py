@@ -66,6 +66,14 @@ is the mechanism #295 built for the brief, applied to a second document;
 it is not a second mechanism, and the document is not a second
 catalogue.
 
+`sfx_envelope_legend` and `sfx_library_shape` are the fourth and fifth
+things, and both are DATA beside the context because `handoff.md` is
+frozen - the `MEASUREMENT_LEGEND` route.  The first says what each
+measured envelope IS and what the placement pass does with it, which is
+where a build comes from and was written down nowhere the planner could
+read.  The second counts what the library holds per envelope.  Neither
+recommends anything; see `library/tools/sfx_envelope.py`.
+
 **Every one of the 78 sounds is still reachable, and the map names all
 78 by id.** A section is titled with the exact `sfx_id` an answer must
 name and opens with the sound's measured facts, so the map carries
@@ -84,6 +92,7 @@ from library.tools.project_layout import Area, layout_for
 from library.tools.music_measurement import (
     BED_UNDER_THE_BLOCK_LEGEND, bed_reading, bed_under_block,
 )
+from library.tools.sfx_envelope import envelope_legend, library_shape
 from library.tools.sfx_level import SPEECH_REFERENCE_LEGEND
 from library.tools.sfx_library import (
     CATALOG_DOCUMENT_NAME,
@@ -381,6 +390,20 @@ def main():
              "duration_frames", "cut_point_seconds"],
             build_transition_rows(data),
         ),
+        # The catalogue map prints an `envelope` per sound and has never
+        # said what the column means or that anything reads it - while
+        # the post-bridge keys its whole placement pass on that word, and
+        # anchors a `swelling` sound by its END so its climax lands on
+        # the moment. That is a build, and it was a capability nothing in
+        # the context named. Rendered from the same table the placement
+        # code reads, so the two cannot drift.
+        # See library/tools/sfx_envelope.py.
+        "sfx_envelope_legend": envelope_legend(),
+        # And what the library actually HOLDS, per envelope, measured on
+        # this run. A catalogue ordered by folder reads like its folder
+        # names; nothing had ever totalled the envelope column. It counts
+        # and it recommends nothing.
+        "sfx_library_shape": library_shape(catalog),
     }
 
     print(json.dumps(compressed))

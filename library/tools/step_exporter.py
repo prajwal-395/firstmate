@@ -476,6 +476,20 @@ def _summary_color_grade(name: str, out: dict) -> str:
             "**Declared look**: none - no brand template declares "
             "`style.house_look`, so no CDL, contrast, glow, grain or "
             "vignette reaches the picture")
+    # The look is only half the grade. The other half is what the
+    # COLOURIST decided, and an identity CDL reads the same whether one
+    # looked and approved or whether none was ever asked - which is why
+    # `correction_basis` spells the four absences differently
+    # (library/tools/color_correction.py).
+    basis = spec.get("correction_basis") or {}
+    if basis:
+        lines.append(
+            f"\n**Correction**: {basis.get('basis')} - "
+            f"{basis.get('means', '')} "
+            f"{basis.get('resolved', 0)} of {basis.get('proposed', 0)} "
+            f"proposed correction(s) reached the CDL.")
+        if basis.get("assessment"):
+            lines.append(f"\n{basis['assessment']}")
     notes = spec.get("look_notes", "")
     if notes:
         lines.append(f"\n{notes}")

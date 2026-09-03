@@ -926,6 +926,20 @@
       }
     },
     {
+      "from": "semantic_analysis",
+      "to": "color_grade",
+      "data_mapping": {
+        "semantic_analysis_documents": "semantic_analysis_documents"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "color_grade",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "music_selection",
       "to": "audio_mix",
       "data_mapping": {

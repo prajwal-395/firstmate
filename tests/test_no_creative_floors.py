@@ -72,7 +72,12 @@ SPEECH = STEPS / "step_2_02_speech_sequence"
 # Add a creative-planning step here when you add one; the ruling is about
 # floors, not about the two steps it was written about.
 TRANSITIONS = STEPS / "step_4_02_plan_transitions"
-CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH, TRANSITIONS)
+# 5.01 joined on 2026-09-03: it stopped writing the identity CDL whenever
+# no template declared an exposure reference and started asking a
+# colourist what the footage needs, which makes it a creative-planning
+# step and puts its prompt under this guard.
+COLOR = STEPS / "step_5_01_color_grade"
+CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH, TRANSITIONS, COLOR)
 
 
 def _run_bridge(script: Path, payload: dict, extra_env: dict = None):
@@ -171,6 +176,42 @@ def test_prompt_surfaces_demand_no_count(path):
         f"{path.relative_to(REPO)} demands a count again ({hits}). The "
         f"floors were removed by ruling; a prompt-level quota "
         f"reintroduces exactly the padding they caused."
+    )
+
+
+# ── A floor in the ROLE BLOCK is a floor ──────────────────────────────
+#
+# From 2026-09-03 the runner PREPENDS a role statement to a step's
+# handoff (library/tools/craft_role.py), so a quota written there reaches
+# the model exactly as a quota in `handoff.md` would - and the file-based
+# parametrisation above cannot see it, because the text is in a Python
+# module and not in the step's directory. Reading only the files on disk
+# is how the two VFX quotas survived the ruling for five days.
+
+def _declared_roles():
+    from library.tools import craft_role
+    return sorted(craft_role.ROLES)
+
+
+@pytest.mark.parametrize("step_id", _declared_roles())
+def test_the_role_block_demands_no_count(step_id):
+    """Every declared role, not only the creative-planning ones.
+
+    A role for a review or QA step that demanded a count would be just as
+    much a floor, and parametrising over the roles that exist means no
+    case here is vacuous and none is skipped.
+    """
+    from library.tools import craft_role
+
+    text = craft_role.prompt_block(step_id).lower()
+    assert text, f"{step_id} is in ROLES and renders no block"
+    hits = [phrase for phrase in QUOTA_PHRASES if phrase in text]
+    hits += [m.group(0) for pattern in QUOTA_PATTERNS
+             for m in re.finditer(pattern, text)]
+    assert not hits, (
+        f"the craft role for {step_id} demands a count ({hits}). A role "
+        f"hands over capability and authority; a role that also says how "
+        f"much of something to plan is a floor arriving one level up."
     )
 
 

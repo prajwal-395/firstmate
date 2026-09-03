@@ -6,7 +6,7 @@ import sys
 from library.schemas.brand_template import BrandTemplate
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 from library.tools.brand_registry import load_brand_template
-from library.steps.step_5_01_color_grade.step import define_color_grade
+from library.steps.step_5_01_color_grade.grade import define_color_grade
 from library.tools.house_look import resolve_look
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
@@ -39,7 +39,7 @@ class TestIntegration(unittest.TestCase):
         inputs_empty = gather_step_inputs("step_5_01", dag, state_empty, {"interface": {"inputs": [{"name": "brand_style"}]}})
         # As long as it doesn't crash, we're good. It might not contain brand_style or contain None/Defaults.
 
-    @patch("library.steps.step_5_01_color_grade.step.measure_luma")
+    @patch("library.steps.step_5_01_color_grade.grade.measure_luma")
     def test_color_grade_manifest_integration(self, mock_measure):
         shot_list = {
             "entries": [

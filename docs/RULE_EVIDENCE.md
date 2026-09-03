@@ -1650,7 +1650,7 @@ A planner emitting a name nothing reads produces a comp without that effect, and
 
 `zoom_percent`, `intensity_px` and `scale_factor` killed three of five VFX types that way, and four of the colour grade's five nodes had no reader at all.
 
-Withdrawal is a legitimate outcome and a silent unread key is not, which is why the reason is recorded where the design lives: `GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/step.py`, `WITHDRAWN` in `transition_vocabulary.py`.
+Withdrawal is a legitimate outcome and a silent unread key is not, which is why the reason is recorded where the design lives: `GRADE_PIPELINE_DELIVERY` in `step_5_01_color_grade/grade.py`, `WITHDRAWN` in `transition_vocabulary.py`.
 
 `tests/test_manifest_readers.py` discovers every top-level key from `compile_manifest`'s manifest literal and requires a named reader that really contains `manifest[key]`, plus one sentence saying what that reader does to the picture or the sound.
 Writing the sentence is the check the AST cannot do for you.
@@ -5861,3 +5861,121 @@ second is what a listener gets.
 **What it costs.** Only the stretches the audio flagged are decoded, at the master's own frame rate
 so no frame between two samples is missed. The whole check on the 20-minute 4K reference takes 2.8
 seconds.
+
+## The step that measured nine clips and graded none
+
+Step 5.01's own docstring recorded the correction it was: the step used to
+compare every clip against a hardcoded `122.0` and apply the difference,
+which is a decision about how bright the finished video is taken by
+nobody. That constant went, and exposure normalisation was left reachable
+only through an `exposure_reference` that only a brand template can
+declare.
+
+Project 001 names no brand template. So on the run of record the step
+measured luma on 9 of 9 clips, correctly, and wrote the IDENTITY CDL to
+every one - slope 1/1/1, offset 0/0/0, power 1/1/1, saturation 1.0,
+`exposure_gain` 1.0, `house_look: null`, `fusion_look: {}`. An identity
+CDL is a no-op, so Resolve drew no node, and the captain opened the
+colour page to find it empty.
+
+What it had measured, in the order the clips play:
+
+| clip | luma | what the vision pass says it is |
+|---|---|---|
+| clip_011 | 145.495 | outdoor parking lot, daylight - the spine, 9 of 18 placements |
+| clip_002 | 107.192 | vehicle exterior and interior, daylight |
+| clip_008 | 136.945 | outdoor sidewalk, daylight |
+| clip_001 | 135.747 | parking lot, daylight |
+| clip_004 | 115.994 | inside a vehicle driving, overcast/hazy |
+| clip_013 | 130.691 | parking lot, daylight with sunset hues |
+| clip_006 | 135.265 | urban street from a vehicle, overcast/hazy |
+| clip_017 |  53.116 | inside a vehicle, dimly lit - the shot the video ends on |
+| clip_014 | 113.265 | brick building exterior, daylight |
+
+A 2.7x spread, measured, written down, and acted on by nothing.
+
+**The fix is not a different constant.** Reverting to one reinstates the
+original defect, and AGENTS.md 10.3 forbids reporting a default as though
+it were measured. What was missing was not a number: it was that nobody
+owned the decision. The only party in the loop who can look at clip_017
+and say *"that one is dark on purpose - it is the retreat into the car at
+the end"* is a model that has been told it is the colourist and given the
+measurements, which is what `library/tools/craft_role.py` and
+`library/tools/color_correction.py` now do.
+
+Two things the old output could not express, and both are now separate
+fields rather than one identity CDL: which clips the colourist MOVED
+(`correction_terms`, `correction_stops`, `correction_reason` per clip),
+and which absence an ungraded run IS (`correction_basis`, four readings -
+`corrected`, `judged_no_correction_needed`, `no_correction_decision`,
+`every_entry_dropped`).
+
+The other axis it never produced is the one that decides whether a luma
+difference matters at all. 2.7x between clip_011 and clip_017 is a big
+ratio; what makes it a defect is that they touch, at 45.462s, at 1.454
+stops. Nine of the cut's thirteen cuts sit inside 0.2 stops of each other
+and want nothing. `cut_adjacency` is that table.
+
+## The catalogue column nobody said was read
+
+`library/tools/sfx_library.catalog_document` prints an `envelope` per
+sound - `punchy`, `swelling`, `fading`, `sustained` - measured by the
+library's own profiler. Step 4.04's post-bridge keys its entire placement
+pass on that word, and **a `swelling` sound is anchored by its END, so
+the start is placed such that start + duration lands on the nearest
+measured energy peak**. That is a build, delivered by the engine, for
+free, on any sound whose measured shape rises.
+
+Nothing in the planner's context said so. The column had no legend, no
+reader was named, and `_describe_placement` held a private four-row dict
+in the post-bridge that the prompt could not see.
+
+What 001 shipped was `camera soft click.wav` (fading, 0.46s) and
+`camera-shutter-6305.mp3` (swelling, 0.34s) at two different blocks,
+layering nothing - the second far too short to read as a swell. The
+planner's own `could_not_determine` recorded the reasoning: the library
+was *"built for a different kind of edit"*, and *"putting a riser under a
+man admitting he has quit every day this week would be the single most
+off-brief thing this pipeline could do"*.
+
+The second half of that is a good judgement and it stands. The first half
+was made without the measurement. Counted on the captain's library on
+2026-09-03: 78 sounds, of which **42 are `swelling` and 31 of those run
+2 s or longer**, the longest 76 s - including ten Super 8 projector
+textures, warm and grainy, 1.5 s to 13 s, whose library entries read
+*"nostalgia, vintage cinema, analog decay"*. A catalogue ordered by folder
+reads like its folder names; nothing had ever totalled the envelope
+column.
+
+`sfx_envelope.ENVELOPES` is now the one table both readers use, and
+`sfx_envelope.library_shape` counts the library on every run. Neither
+recommends anything: which moment earns a sound is the supervising sound
+editor's, and `craft_role` is where that role is stated.
+
+## Twelve handoffs, no role
+
+Measured 2026-08-25 across every `handoff.md` in `library/steps/`: not one
+gave the answering model a role, an expertise or a professional framing.
+Every one opened *"Given X, define Y"*. The captain's reading:
+
+> there are like skill files and agent.md files where the LLM doesn't know
+> how to operate and its just a generic agent in the system rather than an
+> actual proffesional video editor/director/etc all in one
+
+The two defects above are the same defect wearing different clothes. Both
+steps measured correctly. Neither had been told whose job it was to act on
+the measurement, and in one of the two the authority to act had been
+removed on purpose and never relocated.
+
+`library/tools/craft_role.py` is the one framing device, and it is
+deliberately the same shape on both halves so the next one follows a
+pattern rather than inventing a third. It carries a discipline, what that
+discipline reads the measurements WITH, and what is and is not that step's
+to decide - and it carries no preference about the answer, which
+`tests/test_no_creative_floors.py` reads the rendered text to hold.
+
+Nine of the eleven model-reaching steps still have no declared role, and
+each is recorded in `WITHOUT_A_DECLARED_ROLE` with what it is addressed as
+today. That is a gap made visible rather than closed: writing a role for a
+discipline nobody has studied would be the engine inventing an expertise,
+which is the defect one level up.

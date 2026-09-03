@@ -71,14 +71,19 @@ contradict.  The model-reaching half is
 cannot drift; the routed half is derived from `dag.json` rather than
 listed here, so inserting an edge cannot leave this stale.
 
-That comes to EIGHT steps - every step that reaches a model except the
-one that writes the direction.  Three others declare `creative_direction`
-and are excluded with a reason rather than by omission:
-`color_grade` (5.01) and `creative_cohesion` (5.03) are deterministic and
-have no prompt to say it in, and `render_motion_graphics` (4.06) is
-deterministic too.  A step with no prompt cannot be asked, and inventing
-a comparison for it in code would be this module deciding that a
-measurement disagrees, which is the captain's call.
+That comes to NINE steps - every step that reaches a model except the
+one that writes the direction.  `creative_cohesion` (5.03) declares
+`creative_direction`, is deterministic, and is excluded with a reason
+rather than by omission: a step with no prompt cannot be asked, and
+inventing a comparison for it in code would be this module deciding that
+a measurement disagrees, which is the captain's call.
+
+`color_grade` (5.01) was in that excluded list until 2026-09-03 and
+joined by DERIVATION alone when it stopped being deterministic - it
+declares `creative_direction`, and the vision documents its bridge joins
+scene descriptions from are a routed measurement.  It is the clearest
+case the channel has: a direction that says the piece is vibrant, held
+against nine clips one of which measures 53 luma.
 """
 
 from __future__ import annotations
@@ -172,7 +177,11 @@ DECLINED_OUTPUTS = {
     # check is how a table starts disagreeing with the system.
     "motion_graphics_overlay": "4.06 - a rendered artifact",
     "timed_text_overlay": "4.06 - a rendered artifact",
-    "color_grade_spec": "5.01 carries a declared look; a declaration is not a measurement",
+    # 5.01 became hybrid on 2026-09-03 and its output is therefore no
+    # longer required to be accounted for here.  The row stays because
+    # the claim it makes is unchanged and deleting a true row to satisfy
+    # a coverage check is how a table starts disagreeing with the system.
+    "color_grade_spec": "5.01 carries a declared look plus a colourist's judgement; neither is a measurement of the material",
     "audio_mix_spec": "5.02 - a mix plan. It embeds measured levels, but it is routed to no step holding the direction, so nothing here could read them",
     "cohesion_review": "5.03 observes decisions, not material",
     "step": "5.03 - a step id",
