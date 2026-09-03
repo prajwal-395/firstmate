@@ -61,6 +61,24 @@ starting at 0 and there is no such curve for the others.  Say so rather
 than inventing a rule.
 
 ``tests/test_music_section.py``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Which SECTION of the track plays is the model's decision, and there is no best-section rule.**
+`library/tools/music_section.py`. [why](docs/RULE_EVIDENCE.md#the-splices-that-reached-nothing)
+- The model is asked for `section: {source_in, why}` through the manifest's `interface.llm_outputs`, which is what builds the injected schema; `handoff.md` is frozen and is not touched.
+- It decides from `music_measurement.track_sections` - one row per playable span of the track, with its mean level and spread. A DESCRIPTION at the granularity of what plays, not a menu and not a ranking.
+- **A selection that declares none plays from the head of the file, and that is the ABSENCE of a decision** - the same reading `CUT_TYPES` and `NEUTRAL_CDL` get.
+- **The beat grid moves with it.** `beat_positions`/`downbeat_positions` take the selection and return TIMELINE time; the argument is required, because a default of "no offset" is the value that is silently wrong. `assert_music_offset_is_the_chosen_section` holds the other end. `plan_sfx` is routed `music_selection` for this.
+- `resolve_section` RAISES rather than sliding a section back to fit: moving the start is choosing which part plays.
+- `UNSUPPORTED_BY_THE_MEASUREMENTS` records what a section choice cannot yet see - the bar lines, whether it has vocals. Say what is missing; do not fill it with a rule.
+- `tests/test_music_section.py`.
 """
 
 from __future__ import annotations

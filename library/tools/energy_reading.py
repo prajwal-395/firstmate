@@ -32,6 +32,19 @@ still reads high, because "peak" is in the list. That is the transition
 selector's long-standing behaviour and changing it would change the
 picture; the trajectory reading is about the WORD "building", which names
 no level at all.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**`target_energy` has ONE reading: `library/tools/energy_reading.py`.**
+"Building" names a TRAJECTORY, not a level, and is not "high".
+`WITHDRAWN_HIGH_WORDS` records why "dynamic" and "fast" are out too; widening the high bucket is a decision, not drift. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
+[why](docs/RULE_EVIDENCE.md#building-is-not-high)
 """
 
 # Most-to-least obvious. A substring test, because the field is prose.

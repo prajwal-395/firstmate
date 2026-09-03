@@ -49,6 +49,23 @@ they sit at 0.16 and 0.64 of a single grid step, which is below the
 instrument's own resolution: they would call 12 of 001's 17 clips
 ``unstable`` including the two the render measurement says are the
 steadiest.
+
+
+Rules relocated from AGENTS.md 10.3
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.3 keeps the headline
+and points here.
+
+**Camera steadiness has ONE reading, and it says which signal answered.**
+`library/tools/camera_stability.py`.
+[why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
+- **The residual lives at `camera_motion_decomposition.values[].residual`.**
+- **The thresholds are read off the INSTRUMENT, not fitted to a project.** `MEASURED_ON_001` attaches that project's distribution and the VLM cross-check as a CHECK, with the caveat that one project is a thin basis and no render has been made against them.
+- **Every label carries `camera_stability_method`** - `optical_flow_residual`, `motion_energy_std` or `unmeasured` - because a method field travels with the number it qualifies. A document written before the field existed reads `unrecorded`, which is a different claim from `unmeasured`.
+- `tests/test_camera_stability.py`.
+- **The DISPLAY reads the method, not the ranges.** `usable_ranges_summary` answers "unmeasured" whenever the method says so, whatever the ranges hold, and `adapt_semantic_document` REPLACES a stale `usable_portions` rather than deferring to it. Same read-side shape as `stability_summary` treating the literal `"unknown"` as absent - neither writes to the stored document.
 """
 
 from __future__ import annotations

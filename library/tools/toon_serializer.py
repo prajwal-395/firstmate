@@ -1,3 +1,21 @@
+"""
+TOON serialisation - how a step's context is rendered for the prompt.
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.**
+`library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
+- **Columns come out in the order the DATA declares them, never sorted.** [why](docs/RULE_EVIDENCE.md#alphabetical-columns-put-end-before-start)
+- The quote character must be one neither content class contains - this pipeline sends prose full of apostrophes AND `json.dumps`'d dicts full of double quotes, so `'` and `"` are both out.
+- **A lossless round trip is NOT the test.** Nothing downstream calls `toon_to_json` - the model reads the characters. Assert the emitted FORM.
+- A nested object in a table cell is `json.dumps`'d. **Do not "fix" it by demoting the table to indexed blocks** - measured, it makes them 19% bigger. [why](docs/RULE_EVIDENCE.md#embedded-json-is-where-the-content-is)
+"""
+
 import re
 import csv
 import io

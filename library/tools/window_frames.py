@@ -77,6 +77,26 @@ unknown harness raises, for the same reason
 `brief_reference.HARNESS_READS_FILES` does.  The two are SEPARATE
 capabilities on purpose: reading a text file and perceiving an image are
 different things, and a harness could have the first without the second.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A step that chooses a picture is SHOWN one, and the picture is of the window it will receive.**
+One enumeration, `library/tools/window_frames.py`.
+[why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
+- **The window is enumerable before the answer, which is what makes the frame honest.** `window_anchors` is every `video_in` `cutaway_window.choose_window` can return, computed across the spine's own slot lengths - not assumed to be the span list, because `fit_to_clip` pulls the anchor earlier near a clip's end.
+- **A strip shows both ENDS of the window, plus enough of the middle that no more than `SECONDS_UNSEEN_BETWEEN_SAMPLES` passes unseen.** One frame is never enough.
+- **A strip runs to the LONGEST slot that anchors there, and a shorter slot plays a prefix of it.** The row carries `video_in`, `strip_end` and `frames` and the header says so.
+- **Every candidate window gets one; nothing is ranked, filtered or shortlisted.** Whatever selects a shortlist becomes the chooser (§10.5), which is what `cutaway_window.DECLINED_TO_RANK` already refuses. A window whose strip could not be drawn is NAMED in the map, never quietly absent.
+- **A picture has no smaller textual form, so this is NOT a second `brief_reference`.** `HARNESS_SHOWS_FRAMES` is its own complete enumeration and an unknown harness raises. A harness that cannot be shown one is handed a line SAYING the frames were drawn and withheld, and the prose path stands. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
+- `HARNESS_SHOWS_FRAMES` is a complete enumeration and an unknown harness raises. A harness that cannot show frames is handed a withholding notice. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
+- A strip already drawn is reused. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
+- `tests/test_window_frames.py` FOLLOWS the reference: it parses the directory and filenames out of the string the model reads, opens what comes back and probes its dimensions.
 """
 
 from __future__ import annotations

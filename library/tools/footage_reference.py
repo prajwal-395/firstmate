@@ -97,6 +97,23 @@ into `contenttype` and `IMG_1806_v3` into `IMG1806v3` - a corrupted
 identifier in the one line a model reads to decide whether to open the
 section.  The vision pass's own id for a clip is inside the section,
 where nothing rewrites it.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.**
+The summary rule below says it for a rendered pair; this is the same rule when the second copy is the whole structure. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
+- **Establish what each view uniquely carries before deleting one**, and move the STRUCTURE rather than a rendering: the largest view is usually the one holding the per-segment bounds, the object labels and the assessment fields no table has a column for.
+- The structure goes BY REFERENCE (`library/tools/footage_reference.footage_document`); nothing is filtered away and every byte is at the path.
+- **Shape a referenced document for the MAP.** Nothing below a `##` may be a heading (`parse_sections` lifts deeper headings into the map), and the section's opening line carries no underscore or backtick (`_lede` strips markdown emphasis).
+- `tests/test_broll_context_share.py` guards the RATIO of what the prompt spends on readings to what the structure costs inline, because that number does not depend on a fixture.
+- **Measure a value where the model READS it** - the whole assembled prompt, pre-bridge included - not on the one route it used to arrive by.
+- **Collapsing a structure into a summary makes the summary's blank cells load-bearing.** All three states - measured and usable, measured and unusable, never measured - must be legible in the cell itself.
 """
 
 from __future__ import annotations

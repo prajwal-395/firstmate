@@ -103,6 +103,40 @@ into the prompt.  Measured on 001's own snapshot, this step's context:
     b10833d  57,539 B  candidates 2,204 B   3.8%  (84.3% creative brief)
     #295     14,260 B  candidates 2,204 B  15.5%
     + this   16,747 B  candidates 4,691 B  28.0%
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
+Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN track's SCALARS onto `music_selection.measurements` through `music_measurement.selection_measurements`, and step 5.02 reads them and records `bed` plus a per-window `bed_level_after_gain_lufs` - the bed's integrated loudness plus the clip gain, which is arithmetic and not a decision.
+- **Only scalars travel.** `music_selection` is declared whole by `plan_transitions` and `mesh_spine`, so the envelope curve and the section table would land in two prompts (§10.1). `WITHHELD_FROM_THE_SELECTION` records both with the reason, and an unaccounted measurement key raises at import.
+- **An unmeasured bed is an admitted absence**: `measured: false` with its reason, no level at all, and `bed_level_after_gain_lufs` None - never 0.
+- **The separation a window will DELIVER is predicted, and the separation it OUGHT to deliver is not supplied.** `library/tools/speech_loudness.py` measures the speech with one ffmpeg `loudnorm` pass per block over the ranges `a_roll_assignments` names - 0.23 s a block, measured, so 1.2 s for 001's eight - and 5.02 records `speech_lufs` and `separation_delivered_db` per window. **Measure and expose; never choose.** `SEPARATION_TARGETS_DB` is still empty and the master loudness target is still the captain's, so nothing compares the delivered number with anything. A block whose speech could not be measured records the reason and `None`, never 0.
+- Step 5.02 declares `audio_spine` and `music_selection` and nothing else. Re-declaring `creative_direction` or `enhancement_spec` needs a reader in the same commit.
+- `tests/test_mix_reads_the_bed.py`.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Every candidate is MEASURED, and nothing about it is classified.**
+`library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
+- **The measurements ship with `MEASUREMENT_LEGEND`**. It defines what a key IS; it never says what to conclude.
+- **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way.
+- `DECLINED_MEASUREMENTS` records what was left out and why (2.06 measures tempo after the choice). [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
+- The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4.
+- The played window's envelope is the section starting at 0; `track_sections` is how every other span compares.
+- **Where the candidates come from**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5.
+- `tests/test_music_measurement.py`.
 """
 
 from __future__ import annotations

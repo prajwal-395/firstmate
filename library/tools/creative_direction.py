@@ -37,6 +37,22 @@ contract violation and must raise.
 
 `DIRECTION_KEYS` is loaded from step 2.01's own manifest, so the reader
 and the prompt cannot drift.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.**
+`library/tools/creative_direction.py` loads `DIRECTION_KEYS` off step 2.01's own manifest and `direction_value` RAISES on anything else. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
+- **Which side is wrong is established from the HANDOFF, not from the code.** Repairing the other side - adding a key to the schema - looks identical and can ask a creative director for artwork that section 14 puts with the project.
+- `WITHDRAWN_DIRECTION_KEYS` records each withdrawn read and where the value really lives. `MECHANICALLY_READ_KEYS` and `PROMPT_ONLY_KEYS` must together account for every field the schema declares, and a prompt-only claim is CHECKED against the manifests' `context_fields` rather than asserted.
+- `tests/test_asked_fields_have_readers.py` ENFORCES on `creative_direction` and REPORTS on every other step's declared output schema without failing the build - reader-or-delete for the rest is the captain's call, inventoried in [`docs/UNREAD_DECISIONS_INVENTORY.md`](docs/UNREAD_DECISIONS_INVENTORY.md).
+- **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. Closing that needs nested `expected_schema`, not a new format.
+- `MECHANICALLY_READ_KEYS` and `PROMPT_ONLY_KEYS` must together account for every field the schema declares.
 """
 
 import json

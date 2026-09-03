@@ -44,6 +44,21 @@ The selection argument is required rather than defaulted. A default of
 because a producer and a consumer disagreed quietly once already.
 `assert_music_offset_is_the_chosen_section` is the other end: it checks
 the manifest placed the bed where the grid was mapped for.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**No raw value list reaches a prompt.**
+`music_analysis.tempo.beats`, `.tempo.downbeats` and `.energy_dynamics.energy_curve_1hz` must be dropped with `-` paths. Beat proximity is decided in code through `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt) Beat proximity is decided in code, off the unprojected inputs, through `library/tools/beat_grid.py` - the model is separately handed the answer as `cuts_toon`'s `beat_near_cut`.
+
+**The beat grid is `tempo.beats` / `tempo.downbeats`, and it does not start at zero.**
+Read it through `library/tools/beat_grid.py` and never synthesise `[i * 60/bpm ...]`.
+[why](docs/RULE_EVIDENCE.md#the-beat-grid-does-not-start-at-zero)
 """
 
 from typing import Any, Dict, List, Optional

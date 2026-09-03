@@ -62,6 +62,29 @@ what a frame with no measured UI map has always been given.
 An unknown delivery format RAISES, like every other enumeration in this
 tree.  A silent fallback here is a caption under the platform's own UI
 with nothing to notice.
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
+One enumeration keyed by delivery format, insets stored as FRACTIONS so a 4K vertical or a small test frame needs no second row; an unknown format raises.
+Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth` props), `generate_motion_props`, `timed_text_overlay` (which refuses a card centred in the platform's UI band) and `plan_subtitles`' grouper.
+**Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included** - never `bottom: 0`, `width: 100%`, which on a 1080x1920 delivery sits 320px inside the caption and audio-bar band and is covered by the platform's own interface. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+- The subtitle style is resolved at the top of `generate_subtitles` and there is no blind path: `split_into_groups` raises without a `fits_fn`.
+
+**Every element is positioned from the insets** - never `bottom: 0`, `width: 100%`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+- **A card fits the BOX, not one line.** The overlay wraps (`flexWrap`), so `fits_in_box`/`MAX_CAPTION_LINES` is the test; grouping against one line halves the words on every card and therefore halves how long each is on screen. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+
+**Reconstruct a grouping with `fits_in_box`, never `fits`.** [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
+- **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it.
+- A card with one over-wide word carries `fit_scale` and the render draws THAT CARD smaller; the style's font size is untouched.
+- The Remotion studio's `defaultProps` get the insets from `src/safeArea.generated.ts`, projected out of the enumeration by `scripts/generate_safe_area_defaults.py`.
+- `tests/test_caption_safe_area.py`.
 """
 
 from dataclasses import dataclass

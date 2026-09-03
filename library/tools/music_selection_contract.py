@@ -47,6 +47,19 @@ Nothing here decides which track is *good*.  It decides which answers are
 **rejectable on recorded reasoning** rather than only on taste, which is
 what the ruling asked for.  A selection that survives this module may
 still be the wrong call, and that call remains a human one.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
+The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` and picks nothing.
+The post-bridge judges source, catalogue membership, duration plausibility and a justification naming the registers the creative direction forbids.
+Choosing from OUTSIDE the library is legitimate and stays allowed.
 """
 
 from __future__ import annotations

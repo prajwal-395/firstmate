@@ -66,6 +66,21 @@ per-second RMS windows of a file are read once and every section's
 envelope is bucketed out of them.
 
 ``tests/test_second_pass.py``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**The envelope is measured for the sections the model SHORTLISTS, in a second pass.**
+One enumeration, `library/tools/second_pass.py`. Captain's choice: *"Two-pass: summaries first, envelope for the section the model names."* `measure_track` buckets seconds 0 to the length of the edit and nothing else, so the richest evidence described only the head of every track - the answer the section feature exists to move away from.
+- Pass one offers `track_sections`' scalars; the answer's `section_shortlist` names the sections it is weighing - **SEVERAL of them, across several tracks, because the bed is a sequence**; `music_measurement.section_envelopes` measures those and only those, one decode per FILE; pass two chooses with them in front of it and that answer stands.
+- **A post-bridge ASKS by returning `REQUEST_KEY`**, which is SPLIT OUT of the answer before anything validates it. The runner carries it the way `post_bridge_retry` carries a violation - **extend that path; do not build a third one** - and tells the post-bridge which pass it is on via `PASS_KEY`.
+- **Bounded at one extra pass, and at the bound the request is IGNORED and the answer STANDS.** Unlike a contract rejection, an unanswered second pass leaves a valid output.
+- `tests/test_second_pass.py`.
 """
 
 from __future__ import annotations

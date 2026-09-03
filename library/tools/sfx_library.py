@@ -50,6 +50,33 @@ cannot choose something that does not exist.**  The catalogue only ever
 contains entries whose file is on disk, and ``resolve_sfx_id`` refuses an
 id that is not in it - at PLAN time, in step 4.04's post-bridge, not
 three steps later inside ``compile_manifest``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
+`load_sfx_catalog` merges `sfx_index.json`, `library_semantic.json` and `profiles/*.json` into one row per playable sound; step 4.04's bridge puts a REFERENCE in the prompt as `sfx_catalog_reference`.
+The answer names an `sfx_id` out of it. [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
+- **There is no type vocabulary and no keyword matching.** `TYPE_KEYWORDS`, `match_sfx_file` and `available_sfx_types` are deleted, not unwired.
+- **An entry that is not on disk is not in the catalogue**, and `resolve_sfx_id` matches EXACTLY. No nearest neighbour: a near match is a chooser.
+- **A plan naming a sound the library has not got fails in step 4.04**, whole and by name, never by dropping the entry.
+- **Step 5.04 PLACES; it does not choose.** The plan carries `sfx_id`, `source_file` and `source_in`, and `compile_manifest` reads them.
+- A sound's PLACEMENT is keyed on its measured `envelope_shape`, never a per-type constant.
+
+- **The whole library ships and nothing is shortlisted.** The library's FAISS index and per-entry `embedding` go unused.
+
+- **It ships BY REFERENCE, through the mechanism `brief_reference` already built (#295, see 10.1).** `sfx_library.catalog_document` is the shape - one `##` section per sound, titled with the exact `sfx_id` an answer must name and opening with the sound's measured facts, so the map names **every sound by id with category, length, envelope and temperature** and a LINE RANGE for the prose. **A reference that narrowed the menu would be the shortlist problem again.** [why - the measured inline and map sizes](docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt)
+- `library/steps/step_4_04_plan_sfx/handoff.md` is frozen and its toolkit table still names `foley`, `ambient` and `reverse_cymbal`, which the library cannot play. They name nothing the model can emit - the schema asks for an `sfx_id` - but the table is the captain's to correct.
+- **It ships BY REFERENCE** (§10.1). `sfx_library.catalog_document` is the shape - one `##` section per sound titled with the exact `sfx_id`. **A reference that narrowed the menu would be the shortlist problem again.** [why](docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt)
+- A sound and a transition are named by the SAME identifier, `spine_block_position`, so `transitions_toon` is keyed by the block a cut leads into and pairing them needs no join.
+- **The candidate table says what the BED is doing under each block**, as `music_behavior` and `bed_under_it` with `sfx_candidates_legend` beside them (`music_measurement.bed_under_block`). **It states a LEVEL and never a TARGET**: what separation a sound should have is the same undeclared decision `SEPARATION_TARGETS_DB` is empty for.
+- **A non-speech block names no `clip_id` on the spine, and that is not un-measurability.** `library/tools/broll_coverage.py` is the join: 4.03 gets a real camera description of the cutaway, and this table gets an ADMITTED ABSENCE because a cutaway is placed `video_only`.
+- `tests/test_sfx_choice_from_the_catalogue.py`, `tests/test_sfx_duration.py`, `tests/test_sfx_catalogue_by_reference.py`, `tests/test_sfx_hears_the_bed.py`, `tests/test_broll_coverage_reaches_the_tables.py`.
 """
 
 import glob

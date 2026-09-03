@@ -70,6 +70,28 @@ outside it is refused by name, so a new drop branch has to say what it is
 before it can go quiet - the shape `vfx_plan_basis.py` established.
 
 `tests/test_motion_graphics_plan.py`.
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**An overlay that draws nothing is not rendered.**
+`generate_motion_props.props_draw_ink` is the predicate; keep it in step with the MotionGraphics composition.
+The output carries NO `available` key when nothing draws, because `available: false` anywhere fails the run. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
+
+**A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
+One enumeration, `library/tools/motion_graphics_plan.py`. Step 4.06 is hybrid: its bridge puts the whole roster (§16) in front of the model, its handoff asks for `motion_graphics_plan`, its post-bridge renders what resolves. Captain's ruling of 2026-09-02 - the gate was the bug, not the render.
+- **A template GATES nothing.** `effect.motion_accents` and `effect.motion_progress_bar` are no longer read at all; a project that names no template plans the same layer and states its own colours. What a template still does is resolve an entry's `colour_role` against its palette. **No palette role and no stated colour DROPS the entry** - there is still no house colour (§12).
+- **Every element declares `start_seconds` and `duration_seconds` in TIMELINE seconds.** `resolve_plan` is handed the timeline's LENGTH and no block list, so nothing can quantise a start onto a cut. The spine bounds a span; it never times one.
+- **`anchor` is where in the frame, `row` is which line within that anchor.** Rows are an ON-SCREEN layout laid out by a flex stack over the live elements, not a second Resolve track: overlapping entries are composited into ONE segment by `plan_segments` (the shape `timed_text_overlay.plan_timed_text_segments` already uses), which is what keeps `manifest_validator`'s non-overlap rule for `motion_graphics_overlay` true. A row PITCH is not the mechanism - a fixed offset per row drew a two-run title straight through the row below it.
+- **An element the renderer cannot draw is DROPPED by name and the drop is RECORDED**, never rendered as nothing and never swapped for a neighbour. `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused (the `vfx_plan_basis` shape).
+- **`planning_basis` says which absence an empty layer is.** `no_elements_planned` is a decision; `every_entry_dropped` is the absence of one. Spelled differently on purpose.
+- The upper third's COPY still has no producer in the ENGINE (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`) - the model writes it in the plan, which is one of the answers that entry was written to accept. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+- `tests/test_motion_graphics_plan.py`, `tests/test_motion_graphics_delivery.py` (which is what proves one reaches a pixel), `tests/test_motion_graphics_template.py`.
 """
 
 from __future__ import annotations

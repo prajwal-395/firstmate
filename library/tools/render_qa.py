@@ -14,6 +14,98 @@ and do not fail, because their thresholds are open captain decisions -
 see the two `_GATES` booleans below, which are the whole of what
 promoting them costs.  P8 has a reporting half of the same kind, its
 near-silence ladder, and it is reported for the same reason.
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
+An eighth, a face cut by the frame edge, is measured on the render and gates through the same `framing` check (§10.3).
+
+`render_qa.py` measures the RENDER:
+- the picture fills the delivery frame and keeps ONE GEOMETRY PER DECLARED FRAMING
+  (`measure_frame_occupancy`).
+  **A letterbox bar is BLACK, FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make
+  one.** A row joins a bar only while it carries no light (`BAR_ROW_MAX_LUMA`), has near-zero
+  variance along itself and matches the row before it; the walk runs inward from the top and
+  bottom boundaries and stops at the first row that is picture.
+  [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
+  **DARK is a range and BLACK is a value, and the variance half cannot carry the difference on
+  its own.** A graded shadow at 4K is flat to within a luma level, so on the captain's craft
+  reference 478 of 2418 samples read as letterboxed and the gate failed a correct 20-minute
+  master by twenty times its own bound. A real bar measures a row mean of 0.000-0.14 against a
+  shadow's 8.5; the level bound is the half that separates them, and the variance bound stays
+  because it is what separates a bar from a dark picture on OUR footage.
+  **A picture inset in black on ALL FOUR SIDES is a COMPOSITION, not a conform**, and carries no
+  geometry: fitting one rectangle inside another leaves bars on one axis, never both. Such a
+  frame is counted out and named, the way an entirely black one is - and a frame with no picture
+  is judged by `blackdetect`'s own predicate (`_frame_is_black`), not by the bar walk eating the
+  whole frame. [why](docs/RULE_EVIDENCE.md#a-dark-picture-is-not-a-black-bar)
+  **Every sample is attributed to the clip playing over it** through `framing_spans`, which step
+  6.02 builds off the manifest's `framing_delivered` (§10.3) with V2 winning an overlap. The fill
+  floor applies to the FILL stretches and the consistency bound applies WITHIN each declared
+  framing - never switch the consistency half off for a video declaring more than one framing.
+  [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
+  **An OVERLAY is not picture, and WHERE IT IS is read off the overlay, never guessed.** Overlay
+  ink is neither dark nor flat, so the bar walk stops at it: 001's bottom bar read 347 rows under
+  a caption and 656 without one, on a picture that never changes size. **Two fixed geometries
+  have failed and a third must not be written.** The full width read every caption as picture;
+  the strips outside a CENTRED caption box read the progress bar and the emphasis elements as
+  picture, because every element `MotionGraphics/index.tsx` draws is laid out from the safe
+  area's own left (90) and right (120) edges and glows past them - measured on 001's real render,
+  ink at column 71, inside a 120-column strip AND inside a 90-column one, so narrowing the strips
+  to the asymmetric insets fixes neither. Step 6.02 hands `measure_frame_occupancy` the manifest's
+  own overlay segments and every pixel their ALPHA says they drew is masked out of the walk.
+  **THREE READINGS**: segments given is exact; `[]` says this render carries no overlay and is
+  exact; None says nobody asked, is measured full width and SAYS so on the result. A row the ink
+  leaves under `MIN_OVERLAY_FREE_COLUMNS` pixels of is UNREADABLE and is resolved from whichever
+  side the walk reaches next - counting it as bar would shrink a filling picture by the height of
+  a bar drawn over it - and a frame with no readable row is counted out and named, never entered
+  as 100%. The gate is not weakened: it still fails a picture that genuinely changes size under a
+  full-width overlay.
+  And `_stream_raw_frames` asks ffmpeg for `fps=N:round=up`, because the default `round=near`
+  emits the LAST input frame to claim a slot - up to half a sample period after the label,
+  which put a cutaway starting at 32.067s into the sample the A-roll clip before it owns.
+  [why - both, measured on 001's correct render](docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render)
+- colour exists somewhere in the frame (`measure_chroma_presence`);
+- speech sits above the bed (`measure_speech_above_bed`);
+- the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`);
+- no picture plays over digital silence (`measure_silence_under_picture`).
+  **Picture with nothing at all on any track is a defect on its own terms**, and it had no
+  detector: `detect_black_frames` asks whether the picture went away, `verify_audio_streams` only
+  that a stream exists, and `measure_lufs` barely moves on an 11% hole. 001 shipped 6.312s of
+  exact digital zero, 11.1% of its runtime, including the last four seconds; the craft reference
+  has 0.783s in twenty minutes, all of it over black.
+  **The gate is DIGITAL ZERO alone, and it needs no taste**: the level is the delivery
+  quantisation (a 16-bit sample is zero under half an LSB) and the duration floor is the timebase
+  (§10.5's two frames). Black is not picture, so a fade or a declared beat is exempt by
+  measurement rather than by rule.
+  **How quiet a declared quiet moment may be is the captain's** (`craft-silence-under-picture`),
+  so `NEAR_SILENCE_LADDER_DBFS` is REPORTED at every rung and gates at none. Do not encode a
+  near-silence level here.
+  **Silencing the MUSIC is not silencing the FILM.** `music_behavior: silent` is a legitimate
+  decision (§10.5) and is not a declaration that the master carries nothing; nothing excuses a
+  run today because no declaration exists to read. [why](docs/RULE_EVIDENCE.md#the-render-that-ended-on-four-seconds-of-nothing)
+
+**`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
+A caller with no spine gets the whole-timeline measurement and the result says which it made.
+
+`manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
+- P6 exempts the last card in its block (ending where the block does) and reports it. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+- P7 judges DRAWN effects only. `CUT_TYPES` draw nothing; denominator is the transitions the plan wrote, not `len(v1_clips) - 1`. [why](docs/RULE_EVIDENCE.md#hard-cuts-are-not-an-effect-on-everything)
+
+Chroma and the mix REPORT A NUMBER and pass.
+Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATES`); do not turn them into gates by another route. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+
+`SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION.
+Do not flip the boolean without changing one of the two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
+
+**The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
+`measure_speech_above_bed` takes `music_offset_seconds` positionally with no default; `run_full_render_qa` declines P3 when it is None. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 """
 
 import json

@@ -41,6 +41,24 @@ of the list moved by up to two places, and the composite on those same
 passages - before it was withdrawn - moved by up to twenty points.  So
 "which passage is strongest" is a real signal and "is passage five better
 than passage seven" is not.
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
+One enumeration, `library/tools/passage_engagement.py` - `engagement_rank`, `engagement_basis`, `unjudged_summary`. Step 2.02's handoff asks for `engagement` on every passage it selects: `{rank, basis}`, ranked against that sequence and nothing else.
+- **The 0-100 composite is WITHDRAWN** (captain, 2026-09-02), along with `engagement_of`, the reader that read it: only the ordering was ever consumed, and the number beside it read as magnitude it did not have. `MEASURED_SPREAD` keeps the measurement that settled it - between answers to the identical prompt, ranks in the middle moved two places and the composite moved twenty points. Do not reintroduce a magnitude reader without a step that MEASURES one.
+- **Compare ranks, and only near the top.** [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+- **A rank is comparable only inside ONE speech_sequence.** It is the model's ordering over the passages it chose, not a scale.
+- **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated. `engagement_rank` returns **None**; never coerce it to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
+- **Step 2.02 names no roles and no opener.** The closed `opening|development|climax|resolution` vocabulary, the separately mandated `hook_segment` and its 1-3 second target all went on the same ruling: the model proposes the structure the footage wants. What survived is one ORDERED `body_sequence`, and every consumer works from that ordering - `mesh_spine` addresses a passage by its `position` (never by a role name), and 5.03's engagement observation compares the play order against the rank order.
+
+`tests/test_passage_engagement.py`.
 """
 
 # Why each scorer is withdrawn, in the terms of what it actually read.

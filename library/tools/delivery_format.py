@@ -33,6 +33,19 @@ One enumeration
 Like ``house_look`` and ``transition_vocabulary``, this is a closed
 enumeration and an unknown name RAISES.  A silent fallback is exactly how
 a landscape master ships again.  Adding a format means adding a row.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**The delivery format is a property of the PRODUCT, not of the footage.**
+One enumeration, `library/tools/delivery_format.py`: a brand template declares `delivery_format`, a project may override with `pipeline.delivery_format`, the default is vertical 1080x1920, and an unknown name raises.
+The catalog's `source_resolution` DESCRIBES the footage and is never a render target. [why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
+[why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
 """
 
 from typing import Dict, List, Optional, Tuple

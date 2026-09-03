@@ -59,6 +59,21 @@ This module compares.  It does not rank, and it does not prefer lossless
 to lossy: which encode to use is the captain's, and both are on the table.
 
 ``tests/test_music_duplicates.py``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Two candidates that are the same recording are established from the MEASUREMENTS, never the filename.**
+`library/tools/music_duplicates.py`. [why](docs/RULE_EVIDENCE.md#a-third-of-the-choice-set-was-a-copy)
+- The tolerance is measured, not picked: 1.0 dB.
+- `true_peak_dbtp` is NOT compared, and `DECLINED_SIGNALS` says why: lossy coding moves it most and it says least.
+- **A duplicate is MARKED, not dropped.**
+- `tests/test_music_duplicates.py`.
 """
 
 from __future__ import annotations

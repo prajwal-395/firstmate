@@ -53,6 +53,21 @@ read - so none of `bold_large` (192), `clean_standard` (144), `minimal`
 Adding a style means adding it here and naming it from a template;
 `tests/test_subtitle_style.py` fails on an orphan in either direction, the
 same contract `transition_vocabulary` and `house_look` hold.
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**A project may typeset its own captions, and that is not a change to anyone else's.**
+`pipeline.subtitle_typography` in a project.yaml, the same `{font, size, weight}` shape a template's `style.typography` uses, resolved by `subtitle_style.resolve_subtitle_style`. [why - the captain's measurement, and what the size moves on 001](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
+- It overrides the template's typography **KEY BY KEY**. That is the one place this precedence differs from `delivery_format_name`'s and `timed_text_overlay`'s, deliberately.
+- `TYPOGRAPHY_KEYS` is the whole of what may be declared and a fourth key is refused by name, because `SubtitleStyle.resolve` reads exactly three.
+- **A number that governs one video does not go in a preset four other videos read.** `bold_large` (192), `clean_standard` (144), `minimal` (120) and `LEGACY_FONT_SIZE` (160) are untouched.
+- `tests/test_subtitle_style.py`.
 """
 
 from dataclasses import dataclass

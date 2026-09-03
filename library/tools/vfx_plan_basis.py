@@ -33,6 +33,23 @@ recorded in `THE_REFUSAL_QUESTION` - but which of the six drop reasons
 should stop a run is a decision about how the pipeline behaves, and it is
 the captain's, not this module's.  Recording is what makes the question
 askable from the output rather than from a log.
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**An empty VFX plan says WHY it is empty, and step 4.03 CAN produce a non-empty one.**
+One enumeration, `library/tools/vfx_plan_basis.py`. [why - `{"visual_effects": []}` read the same whether the planner chose stillness or named four effects the post-bridge discarded, plus the four hypotheses and which one it was](docs/RULE_EVIDENCE.md#the-vfx-plan-that-was-always-empty)
+- `enhancement_spec.planning_basis` carries `basis`, `proposed`, `resolved` and one `dropped` record per casualty with its reason. **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one.
+- `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused by name, so a new drop branch has to say what it is before it can go quiet.
+- **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one.
+- **Recording is not gating.** An empty plan is accepted. Whether a dropped entry should REFUSE the step is the captain's call (`THE_REFUSAL_QUESTION`). true` on `vfx_creative` still holds and an empty plan is still accepted;
+- **The step is not broken and the vocabulary is not missing.** `tests/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
+- `tests/test_vfx_plan_basis.py`.
 """
 
 from dataclasses import dataclass, field

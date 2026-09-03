@@ -11,6 +11,45 @@ Usage:
 
 All step output files follow the convention: step_X_YY.json
 No version suffixes.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**`compile_manifest` reads `pipeline_data.json`, not just files.**
+The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export; a missing file reads as `{}`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**An overlay segment the manifest names and disk does not have REFUSES the compile.**
+`compile_manifest.assert_overlay_segments_on_disk`, over `OVERLAY_TRACKS` - subtitles, motion graphics and timed text, all three at the same severity.
+[why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+
+**Every frame of the timeline must show a clip.**
+`compile_manifest._assert_timeline_fully_covered` fails on any stretch of V1+V2 with nothing on it.
+The one exception is a hole the plan deliberately declared, via the optional `intentional_black_beat`/`black_beat_reason` spine keys documented in `library/tools/spine_contract.py`; an undeclared hole always fails.
+Step 6.02 honours the same declaration by passing `declared_black_beat_ranges` into `render_qa`, and both gates bound a beat by `MAX_DECLARED_BLACK_BEAT_SECONDS` from the spine contract - keep that bound in one place. [why](docs/RULE_EVIDENCE.md#undeclared-black)
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**The bed is bounded by the PICTURE, not by V1.**
+`compile_manifest` clamps a music clip that runs past the last picture, and the bound is V1 AND V2. It was V1 alone; the gap measured at -91.0 dB. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
 """
 import json
 import os

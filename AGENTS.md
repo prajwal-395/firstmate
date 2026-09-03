@@ -1,15 +1,6 @@
 # Video Editing Pipeline
 
-
-
-
 ## How to read this file
-
-
-
-
-
-
 
 You never need one in order to obey a rule.
 
@@ -19,8 +10,6 @@ Section numbers are cited from code comments and other docs, so they are stable.
 Change what is in a section, not its number.
 
 ## 1. Identity and purpose
-
-
 
 The engine stores no project data - assets and pipeline outputs live in isolated directories outside the repository.
 Agents and human editors use it to automate the tedious parts of video assembly while retaining creative control.
@@ -49,8 +38,6 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 `footage_query.py` / `footage_segments.py` / `footage_query_bridge.py` are a cross-clip footage
 search - "where in all my footage does X happen".
 
-
-
 [`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
 measured score floor that lets it answer "not in this footage", and the 66x reduction of
 `temporal_index` that is worth doing without it.
@@ -65,8 +52,6 @@ The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/
 - `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**; a recorded claim that it "provably cannot" read text was wrong.  
 - `objects[].readable_text` is the VLM's field (step 1.03).  The two are independent.
 - Step 1.07 `ocr_extraction` is WIRED and DESELECTED BY DEFAULT: `--with ocr_extraction` turns it on.
-
-
 
 | Flag | Effect |
 |---|---|
@@ -130,8 +115,6 @@ One enumeration, `library/tools/external_inputs.py`.
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
 `library/tools/input_contract.py` surveys all 144 declared inputs of the DAG's 26 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
 
-
-
 - **Enforcement is not warrant.** Establishing warrant means RUNNING the step without the input; `tests/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
 - A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
 - The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
@@ -140,14 +123,9 @@ One enumeration, `library/tools/external_inputs.py`.
 - **That half REPORTS; it does not fail**, because escalating a pre-existing finding is the captain's call. `unread_by_a_prompt_less_step` is the report; `disagreements` is unchanged.
 - **The value read is one-sided and says so.** `_UNTRACEABLE` is what it reads as USED rather than guessing about - anything but a plain function the step's own files define, an alias, a second hop. 
 
-
 - **Deterministic**: a `step.py`, run automatically over JSON stdin/stdout.
 - **Hybrid**: a `bridge.py` that pre-computes context plus a `handoff.md` prompt for an LLM.
 - **LLM-only**: only a `handoff.md`, generating the output from upstream context.
-
-
-
-
 
 ### Two ledgers, two lifetimes
 
@@ -158,8 +136,6 @@ One enumeration: `library/tools/step_ledger.py`.
 - **edit** is everything downstream of a creative decision, recorded in `edit_completed`.
 - `validate_sfx_library` (0.01) is edit: it validates a SHARED library, not this project's footage.
 - `music_analysis` (2.06) is edit: it enriches a CHOSEN asset, and the choice is what an edit reset discards.
-
-
 
 - Per-clip granularity works because each step declares where its per-clip artifacts live, in `classification.per_clip_artifacts`.  **Add a per-clip artifact and you must declare it**, or nothing can invalidate it.
 - Preflight is skipped once done, and that is safe because identity is checked. `library/tools/footage_identity.py` fingerprints each clip by size plus a digest of its first and last mebibyte - not a whole-file hash and NOT mtime - against `source_fingerprints` in the state file. 
@@ -250,10 +226,7 @@ One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a
 
 ## 4. Dashboard
 
-
-
 **The picker lists the project the server is SERVING, first**, even when that project is outside the root.
-
 
 - Review gates pause execution for inspection.  A rejected gate halts the pipeline entirely; a revised gate applies the reviewer's modifications directly to the step output in `pipeline_data.json`.
 - The dashboard also captures annotations and feedback as structured data for agent communication.
@@ -290,10 +263,6 @@ A note whose `anchor.selector` is empty is REJECTED.
 `library/dashboard/review_channel.py` is the store and the agent side; `/api/review/*` in `server.py` is the browser's half.
 The agent parks on `wait_for_batch` (or `GET /api/review/poll`) and is released the moment the reviewer sends.
 
-
-
-
-
 Notes live per project in `pipeline_output/review/channel.json`, each recording the view it was written on.
 
 ### Run control
@@ -306,13 +275,7 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
-
-
 ### Connection
-
-
-
-
 
 ### Process isolation
 
@@ -331,7 +294,6 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ### Transitions go through Fusion. Both other routes are closed.
 
-
 **Do not wire FCPXML or DRP project-file surgery back in.**
 
 - Every transition type the pipeline may plan lives in ONE enumeration, `library/tools/transition_vocabulary.py`, with a recorded reason for each withdrawn type.
@@ -348,8 +310,6 @@ One enumeration, `library/tools/transition_carriers.py`.
 - **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
 - `tests/test_transition_carriers.py`.
 ### Stabilization is the memory ceiling, and it runs last
-
-
 
 - Treat it as the memory ceiling of the whole pipeline and do not run other heavy jobs beside it.
 - It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
@@ -440,12 +400,7 @@ Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
 
 ### Visual verification
 
-
-
-
 ### Reading a killed build off disk
-
-
 
 **Copy the project database before opening it; never open it in place.**
 
@@ -454,9 +409,6 @@ Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
 Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()`, following the patterns in `timeline_item_markers` and related tools.
 
 ## 6. The spine contract
-
-
-
 
 - Every block carries `clip_id`, `source_start`, `source_end`, `word_timestamps` and `alignment_method`. `None`/empty only for non-speech blocks.
 - **Read those keys directly** (`block["clip_id"]`). 
@@ -467,7 +419,6 @@ Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()`, following the pa
 - **There is no gap threshold and no voiced-fraction band.** A silence survives exactly when no equally complete anchor removes it. Both outcomes are SAID: `alignment_report` records the leading gap, voiced fraction and anchors considered, and the `reanchored`/`held` cases print to stderr. 
 
 ## 7. Data flow
-
 
 Each step reads required upstream outputs based on the DAG's `data_mapping` edges and writes its own output back under `step_outputs.<step_id>`.
 
@@ -583,6 +534,33 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
 - `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
 
+### This file is an INDEX, and two gates keep it one
+
+**A rule lives with the code it governs; AGENTS.md keeps the headline and points at it.**
+Measured 2026-09-03: the file regrew 34,848 characters in the two working days after the
+2026-09-01 condensation - twelve commits, mean +2,913 each, `###` subsections 39 -> 47 with
+none removed - because the working convention was "land a module, add a section describing
+it". A condensation buys two days; only moving the detail out changes the slope.
+
+- **`scripts/check_agents_md_size.py` gates the size, globally and PER SECTION**, and runs in
+  CI. Both ratchets may ONLY EVER MOVE DOWN. `SECTION_BUDGETS` must SUM to no more than
+  `CEILING`, so a budget cannot be raised without lowering another; a `##` section with no
+  budget row FAILS rather than defaulting, because a section that exists and silently has no
+  bound is the trap.
+- **`scripts/check_agents_md_preservation.py` gates a MOVE**, and is run by hand with a
+  `--before`. `--after` takes the rule corpus - AGENTS.md first, then every destination,
+  **ENUMERATED, never a glob**: a glob would let a rule survive because its identifier happens
+  to occur in an unrelated file, and the enumeration IS the reviewable list of claimed
+  destinations. It prints WHERE each moved rule landed, so a PASS reads as a mapping rather
+  than a count.
+- **A section may shrink to an index row; it may not shrink into silence.** Past the shrink
+  floor, what remains must NAME a destination that is in the corpus AND has gained content.
+  Naming a destination that received nothing is refused.
+- **Headings never move**, whatever the prose does: section numbers are cross-referenced from
+  code (`AGENTS.md 10.1`, `§10.5`).
+- `tests/test_agents_md_gates.py` pins that both gates can FAIL - AGENTS.md 10.4's rule
+  applied to the gates on this file.
+
 ## 10. Cross-cutting rules
 
 These hold across steps and cost a full audit cycle each. Do not undo them.
@@ -594,484 +572,206 @@ Index required keys directly so a rename fails loudly; never `.get()` a default 
 Join semantic documents to the catalog with `library/tools/semantic_index.py`: documents are keyed by FILE STEM, the catalog by `clip_XXX`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 
 **A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
-Name the columns, or route the document to the BRIDGE and keep it out of `context_fields` entirely; declaring it with no sub-paths gets all fifteen columns, `analysis_metadata` included.
-Projection narrows the prompt and never the inputs: the bridge, the post-bridge and `step.py` still receive the whole thing. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 
 **`compile_manifest` reads `pipeline_data.json`, not just files.**
-The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard export; a missing file reads as `{}`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
+Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
 
-**Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output**, or whose LLM contribution differs from the step's outputs.
-`present_llm_step` builds the injected schema from `interface.outputs` minus what the bridge produced, so without the declaration the model is asked for nothing, or every attempt "fails". [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
+**Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output**
+Detail: `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
 
 **One vision schema, two views.**
-`vision_pipeline_v3.py` emits `scene[]`/`camera[]`/`actions[]`/`objects[]`/`assessment{}`; `library/tools/vision_schema_adapter.py` derives the historical `analysis.*`/`blocks` view from it; either may be addressed.
-Derive only what v3 measured. [why](docs/RULE_EVIDENCE.md#vision-schema-two-views)
-A step wanting framing, stability, usable ranges or subject visibility must list those paths in `context_fields`, or they are deleted before the prompt.
+Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#vision-schema-two-views)
 
 **A project's brand template reaches the run through `state["brand_template"]`.**
-`library/tools/brand_registry.py` is the whole vocabulary: `project_template_name`, `resolve_template_reference` (raising on missing) and `reference_template_name`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
-The key is spelled three ways and they are not interchangeable:
-
-- `state["brand_template"]` is the REFERENCE string.
-- `inputs["brand_template"]` is the RESOLVED TEMPLATE DICT, and reaches only a step whose manifest declares it (step 5.01 does `brand_template.get("style")`).
-- `inputs["brand_style"|"brand_effect"|"brand_content"]` are the slot dicts.
+Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
 
 **A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
-`library/tools/brand_registry.no_brand_template` is what an empty declaration resolves to - every creative slot empty - and `ABSENT_SLOT_READINGS` records what each consumer does with it. `describe_brand_absence()` is printed once per run. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
-
-- **`library/templates/default_brand.yaml` is a template a project must NAME**; an empty declaration does not resolve to it, and naming it is what makes its values a brand decision.
-- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no grade (§12), no exposure normalisation, the whole drawable vocabulary permitted, nothing bounded. Add a slot, add its row. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
-- **`effect.caption_case` is the one creative value that survives absence**, recorded as an exception rather than left implicit.
-- Two slots have NO READER and no template value should state one: `content.music_genre` and `effect.sfx_density`.
+Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
 **A project's own declarations reach every step through `state["project_config"]`.**
-`brand_registry.project_declared_config` reads them off project.yaml, `load_pipeline_state` puts them in state and the runner's whitelist broadcasts them. Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
-Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
-
-- `target_duration_seconds` is the one with readers. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
-- `library/tools/duration_targets.get_target_duration_zone` returns **None** when neither the project nor a selected template declares a target, and each caller says it did not check. There is no fallback zone.
+Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
 **A brand's CONSTRAINTS reach three planning steps, and a step has two names.**
-`TemplateLoader.get_brand_constraints` gives `creative_direction` a palette and typography, `plan_transitions` the permitted transition vocabulary and `plan_vfx` a VFX intensity - as prompt text, not as an input key.
-`library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, checked against the step table at import.
+Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-- **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them.** `library/tools/project_layout.node_id_for` is the ONLY translator. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
-- The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
-- `tests/test_brand_constraints_reach_the_prompt.py`.
-**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.**
-`project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file, and `pipeline.attach_creative_brief` is the three-state choice about sending it (§3, "A step with no creative brief ASKS").
-`load_pipeline_state` reads the PATH into state ONLY when the reading is ATTACHED; `gather_step_inputs` reads the FILE and hands the step a REFERENCE to it, and only if the step's own manifest declares the input.
-A path that cannot be read or is empty RAISES. **A run that attaches none INTERVIEWS rather than going quiet.**
-
-- Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
-- **The eighth is `mesh_spine`, and it is declared without a handoff line.** A step gets the brief because its manifest asked, not because its prompt mentions one. **The ninth is `color_grade`**, added when 5.01 grew a handoff on 2026-09-03 - its new handoff DOES name the brief, so it is in the first group; 001's brief carries a whole "Color System Philosophy" section no colour step had ever seen. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
-- It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
-- **The cost is per step, not per run.** [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.** **A run that attaches none INTERVIEWS rather than going quiet.**
+Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 
 **A reference is an ABSOLUTE PATH plus a MAP, and the rule for what still travels inline is in `library/tools/brief_reference.py`.**
-[why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
-
-- **The map carries a LINE RANGE per heading**, so following it is one `sed -n 'a,bp'` and not a search.
-- **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
-- **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
-- **The mechanism carries THREE documents, and a fourth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, and step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`). Do not build a second by-reference mechanism.
-- **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agy` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
-- `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
+Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
 
 **A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.**
-The summary rule below says it for a rendered pair; this is the same rule when the second copy is the whole structure. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
-
-- **Establish what each view uniquely carries before deleting one**, and move the STRUCTURE rather than a rendering: the largest view is usually the one holding the per-segment bounds, the object labels and the assessment fields no table has a column for.
-- The structure goes BY REFERENCE (`library/tools/footage_reference.footage_document`); nothing is filtered away and every byte is at the path.
-- **Shape a referenced document for the MAP.** Nothing below a `##` may be a heading (`parse_sections` lifts deeper headings into the map), and the section's opening line carries no underscore or backtick (`_lede` strips markdown emphasis).
-- `tests/test_broll_context_share.py` guards the RATIO of what the prompt spends on readings to what the structure costs inline, because that number does not depend on a fixture.
-- **Measure a value where the model READS it** - the whole assembled prompt, pre-bridge included - not on the one route it used to arrive by.
-- **Collapsing a structure into a summary makes the summary's blank cells load-bearing.** All three states - measured and usable, measured and unusable, never measured - must be legible in the cell itself.
+Detail: `library/tools/footage_reference.py`. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
 
 **Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
-Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `deterministic_with_llm` step's `step.py` keep receiving the unprojected inputs - only the prompt narrows. A step declaring none is handed every byte it was routed. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
-
-- A path prefixed with `-` DROPS what the paths above it selected. Prefer it to enumerating what to keep. `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`.
-- `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps (captain decision). `tests/test_llm_context_routing.py` holds that exemption list.
-- **A pre-bridge's own table is never projected away, and you do not have to list it.** `project_step_context` restores any `bridge_supplied` key the allow-list dropped. Listing it is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
+Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
 
 **A step's decision must be SOURCED from its own context.**
-Judge routing by the assembled context, never by whether the run came out right. Check with `library/tools/replay_bench`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced) `tests/test_pacing_and_sfx_are_not_remembered.py`.
+Detail: `library/tools/replay_bench/bench.py`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced)
 
 **A table the prompt names, arriving with zero rows, is reported on the run that sends it.**
-`library/tools/empty_table_guard.py`, called from `present_llm_step`, names every TOP-LEVEL key whose value is `[0]{...}` or `[]`.
-It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.md#a-prompt-that-described-an-empty-table)
-
-- **Build a pre-bridge table on a key the DAG really routes, and key its rows on the identifier the answer has to name.** A-roll entries are keyed `spine_block_position`, not `segment_id`.
+Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#a-prompt-that-described-an-empty-table)
 
 **Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
-`library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
+Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 
-- `view:transcript` is what step 2.01 reads. **Step 2.02 does NOT declare it** - its pre-bridge builds `transcripts_toon` instead. [why](docs/RULE_EVIDENCE.md#the-transcript-shipped-twice) `view:transcript` is what step 2.01 reads instead of `temporal_index.*.speech_regions`: what was said, in which clip, between which two seconds.
-- `view:picture` is what a step reads to see a clip past its opening, and **every step that decides from what a shot looks like declares it** - 2.01, 2.02, 3.02, 4.02, 4.03 and 4.04. [why](docs/RULE_EVIDENCE.md#the-director-saw-the-first-nineteen-seconds)
-  - **It is NOT a substitute for `scene[]` and must not be swapped in for it.** The view goes BESIDE `analysis.scene` (different axes).
-  - **Its rows are keyed by the CATALOG clip id wherever a routed input makes that join possible.** It joins against `clip_catalog`, `a_roll_assignments` and `b_roll_assignments`; unjoinable documents are reported in `not_in_the_clip_list`.
-  - **Raw `blocks` in a `context_fields` allow-list is the wrong route**, several times the view's size once `json.dumps`'d into a cell. `tests/test_picture_view.py` fails if one comes back.
-- `view:stability` is the two camera-steadiness signals SIDE BY SIDE - declared by `select_broll`, `plan_transitions` and `plan_vfx`. **It resolves nothing**: whatever picked a winner would become the measurement (section 10.5). The VLM's per-window `camera[].stability` and the deterministic per-clip `assessment.camera_stability` measure different things and on 001 they disagreed on 9 of 17 clips while three tables in one run carried two different answers about the same clip.
-- `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it. The run summary is its second reader (`library/tools/alignment_findings.py`).
-- `view:prosody` has NO consumer since #F5 unwired step 1.05, and is kept for whatever declares one next. It is what step 2.01 used to read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through; the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
-- `view:prosody` has NO consumer since step 1.05 was unwired, kept for whatever declares one next. It selects by `library/tools/prosody_profile.profile_defect`; real profiles pass through, the rest become ONE line. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
-- **A view is not routing.** The step still has to declare the input the view reads.
-- **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
-- **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
-- `tests/test_transcript_view.py`, `tests/test_prosody_view.py`.
 **Never send a summary and the structure it was rendered from.**
-`analysis.scene` IS `scene[]` rendered by `vision_schema_adapter.scene_prose`, and `analysis.motion` IS `camera[]`. Send the prose (it is lossless here and 30-50% smaller) unless the step's handoff tells the model to read the segment bounds - 3.02's does, so 3.02 keeps the structure and drops the prose. `tests/test_context_ships_it_once.py` fails on a manifest declaring a pair. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
+Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
 
 **No raw value list reaches a prompt.**
-`music_analysis.tempo.beats`, `.tempo.downbeats` and `.energy_dynamics.energy_curve_1hz` must be dropped with `-` paths. Beat proximity is decided in code through `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt) Beat proximity is decided in code, off the unprojected inputs, through `library/tools/beat_grid.py` - the model is separately handed the answer as `cuts_toon`'s `beat_near_cut`.
+Detail: `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
 
 **A step that chooses a picture is SHOWN one, and the picture is of the window it will receive.**
-One enumeration, `library/tools/window_frames.py`.
-[why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
-
-- **The window is enumerable before the answer, which is what makes the frame honest.** `window_anchors` is every `video_in` `cutaway_window.choose_window` can return, computed across the spine's own slot lengths - not assumed to be the span list, because `fit_to_clip` pulls the anchor earlier near a clip's end.
-- **A strip shows both ENDS of the window, plus enough of the middle that no more than `SECONDS_UNSEEN_BETWEEN_SAMPLES` passes unseen.** One frame is never enough.
-- **A strip runs to the LONGEST slot that anchors there, and a shorter slot plays a prefix of it.** The row carries `video_in`, `strip_end` and `frames` and the header says so.
-- **Every candidate window gets one; nothing is ranked, filtered or shortlisted.** Whatever selects a shortlist becomes the chooser (§10.5), which is what `cutaway_window.DECLINED_TO_RANK` already refuses. A window whose strip could not be drawn is NAMED in the map, never quietly absent.
-- **A picture has no smaller textual form, so this is NOT a second `brief_reference`.** `HARNESS_SHOWS_FRAMES` is its own complete enumeration and an unknown harness raises. A harness that cannot be shown one is handed a line SAYING the frames were drawn and withheld, and the prose path stands. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
-- `HARNESS_SHOWS_FRAMES` is a complete enumeration and an unknown harness raises. A harness that cannot show frames is handed a withholding notice. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
-- A strip already drawn is reused. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
-- `tests/test_window_frames.py` FOLLOWS the reference: it parses the directory and filenames out of the string the model reads, opens what comes back and probes its dimensions.
+Detail: `library/tools/window_frames.py`. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
 
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.**
-`library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
-
-- **Columns come out in the order the DATA declares them, never sorted.** [why](docs/RULE_EVIDENCE.md#alphabetical-columns-put-end-before-start)
-- The quote character must be one neither content class contains - this pipeline sends prose full of apostrophes AND `json.dumps`'d dicts full of double quotes, so `'` and `"` are both out.
-- **A lossless round trip is NOT the test.** Nothing downstream calls `toon_to_json` - the model reads the characters. Assert the emitted FORM.
-- A nested object in a table cell is `json.dumps`'d. **Do not "fix" it by demoting the table to indexed blocks** - measured, it makes them 19% bigger. [why](docs/RULE_EVIDENCE.md#embedded-json-is-where-the-content-is)
+Detail: `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
 **A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.**
-`library/tools/creative_direction.py` loads `DIRECTION_KEYS` off step 2.01's own manifest and `direction_value` RAISES on anything else. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
-- **Which side is wrong is established from the HANDOFF, not from the code.** Repairing the other side - adding a key to the schema - looks identical and can ask a creative director for artwork that section 14 puts with the project.
-- `WITHDRAWN_DIRECTION_KEYS` records each withdrawn read and where the value really lives. `MECHANICALLY_READ_KEYS` and `PROMPT_ONLY_KEYS` must together account for every field the schema declares, and a prompt-only claim is CHECKED against the manifests' `context_fields` rather than asserted.
-- `tests/test_asked_fields_have_readers.py` ENFORCES on `creative_direction` and REPORTS on every other step's declared output schema without failing the build - reader-or-delete for the rest is the captain's call, inventoried in [`docs/UNREAD_DECISIONS_INVENTORY.md`](docs/UNREAD_DECISIONS_INVENTORY.md).
-- **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. Closing that needs nested `expected_schema`, not a new format.
-
-- `MECHANICALLY_READ_KEYS` and `PROMPT_ONLY_KEYS` must together account for every field the schema declares.
+Detail: `library/tools/creative_direction.py`. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
 
 **A call with nothing to ask is not made.**
-Declare `interface.llm_outputs` if the call is still needed. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
+Detail: `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 
 **The delivery format is a property of the PRODUCT, not of the footage.**
-One enumeration, `library/tools/delivery_format.py`: a brand template declares `delivery_format`, a project may override with `pipeline.delivery_format`, the default is vertical 1080x1920, and an unknown name raises.
-The catalog's `source_resolution` DESCRIBES the footage and is never a render target. [why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
-[why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
+Detail: `library/tools/delivery_format.py`. [why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
 
 **The beat grid is `tempo.beats` / `tempo.downbeats`, and it does not start at zero.**
-Read it through `library/tools/beat_grid.py` and never synthesise `[i * 60/bpm ...]`.
-[why](docs/RULE_EVIDENCE.md#the-beat-grid-does-not-start-at-zero)
+Detail: `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-does-not-start-at-zero)
 
 **`target_energy` has ONE reading: `library/tools/energy_reading.py`.**
-"Building" names a TRAJECTORY, not a level, and is not "high".
-`WITHDRAWN_HIGH_WORDS` records why "dynamic" and "fast" are out too; widening the high bucket is a decision, not drift. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
-[why](docs/RULE_EVIDENCE.md#building-is-not-high)
+Detail: `library/tools/energy_reading.py`. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
 
-**`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.**
-Five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent` - and `silent` is one of them, because a planned silence is a decision.
-`mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` turns it into the dB, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
-Resolve a block that declares none through `resolve_music_behavior`, never with a local default: `WITHDRAWN_BEHAVIORS` records why the two-word `full`/`ducked` form is out. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
-`tests/test_music_behavior_vocabulary.py`.
-**The timeline's length comes from the spine, never from a passage's `end_time`.**
-`library/tools/timeline_duration.measure_timeline_duration`: max `timeline_end` over the spine, falling back to `a_roll_assignments`.
+**`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.** **The timeline's length comes from the spine, never from a passage's `end_time`.**
+Detail: `library/tools/music_behavior.py`. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
+
 ### 10.2 Reaching the picture and the sound
 
 **A capability is only real where the renderer reads it.**
-The renderer dispatches on parameter NAMES (`library/tools/execution/apply_fusion_comps.build_effect_comp`), so a planner emitting a name nothing reads produces a comp without that effect and no warning. [why](docs/RULE_EVIDENCE.md#unread-parameter-names)
-
-- When you add a knob, add it to `build_effect_comp` in the same commit and assert it draws nodes (`tests/test_vfx_delivery.py`).
-- When a design node cannot be delivered, record the reason where the design lives. Withdrawal is a legitimate outcome; a silent unread key is not.
-- Every TOP-LEVEL manifest key is held to this by `tests/test_manifest_readers.py`: name a reader that really contains `manifest[key]`, plus one sentence saying what that reader does to the picture or the sound - or put it in `EXEMPTED_KEYS` with a reason.
-- `docs/PIPELINE_PLAN.md` is the standing audit of which manifest keys have a reader. Check it before assuming a stage's output reaches the picture, and update it when you wire or withdraw one.
+Detail: `library/tools/execution/apply_fusion_comps.py`. [why](docs/RULE_EVIDENCE.md#unread-parameter-names)
 
 **An empty VFX plan says WHY it is empty, and step 4.03 CAN produce a non-empty one.**
-One enumeration, `library/tools/vfx_plan_basis.py`. [why - `{"visual_effects": []}` read the same whether the planner chose stillness or named four effects the post-bridge discarded, plus the four hypotheses and which one it was](docs/RULE_EVIDENCE.md#the-vfx-plan-that-was-always-empty)
+Detail: `library/tools/vfx_plan_basis.py`.
 
-- `enhancement_spec.planning_basis` carries `basis`, `proposed`, `resolved` and one `dropped` record per casualty with its reason. **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one.
-- `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused by name, so a new drop branch has to say what it is before it can go quiet.
-- **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one.
-- **Recording is not gating.** An empty plan is accepted. Whether a dropped entry should REFUSE the step is the captain's call (`THE_REFUSAL_QUESTION`). true` on `vfx_creative` still holds and an empty plan is still accepted;
-- **The step is not broken and the vocabulary is not missing.** `tests/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
-- `tests/test_vfx_plan_basis.py`.
 **An overlay that draws nothing is not rendered.**
-`generate_motion_props.props_draw_ink` is the predicate; keep it in step with the MotionGraphics composition.
-The output carries NO `available` key when nothing draws, because `available: false` anywhere fails the run. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
+Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
 
 **An overlay segment the manifest names and disk does not have REFUSES the compile.**
-`compile_manifest.assert_overlay_segments_on_disk`, over `OVERLAY_TRACKS` - subtitles, motion graphics and timed text, all three at the same severity.
-[why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
 **A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
-One enumeration, `library/tools/motion_graphics_plan.py`. Step 4.06 is hybrid: its bridge puts the whole roster (§16) in front of the model, its handoff asks for `motion_graphics_plan`, its post-bridge renders what resolves. Captain's ruling of 2026-09-02 - the gate was the bug, not the render.
-
-- **A template GATES nothing.** `effect.motion_accents` and `effect.motion_progress_bar` are no longer read at all; a project that names no template plans the same layer and states its own colours. What a template still does is resolve an entry's `colour_role` against its palette. **No palette role and no stated colour DROPS the entry** - there is still no house colour (§12).
-- **Every element declares `start_seconds` and `duration_seconds` in TIMELINE seconds.** `resolve_plan` is handed the timeline's LENGTH and no block list, so nothing can quantise a start onto a cut. The spine bounds a span; it never times one.
-- **`anchor` is where in the frame, `row` is which line within that anchor.** Rows are an ON-SCREEN layout laid out by a flex stack over the live elements, not a second Resolve track: overlapping entries are composited into ONE segment by `plan_segments` (the shape `timed_text_overlay.plan_timed_text_segments` already uses), which is what keeps `manifest_validator`'s non-overlap rule for `motion_graphics_overlay` true. A row PITCH is not the mechanism - a fixed offset per row drew a two-run title straight through the row below it.
-- **An element the renderer cannot draw is DROPPED by name and the drop is RECORDED**, never rendered as nothing and never swapped for a neighbour. `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused (the `vfx_plan_basis` shape).
-- **`planning_basis` says which absence an empty layer is.** `no_elements_planned` is a decision; `every_entry_dropped` is the absence of one. Spelled differently on purpose.
-- The upper third's COPY still has no producer in the ENGINE (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`) - the model writes it in the plan, which is one of the answers that entry was written to accept. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
-- `tests/test_motion_graphics_plan.py`, `tests/test_motion_graphics_delivery.py` (which is what proves one reaches a pixel), `tests/test_motion_graphics_template.py`.
+Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
 **Manifest validation has a semantic half.**
-`library/tools/manifest_validator.py` validates distinct cut points, distributed SFX, distinct VFX ranges, no overlaps, no zero-duration clips, no fabricated source ranges.
-Regression fixtures live in `tests/fixtures/captured_run/` and come from a real broken run - never replace them with empty-list fixtures. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
-Never replace regression fixtures with empty-list fixtures. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
+Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
 
 **Every frame of the timeline must show a clip.**
-`compile_manifest._assert_timeline_fully_covered` fails on any stretch of V1+V2 with nothing on it.
-The one exception is a hole the plan deliberately declared, via the optional `intentional_black_beat`/`black_beat_reason` spine keys documented in `library/tools/spine_contract.py`; an undeclared hole always fails.
-Step 6.02 honours the same declaration by passing `declared_black_beat_ranges` into `render_qa`, and both gates bound a beat by `MAX_DECLARED_BLACK_BEAT_SECONDS` from the spine contract - keep that bound in one place. [why](docs/RULE_EVIDENCE.md#undeclared-black)
+Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
 
-**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
-One enumeration keyed by delivery format, insets stored as FRACTIONS so a 4K vertical or a small test frame needs no second row; an unknown format raises.
-Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`captionMaxWidth` props), `generate_motion_props`, `timed_text_overlay` (which refuses a card centred in the platform's UI band) and `plan_subtitles`' grouper.
-**Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included** - never `bottom: 0`, `width: 100%`, which on a 1080x1920 delivery sits 320px inside the caption and audio-bar band and is covered by the platform's own interface. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
-- The subtitle style is resolved at the top of `generate_subtitles` and there is no blind path: `split_into_groups` raises without a `fits_fn`.
-**Every element is positioned from the insets** - never `bottom: 0`, `width: 100%`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.** **Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included**
+Detail: `library/tools/safe_area.py`. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
-- **A card fits the BOX, not one line.** The overlay wraps (`flexWrap`), so `fits_in_box`/`MAX_CAPTION_LINES` is the test; grouping against one line halves the words on every card and therefore halves how long each is on screen. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
-**Reconstruct a grouping with `fits_in_box`, never `fits`.** [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
-- **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it.
-- A card with one over-wide word carries `fit_scale` and the render draws THAT CARD smaller; the style's font size is untouched.
-- The Remotion studio's `defaultProps` get the insets from `src/safeArea.generated.ts`, projected out of the enumeration by `scripts/generate_safe_area_defaults.py`.
-- `tests/test_caption_safe_area.py`.
+**Every element is positioned from the insets**
+Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+
+**Reconstruct a grouping with `fits_in_box`, never `fits`.**
+Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
+
 **A project may typeset its own captions, and that is not a change to anyone else's.**
-`pipeline.subtitle_typography` in a project.yaml, the same `{font, size, weight}` shape a template's `style.typography` uses, resolved by `subtitle_style.resolve_subtitle_style`. [why - the captain's measurement, and what the size moves on 001](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
+Detail: `library/tools/subtitle_style.py`. [why - the captain's measurement, and what the size moves on 001](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
 
-- It overrides the template's typography **KEY BY KEY**. That is the one place this precedence differs from `delivery_format_name`'s and `timed_text_overlay`'s, deliberately.
-- `TYPOGRAPHY_KEYS` is the whole of what may be declared and a fourth key is refused by name, because `SubtitleStyle.resolve` reads exactly three.
-- **A number that governs one video does not go in a preset four other videos read.** `bold_large` (192), `clean_standard` (144), `minimal` (120) and `LEGACY_FONT_SIZE` (160) are untouched.
-- `tests/test_subtitle_style.py`.
 ### 10.3 Measuring the footage
 
 **Subject position comes from `face_center_x`, not from the vision pass.**
-`vision_pipeline_v3` measures shot size, identity and time ranges - never a position - and `object_segmentation`/`ocr_extraction` produce boxes but are not in the DAG.
-`step_1_04_temporal_index.compute_face_presence` emits the horizontal centre of the largest detected face at 5Hz; `library/tools/subject_framing.py` reduces it per clip and returns a POSITION; `compile_manifest._conform_fields` owns the one copy of the geometry that turns it into a pan.
-
-- The join is `subject_centers_by_clip`. Step 1.04's real output shape is `{"temporal_event_indices": [...], "full_indices": [...]}` - a LIST of per-clip dicts, not a mapping. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
-- **None means "frame centred" - do not replace it with a fabricated 0.5.** [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
+Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 
 **A crop must be wide enough for the subject, and aiming it is not enough.**
-`compute_face_presence` records `face_width` beside `face_center_x`; `subject_framing.subject_box` reduces both, and `SUBJECT_HEADROOM` is how much clear space the subject needs on each side.
-- **No zoom both fills the frame and holds an over-wide subject** - every zoom below fill leaves bars - so `_conform_fields` SYNTHESISES the missing picture: shrink the source until the subject fits and put the same frame again, scaled to cover and blurred, behind it. That is the `framing_backdrop` route, drawn by `fx.subject_backdrop` and dispatched on `backdrop_picture_scale`.
+Detail: `library/tools/subject_framing.py`.
+
 `SUBJECT_HEADROOM` is how much clear space the subject needs on each side. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
+Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
 
-- `_conform_fields` SYNTHESISES missing picture via the `framing_backdrop` route (`fx.subject_backdrop`).
-- A backdrop clip carries **no `framing_pan_x`**.
-- **The verdict is carried by the PLAN check**, `manifest_validator`'s P8. `render_qa.measure_face_intact` is the render-side backstop and is weaker on purpose: a face cropped hard enough stops being detectable at all.
-- An explicit `framing_pan_x` still outranks the measurement, and the clip then keeps its crop with `subject_safe_zoom` recorded so P8 can say what that cost.
-- `tests/test_subject_survives_the_conform.py`.
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
-`face_sample_dimensions` reads the DISPLAY shape (rotation side data applied, because autorotate runs before the filter chain), bounds the SHORT side to `FACE_SAMPLE_SHORT_SIDE`, and raises rather than falling back to a shape.
-Anything derived from the sample size - `frame_area`, the `face_center_x` divisor - must read that size, not a literal. [why - the numbers, and what the fix does not fix](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
+Detail: `library/steps/step_1_04_temporal_index/step.py`. [why - the numbers, and what the fix does not fix](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
 
-**The frame FILLS by default, and there is no heuristic.**
-One enumeration, `library/tools/framing_intent.py`: 0.0 letterboxes, 1.0 fills.
-The number comes from the spine block > the project's `pipeline.framing_intent` > the template's `style.framing_intent` > `DEFAULT_FRAMING_INTENT` (1.0).
-`tests/test_framing_intent.py`.
-Source: spine block > project > template > `DEFAULT_FRAMING_INTENT` (1.0). [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
-**A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
-`_conform_fields` writes `framing_intent` and `framing_delivered` on every clip. [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
-- **A source whose display aspect already covers the delivery frame has no bars to give**, so it fills at every intent, `0.0` included. `framing_intent.source_covers_frame` is that predicate and `delivered_framing_intent` is the reading. Do not put the coverage arithmetic anywhere else.
-- **Which clips letterbox is therefore a MEASUREMENT, not a second creative choice.** A step that chose a framing per clip would be inventing taste where the arithmetic already answers (section 10.5). **Whether the picture is inset at all is the captain's PREFERENCE and belongs in the project's own declaration.**
-- **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
-
-- **A source that already covers the delivery frame fills at every intent.** `source_covers_frame` is the predicate.
-- **Which clips letterbox is a MEASUREMENT, not a second creative choice** (section 10.5).
+**The frame FILLS by default, and there is no heuristic.** **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
+Detail: `library/tools/framing_intent.py`. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 
 **A file on disk is not a measurement.**
-Judge a step by what it MEASURED.
-`speech_advanced_pipeline` raises `ProsodyUnavailable` and writes nothing rather than recording an error as a result; step 1.05 rejects a hollow profile and reports `available: false`, which `check_output_is_real` reads as a failed step. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
-[why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
+Detail: `library/tools/analysis/speech_advanced_pipeline.py`. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
 
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
-Exercise the collection half with an analysis dir of copied profiles and `raw_footage_files: []`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
+Detail: `library/steps/step_1_03_semantic_analysis/step.py`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
 
 **`usable_ranges` is a measurement, and an absent one is EMPTY - never the whole clip.**
-[why](docs/RULE_EVIDENCE.md#usable-ranges-were-the-whole-clip)
-
-- `[]` with method `unmeasured` means nobody looked; `[]` with method `deterministic_v1` means the clip was measured and none of it is usable. `usable_ranges_summary` renders the two differently and neither as a blank cell.
-- The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
-- `picture_quality.py` samples at 5 Hz, reports runs of 0.6s or longer. **State that bound when you report a verdict.**
+Detail: `library/tools/analysis/picture_quality.py`. [why](docs/RULE_EVIDENCE.md#usable-ranges-were-the-whole-clip)
 
 **Camera steadiness has ONE reading, and it says which signal answered.**
-`library/tools/camera_stability.py`.
-[why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
-
-- **The residual lives at `camera_motion_decomposition.values[].residual`.**
-- **The thresholds are read off the INSTRUMENT, not fitted to a project.** `MEASURED_ON_001` attaches that project's distribution and the VLM cross-check as a CHECK, with the caveat that one project is a thin basis and no render has been made against them.
-- **Every label carries `camera_stability_method`** - `optical_flow_residual`, `motion_energy_std` or `unmeasured` - because a method field travels with the number it qualifies. A document written before the field existed reads `unrecorded`, which is a different claim from `unmeasured`.
-- `tests/test_camera_stability.py`.
-- **The DISPLAY reads the method, not the ranges.** `usable_ranges_summary` answers "unmeasured" whenever the method says so, whatever the ranges hold, and `adapt_semantic_document` REPLACES a stale `usable_portions` rather than deferring to it. Same read-side shape as `stability_summary` treating the literal `"unknown"` as absent - neither writes to the stored document.
+Detail: `library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
-`compute_deterministic_assessment` is where the deterministic half is decided and `tests/test_assessment_reports_no_default_as_measured.py` is the sweep, kept executable: the assessment is computed with nothing to measure and every field it produces must be an admitted absence. The family was found one field at a time, so assume another exists until the sweep says otherwise. [why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
-- **An empty `speech_regions` list is not a measurement of silence.** `detect_speech_regions` returns `[]` both when WhisperX ran and heard nothing and when it raised. **`speech_present` is `True` or `None`, never `False`**, and `speech_coverage_method` says `temporal_index` only once a coverage has been computed.
-Every field of `compute_deterministic_assessment` with nothing to measure must be an admitted absence. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 
-- **`speech_present` is `True` or `None`, never `False`.**
-- **An answer that came back without a key is not an answer of `[]`.** `primary_subject_visible` is `None` when the model omitted it and `[]` only when the model really said the subject is nowhere.
-- A rendering of an absent measurement is not a measurement either: `_derived_clip_type` returns `""` for a `content_type` of `"unknown"` rather than classifying the clip `b_roll`.
-- **A method field travels with the number it qualifies.** The four manifests routing `assessment.usable_ranges` route `usable_ranges_method` beside it, and 2.02 routes `speech_coverage_method` beside `speech_coverage`; an allow-list that selects the number alone cannot tell a measurement from a default.
+Every field of `compute_deterministic_assessment` with nothing to measure must be an admitted absence. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+
 ### 10.4 Gates, and what counts as evidence
 
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
 **Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
-One enumeration, `library/tools/passage_engagement.py` - `engagement_rank`, `engagement_basis`, `unjudged_summary`. Step 2.02's handoff asks for `engagement` on every passage it selects: `{rank, basis}`, ranked against that sequence and nothing else.
+Detail: `library/tools/passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
-- **The 0-100 composite is WITHDRAWN** (captain, 2026-09-02), along with `engagement_of`, the reader that read it: only the ordering was ever consumed, and the number beside it read as magnitude it did not have. `MEASURED_SPREAD` keeps the measurement that settled it - between answers to the identical prompt, ranks in the middle moved two places and the composite moved twenty points. Do not reintroduce a magnitude reader without a step that MEASURES one.
-- **Compare ranks, and only near the top.** [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
-- **A rank is comparable only inside ONE speech_sequence.** It is the model's ordering over the passages it chose, not a scale.
-- **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated. `engagement_rank` returns **None**; never coerce it to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
-- **Step 2.02 names no roles and no opener.** The closed `opening|development|climax|resolution` vocabulary, the separately mandated `hook_segment` and its 1-3 second target all went on the same ruling: the model proposes the structure the footage wants. What survived is one ORDERED `body_sequence`, and every consumer works from that ordering - `mesh_spine` addresses a passage by its `position` (never by a role name), and 5.03's engagement observation compares the play order against the rank order.
 `tests/test_passage_engagement.py`.
+Detail: `library/tools/passage_engagement.py`.
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.**
-One enumeration, `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
-
-- `ACTIONABLE_AT_COHESION` is the (state key, field) pairs `compile_manifest.apply_cohesion_adjustments` really rewrites - today `transition_spec.duration_frames` alone, because a duration moves no cut point, clip boundary or subtitle. Only these reach `adjustments`.
-- `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. It carries **no `suggested_value`** (§10.5).
-- A pair in neither list RAISES, so a new finding has to say which side it is on.
-- **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/test_cohesion_scope.py` drives the real applier against both lists.
-- **An empty `adjustments` SAYS which absence it is.** `cohesion_scope.adjustments_basis` spells `no_proposal_was_made`, `every_proposal_was_owned_upstream` and `adjustments_were_made` differently, and travels onto the manifest's record as `basis`.
-- **`cohesion_score` is REMOVED, not recomputed.** [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
+Detail: `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
 **A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
-`tests/skip_audit.py` is the enumeration and `tests/test_no_unfailable_tests.py` runs it; the runtime half is the session hook in the repo-root `conftest.py`, which FAILS a run reporting a skip no `EnvironmentCondition` declares.
-
-- `ENVIRONMENT_CONDITIONS` is measuring instruments and external applications only. **A condition that reads THIS REPOSITORY'S contents is not an environment.** [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
-- The source half also fails a test whose body is `pass`, or whose whole body is a `try` swallowing every exception.
-- Run it alone with `python3 -m pytest tests/test_no_unfailable_tests.py -q`.
+Detail: `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
 
 **A gate that FAILS correct output is no more coverage than one that cannot fail.**
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
 **Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
-An eighth, a face cut by the frame edge, is measured on the render and gates through the same `framing` check (§10.3).
+Detail: `library/tools/render_qa.py`.
 
 `render_qa.py` measures the RENDER:
-
-- the picture fills the delivery frame and keeps ONE GEOMETRY PER DECLARED FRAMING
-  (`measure_frame_occupancy`).
-  **A letterbox bar is BLACK, FLAT and CONTIGUOUS FROM AN EDGE, and darkness alone does not make
-  one.** A row joins a bar only while it carries no light (`BAR_ROW_MAX_LUMA`), has near-zero
-  variance along itself and matches the row before it; the walk runs inward from the top and
-  bottom boundaries and stops at the first row that is picture.
-  [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
-  **DARK is a range and BLACK is a value, and the variance half cannot carry the difference on
-  its own.** A graded shadow at 4K is flat to within a luma level, so on the captain's craft
-  reference 478 of 2418 samples read as letterboxed and the gate failed a correct 20-minute
-  master by twenty times its own bound. A real bar measures a row mean of 0.000-0.14 against a
-  shadow's 8.5; the level bound is the half that separates them, and the variance bound stays
-  because it is what separates a bar from a dark picture on OUR footage.
-  **A picture inset in black on ALL FOUR SIDES is a COMPOSITION, not a conform**, and carries no
-  geometry: fitting one rectangle inside another leaves bars on one axis, never both. Such a
-  frame is counted out and named, the way an entirely black one is - and a frame with no picture
-  is judged by `blackdetect`'s own predicate (`_frame_is_black`), not by the bar walk eating the
-  whole frame. [why](docs/RULE_EVIDENCE.md#a-dark-picture-is-not-a-black-bar)
-  **Every sample is attributed to the clip playing over it** through `framing_spans`, which step
-  6.02 builds off the manifest's `framing_delivered` (§10.3) with V2 winning an overlap. The fill
-  floor applies to the FILL stretches and the consistency bound applies WITHIN each declared
-  framing - never switch the consistency half off for a video declaring more than one framing.
-  [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
-  **An OVERLAY is not picture, and WHERE IT IS is read off the overlay, never guessed.** Overlay
-  ink is neither dark nor flat, so the bar walk stops at it: 001's bottom bar read 347 rows under
-  a caption and 656 without one, on a picture that never changes size. **Two fixed geometries
-  have failed and a third must not be written.** The full width read every caption as picture;
-  the strips outside a CENTRED caption box read the progress bar and the emphasis elements as
-  picture, because every element `MotionGraphics/index.tsx` draws is laid out from the safe
-  area's own left (90) and right (120) edges and glows past them - measured on 001's real render,
-  ink at column 71, inside a 120-column strip AND inside a 90-column one, so narrowing the strips
-  to the asymmetric insets fixes neither. Step 6.02 hands `measure_frame_occupancy` the manifest's
-  own overlay segments and every pixel their ALPHA says they drew is masked out of the walk.
-  **THREE READINGS**: segments given is exact; `[]` says this render carries no overlay and is
-  exact; None says nobody asked, is measured full width and SAYS so on the result. A row the ink
-  leaves under `MIN_OVERLAY_FREE_COLUMNS` pixels of is UNREADABLE and is resolved from whichever
-  side the walk reaches next - counting it as bar would shrink a filling picture by the height of
-  a bar drawn over it - and a frame with no readable row is counted out and named, never entered
-  as 100%. The gate is not weakened: it still fails a picture that genuinely changes size under a
-  full-width overlay.
-  And `_stream_raw_frames` asks ffmpeg for `fps=N:round=up`, because the default `round=near`
-  emits the LAST input frame to claim a slot - up to half a sample period after the label,
-  which put a cutaway starting at 32.067s into the sample the A-roll clip before it owns.
-  [why - both, measured on 001's correct render](docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render)
-- colour exists somewhere in the frame (`measure_chroma_presence`);
-- speech sits above the bed (`measure_speech_above_bed`);
-- the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`);
-- no picture plays over digital silence (`measure_silence_under_picture`).
-  **Picture with nothing at all on any track is a defect on its own terms**, and it had no
-  detector: `detect_black_frames` asks whether the picture went away, `verify_audio_streams` only
-  that a stream exists, and `measure_lufs` barely moves on an 11% hole. 001 shipped 6.312s of
-  exact digital zero, 11.1% of its runtime, including the last four seconds; the craft reference
-  has 0.783s in twenty minutes, all of it over black.
-  **The gate is DIGITAL ZERO alone, and it needs no taste**: the level is the delivery
-  quantisation (a 16-bit sample is zero under half an LSB) and the duration floor is the timebase
-  (§10.5's two frames). Black is not picture, so a fade or a declared beat is exempt by
-  measurement rather than by rule.
-  **How quiet a declared quiet moment may be is the captain's** (`craft-silence-under-picture`),
-  so `NEAR_SILENCE_LADDER_DBFS` is REPORTED at every rung and gates at none. Do not encode a
-  near-silence level here.
-  **Silencing the MUSIC is not silencing the FILM.** `music_behavior: silent` is a legitimate
-  decision (§10.5) and is not a declaration that the master carries nothing; nothing excuses a
-  run today because no declaration exists to read. [why](docs/RULE_EVIDENCE.md#the-render-that-ended-on-four-seconds-of-nothing)
+Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 
 **`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
-A caller with no spine gets the whole-timeline measurement and the result says which it made.
+Detail: `library/tools/render_qa.py`.
 
 `manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
-
-- P6 exempts the last card in its block (ending where the block does) and reports it. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
-- P7 judges DRAWN effects only. `CUT_TYPES` draw nothing; denominator is the transitions the plan wrote, not `len(v1_clips) - 1`. [why](docs/RULE_EVIDENCE.md#hard-cuts-are-not-an-effect-on-everything)
+Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
 
 Chroma and the mix REPORT A NUMBER and pass.
-Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATES`); do not turn them into gates by another route. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+Detail: `library/tools/render_qa.py`. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
 
 `SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION.
-Do not flip the boolean without changing one of the two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
+Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.**
-`music_behavior.SEPARATION_TARGETS_DB` is EMPTY - no behaviour declares a separation.
-`measure_speech_above_bed` reads a declared target or falls back to clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result.
+Detail: `library/tools/music_behavior.py`.
 
 **The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
-`measure_speech_above_bed` takes `music_offset_seconds` positionally with no default; `run_full_render_qa` declines P3 when it is None. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
+Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 
 **The bed is bounded by the PICTURE, not by V1.**
-`compile_manifest` clamps a music clip that runs past the last picture, and the bound is V1 AND V2. It was V1 alone; the gap measured at -91.0 dB. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
+Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
 
 **The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
-Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN track's SCALARS onto `music_selection.measurements` through `music_measurement.selection_measurements`, and step 5.02 reads them and records `bed` plus a per-window `bed_level_after_gain_lufs` - the bed's integrated loudness plus the clip gain, which is arithmetic and not a decision.
+Detail: `library/tools/music_measurement.py`.
 
-- **Only scalars travel.** `music_selection` is declared whole by `plan_transitions` and `mesh_spine`, so the envelope curve and the section table would land in two prompts (§10.1). `WITHHELD_FROM_THE_SELECTION` records both with the reason, and an unaccounted measurement key raises at import.
-- **An unmeasured bed is an admitted absence**: `measured: false` with its reason, no level at all, and `bed_level_after_gain_lufs` None - never 0.
-- **The separation a window will DELIVER is predicted, and the separation it OUGHT to deliver is not supplied.** `library/tools/speech_loudness.py` measures the speech with one ffmpeg `loudnorm` pass per block over the ranges `a_roll_assignments` names - 0.23 s a block, measured, so 1.2 s for 001's eight - and 5.02 records `speech_lufs` and `separation_delivered_db` per window. **Measure and expose; never choose.** `SEPARATION_TARGETS_DB` is still empty and the master loudness target is still the captain's, so nothing compares the delivered number with anything. A block whose speech could not be measured records the reason and `None`, never 0.
-- Step 5.02 declares `audio_spine` and `music_selection` and nothing else. Re-declaring `creative_direction` or `enhancement_spec` needs a reader in the same commit.
-- `tests/test_mix_reads_the_bed.py`.
-The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
-A declared letterbox is exempt from the fill floor and never from the consistency half.
-`tests/test_baseline_craft_properties.py`.
 **Every QA finding has a reader, and one that has none is reported.**
-One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
+Detail: `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 
-- **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
-- **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source.
-- **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
-- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of both producers and checks BOTH directions.
-- **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. They carry their own legend, because `handoff.md` is frozen (the `CUTS_LEGEND` route), and the legend says plainly that a finding is not grounds to reject a rough cut.
-- `tests/test_qa_findings_reach_a_reader.py`.
 **The rough-cut review's own answer has a reader, and it has two halves.**
-`review_rough_cut` (3.03) is asked for `cut_decisions` on every run.
-One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
+Detail: `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
 
-- **A row that names a CUT goes to step 4.02**, folded onto `cuts_toon` as `narrative_verdict` and
-  `verdict_note` keyed on `cut_point_position` - the identifier both tables already share, so there
-  is no join. `CUT_VERDICT_LEGEND` defines the two columns as DATA, because `handoff.md` is frozen
-  (the `CUTS_LEGEND` route). **4.01 `plan_subtitles` cannot be the reader**: it is `deterministic`
-  and has no prompt at all.
-- **A row that names NO cut goes to the run summary**, printed after `status` is decided. A route
-  back to the owning step does not exist and is stated rather than quietly closed.
-  **Nothing is filtered by `decision`, `scope` or severity**: whatever picks which findings matter
-  becomes the reviewer.
-- **An unjudged cut reads `unjudged`, never `smooth`.** `verdict_of` returns None, and how many cuts
-  went unjudged is SAID (`cuts_unjudged`) rather than inferred from a column. A word outside
-  `smooth`/`acceptable`/`jarring`/`broken` is carried VERBATIM and marked `unrecognised` -
-  `WITHDRAWN_READINGS` records why dropping it and why mapping it onto the nearest word are both out.
-- **The verdict decides nothing.** No rule turns `jarring` into a transition; the column is data and
-  the model still chooses (10.5).
-- **3.03's one input that is a MEASUREMENT rather than an upstream decision is `temporal_index`**, and
-  it reads it as `view:transcript` - its Check 5 requires a script "derived from actual temporal
-  index data, not from the speech_sequence's intended text", so the projection must not delete it.
-  **The remaining self-review is not in the DAG - it is that one agent answers 2.02, 2.05, 3.02 and
-  then 3.03 under `--full-auto agy` (10.1). Closing that needs a different answerer, not an edge.**
-- `tests/test_cut_decisions_reach_a_reader.py`.
 ### 10.5 Creative latitude
 
 **The pipeline never invents a creative judgement on the model's behalf.**
@@ -1084,115 +784,38 @@ A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect,
 - Dead code that states taste is removed, not left.
 
 **There are NO creative floors, and there must not be again.**
-[why](docs/RULE_EVIDENCE.md#no-creative-floors)
-
-- **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`). Add a planning step, add it there.
-- **A floor in a BRIDGE is a floor.** [why](docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan)
-- **A floor that CUTS is still a floor.** `audio_reactive_sfx.scale_sfx_density` deleted half the plan's impacts because a constant said the piece was "moderate". Deleted, not unwired.
-- **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output.
-- A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
-- `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
-- **A floor in a REVIEW step is still a floor.** `creative_cohesion` (5.03) reports the counts under `cohesion_review.measurements` and judges none of them; a pace check there needs a pace the creative direction DECLARED, which no step emits. **The step is therefore a pure OBSERVER**: every proposal it can still make routes to `OWNED_UPSTREAM`, so `adjustments` is empty for every input at every energy (#272). `ACTIONABLE_AT_COHESION` has an applier and no producer, which `library/tools/cohesion_scope.py` states and `tests/test_cohesion_scope.py::test_the_step_is_a_pure_observer` pins off the step's own source. **Do not read an empty `adjustments` as a clean bill of health.**
-- **How long a drawn transition holds comes from the PLAN.** The handoff asks for a `duration_feel` on every one; step 4.02's post-bridge renders that word into frames. A brand template's `transition_duration_ms` `{min, max}` is a RANGE, so it BOUNDS that choice and never replaces it; a scalar is a declared length. A drawn transition that neither declares is DROPPED with the reason, not held for a constant.
+Detail: `tests/test_no_creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
-`load_sfx_catalog` merges `sfx_index.json`, `library_semantic.json` and `profiles/*.json` into one row per playable sound; step 4.04's bridge puts a REFERENCE in the prompt as `sfx_catalog_reference`.
-The answer names an `sfx_id` out of it. [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
+Detail: `library/tools/sfx_library.py`. [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
 
-- **There is no type vocabulary and no keyword matching.** `TYPE_KEYWORDS`, `match_sfx_file` and `available_sfx_types` are deleted, not unwired.
-- **An entry that is not on disk is not in the catalogue**, and `resolve_sfx_id` matches EXACTLY. No nearest neighbour: a near match is a chooser.
-- **A plan naming a sound the library has not got fails in step 4.04**, whole and by name, never by dropping the entry.
-- **Step 5.04 PLACES; it does not choose.** The plan carries `sfx_id`, `source_file` and `source_in`, and `compile_manifest` reads them.
-- A sound's PLACEMENT is keyed on its measured `envelope_shape`, never a per-type constant.
-- **HOW LOUD a sound plays is the plan's own `volume_db`, and no layer substitutes one.** One enumeration, `library/tools/sfx_level.py`. The four-word ladder `VOLUME_MAP` (`subtle|low|medium|prominent` -> -18|-14|-10|-6) is REMOVED on the ruling that removed `INTENSITY_MAP`, `TRACK_LEVELS["A3_sfx"].base_level_db` (-12, *"Subtle - felt more than heard"*) and `A4_transition_audio` are REMOVED, and `compile_manifest`'s `get("volume_db", -14)` is gone. **Nothing is renumbered** - `WITHDRAWN_VOLUME_LADDER` and `WITHDRAWN_TRACK_LEVELS` are the record. An entry naming no level is DROPPED with the reason. **The model can only reason about a relationship it can see**: `bed_under_it` already said what the bed does under the block, and `SPEECH_REFERENCE_LEGEND` adds the other end - speech (A1) is the reference at 0 dB - as the definition it is, never as a target. `tests/test_sfx_level.py`.
-- **How long a sound plays is the PLAN's decision, BOUNDED by what the file measures.** One enumeration, `library/tools/sfx_duration.py`. `duration_seconds` is optional; declaring none plays the whole sound. A request past the file's measured length is REFUSED BY NAME and never clamped. **The only floor is the timebase** - two frames - and no minimum may be added. **A sound cut short carries a one-frame de-click ramp** (`otio_mix.declick_curve`). [why](docs/RULE_EVIDENCE.md#the-plan-could-not-say-how-long-a-sound-plays)
-- **The whole library ships and nothing is shortlisted.** The library's FAISS index and per-entry `embedding` go unused.
-- **What a sound's measured ENVELOPE buys is written down, in ONE place.** `library/tools/sfx_envelope.py`. [why](docs/RULE_EVIDENCE.md#the-catalogue-column-nobody-said-was-read) The library profiles `punchy`/`swelling`/`fading`/`sustained` per sound and step 4.04's post-bridge KEYS ITS PLACEMENT on that word - **a `swelling` sound is anchored by its END so its climax lands on the moment, which is what a build IS and the engine already does it**. Nothing said so: the catalogue map printed an `envelope` column and never named a reader, and 001 shipped two 0.3-0.5s camera shutters, layering nothing, on a planner that judged the library *"built for a different kind of edit"*. `post_bridge._describe_placement` and the prompt's `sfx_envelope_legend` are rendered from the SAME table, so they cannot drift.
-- **What the library HOLDS is counted, not asserted.** `sfx_envelope.library_shape` measures per envelope on every run - on the captain's library 2026-09-03: 78 sounds, 42 `swelling`, 31 of those 2s or longer, longest 76s. A catalogue ordered by folder reads like its folder names. **It counts and recommends nothing**; whether a moment earns a sound is the sound editor's, and `craft_role` is where that role is stated (§3).
-- `tests/test_sfx_envelope.py`, `tests/test_sfx_layering_and_build.py`.
-- **It ships BY REFERENCE, through the mechanism `brief_reference` already built (#295, see 10.1).** `sfx_library.catalog_document` is the shape - one `##` section per sound, titled with the exact `sfx_id` an answer must name and opening with the sound's measured facts, so the map names **every sound by id with category, length, envelope and temperature** and a LINE RANGE for the prose. **A reference that narrowed the menu would be the shortlist problem again.** [why - the measured inline and map sizes](docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt)
-- `library/steps/step_4_04_plan_sfx/handoff.md` is frozen and its toolkit table still names `foley`, `ambient` and `reverse_cymbal`, which the library cannot play. They name nothing the model can emit - the schema asks for an `sfx_id` - but the table is the captain's to correct.
-- **It ships BY REFERENCE** (§10.1). `sfx_library.catalog_document` is the shape - one `##` section per sound titled with the exact `sfx_id`. **A reference that narrowed the menu would be the shortlist problem again.** [why](docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt)
-- A sound and a transition are named by the SAME identifier, `spine_block_position`, so `transitions_toon` is keyed by the block a cut leads into and pairing them needs no join.
-- **The candidate table says what the BED is doing under each block**, as `music_behavior` and `bed_under_it` with `sfx_candidates_legend` beside them (`music_measurement.bed_under_block`). **It states a LEVEL and never a TARGET**: what separation a sound should have is the same undeclared decision `SEPARATION_TARGETS_DB` is empty for.
-- **A non-speech block names no `clip_id` on the spine, and that is not un-measurability.** `library/tools/broll_coverage.py` is the join: 4.03 gets a real camera description of the cutaway, and this table gets an ADMITTED ABSENCE because a cutaway is placed `video_only`.
-- `tests/test_sfx_choice_from_the_catalogue.py`, `tests/test_sfx_duration.py`, `tests/test_sfx_catalogue_by_reference.py`, `tests/test_sfx_hears_the_bed.py`, `tests/test_broll_coverage_reaches_the_tables.py`.
-**Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
-The bridge catalogues `PIPELINE_MUSIC_LIBRARY` **and** the project's `music/` and picks nothing.
-The post-bridge judges source, catalogue membership, duration plausibility and a justification naming the registers the creative direction forbids.
-Choosing from OUTSIDE the library is legitimate and stays allowed.
+**Music selection is one enumeration, `library/tools/music_selection_contract.py`.** **and**
+Detail: `library/tools/music_selection_contract.py`.
 
 **Nothing refuses a track on rights, and no rights model may be built.**
-Captain's ruling 2026-08-28: *"just assume for everything that you already have a licence ... so song choices need to be made on creative decisions - not if a license exists or not"*.
-Where a track came from is RECORDED as `provenance` - the query, the URL, the channel, and whatever the platform stated - and read by nothing.
-`tests/test_music_search.py` fails if any code path branches on a licence.
+Detail: `library/tools/music_search.py`.
 
 **Search is one enumeration, `library/tools/music_search.py`, and it runs by default.**
-Captain's ruling of 2026-09-02: search should run by default rather than waiting on a flag nobody sets.  When a project declares no `pipeline.music_search`, the query is derived from creative_direction's `target_mood` and `narrative_theme` - the model's own words from step 2.01.  A project that sets `pipeline.music_search: false` declines search explicitly.  When search does not run for any reason, the run says so LOUDLY rather than quietly presenting the on-disk files as the whole menu.
-
-- **Queries default to the model's words from creative_direction.** A project that declares `pipeline.music_search` with explicit `queries`, `results_per_query` and `fetch_limit` still gets exactly what it asked for and overrides the defaults.
-- **A result is judged on duration BEFORE anything is downloaded**, off the metadata the search returns for free.
-- **A fetched candidate is MEASURED before the model sees it**, through the same `measure_candidates` pass a local track takes, and it is fetched through `download_track.download_audio` - the one fetch path.
-- `yt-dlp` is in `requirements.txt` with a measured version floor. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
-- `tests/test_music_search.py`, and [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5 for the table.
+Detail: `library/tools/music_search.py`. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
 
 **Two candidates that are the same recording are established from the MEASUREMENTS, never the filename.**
-`library/tools/music_duplicates.py`. [why](docs/RULE_EVIDENCE.md#a-third-of-the-choice-set-was-a-copy)
+Detail: `library/tools/music_duplicates.py`. [why](docs/RULE_EVIDENCE.md#a-third-of-the-choice-set-was-a-copy)
 
-- The tolerance is measured, not picked: 1.0 dB.
-- `true_peak_dbtp` is NOT compared, and `DECLINED_SIGNALS` says why: lossy coding moves it most and it says least.
-- **A duplicate is MARKED, not dropped.**
-- `tests/test_music_duplicates.py`.
 **Which SECTION of the track plays is the model's decision, and there is no best-section rule.**
-`library/tools/music_section.py`. [why](docs/RULE_EVIDENCE.md#the-splices-that-reached-nothing)
+Detail: `library/tools/music_section.py`. [why](docs/RULE_EVIDENCE.md#the-splices-that-reached-nothing)
 
-- The model is asked for `section: {source_in, why}` through the manifest's `interface.llm_outputs`, which is what builds the injected schema; `handoff.md` is frozen and is not touched.
-- It decides from `music_measurement.track_sections` - one row per playable span of the track, with its mean level and spread. A DESCRIPTION at the granularity of what plays, not a menu and not a ranking.
-- **A selection that declares none plays from the head of the file, and that is the ABSENCE of a decision** - the same reading `CUT_TYPES` and `NEUTRAL_CDL` get.
-- **The beat grid moves with it.** `beat_positions`/`downbeat_positions` take the selection and return TIMELINE time; the argument is required, because a default of "no offset" is the value that is silently wrong. `assert_music_offset_is_the_chosen_section` holds the other end. `plan_sfx` is routed `music_selection` for this.
-- `resolve_section` RAISES rather than sliding a section back to fit: moving the start is choosing which part plays.
-- `UNSUPPORTED_BY_THE_MEASUREMENTS` records what a section choice cannot yet see - the bar lines, whether it has vocals. Say what is missing; do not fill it with a rule.
-- `tests/test_music_section.py`.
 **The bed is a SEQUENCE, not one continuous minute of one track.**
-One enumeration, `library/tools/music_bed.py`. Captain, 2026-09-01: *"we can use bits and pieces, or multiple tracks, and splice pieces from different tracks"*. `music_section` is unchanged and is still what a plan declaring no bed gets.
+Detail: `library/tools/music_bed.py`.
 
-- **The decision has TWO halves and they live in two steps.** 2.04 chooses the PIECES, in source time only (`splices`, each naming a track; `tracks` names every chosen track beyond the primary) - it runs before the spine exists and cannot name a timeline position. 2.05 `mesh_spine` CONDUCTS them (`music_bed`), because it is the first step holding the spine, the tracks and the analysis together.
-- **A segment is anchored to a SPINE BLOCK POSITION and runs until the next one comes in.** That is what is representable, not a taste ruling: the model at 2.05 is authoring block DURATIONS (absolute seconds are computed afterwards and frame-snapped), and 2.05's `context_fields` drops `tempo.beats`/`downbeats`, so it cannot see a beat time. `THE_SNAP_QUESTION` records what beat alignment would cost - a derived table routed in, the `cuts_toon.beat_near_cut` route, plus a snap pass. **Nothing snaps a boundary to anything.**
-- **A splice with no declared `crossfade_seconds` is a HARD splice** - the absence of decoration, the `CUT_TYPES`/`NEUTRAL_CDL` reading - and no length is invented for one.
-- **A declared crossfade is a real OVERLAP**: the outgoing piece plays past the boundary while the incoming one plays from it, `otio_mix.music_curve` ramps one down and the other up, and the renderer's `_allocate_audio_tracks` spreads the bed across A2, A3, ... exactly as it already does for SFX - with the SFX bucket starting above whatever the bed used. **A2's overlap check allows exactly the declared fade and nothing else**, in `compile_manifest` and in `manifest_validator`.
-- **The beat grid has one offset PER SEGMENT.** `music_analysis` measures the PRIMARY track only, so a beat is on the timeline only where that file plays; `beat_positions`/`downbeat_positions` take the spine and the duration for this.
-- `tests/test_music_bed.py`, `tests/test_spliced_bed_reaches_the_manifest.py`.
 **The envelope is measured for the sections the model SHORTLISTS, in a second pass.**
-One enumeration, `library/tools/second_pass.py`. Captain's choice: *"Two-pass: summaries first, envelope for the section the model names."* `measure_track` buckets seconds 0 to the length of the edit and nothing else, so the richest evidence described only the head of every track - the answer the section feature exists to move away from.
+Detail: `library/tools/second_pass.py`.
 
-- Pass one offers `track_sections`' scalars; the answer's `section_shortlist` names the sections it is weighing - **SEVERAL of them, across several tracks, because the bed is a sequence**; `music_measurement.section_envelopes` measures those and only those, one decode per FILE; pass two chooses with them in front of it and that answer stands.
-- **A post-bridge ASKS by returning `REQUEST_KEY`**, which is SPLIT OUT of the answer before anything validates it. The runner carries it the way `post_bridge_retry` carries a violation - **extend that path; do not build a third one** - and tells the post-bridge which pass it is on via `PASS_KEY`.
-- **Bounded at one extra pass, and at the bound the request is IGNORED and the answer STANDS.** Unlike a contract rejection, an unanswered second pass leaves a valid output.
-- `tests/test_second_pass.py`.
 **Which SECONDS of a chosen cutaway play is decided from the PICTURE, never from its audio.**
-One enumeration, `library/tools/cutaway_window.py`. A cutaway is placed `video_only: True`. [why](docs/RULE_EVIDENCE.md#the-cutaway-window-came-from-a-muted-waveform)
+Detail: `library/tools/cutaway_window.py`. [why](docs/RULE_EVIDENCE.md#the-cutaway-window-came-from-a-muted-waveform)
 
-- `AUDIO_SIGNALS` is the enumeration of what may not reach the decision, and `tests/test_cutaway_window.py` reads the SOURCE of both the module and step 3.02's post-bridge.
-- **The candidate spans are scene boundaries UNION the vision pass's time-bounded `blocks`.**
-- **The model's own `preferred_moment` chooses**, matched against what the vision pass observed
-  during each span. The engine resolves words to seconds; it does not decide that a busier or
-  brighter span is better.
-- **`DECLINED_TO_RANK` records every signal that is measured and deliberately not ranked on** - `motion_energy`, `camera_motion`, brightness, saturation and face presence.
-- **Every basis is recorded on the placement** as `window_basis`. `single_span` and `undiscriminated`
-  are the ABSENCE of a decision and are spelled differently from `moment_match` so a reviewer can tell.
-- **`usable_ranges` is read through its METHOD** (§10.3): a measured range excludes a window outside
-  it, an `unmeasured` one filters nothing.
-- The candidate rows plus `CANDIDATE_LEGEND` are the shape a prompt would carry, so letting the model
 **Every candidate is MEASURED, and nothing about it is classified.**
-`library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
+Detail: `library/tools/music_measurement.py`. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
 
-- **The measurements ship with `MEASUREMENT_LEGEND`**. It defines what a key IS; it never says what to conclude.
-- **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way.
-- `DECLINED_MEASUREMENTS` records what was left out and why (2.06 measures tempo after the choice). [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
-- The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4.
-- The played window's envelope is the section starting at 0; `track_sections` is how every other span compares.
-- **Where the candidates come from**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5.
-- `tests/test_music_measurement.py`.
 ## 11. Third-Party Asset Licenses
 
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**

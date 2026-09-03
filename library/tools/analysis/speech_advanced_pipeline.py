@@ -31,6 +31,19 @@ Redundant components removed:
 
 Input:  { "audio_files": [{"path": "...", "clip_id": "..."}], "output_dir": "..." }
 Output: Per-clip JSON with prosody data
+
+
+Rules relocated from AGENTS.md 10.3
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.3 keeps the headline
+and points here.
+
+**A file on disk is not a measurement.**
+Judge a step by what it MEASURED.
+`speech_advanced_pipeline` raises `ProsodyUnavailable` and writes nothing rather than recording an error as a result; step 1.05 rejects a hollow profile and reports `available: false`, which `check_output_is_real` reads as a failed step. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
+[why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
 """
 import json
 import os

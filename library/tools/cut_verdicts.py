@@ -110,6 +110,39 @@ The manifest now states the shape, and the reader still accepts that one -
 ``cut_point_position`` names, and ``rating`` carries the same four words.
 Reading the answer the pipeline really produced is not the same as mapping
 a synonym onto a vocabulary word: the KEY moves, the VALUE is untouched.
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**The rough-cut review's own answer has a reader, and it has two halves.**
+`review_rough_cut` (3.03) is asked for `cut_decisions` on every run.
+One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
+- **A row that names a CUT goes to step 4.02**, folded onto `cuts_toon` as `narrative_verdict` and
+  `verdict_note` keyed on `cut_point_position` - the identifier both tables already share, so there
+  is no join. `CUT_VERDICT_LEGEND` defines the two columns as DATA, because `handoff.md` is frozen
+  (the `CUTS_LEGEND` route). **4.01 `plan_subtitles` cannot be the reader**: it is `deterministic`
+  and has no prompt at all.
+- **A row that names NO cut goes to the run summary**, printed after `status` is decided. A route
+  back to the owning step does not exist and is stated rather than quietly closed.
+  **Nothing is filtered by `decision`, `scope` or severity**: whatever picks which findings matter
+  becomes the reviewer.
+- **An unjudged cut reads `unjudged`, never `smooth`.** `verdict_of` returns None, and how many cuts
+  went unjudged is SAID (`cuts_unjudged`) rather than inferred from a column. A word outside
+  `smooth`/`acceptable`/`jarring`/`broken` is carried VERBATIM and marked `unrecognised` -
+  `WITHDRAWN_READINGS` records why dropping it and why mapping it onto the nearest word are both out.
+- **The verdict decides nothing.** No rule turns `jarring` into a transition; the column is data and
+  the model still chooses (10.5).
+- **3.03's one input that is a MEASUREMENT rather than an upstream decision is `temporal_index`**, and
+  it reads it as `view:transcript` - its Check 5 requires a script "derived from actual temporal
+  index data, not from the speech_sequence's intended text", so the projection must not delete it.
+  **The remaining self-review is not in the DAG - it is that one agent answers 2.02, 2.05, 3.02 and
+  then 3.03 under `--full-auto agy` (10.1). Closing that needs a different answerer, not an edge.**
+- `tests/test_cut_decisions_reach_a_reader.py`.
 """
 
 #: The vocabulary, in the order step 3.03's frozen ``handoff.md`` states

@@ -1,3 +1,41 @@
+"""
+Where a project's brand template and its own declarations come from.
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A project's brand template reaches the run through `state["brand_template"]`.**
+`library/tools/brand_registry.py` is the whole vocabulary: `project_template_name`, `resolve_template_reference` (raising on missing) and `reference_template_name`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
+The key is spelled three ways and they are not interchangeable:
+- `state["brand_template"]` is the REFERENCE string.
+- `inputs["brand_template"]` is the RESOLVED TEMPLATE DICT, and reaches only a step whose manifest declares it (step 5.01 does `brand_template.get("style")`).
+- `inputs["brand_style"|"brand_effect"|"brand_content"]` are the slot dicts.
+
+**A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
+`library/tools/brand_registry.no_brand_template` is what an empty declaration resolves to - every creative slot empty - and `ABSENT_SLOT_READINGS` records what each consumer does with it. `describe_brand_absence()` is printed once per run. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+- **`library/templates/default_brand.yaml` is a template a project must NAME**; an empty declaration does not resolve to it, and naming it is what makes its values a brand decision.
+- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no grade (§12), no exposure normalisation, the whole drawable vocabulary permitted, nothing bounded. Add a slot, add its row. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
+- **`effect.caption_case` is the one creative value that survives absence**, recorded as an exception rather than left implicit.
+- Two slots have NO READER and no template value should state one: `content.music_genre` and `effect.sfx_density`.
+
+**A project's own declarations reach every step through `state["project_config"]`.**
+`brand_registry.project_declared_config` reads them off project.yaml, `load_pipeline_state` puts them in state and the runner's whitelist broadcasts them. Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
+Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
+- `target_duration_seconds` is the one with readers. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+- `library/tools/duration_targets.get_target_duration_zone` returns **None** when neither the project nor a selected template declares a target, and each caller says it did not check. There is no fallback zone.
+
+**A brand's CONSTRAINTS reach three planning steps, and a step has two names.**
+`TemplateLoader.get_brand_constraints` gives `creative_direction` a palette and typography, `plan_transitions` the permitted transition vocabulary and `plan_vfx` a VFX intensity - as prompt text, not as an input key.
+`library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, checked against the step table at import.
+- **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them.** `library/tools/project_layout.node_id_for` is the ONLY translator. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
+- The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
+- `tests/test_brand_constraints_reach_the_prompt.py`.
+"""
+
 import os
 import json
 from dataclasses import asdict

@@ -9,6 +9,17 @@ Three operations, and the third is what licenses the other two.
                to what the runner really wrote, byte for byte.  If it
                cannot reproduce the past it cannot be trusted to compare
                futures, so `verify` is a gate and not a report.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A step's decision must be SOURCED from its own context.**
+Judge routing by the assembled context, never by whether the run came out right. Check with `library/tools/replay_bench`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced) `tests/test_pacing_and_sfx_are_not_remembered.py`.
 """
 
 from __future__ import annotations

@@ -8,6 +8,20 @@ audit that cannot fail is the thing it was written to stop.
 Run the source half on its own:
 
     python3 -m pytest tests/test_no_unfailable_tests.py -q
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
+`tests/skip_audit.py` is the enumeration and `tests/test_no_unfailable_tests.py` runs it; the runtime half is the session hook in the repo-root `conftest.py`, which FAILS a run reporting a skip no `EnvironmentCondition` declares.
+- `ENVIRONMENT_CONDITIONS` is measuring instruments and external applications only. **A condition that reads THIS REPOSITORY'S contents is not an environment.** [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
+- The source half also fails a test whose body is `pass`, or whose whole body is a `try` swallowing every exception.
+- Run it alone with `python3 -m pytest tests/test_no_unfailable_tests.py -q`.
 """
 
 import os

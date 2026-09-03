@@ -82,6 +82,32 @@ walks when clause 5 has to put one back inline:
 map, the line ranges and the harness clause are all the same; only the
 two sentences of header naming the document differ, and they are
 parameters (`document_name`, `why_referenced`).
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.**
+`project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file, and `pipeline.attach_creative_brief` is the three-state choice about sending it (§3, "A step with no creative brief ASKS").
+`load_pipeline_state` reads the PATH into state ONLY when the reading is ATTACHED; `gather_step_inputs` reads the FILE and hands the step a REFERENCE to it, and only if the step's own manifest declares the input.
+A path that cannot be read or is empty RAISES. **A run that attaches none INTERVIEWS rather than going quiet.**
+- Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+- **The eighth is `mesh_spine`, and it is declared without a handoff line.** A step gets the brief because its manifest asked, not because its prompt mentions one. **The ninth is `color_grade`**, added when 5.01 grew a handoff on 2026-09-03 - its new handoff DOES name the brief, so it is in the first group; 001's brief carries a whole "Color System Philosophy" section no colour step had ever seen. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+- It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
+- **The cost is per step, not per run.** [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+
+**A reference is an ABSOLUTE PATH plus a MAP, and the rule for what still travels inline is in `library/tools/brief_reference.py`.**
+[why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
+- **The map carries a LINE RANGE per heading**, so following it is one `sed -n 'a,bp'` and not a search.
+- **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
+- **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
+- **The mechanism carries THREE documents, and a fourth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, and step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`). Do not build a second by-reference mechanism.
+- **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agy` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
+- `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 """
 
 from __future__ import annotations

@@ -59,6 +59,16 @@ target is the captain's - so nothing here says how far above or below the
 bed a sound OUGHT to sit.  Saying it would be the third taste decision.
 
 ``tests/test_sfx_level.py``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+- **HOW LOUD a sound plays is the plan's own `volume_db`, and no layer substitutes one.** One enumeration, `library/tools/sfx_level.py`. The four-word ladder `VOLUME_MAP` (`subtle|low|medium|prominent` -> -18|-14|-10|-6) is REMOVED on the ruling that removed `INTENSITY_MAP`, `TRACK_LEVELS["A3_sfx"].base_level_db` (-12, *"Subtle - felt more than heard"*) and `A4_transition_audio` are REMOVED, and `compile_manifest`'s `get("volume_db", -14)` is gone. **Nothing is renumbered** - `WITHDRAWN_VOLUME_LADDER` and `WITHDRAWN_TRACK_LEVELS` are the record. An entry naming no level is DROPPED with the reason. **The model can only reason about a relationship it can see**: `bed_under_it` already said what the bed does under the block, and `SPEECH_REFERENCE_LEGEND` adds the other end - speech (A1) is the reference at 0 dB - as the definition it is, never as a target. `tests/test_sfx_level.py`.
 """
 
 from __future__ import annotations

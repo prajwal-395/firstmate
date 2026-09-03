@@ -21,6 +21,26 @@ one silently misleads the model.
 
 Legacy documents pass through untouched, so a project whose stored state
 predates v3 keeps working.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
+Name the columns, or route the document to the BRIDGE and keep it out of `context_fields` entirely; declaring it with no sub-paths gets all fifteen columns, `analysis_metadata` included.
+Projection narrows the prompt and never the inputs: the bridge, the post-bridge and `step.py` still receive the whole thing. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+
+**One vision schema, two views.**
+`vision_pipeline_v3.py` emits `scene[]`/`camera[]`/`actions[]`/`objects[]`/`assessment{}`; `library/tools/vision_schema_adapter.py` derives the historical `analysis.*`/`blocks` view from it; either may be addressed.
+Derive only what v3 measured. [why](docs/RULE_EVIDENCE.md#vision-schema-two-views)
+A step wanting framing, stability, usable ranges or subject visibility must list those paths in `context_fields`, or they are deleted before the prompt.
+
+**Never send a summary and the structure it was rendered from.**
+`analysis.scene` IS `scene[]` rendered by `vision_schema_adapter.scene_prose`, and `analysis.motion` IS `camera[]`. Send the prose (it is lossless here and 30-50% smaller) unless the step's handoff tells the model to read the segment bounds - 3.02's does, so 3.02 keeps the structure and drops the prose. `tests/test_context_ships_it_once.py` fails on a manifest declaring a pair. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
 """
 
 import math

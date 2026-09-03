@@ -9,6 +9,19 @@ on one frame, five SFX at 0.000s, and none of it produced a single error.
 Every semantic assertion below corresponds to a defect that actually
 shipped.  They are deliberately strict: a manifest that trips one of them
 describes a video nobody would watch.
+
+
+Rules relocated from AGENTS.md 10.2
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.2 keeps the headline
+and points here.
+
+**Manifest validation has a semantic half.**
+`library/tools/manifest_validator.py` validates distinct cut points, distributed SFX, distinct VFX ranges, no overlaps, no zero-duration clips, no fabricated source ranges.
+Regression fixtures live in `tests/fixtures/captured_run/` and come from a real broken run - never replace them with empty-list fixtures. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
+Never replace regression fixtures with empty-list fixtures. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
 """
 
 import os

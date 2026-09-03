@@ -20,6 +20,34 @@ never passes through the LLM that writes the rest of the spine - so
 `resolve_music_behavior` supplies the default for such a block, in ONE
 place, from the single fact the old reduction got right: a block with no
 speech under it has nothing to duck for.
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.**
+Five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent` - and `silent` is one of them, because a planned silence is a decision.
+`mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` turns it into the dB, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
+Resolve a block that declares none through `resolve_music_behavior`, never with a local default: `WITHDRAWN_BEHAVIORS` records why the two-word `full`/`ducked` form is out. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
+`tests/test_music_behavior_vocabulary.py`.
+**The timeline's length comes from the spine, never from a passage's `end_time`.**
+`library/tools/timeline_duration.measure_timeline_duration`: max `timeline_end` over the spine, falling back to `a_roll_assignments`.
+
+
+Rules relocated from AGENTS.md 10.4
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.4 keeps the headline
+and points here.
+
+**A clip gain is not a separation, and both halves now SAY which one they are holding.**
+`music_behavior.SEPARATION_TARGETS_DB` is EMPTY - no behaviour declares a separation.
+`measure_speech_above_bed` reads a declared target or falls back to clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result.
 """
 
 # word -> (bed level in dB against a 0 dB speech reference, what it means)

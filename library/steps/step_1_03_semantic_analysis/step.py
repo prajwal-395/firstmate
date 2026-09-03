@@ -1,6 +1,17 @@
 """
 Step 1.03 Bridge: Semantic Analysis
 Runs the vision pipeline on new raw footage clips to generate semantic analysis documents.
+
+
+Rules relocated from AGENTS.md 10.3
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.3 keeps the headline
+and points here.
+
+**Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
+Exercise the collection half with an analysis dir of copied profiles and `raw_footage_files: []`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
 """
 import json, sys, subprocess, os, glob
 

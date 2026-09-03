@@ -64,6 +64,16 @@ a conventional 5-10 ms de-click ramp has no representation on a 30 fps
 grid - 33 ms is the floor the format sets, not a number chosen for feel.
 It is applied only where the play window was TRUNCATED: a sound played
 to its own end already ends where the file ends.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+- **How long a sound plays is the PLAN's decision, BOUNDED by what the file measures.** One enumeration, `library/tools/sfx_duration.py`. `duration_seconds` is optional; declaring none plays the whole sound. A request past the file's measured length is REFUSED BY NAME and never clamped. **The only floor is the timebase** - two frames - and no minimum may be added. **A sound cut short carries a one-frame de-click ramp** (`otio_mix.declick_curve`). [why](docs/RULE_EVIDENCE.md#the-plan-could-not-say-how-long-a-sound-plays)
 """
 
 from __future__ import annotations

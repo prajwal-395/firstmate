@@ -82,6 +82,23 @@ way it already allocates overlapping SFX, and the SFX bucket starts above
 whatever the bed used.
 
 ``tests/test_music_bed.py``.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**The bed is a SEQUENCE, not one continuous minute of one track.**
+One enumeration, `library/tools/music_bed.py`. Captain, 2026-09-01: *"we can use bits and pieces, or multiple tracks, and splice pieces from different tracks"*. `music_section` is unchanged and is still what a plan declaring no bed gets.
+- **The decision has TWO halves and they live in two steps.** 2.04 chooses the PIECES, in source time only (`splices`, each naming a track; `tracks` names every chosen track beyond the primary) - it runs before the spine exists and cannot name a timeline position. 2.05 `mesh_spine` CONDUCTS them (`music_bed`), because it is the first step holding the spine, the tracks and the analysis together.
+- **A segment is anchored to a SPINE BLOCK POSITION and runs until the next one comes in.** That is what is representable, not a taste ruling: the model at 2.05 is authoring block DURATIONS (absolute seconds are computed afterwards and frame-snapped), and 2.05's `context_fields` drops `tempo.beats`/`downbeats`, so it cannot see a beat time. `THE_SNAP_QUESTION` records what beat alignment would cost - a derived table routed in, the `cuts_toon.beat_near_cut` route, plus a snap pass. **Nothing snaps a boundary to anything.**
+- **A splice with no declared `crossfade_seconds` is a HARD splice** - the absence of decoration, the `CUT_TYPES`/`NEUTRAL_CDL` reading - and no length is invented for one.
+- **A declared crossfade is a real OVERLAP**: the outgoing piece plays past the boundary while the incoming one plays from it, `otio_mix.music_curve` ramps one down and the other up, and the renderer's `_allocate_audio_tracks` spreads the bed across A2, A3, ... exactly as it already does for SFX - with the SFX bucket starting above whatever the bed used. **A2's overlap check allows exactly the declared fade and nothing else**, in `compile_manifest` and in `manifest_validator`.
+- **The beat grid has one offset PER SEGMENT.** `music_analysis` measures the PRIMARY track only, so a beat is on the timeline only where that file plays; `beat_positions`/`downbeat_positions` take the spine and the duration for this.
+- `tests/test_music_bed.py`, `tests/test_spliced_bed_reaches_the_manifest.py`.
 """
 
 from __future__ import annotations

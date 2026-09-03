@@ -26,6 +26,28 @@ The choosing half is deliberately thin, because widening it is where taste
 gets invented (AGENTS.md §10.5).  The engine resolves the model's words to
 seconds; it does not decide that a moving shot beats a still one.  See
 `DECLINED_TO_RANK`.
+
+
+Rules relocated from AGENTS.md 10.5
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.5 keeps the headline
+and points here.
+
+**Which SECONDS of a chosen cutaway play is decided from the PICTURE, never from its audio.**
+One enumeration, `library/tools/cutaway_window.py`. A cutaway is placed `video_only: True`. [why](docs/RULE_EVIDENCE.md#the-cutaway-window-came-from-a-muted-waveform)
+- `AUDIO_SIGNALS` is the enumeration of what may not reach the decision, and `tests/test_cutaway_window.py` reads the SOURCE of both the module and step 3.02's post-bridge.
+- **The candidate spans are scene boundaries UNION the vision pass's time-bounded `blocks`.**
+- **The model's own `preferred_moment` chooses**, matched against what the vision pass observed
+  during each span. The engine resolves words to seconds; it does not decide that a busier or
+  brighter span is better.
+- **`DECLINED_TO_RANK` records every signal that is measured and deliberately not ranked on** - `motion_energy`, `camera_motion`, brightness, saturation and face presence.
+- **Every basis is recorded on the placement** as `window_basis`. `single_span` and `undiscriminated`
+  are the ABSENCE of a decision and are spelled differently from `moment_match` so a reviewer can tell.
+- **`usable_ranges` is read through its METHOD** (§10.3): a measured range excludes a window outside
+  it, an `unmeasured` one filters nothing.
+- The candidate rows plus `CANDIDATE_LEGEND` are the shape a prompt would carry, so letting the model
 """
 
 from dataclasses import dataclass, field

@@ -41,6 +41,18 @@ Requires:
     - ffmpeg on PATH
     - librosa + soundfile
     - whisperx (pip install whisperx)
+
+
+Rules relocated from AGENTS.md 10.3
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.3 keeps the headline
+and points here.
+
+**Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
+`face_sample_dimensions` reads the DISPLAY shape (rotation side data applied, because autorotate runs before the filter chain), bounds the SHORT side to `FACE_SAMPLE_SHORT_SIDE`, and raises rather than falling back to a shape.
+Anything derived from the sample size - `frame_area`, the `face_center_x` divisor - must read that size, not a literal. [why - the numbers, and what the fix does not fix](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
 """
 import argparse
 import json

@@ -58,6 +58,20 @@ The vision pass beside it costs ~140s per clip of model time.
 Run it standalone against a clip:
 
     python3 -m library.tools.analysis.picture_quality <video> [--json]
+
+
+Rules relocated from AGENTS.md 10.3
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.3 keeps the headline
+and points here.
+
+**`usable_ranges` is a measurement, and an absent one is EMPTY - never the whole clip.**
+[why](docs/RULE_EVIDENCE.md#usable-ranges-were-the-whole-clip)
+- `[]` with method `unmeasured` means nobody looked; `[]` with method `deterministic_v1` means the clip was measured and none of it is usable. `usable_ranges_summary` renders the two differently and neither as a blank cell.
+- The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
+- `picture_quality.py` samples at 5 Hz, reports runs of 0.6s or longer. **State that bound when you report a verdict.**
 """
 
 import argparse

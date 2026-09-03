@@ -16,6 +16,20 @@ Usage:
     python3 run_pipeline.py --project /path/to/project --from temporal_index
     python3 run_pipeline.py --project /path/to/project --step creative_direction
 
+
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 10.1 keeps the headline
+and points here.
+
+**Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output**, or whose LLM contribution differs from the step's outputs.
+`present_llm_step` builds the injected schema from `interface.outputs` minus what the bridge produced, so without the declaration the model is asked for nothing, or every attempt "fails". [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
+
+**A call with nothing to ask is not made.**
+Declare `interface.llm_outputs` if the call is still needed. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 """
 import json
 import os
