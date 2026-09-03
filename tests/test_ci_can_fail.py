@@ -67,6 +67,9 @@ def _steps() -> list[dict]:
     return steps
 
 
+def _steps_named(fragment: str) -> list[dict]:
+    return [s for s in _steps() if fragment in s["name"]]
+
 def _step_named(fragment: str) -> dict:
     matches = [s for s in _steps() if fragment in s["name"]]
     assert len(matches) == 1, (
@@ -76,16 +79,25 @@ def _step_named(fragment: str) -> dict:
     return matches[0]
 
 
-def test_the_style_gate_does_not_swallow_its_exit_code():
-    """The half that decides the build may not end in `|| true`."""
-    gate = _step_named(GATE_STEP)
-    assert "|| true" not in gate["run"], (
-        "the enforcing half of the style check ends in `|| true`, which is "
-        "the exact clause that let run 33667912850 emit 2,896 errors and "
-        "conclude SUCCESS. Put a cosmetic rule class in the report-only "
-        "step instead of silencing the gate."
-    )
-    assert "ruff-ci-gate.toml" in gate["run"], (
+def test_build_failing_gates_do_not_swallow_exit_codes():
+    """Any step that decides the build may not end in `|| true`."""
+    gates = _steps_named(GATE_STEP)
+    assert gates, f"no workflow step found containing {GATE_STEP!r}"
+    
+    for gate in gates:
+        assert "|| true" not in gate["run"], (
+            f"the build-failing gate {gate['name']!r} ends in `|| true`, which is "
+            "the exact clause that let run 33667912850 emit 2,896 errors and "
+            "conclude SUCCESS. Put a cosmetic rule class in the report-only "
+            "step instead of silencing the gate."
+        )
+
+    # Keep every existing assertion about the Ruff step
+    ruff_gates = [g for g in gates if "Ruff" in g["name"]]
+    assert len(ruff_gates) == 1, "expected exactly one Ruff build-failing gate"
+    ruff_gate = ruff_gates[0]
+    
+    assert "ruff-ci-gate.toml" in ruff_gate["run"], (
         "the gate must run under ruff-ci-gate.toml, which is where what is "
         "enforced and what is deferred is written down"
     )

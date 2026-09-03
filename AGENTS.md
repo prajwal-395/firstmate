@@ -594,7 +594,7 @@ Index required keys directly so a rename fails loudly; never `.get()` a default 
 Join semantic documents to the catalog with `library/tools/semantic_index.py`: documents are keyed by FILE STEM, the catalog by `clip_XXX`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 
 **A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
-Name the columns, or route the document to the BRIDGE and keep it out of `context_fields` entirely; declaring it with no sub-paths gets all fifteen columns. declaring it with no sub-paths gets all fifteen columns, `analysis_metadata` included.
+Name the columns, or route the document to the BRIDGE and keep it out of `context_fields` entirely; declaring it with no sub-paths gets all fifteen columns, `analysis_metadata` included.
 Projection narrows the prompt and never the inputs: the bridge, the post-bridge and `step.py` still receive the whole thing. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 
 **`compile_manifest` reads `pipeline_data.json`, not just files.**
@@ -602,7 +602,6 @@ The per-step `*.json` files in `pipeline_output/` are a best-effort dashboard ex
 
 **Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output**, or whose LLM contribution differs from the step's outputs.
 `present_llm_step` builds the injected schema from `interface.outputs` minus what the bridge produced, so without the declaration the model is asked for nothing, or every attempt "fails". [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
-[why](docs/RULE_EVIDENCE.md#empty-llm-schema)
 
 **One vision schema, two views.**
 `vision_pipeline_v3.py` emits `scene[]`/`camera[]`/`actions[]`/`objects[]`/`assessment{}`; `library/tools/vision_schema_adapter.py` derives the historical `analysis.*`/`blocks` view from it; either may be addressed.

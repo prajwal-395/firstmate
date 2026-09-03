@@ -65,6 +65,10 @@ jobs:
         # says "131 skipped" and nothing says what went unmeasured.
         python -m pytest tests/ -v -rs --tb=short
         
+    - name: AGENTS.md size gate (FAILS THE BUILD)
+      run: python scripts/check_agents_md_size.py
+
+
     - name: Compile check
       run: |
         python -m py_compile manage_project.py
