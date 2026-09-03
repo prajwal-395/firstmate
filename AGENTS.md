@@ -295,73 +295,37 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 ### Where a project's files go
 
 **One module owns the project-side layout: `library/tools/project_layout.py`.**
-`paths.py` owns the REPO and the MACHINE; this owns one PROJECT, which is a folder passed in rather than a constant.
+Detail: `library/tools/project_layout.py`.
 
-**`pipeline_output/steps/` IS the pipeline.** One directory per step, in run order; the captain audits by walking the folder.
-
-- `STEPS` is the ordered table of every step, in DAG order, with the directory it owns. `AreaSpec.step` names the owning step for a step-owned area.
-- Directory names use the STEP number, the same spelling `library/steps/` and every "step 1.04" citation uses; `README-LAYOUT.md` renders true run order, which diverges from that sort in two places. 
-- Each step directory holds `output.json` and `summary.md` (what `step_exporter` writes) plus whatever files the step produced.
-- **A step writes only inside its own directory.** Pass `step=` to `write_dir`/`write_path` and another step's area raises; `assert_step_owns` is the same guard for a path from outside the layout.
-- **Not everything is a step's product.** `logs/`, `gates/`, `review/`, `llm_*/`, `thumbnails/`, `backups/`, `migrations/`, `provenance/`, `scratch/`, `unsorted/` and `exports/` stay at project level.
-- `exports/` is the one area TWO steps legitimately write: 6.01 the render and 6.02 the QA report. `produced_by` names both, and provenance leaves `step_id` None rather than picking one.
-
-- Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
-- **A step never composes a project path.** It names an `Area` and gets a path via `write_dir`/`write_path`/`read_dir`/`read_path`. `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state.
-- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/`, `external/` and `profiles/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath.  Outside the project, at the bare project root, or inside an input area all raise.
-- **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads - the steps in run order, what each reads and what each writes - and runs on `manage_project.py new` and at step 1.01 of every run.
-- **`classification.per_clip_artifacts` names an AREA, not a directory**: `{area:temporal_index}/{clip_id}.json`.
-- The scaffold is not a second list.
-- Anything the pipeline FETCHES rather than computes - a downloaded music track - is output, and goes to `Area.ACQUIRED_MEDIA` under the step that fetched it, not into `music/`.
+**`pipeline_output/steps/` IS the pipeline.**
+Detail: `library/tools/project_layout.py`.
 
 **Backups of `pipeline_data.json` are automatic and bounded.**
-`pipeline_output/backups/pipeline_data/`, one per RUN, newest `MAX_PIPELINE_DATA_BACKUPS` kept.
-- The pruner only ever considers files matching its own naming pattern, so a hand-made backup dropped in beside them is never deleted. Pre-policy backups live in `backups/pipeline_data/legacy/`.
-- One per run, not one per save: `save_pipeline_state` runs after every step, and the thing worth keeping is the state as it stood BEFORE a run.
+Detail: `library/tools/project_layout.py`.
 
 ### Reading a run back
 
 **The layout answers "which step wrote this" by where the file is. Provenance adds WHICH RUN and FROM WHAT.**
-`library/tools/provenance.py` owns it.
+Detail: `library/tools/provenance.py`.
 
- **Never attribute a file to the nearest plausible step.**
-- The runner observes each step **after** `_export_step_for_review`, or a step's own `<step_id>.json` export is attributed to nobody.
-
-- Records are append-only. `derived_from` is READ out of the artifact, never inferred from a filename.
-- `derived_from` is READ out of the artifact - `SOURCE_KEYS` names the keys - never inferred from a filename. A `clip_id` is not a path.
+**Never attribute a file to the nearest plausible step.**
+Detail: `library/tools/provenance.py`.
 
 **Two generated documents, regenerated on every run and by `manage_project.py trace <slug>`.**
-`library/tools/run_traceback.py`. `RUN-TRACEBACK.md` is the steps in order - when, how long, what it consumed and from which step, what it produced. `ARTIFACTS.md` is the other direction: every file, with the step that wrote it and how that was established.
-- Both are generated from `dag.json`, the two ledgers, `step_errors` and the provenance ledger.  `unwired_step_ids` matches by `step_ref`, because the DAG calls `step_1_01_scan_project` simply `scan`.
-- `tests/test_run_traceback.py`.
+Detail: `library/tools/run_traceback.py`.
 
 **A project that predates the layout is brought onto it with `manage_project.py organize <slug>`.**
-`library/tools/project_migration.py`.
-- **It never deletes.** Every action is a move or a copy, and a file whose purpose cannot be established goes to `pipeline_output/unsorted/<bucket>/` with a stated reason, never a guess. Measure what you can - `media_facts` records a file's duration, format and encoder - so an admitted unknown is an examined one.
-
-- **It never deletes.** Unidentifiable files go to `pipeline_output/unsorted/` with a stated reason.
-- **It never modifies an input directory.** Pipeline output found inside one is COPIED out.
-- Every run writes a manifest to `pipeline_output/migrations/`.
-- `tests/test_project_migration.py`.
+Detail: `library/tools/project_migration.py`.
 
 ### Replaying a step without running the pipeline
 
 **A step's exact prompt and context can be rebuilt off frozen state, at a named revision, with no pipeline run, no Resolve and no project write.**
-`library/tools/replay_bench/`, driven by `python3 -m library.tools.replay_bench`. Read [`docs/STEP_REPLAY_BENCH.md`](docs/STEP_REPLAY_BENCH.md) before changing what a step is routed: it answers "did that change what the model sees" in seconds.
-
-- The reconstruction is the runner's OWN assembly - `gather_step_inputs`, the step's `bridge.py`, `project_fields`, `json_to_toon`, the handoff and `get_brand_constraints` - never a model of it. `reconstruct.py` imports nothing from `library` at module scope: it runs as a subprocess with the TARGET tree first on `sys.path`.
-- **A snapshot is captured outside the repository; only its MANIFEST is committed** to `tests/fixtures/replay_snapshots/`.
-- **`verify` is a gate, not a report.** It reconstructs every archived context and exits non-zero on any unaccounted difference: if it cannot reproduce the past it cannot be trusted to compare futures. A step that matches only after a named cause is subtracted reads `EXACT (explained)`, never as a clean pass.
-- **Never use the pipeline's own token figures.** `present_llm_step` logs `len(s.split()) * 1.3`, which is 0.38x-0.54x the `o200k_base` count. The bench measures from the reconstructed string and names the tokenizer; with `tiktoken` absent the count is absent rather than estimated.
-- The bench measures the pipeline and stays out of it. 
+Detail: `library/tools/replay_bench/bench.py`.
 
 ### No test reaches a real project
 
 **A test builds its project under `tmp_path`, or it skips. It never falls back to a real one.**
-
-- `library.tools.paths.PROJECTS_ROOT` is the ONE constant naming where real projects live. **A test may not read that constant.**
-- `tests/conftest.py` points `PIPELINE_PROJECTS_ROOT` at an empty temporary directory for the whole session.
-- `tests/test_tests_never_reach_real_projects.py` asserts the guarantee: the root a test sees is the sandbox, no test source carries a real path, and collecting the suite against a populated DECOY root binds nothing.
+Detail: `tests/test_tests_never_reach_real_projects.py`.
 
 ## 9. Environment and dependencies
 
@@ -705,31 +669,15 @@ One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system
 
 ## 12. The look
 
-**There is no house look.** The engine ships no slope, no saturation, no contrast, no glow, no grain and no vignette, and a project gets a grade only where a brand template it NAMED declares one.
-`library/tools/house_look.py` holds no values of its own. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
+**There is no house look.**
+Detail: `library/tools/house_look.py`. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
 
 **A project that names no template still gets a GRADE, because a colourist decides one.**
-One enumeration, `library/tools/color_correction.py`. [why - the nine measured clips and the identity CDL](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none) Step 5.01 measured 001's nine clips across a 2.7x luma spread - clip_011 at 145.495, clip_017 at 53.116 - and wrote the identity CDL on all nine, because normalisation was reachable only through an `exposure_reference` only a template declares. Captain, 2026-09-03: *"we need to still let the LLM understand it should try to add some color grading if it thinks it is needed rather than saying no completely bc of a lack of brand template."*
-
-- **The correction is its own field, NOT `exposure_reference` reused.** That slot is a per-SERIES scalar a template DECLARES; a correction is per-clip, is a JUDGEMENT, and a template that declares one must keep winning. Writing a model's answer into a template slot would make the key mean two things depending on who wrote it.
-- **The two compose EXACTLY, in a stated serial order**: `out = (in * (2**exposure_stops * slope * look_slope) + (look_offset + offset)) ** (look_power * power)`, saturations multiplied. Every step is exact - `(x**p)**q == x**(p*q)`, a pre-scale folds into slope, a same-stage offset adds - which is why the order is fixed. **A declared look with no correction is byte-for-byte `look.cdl()`.**
-- **No bound and no default.** How far a correction may travel is the colourist's, the same way `house_look` bounds no declared slope. A malformed VALUE RAISES so `post_bridge_retry` carries it back to the model; an entry naming no clip, no term or no `why` is DROPPED with the reason (`DROP_REASONS`, refused if outside).
-- **`correction_basis` says which absence an ungraded run is.** FOUR readings, spelled differently on purpose: `corrected`, `judged_no_correction_needed` (a decision), `no_correction_decision` (nobody looked), `every_entry_dropped`. The old output could not tell the second from the third - an identity CDL read the same either way.
-- **`WITHHELD_TERMS` records what a correction may NOT say** and where it lives instead: `temperature` (no CDL term; say it as slope and offset), `contrast` (Fusion's, not the CDL's), `curve` (no reader anywhere).
-- 5.01 is now HYBRID: `bridge.py` measures and builds `clip_exposure` + `cut_adjacency` (the pairs a viewer sees, in stops), `handoff.md` asks a colourist, `post_bridge.py` composes. `tests/test_color_correction.py`, `tests/test_color_grade_is_decided.py`.
+Detail: `library/tools/color_correction.py`. [why - the nine measured clips and the identity CDL](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none)
 
 A look is delivered in two halves, because that is what the mechanisms can express:
+Detail: `library/tools/house_look.py`. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
 
-- **CDL** carries hue and level - slope (highlights), offset (shadows and the black floor), power (midtones), saturation - applied by `SetCDL` in `resolve_build_timeline`.
-- **Fusion** carries what a CDL has no term for - pivot contrast, glow, grain, and a shaped, optionally coloured vignette - and reaches the picture only through the parameter names `fusion/comp_builder.build_effect_comp` dispatches on (§10.2).
-
-- **`LOOK_ELEMENTS` is the whole vocabulary**, and an element outside it is REFUSED by name. Each row says which half delivers it and why that half and not the other.
-- **An element is declared WHOLE or refused.** A glow with a gain and no threshold cannot be finished without the engine choosing the missing number, which is the defect this section exists for. Same shape as `bookends` (§13): raise, never drop and never complete.
-- **No element has a default and none has a bound.** How strong a glow is, and how far a slope may travel, are the declaring author's decisions; an engine-supplied range is a strength nobody chose arriving one level up.
-- **A project declaring no look gets NOTHING** - not a reduced look and not exposure normalisation. `NEUTRAL_CDL` is identity and `fusion_look` is `{}`, so no clip gets a comp for the look's sake at all. This is the shape #297 established for every other brand slot (§10.1).
-- **A vignette is drawn only where one was asked for.** `build_effect_comp` used to default `vignette` to True, drawing one at blend 0.25 on every clip carrying a zoom.
-- **Exposure is MEASURED, and normalised only onto a reference the declaration carries.** A clip nothing measured carries `null` and a reason, never `0.0`. `exposure_reference` is the declared target. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
-- `tests/test_house_look.py`, `tests/test_color_grade_delivery.py`.
 ## 13. Intros, outros and end cards
 
 One enumeration, `library/tools/bookends.py`.

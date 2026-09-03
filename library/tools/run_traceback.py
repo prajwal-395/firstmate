@@ -32,6 +32,19 @@ Four sources, no invention
 Where a link is not recorded, these documents say it is not recorded.
 The alternative - deriving it from a filename that looks right - is the
 thing an audit cannot afford.
+
+
+Rules relocated from AGENTS.md 8
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 8
+keeps the headline and points here.
+
+**Two generated documents, regenerated on every run and by `manage_project.py trace <slug>`.**
+`library/tools/run_traceback.py`. `RUN-TRACEBACK.md` is the steps in order - when, how long, what it consumed and from which step, what it produced. `ARTIFACTS.md` is the other direction: every file, with the step that wrote it and how that was established.
+- Both are generated from `dag.json`, the two ledgers, `step_errors` and the provenance ledger.  `unwired_step_ids` matches by `step_ref`, because the DAG calls `step_1_01_scan_project` simply `scan`.
+- `tests/test_run_traceback.py`.
 """
 
 from __future__ import annotations

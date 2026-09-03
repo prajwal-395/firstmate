@@ -29,6 +29,22 @@ Usage:
     python3 manage_project.py organize <slug>            # plan only
     python3 manage_project.py organize <slug> --apply
     python3 manage_project.py organize <slug> --revert <manifest.json>
+
+
+Rules relocated from AGENTS.md 8
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 8
+keeps the headline and points here.
+
+**A project that predates the layout is brought onto it with `manage_project.py organize <slug>`.**
+`library/tools/project_migration.py`.
+- **It never deletes.** Every action is a move or a copy, and a file whose purpose cannot be established goes to `pipeline_output/unsorted/<bucket>/` with a stated reason, never a guess. Measure what you can - `media_facts` records a file's duration, format and encoder - so an admitted unknown is an examined one.
+- **It never deletes.** Unidentifiable files go to `pipeline_output/unsorted/` with a stated reason.
+- **It never modifies an input directory.** Pipeline output found inside one is COPIED out.
+- Every run writes a manifest to `pipeline_output/migrations/`.
+- `tests/test_project_migration.py`.
 """
 
 from __future__ import annotations

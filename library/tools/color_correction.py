@@ -116,6 +116,23 @@ go: an engine-supplied range is a strength nobody chose arriving one
 level up (AGENTS.md 10.5).
 
 `tests/test_color_correction.py`, `tests/test_color_grade_delivery.py`.
+
+
+Rules relocated from AGENTS.md 12
+---------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 12
+keeps the headline and points here.
+
+**A project that names no template still gets a GRADE, because a colourist decides one.**
+One enumeration, `library/tools/color_correction.py`. [why - the nine measured clips and the identity CDL](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none) Step 5.01 measured 001's nine clips across a 2.7x luma spread - clip_011 at 145.495, clip_017 at 53.116 - and wrote the identity CDL on all nine, because normalisation was reachable only through an `exposure_reference` only a template declares. Captain, 2026-09-03: *"we need to still let the LLM understand it should try to add some color grading if it thinks it is needed rather than saying no completely bc of a lack of brand template."*
+- **The correction is its own field, NOT `exposure_reference` reused.** That slot is a per-SERIES scalar a template DECLARES; a correction is per-clip, is a JUDGEMENT, and a template that declares one must keep winning. Writing a model's answer into a template slot would make the key mean two things depending on who wrote it.
+- **The two compose EXACTLY, in a stated serial order**: `out = (in * (2**exposure_stops * slope * look_slope) + (look_offset + offset)) ** (look_power * power)`, saturations multiplied. Every step is exact - `(x**p)**q == x**(p*q)`, a pre-scale folds into slope, a same-stage offset adds - which is why the order is fixed. **A declared look with no correction is byte-for-byte `look.cdl()`.**
+- **No bound and no default.** How far a correction may travel is the colourist's, the same way `house_look` bounds no declared slope. A malformed VALUE RAISES so `post_bridge_retry` carries it back to the model; an entry naming no clip, no term or no `why` is DROPPED with the reason (`DROP_REASONS`, refused if outside).
+- **`correction_basis` says which absence an ungraded run is.** FOUR readings, spelled differently on purpose: `corrected`, `judged_no_correction_needed` (a decision), `no_correction_decision` (nobody looked), `every_entry_dropped`. The old output could not tell the second from the third - an identity CDL read the same either way.
+- **`WITHHELD_TERMS` records what a correction may NOT say** and where it lives instead: `temperature` (no CDL term; say it as slope and offset), `contrast` (Fusion's, not the CDL's), `curve` (no reader anywhere).
+- 5.01 is now HYBRID: `bridge.py` measures and builds `clip_exposure` + `cut_adjacency` (the pairs a viewer sees, in stops), `handoff.md` asks a colourist, `post_bridge.py` composes. `tests/test_color_correction.py`, `tests/test_color_grade_is_decided.py`.
 """
 
 from __future__ import annotations

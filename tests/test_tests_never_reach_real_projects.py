@@ -34,6 +34,19 @@ one is not a green from another:
 Check 3 is the honest one: it reproduces the captain's machine with a
 stand-in and asks the suite to misbehave.  It is also the slow one, which
 is why 1 and 2 exist as cheap tripwires beside it.
+
+
+Rules relocated from AGENTS.md 8
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 8
+keeps the headline and points here.
+
+**A test builds its project under `tmp_path`, or it skips. It never falls back to a real one.**
+- `library.tools.paths.PROJECTS_ROOT` is the ONE constant naming where real projects live. **A test may not read that constant.**
+- `tests/conftest.py` points `PIPELINE_PROJECTS_ROOT` at an empty temporary directory for the whole session.
+- `tests/test_tests_never_reach_real_projects.py` asserts the guarantee: the root a test sees is the sandbox, no test source carries a real path, and collecting the suite against a populated DECOY root binds nothing.
 """
 
 import ast

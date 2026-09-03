@@ -20,6 +20,22 @@ and points here.
 
 **A step's decision must be SOURCED from its own context.**
 Judge routing by the assembled context, never by whether the run came out right. Check with `library/tools/replay_bench`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced) `tests/test_pacing_and_sfx_are_not_remembered.py`.
+
+
+Rules relocated from AGENTS.md 8
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 8
+keeps the headline and points here.
+
+**A step's exact prompt and context can be rebuilt off frozen state, at a named revision, with no pipeline run, no Resolve and no project write.**
+`library/tools/replay_bench/`, driven by `python3 -m library.tools.replay_bench`. Read [`docs/STEP_REPLAY_BENCH.md`](docs/STEP_REPLAY_BENCH.md) before changing what a step is routed: it answers "did that change what the model sees" in seconds.
+- The reconstruction is the runner's OWN assembly - `gather_step_inputs`, the step's `bridge.py`, `project_fields`, `json_to_toon`, the handoff and `get_brand_constraints` - never a model of it. `reconstruct.py` imports nothing from `library` at module scope: it runs as a subprocess with the TARGET tree first on `sys.path`.
+- **A snapshot is captured outside the repository; only its MANIFEST is committed** to `tests/fixtures/replay_snapshots/`.
+- **`verify` is a gate, not a report.** It reconstructs every archived context and exits non-zero on any unaccounted difference: if it cannot reproduce the past it cannot be trusted to compare futures. A step that matches only after a named cause is subtracted reads `EXACT (explained)`, never as a clean pass.
+- **Never use the pipeline's own token figures.** `present_llm_step` logs `len(s.split()) * 1.3`, which is 0.38x-0.54x the `o200k_base` count. The bench measures from the reconstructed string and names the tokenizer; with `tiktoken` absent the count is absent rather than estimated.
+- The bench measures the pipeline and stays out of it.
 """
 
 from __future__ import annotations

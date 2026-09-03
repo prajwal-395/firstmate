@@ -46,6 +46,22 @@ Two append-only JSONL files under `pipeline_output/provenance/`.  Append
 -only because a run is a thing that happened: the record of run 3 does
 not stop being true when run 4 overwrites the file.  The newest record
 for a path wins when the question is "what is this file now".
+
+
+Rules relocated from AGENTS.md 8
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 8
+keeps the headline and points here.
+
+**The layout answers "which step wrote this" by where the file is. Provenance adds WHICH RUN and FROM WHAT.**
+`library/tools/provenance.py` owns it.
+
+ **Never attribute a file to the nearest plausible step.**
+- The runner observes each step **after** `_export_step_for_review`, or a step's own `<step_id>.json` export is attributed to nobody.
+- Records are append-only. `derived_from` is READ out of the artifact, never inferred from a filename.
+- `derived_from` is READ out of the artifact - `SOURCE_KEYS` names the keys - never inferred from a filename. A `clip_id` is not a path.
 """
 
 from __future__ import annotations

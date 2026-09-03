@@ -165,15 +165,30 @@ def test_a_gutted_section_must_point_at_a_destination_that_gained(tmp_path):
 
 
 def test_an_index_row_pointing_at_a_destination_that_gained_nothing_is_refused(tmp_path):
-    """Naming a destination is not enough - it has to have received something."""
+    """Naming a destination is not enough - it has to have received something.
+
+    The destination here must be a repo file this branch does NOT modify, or the
+    premise collapses: it originally used `house_look.py`, and the moment section
+    12's rules moved INTO that file the "gained nothing" case stopped existing and
+    this test failed for a reason that had nothing to do with the gate. The
+    assertion below states the premise so a future collision says so directly.
+    """
+    import subprocess
+    untouched = "library/tools/paths.py"
+    changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", untouched],
+                             capture_output=True, text=True, cwd=REPO_ROOT, check=False).stdout
+    assert not changed.strip(), (
+        f"{untouched} is modified on this branch, so it has GAINED and cannot serve as "
+        f"the gained-nothing destination. Pick another file this branch leaves alone.")
+
     text = AGENTS.read_text(encoding="utf-8")
     s = text.index("## 12. The look")
-    e = text.index("## 13. Intros, outros and end cards")
+    e = text.index("## 13. Intros")
     f = tmp_path / "row.md"
     f.write_text(text[:s] + "## 12. The look\n\nThere is no house look. One enumeration, "
-                 "`library/tools/house_look.py`.\n\n" + text[e:], encoding="utf-8")
+                 f"`{untouched}`.\n\n" + text[e:], encoding="utf-8")
     code, out = run(PRESERVE, "--before", AGENTS, "--after", f,
-                    "library/tools/house_look.py", "--gained-since", "HEAD")
+                    untouched, "--gained-since", "HEAD")
     assert code == 1
     assert "SHRANK INTO SILENCE" in out
 

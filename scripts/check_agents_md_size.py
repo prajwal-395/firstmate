@@ -25,12 +25,19 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 64255
+CEILING = 54045
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
-# `## 15` 20,149 -> 1,800, `## 5` 9,962 -> 4,565.  Lower a row as its content
-# moves; never raise one.
+# `## 15` 20,149 -> 1,800, `## 5` 9,962 -> 4,565, `## 8` 7,809 -> 1,829 and
+# `## 12` 4,803 -> 564.  Lower a row as its content moves; never raise one.
+#
+# The moves STOP here, and that is a decision rather than an interruption.  What
+# is left is the universal core - the repo map, the run vocabulary and flags, the
+# state-key glossary, the environment - plus one index row per subsystem.  The
+# sections still carrying bullets carry orientation every session needs before it
+# can read anything else, and moving those would cost a reader the map to save
+# bytes.
 #
 # TWO rows have been raised, both on `## 9` and both to document these gates in
 # the file they govern: +1,849 for the two gates themselves, and +842 for the
@@ -53,11 +60,11 @@ SECTION_BUDGETS = {
     "## 5. DaVinci Resolve integration - CRITICAL RULES": 4565,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
-    "## 8. Project management": 7809,
+    "## 8. Project management": 1829,
     "## 9. Environment and dependencies": 6324,
     "## 10. Cross-cutting rules": 17591,
     "## 11. Third-Party Asset Licenses": 1313,
-    "## 12. The look": 4803,
+    "## 12. The look": 573,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2127,
     "## 15. Notes the captain types onto the timeline": 1800,
