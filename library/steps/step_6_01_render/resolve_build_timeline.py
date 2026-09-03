@@ -645,6 +645,31 @@ def build_timeline(
             s['total_frames'] = round(
                 (s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
 
+    # ── Auto-increment timeline name to accumulate drafts ──
+    # The project declares a base name (like Pipeline_Edit).
+    # We append a timestamp and duration to satisfy the captain's request:
+    # "how do I tell which short is which" and "how do I compare drafts".
+    import datetime
+    base_name = timeline_name
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    duration_str = f"_{int(total_duration)}s" if total_duration else ""
+    
+    existing_names = set()
+    for i in range(1, project.GetTimelineCount() + 1):
+        tl = project.GetTimelineByIndex(i)
+        if tl:
+            existing_names.add(tl.GetName())
+            
+    draft = 1
+    while True:
+        suffix = f"_{draft:02d}" if draft > 1 else ""
+        candidate = f"{base_name}_{timestamp}{duration_str}{suffix}"
+        if candidate not in existing_names and f"{candidate}{PREMIX_SUFFIX}" not in existing_names:
+            timeline_name = candidate
+            results["timeline_name"] = timeline_name
+            break
+        draft += 1
+
     # ── A name already in use is a REFUSAL, never a deletion ──
     #
     # This block used to delete every timeline carrying the build's name,
@@ -1412,13 +1437,45 @@ def build_timeline(
                   file=sys.stderr)
 
     # The master limiter is a MASTER BUS setting, not a clip volume, so
-    # no clip-level route reaches it. It stays a marker on purpose.
+    # no clip-level route reaches it. We attempt to apply a Fairlight preset
+    # if one exists and the Resolve API is new enough (20.2.2+).
+    # If not, we fall back to a marker so it is not silently unapplied.
     master_limiter = audio_mix.get('master_limiter', {})
     if master_limiter and master_limiter.get('enabled'):
         threshold_db = master_limiter.get('threshold_db', -1.0)
-        timeline.AddMarker(
-            0, "Purple", f"Master Limiter: {threshold_db}dBTP",
-            "Set the master track limiter to this threshold", 1)
+        preset_name = "Pipeline_Master_Limiter"
+        applied = False
+        
+        # Check if the API is available
+        if hasattr(resolve, "GetFairlightPresets") and hasattr(project, "ApplyFairlightPresetToCurrentTimeline"):
+            presets = resolve.GetFairlightPresets()
+            # presets could be a list or dict depending on Resolve version.
+            # We check both keys and values because the API documentation doesn't specify
+            # the dict structure and we had an empty dict during testing. Note this is an
+            # open question rather than deliberate breadth.
+            preset_exists = False
+            if isinstance(presets, dict):
+                preset_exists = preset_name in presets or preset_name in presets.values()
+            elif isinstance(presets, list) or isinstance(presets, tuple):
+                preset_exists = preset_name in presets
+            else:
+                preset_exists = False
+                
+            if preset_exists:
+                applied = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
+                if applied:
+                    print(f"  ✓ Applied Fairlight preset '{preset_name}' for master limiter", file=sys.stderr)
+                else:
+                    print(f"  ⚠ Fairlight preset '{preset_name}' found but failed to apply", file=sys.stderr)
+            else:
+                print(f"  ⚠ Fairlight preset '{preset_name}' not found. Falling back to marker.", file=sys.stderr)
+        else:
+            print("  ⚠ Resolve build is too old for Fairlight preset API. Falling back to marker.", file=sys.stderr)
+            
+        if not applied:
+            timeline.AddMarker(
+                0, "Purple", f"Master Limiter: {threshold_db}dBTP",
+                "Set the master track limiter to this threshold", 1)
 
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
