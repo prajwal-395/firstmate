@@ -35,6 +35,12 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The shared lock helpers, loaded before the ladder exactly as bin/fm-spawn.sh
+# loads them on the real dispatch path. The gate takes the account's reservation
+# lock across its decide-and-reserve step, so a suite without these would
+# exercise a gate that never locks - which is not the gate any dispatch runs.
+# shellcheck source=bin/fm-wake-lib.sh
+. "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-agy-ladder-lib.sh
 . "$ROOT/bin/fm-agy-ladder-lib.sh"
 
@@ -817,6 +823,52 @@ test_a_repeated_rung_is_reported() {
   pass "a model repeated across its two spellings is reported, and a config with no agy rung is not"
 }
 
+
+test_simultaneous_launches_across_homes_are_serialized() {
+  local n=10 i allowed refused root="$TMP_ROOT/race-account" dir="$TMP_ROOT/race"
+
+  # Two homes deciding an instant apart is the ordinary case; two homes
+  # deciding at the SAME instant is the one a ledger alone does not answer.
+  # Ten homes are released together against one point of room, so the ledger
+  # has to be read and written as one step or more than one of them clears a
+  # floor only one of them fits above.
+  rm -rf "$dir" "$root"
+  mkdir -p "$dir"
+
+  for i in $(seq 1 "$n"); do
+    mkdir -p "$dir/h$i"
+    # Each home records its own readings, as each really does.
+    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG1" 0.0 '4h 0m'
+    FM_AGY_SHARED_ROOT="$root" record "$dir/h$i" "$RUNG2" 26.0 '4h 0m'
+  done
+
+  # A file every worker spins on, so they are released together rather than
+  # staggered by however long each took to start.
+  : > "$dir/go"
+  for i in $(seq 1 "$n"); do
+    (
+      while [ -f "$dir/go" ]; do :; done
+      if FM_AGY_SHARED_ROOT="$root" fm_agy_ladder_gate "$RUNG2" "$dir/h$i" >/dev/null 2>&1; then
+        echo allowed > "$dir/out.$i"
+      else
+        echo refused > "$dir/out.$i"
+      fi
+    ) &
+  done
+  sleep 0.3
+  rm -f "$dir/go"
+  wait
+
+  allowed=$(grep -lx allowed "$dir"/out.* 2>/dev/null | wc -l | tr -d ' ')
+  refused=$(grep -lx refused "$dir"/out.* 2>/dev/null | wc -l | tr -d ' ')
+
+  [ "$((allowed + refused))" -eq "$n" ] \
+    || fail "every simultaneous launch must reach a verdict (allowed=$allowed refused=$refused of $n)"
+  [ "$allowed" -eq 1 ] \
+    || fail "exactly one launch fits above the floor; $allowed were authorized"
+  pass "simultaneous launches from $n homes on one account authorize exactly the one that fits"
+}
+
 test_both_spellings_resolve_to_one_rung
 test_floors_are_the_captains_floors
 test_refuses_descending_past_an_available_rung
@@ -842,3 +894,4 @@ test_two_homes_cannot_authorize_past_each_other
 test_the_refusal_is_the_shared_ledger_and_not_some_other_rule
 test_a_config_the_ladder_cannot_enforce_is_reported
 test_a_repeated_rung_is_reported
+test_simultaneous_launches_across_homes_are_serialized
