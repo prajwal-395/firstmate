@@ -30,6 +30,20 @@ and points here.
 
 **A call with nothing to ask is not made.**
 Declare `interface.llm_outputs` if the call is still needed. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+The run summary reports `SUCCESS` only when the whole DAG is complete and `failed_steps` is empty in the project ledger - not just the steps this invocation touched.
+- `FAILED`: a step failed, or emitted an `available: false`/hollow result, in this run or an earlier one. Exit code 1.
+- `AWAITING_LLM`, `PARTIAL` (`--step`/`--from`/a review-gate pause left DAG steps unrun), `DRY_RUN`.
+- `failed_steps` is current state, not a log: a step that later succeeds is removed from it.
+- **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** Never drop one: going quiet about a recorded failure is what `failed_steps` exists to prevent.
 """
 import json
 import os

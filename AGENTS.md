@@ -73,156 +73,68 @@ The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/
 ### Scoping a run
 
 One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags from it.
+Detail: `library/tools/run_scope.py`.
 
-- **A selection is resolved against the DAG before the run starts, or refused.** A selection that strands a consumer names the consumer, the producer and the missing output keys.
-- **A prerequisite is a condition on STATE, not on lineage.** `run_scope.Prerequisite` is one required KEY, and the resolver asks whether that key exists by any of three means: a step in this run makes it, a previous run recorded it, or it was supplied from outside and CHECKED. 
-- **An edge is HARD when it carries a key the consumer does not declare optional** - the same condition `gather_step_inputs` raises on. Soft parents are not pulled in by a target.
-- **Excluding a producer REFUSES its consumers; it never drops them silently.** There is no "let downstream cope": a required input has no absent-value code path (section 10.1). Say "I just want the rough cut" by naming a GOAL, not by excluding twelve steps.
-- **A recorded output satisfies an excluded dependency** - ledger entry, a `step_outputs` value, AND the KEY inside it.   A `--rerun` target is about to be discarded, so it satisfies nothing.
-- **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain putting a value under `external/` is saying "do not make this", so the closure stops at that producer.
-- **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
-- **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
-- `tests/test_run_scope.py`.
 ### Configuring a run
 
 **A run shape is DECLARED as data, and it has no power `run_scope` does not already have.**
-One enumeration, `library/tools/run_profile.py`.
-
-- A profile carries `goals` (or a built-in `target`), `skip`, `with` and `breakpoints`, and hands the first four to `run_scope.resolve` as a `Selection`. **The dependency refusal, the hard/soft edge derivation and the pre-run failure all apply unchanged**; `tests/test_run_profile.py` asserts a declared profile and the equivalent flags produce the SAME refusal string.
-- **Two directories, and a name resolves in the project first**: `<project>/profiles/<name>.yaml` (`Kind.INPUT`, the captain's) shadows `library/profiles/<name>.yaml` (the engine's), and the run header says which file answered. There is no `extends:` - the three layers that compose are engine profile -> a project ADOPTS it (`pipeline.run_profile`) -> one run OVERRIDES it.
-- **Naming a step on the command line outranks the profile.** `--skip`/`--with` ADD to what it said; `--target`/`--only` REPLACE its goals; `--only`/`--with` take a step OUT of its skip list. `--skip X --only X` is still the contradiction `run_scope` refuses.
-- **A profile is refused by name** for an unknown key, an unknown step, an unknown target, no `description`, a `name` disagreeing with its filename, or declaring both `target` and `goals`.
+Detail: `library/tools/run_profile.py`.
 
 **A breakpoint is armed PER STEP, and `--review` is the every-step case.**
-One enumeration, `library/tools/breakpoints.py`. The gate machinery is unchanged - `review_gate.py` still writes the snapshot and still takes approve/reject/revise; this is the selector it never had.
+Detail: `library/tools/breakpoints.py`.
 
-- **An unreachable breakpoint is NAMED, never refused.** A breakpoint strands no consumer, so refusing would make `--profile podcast --only catalog` impossible for no gain; the header says "armed at X, which this run does not run - it will NOT stop there" before the run starts, and `pipeline_run.json` records it.
-- An unknown step id, or a step both `--break` and `--no-break`, IS refused by name.
-- **Arming a gate makes it `pending` and throws away the previous run's answer.** A gate that pauses is by definition unanswered.
-- **The pause prints the command that answers it and the command that carries on**, and the resume command DROPS `--rerun` (`breakpoints._NOT_CARRIED`): carrying it would clear the ledger entry the pause just wrote and stop in the same place forever.
-- `tests/test_run_profile.py`, `tests/test_breakpoints.py`, `tests/test_run_configuration_end_to_end.py`.
 ### State the pipeline did not produce
 
 **A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.**
-One enumeration, `library/tools/external_inputs.py`.
+Detail: `library/tools/external_inputs.py`.
 
-- The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
-- **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
-- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.  **A Resolve timeline built by hand is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.   It is not skipped.
-- `tests/test_external_inputs.py`.
 ### A declaration must be true
 
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
-`library/tools/input_contract.py` surveys all 144 declared inputs of the DAG's 26 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
-
-- **Enforcement is not warrant.** Establishing warrant means RUNNING the step without the input; `tests/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
-- A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
-- The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
-- `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt, still declared because unrouting it would leave a frozen `handoff.md` documenting a read that no longer happens. `UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT` is its MIRROR - the declaration has gone and the frozen line has stayed - and `creative_direction.prosody_analysis` is its one entry, held open until the captain rules on `step_2_01_creative_direction/handoff.md:127`. It fails from BOTH sides: an entry whose input is declared again is stale, and so is one whose handoff no longer names the key.
-- **A step with no `handoff.md` reaches no prompt, and its CODE is the only consumer it can have.** `step_has_a_prompt` asks `run_pipeline.get_step_implementation`, and `trace_step_values` then asks whether the value the key yields REACHES A USE - naming the key is not reading it.
-- **That half REPORTS; it does not fail**, because escalating a pre-existing finding is the captain's call. `unread_by_a_prompt_less_step` is the report; `disagreements` is unchanged.
-- **The value read is one-sided and says so.** `_UNTRACEABLE` is what it reads as USED rather than guessing about - anything but a plain function the step's own files define, an alias, a second hop. 
-
-- **Deterministic**: a `step.py`, run automatically over JSON stdin/stdout.
-- **Hybrid**: a `bridge.py` that pre-computes context plus a `handoff.md` prompt for an LLM.
-- **LLM-only**: only a `handoff.md`, generating the output from upstream context.
+Detail: `library/tools/input_contract.py`.
 
 ### Two ledgers, two lifetimes
 
 One enumeration: `library/tools/step_ledger.py`.
-
-- Every step manifest declares `classification.stage`. An undeclared or unknown stage raises rather than defaulting.
-- **preflight** is enrichment of THIS PROJECT'S SOURCE FOOTAGE - scan, catalog, vision, transcription, prosody, segmentation, OCR - recorded in `preflight_completed`.
-- **edit** is everything downstream of a creative decision, recorded in `edit_completed`.
-- `validate_sfx_library` (0.01) is edit: it validates a SHARED library, not this project's footage.
-- `music_analysis` (2.06) is edit: it enriches a CHOSEN asset, and the choice is what an edit reset discards.
-
-- Per-clip granularity works because each step declares where its per-clip artifacts live, in `classification.per_clip_artifacts`.  **Add a per-clip artifact and you must declare it**, or nothing can invalidate it.
-- Preflight is skipped once done, and that is safe because identity is checked. `library/tools/footage_identity.py` fingerprints each clip by size plus a digest of its first and last mebibyte - not a whole-file hash and NOT mtime - against `source_fingerprints` in the state file. 
-- **The identity check watches the FOOTAGE, not the CODE. A fix that adds a field to a preflight output is invisible to it**, so a cached step keeps answering in the old shape. 
-- **A project's own declarations do NOT travel in a preflight cache.** `project_config` carries only `brand_registry.PROJECT_CONFIG_KEYS`, and `pipeline.framing_intent`, `pipeline.subtitle_typography` and the rest of the `pipeline:` block are read straight off `project.yaml` at the point of use, every run.  The mechanism is one declared field, one split ledger, one re-run flag, one identity check.
-- The per-clip index lives with the PROJECT: it resolves from `project_folder`, not the runner's CWD, and reuses any per-clip file already there instead of re-transcribing it.
+Detail: `library/tools/step_ledger.py`.
 
 ### Run status
 
 The run summary reports `SUCCESS` only when the whole DAG is complete and `failed_steps` is empty in the project ledger - not just the steps this invocation touched.
-
-- `FAILED`: a step failed, or emitted an `available: false`/hollow result, in this run or an earlier one. Exit code 1.
-- `AWAITING_LLM`, `PARTIAL` (`--step`/`--from`/a review-gate pause left DAG steps unrun), `DRY_RUN`.
-- `failed_steps` is current state, not a log: a step that later succeeds is removed from it.
-- **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** Never drop one: going quiet about a recorded failure is what `failed_steps` exists to prevent. 
+Detail: `library/processes/edit_video/run_pipeline.py`.
 
 ### A run that was RESTARTED says so, in its own outputs
 
-One enumeration, `library/tools/run_restart.py`. `begin_run_status` used to replace `pipeline_run.json` wholesale, so the outgoing account of how a run ended was overwritten by the run that followed it: 001's 29 Aug run halted on the spine contract and was re-run 49 seconds later, and nothing a reader of the OUTPUTS opens recorded it.
-
-- The previous account is READ before it is replaced, and the classification is off what a file SAYS. `interrupted` (no ending was ever written) is a different claim from `after_failure` (an ending was written saying FAILED); a predecessor this cannot see is `unknown`, never `clean`. A clean predecessor is not a restart at all.
-- **The status file records THAT a run failed; `pipeline_data.json` records WHAT it failed on.** The cause is read out of `step_errors`, never inferred from the status.
-- It lands three places - `pipeline_run.json` (`restart` plus a bounded `run_history`), the provenance run record, and `state["run_restarts"]` - because the complaint was that the outputs did not carry it.
-- **A restart already on disk can be RECONSTRUCTED, but its cause cannot.** `reconstruct_from_ledger` reads consecutive provenance run records; every row carries `cause: ""`, because the state file that held the words was overwritten by the run that followed.
-- `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/test_run_restart_is_recorded.py`.
+One enumeration, `library/tools/run_restart.py`.
+Detail: `library/tools/run_restart.py`.
 
 ### A step says what it could not determine
 
-One enumeration, `library/tools/undetermined.py`. Across all nine model responses of 001's 29 Aug run there is exactly ONE hedge; nothing invited the models to declare their own gaps, so "where are the bottlenecks" had no demand signal to read.
-
-- The TEN steps that reach a model are asked for `could_not_determine` in the RENDERED schema, with the instruction carried as DATA beside the context (the `CUTS_LEGEND`/`MEASUREMENT_LEGEND` route, because the handoffs are frozen). **Every one of them, not a subset**: choosing a subset answers, in advance and from outside, the question the field exists to collect data for. `render_motion_graphics` joined on 2026-09-02 when 4.06 grew a handoff, and `color_grade` on 2026-09-03 when 5.01 did; **a step that starts reaching a model and is left off the list is the subset this refuses to choose.**
-- **THREE readings, not two.** `[]` is `nothing_missing` - a complete answer; an absent key is `not_declared` - a non-answer, recorded as one and never read as "nothing was missing". Same line as `usable_ranges` `[]`/`unmeasured` (§10.3).
-- **The field is SPLIT OUT of the answer** before anything validates or reads it: it is a demand signal, not one of the step's outputs, and `validate_step_output` refuses an unexpected key.
-- **It reports and never gates.** The run summary prints it after `status` is decided and it lands on `state["undetermined_declarations"]`. Nothing reads a declaration's CONTENT - whatever picks which gaps matter becomes the reviewer (§10.4).
-- **The agy request file's `expected_schema` is rendered from `schema_outputs`, BELOW every appender**, and it sits next to the `generate_output_schema_text` call rendering the same list into the prompt. Anything appended next goes ABOVE that line. Built from `llm_outputs` instead, the field reached the agent in `prompt` alone; an agent reading the machine-readable half never emitted it, and all nine steps recorded the NON-ANSWER on every run in the one mode the pipeline runs in. `contradicts_direction` is the second appender and was one line from being lost the same way.
-- **`library/tools/replay_bench/reconstruct.py` mirrors ALL THREE appends**, asking each module's own predicate, or `verify` - a gate - reports every declaring, flagging or interviewed step as a difference it cannot account for. A tree lacking a module NOTES it rather than reconstructing quietly. `bench._llm_authored_from_archive` excludes the fields: they are split out of the answer and are never in the recorded state it subtracts from.
-- **One declaration per model ATTEMPT, numbered, and `final_by_step` is the per-STEP reading.** A step whose answer fails QA is asked again; dedupe would have thrown away the evidence that it failed the same way three times running, which is what `post_bridge_retry` accumulates. The summary prints the last attempt and SAYS how many there were.
-- **`state["undetermined_declarations"]` is MERGED, never replaced** (`undetermined.merge_records`). A step this run answered replaces its own rows; a step it did not reach keeps them, marked `from_a_previous_run` so a carried row is never read as fresh.
-- `tests/test_undetermined_declaration.py`, `tests/test_replay_bench.py`.
+One enumeration, `library/tools/undetermined.py`.
+Detail: `library/tools/undetermined.py`.
 
 ### A step says where its measurements contradict the direction, and complies anyway
 
-One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run "emotion" and "energy" appear ZERO times in the semantic documents and FOUR times each in the `creative_direction` block at stations 2 and 3: step 2.01 reads the footage once and every creative step after it inherits that reading whole, with no way to say what it measured disagrees. Prosody (#417) is the first deterministic measurement that CAN disagree with an inherited affect reading.
-
-- **Captain's ruling, 2026-09-01: a step MAY FLAG and MAY NOT ACT.** Nothing reads a flag's content, nothing gates on one, and the field is SPLIT OUT of the answer before validation - so the output a flagging step produces is byte-for-byte the one it would have produced silently. Escalation to the captain happens OUTSIDE the pipeline.
-- **It is `undetermined.py`'s twin carrying different cargo** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA beside the context because the handoffs are frozen. Do not build a second mechanism.
-- **FOUR readings, not the sibling's three.** A gap is named by naming it; a CONTRADICTION is a claim ABOUT a measurement, and a claim with no measurement is a model politely disagreeing with its brief. `contradicted` needs an entry naming a `direction_field` in `DIRECTION_KEYS`, a `measurement`, and a `measured_in` the step was really routed. Everything else is `unevidenced` - kept verbatim, reported as itself, and NEVER counted as a contradiction. `nothing_contradicted` (`[]`) and `not_declared` (key absent) are the other two, and they are not each other.
-- **Every step that reaches a model except the one that authors the direction - nine of them.** `color_grade` joined on 2026-09-03 by DERIVATION alone when 5.01 stopped being deterministic. A step needs a prompt to say it in, an inherited direction claim and a routed measurement. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`; the routed half is DERIVED from `dag.json`, so a new edge cannot leave it stale, and `render_motion_graphics` joined by that derivation alone when 4.06 stopped being deterministic. `creative_cohesion` declares `creative_direction` and is deterministic, so it has nothing to say it in.
-- **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
-- **Its collector is the sibling's, and so are the sibling's two rules**: one flag per model ATTEMPT, numbered, with `final_by_step` the per-STEP reading the summary prints; and `state["direction_contradictions"]` MERGED rather than replaced, carried rows marked `from_a_previous_run`. The two channels print into the same run summary, so they must count on the same basis.
-- **`Flag` and `Declaration` are constructed POSITIONALLY, so a new field goes LAST.** Added above `entries`, it takes the entries and the real entries land in the field after it - no error, just wrong rows, until something compares them.
-- `tests/test_direction_contradiction.py`, `tests/test_undetermined_declaration.py`.
+One enumeration, `library/tools/direction_contradiction.py`.
+Detail: `library/tools/direction_contradiction.py`.
 
 ### A step that makes a craft judgement is told what craft it is
 
-One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role) Measured 2026-08-25: not one of the twelve handoffs told the model what job it was doing - every one opens *"Given X, define Y"*. Captain: *"there are like skill files and agent.md files where the LLM doesn't know how to operate and its just a generic agent in the system rather than an actual proffesional video editor/director/etc all in one."*
-
-- **A role is THREE things and no fourth**: a DISCIPLINE named and addressed in the second person; what that discipline READS THE MEASUREMENTS WITH (craft knowledge a number does not carry - a colourist knows a dark shot can be dark on purpose); and what is this step's to DECIDE and what is not. An authority statement with no boundary reads as licence.
-- **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
-- **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
-- **It goes in the prompt because most handoffs are FROZEN**, and a role may carry a `corrects` line naming a withdrawn instruction still in one - the `SPEECH_REFERENCE_LEGEND` route. 4.04's role corrects its handoff's *"bass guitar - felt more than heard"*, which is the same withdrawn engine taste as `WITHDRAWN_TRACK_LEVELS`.
-- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Two are declared (`color_grade`, `plan_sfx`); nine are not, each with what it is addressed as today.
-- `tests/test_craft_role.py`.
+One enumeration, `library/tools/craft_role.py`.
+Detail: `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role)
 
 ### A step with no creative brief ASKS, rather than planning in silence
 
-One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way. The brief used to be injected automatically from the project's `creative_brief` path, and a project that declared none got SILENCE - eight steps planning a video with no brief and nothing recording that they had been asked to.
+One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way.
+Detail: `library/tools/brief_attachment.py`.
 
 Captain's ruling, 2026-09-02: *"this should be like an optional attachment we can add as context if we want, not something that automatically goes in"*, and *"if this was like a TUI interface if a user declines to attach a creative brief, then it should prompt the LLM to ask some briefing questions for the user"*.
-
-- **THREE readings, and an absent key is not `false`.** `pipeline.attach_creative_brief` (top level or under `pipeline:`, the same two places the path is read from) declares it. `true` attaches, `false` DECLINES even when a path exists, and ABSENT means **the PATH is the declaration** - so a project already declaring a brief keeps it, and the run header SAYS it read the absence that way. Reading an absent key as a decline is the same silence arriving from the other direction.
-- **One refusal, by name**: `attach_creative_brief: true` with no path. A declaration to attach a document that does not exist cannot be acted on, and attaching nothing and carrying on is the silence again.
-- **The path reaches state only when the reading is ATTACHED**, so `gather_step_inputs`, the whitelist and the replay bench all see exactly what a project with no brief sees. No second place can answer differently.
-- **A run with no brief attached INTERVIEWS.** The steps whose manifests declare `creative_brief` are asked for `briefing_questions` - what they would have put to the person commissioning the video. **DERIVED from the manifests**, so a step that starts or stops declaring the brief cannot fall out of the interview silently; `mesh_spine` is in it though its handoff never names a brief (§10.1).
-- **It is `undetermined.py`'s third sibling** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA, same THREE readings (`asked` / `nothing_to_ask` / `not_declared`), one record per model ATTEMPT numbered, and `state["briefing_questions"]` MERGED rather than replaced. Do not build a fourth shape. **It differs in one way: it is CONDITIONAL** - a step handed the captain's own brief and then asked what it wished the captain had said is being invited to manufacture a gap.
-- **Who answers, and on which run: the captain, out of band.** The pipeline is not interactive and a run that stopped to wait would never complete, so the interview is COLLECTED, not conducted. The questions print in the run summary and land on state; the captain answers by writing or extending the brief and attaching it, and the next run reads it. **The brief IS the answer format** - an answers file beside it would be a brief under another name.
-- **The prompt tells the step to decide anyway, in full.** Asking is not licence to hedge.
-- `tests/test_brief_attachment.py`, `tests/test_briefing_interview.py`.
+Detail: `library/tools/brief_attachment.py`.
 
 ### A contract rejection reaches the model that caused it
 
-One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a retry-with-feedback path, but `PostBridgeError` is raised from `run_hybrid_step` AFTER it returns, so the one failure class that most needs feedback bypassed it. On 001's 29 Aug run both `mesh_spine` attempts logged raw 247,336 -> projected 4,911 -> toon 4,070: a BYTE-IDENTICAL context. Recovery from a contract violation was resampling until something passed.
-
-- The violation is carried into the retry context by the QA path's own plumbing - `present_llm_step(retry_feedback=...)` seeds `current_context` - so it reaches the archived request file the same way QA feedback does. **Extend that path; do not build a second one.**
-- **The retry is BOUNDED at `MAX_ATTEMPTS` model calls**, and at the bound the step FAILS carrying the last violation rather than proceeding on a best attempt: a rejected post-bridge means the downstream contract is unsatisfied and there is no partial output to proceed with.
-- Feedback blocks ACCUMULATE, each elided to `MAX_VIOLATION_CHARS` from the middle, so a model that failed twice the same way sees that it did and the context still grows by a fixed, small amount.
-- `tests/test_post_bridge_rejection_reaches_the_model.py`.
+One enumeration, `library/tools/post_bridge_retry.py`.
+Detail: `library/tools/post_bridge_retry.py`.
 
 ## 4. Dashboard
 

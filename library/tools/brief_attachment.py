@@ -51,6 +51,26 @@ is not a decision anybody can act on, and the alternative - attaching
 nothing and carrying on - is the silence again.
 
 `tests/test_brief_attachment.py`.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way. The brief used to be injected automatically from the project's `creative_brief` path, and a project that declared none got SILENCE - eight steps planning a video with no brief and nothing recording that they had been asked to.
+
+Captain's ruling, 2026-09-02: *"this should be like an optional attachment we can add as context if we want, not something that automatically goes in"*, and *"if this was like a TUI interface if a user declines to attach a creative brief, then it should prompt the LLM to ask some briefing questions for the user"*.
+- **THREE readings, and an absent key is not `false`.** `pipeline.attach_creative_brief` (top level or under `pipeline:`, the same two places the path is read from) declares it. `true` attaches, `false` DECLINES even when a path exists, and ABSENT means **the PATH is the declaration** - so a project already declaring a brief keeps it, and the run header SAYS it read the absence that way. Reading an absent key as a decline is the same silence arriving from the other direction.
+- **One refusal, by name**: `attach_creative_brief: true` with no path. A declaration to attach a document that does not exist cannot be acted on, and attaching nothing and carrying on is the silence again.
+- **The path reaches state only when the reading is ATTACHED**, so `gather_step_inputs`, the whitelist and the replay bench all see exactly what a project with no brief sees. No second place can answer differently.
+- **A run with no brief attached INTERVIEWS.** The steps whose manifests declare `creative_brief` are asked for `briefing_questions` - what they would have put to the person commissioning the video. **DERIVED from the manifests**, so a step that starts or stops declaring the brief cannot fall out of the interview silently; `mesh_spine` is in it though its handoff never names a brief (§10.1).
+- **It is `undetermined.py`'s third sibling** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA, same THREE readings (`asked` / `nothing_to_ask` / `not_declared`), one record per model ATTEMPT numbered, and `state["briefing_questions"]` MERGED rather than replaced. Do not build a fourth shape. **It differs in one way: it is CONDITIONAL** - a step handed the captain's own brief and then asked what it wished the captain had said is being invited to manufacture a gap.
+- **Who answers, and on which run: the captain, out of band.** The pipeline is not interactive and a run that stopped to wait would never complete, so the interview is COLLECTED, not conducted. The questions print in the run summary and land on state; the captain answers by writing or extending the brief and attaching it, and the next run reads it. **The brief IS the answer format** - an answers file beside it would be a brief under another name.
+- **The prompt tells the step to decide anyway, in full.** Asking is not licence to hedge.
+- `tests/test_brief_attachment.py`, `tests/test_briefing_interview.py`.
 """
 
 from __future__ import annotations

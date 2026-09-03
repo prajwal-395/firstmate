@@ -80,6 +80,22 @@ step is addressed as now, so the next worker adding one knows what they
 are replacing.
 
 `tests/test_craft_role.py`.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role) Measured 2026-08-25: not one of the twelve handoffs told the model what job it was doing - every one opens *"Given X, define Y"*. Captain: *"there are like skill files and agent.md files where the LLM doesn't know how to operate and its just a generic agent in the system rather than an actual proffesional video editor/director/etc all in one."*
+- **A role is THREE things and no fourth**: a DISCIPLINE named and addressed in the second person; what that discipline READS THE MEASUREMENTS WITH (craft knowledge a number does not carry - a colourist knows a dark shot can be dark on purpose); and what is this step's to DECIDE and what is not. An authority statement with no boundary reads as licence.
+- **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
+- **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
+- **It goes in the prompt because most handoffs are FROZEN**, and a role may carry a `corrects` line naming a withdrawn instruction still in one - the `SPEECH_REFERENCE_LEGEND` route. 4.04's role corrects its handoff's *"bass guitar - felt more than heard"*, which is the same withdrawn engine taste as `WITHDRAWN_TRACK_LEVELS`.
+- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Two are declared (`color_grade`, `plan_sfx`); nine are not, each with what it is addressed as today.
+- `tests/test_craft_role.py`.
 """
 
 from __future__ import annotations

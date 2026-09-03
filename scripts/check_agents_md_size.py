@@ -25,10 +25,11 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 110280
+CEILING = 87173
 
 # RATCHET, per section: lowered 2026-09-03 when section 10's detail moved to the
-# modules that own it (81,459 -> 17,591). Lower a row as its content moves to the
+# modules that own it (81,459 -> 17,591), and again when section 3's did
+# (28,708 -> 5,601). Lower a row as its content moves to the
 # module that owns it; never raise one.
 #
 # ONE row has been raised, once: `## 9` +1,849 in the same change, to document
@@ -40,7 +41,7 @@ SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
     "## 2. Repo layout": 2144,
-    "## 3. Pipeline execution": 28697,
+    "## 3. Pipeline execution": 5590,
     "## 4. Dashboard": 3120,
     "## 5. DaVinci Resolve integration - CRITICAL RULES": 9975,
     "## 6. The spine contract": 1282,

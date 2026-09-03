@@ -24,6 +24,21 @@ carry it.
 whose status file says `running` did not report an ending at all: that is
 `interrupted`, and it is a different claim from `after_failure`.  A
 previous run this cannot see is `unknown`, never `clean`.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+One enumeration, `library/tools/run_restart.py`. `begin_run_status` used to replace `pipeline_run.json` wholesale, so the outgoing account of how a run ended was overwritten by the run that followed it: 001's 29 Aug run halted on the spine contract and was re-run 49 seconds later, and nothing a reader of the OUTPUTS opens recorded it.
+- The previous account is READ before it is replaced, and the classification is off what a file SAYS. `interrupted` (no ending was ever written) is a different claim from `after_failure` (an ending was written saying FAILED); a predecessor this cannot see is `unknown`, never `clean`. A clean predecessor is not a restart at all.
+- **The status file records THAT a run failed; `pipeline_data.json` records WHAT it failed on.** The cause is read out of `step_errors`, never inferred from the status.
+- It lands three places - `pipeline_run.json` (`restart` plus a bounded `run_history`), the provenance run record, and `state["run_restarts"]` - because the complaint was that the outputs did not carry it.
+- **A restart already on disk can be RECONSTRUCTED, but its cause cannot.** `reconstruct_from_ledger` reads consecutive provenance run records; every row carries `cause: ""`, because the state file that held the words was overwritten by the run that followed.
+- `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/test_run_restart_is_recorded.py`.
 """
 
 from __future__ import annotations

@@ -60,6 +60,21 @@ step.  The verdict comes from the check, not from the sentence.
     python3 -m library.tools.external_inputs <project_folder>
 
 `tests/test_external_inputs.py`.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+**A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.**
+One enumeration, `library/tools/external_inputs.py`.
+- The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
+- **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
+- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.  **A Resolve timeline built by hand is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.   It is not skipped.
+- `tests/test_external_inputs.py`.
 """
 
 from __future__ import annotations

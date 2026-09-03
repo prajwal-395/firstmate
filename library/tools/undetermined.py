@@ -41,6 +41,25 @@ answering, in advance and from outside, the question this exists to
 collect data for.  Every step here makes a judgement from material an
 allow-list narrowed, so any of them can be short of something; the point
 is to find out which, from them.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+One enumeration, `library/tools/undetermined.py`. Across all nine model responses of 001's 29 Aug run there is exactly ONE hedge; nothing invited the models to declare their own gaps, so "where are the bottlenecks" had no demand signal to read.
+- The TEN steps that reach a model are asked for `could_not_determine` in the RENDERED schema, with the instruction carried as DATA beside the context (the `CUTS_LEGEND`/`MEASUREMENT_LEGEND` route, because the handoffs are frozen). **Every one of them, not a subset**: choosing a subset answers, in advance and from outside, the question the field exists to collect data for. `render_motion_graphics` joined on 2026-09-02 when 4.06 grew a handoff, and `color_grade` on 2026-09-03 when 5.01 did; **a step that starts reaching a model and is left off the list is the subset this refuses to choose.**
+- **THREE readings, not two.** `[]` is `nothing_missing` - a complete answer; an absent key is `not_declared` - a non-answer, recorded as one and never read as "nothing was missing". Same line as `usable_ranges` `[]`/`unmeasured` (§10.3).
+- **The field is SPLIT OUT of the answer** before anything validates or reads it: it is a demand signal, not one of the step's outputs, and `validate_step_output` refuses an unexpected key.
+- **It reports and never gates.** The run summary prints it after `status` is decided and it lands on `state["undetermined_declarations"]`. Nothing reads a declaration's CONTENT - whatever picks which gaps matter becomes the reviewer (§10.4).
+- **The agy request file's `expected_schema` is rendered from `schema_outputs`, BELOW every appender**, and it sits next to the `generate_output_schema_text` call rendering the same list into the prompt. Anything appended next goes ABOVE that line. Built from `llm_outputs` instead, the field reached the agent in `prompt` alone; an agent reading the machine-readable half never emitted it, and all nine steps recorded the NON-ANSWER on every run in the one mode the pipeline runs in. `contradicts_direction` is the second appender and was one line from being lost the same way.
+- **`library/tools/replay_bench/reconstruct.py` mirrors ALL THREE appends**, asking each module's own predicate, or `verify` - a gate - reports every declaring, flagging or interviewed step as a difference it cannot account for. A tree lacking a module NOTES it rather than reconstructing quietly. `bench._llm_authored_from_archive` excludes the fields: they are split out of the answer and are never in the recorded state it subtracts from.
+- **One declaration per model ATTEMPT, numbered, and `final_by_step` is the per-STEP reading.** A step whose answer fails QA is asked again; dedupe would have thrown away the evidence that it failed the same way three times running, which is what `post_bridge_retry` accumulates. The summary prints the last attempt and SAYS how many there were.
+- **`state["undetermined_declarations"]` is MERGED, never replaced** (`undetermined.merge_records`). A step this run answered replaces its own rows; a step it did not reach keeps them, marked `from_a_previous_run` so a carried row is never read as fresh.
+- `tests/test_undetermined_declaration.py`, `tests/test_replay_bench.py`.
 """
 
 from __future__ import annotations

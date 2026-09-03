@@ -60,6 +60,26 @@ This is not a caching framework and must not become one.  One declared
 field, one split ledger, one re-run flag, one identity check.  The
 artifacts are already per clip on disk; the only thing that was missing
 is the bookkeeping.
+
+
+Rules relocated from AGENTS.md 3
+--------------------------------
+These are the engine's rules for this module.  They lived in AGENTS.md
+until it was split by subsystem; the wording is unchanged, so each rule
+is findable by its own words, and AGENTS.md 3 keeps the headline
+and points here.
+
+One enumeration: `library/tools/step_ledger.py`.
+- Every step manifest declares `classification.stage`. An undeclared or unknown stage raises rather than defaulting.
+- **preflight** is enrichment of THIS PROJECT'S SOURCE FOOTAGE - scan, catalog, vision, transcription, prosody, segmentation, OCR - recorded in `preflight_completed`.
+- **edit** is everything downstream of a creative decision, recorded in `edit_completed`.
+- `validate_sfx_library` (0.01) is edit: it validates a SHARED library, not this project's footage.
+- `music_analysis` (2.06) is edit: it enriches a CHOSEN asset, and the choice is what an edit reset discards.
+- Per-clip granularity works because each step declares where its per-clip artifacts live, in `classification.per_clip_artifacts`.  **Add a per-clip artifact and you must declare it**, or nothing can invalidate it.
+- Preflight is skipped once done, and that is safe because identity is checked. `library/tools/footage_identity.py` fingerprints each clip by size plus a digest of its first and last mebibyte - not a whole-file hash and NOT mtime - against `source_fingerprints` in the state file.
+- **The identity check watches the FOOTAGE, not the CODE. A fix that adds a field to a preflight output is invisible to it**, so a cached step keeps answering in the old shape.
+- **A project's own declarations do NOT travel in a preflight cache.** `project_config` carries only `brand_registry.PROJECT_CONFIG_KEYS`, and `pipeline.framing_intent`, `pipeline.subtitle_typography` and the rest of the `pipeline:` block are read straight off `project.yaml` at the point of use, every run.  The mechanism is one declared field, one split ledger, one re-run flag, one identity check.
+- The per-clip index lives with the PROJECT: it resolves from `project_folder`, not the runner's CWD, and reuses any per-clip file already there instead of re-transcribing it.
 """
 
 import os
