@@ -30,6 +30,9 @@ from library.tools.broll_coverage import (
     coverage_by_block, covering_assignment,
 )
 from library.tools.semantic_index import build_semantic_lookup
+from library.tools.vfx_carriers import (
+    VFX_CANDIDATES_LEGEND, picture_carriers,
+)
 from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     is_v3_profile,
@@ -272,6 +275,18 @@ def build_vfx_candidates(data: dict) -> list:
     clip_id_to_stem = _build_clip_id_to_stem(data)
     semantic_lookup = _build_semantic_lookup(data, clip_id_to_stem)
     coverage = coverage_by_block(data.get("b_roll_assignments"))
+    # Where each block's picture is, read off the same V1-membership rule
+    # `compile_manifest` builds its V1 track from. An effect is a per-clip
+    # Fusion comp and the renderer builds them on V1 and V2 alike, so a
+    # cutaway block CAN carry one - but a block with no clip at all
+    # cannot, and the plan used to be given no way to tell. This states
+    # the fact per block; nothing is filtered or chosen for the model
+    # (AGENTS.md 10.5). See library/tools/vfx_carriers.py.
+    carriers = {
+        str(row["position"]): row
+        for row in picture_carriers(
+            _spine_blocks(data), data.get("b_roll_assignments"))
+    }
     rows = []
     for block in _spine_blocks(data):
         if not isinstance(block, dict):
@@ -292,11 +307,14 @@ def build_vfx_candidates(data: dict) -> list:
         doc = semantic_lookup.get(clip_id, {}) if clip_id else {}
         camera_desc = _camera_description(doc, source_start, source_end)
 
+        carrier = carriers.get(str(block.get("position")), {})
         rows.append({
             "segment_id": block.get("position"),
             "text": _summary_text(block),
             "vfx_suggested": _vfx_suggested(
                 block, camera_desc, clip_id=clip_id, from_broll=from_broll),
+            "picture_track": carrier.get("track", ""),
+            "track_basis": carrier.get("basis", ""),
         })
     return rows
 
@@ -310,7 +328,8 @@ def main():
 
     rows = build_vfx_candidates(data)
     vfx_toon = format_toon(
-        ["segment_id", "text", "vfx_suggested"],
+        ["segment_id", "text", "vfx_suggested", "picture_track",
+         "track_basis"],
         rows,
     )
 
@@ -321,6 +340,10 @@ def main():
     # the real `enhancement_spec` after the model answers.
     compressed = {
         "vfx_candidates_toon": vfx_toon,
+        # The handoff is frozen and cannot name the derived columns, so
+        # their definition travels as data - the route step 4.02 takes
+        # for CUTS_LEGEND and step 2.04 for MEASUREMENT_LEGEND.
+        "vfx_candidates_legend": dict(VFX_CANDIDATES_LEGEND),
     }
 
     print(json.dumps(compressed))

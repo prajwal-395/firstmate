@@ -29,7 +29,7 @@ What this module deliberately does NOT do
 It does not refuse the step when every entry is dropped.  AGENTS.md §10.5
 refuses an unplayable SFX plan by name in step 4.04, and §13 refuses an
 invented bookend, so the precedent for refusing here exists and is
-recorded in `THE_REFUSAL_QUESTION` - but which of the six drop reasons
+recorded in `THE_REFUSAL_QUESTION` - but which of the drop reasons
 should stop a run is a decision about how the pipeline behaves, and it is
 the captain's, not this module's.  Recording is what makes the question
 askable from the output rather than from a log.
@@ -121,6 +121,16 @@ DROP_REASONS = {
         "`TOOLKIT_PARAMETERS`; what they are set TO is the plan's "
         "decision and nothing is substituted"
     ),
+    "no_clip_at_that_position": (
+        "no clip on V1 or V2 covers the block the entry names, so there "
+        "is no picture to draw the effect on.  An effect is a per-clip "
+        "Fusion comp and the renderer builds them on both tracks, so a "
+        "cutaway block carries one perfectly well - this is the case "
+        "where the timeline shows nothing at all there.  Step 4.03's "
+        "candidate table states it per block as `picture_track: none` "
+        "(library/tools/vfx_carriers.py), so a plan reaching this reason "
+        "asked for an effect the table already said could not be drawn"
+    ),
     "generator_not_a_clip_effect": (
         "the effect_type is a generator preset, which produces pixels "
         "from nothing and has no image input.  It cannot modify the "
@@ -154,7 +164,7 @@ THE_REFUSAL_QUESTION = (
     "unplayable sound refuses step 4.04 (AGENTS.md §10.5) and an invented "
     "bookend refuses step 2.05 (§13).  The argument for is that a plan "
     "written around an effect ships without it and nobody decided that.  "
-    "The argument against is that four of the seven reasons are the "
+    "The argument against is that most of the reasons are the "
     "planner's own typo, and failing a forty-minute run on one is a "
     "harder outcome than recording it.  Not settled here."
 )
@@ -227,6 +237,44 @@ def plan_basis(proposed: int, resolved: int) -> str:
     if resolved == 0:
         return "every_entry_dropped"
     return "planned"
+
+
+def amend_with_drops(basis_record, dropped: list, entries_seen: int) -> dict:
+    """Fold drops made AFTER step 4.03 into that step's own basis record.
+
+    `compile_manifest` is the second place an entry can fall out of the
+    plan: the block it names may have no clip on V1 or V2 at all, which
+    step 4.03 cannot see because the timeline does not exist yet.  The
+    drop belongs in the SAME record the step's own drops go in, so a
+    reviewer reads one account of why the layer is the length it is
+    rather than two half-accounts in two places.
+
+    `entries_seen` is how many entries reached the compiler.  It is used
+    only when 4.03 wrote no record at all - a plan from before
+    `planning_basis` existed - because `proposed` then has no other
+    source, and a count read off the compiler is the honest one to state.
+
+    Returns a fresh dict; the argument is never mutated.
+    """
+    record = dict(basis_record) if isinstance(basis_record, dict) else {}
+    proposed = record.get("proposed")
+    if not isinstance(proposed, int) or proposed < 0:
+        proposed = entries_seen
+    existing = list(record.get("dropped") or [])
+    new_drops = [
+        d.as_dict() if isinstance(d, DroppedEntry) else dict(d)
+        for d in dropped
+    ]
+    resolved = record.get("resolved")
+    if not isinstance(resolved, int) or resolved < 0:
+        resolved = entries_seen
+    resolved = max(0, resolved - len(new_drops))
+
+    record["proposed"] = proposed
+    record["resolved"] = resolved
+    record["dropped"] = existing + new_drops
+    record["basis"] = plan_basis(proposed, resolved)
+    return record
 
 
 def basis_summary(basis_record: dict) -> str:

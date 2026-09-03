@@ -62,9 +62,18 @@ logger = logging.getLogger(__name__)
 # The list itself lives in tools.transition_vocabulary; this module reads
 # it through is_cut() so there is one place a type can be classified.
 
-# Tracks whose clips must lie end-to-end. A3 is excluded: SFX are allowed
-# to overlap and the timeline builder allocates extra audio tracks for them.
-SINGLE_LANE_TRACKS = ("A3",)
+# Tracks that are a logical BUCKET rather than one physical lane: their
+# clips may overlap, and the timeline builder spreads the overlaps across
+# A3, A4, ... (`resolve_build_timeline._allocate_audio_tracks`). Every
+# other track is a lane, where two clips at one position means one of
+# them is invisible.
+#
+# This used to be spelled `SINGLE_LANE_TRACKS` and read `if track_name
+# not in SINGLE_LANE_TRACKS`, which is a double negative naming the
+# opposite of what the tuple holds - and the duplicate-position check
+# below sat one indent outside it, so a legitimate layer of two sounds
+# killed the run. The name now says what membership means.
+LOGICAL_BUCKET_TRACKS = ("A3",)
 
 # A hole shorter than one frame is float noise between two abutting
 # clips, not something the viewer can see.
@@ -88,7 +97,9 @@ from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
 from library.tools.transition_carriers import block_reaches_v1
-from library.tools.vfx_plan_basis import basis_summary
+from library.tools.vfx_plan_basis import (
+    DroppedEntry, amend_with_drops, basis_summary,
+)
 from tools.spine_contract import (
     MAX_DECLARED_BLACK_BEAT_SECONDS,
     is_speech_block,
@@ -196,6 +207,43 @@ def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> 
     return record
 
 
+def _assert_no_doubled_sound(track_name: str, clips: list) -> None:
+    """On a logical bucket track, the same sound twice at one span.
+
+    A3 is a bucket, not a lane: the timeline builder spreads overlapping
+    clips across A3, A4, ... (`_allocate_audio_tracks`), so a riser under
+    a whoosh is sound design and TWO SOUNDS AT ONE SPAN IS LAYERING - the
+    obvious thing to do on a short block, and what step 4.04's craft role
+    invites in as many words. `manifest_validator._check_sfx_distributed`
+    has always read it that way and refuses only a collapse: every clip
+    on one frame.
+
+    What is left is the case layering cannot explain. The same file,
+    entered at the same point, over the same span, is one waveform played
+    twice: it adds level and nothing else, and no lane allocation makes
+    the second audible as a separate sound. That is a duplicated entry,
+    not a stack, so it is still refused by name.
+    """
+    seen = {}
+    for clip in clips:
+        key = (
+            clip.get('source_file'),
+            round(float(clip.get('source_in') or 0.0), 3),
+            clip.get('timeline_in', 0),
+            clip.get('timeline_out', 0),
+        )
+        if key in seen:
+            raise ValueError(
+                f"Track {track_name}: {clip.get('label', '?')} and "
+                f"{seen[key]} are the same sound ({os.path.basename(str(key[0]))}) "
+                f"entered at the same point over the same span "
+                f"({key[2]}, {key[3]}) - that is one waveform played twice, "
+                f"not a layer. Layering two DIFFERENT sounds here is fine "
+                f"and the builder gives them their own tracks."
+            )
+        seen[key] = clip.get('label', '?')
+
+
 def _apply_manifest_qa_checks(manifest: dict):
     # Check 1: Subtitle Overlap Detection
     subtitles = manifest.get('subtitles', [])
@@ -225,7 +273,7 @@ def _apply_manifest_qa_checks(manifest: dict):
         # A3 is a logical SFX bucket, not one physical track: the timeline
         # builder spreads overlapping SFX across A3, A4, ... so a riser
         # running under a whoosh is sound design, not a collision.
-        if track_name not in SINGLE_LANE_TRACKS:
+        if track_name not in LOGICAL_BUCKET_TRACKS:
             for i in range(len(clips) - 1):
                 curr_out = clips[i].get('timeline_out', clips[i].get('timeline_out_seconds', 0))
                 next_in = clips[i+1].get('timeline_in', clips[i+1].get('timeline_in_seconds', 0))
@@ -247,16 +295,28 @@ def _apply_manifest_qa_checks(manifest: dict):
                         f"and overlaps clip {i+1} "
                         f"({clips[i+1].get('label', '?')}) at {next_in:.3f}s"
                     )
-        positions = {}
-        for clip in clips:
-            pos = (clip.get('timeline_in', 0), clip.get('timeline_out', 0))
-            if pos in positions:
-                raise ValueError(
-                    f"Track {track_name}: {clip.get('label', '?')} and "
-                    f"{positions[pos]} both occupy {pos} - only one would "
-                    f"be visible"
-                )
-            positions[pos] = clip.get('label', '?')
+            # Two clips at the IDENTICAL span are the extreme case of the
+            # overlap above, so this sits inside the same guard. It used
+            # to sit one indent out and therefore ran for A3 too, which
+            # defeated that exemption exactly where two sounds were
+            # layered: `sfx_005 and sfx_004 both occupy (55.001, 58.001)`
+            # killed a run whose plan was correct, and the same two
+            # sounds compiled the moment their durations differed. On a
+            # single-lane track only one clip can be seen or heard, which
+            # is what this catches - nine B-roll assignments arriving at
+            # (0, 0) because the reader used keys the planner never wrote.
+            positions = {}
+            for clip in clips:
+                pos = (clip.get('timeline_in', 0), clip.get('timeline_out', 0))
+                if pos in positions:
+                    raise ValueError(
+                        f"Track {track_name}: {clip.get('label', '?')} and "
+                        f"{positions[pos]} both occupy {pos} - only one would "
+                        f"be visible"
+                    )
+                positions[pos] = clip.get('label', '?')
+        else:
+            _assert_no_doubled_sound(track_name, clips)
 
     # Check 3: Transition Type+Duration Enforcement
     resolved_transitions = manifest.get('transitions', [])
@@ -802,6 +862,26 @@ def _v1_label_at(v1_clips: list, timeline_time: float):
             best_dist = dist
             best_label = clip["label"]
     return best_label
+
+
+def _picture_label_at(v1_clips: list, v2_clips: list, timeline_time: float):
+    """Label of the clip an effect at this position draws on, or None.
+
+    A visual effect is a per-clip Fusion comp and the renderer walks
+    `fusion_tracks.FUSION_COMP_TRACKS` - V1 AND V2 - so a comp reaches a
+    B-roll cutaway exactly as it reaches an A-roll clip.  This used to
+    read V1 alone and the compile RAISED when nothing matched, which
+    killed a whole run over two effects the planner was invited to put on
+    cutaway blocks (library/tools/vfx_carriers.py).
+
+    V1 is asked first, which keeps every existing placement exactly where
+    it was: where a cutaway covers a speech block both tracks carry a
+    clip, and the effect still lands on the V1 clip underneath.  Which
+    picture an effect belongs on when two are stacked is a creative
+    question nobody has answered, so nothing here answers it.
+    """
+    return (_v1_label_at(v1_clips, timeline_time)
+            or _v1_label_at(v2_clips, timeline_time))
 
 
 def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
@@ -1689,9 +1769,11 @@ def compile_manifest(out_dir: str) -> dict:
     # reasons went only to that step's stderr.  This is where the
     # absence becomes final, so it is where it is said.
     # See `library/tools/vfx_plan_basis.py`.
+    vfx_planning_basis = {}
     if isinstance(vfx_container, dict):
         vfx_basis = vfx_container.get("planning_basis")
         if isinstance(vfx_basis, dict) and vfx_basis.get("basis"):
+            vfx_planning_basis = dict(vfx_basis)
             logger.info("%s", basis_summary(vfx_basis))
             if vfx_basis["basis"] == "every_entry_dropped":
                 for drop in vfx_basis.get("dropped") or []:
@@ -1722,7 +1804,7 @@ def compile_manifest(out_dir: str) -> dict:
     vfx_assigned_labels = set()
     vfx_collisions = []
     for v in vfx:
-        label = _v1_label_at(v1_clips, v["timeline_start"])
+        label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])
         if label is None:
             unplaced_vfx.append(v)
             continue
@@ -1772,14 +1854,38 @@ def compile_manifest(out_dir: str) -> dict:
         effect["backdrop_scale"] = backdrop["backdrop_scale"]
         effect["backdrop_center_x"] = backdrop["backdrop_center_x"]
 
+    # An entry over a stretch of timeline with no clip on V1 OR V2 cannot
+    # be drawn - there is no picture to put a comp on.  It used to RAISE,
+    # and that refusal killed a run over effects the planner was invited
+    # to place: step 4.03's table lists every block, cutaways included,
+    # and nothing told it a comp only reached V1.  It reaches both, so a
+    # cutaway effect now lands (`_picture_label_at`), and what is left
+    # here is the genuine case.  AGENTS.md §10.5: an entry that cannot be
+    # delivered is DROPPED with the reason, in the shape
+    # `vfx_plan_basis` already carries, so the reviewer reads it in the
+    # output rather than in a log line forty minutes into a run.
     if unplaced_vfx:
-        raise ValueError(
-            f"{len(unplaced_vfx)} VFX entries do not overlap any V1 clip: "
-            + ", ".join(
-                f"{v['effect_type']}@{v['timeline_start']}s"
-                for v in unplaced_vfx
+        unplaced_ids = {id(v) for v in unplaced_vfx}
+        entries_seen = len(vfx)
+        vfx = [v for v in vfx if id(v) not in unplaced_ids]
+        drops = [
+            DroppedEntry(
+                target_block_position=v.get("target_block_position"),
+                effect_type=v.get("effect_type", "") or "",
+                reason="no_clip_at_that_position",
+                detail=(
+                    f"Dropped VFX {v.get('effect_type', '?')!r} at "
+                    f"{v.get('timeline_start')}s: no clip on V1 or V2 "
+                    f"covers that position, so there is no picture to "
+                    f"draw the comp on."
+                ),
             )
-        )
+            for v in unplaced_vfx
+        ]
+        vfx_planning_basis = amend_with_drops(
+            vfx_planning_basis, drops, entries_seen)
+        for drop in drops:
+            logger.warning("  VFX not built: %s", drop.detail)
 
     # Fusion transitions: convert step_4_02 transitions to .comp format.
     # `after_clip` is the index of the OUTGOING V1 clip - the one whose
@@ -1919,6 +2025,12 @@ def compile_manifest(out_dir: str) -> dict:
         "subtitles": subtitles,
         "transitions": transitions,
         "vfx": vfx,
+        # Why the VFX layer is the length it is, INCLUDING what this step
+        # dropped. Step 4.03 records its own drops; a block with no clip
+        # on either video track is one only the compiler can see, and
+        # both accounts belong in one record rather than two halves in
+        # two places. See library/tools/vfx_plan_basis.py.
+        "vfx_planning_basis": vfx_planning_basis,
         "generator_overlays": generator_overlays,
         "fusion_effects": {
             "per_clip": per_clip_effects,

@@ -12,6 +12,22 @@ comp: the three cutaways sat at a different contrast, with no grain and
 no vignette, beside the A-roll they were cut into. Commit 85634d5 added
 the detection that names them and deliberately left the gap open.
 
+**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT V2 clip
+carries none, and a comp reads only the clip it sits on.** The two are
+opposite cases and the rule that fits one is wrong for the other:
+
+- A B-roll cutaway is footage. Zoom, blur, shake and grade it exactly as a
+  V1 clip - `compile_manifest._picture_label_at` places a planned VFX on the
+  V1 OR V2 clip covering it, and the pass below builds the comp either way.
+  Refusing a VFX on a cutaway killed a whole run (`vfx_carriers.py`).
+- A transparent overlay clip - the reused `transparent_1080x1920_30fps.mov`
+  placed at `trackIndex: 2` - carries no picture, so its comp has nothing to
+  read: dip-to-black, colour washes, letterbox bars and particle effects
+  only, never flash, blur or zoom, which need image content.
+- **NEITHER kind reads V1.** An effect on a cutaway alters the cutaway, not
+  the A-roll under it, and an Adjustment Clip cannot go on V2 at all -
+  `InsertGeneratorIntoTimeline` always targets V1.
+
 Transitions stay on V1. `fusion_effects.transitions` carries an
 `after_clip` index into the V1 clip LIST, so replaying it against another
 track's clips would draw a transition at an unrelated cut.

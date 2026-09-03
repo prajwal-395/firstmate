@@ -364,15 +364,13 @@ One enumeration, `library/tools/execution/fusion_tracks.py`.
 - Drop detection in `build_verification` asks whether a label was PLACED, not whether it is on V1.
 - `tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
 
-**Track V2 is for additive overlays only** and its Fusion comps cannot read V1 video content.
+**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**, and neither comp reads V1. Which is which, and what each may be asked to draw, is in `fusion_tracks.py` beside the enumeration above.
 
-- Use V2 for dip-to-black, colour washes, letterbox bars and particle effects.
-- Do NOT use V2 for flash, blur or zoom (they need V1 video).
+- A cutaway takes zoom, blur and grade as a V1 clip does; `vfx_carriers.py` tells the planner which track a block is on.
 - Adjustment Clips cannot go on V2 - `InsertGeneratorIntoTimeline` always targets V1.
-- Import one `transparent_1080x1920_30fps.mov` and reuse it via `AppendToTimeline` with `clipInfo` targeting `trackIndex: 2`.
 
-**A3 is a logical SFX bucket, not one lane.**
-Overlapping SFX are fine - the timeline builder allocates A3, A4, ... - but identical SFX positions are not.
+**A3 is a logical SFX bucket, and TWO SOUNDS AT ONE SPAN IS LAYERING.**
+`LOGICAL_BUCKET_TRACKS` in step 5.04; every refusal of a shared position sits inside it.
 
 ### Media pool and audio
 

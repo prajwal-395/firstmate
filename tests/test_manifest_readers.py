@@ -31,6 +31,12 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 EXEMPTED_KEYS = {
     "transitions_downgraded": "Recorded for dashboard export only, no renderer consumes it",
     "cohesion_adjustments": "Recorded for dashboard export only, no renderer consumes it",
+    "vfx_planning_basis": (
+        "Why the VFX layer is the length it is, including the entries "
+        "this step dropped because no clip on V1 or V2 covered them. "
+        "Recorded for the reviewer and the dashboard export; no renderer "
+        "consumes it. See library/tools/vfx_plan_basis.py"
+    ),
 }
 
 RENDERER = "library/steps/step_6_01_render/resolve_build_timeline.py"
