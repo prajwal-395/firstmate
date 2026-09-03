@@ -318,3 +318,75 @@ def test_a_segment_that_is_on_disk_passes(tmp_path):
         real = tmp_path / f"{key}.mov"
         real.write_bytes(b"not a real movie, but it is on disk")
         assert_overlay_segments_on_disk(_manifest_naming(str(real), key))
+
+
+EMPHASIS_PLAN = [
+    {"element": "context_stamp", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "top_right", "row": 0,
+     "copy": {"display": "LIVE"}, "colour_role": "accent",
+     "entrance": "fade", "exit": "cut"},
+    {"element": "stat_callout", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "centre", "row": 0,
+     "copy": {"display": "99%"}, "colour_role": "accent",
+     "entrance": "fade", "exit": "cut"},
+    {"element": "pointer_annotation", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "middle_right", "row": 0,
+     "data": {"x": 0.9, "y": 0.5}, "colour_role": "accent",
+     "entrance": "fade", "exit": "cut"},
+    {"element": "beat_accent", "start_seconds": 0.0,
+     "duration_seconds": 3.2, "anchor": "centre", "row": 0,
+     "colour_role": "accent", "entrance": "fade", "exit": "cut"},
+]
+
+def _emphasis_props():
+    tmpl = _template("shortform_energetic")
+    segments, resolved = generate_motion_props(
+        EMPHASIS_PLAN, SPINE,
+        fps=FIXTURE_FPS, width=FIXTURE_WIDTH, height=FIXTURE_HEIGHT,
+        brand_style=tmpl.get("style"))
+    assert not resolved.dropped, resolved.basis_record()["dropped"]
+    return [s["props"] for s in segments if props_draw_ink(s["props"])]
+
+@pytest.fixture(scope="module")
+def rendered_emphasis(tmp_path_factory):
+    props = _emphasis_props()
+    assert props, "no props generated for emphasis plan"
+    out_dir = str(tmp_path_factory.mktemp("mg_emphasis"))
+    # Render the combined props (or the first one since they overlap in time and might be combined)
+    # Actually generate_motion_props returns one segment if they all share the exact same time block.
+    chosen = props[-1]
+    mov = _render(chosen, out_dir)
+    return chosen, _frames(mov, out_dir)
+
+@remotion_available
+def test_all_emphasis_elements_stay_inside_the_strictest_safe_area(rendered_emphasis):
+    """Platform UI gets painted over the frame, so an element outside the safe area is a defect the captain sees immediately."""
+    props, frames = rendered_emphasis
+    safe_area = props["safeArea"]
+    top_inset = safe_area["top"]
+    bottom_inset = safe_area["bottom"]
+    left_inset = safe_area["left"]
+    right_inset = safe_area["right"]
+    
+    # We check the last frame where all entrances have completed
+    lit, width, height = _lit(frames[-1])
+    assert lit, "no lit pixels found in emphasis render"
+    
+    # Box shadows can bleed outward. Max blur radius across elements is 24px (at scale 1.0).
+    # At 320x568 fixture, scale = 320/1080 = 0.296. Glow max ~7px.
+    # We allow 10px of tolerance strictly for glows, but the solid elements must be inside.
+    glow_tolerance = 12
+    outside = [
+        (x, y) for x, y, r, g, b in lit
+        if y < top_inset - glow_tolerance or y >= height - bottom_inset + glow_tolerance
+           or x < left_inset - glow_tolerance or x >= width - right_inset + glow_tolerance
+    ]
+    
+    # The pointer_annotation or stat_callout shouldn't bleed out of the safe area.
+    # beat_accent is just a flash, so it might not even have pixels on the last frame, but we check whatever is lit.
+    assert not outside, (
+        f"{len(outside)} pixels were drawn outside the safe area! "
+        f"Strictest bounds: top > {top_inset}, bottom < {height - bottom_inset}, "
+        f"left > {left_inset}, right < {width - right_inset}. "
+        f"Sample offenders: {outside[:5]}"
+    )

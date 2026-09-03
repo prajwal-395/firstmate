@@ -43,6 +43,7 @@ export type PlannedElement = {
   /** The plan's own magnitudes. Null when the plan stated none. */
   footprint: number | null;
   emphasis: number | null;
+  data?: any;
 };
 
 export type MotionGraphicsProps = {
@@ -356,6 +357,101 @@ const DrawnElement: React.FC<{
           borderRight: `${stroke}px solid ${element.color}`,
         })}
       </>
+    );
+  }
+
+
+  // `lower_third`
+  if (element.element === "lower_third") {
+    return (
+      <div
+        style={{
+          opacity,
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          backgroundColor: "rgba(0, 0, 0, 0.75)",
+          padding: `${Math.round(24 * scale)}px ${Math.round(32 * scale)}px`,
+          borderRadius: `${Math.round(16 * scale)}px`,
+          borderLeft: `${Math.round(8 * scale)}px solid ${element.color}`,
+          backdropFilter: "blur(8px)",
+        }}
+      >
+        <Runs element={element} scale={scale} />
+      </div>
+    );
+  }
+
+  // `context_stamp`
+  if (element.element === "context_stamp") {
+    return (
+      <div
+        style={{
+          opacity,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: element.color,
+          padding: `${Math.round(8 * scale)}px ${Math.round(16 * scale)}px`,
+          borderRadius: `${Math.round(4 * scale)}px`,
+          boxShadow: `0 4px 12px rgba(0,0,0,0.4)`,
+        }}
+      >
+        <div style={{ color: "#fff", textShadow: "none" }}>
+          <Runs element={element} scale={scale * 0.8} />
+        </div>
+      </div>
+    );
+  }
+
+  // `stat_callout`
+  if (element.element === "stat_callout") {
+    return (
+      <div
+        style={{
+          opacity,
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+          alignItems: "center",
+        }}
+      >
+        <Runs element={element} scale={scale * 1.5} />
+      </div>
+    );
+  }
+
+  // `beat_accent`
+  if (element.element === "beat_accent") {
+    const progress = localFrame / element.durationFrames;
+    const size = Math.round(120 * scale * (0.5 + progress));
+    return (
+      <div
+        style={{
+          opacity: opacity * (1 - progress),
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: "50%",
+          backgroundColor: element.color,
+          boxShadow: `0 0 24px ${element.color}`,
+        }}
+      />
+    );
+  }
+
+  // `pointer_annotation`
+  if (element.element === "pointer_annotation") {
+    return (
+      <div
+        style={{
+          opacity,
+          width: `${Math.round(80 * scale)}px`,
+          height: `${Math.round(80 * scale)}px`,
+          borderRadius: "50%",
+          border: `${Math.round(8 * scale)}px solid ${element.color}`,
+          boxShadow: `0 0 16px ${element.color}, inset 0 0 16px ${element.color}`,
+        }}
+      />
     );
   }
 

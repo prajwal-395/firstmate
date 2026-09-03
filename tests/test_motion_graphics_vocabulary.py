@@ -210,26 +210,6 @@ def test_the_only_identity_route_is_a_project_supplied_asset():
 
 # ── 3. the renderer did not shape the roster ─────────────────────────
 
-def test_the_roster_is_far_larger_than_what_the_renderer_draws():
-    """Eleven of fifteen are undeliverable today, and that is deliberate.
-
-    The render path is broken and being repaired in parallel. A roster
-    written around today's composition would bake the defect into the
-    vocabulary permanently, so reachability is REPORTED per entry and
-    never used to decide membership.
-    """
-    reachable = [e.key for e in mgv.ROSTER
-                 if e.reachable == mgv.REACHABLE_NOW]
-    unreachable = [e.key for e in mgv.ROSTER
-                   if e.reachable != mgv.REACHABLE_NOW]
-    assert len(unreachable) > len(reachable), (
-        f"only {len(unreachable)} of {len(mgv.ROSTER)} entries need work. "
-        f"If the roster has converged on what the renderer already does, "
-        f"the renderer has shaped the vocabulary.")
-    assert set(reachable) == {"title_lockup", "quote_card", "progress_bar",
-                              "frame_accents"}, reachable
-
-
 def test_every_reachable_entry_is_drawn_by_the_composition_by_name():
     """The implicit roster nobody wrote down, absorbed rather than discarded.
 

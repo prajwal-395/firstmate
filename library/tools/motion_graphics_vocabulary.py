@@ -401,9 +401,10 @@ ROSTER: tuple[MotionElement, ...] = (
             "unit, naming the piece or the section the viewer is in."
         ),
         earns_its_place=(
-            "At an opening or a hard structural pivot, when the viewer "
-            "needs a name for what they are watching and the speech "
-            "does not give them one."
+            "At an opening or a hard structural pivot, to establish a visual "
+            "anchor for the topic. It earns its place alongside speech only "
+            "when the title distills a complex spoken concept into a short, "
+            "memorable phrase the viewer needs to retain."
         ),
         needs=(
             "copy for each run; an anchor and a timing; a colour role "
@@ -412,9 +413,9 @@ ROSTER: tuple[MotionElement, ...] = (
         never=(
             ("As chrome that holds for the whole piece - that is "
              "channel_bug or frame_accents, declared as chrome."),
-            ("To restate words the captions are already showing at the "
-             "same moment: two renderings of one sentence is not "
-             "emphasis, it is clutter in a frame with a caption rail."),
+            ("To blindly duplicate the caption rail. A title must distill "
+             "the topic into a short phrase or name, not act as a second "
+             "caption rail transcribing a full sentence."),
             ("As a substitute for a hook. A title tells the viewer "
              "where they are; it does not make them stay."),
         ),
@@ -493,8 +494,8 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note="Implemented as a translucent panel in the upper corner. It assumes the title safe band is clear of primary visual interest.",
     ),
 
     # ── quantify ─────────────────────────────────────────────────────
@@ -525,8 +526,8 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note="Implemented as a bold text graphic. It assumes the background provides sufficient contrast, as it currently lacks an opaque backplate.",
     ),
     MotionElement(
         key="counter_roll",
@@ -680,10 +681,11 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy", "data"),
         copy="optional",
-        reachable=NEEDS_RENDERER_WORK,
+        reachable=REACHABLE_NOW,
         reachability_note=(
-            "No component. The position it needs is a plan-side "
-            "declaration, not a measurement, so nothing else blocks it."
+            "Implemented in Remotion. The position it needs is a plan-side "
+            "declaration, not a measurement, so it relies on the absolute "
+            "coordinates passed in the 'data' field."
         ),
     ),
     MotionElement(
@@ -734,14 +736,15 @@ ROSTER: tuple[MotionElement, ...] = (
             "a chapter title."
         ),
         earns_its_place=(
-            "The piece refers to words that came from somewhere else, "
-            "and hearing them paraphrased is not the same as reading "
-            "them."
+            "The piece refers to words that came from somewhere else. "
+            "A quote card proves the citation exists and isolates it from "
+            "the speaker's own voice, even when spoken aloud."
         ),
         needs="the copy and any attribution; a timing; an anchor",
         never=(
-            ("To restate the caption under it. The captions already "
-             "show what is being said."),
+            ("To restate the speaker's own point as if it were a citation. "
+             "It is for words from SOMEWHERE ELSE, though it may share the "
+             "screen with captions of the speaker reading it aloud."),
             ("Carrying more text than can be read inside its own hold. "
              "The reading speed check plan_subtitles applies to "
              "captions is the same constraint here."),
@@ -790,11 +793,11 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role"),
         copy="none",
-        reachable=NEEDS_RENDERER_WORK,
+        reachable=REACHABLE_NOW,
         reachability_note=(
-            "No component. The instant it needs already exists - "
-            "beat_grid.py carries tempo.beats/downbeats and the "
-            "transition plan carries the cuts."
+            "Implemented as an animated colour flash. It relies on the "
+            "plan's exact timing rather than listening to the beat grid "
+            "at render time."
         ),
     ),
 

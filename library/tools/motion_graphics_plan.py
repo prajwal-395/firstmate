@@ -460,6 +460,7 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             "footprint": _number(entry.get("footprint")),
             "emphasis": _number(entry.get("emphasis")),
             "why": _text(entry.get("why") or entry.get("rationale")),
+            "data": entry.get("data", {}),
         })
 
     if resolved.moments:
