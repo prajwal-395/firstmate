@@ -1684,10 +1684,12 @@ def run_subprocess(script_path: Path, inputs: dict) -> dict:
     code, stdout, stderr = _run_step_subprocess(
         [sys.executable, str(script_path)], inputs, script_path.name)
     if code != 0:
-        raise RuntimeError(
-            f"Script {script_path.name} failed (exit {code}):\n"
-            f"  stderr: {_truncate_log(stderr)}"
-        )
+        err_msg = f"Script {script_path.name} failed (exit {code}):\n"
+        if stdout.strip():
+            err_msg += f"  stdout:\n{_truncate_log(stdout)}\n"
+        if stderr.strip():
+            err_msg += f"  stderr:\n{_truncate_log(stderr)}"
+        raise RuntimeError(err_msg.rstrip('\n'))
     try:
         return json.loads(stdout)
     except json.JSONDecodeError:

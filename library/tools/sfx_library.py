@@ -273,12 +273,19 @@ def catalog_rows(catalog: list) -> list:
     rows = []
     for entry in catalog:
         duration = entry.get("duration_seconds")
+        if isinstance(duration, (int, float)):
+            # Truncate to 2 decimal places instead of rounding. Rounding up (e.g. 0.459 -> 0.46)
+            # causes the model to ask for 0.46s, which the strict sfx_duration contract refuses
+            # because it exceeds the measured 0.459s.
+            import math
+            duration_s = math.floor(float(duration) * 100) / 100.0
+        else:
+            duration_s = "unmeasured"
+
         rows.append({
             "sfx_id": entry["sfx_id"],
             "category": entry.get("category") or "",
-            "duration_s": (round(float(duration), 2)
-                           if isinstance(duration, (int, float))
-                           else "unmeasured"),
+            "duration_s": duration_s,
             "envelope": entry.get("envelope") or "unmeasured",
             "description": entry.get("description") or "",
             "source_object": entry.get("source_object") or "",

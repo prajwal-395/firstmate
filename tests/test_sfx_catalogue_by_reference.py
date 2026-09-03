@@ -218,10 +218,12 @@ def test_the_map_carries_what_was_measured_about_every_sound(
     """Category, length, envelope and temperature, without a read."""
     proc = _run_bridge(library, project)
     reference = json.loads(proc.stdout)["sfx_catalog_reference"]
+    import math
     for name, category, duration, envelope, temperature in SOUNDS:
+        floored = math.floor(duration * 100) / 100.0
         line = next(l for l in reference.splitlines()
                     if l.strip().startswith(f"category {category}")
-                    and f"plays for {round(duration, 2)} s" in l)
+                    and f"plays for {floored} s" in l)
         assert envelope in line and temperature in line
 
 
