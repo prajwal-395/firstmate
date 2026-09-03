@@ -751,6 +751,72 @@ test_the_refusal_is_the_shared_ledger_and_not_some_other_rule() {
   pass "with per-home accounting the same second launch is allowed, which is the defect this closes"
 }
 
+
+# --- 10. A ladder the gate cannot enforce must be loud -----------------------
+#
+# The rung order came from config/crew-dispatch.json for the first time on
+# 2026-09-02. _fm_agy_ladder_init falls back to the built-in order rather than
+# refusing, which is right at dispatch time - a home whose config it cannot read
+# still has to launch work - but it is also silent, and a silently ignored
+# config is how the captain reorders the ladder, mistypes one model, and runs
+# the opposite order without a word. The loud half is asked once per session by
+# bin/fm-bootstrap.sh.
+
+ladder_config() {  # <json>
+  local f="$TMP_ROOT/ladder-config.json"
+  printf '%s' "$1" > "$f"
+  printf '%s\n' "$f"
+}
+
+test_a_config_the_ladder_cannot_enforce_is_reported() {
+  local f out rc=0
+
+  # The control: the captain's real order reports nothing.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (High)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a usable ladder order must report nothing (rc=$rc)"
+  [ -z "$out" ] || fail "a usable ladder order must print nothing, got '$out'"
+
+  # A mistyped model. The gate discards the WHOLE order over one bad entry, so
+  # the report has to say that rather than merely naming the entry.
+  rc=0
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.1 Pro (Hgih)"},{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a model the ladder cannot rank must be reported (rc=$rc)"
+  assert_contains "$out" "Gemini 3.1 Pro (Hgih)" "the report must name the model it could not rank"
+  assert_contains "$out" "whole ladder order is being ignored" \
+    "the report must say the captain's order is not the one being enforced"
+
+  # And the runtime really does silently ignore it, which is what makes the
+  # report necessary rather than decorative. Asserting both halves keeps the
+  # case from passing while the loader quietly changed behaviour.
+  out=$(FM_AGY_LADDER_CONFIG="$f" ROOT="$ROOT" bash -c '. "$ROOT/bin/fm-agy-ladder-lib.sh" 2>&1; fm_agy_ladder_display 1')
+  [ "$out" = "$RUNG1" ] \
+    || fail "the loader must still fall back silently to the built-in order, got '$out'"
+  pass "a model the ladder cannot rank is reported, while dispatch still falls back silently"
+}
+
+test_a_repeated_rung_is_reported() {
+  local f out rc=0
+
+  # Both spellings agy accepts name one model, so a config using one of each is
+  # a duplicate the gate would otherwise accept as two distinct rungs.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)"},{"harness":"agy","model":"claude-opus-4-6-thinking"},{"harness":"agy","model":"Gemini 3.7 Flash (High)"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a model listed twice must be reported (rc=$rc)"
+  assert_contains "$out" "Claude Opus 4.6 (Thinking)" "the report must name the repeated model"
+  assert_contains "$out" "more than once" "the report must say what is wrong with it"
+
+  # A config that ranks no agy model at all is not an error: the built-in order
+  # is the right answer for a fleet that has not stated one.
+  rc=0
+  f=$(ladder_config '{"default":[{"harness":"claude","model":"claude-opus-5"}]}')
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a config that ranks no agy model must not be reported as broken (rc=$rc)"
+  [ -z "$out" ] || fail "a config with no agy rung must print nothing, got '$out'"
+  pass "a model repeated across its two spellings is reported, and a config with no agy rung is not"
+}
+
 test_both_spellings_resolve_to_one_rung
 test_floors_are_the_captains_floors
 test_refuses_descending_past_an_available_rung
@@ -774,3 +840,5 @@ test_spawn_records_the_override
 test_spawn_reserves_headroom_for_the_launch_it_authorized
 test_two_homes_cannot_authorize_past_each_other
 test_the_refusal_is_the_shared_ledger_and_not_some_other_rule
+test_a_config_the_ladder_cannot_enforce_is_reported
+test_a_repeated_rung_is_reported

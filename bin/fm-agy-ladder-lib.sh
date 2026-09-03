@@ -146,8 +146,9 @@ fi
 # THE KEBAB IDS are the alternative spellings agy accepts for each display name.
 # They are properties of the model catalogue, not of the order, and cannot be
 # derived mechanically from a display name (e.g. "4.6" becomes "4-6" in Claude
-# but stays "3.1" in Gemini). _FM_LADDER_KNOWN_KEBAB maps display name to kebab
-# id for every model the ladder can rank.
+# but stays "3.1" in Gemini). _fm_agy_ladder_kebab_to_display is that map, and
+# _fm_agy_ladder_is_known_display is the set it draws from; both are stated
+# once, as arms of a case, so the two spellings of one model cannot drift.
 #
 # When the config file is absent - a fresh home, a secondmate that has not been
 # seeded, a test that does not set FM_AGY_LADDER_CONFIG - the built-in default
@@ -160,12 +161,10 @@ _FM_LADDER_DISPLAYS=''
 # _FM_LADDER_COUNT: how many rungs the ladder has.
 _FM_LADDER_COUNT=0
 
-# Model-to-floor: keyed by display name. Only models with a non-zero floor need
-# an entry; every other model exhausts to 0. This is where the captain's 25
-# percent reserve lives - it follows the model, not the position.
-_FM_LADDER_MODEL_FLOOR_Claude_Opus_4_6_Thinking=25
-
-# _fm_agy_ladder_model_floor: the floor for a model by display name.
+# _fm_agy_ladder_model_floor: the floor for a model by display name, and the
+# ONE place the captain's reserved quarter is written down. Only a model with a
+# non-zero floor needs an arm; every other model exhausts to 0. The reserve
+# follows the MODEL, not the rung position.
 _fm_agy_ladder_model_floor() {  # <display-name>
   case "$1" in
     'Claude Opus 4.6 (Thinking)') printf '25' ;;
@@ -173,15 +172,10 @@ _fm_agy_ladder_model_floor() {  # <display-name>
   esac
 }
 
-# Known kebab IDs for every model the ladder can rank. This map is a property
-# of agy's catalogue, not of the rung order; it is stated here so the gate can
-# match either spelling without a network call.
-_FM_LADDER_KNOWN_KEBAB_claude_opus_4_6_thinking='Claude Opus 4.6 (Thinking)'
-_FM_LADDER_KNOWN_KEBAB_gemini_3_1_pro_high='Gemini 3.1 Pro (High)'
-_FM_LADDER_KNOWN_KEBAB_gemini_3_7_flash_high='Gemini 3.7 Flash (High)'
-
 # _fm_agy_ladder_kebab_to_display: if <model> is a known kebab ID, print the
-# display name. Returns 1 when no match.
+# display name. Returns 1 when no match. A property of agy's catalogue, not of
+# the rung order, stated here so the gate can match either spelling without a
+# network call.
 _fm_agy_ladder_kebab_to_display() {  # <model>
   case "$1" in
     claude-opus-4-6-thinking)  printf 'Claude Opus 4.6 (Thinking)' ;;
@@ -210,6 +204,14 @@ _fm_agy_ladder_init() {
   # An unknown model in the config is a configuration error, not a silent
   # acceptance of something the gate cannot enforce. Fall back to defaults
   # if validation fails.
+  #
+  # The fallback is deliberate here and is NOT where the error is reported.
+  # This function runs at source time inside bin/fm-spawn.sh, bin/fm-watch.sh,
+  # and bin/fm-agy-ladder-tick.sh, whose output is parsed; a library that
+  # complained on load would put its complaint into a wake reason. So the
+  # runtime stays safe and silent, and fm_agy_ladder_config_problem below is
+  # what bin/fm-bootstrap.sh asks at session start to make the same condition
+  # loud once, where a person is reading.
   if [ -n "$displays" ]; then
     local validated='' m
     while IFS= read -r m; do
@@ -265,6 +267,77 @@ _fm_agy_ladder_is_known_display() {  # <name>
     'Gemini 3.7 Flash (High)') return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# fm_agy_ladder_config_problem: why <config-file>'s ladder order cannot be used,
+# or nothing at all when it can.
+#   0  the config states a usable ladder, or states none and the defaults apply
+#   1  the config states a ladder this gate cannot enforce; the printed line is
+#      the reason
+#
+# WHY THIS IS SEPARATE FROM THE LOADER. _fm_agy_ladder_init must never refuse:
+# a home whose config it cannot read still has to dispatch, so it falls back to
+# the built-in order and says nothing. That is safe and it is also silent, and a
+# silently ignored config is how the captain reorders the ladder, mistypes one
+# model, and gets the opposite order for weeks without a word. This function is
+# the loud half, asked once per session by bin/fm-bootstrap.sh, so the two
+# properties do not have to be traded against each other.
+#
+# It reports only what actually changes the enforced ladder. A config with no
+# agy entry in "default" is not an error - the built-in order is the right
+# answer for a fleet that has not ranked one.
+fm_agy_ladder_config_problem() {  # <config-file>
+  local file=${1:-} models m seen='' dupes='' unknown=''
+
+  [ -n "$file" ] && [ -f "$file" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    # Malformed JSON is already bin/fm-bootstrap.sh's own diagnostic, reported
+    # once there rather than twice between us.
+    return 0
+  fi
+
+  models=$(jq -r '.default[]? | select(.harness == "agy" and .model != null and .model != "") | .model' "$file" 2>/dev/null) || return 0
+  [ -n "$models" ] || return 0
+
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    if ! _fm_agy_ladder_is_known_display "$m"; then
+      local resolved
+      if resolved=$(_fm_agy_ladder_kebab_to_display "$m"); then
+        m=$resolved
+      else
+        case "$unknown" in
+          *"[$m]"*) ;;
+          *) unknown="${unknown}[$m]" ;;
+        esac
+        continue
+      fi
+    fi
+    case "$seen" in
+      *"[$m]"*)
+        case "$dupes" in
+          *"[$m]"*) ;;
+          *) dupes="${dupes}[$m]" ;;
+        esac
+        ;;
+      *) seen="${seen}[$m]" ;;
+    esac
+  done <<EOF
+$models
+EOF
+
+  if [ -n "$unknown" ]; then
+    printf 'default names agy model(s) the ladder cannot rank: %s - the whole ladder order is being ignored and the built-in order used instead' \
+      "$(printf '%s' "$unknown" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
+    return 1
+  fi
+  if [ -n "$dupes" ]; then
+    printf 'default lists agy model(s) more than once: %s - a repeated model gives the ladder two rungs that exhaust together, so descending one rung no longer reaches a different model' \
+      "$(printf '%s' "$dupes" | sed 's/\]\[/, /g; s/^\[//; s/\]$//')"
+    return 1
+  fi
+  return 0
 }
 
 # Load the ladder on source. This runs once per shell that sources this file.
