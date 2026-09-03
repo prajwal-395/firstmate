@@ -1,31 +1,68 @@
 name: CI
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  fast-checks:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.14"]
-
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-        # Removed cache: 'pip' to avoid filling disk with heavy ML dependency wheels
+        python-version: "3.14"
 
+    - name: Install fast dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ruff
+
+    - name: AGENTS.md size gate (FAILS THE BUILD)
+      run: python scripts/check_agents_md_size.py
+
+    - name: Compile check
+      run: |
+        python -m py_compile manage_project.py
+        find library/steps -name "step.py" -o -name "bridge.py" | xargs -I {} python -m py_compile {}
+
+    - name: Ruff - the classes that indicate a real defect (FAILS THE BUILD)
+      if: ${{ !cancelled() }}
+      run: |
+        ruff check library/ tests/ --config ruff-ci-gate.toml --output-format=github
+
+    - name: Ruff - everything else (report only)
+      if: ${{ !cancelled() }}
+      run: |
+        ruff check library/ tests/ --output-format=github || true
+        echo "--- what the report-only half found ---"
+        ruff check library/ tests/ --statistics || true
+
+  full-suite:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+        cache: 'pip'
+        
     - name: Report disk usage and free space
       run: |
         echo "Disk usage before freeing space:"
         df -h
-        # Reclaim tens of gigabytes of space by removing preinstalled toolchains we don't need
         sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
         echo "Disk usage after freeing space:"
         df -h
@@ -33,64 +70,22 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # httpx2 backs starlette.testclient, which the dashboard API tests import
         pip install pytest ruff httpx2
-        # Filter out GPU and heavy ML deps for CI, plus praat-parselmouth,
-        # which publishes no cp314 wheel (the pipeline env is 3.12).
         grep -vE 'torch|sam2|whisperx|parselmouth' requirements.txt > ci_requirements.txt
-        pip install --no-cache-dir -r ci_requirements.txt
-        
+        pip install -r ci_requirements.txt
+
     - name: Install ffmpeg
       run: |
-        # 27 library files shell out to ffmpeg/ffprobe and the runner image
-        # carries neither, so every audio and video measurement path skipped
-        # itself on every build this workflow has ever run.  The suite skips
-        # HONESTLY - `shutil.which("ffmpeg") is None` - which is why the
-        # build stayed green while declining to look.
         sudo apt-get update -qq
         sudo apt-get install -y -qq --no-install-recommends ffmpeg
-        # Record what the measurement paths were verified AGAINST.  A build
-        # that measures audio should say which decoder answered.
         ffmpeg -version | head -1
         ffprobe -version | head -1
-
-    - name: Report disk usage (after install)
-      run: |
-        echo "Disk usage after dependency installation:"
-        df -h
         
     - name: Run Pytest
       run: |
-        # -rs prints every skip WITH ITS REASON.  Without it the summary
-        # says "131 skipped" and nothing says what went unmeasured.
-        python -m pytest tests/ -v -rs --tb=short
-        
-    - name: AGENTS.md size gate (FAILS THE BUILD)
-      run: python scripts/check_agents_md_size.py
-
-
-    - name: Compile check
+        python -m pytest tests/ -rs --tb=short
+    - name: Report disk usage (after install)
+      if: always()
       run: |
-        python -m py_compile manage_project.py
-        find library/steps -name "step.py" -o -name "bridge.py" | xargs -I {} python -m py_compile {}
-        
-    - name: Ruff - the classes that indicate a real defect (FAILS THE BUILD)
-      # Independent of the suite: run it even when pytest failed, so one
-      # build answers both questions.
-      if: ${{ !cancelled() }}
-      run: |
-        # See ruff-ci-gate.toml for what is enforced, what is deferred and
-        # why.  No `|| true`: this half is the gate.
-        ruff check library/ tests/ --config ruff-ci-gate.toml --output-format=github
-
-    - name: Ruff - everything else (report only)
-      # Independent of the suite: run it even when pytest failed, so one
-      # build answers both questions.
-      if: ${{ !cancelled() }}
-      run: |
-        # The cosmetic classes still annotate every PR and still cannot fail
-        # the build.  This runs under ruff's OWN config discovery, not the
-        # gate's, so a finding deferred above is still reported here.
-        ruff check library/ tests/ --output-format=github || true
-        echo "--- what the report-only half found ---"
-        ruff check library/ tests/ --statistics || true
+        echo "Disk usage after dependency installation:"
+        df -h
