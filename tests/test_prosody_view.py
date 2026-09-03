@@ -85,6 +85,26 @@ def test_a_real_measurement_still_reaches_the_prompt():
     assert "16 of 17" in view["prosody"]["not_measured"]
 
 
+def test_contours_do_not_reach_the_prompt():
+    """AGENTS.md 10.1: No raw value list reaches a prompt."""
+    data = {
+        "clip_001": {
+            "clip_id": "clip_001",
+            "prosody": {
+                "method": "praat",
+                "pitch_stats": {"mean_f0_hz": 118.4},
+                "pitch_contour_10ms": [{"time": 0.01, "pitch": 100}],
+                "intensity_contour_50ms": [{"time": 0.05, "intensity": 60}],
+            }
+        }
+    }
+    view = build_view("prosody", {"prosody_analysis": {"profiles": data}})
+    assert view["prosody"]["clips_measured"] == 1
+    assert "pitch_stats" in view["prosody"]["measured"]["clip_001"]["prosody"]
+    assert "pitch_contour_10ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
+    assert "intensity_contour_50ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
+
+
 def test_the_view_and_the_step_agree_on_what_a_measurement_is():
     """One predicate, so the write-time and read-time answers cannot differ."""
     from library.steps.step_1_05_prosody_analysis.step import (

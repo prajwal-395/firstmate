@@ -65,34 +65,36 @@ def main():
     transcript_toon = format_toon(["clip_id", "start", "end", "text"], transcript_rows)
     
     # Extract scene-level topic summaries
+    from library.tools.semantic_index import build_semantic_lookup
     semantic = data.get("semantic_analysis_documents", {})
+    clip_catalog = data.get("clip_catalog", [])
+    if isinstance(clip_catalog, dict):
+        clip_catalog = list(clip_catalog.values())
+        
+    semantic_lookup = {}
+    if clip_catalog:
+        semantic_lookup = build_semantic_lookup(semantic, clip_catalog)
+    else:
+        if isinstance(semantic, list):
+            for doc in semantic:
+                if "clip_id" in doc:
+                    semantic_lookup[doc["clip_id"]] = doc
+        elif isinstance(semantic, dict):
+            for cid, doc in semantic.items():
+                semantic_lookup[cid] = doc
+    
     topic_rows = []
-    if isinstance(semantic, list):
-        for doc in semantic:
-            clip_id = doc.get("clip_id", "unknown")
-            # Try assessment.keywords (current schema), then fall back to topics
-            assessment = doc.get("assessment", {})
-            keywords = assessment.get("keywords", []) if isinstance(assessment, dict) else []
-            if not keywords:
-                doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
-                keywords = doc_data.get("topics", [])
-            if keywords:
-                topic_rows.append({
-                    "clip_id": clip_id,
-                    "topics": ", ".join(str(k) for k in keywords)
-                })
-    elif isinstance(semantic, dict):
-        for clip_id, doc in semantic.items():
-            assessment = doc.get("assessment", {})
-            keywords = assessment.get("keywords", []) if isinstance(assessment, dict) else []
-            if not keywords:
-                doc_data = doc.get("document", {}) if isinstance(doc, dict) else {}
-                keywords = doc_data.get("topics", [])
-            if keywords:
-                topic_rows.append({
-                    "clip_id": clip_id,
-                    "topics": ", ".join(str(k) for k in keywords)
-                })
+    for catalog_id, doc in semantic_lookup.items():
+        assessment = doc.get("assessment", {})
+        keywords = assessment.get("keywords", []) if isinstance(assessment, dict) else []
+        if not keywords:
+            doc_data = doc.get("document", doc) if isinstance(doc, dict) else {}
+            keywords = doc_data.get("topics", [])
+        if keywords:
+            topic_rows.append({
+                "clip_id": catalog_id,
+                "topics": ", ".join(str(k) for k in keywords)
+            })
             
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)
     

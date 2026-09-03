@@ -99,7 +99,16 @@ def _prosody(data: dict) -> dict:
         if defect:
             unmeasured[clip_id] = defect
         else:
-            measured[clip_id] = profile
+            # The contours are inside the "prosody" block, not at the top level.
+            # AGENTS.md 10.1: No raw value list reaches a prompt.
+            cleaned = {}
+            for k, v in profile.items():
+                if k == "prosody" and isinstance(v, dict):
+                    cleaned[k] = {pk: pv for pk, pv in v.items() 
+                                  if pk not in ("pitch_contour_10ms", "intensity_contour_50ms")}
+                else:
+                    cleaned[k] = v
+            measured[clip_id] = cleaned
 
     view = {}
     if measured:
