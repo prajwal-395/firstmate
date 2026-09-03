@@ -598,9 +598,19 @@ test_selected_content_is_composer_scoped_and_wrap_normalized() {
   pass "fm_composer_extract_selected_content: scopes user content and excludes furniture"
 }
 
+
+test_single_line_modal_dialog_is_dialog() {
+  local screen out
+  screen=$'╭─────────────────────────────────────────────────────────────────╮\n│ Do you trust the contents of this directory?                    │\n╰─────────────────────────────────────────────────────────────────╯'
+  out=$(fm_composer_classify_screen "$CAPS_TMUX" "$screen" 1)
+  [ "$out" = dialog ] \
+    || fail "a bordered box with single inner line must read dialog, got '$out'"
+  pass "fm_composer_classify_screen: single line modal dialog is classified as dialog"
+}
+test_single_line_modal_dialog_is_dialog
 test_modal_dialog_is_dialog() {
   local screen out
-  screen=$'╭─────────────────────────────────────────────────────────────────╮\n│ Dangerous rm operation on possibly-empty variable path: $S/*.mov│\n│ Do you want to proceed?  1. Yes  2. No                          │\n╰─────────────────────────────────────────────────────────────────╯'
+  screen=$'╭─────────────────────────────────────────────────────────────────╮\n│ Dangerous rm operation on possibly-empty variable path: $S/*.mov│\n│ Do you trust the contents of this directory?                    │\n╰─────────────────────────────────────────────────────────────────╯'
   out=$(fm_composer_classify_screen "$CAPS_TMUX" "$screen" 1)
   [ "$out" = dialog ] \
     || fail "a bordered box without a prompt glyph must read dialog, got '$out'"

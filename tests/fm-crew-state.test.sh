@@ -889,6 +889,7 @@ test_no_run_footer_text_alone_is_not_working() {
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=1
   printf 'done: stale completion event\n' > "$d/state/feat-h2.status"
+  touch -t 202001010000 "$d/state/feat-h2.status"
   local out; out=$(run_crew_state "$d" feat-h2)
   assert_not_contains "$out" "state: working" "a footer alone must not read working for a converted adapter"
   assert_contains "$out" "state: unknown" "no semantic record -> unknown"
@@ -1101,7 +1102,39 @@ test_no_run_idle_secondmate_resolved_event_not_state() {
   pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
 }
 
+
 test_dead_window_ignores_stale_status_log() {
+test_stale_status_log_is_ignored() {
+test_unknown_semantic_state_falls_through_to_valid_status_log() {
+  local d; d=$(new_case unknown-semantic-valid-log)
+  make_repo_on_branch "$d/wt" fm/unknown-semantic
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/unknown-semantic.meta" "window=fm:fm-unknown-semantic" "worktree=$d/wt" "kind=scout" "harness=herdr"
+  FM_FAKE_AXI_STATUS=""
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" unknown-semantic)
+  # Herdr returns idle natively if it's running a shell command, which is rejected as unknown by busy-event
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" unknown-semantic idle --gen "$gen" --source herdr --event stop >/dev/null
+  # But the agent wrote a valid status log
+  echo "working: running shell command" > "$d/state/unknown-semantic.status"
+  local out; out=$(run_crew_state "$d" unknown-semantic)
+  assert_contains "$out" "state: working" "unknown semantic state falls through to valid status log"
+  assert_contains "$out" "source: status-log" "unknown semantic state falls through to valid status log"
+  pass "unknown semantic state falls through to valid status log"
+}
+  local d; d=$(new_case stale-status-log)
+  make_repo_on_branch "$d/wt" fm/stale-status
+  fm_write_meta "$d/state/stale-status.meta" "window=fm:fm-stale-status" "worktree=$d/wt" "kind=ship" "harness=claude"
+  echo "done: stale completion event" > "$d/state/stale-status.status"
+  touch -t 202001010000 "$d/state/stale-status.status"
+  touch "$d/state/stale-status.meta"
+  FM_FAKE_AXI_STATUS=""
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" stale-status)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" stale-status idle --gen "$gen" --source claude-hook --event stop >/dev/null
+  local out; out=$(run_crew_state "$d" stale-status)
+  assert_not_contains "$out" "state: done" "stale status log must not be read"
+  assert_contains "$out" "state: unknown" "ignores stale status log"
+  pass "stale status log belonging to previous incarnation is ignored"
+}
   reset_fakes
   local d; d=$(new_case dead-window)
   make_repo_on_branch "$d/wt" fm/feat-dead
@@ -1968,3 +2001,5 @@ test_declared_stop_never_overrides_a_live_agent
 test_declared_stop_absorb_predicate_end_to_end
 
 echo "all fm-crew-state tests passed"
+test_stale_status_log_is_ignored
+test_unknown_semantic_state_falls_through_to_valid_status_log
