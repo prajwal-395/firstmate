@@ -914,7 +914,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
     esac
     row=$((row + 1))
   done
-  if [ "$prompt_seen" = 0 ] && [ "$pending_count" -gt 1 ]; then
+  if [ "$prompt_seen" = 0 ] && [ "$pending_count" -gt 0 ]; then
     printf 'dialog'
     return 0
   fi

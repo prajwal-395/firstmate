@@ -211,6 +211,23 @@ within_spawn_grace() {
 # Last non-empty status line, and its leading verb (the word before the colon).
 log_last_line() {
   [ -f "$LOG" ] || return 1
+  
+  local at log_mtime
+  at=$(record_published_at)
+  case "$at" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$(uname 2>/dev/null || true)" = Darwin ]; then
+        log_mtime=$(stat -f %m "$LOG" 2>/dev/null || true)
+      else
+        log_mtime=$(stat -c %Y "$LOG" 2>/dev/null || true)
+      fi
+      if [ -n "$log_mtime" ] && [ "$log_mtime" -lt "$at" ]; then
+        return 1
+      fi
+      ;;
+  esac
+
   grep -v '^[[:space:]]*$' "$LOG" 2>/dev/null | tail -1
 }
 # Map a status-log verb onto a canonical state for the fallback path. `paused` is
@@ -786,7 +803,7 @@ if [ "$KIND" != secondmate ]; then
   case "${BUSY_VERDICT%% *}" in
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
     idle) ;;
-    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+    *) PANE_UNKNOWN_REASON="harness state unavailable ($BUSY_VERDICT)" ;;
   esac
 fi
 
@@ -805,6 +822,10 @@ if [ -n "$LOG_VERB" ]; then
   if [ "$LOG_STATE" != unknown ]; then
     emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
   fi
+fi
+
+if [ -n "${PANE_UNKNOWN_REASON:-}" ]; then
+  emit unknown pane "$PANE_UNKNOWN_REASON"
 fi
 
 emit unknown none "no current-state source available"
