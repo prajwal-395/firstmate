@@ -194,7 +194,7 @@ def test_emphasis_word_does_not_carry_accent_before_it_is_spoken(rendered_karaok
     yellows_during = [c for c in colors_during if c.startswith('#fbf0') or c.startswith('#fbef')]
     assert yellows_during, "Emphasis word lacks accent color while being spoken"
     
-    # At frame 18, "silent" has been spoken (endFrame=15). It should still have the accent color.
+    # At frame 18, "silent" has been spoken (endFrame=15). It should no longer have the accent color.
     colors_after = _get_pixel_colors(frames[18])
     yellows_after = [c for c in colors_after if c.startswith('#fbf0') or c.startswith('#fbef')]
-    assert yellows_after, "Emphasis word lacks accent color after being spoken"
+    assert not yellows_after, f"Emphasis word keeps accent color after being spoken: {yellows_after}"
