@@ -59,6 +59,28 @@ import REBUILDS the timeline, and Fusion comps and CDL grades do not
 survive it.  Placement, transform, markers and native transitions do.
 The renderer therefore round-trips at PLACEMENT time, before the Fusion
 pass and the grade, which is the order it already ran in.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+Every planned dB - the bed's per-block curve and each clip's `volume_db` - reaches Fairlight
+by ONE route: `library/tools/otio_mix.py` writes it into an OpenTimelineIO export and
+`library/tools/execution/deliver_audio_mix.py` imports the result back.
+Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
+[why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
+- **The import REBUILDS the timeline.** Fusion comps and CDL grades do NOT survive it. The
+  placement, transform (`_apply_conform`), timeline markers and native transitions do.
+  `tests/test_audio_mix_delivery.py` drives a whole build and asserts the comps are still there.
+- **The `volume` parameter is ABSENT from an untouched export**: it must be INSERTED, not patched.
+- **A keyframe's frame number is measured from the CLIP'S START ON THE TIMELINE**.
+- **`ImportTimelineFromFile` answers None with no diagnostic** when a referenced media file is
+- A cyan `UNAPPLIED target` marker is the FALLBACK, written only when the route declines and
+  saying so.
 """
 
 from __future__ import annotations

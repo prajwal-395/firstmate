@@ -31,6 +31,20 @@ CRITICAL - two frame concepts that must not be confused:
 Usage:
     block = fx.zoom(clip_dur=5657, source_in=25, source_out=97,
                     start=1.0, mid=1.015, end=1.03)
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+- Brightness Flash: `Brightness = 0.67`, `Saturation = 1.83`, animate `Blend` 0-1 with Sine easing.
+- Crash Zoom: Transform `Scale = 0.4`, `Offset = 0.6`, range 0.6-1.0, Quad easing, mirrored.
+- Glow: `SoftGlow.Gain = 5.0`, `SoftGlow.XGlowSize = 100`, linear easing.
+- Default easing uses `LUTLookup` driven by the system `Transition` variable for Edit page transitions.
+- For per-clip Fusion comps, replicate easing with `BezierSpline.sampled()` pre-baked keyframes.
 """
 
 from __future__ import annotations

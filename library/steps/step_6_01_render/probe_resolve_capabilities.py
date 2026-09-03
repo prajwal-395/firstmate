@@ -7,6 +7,23 @@ Run this with Resolve open and a project loaded.
 
 Usage:
     python3 test_resolve_capabilities.py
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+- **`hasattr` is always True on Resolve's scripting proxies, including invented names.** Guard on return values, never on `hasattr`.
+- **A tick that prints what it ASKED FOR is a lie, and so is a failure that prints nothing.** Print what `GetSetting` RETURNS, and send a failure's reason to stderr.
+- **The timeline SHAPE goes on the PROJECT, and is confirmed by reading it back.** `SetSetting` returning True is a claim and `GetSetting` is the evidence.
+- Read the truth off `TimelineItem.GetProperty()` with no argument, which returns the whole dict, before trusting any property name.
+- **`Pan` and `Tilt` are the transform properties. There is no `PanX` and no `PanY`.** `ZoomX`/`ZoomY` are real.
+- **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** An audio `TimelineItem` has no property dictionary at all, so every spelling of `SetProperty` returns False; the whole documented audio surface is `GetFairlightPresets`, `ApplyFairlightPresetToCurrentTimeline` and `InsertAudioToCurrentTrackAtPlayhead`, and Fusion's `ActionManager` registers no audio action.
+- `CreateMagicMask` is withdrawn: it returns False for every mode.
+- Super Scale is a **MediaPoolItem** property taking an **int**, with companion keys `SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after Super).
 """
 
 import sys

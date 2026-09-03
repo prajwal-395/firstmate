@@ -123,7 +123,20 @@ def synthesized(before, after):
 
 
 def bold(text):
-    return {re.sub(r'\s+', ' ', x) for x in re.findall(r'\*\*(.{15,200}?)\*\*', text, re.DOTALL)}
+    """Bold statements. A bold statement never spans a line break.
+
+    This is the original regex with `re.DOTALL` REMOVED, and that one word is
+    the whole fix. With `.` matching newlines, a `**` pair that the 15-character
+    floor skipped - `**MediaPoolItem**` is 14 - let the match run on to the next
+    `**` and produce a span crossing a heading. Such a phantom then fails the
+    check for content that never moved.
+
+    Measured on AGENTS.md at 953f5d6: 264 spans with DOTALL of which 2 contain a
+    heading, 258 without it and none do. Pairing the delimiters sequentially
+    instead was tried and is WORSE - 219 spans, because one unbalanced `**`
+    flips every pair after it.
+    """
+    return {re.sub(r'\s+', ' ', x) for x in re.findall(r'\*\*(.{15,200}?)\*\*', text)}
 
 
 def size_at_rev(path, rev):

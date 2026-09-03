@@ -57,6 +57,22 @@ other.  Four predictions, four matches, and the source-frame reading
 contradicted by all four.
 
 See docs/RULE_EVIDENCE.md#the-transition-ramp-that-never-ran.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+**Comp frame 0 is the clip's FIRST PLAYED frame, and `clip_dur` is the SOURCE's frame count. They are different numbers and both are needed.**
+One enumeration, `library/tools/fusion/played_window.py`.
+- Use the SOURCE clip frame count for `clip_dur`, read as `int(mpi.GetClipProperty('Frames'))`, not `clip.GetDuration()`.
+- **Every animated keyframe is placed in the COMP's frames, through `played_range`** - never at a source frame number. `source_in_frame`/`source_out_frame` arrive in the SOURCE's numbering and are translated; a segment cut from source frames 654-725 animates over comp frames 0-71.
+- **A spline extrapolates FLAT, so a keyframe outside what plays is not a ramp that does nothing - it is the effect held at full strength for the whole clip.** On 001: 331 frames (18.6%) carried full-strength defocus; `zoom_blur` (#202) is the same defect.
+- **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: it never reaches neutral, so it covers the whole clip.
+- **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp and evaluates its splines.
 """
 
 from __future__ import annotations

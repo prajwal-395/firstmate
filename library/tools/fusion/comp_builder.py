@@ -10,6 +10,29 @@ It deliberately lives beside the effects engine rather than in
 `execution/apply_fusion_comps.py`: that module imports
 DaVinciResolveScript at module level, so anything sharing it can only be
 tested where DaVinci Resolve is installed.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+- Never use `ApplyMode` in a Merge node: it crashes Resolve with a SIGSEGV.
+- Never use `Path {}` when a Merge node exists in the same comp: it causes black output.
+- Never use `BlendClone`; it is silently ignored.  Use `Tools = {`.
+- Never omit `GlobalOut` on Background nodes: it stops rendering mid-clip.
+- Never set DirectionalBlur `Length` greater than 5: it creates artifacts and edge tiling.
+- Never set transition zoom greater than 1.04: it is too aggressive and breaks immersion.
+
+- Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes.
+- Always include `MaskWidth`, `MaskHeight` and `PixelAspect` on EllipseMask.
+- Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
+- Always use `Blend` instead of `BlendClone` for Merge opacity.
+- Always include `GlobalOut` on Background nodes matching the clip duration.
+- Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
+- **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.** Read it off the MediaPoolItem's `Resolution` and do NOT swap it for rotation - Fusion gets the stored frame.
 """
 
 from .effects import fx

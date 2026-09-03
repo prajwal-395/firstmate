@@ -12,6 +12,20 @@ timeline is built through the Python API and every effect on it is a
 Fusion comp. `WITHDRAWN` records the types that were advertised and are
 not deliverable, each with the reason - a capability the renderer cannot
 honour must be visibly absent, not silently downgraded.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+**Do not wire FCPXML or DRP project-file surgery back in.**
+- Every transition type the pipeline may plan lives in ONE enumeration, `library/tools/transition_vocabulary.py`, with a recorded reason for each withdrawn type.
+- **A cut the plan did not decorate is a hard cut.** `transition_selector` never invents a DRAWN transition; `WITHDRAWN_SCENE_CHANGE_DEFAULTS` records the three it used to.  A type advertised anywhere else fails CI.
+- Adding a transition means adding a builder to `library/tools/fusion/effects.py` first.
+- No per-clip Fusion comp can mix two clips, so there is no cross dissolve or wipe on this route.
 """
 
 # Instantaneous transitions. Nothing is drawn; the label records the

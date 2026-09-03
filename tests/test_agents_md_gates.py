@@ -187,3 +187,24 @@ def test_a_token_dump_still_fails(tmp_path):
     code, out = run(PRESERVE, "--before", AGENTS, "--after", f)
     assert code == 1
     assert "TOKEN DUMPS" in out
+
+
+def test_a_bold_statement_never_spans_a_line_break():
+    """`bold()` must not match across a newline.
+
+    With `re.DOTALL`, a `**` pair the 15-character floor skipped
+    (`**MediaPoolItem**` is 14) let the match run on to the next `**` and produce
+    a span crossing a heading - a phantom that then fails the check for content
+    that never moved. Measured on AGENTS.md: 264 spans with DOTALL, 2 of them
+    containing a heading; 258 without it, and none do.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_pres", PRESERVE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sample = ("Super Scale is a **MediaPoolItem** property taking an **int**, with "
+              "companion keys `X`.\n\n### A heading\n\n**A real rule statement here.**")
+    found = mod.bold(sample)
+    assert "A real rule statement here." in found, found
+    assert not any("heading" in b.lower() for b in found), found
+    assert not any("\n" in b for b in found), found

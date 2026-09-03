@@ -191,122 +191,68 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ### Process isolation
 
-- Never create a timeline and use `ImportFusionComp` in the same Python process.   
+Never create a timeline and use `ImportFusionComp` in the same Python process.
+Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-- **`hasattr` is always True on Resolve's scripting proxies, including invented names.** Guard on return values, never on `hasattr`.
-- **A tick that prints what it ASKED FOR is a lie, and so is a failure that prints nothing.** Print what `GetSetting` RETURNS, and send a failure's reason to stderr.
-- **The timeline SHAPE goes on the PROJECT, and is confirmed by reading it back.** `SetSetting` returning True is a claim and `GetSetting` is the evidence.  
-- Read the truth off `TimelineItem.GetProperty()` with no argument, which returns the whole dict, before trusting any property name.
-- **`Pan` and `Tilt` are the transform properties. There is no `PanX` and no `PanY`.** `ZoomX`/`ZoomY` are real.
-- **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** An audio `TimelineItem` has no property dictionary at all, so every spelling of `SetProperty` returns False; the whole documented audio surface is `GetFairlightPresets`, `ApplyFairlightPresetToCurrentTimeline` and `InsertAudioToCurrentTrackAtPlayhead`, and Fusion's `ActionManager` registers no audio action. 
-- `CreateMagicMask` is withdrawn: it returns False for every mode.
-- Super Scale is a **MediaPoolItem** property taking an **int**, with companion keys `SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after Super).
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. Print what `GetSetting` returns rather than what you asked for, confirm the timeline shape by reading it back off the PROJECT, and read `TimelineItem.GetProperty()` with no argument before trusting a name. `Pan` and `Tilt` are the transform properties - there is no `PanX`/`PanY`, though `ZoomX`/`ZoomY` are real. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** `CreateMagicMask` is withdrawn. Super Scale is a MediaPoolItem property taking an int.
+Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
 
 **Do not wire FCPXML or DRP project-file surgery back in.**
-
-- Every transition type the pipeline may plan lives in ONE enumeration, `library/tools/transition_vocabulary.py`, with a recorded reason for each withdrawn type.
-- **A cut the plan did not decorate is a hard cut.** `transition_selector` never invents a DRAWN transition; `WITHDRAWN_SCENE_CHANGE_DEFAULTS` records the three it used to.  A type advertised anywhere else fails CI.
-- Adding a transition means adding a builder to `library/tools/fusion/effects.py` first.
-- No per-clip Fusion comp can mix two clips, so there is no cross dissolve or wipe on this route.
+Detail: `library/tools/transition_vocabulary.py`.
 
 **A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
-One enumeration, `library/tools/transition_carriers.py`.
+Detail: `library/tools/transition_carriers.py`.
 
-- `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech` or `hook` block - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
-- Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
-- `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. `CUTS_LEGEND` defines both columns as DATA, because `handoff.md` is frozen - the same route `music_measurement.MEASUREMENT_LEGEND` takes for step 2.04.
-- **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
-- `tests/test_transition_carriers.py`.
 ### Stabilization is the memory ceiling, and it runs last
 
-- Treat it as the memory ceiling of the whole pipeline and do not run other heavy jobs beside it.
-- It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
-- For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
+**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it. It changes picture steadiness and nothing else: never structure, timing, framing, grade, captions or sound. For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the in-memory manifest before `build_timeline` and leave the file on disk carrying it.
+Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
     
 
 ### Fusion .comp files - NEVER
 
-- Never use `ApplyMode` in a Merge node: it crashes Resolve with a SIGSEGV.
-- Never use `Path {}` when a Merge node exists in the same comp: it causes black output.
-- Never use `BlendClone`; it is silently ignored.  Use `Tools = {`.
-- Never omit `GlobalOut` on Background nodes: it stops rendering mid-clip.
-- Never set DirectionalBlur `Length` greater than 5: it creates artifacts and edge tiling.
-- Never set transition zoom greater than 1.04: it is too aggressive and breaks immersion.
+**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node (SIGSEGV), `Path {}` beside a Merge (black output), `BlendClone` (silently ignored), a Background with no `GlobalOut` (stops rendering mid-clip), DirectionalBlur `Length` over 5 (artifacts and edge tiling), and transition zoom over 1.04.
+Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS
 
-- Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes.
-- Always include `MaskWidth`, `MaskHeight` and `PixelAspect` on EllipseMask.
-- Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
-- Always use `Blend` instead of `BlendClone` for Merge opacity.
-- Always include `GlobalOut` on Background nodes matching the clip duration.
-- Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
-- **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.** Read it off the MediaPoolItem's `Resolution` and do NOT swap it for rotation - Fusion gets the stored frame.
+**What a Fusion .comp must ALWAYS carry**: `Inverted` on an EllipseMask vignette, its `MaskWidth`/`MaskHeight`/`PixelAspect`, an explicit `Transform1.Input <- MediaIn1.Output` wire, `Blend` rather than `BlendClone` for Merge opacity, `GlobalOut` on every Background matching the clip duration, and a static `Center` for animated pan. **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.**
+Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
 
 **Comp frame 0 is the clip's FIRST PLAYED frame, and `clip_dur` is the SOURCE's frame count. They are different numbers and both are needed.**
-One enumeration, `library/tools/fusion/played_window.py`.
-
-- Use the SOURCE clip frame count for `clip_dur`, read as `int(mpi.GetClipProperty('Frames'))`, not `clip.GetDuration()`.
-- **Every animated keyframe is placed in the COMP's frames, through `played_range`** - never at a source frame number. `source_in_frame`/`source_out_frame` arrive in the SOURCE's numbering and are translated; a segment cut from source frames 654-725 animates over comp frames 0-71.
-- **A spline extrapolates FLAT, so a keyframe outside what plays is not a ramp that does nothing - it is the effect held at full strength for the whole clip.** On 001: 331 frames (18.6%) carried full-strength defocus; `zoom_blur` (#202) is the same defect.
-- **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: it never reaches neutral, so it covers the whole clip.
-- **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp and evaluates its splines. 
+Detail: `library/tools/fusion/played_window.py`.
 
 ### Default transition values
 
-- Brightness Flash: `Brightness = 0.67`, `Saturation = 1.83`, animate `Blend` 0-1 with Sine easing.
-- Crash Zoom: Transform `Scale = 0.4`, `Offset = 0.6`, range 0.6-1.0, Quad easing, mirrored.
-- Glow: `SoftGlow.Gain = 5.0`, `SoftGlow.XGlowSize = 100`, linear easing.
-- Default easing uses `LUTLookup` driven by the system `Transition` variable for Edit page transitions.
-- For per-clip Fusion comps, replicate easing with `BezierSpline.sampled()` pre-baked keyframes.
+**The default transition values** - Brightness Flash, Crash Zoom and Glow - plus the `LUTLookup` easing the Edit page uses and the `BezierSpline.sampled()` route that replicates it in a per-clip comp.
+Detail: `library/tools/fusion/effects.py`.
 
 ### Tracks
 
 **Per-clip Fusion comps reach V1 AND V2.**
-One enumeration, `library/tools/execution/fusion_tracks.py`.
+Detail: `library/tools/execution/fusion_tracks.py`.
 
-- `compile_manifest` merges a declared look onto both. 
-- Transitions stay on V1: `after_clip` indexes the V1 clip LIST, so replaying it elsewhere draws a transition at an unrelated cut.
-- Drop detection in `build_verification` asks whether a label was PLACED, not whether it is on V1.
-- `tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
-
-**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**, and neither comp reads V1. Which is which, and what each may be asked to draw, is in `fusion_tracks.py` beside the enumeration above.
-
-- A cutaway takes zoom, blur and grade as a V1 clip does; `vfx_carriers.py` tells the planner which track a block is on.
-- Adjustment Clips cannot go on V2 - `InsertGeneratorIntoTimeline` always targets V1.
+**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**
+Detail: `library/tools/execution/fusion_tracks.py`.
 
 **A3 is a logical SFX bucket, and TWO SOUNDS AT ONE SPAN IS LAYERING.**
-`LOGICAL_BUCKET_TRACKS` in step 5.04; every refusal of a shared position sits inside it.
+Detail: `library/tools/execution/fusion_tracks.py`.
 
 ### Media pool and audio
 
-- **Prefix overlay filenames with their context**, such as `sub_craig_seg_000.mov`. 
-- **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks: iPhone MOVs contain multiple audio streams. Add A2 and later tracks afterward, and place music or SFX with `mediaType: 2`.
-- **Resolve audio pool items report 24fps regardless of the timeline.** `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so compute audio in/out with the pool item's own FPS.
-- **Renders are silent unless you say otherwise.** `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes the output for an audio stream before reporting success.
+**Prefix overlay filenames with their context.** **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks. **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
+Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
 
-Every planned dB - the bed's per-block curve and each clip's `volume_db` - reaches Fairlight
-by ONE route: `library/tools/otio_mix.py` writes it into an OpenTimelineIO export and
-`library/tools/execution/deliver_audio_mix.py` imports the result back.
-Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
-[why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
-
-- **The import REBUILDS the timeline.** Fusion comps and CDL grades do NOT survive it. The
-  placement, transform (`_apply_conform`), timeline markers and native transitions do. 
-  `tests/test_audio_mix_delivery.py` drives a whole build and asserts the comps are still there.
-- **The `volume` parameter is ABSENT from an untouched export**: it must be INSERTED, not patched.
-- **A keyframe's frame number is measured from the CLIP'S START ON THE TIMELINE**.
-- **`ImportTimelineFromFile` answers None with no diagnostic** when a referenced media file is
-- A cyan `UNAPPLIED target` marker is the FALLBACK, written only when the route declines and
-  saying so. 
+**in dB**
+Detail: `library/tools/otio_mix.py`. [why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
 
 ### Visual verification
 
@@ -456,7 +402,6 @@ local full run pays the same 5-6 minutes and ~3,600 tests twice for one answer.
 - **The one exception is genuinely wide fan-out, and you must NAME it in one line when
   you claim it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
   AGENTS.md restructure is not.
-
 
 ### This file is an INDEX, and two gates keep it one
 

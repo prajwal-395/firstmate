@@ -36,6 +36,28 @@ This module holds no Resolve import on purpose: the renderer's Fusion
 pass cannot be imported without DaVinci's scripting module, and a rule
 that can only be checked by grepping a source file is the rot this repo
 keeps having to undo.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+**Per-clip Fusion comps reach V1 AND V2.**
+One enumeration, `library/tools/execution/fusion_tracks.py`.
+- `compile_manifest` merges a declared look onto both.
+- Transitions stay on V1: `after_clip` indexes the V1 clip LIST, so replaying it elsewhere draws a transition at an unrelated cut.
+- Drop detection in `build_verification` asks whether a label was PLACED, not whether it is on V1.
+- `tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
+
+**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**, and neither comp reads V1. Which is which, and what each may be asked to draw, is in `fusion_tracks.py` beside the enumeration above.
+- A cutaway takes zoom, blur and grade as a V1 clip does; `vfx_carriers.py` tells the planner which track a block is on.
+- Adjustment Clips cannot go on V2 - `InsertGeneratorIntoTimeline` always targets V1.
+
+**A3 is a logical SFX bucket, and TWO SOUNDS AT ONE SPAN IS LAYERING.**
+`LOGICAL_BUCKET_TRACKS` in step 5.04; every refusal of a shared position sits inside it.
 """
 
 # In build order. A track named here must have its clips placed before

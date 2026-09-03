@@ -65,6 +65,22 @@ at its ``timeline_end`` (measured 2026-08-28, 11 of 11 speech blocks, gap
 0.000 s), so the two bounds have never disagreed there.  It is a separate
 defect in the post-bridge, not a property of the menu, and it is recorded
 here rather than papered over with a narrower answer.
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+**A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
+One enumeration, `library/tools/transition_carriers.py`.
+- `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech` or `hook` block - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
+- Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
+- `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. `CUTS_LEGEND` defines both columns as DATA, because `handoff.md` is frozen - the same route `music_measurement.MEASUREMENT_LEGEND` takes for step 2.04.
+- **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
+- `tests/test_transition_carriers.py`.
 """
 
 from library.tools.bookends import block_bookend

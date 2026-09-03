@@ -23,6 +23,23 @@ Tested and verified capabilities (60/60 tests passing):
   - ApplyFairlightPresetToCurrentTimeline()
   - 34/34 Fusion tools available (Transform, BrightnessContrast, SoftGlow,
     FilmGrain, Defocus, Dissolve, DVE, etc.)
+
+
+Rules relocated from AGENTS.md 5
+--------------------------------
+These are the engine's rules for this module.  They lived in
+AGENTS.md until it was split by subsystem; the wording is unchanged,
+so each rule is findable by its own words, and AGENTS.md 5
+keeps the headline and points here.
+
+- Treat it as the memory ceiling of the whole pipeline and do not run other heavy jobs beside it.
+- It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
+- For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
+
+- **Prefix overlay filenames with their context**, such as `sub_craig_seg_000.mov`.
+- **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks: iPhone MOVs contain multiple audio streams. Add A2 and later tracks afterward, and place music or SFX with `mediaType: 2`.
+- **Resolve audio pool items report 24fps regardless of the timeline.** `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so compute audio in/out with the pool item's own FPS.
+- **Renders are silent unless you say otherwise.** `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes the output for an audio stream before reporting success.
 """
 
 import json
