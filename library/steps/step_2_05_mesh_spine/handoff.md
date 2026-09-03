@@ -156,7 +156,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 Every `hook` or `speech` block MUST include `content.passage_ref` which
 links back to the speech_sequence passage it came from:
-- `"passage_ref": <position>` matching that passage's `position` field in
+- `"passage_ref": <position>` matching that passage's 1-based order in
   the speech_sequence `body_sequence`.
 
 There is no other way to name a passage. A block that OPENS the video is

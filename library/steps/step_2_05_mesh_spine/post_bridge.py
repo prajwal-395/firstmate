@@ -70,10 +70,8 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     # by putting it in a `hook` block - and that block references its
     # passage by position like every other one.
     passage_lookup = {}
-    for p in speech_sequence.get("body_sequence", []):
-        pos = p.get("position")
-        if pos is not None:
-            passage_lookup[pos] = p
+    for i, p in enumerate(speech_sequence.get("body_sequence", []), start=1):
+        passage_lookup[i] = p
 
     enriched_blocks = []
 
@@ -291,11 +289,11 @@ def main():
         # Generate dummy structure for auto mode
         seq = data.get("speech_sequence", {})
         dummy_struct = []
-        for i, p in enumerate(seq.get("body_sequence", [])):
+        for i, p in enumerate(seq.get("body_sequence", []), start=1):
             dummy_struct.append({
-                "position": p.get("position", f"body_{i+1}"),
+                "position": i,
                 "block_type": "speech",
-                "content": {"passage_ref": p.get("position", f"body_{i+1}")}
+                "content": {"passage_ref": i}
             })
         spine_data = {"structure": dummy_struct}
     if not isinstance(spine_data, dict):
