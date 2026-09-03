@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; media-src vepmedia: 'self'; img-src vepmedia: 'self' data:; style-src 'self'; script-src 'self'">
+<title>VEP Pipeline</title>
+<link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+
+<header>
+  <h1>VEP Pipeline</h1>
+  <div id="heartbeat" class="beat">starting</div>
+</header>
+
+<nav id="tabs">
+  <button class="tab on" data-pane="pane-playhead">Playhead</button>
+  <button class="tab"    data-pane="pane-video">Video</button>
+  <button class="tab"    data-pane="pane-bridge">Bridge</button>
+  <button class="tab"    data-pane="pane-api">API surface</button>
+</nav>
+
+<main>
+
+<section id="pane-playhead" class="pane on">
+  <div class="row">
+    <div class="card">
+      <h2>Where the playhead is</h2>
+      <table id="playhead-table"><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>The clip under it</h2>
+      <p class="note">The picture is the highest track carrying FOOTAGE, not
+         the topmost item - on a finished build the topmost item is a
+         subtitle card.  Overlays are reported separately.</p>
+      <table id="clip-table"><tbody></tbody></table>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Overlays over the picture right now</h2>
+    <div id="overlays" class="mono">-</div>
+  </div>
+  <div class="card">
+    <h2>Read cost</h2>
+    <div id="cost" class="mono">-</div>
+  </div>
+</section>
+
+<section id="pane-video" class="pane">
+  <div class="card">
+    <h2>Video</h2>
+    <div id="video-mode-buttons">
+      <button id="mode-source" class="mode on">Source clip under the playhead</button>
+      <button id="mode-master" class="mode">Rendered master</button>
+      <label class="follow"><input type="checkbox" id="follow" checked> follow the playhead</label>
+    </div>
+    <p class="note" id="video-what">-</p>
+    <div class="stage"><video id="player" controls preload="auto"></video></div>
+    <div id="video-status" class="mono">-</div>
+  </div>
+  <div class="card">
+    <h2>What this player is, and is not</h2>
+    <ul class="plain">
+      <li><b>Source clip</b> - the file on disk, seeked to the source frame
+          under the playhead.  Ungraded, no comps, no captions, no mix.</li>
+      <li><b>Rendered master</b> - the pipeline's own export, seeked to
+          timeline time.  Graded and complete, and only as current as the
+          last render.</li>
+      <li><b>Not reachable</b> - a live mirror of Resolve's own viewer.
+          There is no stream in the API. Single FRAMES are reachable -
+          <code>Timeline.GrabStill()</code> returns the graded, conformed
+          frame, and <code>GetCurrentClipThumbnailImage()</code> returns
+          base64 on the Color page - but a grab costs seconds and
+          round-trips the gallery, so a sequence of them is not playback
+          and this plugin does not pretend otherwise.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="pane-bridge" class="pane">
+  <div class="card">
+    <h2>The bridge to the pipeline's Python</h2>
+    <p class="note">One short-lived child process per request, JSON on
+       stdin and stdout.  Every call reports its own round trip.</p>
+    <button id="bridge-ping">ping</button>
+    <button id="bridge-bench">measure 10 round trips</button>
+    <button id="bridge-join">join the clip under the playhead</button>
+    <div id="bridge-out" class="mono">-</div>
+  </div>
+</section>
+
+<section id="pane-api" class="pane">
+  <div class="card">
+    <h2>What the JavaScript API exposes</h2>
+    <p class="note">Enumerated off the live objects.  This is what settles
+       whether the Python API this project knows has a JavaScript twin.</p>
+    <button id="api-read">read the API surface</button>
+    <div id="api-out" class="mono"></div>
+  </div>
+
+  <div class="card">
+    <h2>What this plugin's own reads cost</h2>
+    <p class="note">Measured from inside the plugin host, over the loop's
+       own reads - no extra call is made to Resolve in order to measure
+       it.  This is the plugin's half of "it cannot freeze Resolve"; the
+       other half is an observer process timing Resolve from outside,
+       which is what measures what the captain actually feels.</p>
+    <div id="reads-out" class="mono">-</div>
+    <button id="diagnostics-write">write the enumeration and the timings to a file</button>
+    <div id="diagnostics-out" class="mono">-</div>
+  </div>
+</section>
+
+</main>
+
+<script src="./js/picture.js"></script>
+<script src="./js/renderer.js"></script>
+</body>
+</html>

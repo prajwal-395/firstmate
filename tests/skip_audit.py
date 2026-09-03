@@ -145,6 +145,21 @@ ENVIRONMENT_CONDITIONS = (
                    "step, and the state the captain reviews a timeline in",
     ),
     EnvironmentCondition(
+        pattern=r"node is not on PATH, so the plugin's JavaScript cannot "
+                r"be run here",
+        false_when="Node.js is installed and `node` is on PATH - the same "
+                   "runtime remotion-subtitles already needs, and what the "
+                   "Workflow Integration's own JavaScript is checked "
+                   "against `clip_context` with",
+    ),
+    EnvironmentCondition(
+        pattern=r"DaVinci Resolve Studio's bundled Electron and Workflow "
+                r"Integration SDK are not installed here",
+        false_when="DaVinci Resolve Studio is installed - it ships both, "
+                   "and Workflow Integrations are a Studio-only feature, "
+                   "so a machine that can load the plugin can run this",
+    ),
+    EnvironmentCondition(
         pattern=r"PIPELINE_PROJECTS_ROOT was unset before pytest started",
         false_when="PIPELINE_PROJECTS_ROOT is configured, which it is on "
                    "any machine that has run the pipeline",
