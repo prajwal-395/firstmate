@@ -27,7 +27,7 @@ export const AnimatedWord: React.FC<AnimatedWordProps> = ({
   let color = style?.fontColor || "#FFFFFF";
   if (isSpokenNow) {
     color = style?.accentColor || "#FBF0B8";
-  } else if (isEmphasis) {
+  } else if (isEmphasis && hasSpoken) {
     // An emphasis word keeps the accent colour after it is spoken, so the
     // key words of a caption still read as the key words.
     color = style?.accentColor || "#FBF0B8";

@@ -123,3 +123,78 @@ def test_no_overlay_at_all_is_not_this_check_s_business():
         _assert_subtitle_overlay_matches_plan,
     )
     _assert_subtitle_overlay_matches_plan(_manifest([(3, 4.4, 6.0)], []))
+
+
+# ── Delivery: the emphasis word must not be coloured prematurely ──
+
+import os
+import json
+import shutil
+import subprocess
+from test_timed_text_delivery import _extract_frames, REMOTION_DIR, remotion_available
+
+def _get_pixel_colors(png_path: str) -> set:
+    from PIL import Image
+    image = Image.open(png_path).convert("RGBA")
+    data = image.getdata()
+    colors = set()
+    for item in data:
+        if item[3] > 200:  # near opaque
+            hex_color = '#{:02x}{:02x}{:02x}'.format(item[0], item[1], item[2])
+            colors.add(hex_color)
+    return colors
+
+@pytest.fixture(scope="module")
+def rendered_karaoke_emphasis(tmp_path_factory):
+    out_dir = tmp_path_factory.mktemp("subtitle_karaoke")
+    props_path = out_dir / "props.json"
+    mov_path = out_dir / "output.mov"
+    
+    props = {
+        "subtitles": [
+            {
+                "text": "silent",
+                "startFrame": 0,
+                "endFrame": 20,
+                "emphasisWords": ["silent"],
+                "words": [{"word": "silent", "startFrame": 10, "endFrame": 15}],
+                "fitScale": 1.0
+            }
+        ],
+        "fps": 30.0, "width": 1080, "height": 1920, "durationInFrames": 20,
+        "style": {
+            "fontFamily": "Montserrat", "fontSize": 85, "fontWeight": 800,
+            "fontColor": "#FFFFFF", "accentColor": "#FBF0B8",
+            "outlineColor": "#000000", "outlineWidth": 0, "position": "bottom",
+            "safeArea": {"top": 0, "right": 0, "bottom": 0, "left": 0},
+            "captionMaxWidth": 840
+        }
+    }
+    
+    props_path.write_text(json.dumps(props))
+    subprocess.run(
+        ["npx", "remotion", "render", "SubtitleOverlay", str(mov_path),
+         "--props", str(props_path), "--codec", "prores", "--prores-profile", "4444"],
+        cwd=REMOTION_DIR, check=True, capture_output=True
+    )
+    return _extract_frames(str(mov_path), str(out_dir / "frames"))
+
+
+@remotion_available
+def test_emphasis_word_does_not_carry_accent_before_it_is_spoken(rendered_karaoke_emphasis):
+    frames = rendered_karaoke_emphasis
+    
+    # At frame 5, "silent" (startFrame=10) has not been spoken yet.
+    colors_before = _get_pixel_colors(frames[5])
+    yellows_before = [c for c in colors_before if c.startswith('#fbf0') or c.startswith('#fbef')]
+    assert not yellows_before, f"Emphasis word has accent color before being spoken: {yellows_before}"
+    
+    # At frame 12, "silent" is being spoken. It should have the accent color.
+    colors_during = _get_pixel_colors(frames[12])
+    yellows_during = [c for c in colors_during if c.startswith('#fbf0') or c.startswith('#fbef')]
+    assert yellows_during, "Emphasis word lacks accent color while being spoken"
+    
+    # At frame 18, "silent" has been spoken (endFrame=15). It should still have the accent color.
+    colors_after = _get_pixel_colors(frames[18])
+    yellows_after = [c for c in colors_after if c.startswith('#fbf0') or c.startswith('#fbef')]
+    assert yellows_after, "Emphasis word lacks accent color after being spoken"
