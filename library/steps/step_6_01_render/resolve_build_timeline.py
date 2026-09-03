@@ -1446,9 +1446,14 @@ def build_timeline(
         preset_name = "Pipeline_Master_Limiter"
         applied = False
         
-        # Check if the API is available
-        if hasattr(resolve, "GetFairlightPresets") and hasattr(project, "ApplyFairlightPresetToCurrentTimeline"):
+        # Check if the API is available by calling it, not with hasattr
+        presets = None
+        try:
             presets = resolve.GetFairlightPresets()
+        except TypeError:
+            pass
+            
+        if presets is not None:
             # presets could be a list or dict depending on Resolve version.
             # We check both keys and values because the API documentation doesn't specify
             # the dict structure and we had an empty dict during testing. Note this is an
@@ -1462,7 +1467,11 @@ def build_timeline(
                 preset_exists = False
                 
             if preset_exists:
-                applied = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
+                try:
+                    applied = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
+                except TypeError:
+                    applied = False
+                    
                 if applied:
                     print(f"  ✓ Applied Fairlight preset '{preset_name}' for master limiter", file=sys.stderr)
                 else:
@@ -1470,7 +1479,7 @@ def build_timeline(
             else:
                 print(f"  ⚠ Fairlight preset '{preset_name}' not found. Falling back to marker.", file=sys.stderr)
         else:
-            print("  ⚠ Resolve build is too old for Fairlight preset API. Falling back to marker.", file=sys.stderr)
+            print("  ⚠ Resolve build lacks GetFairlightPresets API. Falling back to marker.", file=sys.stderr)
             
         if not applied:
             timeline.AddMarker(

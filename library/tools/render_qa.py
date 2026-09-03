@@ -793,6 +793,13 @@ def _bar_rows(row_mean, row_std, readable=None,
         previous = float(row_mean[i])
         i += 1
         pending = 0
+    
+    # If we saw at least one confirmed bar row, the unreadable run is bounded
+    # on its outer side by bar. We resolve it from the side it came from, 
+    # treating the fully-masked run as bar. If we saw no bar rows, it touches 
+    # the edge, so we resolve it to what it reaches next (picture).
+    if previous is not None:
+        return i
     return i - pending
 
 

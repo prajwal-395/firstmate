@@ -1114,14 +1114,15 @@ class TestTheGatesActuallyDecide:
         from library.steps.step_6_02_validate_output import bridge as validate
 
         manifest = {
+            "project": {"frame_rate": 30.0},
             "tracks": {
                 "V1": {"clips": [
                     {"framing_delivered": 1.0,
-                     "timeline_in": 0.0, "timeline_out": 1.0},
+                     "timeline_in_frame": 0, "timeline_out_frame": 30},
                     {"framing_delivered": 1.0,
-                     "timeline_in": 1.0, "timeline_out": 2.0}]},
+                     "timeline_in_frame": 30, "timeline_out_frame": 60}]},
                 "V2": {"clips": [{"framing_delivered": 0.0,
-                                  "timeline_in": 2.0, "timeline_out": 3.0}]},
+                                  "timeline_in_frame": 60, "timeline_out_frame": 90}]},
                 "A2": {"clips": [{"source_file": __file__}]},
             },
             "audio_mix": {"music_automation": [{"timeline_start": 0.0}]},

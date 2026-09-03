@@ -20,8 +20,13 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-SOURCE_DIR="${REPO_ROOT}/resolve_scripts"
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if GIT_DIR="$(cd "${THIS_DIR}" && git rev-parse --git-common-dir 2>/dev/null)"; then
+  REPO_ROOT="$(cd "${THIS_DIR}" && cd "${GIT_DIR}/.." && pwd -P)"
+else
+  REPO_ROOT="$(cd "${THIS_DIR}/.." && pwd -P)"
+fi
+SOURCE_DIR="$(cd "${THIS_DIR}/.." && pwd -P)/resolve_scripts"
 
 # Under Utility a script is listed on EVERY page, which is what the
 # capture button needs: the captain reviews on Edit and on Color.
@@ -42,20 +47,6 @@ fi
 
 echo "repository: ${REPO_ROOT}"
 echo "scripts to: ${DEST_DIR}"
-
-# The stamp is an absolute path, so it is only as durable as the checkout
-# it names.  The installed copies once pointed at a disposable worktree
-# under ~/.treehouse - correct on the day, and a path that will not be
-# there forever.  A LINKED worktree has a .git FILE rather than a
-# directory, which is exact where a path-name guess would not be.  This
-# warns and installs anyway: it is the captain's machine and they may
-# have a reason.
-if [ "${MODE}" = "install" ] && [ -f "${REPO_ROOT}/.git" ]; then
-  echo
-  echo "! ${REPO_ROOT} is a linked git worktree, not a main checkout."
-  echo "! Stamping it means the menu entries stop working when it is"
-  echo "! removed. Re-run this from your own checkout to point them there."
-fi
 echo
 
 shopt -s nullglob

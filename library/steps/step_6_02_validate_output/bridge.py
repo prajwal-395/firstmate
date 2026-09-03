@@ -101,6 +101,9 @@ def _framing_spans(assembly_manifest: dict) -> list:
     """
     from library.tools.render_qa import FramingSpan
 
+    project_settings = assembly_manifest.get("project", {})
+    fps = project_settings.get("frame_rate", 30.0)
+
     spans = []
     for track in ("V1", "V2"):
         for clip in assembly_manifest.get("tracks", {}).get(track, {}).get("clips", []):
@@ -109,11 +112,11 @@ def _framing_spans(assembly_manifest: dict) -> list:
                 delivered = clip.get("framing_intent")
             if delivered is None:
                 continue
-            start = clip.get("timeline_in")
-            end = clip.get("timeline_out")
-            if start is None or end is None or end <= start:
+            start_frame = clip.get("timeline_in_frame")
+            end_frame = clip.get("timeline_out_frame")
+            if start_frame is None or end_frame is None or end_frame <= start_frame:
                 continue
-            spans.append(FramingSpan(float(start), float(end),
+            spans.append(FramingSpan(float(start_frame) / fps, float(end_frame) / fps,
                                      float(delivered)))
     return spans
 

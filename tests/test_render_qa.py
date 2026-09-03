@@ -121,3 +121,44 @@ def test_run_full_render_qa(m1, m2, m3, m4, m5, m6, m7, m8):
     assert "face_intact" in [getattr(r, "metric", None) for r in results]
     assert "silence_under_picture" in [
         getattr(r, "metric", None) for r in results]
+
+def test_bar_rows_fully_masked_run_letterbox():
+    from library.tools.render_qa import _bar_rows
+    import numpy as np
+    
+    # 10 rows. 
+    # rows 0,1,2: bar (mean 0)
+    # rows 3,4,5: unreadable (masked by overlay)
+    # rows 6,7,8,9: picture (mean 50)
+    
+    row_mean = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 50.0, 50.0, 50.0])
+    row_std = np.zeros(10)
+    readable = np.array([True, True, True, False, False, False, True, True, True, True])
+    
+    # Walk starts at 0.
+    # 0,1,2 are bar.
+    # 3,4,5 are unreadable.
+    # 6 breaks (picture).
+    # Since previous is not None (it saw 0,1,2), the unreadable run is bounded by bar on outer side.
+    # It should return i=6, treating the unreadable rows as bar.
+    assert _bar_rows(row_mean, row_std, readable=readable) == 6
+
+def test_bar_rows_fully_masked_run_filling():
+    from library.tools.render_qa import _bar_rows
+    import numpy as np
+    
+    # 10 rows. 
+    # rows 0,1,2: unreadable (masked by overlay at the edge of the frame)
+    # rows 3,4,5: picture (mean 50)
+    
+    row_mean = np.array([0.0, 0.0, 0.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+    row_std = np.zeros(10)
+    readable = np.array([False, False, False, True, True, True, True, True, True, True])
+    
+    # Walk starts at 0.
+    # 0,1,2 are unreadable.
+    # 3 breaks (picture).
+    # Since previous is None (saw no bar rows), the unreadable run touches the edge.
+    # It should resolve toward picture and return i - pending = 3 - 3 = 0.
+    assert _bar_rows(row_mean, row_std, readable=readable) == 0
+
