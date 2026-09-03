@@ -317,6 +317,55 @@ class TestRule1SustainedHighMotion:
 #  Rule 2: Dead head/tail
 # ═══════════════════════════════════════════════════════════════════════
 
+class TestRule2IsAROllOnly:
+    """The rule reads "outside all speech" as dead.
+
+    Right for a talking head, where the head and tail are the operator
+    raising the phone.  Backwards for a cutaway, which plays `video_only`
+    so its audio is never heard - it emptied IMG_1819, the shot 001's edit
+    closes on, and left IMG_1813 at 12%.  Gated like Rule 3 below.
+    """
+
+    # IMG_1819's shape: 4.7s of B-roll carrying one 0.36s speech region.
+    SPEECH = [{"start": 0.893, "end": 1.254, "text": "look at me."}]
+
+    def _run(self, content_type, soft=None):
+        idx = _make_temporal_index(
+            duration=4.7, motion_values=[HANDHELD] * 141,
+            speech_regions=self.SPEECH)
+        return _compute_usable_ranges(idx, 4.7, content_type, soft)
+
+    def test_broll_keeps_its_silent_picture(self):
+        """A cutaway is chosen BECAUSE it is not someone talking."""
+        usable, unusable, _, _ = self._run("scenery")
+
+        assert not {r["reason"] for r in unusable} & {
+            "high_motion_head", "high_motion_tail"}
+        assert usable, "IMG_1819 is the shot the finished edit closes on"
+
+    def test_aroll_still_loses_its_dead_head_and_tail(self):
+        """Gated, not deleted. It still fires where it belongs."""
+        _, unusable, _, signals = self._run("person_talking_to_camera")
+
+        assert {r["reason"] for r in unusable} >= {
+            "high_motion_head", "high_motion_tail"}
+        assert "speech_regions" in signals
+
+    def test_a_soft_picture_is_still_excluded(self):
+        """Un-fencing what was wrongly fenced must not un-fence the dashboard.
+
+        IMG_1811's opening 2s is the window the captain marked.  It is
+        excluded by `soft_picture` alone, and gating the speech-shaped rule
+        must not bring it back.
+        """
+        soft = [{"start": 0.0, "end": 2.0, "reason": "soft_picture"}]
+
+        usable, unusable, _, _ = self._run("scenery", soft)
+
+        assert soft[0] in unusable
+        assert not any(s <= 0.0 and 2.0 <= e for s, e in usable)
+
+
 class TestRule2DeadHeadTail:
     def test_high_motion_head_before_speech(self):
         """Head region with high motion and no speech is flagged."""
@@ -328,8 +377,10 @@ class TestRule2DeadHeadTail:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, speech_regions=speech)
 
+        # A-roll: the rule reasons about a speaker, so it only applies to a
+        # clip that has one.  See TestRule2IsAROllOnly below.
         usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "unknown")
+            idx, 10.0, "person_talking_to_camera")
 
         head_flags = [r for r in unusable if r["reason"] == "high_motion_head"]
         assert len(head_flags) == 1
@@ -348,7 +399,7 @@ class TestRule2DeadHeadTail:
             duration=10.0, motion_values=motion, speech_regions=speech)
 
         usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "unknown")
+            idx, 10.0, "person_talking_to_camera")
 
         tail_flags = [r for r in unusable if r["reason"] == "high_motion_tail"]
         assert len(tail_flags) == 1
@@ -388,8 +439,10 @@ class TestRule2DeadHeadTail:
         idx = _make_temporal_index(
             duration=10.0, motion_values=motion, speech_regions=speech)
 
+        # A-roll: the rule reasons about a speaker, so it only applies to a
+        # clip that has one.  See TestRule2IsAROllOnly below.
         usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "unknown")
+            idx, 10.0, "person_talking_to_camera")
 
         head_flags = [r for r in unusable if r["reason"] == "high_motion_head"]
         assert head_flags == []
@@ -684,7 +737,7 @@ class TestEdgeCases:
             duration=10.0, motion_values=motion, speech_regions=speech)
 
         usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "unknown")
+            idx, 10.0, "person_talking_to_camera")
 
         assert usable == []
         assert {r["reason"] for r in unusable} == {

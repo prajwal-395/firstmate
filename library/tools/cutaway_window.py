@@ -83,6 +83,12 @@ CANDIDATE_LEGEND = {
         "share of the window inside a MEASURED usable range; None when "
         "nothing measured the clip's usable ranges"
     ),
+    "placed_by": (
+        "how the window was positioned inside its span: `usable_within_span` "
+        "when the measured usable ranges moved it off the span head, "
+        "`span_head` when nothing measured the clip or the head was already "
+        "the most usable position available"
+    ),
 }
 
 
@@ -344,6 +350,66 @@ def fit_to_clip(
     return round(video_in, 3), round(video_out, 3)
 
 
+def _place_in_span(
+    span_start: float, span_end: float,
+    target_duration: float, clip_duration: float, usable,
+) -> tuple:
+    """Where inside a span the window sits, and what put it there.
+
+    The window used to be the span's HEAD, unconditionally.  On project 001
+    that produced five of six cutaways starting at source 0.00, and nine of
+    eleven across two runs - and the head of a handheld phone clip is where
+    the operator is still raising and steadying the camera.  The captain
+    marked one of them: a 2.2s window whose last 60% is an out-of-focus
+    dashboard, on a clip that is 83% usable.
+
+    A span is a stretch the vision pass described as one thing, so any
+    window inside it is equally described by that description.  The head is
+    therefore a position, not a meaning, and nothing was choosing it.  This
+    picks the position inside the span with the most MEASURED usable
+    picture, earliest winning ties so the result stays deterministic and a
+    clip with nothing to choose between still opens where it used to.
+
+    `usable` is None when nothing measured the clip, and the span head is
+    returned unchanged - an unmeasured clip must not be moved on a
+    measurement that does not exist.
+    """
+    head = fit_to_clip(
+        span_start, span_start + target_duration,
+        target_duration, clip_duration,
+    )
+    if usable is None:
+        return head[0], head[1], "span_head"
+
+    latest = min(span_end, clip_duration) - target_duration
+    if latest <= span_start:
+        return head[0], head[1], "span_head"
+
+    # Coverage is piecewise constant between usable-range boundaries, so the
+    # optimum is at one of them (or at the span head).  No grid, no search.
+    starts = [span_start]
+    for r_start, r_end in usable:
+        for point in (r_start, r_end - target_duration):
+            if span_start < point <= latest:
+                starts.append(point)
+
+    best = None
+    for point in sorted(set(starts)):
+        video_in, video_out = fit_to_clip(
+            point, point + target_duration, target_duration, clip_duration)
+        share = _overlap_fraction(video_in, video_out, usable)
+        if best is None or share > best[0] + 1e-9:
+            best = (share, video_in, video_out)
+
+    if best is None:
+        return head[0], head[1], "span_head"
+
+    head_share = _overlap_fraction(head[0], head[1], usable)
+    if best[0] <= head_share + 1e-9:
+        return head[0], head[1], "span_head"
+    return best[1], best[2], "usable_within_span"
+
+
 def _overlap_fraction(start: float, end: float, ranges) -> float:
     length = end - start
     if length <= 0 or not ranges:
@@ -386,9 +452,8 @@ def candidate_windows(
         span_start, span_end = points[i], points[i + 1]
         if span_end - span_start <= 0:
             continue
-        video_in, video_out = fit_to_clip(
-            span_start, span_start + target_duration,
-            target_duration, clip_duration,
+        video_in, video_out, placed_by = _place_in_span(
+            span_start, span_end, target_duration, clip_duration, usable,
         )
         description = describe_span(blocks, span_start, span_end)
         rows.append({
@@ -420,6 +485,7 @@ def candidate_windows(
                 None if usable is None
                 else _overlap_fraction(video_in, video_out, usable)
             ),
+            "placed_by": placed_by,
         })
     return rows
 
@@ -520,12 +586,22 @@ def choose_window(
                 candidates,
             )
 
-    best = max(viable, key=lambda c: (c["moment_match"], -c["span_start"]))
+    # The model's words still choose: `moment_match` is first and nothing
+    # outranks it.  `usable_overlap` breaks ties BEFORE earliest-span does,
+    # so where the words cannot discriminate, the span with more measured
+    # usable picture wins instead of whichever happened to come first.  It
+    # is the one measurement this module already declares reaches the
+    # choice, and it is deliberately not in DECLINED_TO_RANK.
+    best = max(viable, key=lambda c: (
+        c["moment_match"], c["usable_overlap"] or 0.0, -c["span_start"]))
 
     if len(viable) == 1:
         # One span is not a choice. Saying `moment_match` here would
         # report a decision the clip never offered.
-        detail = "the clip yields one candidate span; the window is its head"
+        detail = (
+            "the clip yields one candidate span; the window is placed "
+            f"inside it by {best['placed_by']}"
+        )
         if excluded:
             detail += f"; {excluded} span(s) outside the measured usable ranges"
         return WindowChoice(best["video_in"], best["video_out"],
@@ -547,7 +623,12 @@ def choose_window(
         return WindowChoice(best["video_in"], best["video_out"],
                             basis, detail, candidates)
 
-    first = min(viable, key=lambda c: c["span_start"])
+    # Nothing matched the moment, so the words decide nothing here.  Taking
+    # the earliest span is what produced the head bias; among spans the
+    # words cannot separate, the one with more measured usable picture is
+    # the better answer, and earliest still breaks a genuine tie.
+    first = max(viable, key=lambda c: (
+        c["usable_overlap"] or 0.0, -c["span_start"]))
     detail = f"{len(candidates)} span(s), none matching the preferred moment"
     if excluded:
         detail += f"; {excluded} outside the measured usable ranges"

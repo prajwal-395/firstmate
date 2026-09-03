@@ -911,7 +911,8 @@ def _compute_usable_ranges(temporal_index, duration, content_type,
 
     Rules:
       1. Sustained high motion (>1s of handling-grade motion) -> unusable
-      2. Dead head/tail (no speech + high motion at clip boundaries) -> unusable
+      2. Dead head/tail (no speech + high motion at clip boundaries),
+         A-roll clips only -> unusable
       3. Subject absence on A-roll clips (face_presence < 0.1 for >2s) -> unusable
       4. Soft picture (blur, measured off the video file) -> unusable
 
@@ -965,9 +966,28 @@ def _compute_usable_ranges(temporal_index, duration, content_type,
             motion_vals, motion_sr, lambda v: v > MOTION_ABS_HIGH,
             MIN_HIGH_MOTION_RUN_S, duration, "sustained_high_motion")
 
-        # Rule 2: Dead head/tail
+        # Rule 2: Dead head/tail (A-roll clips only)
+        #
+        # The rule reads "outside all speech" as dead, which is right for a
+        # talking-head clip - the seconds while the operator raises and
+        # steadies the phone before the first word.  On a B-roll clip it is
+        # exactly backwards: the silent picture IS the content, and
+        # `compile_manifest` places every cutaway `video_only: True`, so the
+        # audio the rule reasons about is never heard.
+        #
+        # Measured on project 001: the rule fired on three of seventeen
+        # clips - IMG_1812 (`person_talking_to_camera`, correct) and
+        # IMG_1813 and IMG_1819 (both `scenery`, wrong).  IMG_1819 is 4.7s
+        # carrying one 0.36s speech region, so the head and tail around it
+        # were fenced off and `usable_ranges` came out `[]` - "measured, and
+        # none of it usable" - on a shot that plays fine and was chosen as
+        # the closing image of the edit.  IMG_1813 came out 12%.
+        #
+        # Gated the same way Rule 3 below already is, and for the same
+        # reason: a rule that reasons about a speaker cannot be applied to a
+        # clip that has no speaker in it.
         speech_regions = temporal_index.get("speech_regions") or []
-        if speech_regions:
+        if speech_regions and content_type in AROLL_CONTENT_TYPES:
             signals_used.append("speech_regions")
             unusable += _dead_head_tail(
                 motion_vals, motion_sr, speech_regions, duration)
