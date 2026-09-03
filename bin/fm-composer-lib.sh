@@ -923,7 +923,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
       printf 'dialog'
       return 0
     elif [ "$pending_count" -eq 1 ]; then
-      if printf '%s\n' "$single_pending_plain" | grep -qiE "(Do you trust the contents of this directory\?|Do you trust this workspace\?|Do you want to proceed\?)"; then
+      if printf '%s\n' "$single_pending_plain" | grep -qiE "(Do you trust the contents of this directory\?|Do you trust this workspace\?)"; then
         printf 'dialog'
         return 0
       fi
