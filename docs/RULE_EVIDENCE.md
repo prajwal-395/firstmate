@@ -5233,9 +5233,56 @@ The bars are now measured on the columns a CENTRED overlay cannot reach -
 raises on a size no delivery format has rather than borrowing the nearest profile. A frame no
 format describes is measured full width and the result records that it was.
 
-**The blind spot, stated rather than solved:** an overlay drawn AT the frame edge - a corner
-accent - lands inside those strips and would read as picture. Nothing in this pipeline draws one
-today, and the full-width walk had the same blind spot plus the caption one.
+**That blind spot was not a corner case, and it reopened the defect twice more.** The strip mask
+assumed a CENTRED overlay. Every element `remotion-subtitles/src/compositions/MotionGraphics/index.tsx`
+draws is laid out from the safe area's own edges - `left: safeArea.left` (90), `right:
+safeArea.right` (120) on a 1080x1920 delivery - so a progress bar starts 30 columns inside the
+120-column strip before its 16px box shadow is counted at all. The progress bar reopened it
+(item 11 of `data/vep-full-run-after-the-waves/merged-today-breakage.md`); PR 462's emphasis
+elements reopened it a third time. A first attempt at a fix narrowed the strips to the asymmetric
+insets, which addresses an asymmetric safe area and not the centred-overlay assumption, and was
+rejected on review.
+
+Measured on 001 with the four elements really rendered by step 4.06 and composited onto the
+shipped master, the drawn alpha reaches **column 71**: 3,149 inked pixels inside the 120-column
+strips the mask kept, and 734 inside the 90/120 asymmetric strips the rejected fix proposed.
+Neither strip is free of it, and no strip can be, because a glow's footprint is not in the CSS.
+
+```
+before  passed: False   (origin/main, 001's master WITH motion graphics drawn)
+        picture occupies 77.8% of the frame (spread 0.68 over 114 samples; 2 declared framings)
+        - the picture changes size within one declared framing (0): 31.7% at 0.0s vs 77.8%
+          at 2.0s (spread 0.46, bound 0.05) - one framing has one geometry
+        framing 0: n=81 median 0.7776 min 0.3167 max 0.7776 spread 0.4609
+
+after   passed: True
+        picture occupies 31.7% of the frame (spread 0.68 over 114 samples; 2 declared framings)
+        framing 0: n=81 median 0.3167 min 0.3167 max 0.3167 spread 0.0000
+        framing 1: n=33 median 1.0000 min 1.0000 max 1.0000 spread 0.0000
+        9 overlay segments handed to the check, 114 samples carrying ink, 5.9 s
+```
+
+**The answer is not a fourth guess: the pipeline knows exactly what it drew.** Every overlay is a
+transparent segment the manifest places on the timeline, and its own alpha names the pixels it
+touched - glow, shadow, backdrop blur and shapes nobody has invented yet. Step 6.02 hands those
+segments to `measure_frame_occupancy` and the ink is masked per row.
+
+Two details the measurement forced. A row the ink leaves under `MIN_OVERLAY_FREE_COLUMNS` pixels
+of is UNREADABLE, and is attributed to whichever side the walk resolves to next rather than
+counted as bar - counting it as bar shrinks a FILLING picture by exactly the height of the
+overlay drawn over its bottom edge. And the overlay is TRIMMED to its offset, not `-ss` seeked:
+input seeking rebases the stream's timestamps and the sample grid is then laid out from the seek
+point, which on 001 read sub_block_8's alpha in the blank gap BETWEEN two caption cards while the
+master was showing one, leaving 0.4755 in a group whose real value is 0.3167.
+
+**The gate is not weakened.** The same master with one ten-second stretch of its picture really
+rescaled still fails, with the overlays present and masked: framing 0 spread 0.29 and framing 1
+spread 0.22, both against the unchanged 0.05 bound.
+
+**It also settles the other open question.** 001's two declared framings are correct: 0.3167 for
+the letterboxed A-roll and 1.0 for the portrait cutaways, each with spread 0.0000 over its own
+samples. The 31.7%-to-100% spread the failure reported was the check misreading its own render,
+not a framing change.
 
 **`subtitle_gaps` had the mirror defect**: it counted the plan's own non-speech blocks as dead
 caption time. All four of 001's reported gaps - 3.0, 3.5, 3.0 and 3.0 s - are the B-roll breaths

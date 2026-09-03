@@ -118,6 +118,56 @@ def _framing_spans(assembly_manifest: dict) -> list:
     return spans
 
 
+# The manifest keys carrying a rendered overlay, and the fps each track
+# declares its `source_in_frame` in. Kept in step with
+# `step_5_04_compile_manifest.OVERLAY_TRACKS`, which is the enumeration
+# of what the manifest may carry: an overlay track this list forgets is
+# an overlay whose ink reads as picture, which is the defect
+# `measure_frame_occupancy` reopened three times.
+OVERLAY_MANIFEST_KEYS = ("subtitle_overlay", "motion_graphics_overlay",
+                         "timed_text_overlay")
+
+
+def _overlay_segments(assembly_manifest: dict):
+    """What the render drew OVER the picture, for the occupancy gate.
+
+    P1 measures the letterbox bars, and an overlay drawn over a bar is
+    neither dark nor flat, so the bar walk stops at it and the picture
+    reads as taller than it is. It used to guess the footprint from the
+    safe area, and every guess has been wrong for the next element
+    somebody drew. These segments are the overlays themselves - P1 reads
+    each one's alpha and masks exactly the pixels it drew.
+
+    Returns None when the manifest names no overlay track AT ALL, because
+    that is a manifest that has not been asked the question - a different
+    claim from a manifest that carries the tracks and declares them
+    empty, which is `[]` and is exact.
+    """
+    from library.tools.render_qa import OverlaySegment
+
+    if not any(key in assembly_manifest for key in OVERLAY_MANIFEST_KEYS):
+        return None
+
+    segments = []
+    for key in OVERLAY_MANIFEST_KEYS:
+        track = assembly_manifest.get(key) or {}
+        # The overlay steps render at the timeline's own rate and record
+        # `source_in_frame` in it, so the second of the file that plays
+        # at `timeline_start` is that frame over the track's fps.
+        fps = float(track.get("fps") or 0.0) or float(
+            (assembly_manifest.get("project") or {}).get("frame_rate") or 30.0)
+        for seg in track.get("segments") or []:
+            path = seg.get("overlay_path")
+            start = seg.get("timeline_start")
+            end = seg.get("timeline_end")
+            if not path or start is None or end is None or end <= start:
+                continue
+            segments.append(OverlaySegment(
+                str(path), float(start), float(end),
+                float(seg.get("source_in_frame") or 0.0) / fps))
+    return segments
+
+
 def _music_bed(assembly_manifest: dict):
     """(music file, automation windows, offset) for speech-above-bed.
 
@@ -205,6 +255,10 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             music_automation=music_automation,
             music_offset_seconds=music_offset,
             spine_blocks=assembly_manifest.get("_spine_blocks") or [],
+            # What was drawn over the picture, so P1 masks the pixels the
+            # overlays really touched rather than the strips a centred
+            # caption was assumed to leave alone.
+            overlay_segments=_overlay_segments(assembly_manifest),
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)

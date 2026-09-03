@@ -963,11 +963,23 @@ An eighth, a face cut by the frame edge, is measured on the render and gates thr
   floor applies to the FILL stretches and the consistency bound applies WITHIN each declared
   framing - never switch the consistency half off for a video declaring more than one framing.
   [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
-  **An OVERLAY is not picture, and a sample carries the frame at its own timestamp.** Caption
-  ink is neither dark nor flat, so the bar walk stopped at it: 001's bottom bar read 347 rows
-  under a caption and 656 without one, on a picture that never changes size. The bars are
-  measured on the columns a CENTRED overlay cannot reach (`safe_area.centered_usable_width`);
-  a frame size no delivery format describes is measured full width and SAYS so on the result.
+  **An OVERLAY is not picture, and WHERE IT IS is read off the overlay, never guessed.** Overlay
+  ink is neither dark nor flat, so the bar walk stops at it: 001's bottom bar read 347 rows under
+  a caption and 656 without one, on a picture that never changes size. **Two fixed geometries
+  have failed and a third must not be written.** The full width read every caption as picture;
+  the strips outside a CENTRED caption box read the progress bar and the emphasis elements as
+  picture, because every element `MotionGraphics/index.tsx` draws is laid out from the safe
+  area's own left (90) and right (120) edges and glows past them - measured on 001's real render,
+  ink at column 71, inside a 120-column strip AND inside a 90-column one, so narrowing the strips
+  to the asymmetric insets fixes neither. Step 6.02 hands `measure_frame_occupancy` the manifest's
+  own overlay segments and every pixel their ALPHA says they drew is masked out of the walk.
+  **THREE READINGS**: segments given is exact; `[]` says this render carries no overlay and is
+  exact; None says nobody asked, is measured full width and SAYS so on the result. A row the ink
+  leaves under `MIN_OVERLAY_FREE_COLUMNS` pixels of is UNREADABLE and is resolved from whichever
+  side the walk reaches next - counting it as bar would shrink a filling picture by the height of
+  a bar drawn over it - and a frame with no readable row is counted out and named, never entered
+  as 100%. The gate is not weakened: it still fails a picture that genuinely changes size under a
+  full-width overlay.
   And `_stream_raw_frames` asks ffmpeg for `fps=N:round=up`, because the default `round=near`
   emits the LAST input frame to claim a slot - up to half a sample period after the label,
   which put a cutaway starting at 32.067s into the sample the A-roll clip before it owns.

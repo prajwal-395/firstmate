@@ -41,11 +41,6 @@ try:
 except ImportError:  # imported as a top-level module from library/tools
     from subject_framing import load_face_cascade
 
-try:
-    from library.tools.safe_area import UnknownSafeArea, safe_area_for_frame
-except ImportError:  # imported as a top-level module from library/tools
-    from safe_area import UnknownSafeArea, safe_area_for_frame
-
 # Slack when matching detected black against a declared beat. blackdetect
 # reports whole-frame timestamps, so the segment it reports for a beat can
 # run a frame wider than the gap the manifest planned; 50ms covers a frame
@@ -455,12 +450,20 @@ DEFAULT_SAMPLE_FPS = 2.0
 # spends at most 8 of its 1920 rows that way, 0.4%.
 MIN_FILL_ROW_FRACTION = 0.95
 
-# The bar walk needs enough columns per row to tell a flat bar from a
-# dim picture row that happens to be flat where it was sampled. 1080x1920
-# gives 240 (120 each side); this is the floor under which the strips
-# stop being a measurement and the whole width is used instead, with the
-# reason recorded.
+# The bar walk needs enough unmasked samples in a row to tell a flat bar
+# from a dim picture row that happens to be flat where it was sampled. A
+# row with fewer free pixels than this is UNREADABLE - the overlay has
+# taken it - and the walk resolves it from its neighbours rather than
+# judging it on a handful of pixels.
 MIN_OVERLAY_FREE_COLUMNS = 64
+
+# Alpha at or above this counts as ink. 1 of 255 - anything a compositor
+# actually blended is masked, because a pixel the overlay touched is a
+# pixel whose luma is not the picture's. Being conservative here costs a
+# few masked rows; being generous is the defect this whole path exists
+# for, since it is faint glow spilling out of an element's box that the
+# fixed-strip guess kept missing.
+OVERLAY_INK_ALPHA = 1
 
 # One video, one geometry. This half is sourced from the ABSENCE of any
 # mechanism that would deliberately vary the picture size mid-cut: no
@@ -566,7 +569,9 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
                        sample_fps: float,
                        scaled: bool = False,
                        start_seconds: Optional[float] = None,
-                       duration_seconds: Optional[float] = None
+                       duration_seconds: Optional[float] = None,
+                       extract: str = "",
+                       trim: str = ""
                        ) -> Iterator["object"]:
     """Yield sampled frames as (planes, height, width) uint8 arrays.
 
@@ -603,7 +608,18 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
     # 0.3167 and the render failed its own consistency check.  Measured
     # on the shipped master: the true cut is at pts_time 32.066667, and
     # `round=up` is the only mode whose sample at 32.0 carries it.
-    chain = f'fps={sample_fps}:round=up'
+    chain = ''
+    if trim:
+        # Filters that choose WHICH seconds are read, on the file's own
+        # clock, before the sample grid is laid over them.
+        chain += f'{trim},'
+    chain += f'fps={sample_fps}:round=up'
+    if extract:
+        # Filters that change WHAT is being read before it is sized -
+        # `format=rgba,alphaextract` turns a transparent overlay into a
+        # greyscale video of its own alpha, which is how the drawn
+        # footprint of an overlay is read (`_overlay_ink_frames`).
+        chain += f',{extract}'
     if scaled:
         chain += f',scale={width}:{height}'
     chain += f',format={pix_fmt}'
@@ -632,7 +648,7 @@ def _stream_raw_frames(video_path: str, pix_fmt: str, planes: int,
         proc.wait(timeout=30)
 
 
-def _bar_rows(row_mean, row_std,
+def _bar_rows(row_mean, row_std, readable=None,
               max_luma: float = BAR_ROW_MAX_LUMA,
               max_std: float = BAR_ROW_MAX_STD,
               max_step: float = BAR_ROW_MAX_STEP) -> int:
@@ -648,21 +664,200 @@ def _bar_rows(row_mean, row_std,
       bar is not merely DARK, it carries no light at all;
     * flat along the row - standard deviation below `max_std`, so a dim
       row carrying a window highlight is picture;
-    * flat against the row before it - the means differ by less than
-      `max_step`, so a dark vertical gradient is picture.
+    * flat against the last row the walk could READ, so a dark vertical
+      gradient is picture.
 
-    Call it on a reversed pair of arrays to measure the bottom bar, and
+    `readable` marks the rows an overlay left enough of to judge.  A row
+    the overlay took is NOT evidence either way, so it neither joins the
+    bar nor stops the walk: it is held pending and attributed to whichever
+    side the walk resolves to next.  A pending run followed by a bar row
+    was bar; a pending run followed by picture was PICTURE, and is
+    returned outside the bar count.
+
+    That attribution is the whole reason this takes a mask rather than
+    simply skipping.  An overlay drawn at the bottom of a picture that
+    FILLS - the progress bar - hides the rows nearest the edge, and
+    counting them as bar reads as the picture having shrunk by exactly
+    the height of the overlay.  Resolving them forward reads what is
+    true: the first row the walk can see is picture, so nothing below it
+    was bar.
+
+    Call it on a reversed triple of arrays to measure the bottom bar, and
     on a transposed frame to measure the side bars of an inset.
     """
     n = int(row_mean.shape[0])
     i = 0
+    pending = 0
+    previous = None
     while i < n:
+        if readable is not None and not bool(readable[i]):
+            pending += 1
+            i += 1
+            continue
         if row_mean[i] > max_luma or row_std[i] >= max_std:
             break
-        if i and abs(float(row_mean[i]) - float(row_mean[i - 1])) >= max_step:
+        if previous is not None and abs(float(row_mean[i]) - previous) >= max_step:
             break
+        previous = float(row_mean[i])
         i += 1
-    return i
+        pending = 0
+    return i - pending
+
+
+class OverlaySegment(NamedTuple):
+    """One rendered overlay, as the manifest places it on the timeline.
+
+    `path` is the transparent segment file the overlay step wrote,
+    `start`/`end` are its timeline seconds and `source_in` is the second
+    of the file that plays at `start`.
+
+    This is the DRAWN geometry and not a description of it.  Every fixed
+    guess at where an overlay is has been wrong: the walk used to measure
+    the full width and read caption ink as picture, and the strips
+    outside a centred caption box that replaced it read a progress bar
+    and PR 462's emphasis elements as picture, because both are laid out
+    from the safe area's own left and right edges and both spill a glow
+    past them.  An element's alpha says exactly which pixels it touched,
+    for shapes nobody has drawn yet.
+    """
+
+    path: str
+    start: float
+    end: float
+    source_in: float = 0.0
+
+
+def _overlay_ink_frames(segment: "OverlaySegment", sample_fps: float,
+                        width: int, height: int, first_sample: float
+                        ) -> Iterator["object"]:
+    """Stream one boolean ink mask per sample of `segment`, from its alpha.
+
+    `first_sample` is the timeline second of the first sample that lands
+    inside the segment, so the stream starts at the matching second of the
+    file and every frame after it lines up with a sample by construction.
+
+    Scaled to the master's frame with `neighbor`, because the answer is a
+    mask: interpolating one invents partial ink at every edge.
+    """
+    offset = max(0.0, segment.source_in + (first_sample - segment.start))
+    # TRIMMED, not seeked. `-ss` rebases the stream's timestamps onto the
+    # seek point and the sample grid is laid out from there, which is
+    # half a sample period away from the second that was asked for; on
+    # 001 that read sub_block_8's alpha in the blank gap BETWEEN two
+    # caption cards while the master was showing one. `trim` keeps the
+    # file's own clock, and `setpts=PTS-STARTPTS` puts the grid on the
+    # first frame at or after `offset` - within one frame of it, which
+    # is the finest a video can be asked about.
+    for frame in _stream_raw_frames(
+            segment.path, 'gray', 1, width, height, sample_fps,
+            # Bounded generously - the trim has already discarded the
+            # head, so this only has to be long enough - because the
+            # generator is closed the moment the segment stops being
+            # live and nothing decodes past that anyway.
+            duration_seconds=offset + max(0.0, segment.end - first_sample)
+            + 2.0 / sample_fps,
+            trim=f'trim=start={offset:.6f},setpts=PTS-STARTPTS',
+            extract='format=rgba,alphaextract,scale='
+                    f'{width}:{height}:flags=neighbor'):
+        yield frame[0] >= OVERLAY_INK_ALPHA
+
+
+class _OverlayInk:
+    """The ink every overlay draws, one sample at a time, in lockstep.
+
+    Samples are visited in timeline order and each segment covers one
+    contiguous run of them, so a segment is opened once - at the second
+    of its own file that the first covered sample plays - and read one
+    frame per sample until it ends.  Nothing seeks per sample and nothing
+    holds more than the masks that are live at one instant.
+
+    A segment whose file cannot be read is REPORTED, in `notes`, and its
+    ink is then missing from the mask - which is the defect this class
+    exists to prevent, so it must never pass silently.
+    """
+
+    def __init__(self, segments, sample_fps: float, width: int, height: int):
+        self._segments = sorted(segments, key=lambda seg: (seg.start, seg.end))
+        self._fps = float(sample_fps)
+        self._width = int(width)
+        self._height = int(height)
+        self._next = 0
+        self._live = []          # [(segment, iterator)]
+        self.notes = []
+        self.samples_with_ink = 0
+
+    def mask_at(self, timestamp: float):
+        """The union of every overlay's ink at `timestamp`, or None."""
+        while (self._next < len(self._segments)
+               and self._segments[self._next].start <= timestamp + 1e-6):
+            segment = self._segments[self._next]
+            self._next += 1
+            if timestamp >= segment.end:
+                continue
+            self._live.append((segment, _overlay_ink_frames(
+                segment, self._fps, self._width, self._height, timestamp)))
+
+        union = None
+        still_live = []
+        for segment, frames in self._live:
+            if timestamp >= segment.end:
+                frames.close()
+                continue
+            try:
+                ink = next(frames)
+            except StopIteration:
+                # The file ran out before its declared end. Say so: an
+                # overlay whose ink stops being read is an overlay that
+                # reads as picture again.
+                self.notes.append(
+                    f"{os.path.basename(segment.path)} ran out of frames "
+                    f"at {timestamp:.1f}s, before the "
+                    f"{segment.end:.1f}s the manifest places it to")
+                frames.close()
+                continue
+            except Exception as exc:
+                self.notes.append(
+                    f"{os.path.basename(segment.path)} could not be read "
+                    f"({exc}), so its ink is not masked")
+                frames.close()
+                continue
+            still_live.append((segment, frames))
+            union = ink if union is None else (union | ink)
+        self._live = still_live
+
+        if union is not None and bool(union.any()):
+            self.samples_with_ink += 1
+            return union
+        return None
+
+    def close(self) -> None:
+        for _, frames in self._live:
+            frames.close()
+        self._live = []
+
+
+def _rows_outside_the_ink(luma, ink, min_free: int = MIN_OVERLAY_FREE_COLUMNS):
+    """Per-row mean, standard deviation and readability, ignoring ink.
+
+    `ink` is the boolean footprint of every overlay drawn over this frame;
+    None means nothing was drawn and the whole width is the measurement.
+    A row left with fewer than `min_free` pixels is UNREADABLE - a handful
+    of pixels cannot tell a flat bar from a dim picture row - and
+    `_bar_rows` resolves it from its neighbours instead of judging it.
+    """
+    import numpy as np
+
+    if ink is None:
+        return luma.mean(axis=1), luma.std(axis=1), None
+
+    free = ~ink
+    counts = free.sum(axis=1).astype(np.float64)
+    safe = np.maximum(counts, 1.0)
+    values = np.where(free, luma, 0.0)
+    mean = values.sum(axis=1) / safe
+    variance = np.maximum((values * values).sum(axis=1) / safe - mean * mean,
+                          0.0)
+    return mean, np.sqrt(variance), counts >= min_free
 
 
 def _frame_is_black(luma, lit_threshold: float = LIT_LUMA_THRESHOLD,
@@ -719,7 +914,9 @@ def measure_frame_occupancy(
         framing_spans: Optional[Sequence["FramingSpan"]] = None,
         sample_fps: float = DEFAULT_SAMPLE_FPS,
         min_fill_fraction: float = MIN_FILL_ROW_FRACTION,
-        max_spread: float = MAX_ROW_FRACTION_SPREAD) -> RenderQAResult:
+        max_spread: float = MAX_ROW_FRACTION_SPREAD,
+        overlay_segments: Optional[Sequence["OverlaySegment"]] = None
+        ) -> RenderQAResult:
     """P1: the picture fills the delivery frame, and one geometry per intent.
 
     Samples the master and, on each frame, measures the letterbox BARS -
@@ -778,6 +975,15 @@ def measure_frame_occupancy(
     over the timeline, built by `step_6_02_validate_output` off the
     manifest.  None means nothing was declared, which resolves to one
     span of `DEFAULT_FRAMING_INTENT` over the whole video.
+
+    `overlay_segments` is WHAT THE RENDER DREW OVER THE PICTURE, as
+    `OverlaySegment`s off the same manifest.  Every pixel an overlay's
+    own alpha says it touched is masked out of the bar walk, and a row
+    left with too little to judge is resolved from its neighbours rather
+    than counted as bar.  Every fixed guess at that footprint has failed
+    - see the reading at the top of the body - so the geometry is read
+    off the overlays themselves.  None means the caller said nothing,
+    which is reported and is not the same claim as `[]`.
     """
     try:
         import numpy as np
@@ -792,39 +998,45 @@ def measure_frame_occupancy(
                                   "error", "No video stream found")
         width, height = size
 
-        # The columns a CENTRED overlay cannot reach.  A caption is drawn
-        # over the picture AND over the bars, and its ink is neither dark
-        # nor flat, so the bar walk stops at it: on project 001's
-        # correctly-framed master the bottom bar read 347 rows under a
-        # caption and 656 rows without one, on a picture that never
-        # changes size, and the letterbox group's occupancy came out at a
-        # median 0.4755 against a real 0.3167.  A centred box can only be
-        # `centered_usable_width` wide (library/tools/safe_area.py), so
-        # the strips outside it carry bar and picture and no overlay.
+        # WHERE THE OVERLAYS ARE, read off the overlays themselves.
         #
-        # KNOWN BLIND SPOT, stated rather than solved: an overlay drawn
-        # AT the frame edge - a corner accent - lands inside these strips
-        # and would read as picture. Nothing in this pipeline draws one
-        # today, and the full-width walk had the same blind spot plus the
-        # caption one.
-        overlay_free = None
+        # An overlay is drawn over the picture AND over the bars, and its
+        # ink is neither dark nor flat, so the bar walk stops at it. On
+        # project 001's correctly-framed master the bottom bar read 347
+        # rows under a caption and 656 rows without one, on a picture
+        # that never changes size.
+        #
+        # Two fixed guesses at where the ink is have failed. The full
+        # width read every caption as picture. The strips outside a
+        # centred caption box - `max(insets.left, insets.right)` each
+        # side - read the progress bar and PR 462's emphasis elements as
+        # picture, because those are laid out from the safe area's OWN
+        # left (90) and right (120) edges and glow past them: a 16px box
+        # shadow puts ink at column 74, inside a 120-column strip and
+        # inside a 90-column one. Narrowing the strips to the asymmetric
+        # insets fixes neither, which is why it was rejected on review.
+        #
+        # THREE READINGS, and an absent declaration is not "no overlays":
+        #
+        # * segments given - the mask is the union of their own alpha at
+        #   each sample. Exact for a shape nobody has drawn yet, glow,
+        #   shadow, blur and all;
+        # * `[]` - the caller says this render carries no overlay, so the
+        #   whole width is picture and the measurement is exact;
+        # * None - nobody said. The bars are measured across the whole
+        #   width and the result SAYS the ink is unaccounted for, rather
+        #   than guessing at a footprint again.
         overlay_note = None
-        try:
-            insets = safe_area_for_frame(width, height)
-            margin = int(max(insets.left, insets.right))
-            if margin * 2 >= MIN_OVERLAY_FREE_COLUMNS:
-                overlay_free = np.r_[0:margin, width - margin:width]
-            else:
-                overlay_note = (
-                    f"the overlay-free strips are only {margin * 2} columns "
-                    f"wide, under the {MIN_OVERLAY_FREE_COLUMNS} this needs "
-                    f"to judge flatness - measured across the whole width, "
-                    f"so an overlay inflates the picture")
-        except UnknownSafeArea as exc:
+        ink_reader = None
+        if overlay_segments is None:
             overlay_note = (
-                f"no safe area describes a {width}x{height} frame, so the "
-                f"bars are measured across the whole width and an overlay "
-                f"drawn over one reads as picture: {exc}")
+                "no overlay geometry was supplied, so the bars are measured "
+                "across the whole width and any overlay ink drawn over one "
+                "reads as picture")
+        elif overlay_segments:
+            ink_reader = _OverlayInk([
+                seg if isinstance(seg, OverlaySegment) else OverlaySegment(*seg)
+                for seg in overlay_segments], sample_fps, width, height)
 
         fractions = []
         times = []
@@ -832,6 +1044,7 @@ def measure_frame_occupancy(
         bars = []
         black_frames = 0
         inset_frames = 0
+        covered_frames = 0
         index = 0
         for frame in _stream_raw_frames(video_path, 'gray', 1,
                                         width, height, sample_fps):
@@ -841,11 +1054,19 @@ def measure_frame_occupancy(
             if _frame_is_black(luma):
                 black_frames += 1
                 continue
-            measured = luma if overlay_free is None else luma[:, overlay_free]
-            row_mean = measured.mean(axis=1)
-            row_std = measured.std(axis=1)
-            top = _bar_rows(row_mean, row_std)
-            bottom = _bar_rows(row_mean[::-1], row_std[::-1])
+            ink = None if ink_reader is None else ink_reader.mask_at(timestamp)
+            row_mean, row_std, readable = _rows_outside_the_ink(luma, ink)
+            if readable is not None and not bool(readable.any()):
+                # Ink edge to edge: there is no row of this frame the
+                # overlay left enough of to read a geometry off. Counted
+                # out and named, the way a black frame is - never entered
+                # as an occupancy of 100%.
+                covered_frames += 1
+                continue
+            top = _bar_rows(row_mean, row_std, readable)
+            bottom = _bar_rows(
+                row_mean[::-1], row_std[::-1],
+                None if readable is None else readable[::-1])
             # A conform letterbox is the consequence of fitting a source
             # of a different aspect into the delivery frame, so the
             # picture between its bars spans the FULL WIDTH: fitting one
@@ -866,10 +1087,17 @@ def measure_frame_occupancy(
             inset = top + bottom >= height
             if not inset:
                 band = luma[top:height - bottom, :]
-                column_mean = band.mean(axis=0)
-                column_std = band.std(axis=0)
-                inset = bool(_bar_rows(column_mean, column_std)
-                             or _bar_rows(column_mean[::-1], column_std[::-1]))
+                band_ink = None if ink is None else ink[top:height - bottom, :]
+                column_mean, column_std, column_readable = \
+                    _rows_outside_the_ink(band.T,
+                                          None if band_ink is None
+                                          else band_ink.T)
+                inset = bool(
+                    _bar_rows(column_mean, column_std, column_readable)
+                    or _bar_rows(
+                        column_mean[::-1], column_std[::-1],
+                        None if column_readable is None
+                        else column_readable[::-1]))
             if inset:
                 inset_frames += 1
                 continue
@@ -878,6 +1106,9 @@ def measure_frame_occupancy(
             bands.append((top, height - 1 - bottom))
             bars.append((top, bottom))
 
+        if ink_reader is not None:
+            ink_reader.close()
+
         if not fractions:
             unreadable = []
             if black_frames:
@@ -885,6 +1116,9 @@ def measure_frame_occupancy(
             if inset_frames:
                 unreadable.append(f"{inset_frames} inset in black on all "
                                   f"four sides")
+            if covered_frames:
+                unreadable.append(f"{covered_frames} covered edge to edge "
+                                  f"by an overlay")
             return RenderQAResult(
                 "frame_occupancy", False, None, None, "error",
                 f"Could not measure a picture in any sampled frame "
@@ -970,8 +1204,14 @@ def measure_frame_occupancy(
             detail += (f"; {inset_frames} samples carry a picture inset in "
                        f"black on all four sides, which is a composition "
                        f"and not a conform - no geometry was read off them")
+        if covered_frames:
+            detail += (f"; {covered_frames} samples are covered edge to edge "
+                       f"by an overlay, leaving no row to read a geometry "
+                       f"off")
         if overlay_note:
             detail += f"; {overlay_note}"
+        for note in (ink_reader.notes if ink_reader else []):
+            detail += f"; {note}"
         if faults:
             detail += " - " + "; ".join(faults)
 
@@ -986,18 +1226,25 @@ def measure_frame_occupancy(
                 "frames_sampled": len(fractions),
                 "black_frames_skipped": black_frames,
                 "inset_frames_skipped": inset_frames,
+                "overlay_covered_frames_skipped": covered_frames,
                 "picture_band_first_frame": bands[0],
                 "max_top_bar_rows": max(t for t, _ in bars),
                 "max_bottom_bar_rows": max(b for _, b in bars),
                 "declared_framing_intents": declared,
                 "by_declared_framing": per_intent,
                 "unattributed_samples": unattributed,
-                "overlay_free_columns_each_side": (
-                    0 if overlay_free is None else int(len(overlay_free) // 2)),
+                "overlay_segments": (
+                    None if overlay_segments is None
+                    else len(overlay_segments)),
+                "samples_carrying_overlay_ink": (
+                    0 if ink_reader is None else ink_reader.samples_with_ink),
                 "overlay_masking": (
                     overlay_note if overlay_note else
-                    "bars measured on the columns a centred overlay cannot "
-                    "reach, so caption ink is not read as picture"),
+                    "every pixel each overlay's own alpha says it drew is "
+                    "masked out of the bar walk, so overlay ink of any "
+                    "shape is not read as picture"),
+                "overlay_notes": (
+                    list(ink_reader.notes) if ink_reader else []),
             },
             threshold={"min_fill_fraction": min_fill_fraction,
                        "max_spread": max_spread,
@@ -1969,7 +2216,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                        music_path: Optional[str] = None,
                        music_automation: Optional[Sequence[dict]] = None,
                        music_offset_seconds: Optional[float] = None,
-                       spine_blocks: Optional[Sequence[dict]] = None) -> List[RenderQAResult]:
+                       spine_blocks: Optional[Sequence[dict]] = None,
+                       overlay_segments: Optional[Sequence["OverlaySegment"]] = None
+                       ) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
@@ -2004,6 +2253,11 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     the plan but cannot say which SECTION of the track plays does not
     have enough to fit anything, and a default of 0.0 there is the value
     that is silently wrong - see `measure_speech_above_bed`.
+
+    `overlay_segments` are the rendered overlays the manifest places over
+    the picture, so P1 can mask the pixels they drew instead of guessing
+    at where an overlay sits.  Passing None says nothing was established
+    about them, and P1 reports that rather than treating it as none.
     """
     results = []
 
@@ -2014,7 +2268,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))
     results.append(measure_frame_occupancy(video_path,
-                                           framing_spans=framing_spans))
+                                           framing_spans=framing_spans,
+                                           overlay_segments=overlay_segments))
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))
