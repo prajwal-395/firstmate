@@ -323,7 +323,7 @@ def test_render_qa_checks_the_delivery_format_the_manifest_declares():
     """
     import inspect
 
-    from library.steps.step_6_02_validate_output import step as validate_step
+    from library.steps.step_6_02_validate_output import bridge as validate_step
     from library.tools.render_qa import run_full_render_qa
 
     params = inspect.signature(run_full_render_qa).parameters

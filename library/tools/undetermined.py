@@ -54,7 +54,7 @@ FIELD = "could_not_determine"
 
 # The ten steps that reach a model on a default run, by DAG node id.
 # `semantic_analysis` is not one: its schema is empty and its call is
-# skipped.  `render` and `validate` are not creative judgements.
+# skipped.  `render` is not a creative judgement.
 #
 # `render_motion_graphics` joined on 2026-09-02, when step 4.06 stopped
 # resolving the overlay layer from two brand-template booleans and grew
@@ -73,6 +73,7 @@ DECLARING_STEPS = frozenset({
     "plan_vfx",
     "plan_sfx",
     "render_motion_graphics",
+    "validate",
 })
 
 # The three readings.  Spelled differently on purpose.

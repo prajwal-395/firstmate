@@ -39,7 +39,7 @@ from library.steps.step_5_04_compile_manifest.step import (
     _video_coverage_gaps,
 )
 from library.steps.step_2_05_mesh_spine.post_bridge import enrich_spine
-from library.steps.step_6_02_validate_output.step import _declared_black_beats
+from library.steps.step_6_02_validate_output.bridge import _declared_black_beats
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────

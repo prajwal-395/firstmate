@@ -1870,6 +1870,13 @@ def check_output_is_real(node_id: str, output: dict) -> list:
             inspect(sub, f"{path}.{key}" if path else key)
 
     inspect(output, node_id)
+
+    if node_id == "validate":
+        v = output.get("validation_result")
+        if isinstance(v, dict):
+            if v.get("status") in ("fail", "undetermined") or not v.get("distribution_ready", True):
+                problems.append(f"Validation outcome was not successful: {v.get('status')} - {v.get('summary', 'unknown')}")
+
     return problems
 
 

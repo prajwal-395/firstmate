@@ -381,7 +381,7 @@ class TestTheRenderCheck:
         """A measurement nothing reads is not a gate."""
         source = os.path.join(
             PROJECT_ROOT, "library", "steps", "step_6_02_validate_output",
-            "step.py")
+            "bridge.py")
         with open(source, encoding="utf-8") as handle:
             body = handle.read()
         marker = 'r.metric == "face_intact"'

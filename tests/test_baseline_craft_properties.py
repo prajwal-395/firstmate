@@ -1070,7 +1070,7 @@ class TestTheGatesActuallyDecide:
 
     @staticmethod
     def _validate(qa_results):
-        from library.steps.step_6_02_validate_output import step as validate
+        from library.steps.step_6_02_validate_output import bridge as validate
 
         manifest = {"project": {"resolution": [1080, 1920], "frame_rate": 30.0,
                                 "duration_seconds": 10.0},
@@ -1111,7 +1111,7 @@ class TestTheGatesActuallyDecide:
         assert all(c["pass"] for c in verdict["checks"].values())
 
     def test_the_manifest_supplies_what_p1_and_p3_need(self):
-        from library.steps.step_6_02_validate_output import step as validate
+        from library.steps.step_6_02_validate_output import bridge as validate
 
         manifest = {
             "tracks": {
@@ -1135,7 +1135,7 @@ class TestTheGatesActuallyDecide:
         assert offset == 0.0
 
     def test_a_missing_music_file_disables_p3_rather_than_guessing(self):
-        from library.steps.step_6_02_validate_output import step as validate
+        from library.steps.step_6_02_validate_output import bridge as validate
 
         music, automation, offset = validate._music_bed(
             {"tracks": {"A2": {"clips": [{"source_file": "/nope/absent.wav"}]}},

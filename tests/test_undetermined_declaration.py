@@ -106,6 +106,7 @@ def test_every_step_that_reaches_a_model_declares():
         # graphics layer from two brand-template booleans and grew a
         # handoff asking a model to plan it.
         "render_motion_graphics",
+        "validate",
     })
     assert not undetermined.declares("semantic_analysis"), (
         "its schema is empty and its call is skipped"
@@ -177,12 +178,12 @@ def test_a_non_declaring_step_is_not_asked(tmp_path):
     project.mkdir()
     prompt_path = tmp_path / "handoff.md"
     prompt_path.write_text("Do the work.\n", encoding="utf-8")
-    req = project / "pipeline_output" / "llm_requests" / "validate.json"
-    res = project / "pipeline_output" / "llm_responses" / "validate.json"
+    req = project / "pipeline_output" / "llm_requests" / "semantic_analysis.json"
+    res = project / "pipeline_output" / "llm_responses" / "semantic_analysis.json"
     seen = []
     _answer_once(req, res, {"a_verdict": "fine"}, seen)
     present_llm_step(
-        str(prompt_path), {"project_folder": str(project)}, "validate",
+        str(prompt_path), {"project_folder": str(project)}, "semantic_analysis",
         manifest={"interface": {"outputs": [{"name": "a_verdict"}]}},
         full_auto="agy", llm_timeout=30,
     )
@@ -297,7 +298,7 @@ def test_expected_schema_and_the_prompt_describe_the_same_schema(tmp_path):
 
 def test_a_step_that_does_not_declare_gets_no_such_schema_entry(tmp_path):
     undetermined.reset()
-    seen = _agy_request(tmp_path, "validate", {"a_verdict": "fine"})
+    seen = _agy_request(tmp_path, "semantic_analysis", {"a_verdict": "fine"})
     assert undetermined.FIELD not in seen[0]["expected_schema"]
 
 

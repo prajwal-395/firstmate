@@ -175,7 +175,7 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
     """A contradiction needs a prompt, an inherited direction and a
     measurement, all in one step."""
     assert dc.FLAGGING_STEPS == frozenset(
-        undetermined.DECLARING_STEPS - {"creative_direction"})
+        undetermined.DECLARING_STEPS - {"creative_direction", "validate"})
     assert not dc.flags("creative_direction"), (
         "2.01 authors the direction; it has nothing inherited to "
         "contradict"
