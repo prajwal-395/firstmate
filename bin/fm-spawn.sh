@@ -3357,6 +3357,7 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+spawn_send_text_line "$T" "export PATH=\"\$FM_ROOT/bin/lane-wrappers:\$PATH\""
 # Bind this task's browser work to this task. chrome-devtools-axi runs its
 # bridge detached at ppid 1 and keeps ONE bridge per session name for the whole
 # machine, so a stack it leaves behind belongs to no process tree and cannot be

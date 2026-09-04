@@ -258,7 +258,40 @@ test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched() {
   pass "detached clean ancestor with diverged local default is reported STUCK and left untouched"
 }
 
+
 test_dirty_is_stuck_untouched() {
+test_reversal_is_stuck_with_missing_files() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" reversalrepo)
+  
+  # Create a pre-merge state
+  git -C "$clone" checkout -q main
+  echo "pre-merge" > "$clone/file.txt"
+  git -C "$clone" add file.txt
+  git -C "$clone" commit -m "pre-merge"
+  
+  # Create a worktree to simulate worker lane advancing the branch
+  git -C "$clone" worktree add ../worker_lane -b feature
+  
+  # Advance the main branch on origin
+  echo "post-merge" > "$home/projects/reversalrepo-origin/file.txt"
+  echo "new_file" > "$home/projects/reversalrepo-origin/new_file.txt"
+  git -C "$home/projects/reversalrepo-origin" add file.txt new_file.txt
+  git -C "$home/projects/reversalrepo-origin" commit -m "squash merge"
+  
+  # Worker lane forcefully checks out main and pulls
+  git -C "$clone/../worker_lane" fetch origin
+  git -C "$clone/../worker_lane" checkout -B main origin/main
+  
+  # clone's HEAD has advanced, but index/tree is still at pre-merge
+  out=$(run_sync "$home" "$clone")
+  assert_contains "$out" "reversalrepo: STUCK:" "reversal clone reports STUCK"
+  assert_contains "$out" "whose index or tree is BEHIND its own HEAD" "STUCK names the reversal state"
+  assert_contains "$out" "missing landed work: new_file.txt" "STUCK names missing files"
+  assert_contains "$out" "Recovery command: git -C \"projects/reversalrepo\" reset --hard HEAD" "Recovery command printed"
+  pass "reversal state is reported STUCK with missing files"
+}
   local home clone out before
   home=$(new_home)
   clone=$(build_pair "$home" gamma)
@@ -724,3 +757,30 @@ test_transient_packed_refs_lock_self_clears
 test_non_signature_fetch_failure_is_not_retried
 test_fork_tracking_already_current
 test_fork_tracking_fast_forwards
+test_reversal_is_stuck_with_missing_files() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" reversalrepo)
+  
+  # Create a pre-merge state in the clone
+  git -C "$clone" checkout -q -b feature
+  git -C "$clone" checkout -q main
+  
+  # Advance the main branch on origin with a new commit
+  advance_origin "$home" reversalrepo C1
+  
+  # Worker lane forcefully checks out main and pulls
+  git -C "$clone" worktree add ../worker_lane -b worker_feature
+  git -C "$clone/../worker_lane" fetch origin
+  git -C "$clone/../worker_lane" checkout -B main origin/main
+  
+  # clone's HEAD has advanced, but index/tree is still at pre-merge
+  out=$(run_sync "$home" "$clone")
+  assert_contains "$out" "reversalrepo: STUCK:" "reversal clone reports STUCK"
+  assert_contains "$out" "whose index or tree is BEHIND its own HEAD" "STUCK names the reversal state"
+  assert_contains "$out" "missing landed work:" "STUCK names missing files"
+  assert_contains "$out" "Recovery command: git -C" "Recovery command printed"
+  assert_contains "$out" "reset --hard HEAD" "Recovery command includes reset --hard HEAD"
+  pass "reversal state is reported STUCK with missing files"
+}
+test_reversal_is_stuck_with_missing_files
