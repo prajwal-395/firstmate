@@ -94,7 +94,7 @@ fm_procevent_source_lock_release() {
 }
 
 fm_procevent_registration_publish_locked() {  # <state> <adapter> <source-id> <argv...>
-  local state=$1 adapter=$2 id=$3 reg dest tmp arg
+  local state=$1 adapter=$2 id=$3 reg dest tmp arg owner=""
   shift 3
   fm_procevent_adapter_valid "$adapter" || return 1
   fm_procevent_source_id_valid "$id" || return 1
@@ -102,6 +102,15 @@ fm_procevent_registration_publish_locked() {  # <state> <adapter> <source-id> <a
   for arg in "$@"; do
     case "$arg" in *$'\n'*) return 1 ;; esac
   done
+  
+  # Auto-discover task owner from environment if armed by a worker
+  if [ -n "${FM_TASK_ID:-}" ]; then
+    owner="$FM_TASK_ID"
+  elif [ -n "${GOTMPDIR:-}" ]; then
+    owner="${GOTMPDIR#/tmp/fm-}"
+    owner="${owner%/gotmp}"
+  fi
+
   reg=$(fm_procevent_registry_dir "$state")
   (umask 077; mkdir -p "$reg") || return 1
   [ -d "$reg" ] && [ ! -L "$reg" ] || return 1
@@ -109,6 +118,7 @@ fm_procevent_registration_publish_locked() {  # <state> <adapter> <source-id> <a
   tmp=$(umask 077; mktemp "$reg/.source.XXXXXX") || return 1
   if {
     printf 'adapter=%s\n' "$adapter"
+    [ -n "$owner" ] && printf 'owner=%s\n' "$owner"
     printf 'argc=%s\n' "$#"
     printf 'argv:\n'
     printf '%s\n' "$@"

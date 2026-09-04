@@ -608,6 +608,56 @@ declared_stop_absorb() {  # <window> <task> <hash>
 # Only a confidently dead ordinary crew may recover paused classification after
 # fm-crew-state has fallen back to stopped or unknown - EXCEPT when the wait is
 # armed (below), which is the one live-agent pause backed by evidence.
+# Returns 0 if any active process-event source is bound to the given task.
+# We reuse state/decision-bindings/ rather than inventing a separate mechanism:
+# captured-answer sources (like Lavish) already bind themselves to their origin
+# task using bin/fm-decision-hold.sh bind to route their answers. 
+# For ordinary sources (e.g. review pages not tied to a decision hold), we check
+# the explicit 'owner=' field recorded in the source file at arm time. As a
+# fallback for older sources, if the source's recorded argv contains a path
+# belonging to the task's worktree, it belongs to the task - provided the source
+# was registered AFTER the current task was spawned, to avoid false positives
+# when worktree slots are reused.
+fm_procevent_source_bound_to_task() {  # <state> <task>
+  local state=$1 task=$2 binding_path id schema origin reg worktree source_file source_owner
+  reg="$state/procevent"
+  
+  if [ -d "$state/decision-bindings" ]; then
+    for binding_path in "$state/decision-bindings/"*.origin; do
+      [ -e "$binding_path" ] || continue
+      [ -f "$binding_path" ] && [ ! -L "$binding_path" ] || continue
+      origin=$(sed -n 's/^origin=//p' "$binding_path" | head -1)
+      if [ "$origin" = "$task" ]; then
+        schema=$(sed -n 's/^schema=//p' "$binding_path" | head -1)
+        [ "$schema" = "fm-decision-binding.v1" ] || continue
+        id=${binding_path##*/}
+        id=${id%.origin}
+        if [ -f "$reg/$id.source" ]; then
+          return 0
+        fi
+      fi
+    done
+  fi
+
+  worktree=$(fm_backend_meta_exact_value "$state/$task.meta" worktree 2>/dev/null || true)
+  if [ -d "$reg" ]; then
+    for source_file in "$reg/"*.source; do
+      [ -e "$source_file" ] || continue
+      source_owner=$(sed -n 's/^owner=//p' "$source_file" | head -1)
+      if [ "$source_owner" = "$task" ]; then
+        return 0
+      fi
+      if [ -n "$worktree" ] && grep -Fq "$worktree/" "$source_file"; then
+        if [ ! "$source_file" -ot "$state/$task.meta" ]; then
+          return 0
+        fi
+      fi
+    done
+  fi
+
+  return 1
+}
+
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive
   key=${win//:/_}
@@ -637,7 +687,7 @@ pause_state_class() {  # <window> <task>
   # takes the bounded cadence, so a park whose check never fires still re-surfaces
   # on PAUSE_RESURFACE_SECS and cannot rot invisibly. A pause with nothing armed
   # is completely unchanged.
-  if fm_custom_check_registered "$STATE" "$task"; then
+  if fm_custom_check_registered "$STATE" "$task" || fm_procevent_source_bound_to_task "$STATE" "$task"; then
     date +%s > "$recheck_file"
     printf 'paused'
     return
