@@ -61,6 +61,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from library.tools.project_asset import ProjectAssetNotFoundError, resolve_project_asset
 from library.tools.spine_contract import BOOKEND_BLOCK_TYPES
 
 # Which slot a template may declare, where it lands, and the spine
@@ -246,9 +247,7 @@ def _normalise(slot: str, raw: Any) -> dict:
 
 
 def _resolve_path(path: str, project_folder: str) -> str:
-    if os.path.isabs(path):
-        return os.path.normpath(path)
-    return os.path.normpath(os.path.join(project_folder or "", path))
+    return resolve_project_asset(path, project_folder)
 
 
 def bookend_render_path(project_folder: str, slot: str) -> str:

@@ -378,7 +378,7 @@ def cmd_check(args):
     print("Checking brand template...")
     from library.tools.brand_registry import resolve_template_reference
     try:
-        resolve_template_reference(config.pipeline.brand_template)
+        template = resolve_template_reference(config.pipeline.brand_template)
     except Exception as e:
         print(f"Refusal: Brand template failed to resolve: {e}", file=sys.stderr)
         sys.exit(1)
@@ -439,8 +439,33 @@ def cmd_check(args):
         fps_counts[fps] = fps_counts.get(fps, 0) + 1
         res_counts[(w, h)] = res_counts.get((w, h), 0) + 1
 
-    # seam for vep-project-asset-resolution
-    # TODO: Asset existence validation (bookends, fonts, timed text overlays)
+    # 5. Asset existence validation
+    print("Checking project assets (bookends, fonts, timed text)...")
+    from library.tools.bookends import declared_bookends, resolve_bookend
+    from library.tools.project_asset import ProjectAssetNotFoundError, resolve_project_asset
+    from library.tools.render_fonts import PROJECT_FONT_SOURCE_DIR
+    import dataclasses
+
+    try:
+        # Bookends
+        bookends = declared_bookends(dataclasses.asdict(template.content))
+        for b in bookends:
+            resolve_bookend(b, str(config.project_root))
+
+        # Timed text overlay font
+        overlay = template.effect.timed_text_overlay
+        if overlay and overlay.get("font_file"):
+            font_file = overlay.get("font_file")
+            name = str(font_file).strip().lstrip("/")
+            if not os.path.isabs(font_file):
+                candidate = os.path.join(PROJECT_FONT_SOURCE_DIR, os.path.basename(name))
+                resolve_project_asset(candidate, str(config.project_root))
+            else:
+                if not os.path.exists(font_file):
+                    raise ProjectAssetNotFoundError(f"project asset '{font_file}' not found (checked absolute path)")
+    except ProjectAssetNotFoundError as e:
+        print(f"Refusal: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if len(fps_counts) > 1:
         print(f"REPORT: Mixed frame rates detected: {fps_counts}", file=sys.stderr)

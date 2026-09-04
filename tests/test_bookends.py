@@ -36,7 +36,6 @@ from library.tools.bookends import (
     MAX_BOOKEND_SECONDS,
     BookendDeclarationError,
     InventedBookendBlock,
-    block_bookend,
     bookend_blocks,
     bookend_render_path,
     bookend_spine_block,
@@ -72,6 +71,15 @@ COMPOSITION_DECLARATION = {
     }
 }
 
+
+@pytest.fixture(autouse=True)
+def mock_resolve_project_asset(monkeypatch):
+    def fake_resolve(declared_path, project_folder):
+        # Always return the joined path to pretend the file exists
+        if os.path.isabs(declared_path):
+            return os.path.normpath(declared_path)
+        return os.path.normpath(os.path.join(project_folder or "", declared_path))
+    monkeypatch.setattr("library.tools.bookends.resolve_project_asset", fake_resolve)
 
 def _template(name):
     with open(os.path.join(TEMPLATE_DIR, f"{name}.yaml"), encoding="utf-8") as f:

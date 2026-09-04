@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import os
 
+from library.tools.project_asset import resolve_project_asset, ProjectAssetNotFoundError
+
 # The one family this repository ships. Kept equal to `fonts.ts`'s
 # BUNDLED_FONT_FAMILY and to subtitle_style.LEGACY_FONT_FAMILY;
 # tests/test_bundled_fonts.py fails if they drift.
@@ -136,9 +138,11 @@ def measurable_font_path(declared: str,
             return font_file
         if project_folder:
             candidate = os.path.join(
-                project_folder, PROJECT_FONT_SOURCE_DIR, os.path.basename(name))
-            if os.path.exists(candidate):
-                return candidate
+                PROJECT_FONT_SOURCE_DIR, os.path.basename(name))
+            try:
+                return resolve_project_asset(candidate, project_folder)
+            except ProjectAssetNotFoundError:
+                pass
         staged = os.path.join(
             _repo_root(), "remotion-subtitles", "public",
             static_font_path(name))
