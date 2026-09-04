@@ -1,9 +1,11 @@
 """Who the model IS when a step asks it to make a craft judgement.
 
-Measured on 2026-08-25 and confirmed since: not one of the pipeline's
-handoff documents told the answering model what job it was doing.  Every
-one of them opened *"Given X, define Y"*.  The captain's reading of what
-that costs:
+A measurement on 2026-08-25 claimed that not one of the pipeline's
+handoff documents told the answering model what job it was doing, and that
+every one of them opened *"Given X, define Y"*. That measurement read the
+## Task Prompt section and missed the ## System Context above it, where
+eleven of thirteen handoffs name a discipline in the second person. The
+captain's reading of what the absence of a role costs:
 
     *"there are like skill files and agent.md files where the LLM doesn't
     know how to operate and its just a generic agent in the system rather
@@ -53,12 +55,11 @@ does differently from `undetermined` and its siblings: those three ask
 for an extra FIELD and belong beside the schema, and a role is the frame
 the rest of the document is read in.
 
-**It goes in the prompt because most handoffs are frozen.**  They are the
-captain's documents; several carry lines this engine has already
-withdrawn elsewhere.  The same route `music_measurement.MEASUREMENT_LEGEND`
-and `sfx_level.SPEECH_REFERENCE_LEGEND` take - the correction travels as
-DATA beside the context rather than as an edit to a file that is not ours
-- and a role may carry such a correction in `corrects`, naming the line.
+**It goes in the prompt.** A role may carry a correction in `corrects`,
+naming a line in the handoff. The same route
+`music_measurement.MEASUREMENT_LEGEND` and
+`sfx_level.SPEECH_REFERENCE_LEGEND` take - the correction travels as
+DATA beside the context.
 
 Membership
 ----------
@@ -75,7 +76,7 @@ drift.
 **A step in `WITHOUT_A_DECLARED_ROLE` is a gap that is VISIBLE, not one
 that is closed.**  Writing a role for a discipline nobody has studied
 would be this module inventing an expertise, which is the same defect one
-level up.  Nine of the eleven are there today; each row says what the
+level up.  Ten of the twelve are there today; each row says what the
 step is addressed as now, so the next worker adding one knows what they
 are replacing.
 
@@ -89,12 +90,12 @@ until it was split by subsystem; the wording is unchanged, so each rule
 is findable by its own words, and AGENTS.md 3 keeps the headline
 and points here.
 
-One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role) Measured 2026-08-25: not one of the twelve handoffs told the model what job it was doing - every one opens *"Given X, define Y"*. Captain: *"there are like skill files and agent.md files where the LLM doesn't know how to operate and its just a generic agent in the system rather than an actual proffesional video editor/director/etc all in one."*
+One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role) A measurement on 2026-08-25 claimed not one of the twelve handoffs told the model what job it was doing (it missed the System Context section). Captain: *"there are like skill files and agent.md files where the LLM doesn't know how to operate and its just a generic agent in the system rather than an actual proffesional video editor/director/etc all in one."*
 - **A role is THREE things and no fourth**: a DISCIPLINE named and addressed in the second person; what that discipline READS THE MEASUREMENTS WITH (craft knowledge a number does not carry - a colourist knows a dark shot can be dark on purpose); and what is this step's to DECIDE and what is not. An authority statement with no boundary reads as licence.
 - **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
 - **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
-- **It goes in the prompt because most handoffs are FROZEN**, and a role may carry a `corrects` line naming a withdrawn instruction still in one - the `SPEECH_REFERENCE_LEGEND` route. 4.04's role corrects its handoff's *"bass guitar - felt more than heard"*, which is the same withdrawn engine taste as `WITHDRAWN_TRACK_LEVELS`.
-- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Two are declared (`color_grade`, `plan_sfx`); nine are not, each with what it is addressed as today.
+- **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - the `SPEECH_REFERENCE_LEGEND` route. 4.04's role corrects its handoff's volume words like `subtle|low|medium|prominent`.
+- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Two are declared (`color_grade`, `plan_sfx`); ten are not, each with what it is addressed as today.
 - `tests/test_craft_role.py`.
 """
 
@@ -273,15 +274,6 @@ ROLES: Dict[str, CraftRole] = {
             "near it.",
         ),
         corrects=(
-            "This step's `handoff.md` is frozen and still describes SFX as "
-            "the *\"bass guitar - felt more than heard\"*. That sentence is "
-            "the same withdrawn engine taste as the `-12 dB` this pipeline "
-            "used to apply to the whole SFX bus with the note *\"Subtle - "
-            "felt more than heard\"* on it - a creative brief no project "
-            "wrote. It is REMOVED from the engine "
-            "(`sfx_level.WITHDRAWN_TRACK_LEVELS`), and it is not a level or "
-            "a density this step owes anything to. What the sound design "
-            "should be is the creative brief's and this cut's.",
             "The same file's toolkit table still offers the words `foley`, "
             "`ambient` and `reverse_cymbal`, and its volume line still "
             "offers `subtle|low|medium|prominent`. None of the four is "
@@ -302,60 +294,59 @@ ROLES: Dict[str, CraftRole] = {
 #: been worked out; do not delete it.
 WITHOUT_A_DECLARED_ROLE: Dict[str, str] = {
     "creative_direction": (
-        "Addressed as nobody. Its handoff opens 'Given the analyzed "
-        "footage, define the creative direction'. The discipline is a "
-        "director's and it is the widest of the eleven, so it is the one "
-        "most worth getting right and the one least safe to guess at."
+        "Addressed as 'a creative director for shortform video content'. "
+        "The discipline is a director's and it is the widest of the eleven, "
+        "so it is the one most worth getting right and the one least safe to guess at."
     ),
     "speech_sequence": (
-        "Addressed as nobody. This is a story editor's job - what the "
-        "piece says and in what order - and it is the step whose answer "
-        "every later step inherits."
+        "Addressed as 'a narrative editor constructing the spoken backbone'. "
+        "This is a story editor's job - what the piece says and in what order - "
+        "and it is the step whose answer every later step inherits."
     ),
     "music_selection": (
-        "Addressed as nobody. A music supervisor's job, and the one step "
-        "already handed a full measurement set per candidate "
-        "(library/tools/music_measurement.py) with no statement of who is "
-        "reading them."
+        "Addressed as 'a music supervisor for shortform video content'. "
+        "A music supervisor's job, and the one step already handed a full measurement "
+        "set per candidate (library/tools/music_measurement.py) with no statement "
+        "of who is reading them."
     ),
     "mesh_spine": (
-        "Addressed as nobody. This is the assembly editor conducting "
-        "durations, gaps and the bed; the closest thing the pipeline has "
-        "to a cutting room."
+        "Addressed as 'an audio editor weaving speech and music'. "
+        "This is the assembly editor conducting durations, gaps and the bed; "
+        "the closest thing the pipeline has to a cutting room."
     ),
     "select_broll": (
-        "Addressed as nobody, though its handoff is the most craft-aware "
-        "of the twelve already. It is shown frame strips of every "
-        "candidate window (library/tools/window_frames.py), which is the "
-        "one place a role would have real pictures to be read with."
+        "Addressed as 'a visual editor selecting B-roll clips'. "
+        "Its handoff is the most craft-aware of the twelve already. "
+        "It is shown frame strips of every candidate window (library/tools/window_frames.py), "
+        "which is the one place a role would have real pictures to be read with."
     ),
     "review_rough_cut": (
-        "Addressed as nobody. A supervising editor's review pass, and the "
-        "one step whose whole output is a judgement about other steps' "
-        "work."
+        "Addressed as 'a rough-cut reviewer — the last gate'. "
+        "A supervising editor's review pass, and the one step whose whole "
+        "output is a judgement about other steps' work."
     ),
     "plan_transitions": (
-        "Addressed as nobody. Sits next to plan_sfx in the cut and shares "
-        "its identifier, so the two roles want writing together rather "
-        "than one at a time."
+        "Addressed as 'a video editor planning transitions'. "
+        "Sits next to plan_sfx in the cut and shares its identifier, so "
+        "the two roles want writing together rather than one at a time."
     ),
     "plan_vfx": (
-        "Addressed as nobody. Its INTENSITY_MAP was removed on 2026-09-02 "
-        "for stating strengths nobody chose, which leaves the same shaped "
-        "hole the colour half had: the authority moved to the model and "
-        "nothing told the model it now had it."
+        "Addressed as 'a motion designer adding subtle visual effects'. "
+        "Its INTENSITY_MAP was removed on 2026-09-02 for stating strengths "
+        "nobody chose, which leaves the same shaped hole the colour half had: "
+        "the authority moved to the model and nothing told the model it now had it."
     ),
     "render_motion_graphics": (
-        "Addressed as nobody, and newly model-reaching (2026-09-02). A "
-        "motion designer's job. Held by another worker at the time of "
-        "writing, so its directory is not touched here."
+        "Addressed as 'deciding what additive graphics, if any, this video carries'. "
+        "A motion designer's job. Held by another worker at the time of writing, "
+        "so its directory is not touched here."
     ),
     "validate": (
-        "Addressed as nobody, and the only one of the eleven whose "
-        "judgement is about the finished render rather than a plan. "
-        "Whether a QA pass wants a role at all - a gate that is told it is "
-        "an expert may become a gate with an opinion - is a real question "
-        "and it is the captain's."
+        "Addressed as 'watching the RENDERED video and validating it'. "
+        "The only one of the eleven whose judgement is about the finished "
+        "render rather than a plan. Whether a QA pass wants a role at all - "
+        "a gate that is told it is an expert may become a gate with an opinion - "
+        "is a real question and it is the captain's."
     ),
 }
 

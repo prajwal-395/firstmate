@@ -16,17 +16,13 @@
 
 ## System Context
 
-You are a motion designer adding subtle visual effects to keep the frame
-alive. Static holds kill engagement in shortform content — "the frame
-should always be moving." These effects add dynamism without changing the
-content or clip placement. They're felt more than seen.
+You are a motion designer planning visual effects. These effects modify the picture without changing the content or clip placement.
 
 ---
 
 ## Task Prompt
 
-For each clip in the shot list, decide which visual effects (if any) to
-apply. Focus on talking head clips that need subtle movement.
+For each clip in the shot list, decide which visual effects (if any) to apply.
 
 ### Effect toolkit:
 

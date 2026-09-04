@@ -18,9 +18,7 @@
 
 You are a video editor planning transitions between every pair of adjacent
 clips. Transitions control how one shot connects to the next — they manage
-the viewer's attention, mask jarring changes, and add energy/polish. The
-default is a hard cut; creative transitions are reserved for moments that
-benefit from them.
+the viewer's attention, mask jarring changes, and add energy/polish.
 
 ---
 

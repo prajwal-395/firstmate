@@ -35,17 +35,12 @@ speech sequence for the video.
 ### Selection principles:
 1. **Follow the compass**: Every selection should serve the creative
    direction's target mood and energy arc
-2. **Prefer chronological source order** as the default sequence (maintains
-   visual continuity — lighting, location, clothing)
-3. **Break chronological order ONLY for**:
-   - The hook (pulling a later moment to the front)
-   - Deliberate narrative motivation (contrast, callback, punchline)
-4. **Prioritize** passages from clips with higher interest_scores
-5. **Prefer** passages tagged as "highlight" or "body" for the main sequence;
+2. **Prioritize** passages from clips with higher interest_scores
+3. **Prefer** passages tagged as "highlight" or "body" for the main sequence;
    use "hook"-tagged clips for the opening
-6. **Never select a partial sentence** — passage boundaries must align to
+4. **Never select a partial sentence** — passage boundaries must align to
    complete thoughts
-7. **Adjacent passages must logically follow** — no non-sequiturs without
+5. **Adjacent passages must logically follow** — no non-sequiturs without
    narrative motivation
 
 ### What to produce:
@@ -149,7 +144,6 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 |-----------|-------|
 | Target body passages | However many the duration limit above and the creative direction call for. There is no count to hit. |
 | Target total duration| Should serve the creative direction; if project_config sets a target, respect it |
-| Default sequence order | Chronological source_order |
 
 ---
 

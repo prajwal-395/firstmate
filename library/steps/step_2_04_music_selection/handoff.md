@@ -78,13 +78,11 @@ is the half that used to be missing.
    this question.
 7. **Identify specific splices** - a 3-minute track is never used in full;
    pick the sections that fit particular moments
-8. **Prefer royalty-free / no-copyright** tracks to avoid content claims
 
 ### If you go outside the library
 
 - Include the mood/vibe (e.g., "chill", "cinematic", "sparse piano")
 - Consider whether vocal or instrumental better serves the content
-- Include "no copyright" or "royalty free" for safe usage
 - Set `source` to `external` and give the `source_url`; the post-bridge
   fetches it and re-measures its real duration
 
@@ -139,7 +137,6 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 6. **BPM accuracy**: BPM must be documented for beatmatching downstream
 7. **Intentional placement**: Every splice has a clear intended_use - no
    orphan splices without a purpose
-8. **Copyright safety**: Preference for royalty-free/no-copyright tracks
 
 ---
 
