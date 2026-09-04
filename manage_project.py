@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "status", "info", "trace", "organize",
-    "run", "dashboard", "archive", "notes", "relink",
+    "check", "run", "dashboard", "archive", "notes", "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -363,6 +363,93 @@ def cmd_organize(args):
         print("\nNothing was changed. Pass --apply to perform this.")
 
 
+def cmd_check(args):
+    """Run the readiness check for a project."""
+    try:
+        config = get_project(args.slug)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    project_dir = str(config._project_root)
+    print(f"Checking project: {config.name} ({project_dir})")
+
+    # 1. Brand template resolves
+    print("Checking brand template...")
+    from library.tools.brand_registry import resolve_template_reference
+    try:
+        resolve_template_reference(config.pipeline.brand_template)
+    except Exception as e:
+        print(f"Refusal: Brand template failed to resolve: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 2. creative_brief path resolves IF declared
+    print("Checking creative_brief...")
+    if config.pipeline.creative_brief:
+        cb_path = config._project_root / config.pipeline.creative_brief
+        if not cb_path.exists():
+            print(f"Refusal: Declared creative_brief path does not exist: {cb_path}", file=sys.stderr)
+            sys.exit(1)
+
+    # 3. Environment variables exist
+    print("Checking environment paths...")
+    from library.tools.paths import SFX_LIBRARY, MUSIC_LIBRARY, PROJECTS_ROOT
+    if not SFX_LIBRARY.exists():
+        print(f"Refusal: PIPELINE_SFX_LIBRARY does not exist: {SFX_LIBRARY}", file=sys.stderr)
+        sys.exit(1)
+    if not MUSIC_LIBRARY.exists():
+        print(f"Refusal: PIPELINE_MUSIC_LIBRARY does not exist: {MUSIC_LIBRARY}", file=sys.stderr)
+        sys.exit(1)
+    if not PROJECTS_ROOT.exists():
+        print(f"Refusal: PIPELINE_PROJECTS_ROOT does not exist: {PROJECTS_ROOT}", file=sys.stderr)
+        sys.exit(1)
+
+    # 4. ffprobe reads every footage file
+    print("Checking footage files with ffprobe...")
+    from library.tools.footage_identity import enumerate_footage
+    raw_footage_files, _ = enumerate_footage(project_dir)
+
+    if not raw_footage_files:
+        print(f"Refusal: No footage files found in project", file=sys.stderr)
+        sys.exit(1)
+
+    from library.steps.step_1_02_catalog_footage.step import extract_metadata
+
+    fps_counts = {}
+    res_counts = {}
+
+    for file_info in raw_footage_files:
+        filepath = file_info["path"]
+        # print(f"  Probing {file_info['filename']}...")
+        metadata = extract_metadata(filepath)
+        if metadata is None or "error" in metadata:
+            err = metadata.get("error", "unknown error") if metadata else "unknown error"
+            print(f"Refusal: ffprobe failed to read {filepath}: {err}", file=sys.stderr)
+            sys.exit(1)
+
+        for field in ["duration_seconds", "width", "height", "frame_rate"]:
+            if metadata.get(field) is None:
+                print(f"Refusal: Missing required field '{field}' in file '{file_info['filename']}'", file=sys.stderr)
+                sys.exit(1)
+
+        fps = metadata.get("frame_rate")
+        w = metadata.get("width")
+        h = metadata.get("height")
+
+        fps_counts[fps] = fps_counts.get(fps, 0) + 1
+        res_counts[(w, h)] = res_counts.get((w, h), 0) + 1
+
+    # seam for vep-project-asset-resolution
+    # TODO: Asset existence validation (bookends, fonts, timed text overlays)
+
+    if len(fps_counts) > 1:
+        print(f"REPORT: Mixed frame rates detected: {fps_counts}", file=sys.stderr)
+    if len(res_counts) > 1:
+        print(f"REPORT: Mixed resolutions detected: {res_counts}", file=sys.stderr)
+
+    print("\nReadiness check PASS.")
+
+
 def cmd_run(args):
     """Run the pipeline for a project."""
     try:
@@ -581,6 +668,11 @@ def main():
     p_org.add_argument("--revert", metavar="MANIFEST",
                        help="Undo a reorganisation by reading its manifest")
     p_org.set_defaults(func=cmd_organize)
+
+    # check
+    p_check = sub.add_parser("check", help="Run the readiness check for a project")
+    p_check.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
+    p_check.set_defaults(func=cmd_check)
 
     # run
     p_run = sub.add_parser("run", help="Run the pipeline for a project")

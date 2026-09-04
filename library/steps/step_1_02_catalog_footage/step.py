@@ -267,12 +267,20 @@ def catalog_footage(raw_footage_files: list) -> dict:
     project_fps = max(fps_counts, key=fps_counts.get) if fps_counts else 30.0
     source_res = list(max(res_counts, key=res_counts.get)) if res_counts else [1080, 1920]
 
+    if len(fps_counts) > 1:
+        print(f"REPORT: Mixed frame rates detected: {fps_counts}", file=sys.stderr)
+    if len(res_counts) > 1:
+        print(f"REPORT: Mixed resolutions detected: {res_counts}", file=sys.stderr)
+
     # --- Verification ---
     # No null values for critical fields
     for entry in entries:
         for field in ["duration_seconds", "width", "height", "frame_rate"]:
-            assert entry.get(field) is not None, \
-                f"Missing {field} for {entry['filename']}"
+            if entry.get(field) is None:
+                raise ValueError(
+                    f"Refusal: Missing required field '{field}' in file '{entry['filename']}'"
+                )
+
 
     # source_order values are unique and sequential
     orders = [e["source_order"] for e in entries]
