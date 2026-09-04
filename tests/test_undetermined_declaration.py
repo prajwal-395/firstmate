@@ -99,6 +99,11 @@ def test_every_step_that_reaches_a_model_declares():
     """Choosing a subset would answer, from outside and in advance, the
     question this field exists to collect data for."""
     assert undetermined.DECLARING_STEPS == frozenset({
+        # Joined 2026-09-04: reel selection existed for two rejected
+        # batches as a crewmate's own judgement wrapped in a validator -
+        # no model, no handoff, and absent from this set. See section 15
+        # of docs/FIELD_TEST_PODCAST_FINDINGS.md.
+        "select_reels",
         "creative_direction", "speech_sequence", "music_selection",
         "mesh_spine", "select_broll", "review_rough_cut",
         "plan_transitions", "plan_vfx", "plan_sfx",

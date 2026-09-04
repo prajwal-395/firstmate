@@ -55,6 +55,11 @@ REEL_NAME_FORMAT = "Reel {number:02d} - {slug}"
 """The captain's format, quoted from their answer. Two digits, zero
 padded, then the topic slug."""
 
+_SNAP_PASSES = 12
+"""How many times `snap_to_speech` may widen before giving up. Widening
+pulls in neighbours that can themselves be partially covered, so it
+iterates to a fixed point; this only bounds a pathological transcript."""
+
 MIN_REEL_SECONDS = 5.0
 """Below this a span cannot carry a spoken moment at all. A FLOOR ON
 MEASUREMENT, not on taste: it refuses a span too short to contain the
@@ -258,13 +263,22 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     those comes back unchanged and `validate_proposal` refuses it.
     """
     segments = bound_segments(transcript)
-    touching = [x for x in segments
-                if float(x["timeline_end"]) > start
-                and float(x["timeline_start"]) < end]
-    if not touching:
-        return start, end
-    return (min(float(x["timeline_start"]) for x in touching),
-            max(float(x["timeline_end"]) for x in touching))
+    # ITERATE to a fixed point. Extending the span pulls in segments that
+    # were outside it, and those can themselves be partially covered - so
+    # one pass leaves a boundary mid-sentence and `validate_proposal`
+    # refuses it. Found exactly that way, on reel 12 of the second batch.
+    for _ in range(_SNAP_PASSES):
+        touching = [x for x in segments
+                    if float(x["timeline_end"]) > start
+                    and float(x["timeline_start"]) < end]
+        if not touching:
+            return start, end
+        widened = (min(float(x["timeline_start"]) for x in touching),
+                   max(float(x["timeline_end"]) for x in touching))
+        if widened == (start, end):
+            return widened
+        start, end = widened
+    return start, end
 
 
 # ── Repeated takes ───────────────────────────────────────────────────

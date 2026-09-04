@@ -443,3 +443,16 @@ def test_a_repeat_never_removes_anything():
     assert (enriched.timeline_start, enriched.timeline_end) == (
         moment.timeline_start, moment.timeline_end)
     validate_proposal([enriched], tx, 2656.6)
+
+
+def test_snapping_reaches_a_fixed_point():
+    """Extending the span pulls in segments that were outside it, and
+    those can themselves be partially covered. One pass leaves a boundary
+    mid-sentence; found that way on reel 12 of the second batch."""
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=17.5, timeline_end=26.0, resolve_item_id="u2"),
+             _bound(timeline_start=25.5, timeline_end=34.0, resolve_item_id="u3"))
+    start, end = snap_to_speech(12.0, 16.0, tx)
+    assert (start, end) == (10.0, 34.0)
+    validate_proposal([_moment(timeline_start=start, timeline_end=end)],
+                      tx, 2656.6)

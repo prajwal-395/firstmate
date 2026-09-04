@@ -87,6 +87,11 @@ FIELD = "could_not_determine"
 # `exposure_reference` and grew a handoff that asks a colourist whether
 # the footage needs correcting (library/tools/color_correction.py).
 DECLARING_STEPS = frozenset({
+    # Added 2026-09-04. Reel selection existed for two rejected batches as
+    # a crewmate's own judgement wrapped in a validator - no model, no
+    # handoff, and absent from this set. See section 15 of
+    # docs/FIELD_TEST_PODCAST_FINDINGS.md.
+    "select_reels",
     "creative_direction",
     "speech_sequence",
     "music_selection",

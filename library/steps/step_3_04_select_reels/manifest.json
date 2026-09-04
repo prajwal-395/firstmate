@@ -1,0 +1,47 @@
+{
+  "id": "step_3_04_select_reels",
+  "name": "Select Reels",
+  "version": "1.0.0",
+  "description": "A short-form editor chooses which conversations from the cut are worth a standalone short, and where each one starts and ends.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {"name": "audio_spine", "type": "object", "required": false,
+       "description": "State input: audio_spine, when the run has one."},
+      {"name": "timeline_transcript", "type": "object", "required": true,
+       "description": "What the cut SAYS, per speaker, in timeline time - library/tools/timeline_transcript.py."},
+      {"name": "creative_direction", "type": "object", "required": false,
+       "description": "The direction this episode is cut under. Read so the step can SAY where the conversation's own measurements contradict it (library/tools/direction_contradiction.py), never to be overridden by it."},
+      {"name": "brand_constraints", "type": "object", "required": false,
+       "description": "Brand template constraints (injected by the pipeline runner)."}
+    ],
+    "outputs": [
+      {"name": "reel_selection", "type": "object",
+       "description": "State output: reel_selection",
+       "expected_schema": {"moments": "list", "considered": "list", "undetermined": "list"}}
+    ],
+    "llm_outputs": ["reel_selection"],
+    "context_fields": [
+      "timeline_transcript.turns",
+      "reel_candidates",
+      "creative_direction",
+      "brand_constraints"
+    ],
+    "preconditions": ["'timeline_transcript' exists in state"],
+    "postconditions": ["'reel_selection' is written to state"]
+  },
+  "classification": {
+    "stage": "edit",
+    "determinism": "model",
+    "archetype": "creative_judgement",
+    "idempotent": false
+  },
+  "dependencies": [],
+  "tags": ["creative_judgement", "video-editing", "shortform"],
+  "domain": "video-editing",
+  "implementation": {"default": {"runtime": "python", "entry_point": "step.py"},
+                     "variants": {}, "test_entry_point": ""},
+  "metadata": {"author": "prajwal", "created": "2026-09-04",
+               "last_modified": "2026-09-04",
+               "source_process": "video_editing_pipeline"}
+}

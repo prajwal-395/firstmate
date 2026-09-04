@@ -62,7 +62,7 @@ and points here.
 
 **There are NO creative floors, and there must not be again.**
 [why](docs/RULE_EVIDENCE.md#no-creative-floors)
-- **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`). Add a planning step, add it there.
+- **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`), DERIVED from `undetermined.DECLARING_STEPS` so a new model-reaching step is covered whether or not anybody remembers to add it.
 - **A floor in a BRIDGE is a floor.** [why](docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan)
 - **A floor that CUTS is still a floor.** `audio_reactive_sfx.scale_sfx_density` deleted half the plan's impacts because a constant said the piece was "moderate". Deleted, not unwired.
 - **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output.
@@ -96,7 +96,35 @@ TRANSITIONS = STEPS / "step_4_02_plan_transitions"
 # colourist what the footage needs, which makes it a creative-planning
 # step and puts its prompt under this guard.
 COLOR = STEPS / "step_5_01_color_grade"
-CREATIVE_PLANNING_STEPS = (BROLL, SFX, VFX, SPEECH, TRANSITIONS, COLOR)
+def _creative_planning_steps():
+    """DERIVED from `undetermined.DECLARING_STEPS`, not listed here.
+
+    This was a hardcoded tuple of six, and a hardcoded roster is a guard
+    whose coverage depends on somebody remembering. It had already
+    drifted: `creative_direction`, `music_selection`, `mesh_spine` and
+    `render_motion_graphics` all reach a model and none of them was in
+    it, so their prompts were never read for a floor. The step written
+    the day this was found, `select_reels`, was not in it either.
+
+    `craft_role` already borrows the same list from the same place, with
+    the stated reason that the two cannot drift apart. This does the
+    same, so adding a model-reaching step puts its prompt under this
+    guard whether or not anybody remembers to.
+
+    `validate` is excluded: it checks a finished render and plans
+    nothing.
+    """
+    from library.tools.project_layout import STEPS as STEP_DIRS
+    from library.tools.undetermined import DECLARING_STEPS
+
+    by_node = {d.node_id: STEPS / f"step_{d.dirname}" for d in STEP_DIRS}
+    return tuple(sorted(
+        (by_node[node] for node in DECLARING_STEPS
+         if node != "validate" and node in by_node),
+        key=lambda path: path.name))
+
+
+CREATIVE_PLANNING_STEPS = _creative_planning_steps()
 
 
 def _run_bridge(script: Path, payload: dict, extra_env: dict = None):

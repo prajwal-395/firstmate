@@ -231,6 +231,23 @@ def _build() -> tuple:
             o.get("name") for o in manifest.get("interface", {}).get("outputs", [])
         ]
 
+    # A model-reaching step need not be in the DAG. `select_reels` runs
+    # on a FINISHED cut rather than inside the pipeline that produces
+    # one, and this loop only ever walked DAG nodes - so an unwired model
+    # step was invisible here, and the coverage assertion in
+    # tests/test_direction_contradiction.py could never be satisfied for
+    # one. Read those from the layout, which is where an unwired step
+    # declares itself and its reason.
+    from library.tools.project_layout import STEPS as _STEP_DIRS
+
+    for step_dir in _STEP_DIRS:
+        if step_dir.wired or step_dir.node_id in manifests:
+            continue
+        if step_dir.node_id not in _REACHES_A_MODEL:
+            continue
+        manifests[step_dir.node_id] = _manifest_for(
+            f"step_{step_dir.dirname}")
+
     unaccounted = sorted({
         name
         for node_id in deterministic
@@ -266,6 +283,18 @@ _MANIFESTS, _ROUTED = _build()
 # routes the repository already documents, and neither is inferable from
 # `dag.json`, so each is listed with the reason it cannot be.
 OFF_DAG_MEASUREMENTS = {
+    "select_reels": {
+        "reel_candidates": (
+            "3.04's own pre-bridge collapses the cut into turns and "
+            "measures every candidate stretch - turn count, how often it "
+            "changes hands, each speaker's share, where the hosts pitch, "
+            "length against the brief, and takes recorded more than once "
+            "(library/tools/reel_exchange.py). It is the step's own "
+            "output, so no edge carries it in - and it is exactly where "
+            "the direction can be contradicted: a stretch the brief "
+            "calls a highlight that the turns show is one person talking."
+        ),
+    },
     "music_selection": {
         "music_candidates": (
             "2.04's own pre-bridge measures every candidate track - "
