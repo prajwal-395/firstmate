@@ -33,7 +33,23 @@ class SourceConfig:
     """Describes the source media characteristics."""
     type: str = "iphone_mov"       # iphone_mov | sony_raw | screen_capture | mixed
     resolution: str = "1080x1920"  # WxH
-    fps: int = 30
+
+    fps: float = 30
+    """FLOAT, not int. 23.976 and 29.97 are real project rates and an
+    int silently truncated them to 23 and 29."""
+
+    footage_root: str = ""
+    """An ABSOLUTE directory holding this project's footage, when it does
+    not live in `<project>/raw`.
+
+    A project whose rough cut was cut in Resolve has its media wherever
+    the editor put it, and copying or symlinking it into the project is a
+    write to the captain's own material to work around a missing
+    capability. Declaring it is the capability.
+
+    Empty means the default: `<project>/raw`. See
+    `library/tools/footage_identity.enumerate_footage`, which is the one
+    place that resolves this."""
 
     @property
     def width(self) -> int:
@@ -247,6 +263,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         type=source_data.get("type", "iphone_mov"),
         resolution=source_data.get("resolution", "1080x1920"),
         fps=source_data.get("fps", 30),
+        footage_root=source_data.get("footage_root", "") or "",
     )
 
     pipeline = PipelineConfig(
@@ -303,6 +320,11 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             "type": config.source.type,
             "resolution": config.source.resolution,
             "fps": config.source.fps,
+            # Only when declared. An empty `footage_root:` in every
+            # project.yaml would read as a decision nobody made, and
+            # "" and "not declared" are the same answer here anyway.
+            **({"footage_root": config.source.footage_root}
+               if config.source.footage_root else {}),
         },
         "pipeline": {
             "brand_template": config.pipeline.brand_template,

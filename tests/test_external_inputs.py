@@ -204,13 +204,39 @@ def test_every_withdrawn_entry_says_why(tmp_path):
         assert len(reason.split()) >= 15, f"{claim} carries no real reason"
 
 
-def test_the_hand_built_timeline_is_recorded_as_unassertable():
-    """The captain's own example. A Resolve timeline is not refusable at
-    resolve time, so the module says so and names the artifacts that
-    are - rather than adding a flag that believes it."""
-    reason = external_inputs.WITHDRAWN["a Resolve timeline built by hand"]
+def test_the_CLOSED_timeline_is_recorded_as_unassertable():
+    """NARROWED 2026-09-04, and the narrowing is the point.
+
+    This entry used to rule out any hand-built timeline. It conflated
+    two things: a CLOSED project really is a database that has to be
+    copied before it is opened and really does lack a typed mapping,
+    while a LIVE one answers every field the checks demand through its
+    scripting API. The closed half stays withdrawn and still names the
+    artifacts to supply instead."""
+    reason = external_inputs.WITHDRAWN["a Resolve timeline in a CLOSED project"]
     assert "audio_spine" in reason and "assembly_manifest" in reason
-    assert "a Resolve timeline built by hand" not in external_inputs.CHECKS
+    assert "SQLite" in reason
+    assert "a Resolve timeline in a CLOSED project" not in external_inputs.CHECKS
+    # The old, wider claim is gone rather than sitting alongside it.
+    assert "a Resolve timeline built by hand" not in external_inputs.WITHDRAWN
+
+
+def test_the_narrowed_withdrawal_names_the_live_producer():
+    """A narrowing that did not say what now handles the other half
+    would read as an unexplained loosening of the contract."""
+    reason = external_inputs.WITHDRAWN["a Resolve timeline in a CLOSED project"]
+    assert "timeline_ingest" in reason
+    assert "LIVE" in reason
+
+
+def test_speech_sequence_left_the_taste_withdrawal_and_is_checkable():
+    """The captain ruled that a sequence they cut by hand is a fact to
+    be read, not taste to be invented. Taste is still withdrawn."""
+    assert "speech_sequence" in external_inputs.CHECKS
+    taste = external_inputs.WITHDRAWN[
+        "creative_direction / the planning outputs, as TASTE"]
+    assert "speech_sequence" in taste, "the narrowing must say what left"
+    assert "MODEL proposes is still taste" in taste
 
 
 # ── The spine and the manifest are checked with the repo's own contracts
@@ -468,3 +494,103 @@ def test_an_ordinary_run_says_nothing_about_supplied_state():
     from library.tools import run_control
 
     assert "supplied from outside" not in run_control.describe_mode()
+
+
+# ── speech_sequence: a MEASUREMENT is accepted, an invention is not ──
+#
+# The captain ruled (2026-09-04) that a sequence they cut by hand is a
+# fact to be read.  The risk in accepting it at all is that a
+# plausible-looking invention passes the same door, so the refusals are
+# what these test hardest.
+
+def _sequence(tmp_path, count=3, **overrides):
+    clip = _clip(tmp_path, "podcast.mov")
+    segments = []
+    for i in range(count):
+        segments.append({
+            "segment_id": f"uid-{i}",
+            "order": i,
+            "speaker": "Akshita" if i % 2 else "Craig",
+            "source_file": clip,
+            "source_start": 10.0 * i,
+            "source_end": 10.0 * i + 5.0,
+            "timeline_start": 6.0 * i,
+            "timeline_end": 6.0 * i + 5.0,
+            "previous_segment_id": f"uid-{i - 1}" if i else None,
+            "next_segment_id": f"uid-{i + 1}" if i + 1 < count else None,
+        })
+    value = {"segments": segments, "speakers": ["Craig", "Akshita"]}
+    value.update(overrides)
+    return value
+
+
+def test_a_measured_speech_sequence_is_accepted(tmp_path):
+    project = _project(tmp_path)
+    _supply(project, "speech_sequence", _sequence(tmp_path),
+            source="read off the live timeline")
+    supplied = external_inputs.load(str(project))
+    assert "3 segments" in supplied["speech_sequence"].checked
+
+
+def test_a_speech_sequence_naming_a_missing_file_is_refused(tmp_path):
+    project = _project(tmp_path)
+    value = _sequence(tmp_path)
+    value["segments"][1]["source_file"] = "/nowhere/gone.mov"
+    _supply(project, "speech_sequence", value)
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "not a file" in str(exc.value)
+
+
+def test_a_speech_sequence_with_a_broken_chain_is_refused(tmp_path):
+    """The link and the order disagreeing is what a well-shaped
+    invention fails: a model emits positions, not a self-consistent
+    doubly-linked chain over stable ids."""
+    project = _project(tmp_path)
+    value = _sequence(tmp_path)
+    value["segments"][1]["next_segment_id"] = "uid-99"
+    _supply(project, "speech_sequence", value)
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "disagree" in str(exc.value)
+
+
+def test_a_speech_sequence_with_a_repeated_order_is_refused(tmp_path):
+    project = _project(tmp_path)
+    value = _sequence(tmp_path)
+    value["segments"][2]["order"] = 1
+    _supply(project, "speech_sequence", value)
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "permutation" in str(exc.value)
+
+
+def test_a_speech_sequence_with_an_empty_range_is_refused(tmp_path):
+    project = _project(tmp_path)
+    value = _sequence(tmp_path)
+    value["segments"][0]["source_end"] = value["segments"][0]["source_start"]
+    _supply(project, "speech_sequence", value)
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "not a range" in str(exc.value)
+
+
+def test_a_speech_sequence_with_no_segment_id_is_refused(tmp_path):
+    """Without an addressable id, re-indexing one portion later means
+    re-reading everything - which is the capability the captain asked
+    for by name."""
+    project = _project(tmp_path)
+    value = _sequence(tmp_path)
+    del value["segments"][0]["segment_id"]
+    _supply(project, "speech_sequence", value)
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "segment_id" in str(exc.value)
+
+
+def test_an_empty_speech_sequence_is_refused(tmp_path):
+    project = _project(tmp_path)
+    _supply(project, "speech_sequence", {"segments": []})
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "non-empty" in str(exc.value)

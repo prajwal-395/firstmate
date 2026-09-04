@@ -371,10 +371,11 @@ def ask_model(question, context_block, model=MODEL,
         cwd = call_site.cwd or None
     started = time.time()
     try:
+        # check=False: the return code is read into the result below.
         proc = subprocess.run(
             argv, cwd=cwd,
             input=prompt, capture_output=True, encoding="utf-8",
-            timeout=timeout)
+            timeout=timeout, check=False)
         text = (proc.stdout or "").strip() or (proc.stderr or "").strip()
         return {"ok": proc.returncode == 0, "text": text, "model": model,
                 "seconds": round(time.time() - started, 1),

@@ -25,7 +25,7 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 54045
+CEILING = 53639
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -51,18 +51,25 @@ CEILING = 54045
 # while #483 was in flight, so the budget it landed with was 13 characters loose;
 # reseeding from the file corrects it downward.  A budget that is looser than the
 # section is the same lie as one for a section that no longer exists.
+# LOWERED 2026-09-04 as detail moved to the modules that own it: `## 5`'s
+# per-property Resolve findings were already verbatim in
+# `probe_resolve_capabilities.py` (lines 23-26), and `## 3`'s captain quote
+# verbatim in `brief_attachment.py`.  `## 10` lost three lines that each
+# restated the line directly above them with the same Detail target and the
+# same [why] anchor.  Four index rows were added for the timeline-ingest
+# work and paid for out of those moves, so the ceiling still went DOWN.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
     "## 2. Repo layout": 2144,
-    "## 3. Pipeline execution": 5590,
+    "## 3. Pipeline execution": 5404,
     "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4565,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4538,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1829,
     "## 9. Environment and dependencies": 6324,
-    "## 10. Cross-cutting rules": 17591,
+    "## 10. Cross-cutting rules": 17398,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 573,
     "## 13. Intros, outros and end cards": 1114,

@@ -85,8 +85,8 @@ Detail: `library/tools/breakpoints.py`.
 
 ### State the pipeline did not produce
 
-**A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.**
-Detail: `library/tools/external_inputs.py`.
+**A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.** A LIVE Resolve timeline is one such producer; a CLOSED project is not.
+Detail: `library/tools/external_inputs.py`, `library/tools/timeline_ingest.py`.
 
 ### A declaration must be true
 
@@ -125,10 +125,7 @@ Detail: `library/tools/craft_role.py`. [why - the measurement, and the two defec
 
 ### A step with no creative brief ASKS, rather than planning in silence
 
-One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way.
-Detail: `library/tools/brief_attachment.py`.
-
-Captain's ruling, 2026-09-02: *"this should be like an optional attachment we can add as context if we want, not something that automatically goes in"*, and *"if this was like a TUI interface if a user declines to attach a creative brief, then it should prompt the LLM to ask some briefing questions for the user"*.
+One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way. The captain's ruling of 2026-09-02 is quoted verbatim in the module.
 Detail: `library/tools/brief_attachment.py`.
 
 ### A contract rejection reaches the model that caused it
@@ -189,6 +186,9 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ### Connection
 
+**A Resolve project is addressed by its EXACT listed name, never a prefix** - a near match lands elsewhere.
+Detail: `library/tools/timeline_ingest.py`.
+
 ### Process isolation
 
 Never create a timeline and use `ImportFusionComp` in the same Python process.
@@ -196,7 +196,7 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. Print what `GetSetting` returns rather than what you asked for, confirm the timeline shape by reading it back off the PROJECT, and read `TimelineItem.GetProperty()` with no argument before trusting a name. `Pan` and `Tilt` are the transform properties - there is no `PanX`/`PanY`, though `ZoomX`/`ZoomY` are real. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** `CreateMagicMask` is withdrawn. Super Scale is a MediaPoolItem property taking an int.
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. Print what `GetSetting` returns, confirm the timeline shape by reading it back off the PROJECT, and read `TimelineItem.GetProperty()` with no argument before trusting a name. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** The per-property findings are in the module.
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
@@ -253,6 +253,7 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 **in dB**
 Detail: `library/tools/otio_mix.py`. [why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
+
 
 ### Visual verification
 
@@ -496,6 +497,9 @@ Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVID
 **A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
 Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
+**A rendered subtitle segment is named for its speaker, timeline and source audio span.**
+Detail: `library/tools/subtitle_segment_id.py`.
+
 **Manifest validation has a semantic half.**
 Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
 
@@ -504,9 +508,6 @@ Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVID
 
 **Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.** **Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included**
 Detail: `library/tools/safe_area.py`. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
-
-**Every element is positioned from the insets**
-Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
 **Reconstruct a grouping with `fits_in_box`, never `fits`.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
@@ -531,6 +532,9 @@ Detail: `library/steps/step_1_04_temporal_index/step.py`. [why - the numbers, an
 **The frame FILLS by default, and there is no heuristic.** **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
 Detail: `library/tools/framing_intent.py`. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 
+**A project may DECLARE where its footage lives, and a bad declaration is refused.**
+Detail: `library/tools/footage_identity.py`.
+
 **A file on disk is not a measurement.**
 Detail: `library/tools/analysis/speech_advanced_pipeline.py`. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
 
@@ -545,9 +549,6 @@ Detail: `library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-res
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
 Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
-
-Every field of `compute_deterministic_assessment` with nothing to measure must be an admitted absence. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
-Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 
 ### 10.4 Gates, and what counts as evidence
 
@@ -622,7 +623,7 @@ Detail: `tests/test_no_creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creat
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
 Detail: `library/tools/sfx_library.py`. [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
 
-**Music selection is one enumeration, `library/tools/music_selection_contract.py`.** **and**
+**Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
 Detail: `library/tools/music_selection_contract.py`.
 
 **Nothing refuses a track on rights, and no rights model may be built.**

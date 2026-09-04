@@ -531,7 +531,8 @@ def cmd_run(args):
     import subprocess
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PILOT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    result = subprocess.run(cmd, env=env)
+    # check=False: the return code is inspected on the next line.
+    result = subprocess.run(cmd, env=env, check=False)
     sys.exit(result.returncode)
 
 

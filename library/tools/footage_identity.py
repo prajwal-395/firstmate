@@ -46,6 +46,13 @@ from typing import Dict, List, Tuple
 # this rather than carrying its own copy.
 SUPPORTED_VIDEO_EXTENSIONS = {
     ".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v", ".webm",
+    # MXF is what professional cameras write - the GEO Podcast field
+    # test is seven Sony XAVC files in MXF OP1A, and without this the
+    # readiness check reported the project as having no footage at all.
+    # Added on measurement rather than on principle: `extract_metadata`
+    # read all seven on 2026-09-04, reporting 3840x2160 @ 23.976 for
+    # each. See tests/test_footage_root.py.
+    ".mxf",
 }
 
 # How much of each end of a file the digest covers.  Big enough that two
@@ -71,8 +78,62 @@ def fingerprint(path: str) -> Dict[str, object]:
     return {"size_bytes": size, "content_digest": digest.hexdigest()}
 
 
+def footage_root(project_folder: str) -> str:
+    """Where this project's footage lives.
+
+    ``<project_folder>/raw`` unless the project DECLARES a
+    ``source.footage_root``, which is how a project whose media lives
+    elsewhere says so.
+
+    The alternative was to symlink or copy the media into ``raw``, and
+    that is a write to the captain's own material to work around a
+    missing capability - so the capability exists instead.  Measured
+    case (2026-09-04): the GEO Podcast field test was cut in Resolve
+    from footage under ``Lucie consulting/Social Media/podcast media``,
+    ``raw`` was empty, and the readiness check refused the project as
+    having no footage at all.
+
+    A declared root must be ABSOLUTE and must exist.  Both are refused
+    rather than defaulted back to ``raw``: silently falling back would
+    turn a typo into "this project has no footage", which is the exact
+    unhelpful refusal this closes.
+    """
+    declared = ""
+    try:
+        from library.schemas.project_config import load_project_config
+        config = load_project_config(
+            os.path.join(project_folder, "project.yaml"))
+        declared = (config.source.footage_root or "").strip()
+    except Exception:
+        # No readable project.yaml is not an error here - step 1.01 and
+        # the identity check both call this on bare directories in
+        # tests. The default is what those expect.
+        declared = ""
+
+    if not declared:
+        return os.path.join(project_folder, "raw")
+
+    if not os.path.isabs(declared):
+        raise FileNotFoundError(
+            f"source.footage_root is {declared!r}, a relative path. "
+            f"Media is addressed absolutely everywhere else in this "
+            f"pipeline, and a relative one resolves against whichever "
+            f"directory a step happens to run in.")
+    if not os.path.isdir(declared):
+        raise FileNotFoundError(
+            f"source.footage_root names {declared}, which is not a "
+            f"directory. Refusing rather than falling back to "
+            f"{project_folder}/raw: a typo that silently becomes 'this "
+            f"project has no footage' is the refusal this declaration "
+            f"exists to prevent.")
+    return declared
+
+
 def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
-    """Every video file under ``<project_folder>/raw``, with clip ids.
+    """Every video file under the project's footage root, with clip ids.
+
+    The root is ``<project_folder>/raw`` unless the project declares a
+    ``source.footage_root`` - see ``footage_root``.
 
     Returns ``(raw_footage_files, skipped_files)``.  Entries carry
     ``path`` (absolute), ``filename``, ``extension``, ``size_bytes`` and
@@ -85,7 +146,7 @@ def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
     footage than it did, which is why the recorded fingerprint carries
     the path and not only the size.
     """
-    raw_dir = os.path.join(project_folder, "raw")
+    raw_dir = footage_root(project_folder)
     if not os.path.isdir(raw_dir):
         raise FileNotFoundError(
             f"Missing 'raw' subdirectory in project folder: {project_folder}"

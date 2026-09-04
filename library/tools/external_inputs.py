@@ -73,7 +73,7 @@ and points here.
 One enumeration, `library/tools/external_inputs.py`.
 - The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
 - **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
-- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.  **A Resolve timeline built by hand is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.   It is not skipped.
+- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
 - `tests/test_external_inputs.py`.
 """
 
@@ -295,6 +295,113 @@ def _check_render_output(value, context: Context) -> str:
             f"{'+'.join(sorted(streams))}")
 
 
+def _check_speech_sequence(value, context: Context) -> str:
+    """A spoken order MEASURED off a live timeline, not one invented.
+
+    `speech_sequence` was withdrawn wholesale, and the reason was sound
+    for the case it had in mind: "no check exists that could tell a real
+    creative decision from a plausible-looking one".  A sequence a model
+    proposes is taste, and a shape check would pass anything shaped
+    right.
+
+    The captain's ruling (2026-09-04) is that a sequence THEY CUT BY HAND
+    is a different thing: a fact to be read, not taste to be invented.
+    What makes that case checkable is the same property that makes
+    `a_roll_assignments` checkable - every claim it makes is about a file
+    on disk and a range inside it.  So this check verifies the
+    MEASUREMENT and refuses anything that is merely well shaped:
+
+    - every segment names a source file that EXISTS,
+    - every source range is non-empty,
+    - every timeline range is non-empty,
+    - the declared order is a permutation of 0..n-1 with no gaps or
+      repeats, and the forward and backward links agree with it.
+
+    The last of those is what a plausible-looking invention fails.  A
+    model asked for a narrative order emits positions; it does not emit
+    a self-consistent doubly-linked chain over stable Resolve item ids
+    that also agrees with the timeline positions of files on disk.
+
+    What is still NOT checked is whether the cut is any good, which was
+    never the pipeline's job.
+    """
+    if not isinstance(value, dict):
+        raise ExternalStateError("speech_sequence must be an object")
+    segments = value.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise ExternalStateError(
+            "speech_sequence.segments must be a non-empty list. An empty "
+            "one is the absence of a spoken order, not one supplied from "
+            "outside.")
+
+    orders, ids = [], []
+    for index, entry in enumerate(segments):
+        label = f"speech_sequence.segments[{index}]"
+        if not isinstance(entry, dict):
+            raise ExternalStateError(f"{label} is not an object")
+        _existing_file(entry.get("source_file"), f"{label}.source_file")
+        source_start = _number(entry.get("source_start"),
+                               f"{label}.source_start")
+        source_end = _number(entry.get("source_end"), f"{label}.source_end")
+        timeline_start = _number(entry.get("timeline_start"),
+                                 f"{label}.timeline_start")
+        timeline_end = _number(entry.get("timeline_end"),
+                               f"{label}.timeline_end")
+        if source_end <= source_start:
+            raise ExternalStateError(
+                f"{label} plays {source_start} to {source_end} of its "
+                f"source, which is not a range")
+        if timeline_end <= timeline_start:
+            raise ExternalStateError(
+                f"{label} occupies {timeline_start} to {timeline_end} on "
+                f"the timeline, which is not a range")
+        segment_id = entry.get("segment_id")
+        if not isinstance(segment_id, str) or not segment_id:
+            raise ExternalStateError(
+                f"{label}.segment_id is missing. A measured segment is "
+                f"addressable - it is what lets one portion be "
+                f"re-indexed later without re-reading the rest.")
+        orders.append(_number(entry.get("order"), f"{label}.order"))
+        ids.append(segment_id)
+
+    if sorted(orders) != [float(i) for i in range(len(segments))]:
+        raise ExternalStateError(
+            f"speech_sequence.order is not a permutation of "
+            f"0..{len(segments) - 1}: a spoken order with a gap or a "
+            f"repeat is not an order. Got {sorted(orders)!r}.")
+    if len(set(ids)) != len(ids):
+        raise ExternalStateError(
+            "speech_sequence segment_ids are not unique, so a segment "
+            "cannot be addressed by id")
+
+    by_order = {int(o): (i, s) for o, i, s in
+                zip(orders, ids, segments)}
+    for position in range(len(segments)):
+        segment_id, entry = by_order[position]
+        expected_prev = by_order[position - 1][0] if position else None
+        expected_next = (by_order[position + 1][0]
+                         if position + 1 < len(segments) else None)
+        if entry.get("previous_segment_id") != expected_prev:
+            raise ExternalStateError(
+                f"segment {segment_id!r} at order {position} says its "
+                f"predecessor is {entry.get('previous_segment_id')!r}; "
+                f"the order says {expected_prev!r}. The links and the "
+                f"order disagree, so one of them is not a measurement.")
+        if entry.get("next_segment_id") != expected_next:
+            raise ExternalStateError(
+                f"segment {segment_id!r} at order {position} says its "
+                f"successor is {entry.get('next_segment_id')!r}; the "
+                f"order says {expected_next!r}. The links and the order "
+                f"disagree, so one of them is not a measurement.")
+
+    speakers = value.get("speakers") or []
+    said = (f", across {len(speakers)} speakers ({', '.join(map(str, speakers))})"
+            if speakers else ", naming no speaker")
+    return (f"{len(segments)} segments in a self-consistent order, every "
+            f"source file present on disk and every range non-empty"
+            f"{said}")
+
+
 def _probe_streams(path: Path) -> Optional[set]:
     try:
         proc = subprocess.run(
@@ -318,6 +425,7 @@ CHECKS: Dict[str, Check] = {
     "audio_spine": _check_audio_spine,
     "assembly_manifest": _check_assembly_manifest,
     "render_output": _check_render_output,
+    "speech_sequence": _check_speech_sequence,
 }
 
 
@@ -328,27 +436,48 @@ CHECKS: Dict[str, Check] = {
 # faith - is the thing this module exists to avoid.
 
 WITHDRAWN: Dict[str, str] = {
-    "a Resolve timeline built by hand":
-        "The captain's own words are 'already on the timeline manually'. "
-        "A timeline is not refusable at resolve time: it lives in "
-        "Resolve's project database, reading it means copying that "
+    "a Resolve timeline in a CLOSED project":
+        "NARROWED 2026-09-04, and the narrowing is the point. This "
+        "entry used to read 'a Resolve timeline built by hand' and rule "
+        "out the captain's own case. It conflated two different things. "
+        "A CLOSED project really is unreadable at resolve time: it lives "
+        "in Resolve's project database, reading it means copying that "
         "database and opening it as SQLite (AGENTS.md section 5), and "
-        "nothing maps its clips back onto a typed pipeline key. The "
-        "artifact DESCRIBING the cut is checkable and is what to supply "
-        "instead - `audio_spine` for the structure, "
-        "`assembly_manifest` for a whole assembly, `a_roll_assignments` "
-        "for which clip plays when.",
+        "nothing there maps its clips back onto a typed pipeline key. "
+        "That half stands and is what remains withdrawn. A LIVE project "
+        "is a different object: its scripting API answers, per timeline "
+        "item, GetMediaPoolItem().GetClipProperty('File Path'), "
+        "GetSourceStartTime()/GetSourceEndTime(), GetStart()/GetEnd() "
+        "and GetUniqueId() - which is every field "
+        "`_check_a_roll_assignments` and `_check_speech_sequence` "
+        "already demand, with no database copy at all. So the live case "
+        "is now a PRODUCER, `library/tools/timeline_ingest.py`, and the "
+        "contract did not weaken to admit it: what that producer writes "
+        "is verified here like anything else. For a closed project, "
+        "supply the artifact DESCRIBING the cut instead - `audio_spine` "
+        "for the structure, `assembly_manifest` for a whole assembly, "
+        "`a_roll_assignments` for which clip plays when.",
     "transition_spec / enhancement_spec / sfx_spec / color_grade_spec":
         "Nothing to assert. Since #260 these are OPTIONAL inputs of "
         "`compile_manifest`, so a run that does not want them simply "
         "leaves their planners out and the manifest compiles with hard "
         "cuts, no effects, no sound design and no grade.",
-    "creative_direction / speech_sequence / the planning outputs":
+    "creative_direction / the planning outputs, as TASTE":
         "No check exists that could tell a real creative decision from a "
         "plausible-looking one, and a shape check would pass anything "
         "shaped right. Supplying taste from outside is a different "
         "feature from satisfying a prerequisite, and it would need a "
-        "reviewer rather than a validator.",
+        "reviewer rather than a validator. NARROWED 2026-09-04: "
+        "`speech_sequence` left this entry, because the captain ruled "
+        "that a sequence THEY CUT BY HAND is a fact to be read rather "
+        "than taste to be invented, and a measured one is checkable by "
+        "the same standard as `a_roll_assignments` - every claim it "
+        "makes is about a file on disk and a range inside it. See "
+        "`_check_speech_sequence`, which refuses a merely well-shaped "
+        "one. A sequence a MODEL proposes is still taste and is still "
+        "not suppliable; nothing here can tell the two apart except that "
+        "the measured one carries a self-consistent chain over stable "
+        "Resolve item ids that agree with files on disk.",
 }
 
 

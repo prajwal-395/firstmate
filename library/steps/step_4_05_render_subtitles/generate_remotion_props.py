@@ -174,6 +174,16 @@ def generate_subtitle_props_per_block(
             "_timeline_end": block_tl_end,
             "_source_in_frame": head_frames,
             "_source_out_frame": head_frames + content_frames,
+            # The spine block this render captions, carried through so
+            # the rendered file can be NAMED for what it belongs to
+            # rather than for its ordinal within one spine. See
+            # library/tools/subtitle_segment_id.py - an ordinal collides
+            # the moment a second timeline exists.  `block_info` was
+            # already looked up above and previously went unread.
+            "_speaker": (block_info or {}).get("speaker"),
+            "_source_clip_id": (block_info or {}).get("clip_id"),
+            "_source_start": (block_info or {}).get("source_start"),
+            "_source_end": (block_info or {}).get("source_end"),
         }
         props_list.append(props)
 

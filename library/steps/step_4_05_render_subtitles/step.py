@@ -53,6 +53,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.subtitle_segment_id import (
+    segment_binding, segment_identifier, timeline_scope,
+)
 
 
 def main():
@@ -131,6 +134,14 @@ def main():
     print(f"Rendering {len(props_list)} subtitle segments...",
           file=sys.stderr)
 
+    # Which timeline these overlays belong to. Measured off the spine
+    # when the spine came from a real timeline; otherwise the project's
+    # declaration. Never invented - an unnamed timeline that collides is
+    # a visible bug, a made-up name that does not is a silent one.
+    timeline_label = timeline_scope(audio_spine, project_config=None)
+    print(f"Naming segments under timeline "
+          f"{timeline_label or '<unnamed>'}", file=sys.stderr)
+
     segments = []
     for i, props in enumerate(props_list):
         block_pos = props.get("_block_position")
@@ -139,10 +150,24 @@ def main():
         total_frames = props["durationInFrames"]
         num_subs = len(props.get("subtitles", []))
 
-        # Generate output path
-        # block_pos may be a string like "body_1" or "hook"
-        safe_pos = str(block_pos).replace(" ", "_")
-        segment_name = f"sub_block_{safe_pos}"
+        # Generate output path.
+        #
+        # The name BINDS the segment to its speaker, its timeline and the
+        # source audio span it was transcribed from. It used to be
+        # `sub_block_<block_position>`, an ordinal within one spine, and
+        # this directory is per PROJECT rather than per timeline - so a
+        # reel's `body_1` silently overwrote the master's, and no name
+        # said whose speech it captioned. See
+        # library/tools/subtitle_segment_id.py.
+        binding = segment_binding(
+            timeline=timeline_label,
+            speaker=props.get("_speaker"),
+            block_position=block_pos,
+            source_clip_id=props.get("_source_clip_id"),
+            source_start=props.get("_source_start"),
+            source_end=props.get("_source_end"),
+        )
+        segment_name = segment_identifier(binding)
         overlay_path = os.path.join(sub_output_dir, f"{segment_name}.mov")
         props_path = os.path.join(sub_output_dir, f"{segment_name}_props.json")
 
@@ -186,6 +211,11 @@ def main():
 
         segments.append({
             "overlay_path": overlay_path,
+            "segment_id": segment_name,
+            # The unabridged binding. The filename slugs and truncates;
+            # this is what a reader checks a segment against its audio
+            # with, without parsing a name.
+            "binding": binding,
             "timeline_start": tl_start,
             "timeline_end": tl_end,
             "block_position": block_pos,
