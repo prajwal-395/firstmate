@@ -583,6 +583,31 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     style = resolve_subtitle_style(brand_effect, brand_style, project_folder)
     safe_area = resolve_safe_area(project_folder or None)
     fitter = build_caption_fitter(style, safe_area, project_folder)
+
+    # A project may caption each speaker differently - the styling IS the
+    # diarization signal when two people are talking. A per-speaker style
+    # can change the font SIZE, so it needs its own fitter: grouping
+    # captions at one size and rendering them at another is how a card
+    # ends up wider than the safe area. Resolved per speaker on first
+    # sight and reused. A project that declares no speaker styles gets
+    # exactly this shared pair, so nothing changes for it.
+    # See library/tools/subtitle_style.SPEAKER_STYLE_KEYS.
+    styles_by_speaker = {}
+    fitters_by_speaker = {}
+
+    def _for_speaker(speaker):
+        if not speaker:
+            return style, fitter
+        if speaker not in styles_by_speaker:
+            speaker_style = resolve_subtitle_style(
+                brand_effect, brand_style, project_folder, speaker=speaker)
+            styles_by_speaker[speaker] = speaker_style
+            fitters_by_speaker[speaker] = (
+                fitter if speaker_style == style
+                else build_caption_fitter(speaker_style, safe_area,
+                                          project_folder))
+        return styles_by_speaker[speaker], fitters_by_speaker[speaker]
+
     if not fitter.measured:
         print(
             f"WARNING: captions in {style.get('fontFamily')!r} cannot be "
@@ -598,6 +623,13 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         block_type = block["block_type"]
         if block_type not in ("hook", "speech"):
             continue
+        # Absent on a spine the pipeline built itself; present on one
+        # measured off a real timeline, where each speaker has their own
+        # track (library/tools/timeline_ingest.py). None means the shared
+        # style, never a guessed one.
+        block_speaker = block.get("speaker")
+        block_style, block_fitter = _for_speaker(block_speaker)
+        fits_fn = block_fitter.fits_in_box
 
         content = block["content"]
         block_start = block["timeline_start"]
@@ -647,6 +679,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     "text": entry_text,
                     "emphasis_words": identify_emphasis_words(entry_text),
                     "spine_block_position": block["position"],
+                    "speaker": block_speaker,
                     "word_count": g["word_count"],
                     "words": [
                         {
@@ -738,6 +771,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                         "text": entry_text,
                         "emphasis_words": identify_emphasis_words(entry_text),
                         "spine_block_position": block["position"],
+                        "speaker": block_speaker,
                         "word_count": g["word_count"],
                         "words": [
                             {
@@ -906,6 +940,10 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             "subtitle_entries": subtitle_entries,
             "total_subtitles": len(subtitle_entries),
             "style": style,
+            # Only when the project declared any: an empty mapping in
+            # every plan would read as a decision nobody made.
+            **({"styles_by_speaker": styles_by_speaker}
+               if styles_by_speaker else {}),
         }
     }
 

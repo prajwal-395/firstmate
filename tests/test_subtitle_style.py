@@ -467,3 +467,95 @@ class TestProjectTypography:
             "name": "T", "slug": "t",
             "pipeline": {"subtitle_typography": {"colour": "red"}}})
         assert any("subtitle_typography" in e for e in cfg.validate())
+
+
+# ── A project may caption each speaker differently ───────────────────
+#
+# The field-test podcast is two people on two tracks, and the captain
+# asked for "a different subtitle styling per speaker to be able to
+# emphasize the diarization" - the styling IS the signal. The values are
+# the captain's taste and live in the project (AGENTS.md 14); what is
+# tested here is that the engine declares NONE of its own.
+
+def _project_with(tmp_path, body):
+    project = tmp_path / "project"
+    (project / "raw").mkdir(parents=True)
+    (project / "project.yaml").write_text(f"name: T\nslug: t\n{body}")
+    return str(project)
+
+
+_TWO_SPEAKERS = """pipeline:
+  speaker_subtitle_styles:
+    Akshita:
+      accentColor: '#FFB8D4'
+    Craig:
+      accentColor: '#FBF0B8'
+      position: top
+"""
+
+
+def test_each_speaker_gets_their_declared_look(tmp_path):
+    from library.tools.subtitle_style import resolve_subtitle_style
+    folder = _project_with(tmp_path, _TWO_SPEAKERS)
+    akshita = resolve_subtitle_style(project_folder=folder, speaker="Akshita")
+    craig = resolve_subtitle_style(project_folder=folder, speaker="Craig")
+    assert akshita["accentColor"] == "#FFB8D4"
+    assert craig["accentColor"] == "#FBF0B8"
+    assert craig["position"] == "top"
+    assert akshita["position"] == "bottom", "an undeclared key is untouched"
+
+
+def test_a_speaker_the_project_does_not_name_changes_nothing(tmp_path):
+    from library.tools.subtitle_style import resolve_subtitle_style
+    folder = _project_with(tmp_path, _TWO_SPEAKERS)
+    shared = resolve_subtitle_style(project_folder=folder)
+    other = resolve_subtitle_style(project_folder=folder, speaker="Nobody")
+    assert other["accentColor"] == shared["accentColor"]
+    assert other["position"] == shared["position"]
+
+
+def test_a_project_declaring_no_speaker_styles_gets_one_look(tmp_path):
+    """The absence of a distinction, not a default set of colours.
+    Inventing per-speaker colours here would be inventing taste."""
+    from library.tools.subtitle_style import (
+        project_speaker_styles, resolve_subtitle_style)
+    folder = _project_with(tmp_path, "pipeline:\n  brand_template: default_brand\n")
+    assert project_speaker_styles(folder) is None
+    a = resolve_subtitle_style(project_folder=folder, speaker="Akshita")
+    b = resolve_subtitle_style(project_folder=folder, speaker="Craig")
+    assert a["accentColor"] == b["accentColor"]
+
+
+def test_the_engine_ships_no_per_speaker_colours():
+    """AGENTS.md 10.5. The enumeration names AXES; it holds no values."""
+    from library.tools import subtitle_style
+    assert all(isinstance(k, str) for k in subtitle_style.SPEAKER_STYLE_KEYS)
+    assert not hasattr(subtitle_style, "DEFAULT_SPEAKER_STYLES")
+
+
+def test_a_misspelled_override_key_is_refused(tmp_path):
+    """Silently ignoring it is a caption the editor believes shipped."""
+    from library.tools.subtitle_style import resolve_subtitle_style
+    folder = _project_with(tmp_path, "pipeline:\n"
+                                     "  speaker_subtitle_styles:\n"
+                                     "    Akshita:\n"
+                                     "      accentColour: '#FFB8D4'\n")
+    with pytest.raises(ValueError) as excinfo:
+        resolve_subtitle_style(project_folder=folder, speaker="Akshita")
+    assert "accentColour" in str(excinfo.value)
+
+
+def test_a_speaker_may_not_override_the_safe_area(tmp_path):
+    """captionMaxWidth and safeArea are MEASURED from the delivery frame.
+    A speaker who could override them could caption outside it."""
+    from library.tools.subtitle_style import SPEAKER_STYLE_KEYS
+    assert "captionMaxWidth" not in SPEAKER_STYLE_KEYS
+    assert "safeArea" not in SPEAKER_STYLE_KEYS
+
+
+def test_a_malformed_declaration_raises(tmp_path):
+    from library.tools.subtitle_style import project_speaker_styles
+    folder = _project_with(tmp_path, "pipeline:\n"
+                                     "  speaker_subtitle_styles: 'nope'\n")
+    with pytest.raises(TypeError):
+        project_speaker_styles(folder)

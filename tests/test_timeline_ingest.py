@@ -32,10 +32,13 @@ from library.tools.timeline_ingest import TimelineIngestError
 
 class FakePoolItem:
     def __init__(self, path):
-        self._path = path
+        # Resolve returns a STRING from GetClipProperty, never a Path.
+        self._path = str(path)
+        self.frames = 240
 
     def GetClipProperty(self, key=None):
-        props = {"File Path": self._path, "FPS": 23.976}
+        props = {"File Path": self._path, "FPS": 23.976,
+                 "Frames": str(self.frames)}
         return props if key is None else props.get(key)
 
 
@@ -59,9 +62,19 @@ class FakeItem:
     def GetSourceStartFrame(self): return self._si
     def GetSourceEndFrame(self): return self._so
     def GetLeftOffset(self): return self._left
-    # Resolve computes at the exact NTSC rate, not the reported one.
-    def GetSourceStartTime(self): return self._si * 1001 / 24000
-    def GetSourceEndTime(self): return self._so * 1001 / 24000
+    # Resolve computes at the exact NTSC rate, not the reported one -
+    # and these are TIMECODE-ABSOLUTE, so a clip whose media has a
+    # non-zero start timecode reports a time outside its own file. The
+    # fake carries that offset so the frames-not-times rule is actually
+    # exercised; the original fake had no timecode and so agreed with
+    # the frame pair, exactly as the one real zero-timecode file did.
+    start_tc_frames = 0
+
+    def GetSourceStartTime(self):
+        return (self._si + self.start_tc_frames) * 1001 / 24000
+
+    def GetSourceEndTime(self):
+        return (self._so + self.start_tc_frames) * 1001 / 24000
 
 
 class FakeTimeline:
@@ -105,6 +118,38 @@ class FakeProject:
     def GetName(self): return self._name
     def GetTimelineCount(self): return len(self._timelines)
     def GetTimelineByIndex(self, i): return self._timelines[i - 1]
+
+
+def _real_media(tmp_path, name, seconds):
+    """A real, decodable video+audio file.
+
+    Video as well as audio because `verify_against_media` measures with
+    the pipeline's own `extract_metadata`, which is the catalog's probe
+    and wants a video stream - the same thing real footage has.
+    """
+    import subprocess
+    path = tmp_path / name
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc=size=64x64:rate=24:duration={seconds}",
+         "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+         "-c:v", "mpeg4", "-c:a", "aac", "-shortest", str(path)],
+        check=True)
+    return path
+
+
+def _short_timeline(tmp_path):
+    """Two clips inside a real 10s file, for the verification paths."""
+    media = _real_media(tmp_path, "take.mp4", 10.0)
+    return FakeTimeline("GEO Podcast - Synced", {
+        ("video", 1): ("Akshita", [
+            FakeItem("take.mp4", 0, 48, 24, 72, media, "uid-a1"),
+            FakeItem("take.mp4", 48, 96, 96, 144, media, "uid-a2"),
+        ]),
+        ("video", 2): ("Craig", [
+            FakeItem("take.mp4", 96, 144, 168, 216, media, "uid-c1"),
+        ]),
+    })
 
 
 def _media(tmp_path, *names):
@@ -174,13 +219,78 @@ def test_an_unnamed_track_yields_no_speaker_rather_than_a_made_up_one(tmp_path):
     assert snap.clips[0].speaker is None
 
 
-def test_source_times_are_used_never_left_offset(tmp_path):
-    """The measured one-frame disagreement must resolve to the time pair."""
+def test_source_frames_are_used_never_source_times(tmp_path):
+    """FILE-RELATIVE frames, not TIMECODE-ABSOLUTE times.
+
+    This test replaces one that asserted the opposite. The original
+    reasoning - "the time pair agrees with the frame pair" - was measured
+    on the field test's only source file with a zero start timecode, so
+    it could not see the disagreement. Over all 167 clips, the time pair
+    put 91 of them past the end of their own file.
+    """
+    timeline = _two_speaker_timeline(tmp_path)
+    for _name, items in timeline._tracks.values():
+        for item in items:
+            item.start_tc_frames = 123981     # LCATL0013's real start TC
+
+    snap = timeline_ingest.snapshot_timeline(timeline, "P")
+    first = snap.picture_clips()[0]
+    # file-relative: frame 3151 of the media
+    assert first.source_in == pytest.approx(3151 * 1001 / 24000, abs=1e-9)
+    # and emphatically NOT the timecode-absolute reading
+    assert first.source_in < 1000.0
+
+
+def test_left_offset_is_not_used(tmp_path):
+    """Also file-relative, but disagrees with the frame pair by one frame
+    on about a third of real items."""
     snap = timeline_ingest.snapshot_timeline(
         _two_speaker_timeline(tmp_path), "P")
     second = snap.picture_clips()[1]
     assert second.source_in == pytest.approx(4971 * 1001 / 24000, abs=1e-9)
     assert second.source_in != pytest.approx(4972 * 1001 / 24000, abs=1e-9)
+
+
+def test_a_range_outside_its_own_file_is_reported(tmp_path):
+    """The check that would have caught the defect on day one."""
+    media = _real_media(tmp_path, "short.mp4", 2.0)
+    tl = FakeTimeline("T", {("video", 1): ("V", [
+        FakeItem("short.mp4", 0, 4800, 0, 4800, media, "uid-long")])})
+    snap = timeline_ingest.snapshot_timeline(tl, "P")
+    complaints = timeline_ingest.verify_against_media(snap)
+    # Both halves fire: the exact frame bound and the ffprobe duration.
+    assert len(complaints) == 2
+    assert all("uid-long" in c for c in complaints)
+    assert any("frames in it" in c for c in complaints)
+    assert any("2.00s long" in c for c in complaints)
+
+
+def test_a_snapshot_with_a_bad_range_is_never_supplied(tmp_path):
+    """Supplying it would be supplying a false ground truth."""
+    media = _real_media(tmp_path, "short.mp4", 2.0)
+    project = tmp_path / "project"
+    project.mkdir()
+    ProjectLayout(str(project)).ensure()
+    tl = FakeTimeline("T", {("video", 1): ("V", [
+        FakeItem("short.mp4", 0, 4800, 0, 4800, media, "uid-long")])})
+    snap = timeline_ingest.snapshot_timeline(tl, "P")
+    with pytest.raises(TimelineIngestError) as excinfo:
+        timeline_ingest.write_external(str(project), snap)
+    assert "false ground truth" in str(excinfo.value)
+
+
+def test_a_good_snapshot_passes_verification(tmp_path):
+    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
+    assert timeline_ingest.verify_against_media(snap) == []
+
+
+def test_media_that_cannot_be_measured_is_a_complaint_not_a_pass(tmp_path):
+    """A file ffprobe cannot read is not a verified range."""
+    snap = timeline_ingest.snapshot_timeline(
+        _two_speaker_timeline(tmp_path), "P")
+    complaints = timeline_ingest.verify_against_media(snap)
+    assert complaints
+    assert any("cannot measure" in c for c in complaints)
 
 
 def test_a_clip_with_no_media_pool_item_is_skipped_not_invented(tmp_path):
@@ -287,7 +397,7 @@ def test_written_files_load_and_verify_through_external_inputs(tmp_path):
     project.mkdir()
     ProjectLayout(str(project)).ensure()
     snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "Podcast (field test)")
+        _short_timeline(tmp_path), "Podcast (field test)")
     written = timeline_ingest.write_external(str(project), snap)
     assert set(written) == {"a_roll_assignments", "speech_sequence"}
 
@@ -301,8 +411,7 @@ def test_it_refuses_to_supply_a_key_it_does_not_build(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     ProjectLayout(str(project)).ensure()
-    snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "P")
+    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
     with pytest.raises(TimelineIngestError):
         timeline_ingest.write_external(str(project), snap,
                                        keys=("assembly_manifest",))
@@ -370,3 +479,87 @@ def test_an_exact_rate_is_left_alone():
 def test_every_ntsc_rate_maps_to_its_rational():
     assert timeline_ingest.exact_frame_rate(29.97) == pytest.approx(30000 / 1001)
     assert timeline_ingest.exact_frame_rate(59.94) == pytest.approx(60000 / 1001)
+
+
+# ── The silent case: in-bounds for ffprobe, wrong audio entirely ─────
+
+def test_a_frame_range_past_the_pools_own_count_is_caught(tmp_path):
+    """The check the DURATION check cannot make.
+
+    Root cause of the 2026-09-04 defect: source ranges were read with
+    `GetSourceStartTime()`, which is timecode-absolute, so every clip was
+    displaced by its media's start timecode. For `LC4932.MXF` that is
+    512.9s inside a 4941s file - so 74 of 167 clips asked for a real,
+    in-bounds range holding COMPLETELY DIFFERENT speech. They extracted
+    cleanly, weighed the right number of bytes, and passed every
+    output-shaped guard. Comparing frame numbers to the file's own frame
+    count is what finds them.
+    """
+    media = _real_media(tmp_path, "take.mp4", 10.0)
+    # reads to source frame 200 of a file the pool says holds 100
+    item = FakeItem("take.mp4", 0, 48, 152, 200, media, "uid-x")
+    item._pool.frames = 100
+    tl = FakeTimeline("T", {("video", 1): ("V", [item])})
+    snap = timeline_ingest.snapshot_timeline(tl, "P")
+    assert snap.clips[0].source_frames == 100
+    complaints = timeline_ingest.verify_against_media(snap)
+    assert any("only 100 frames" in c for c in complaints)
+
+
+def test_the_pool_frame_count_is_recorded(tmp_path):
+    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
+    assert snap.clips[0].source_frames == 240
+    assert snap.clips[0].source_in_frame == 24
+    assert snap.clips[0].source_out_frame == 72
+
+
+# ── PLAYED length, not source length ─────────────────────────────────
+
+def test_source_out_is_the_played_end_not_the_reported_one(tmp_path):
+    """Measured 2026-09-04: on 50 of the field test's 167 clips,
+    `GetSourceEndFrame() - GetSourceStartFrame()` and the clip's TIMELINE
+    duration disagree by exactly one frame, in both directions. The
+    timeline duration is what Resolve renders - the same PLAYED-versus-
+    SOURCE distinction `fusion/played_window.py` states for comp time.
+
+    Anything that lays spans end to end by source length while
+    positioning them by timeline gaps drifts one frame per disagreement.
+    """
+    media = _real_media(tmp_path, "take.mp4", 10.0)
+    # timeline slot is 48 frames; Resolve reports a 49-frame source range
+    item = FakeItem("take.mp4", 0, 48, 24, 73, media, "uid-x")
+    tl = FakeTimeline("T", {("video", 1): ("V", [item])})
+    clip = timeline_ingest.snapshot_timeline(tl, "P").clips[0]
+
+    played = clip.source_out - clip.source_in
+    assert played == pytest.approx(48 * 1001 / 24000, abs=1e-9)
+    assert played != pytest.approx(49 * 1001 / 24000, abs=1e-9)
+    # the raw reading is still recoverable
+    assert clip.source_out_frame == 73
+    assert clip.source_length_disagrees is True
+
+
+def test_a_track_telescopes_to_the_timeline_exactly(tmp_path):
+    """spans + gaps must equal the last clip's end, to the sample.
+
+    Before this rule the field-test track came out 41.7ms - exactly one
+    frame - short of its own timeline.
+    """
+    media = _real_media(tmp_path, "take.mp4", 10.0)
+    items = [
+        FakeItem("take.mp4", 0, 48, 24, 73, media, "a"),      # +1 frame
+        FakeItem("take.mp4", 96, 144, 96, 143, media, "b"),   # -1 frame
+        FakeItem("take.mp4", 144, 192, 168, 216, media, "c"), # exact
+    ]
+    tl = FakeTimeline("T", {("video", 1): ("V", items)})
+    clips = sorted(timeline_ingest.snapshot_timeline(tl, "P").clips,
+                   key=lambda c: c.timeline_start)
+
+    total, cursor = 0.0, 0.0
+    for c in clips:
+        gap = c.timeline_start - cursor
+        if gap > 0:
+            total += gap
+        total += c.source_out - c.source_in
+        cursor = c.timeline_end
+    assert total == pytest.approx(clips[-1].timeline_end, abs=1e-12)

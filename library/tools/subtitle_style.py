@@ -93,6 +93,27 @@ VALID_POSITIONS = ("bottom", "center", "top")
 # a declaration nothing draws.
 TYPOGRAPHY_KEYS = ("font", "size", "weight")
 
+SPEAKER_STYLE_KEYS = (
+    "fontFamily", "fontSize", "fontWeight", "fontColor", "accentColor",
+    "outlineColor", "outlineWidth", "position",
+)
+"""What a project may vary PER SPEAKER. Complete, and checked.
+
+A two-speaker conversation where each speaker is captioned differently is
+how the viewer reads who is talking without a name tag - the styling IS
+the diarization signal, which is why the field-test podcast asked for it.
+
+The values are the captain's taste and live in the project (AGENTS.md 14
+- per-series parameters belong with the series). **The engine declares
+none.** A project that names no speaker styles gets ONE style for
+everybody, which is the absence of a distinction rather than a default
+set of colours: picking colours per speaker here would be inventing taste
+(AGENTS.md 10.5).
+
+`captionMaxWidth` and `safeArea` are deliberately absent. They are
+MEASURED from the delivery frame, not chosen, and a speaker who could
+override them could put their own captions outside the safe area."""
+
 @dataclass(frozen=True)
 class SubtitleStyle:
     """One named caption look.
@@ -287,10 +308,66 @@ def project_subtitle_typography(
     return declared
 
 
+def project_speaker_styles(
+        project_folder: Optional[str]) -> Optional[Dict[str, Dict[str, Any]]]:
+    """`pipeline.speaker_subtitle_styles` off a project.yaml, or None.
+
+    None means the project declared none - one style for everybody - and
+    that is different from an empty mapping. A malformed declaration
+    RAISES rather than being dropped, the same reasoning
+    `project_subtitle_typography` states: a per-speaker look that is
+    silently ignored is a caption the editor believes shipped.
+    """
+    from library.tools.brand_registry import project_pipeline_block
+
+    block = project_pipeline_block(project_folder)
+    if "speaker_subtitle_styles" not in block:
+        return None
+    declared = block.get("speaker_subtitle_styles")
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        raise TypeError(
+            f"pipeline.speaker_subtitle_styles in {project_folder}/"
+            f"project.yaml must be a mapping of speaker name to style "
+            f"overrides, got {type(declared).__name__}: {declared!r}"
+        )
+    for speaker, overrides in declared.items():
+        if not isinstance(overrides, dict):
+            raise TypeError(
+                f"pipeline.speaker_subtitle_styles[{speaker!r}] in "
+                f"{project_folder}/project.yaml must be a mapping of "
+                f"style overrides, got {type(overrides).__name__}: "
+                f"{overrides!r}"
+            )
+        unknown = sorted(set(overrides) - set(SPEAKER_STYLE_KEYS))
+        if unknown:
+            raise ValueError(
+                f"pipeline.speaker_subtitle_styles[{speaker!r}] in "
+                f"{project_folder}/project.yaml declares {unknown}, which "
+                f"nothing reads. It takes {list(SPEAKER_STYLE_KEYS)}."
+            )
+    return declared
+
+
+def speaker_style_overrides(project_folder: Optional[str],
+                            speaker: Optional[str]) -> Dict[str, Any]:
+    """One speaker's declared overrides, or `{}`.
+
+    An unnamed speaker, or one the project does not mention, gets `{}` -
+    the shared style. Nothing is guessed from the name.
+    """
+    if not speaker:
+        return {}
+    declared = project_speaker_styles(project_folder) or {}
+    return dict(declared.get(speaker) or {})
+
+
 def resolve_subtitle_style(
     brand_effect: Optional[Dict[str, Any]] = None,
     brand_style: Optional[Dict[str, Any]] = None,
     project_folder: Optional[str] = None,
+    speaker: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Template slots in, Remotion props out.
 
@@ -303,6 +380,11 @@ def resolve_subtitle_style(
     area the captions must sit inside - and it carries the project's own
     `pipeline.subtitle_typography`, which overrides the template's key by
     key. See "And the PROJECT" in the module docstring.
+
+    `speaker` applies that speaker's `pipeline.speaker_subtitle_styles`
+    entry LAST, over everything else, so a two-speaker conversation can
+    be captioned in two looks. A speaker the project does not name
+    changes nothing - see `SPEAKER_STYLE_KEYS`.
     """
     brand_effect = brand_effect or {}
     brand_style = brand_style or {}
@@ -311,11 +393,21 @@ def resolve_subtitle_style(
     style = get_subtitle_style(name)
     typography = dict(brand_style.get("typography") or {})
     typography.update(project_subtitle_typography(project_folder) or {})
-    return style.resolve(
+    resolved = style.resolve(
         typography=typography or None,
         color_palette=brand_style.get("color_palette"),
         safe_area=resolve_safe_area(project_folder),
     )
+    # Last, over everything: the project's per-speaker look. Applied
+    # after the brand so a speaker's declared accent wins, and checked
+    # against SPEAKER_STYLE_KEYS on read so a typo raises rather than
+    # silently doing nothing.
+    overrides = speaker_style_overrides(project_folder, speaker)
+    if overrides:
+        resolved = {**resolved, **overrides, "speaker": speaker}
+    elif speaker:
+        resolved = {**resolved, "speaker": speaker}
+    return resolved
 
 
 # ── Typography coercion ──────────────────────────────

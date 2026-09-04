@@ -134,10 +134,19 @@ timeline created through the API inherits the project default, so a new
 reel timeline comes out horizontal UHD unless explicitly set to
 1080x1920. That is a silent wrong answer, not an error.
 
-## 3. Does the API expose clip-to-source ground truth? YES, completely
+## 3. Does the API expose clip-to-source ground truth? Yes - but not the way this section first said
 
-The highest-risk unknown. Answered, and the answer removes any need for
-audio matching.
+The highest-risk unknown. The answer is still yes, and it still removes
+any need for audio matching. **But the reasoning originally given below
+was wrong in two ways, and a findings document that is confidently wrong
+is worse than none**, so both corrections are inline rather than tidied
+away:
+
+1. The section asserted the mapping was exposed "completely" on the
+   strength of one item of one file. Two of the four numbers it
+   recommended were wrong. See the CORRECTED block below and section 13.
+2. `GetSourceEndFrame()` is not the played end either - see "The played
+   length" below.
 
 Every `TimelineItem` returns, verified by calling rather than by
 `hasattr` (AGENTS.md section 5):
@@ -170,10 +179,40 @@ That is everything the recursive ground-truth tagging needs:
 `GetSourceStartFrame()` disagree by exactly 1 frame on roughly a third of
 items (1960 vs 1959; 5361 vs 5360; 117 vs 116) and agree on the rest.
 One must be chosen and written down, or extracted audio drifts a frame
-against the transcript on a third of the clips. `GetSourceStartTime()` is
-consistent with `GetSourceStartFrame()`, so the recommendation is the
-`SourceStart/EndTime` pair and never `LeftOffset` - as a recorded rule,
-not an accident.
+against the transcript on a third of the clips.
+
+> **CORRECTED 2026-09-04. The recommendation originally made here was
+> WRONG.** It read: "`GetSourceStartTime()` is consistent with
+> `GetSourceStartFrame()`, so the recommendation is the
+> `SourceStart/EndTime` pair." That consistency was measured on
+> `LC4930.MXF` - the only one of seven source files with a start
+> timecode of `00:00:00:00`. The single case checked was the single case
+> that could not fail.
+>
+> **`GetSourceStartFrame()`/`GetSourceEndFrame()` are FILE-RELATIVE;
+> `GetSourceStartTime()`/`GetSourceEndTime()` are TIMECODE-ABSOLUTE.**
+> Over all 167 clips the time pair put **91 past the end of their own
+> file** and displaced a further **74 by their media's start timecode**
+> - 512.9s for `LC4932.MXF`, inside a file long enough that the range
+> stayed in bounds and extracted clean audio of entirely different
+> speech. Two clips were correct.
+>
+> Read FRAMES, convert with the exact rate. Full account in section 13.
+
+**The played length, and a second correction.** Reading frames is
+necessary and not sufficient. `GetSourceEndFrame() -
+GetSourceStartFrame()` and the clip's TIMELINE duration disagree by
+exactly one frame on **50 of the 167 clips**, in both directions. The
+timeline duration is what Resolve renders - the same PLAYED-versus-SOURCE
+distinction `library/tools/fusion/played_window.py` already states for
+comp time, which this document should have consulted and did not.
+
+So the played range is `source_in` plus the TIMELINE duration.
+Extracting `GetSourceEndFrame()`'s length instead, while positioning
+clips by timeline gaps, drifts a frame per disagreement: the field test's
+rebuilt Akshita track came out 41.708ms - exactly one frame - short of
+its own timeline. With the played length it telescopes to zero residue,
+measured to 1e-12.
 
 ## 4. The prerequisite machinery, and why it is most of the way there
 
@@ -658,3 +697,112 @@ selection with the captain. Offered as the concrete option.
   build that answer forbids.
 - **Duplicate-take detection** (Q5): support only, per the decision. It
   did not fall out of this work for free.
+
+## 13. The mapping defect, and what actually caught it
+
+Found 2026-09-04, after firstmate challenged an arithmetic discrepancy
+that turned out not to be the bug. Recorded because the shape of it
+matters more than the fix.
+
+### What was wrong
+
+`timeline_ingest` read source ranges with `GetSourceStartTime()` /
+`GetSourceEndTime()`. Those are **timecode-absolute**:
+
+    GetSourceStartTime()  ==  (file-relative frame + start-TC frames) / fps
+
+Six of the seven source files have a non-zero start timecode - the
+cameras were timecode-synced, which is what a two-camera shoot does.
+Only `LC4930.MXF` starts at `00:00:00:00`.
+
+### Why it survived review
+
+The rule was written down, with a stated reason, and the reason was
+checked against one example: `LC4930.MXF`, item 0. That file's start
+timecode is zero, so the frame pair and the time pair agree on it
+exactly. **The single case checked was the single case that could not
+fail.** Any second file would have shown it immediately.
+
+### What it would have cost
+
+Measured over all 167 picture clips:
+
+| outcome | clips | displacement |
+|---|---|---|
+| correct (zero start TC) | 2 | 0s |
+| empty file, output guard catches it | 91 | 225s - 9271s |
+| **clean audio, WRONG CONTENT** | **74** | **512.9s** |
+
+The 74 are the dangerous ones. They asked for a real, in-bounds range of
+`LC4932.MXF` holding entirely different speech, extracted cleanly,
+weighed the right number of bytes, and passed every output-shaped guard.
+A transcript built from them would have been fluent, plausible and
+attributed to the wrong moments - precisely the failure that would read
+to the captain as the pipeline not understanding their edit.
+
+### What catches it, and what does not
+
+- **An output guard does not.** Rejecting a 98-byte wav catches the 91
+  and none of the 74. A guard on the shape of the output cannot see that
+  the input was wrong.
+- **An ffprobe duration check does not, alone.** A displaced `LC4932`
+  range is still inside a 4941s file.
+- **Comparing the frame range to the media pool's own `Frames` does.**
+  Exact, needs no probe, catches both classes.
+
+`verify_against_media` runs both checks, `write_external` refuses a
+snapshot failing either, and the CLI reports them. Regression test:
+`test_a_frame_range_past_the_pools_own_count_is_caught`.
+
+### The test fakes were part of the problem
+
+The original fake computed `GetSourceStartTime()` as
+`frames * 1001 / 24000` - what I *assumed* Resolve did. A fake that
+encodes the assumption under test cannot falsify it. It now carries a
+non-zero `start_tc_frames`, so the frames-not-times rule is exercised.
+
+Both defects in this task involved fakes, in opposite directions: the
+23.976-vs-24000/1001 clock split was FOUND because a fake was built from
+measurement, and this one SURVIVED because a fake was built from
+assumption.
+
+
+### Blast radius in main, and what is on disk
+
+Checked rather than assumed, against `origin/main`:
+
+- **`library/tools/timeline_ingest.py:310-311` is the ONLY production
+  reader of `GetSourceStartTime`/`GetSourceEndTime` in the tree.** It is
+  the module added by #502, so nothing that predates that PR is affected.
+- Every other Resolve source read already used frames or `GetLeftOffset`,
+  both file-relative: `timeline_serializer.py:150`,
+  `fusion/engine.py:281`, `marker_feedback.py:463`, the Resolve panel.
+- **No `external/` artifact exists in any project.** The ingest CLI was
+  only ever run in dry-run, so no `a_roll_assignments.json` or
+  `speech_sequence.json` carrying bad ranges was ever written, and
+  nothing needs regenerating.
+
+**`marker_feedback.py` already knew.** Its module docstring records, with
+a measurement, that `GetLeftOffset()` "IS REAL and returns the source
+in-point", and that Resolve bounds-checks marker frames against the file
+- `AddMarker` returned False for frame 4174 on a 4174-frame clip. That is
+direct evidence the frame space is file-relative, established in this
+repo before #502. The rule introduced in #502 contradicted an existing,
+measured module rule, and no one noticed because the two modules were
+read separately.
+
+### The 0.07s residue: understood, and it was a second defect
+
+The first corrected run left the rebuilt track 2656.5277s against a
+2656.5706s timeline. Decomposed:
+
+    spans   wanted 1791.289500  got 1791.289715   +0.2ms  sample rounding
+    silence wanted  865.239375  got  865.238000   -1.4ms  ms rounding
+    predicted      2656.527715  actual 2656.527688  (model correct)
+    versus the exact track end                     -41.7ms
+
+**41.708ms is exactly one frame at 24000/1001.** It was not rounding: it
+was the source-versus-played length disagreement above, netting one frame
+across the 19 disagreeing Akshita clips. Now zero, measured to 1e-12.
+The residual sub-millisecond terms are understood and are what
+sample-boundary and whole-millisecond rounding cost.

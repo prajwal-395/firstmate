@@ -31,23 +31,40 @@ Measured on the GEO Podcast field test, 2026-09-04: a 44.3-minute
 two-speaker timeline, 167 clips across two picture tracks, 7 source
 files, every path resolving on disk.
 
-Why seconds and not frames
---------------------------
-`GetSourceStartTime()`/`GetSourceEndTime()` are used, never
-`GetLeftOffset()`.  Two reasons, both measured:
+Frames, not `GetSourceStartTime` - and this cost a real defect
+---------------------------------------------------------------
+**`GetSourceStartFrame()`/`GetSourceEndFrame()` are FILE-RELATIVE.
+`GetSourceStartTime()`/`GetSourceEndTime()` are TIMECODE-ABSOLUTE.**
+They are not two spellings of one number, and using the wrong pair puts
+the range outside the file.
 
-- **They disagree.**  On the field-test timeline `GetLeftOffset()` and
-  `GetSourceStartFrame()` differ by exactly one frame on roughly a third
-  of items (1960 vs 1959, 5361 vs 5360, 117 vs 116) and agree on the
-  rest.  A frame of drift on a third of the clips is a transcript that
-  does not line up with its own audio.  `GetSourceStartTime()` is
-  consistent with `GetSourceStartFrame()`, so the time pair is the one
-  that agrees with itself.
-- **Seconds sidestep the audio frame rate.**  AGENTS.md section 5:
-  "Resolve audio pool items report 24fps regardless of the timeline."
-  A frame number read off an audio item therefore means something
-  different from the same number on a video item.  A time in seconds
-  means the same thing on both.
+This module originally used the TIME pair, on the reasoning that it
+"agrees with `GetSourceStartFrame()`".  It does - on a file whose Start
+Timecode is `00:00:00:00`.  The field test has seven source files and
+exactly ONE of them, `LC4930.MXF`, has a zero start timecode; it was the
+file the check was run against, so the one case that could not reveal the
+bug is the case that was measured.
+
+Measured properly, 2026-09-04, over all 167 clips of the field-test
+timeline:
+
+    GetSourceEndTime()  past the end of its file:  91 clips,
+                                                   worst overshoot 9094.5s
+    GetSourceEndFrame() past the end of its file:   0 clips
+
+For `LCATL0013.MXF` - Start TC `01:26:05:21`, 98292 frames - a clip at
+file frame 95 reports `GetSourceStartTime()` of 5169s, in a file 4099s
+long.  Extracting that span yields an EMPTY file, and ffmpeg exits 0
+while doing it.
+
+So: read FRAMES, convert with `exact_frame_rate`.  `GetLeftOffset()` is
+also file-relative but disagrees with `GetSourceStartFrame()` by a frame
+on about a third of items, so the frame pair is used for both ends.
+
+**A range is CHECKED against the media, never assumed** - see
+`verify_against_media`.  A claim about a file is checkable, so it is
+checked; that is the same standard `external_inputs` holds a supplied
+value to, and it is what would have caught this on day one.
 
 Speaker is a MEASUREMENT, not a guess
 -------------------------------------
@@ -105,7 +122,30 @@ class TimelineClip:
 
     source_in: float
     source_out: float
-    """The range inside `source_file`, in seconds. Ground truth."""
+    """The range inside `source_file` that ACTUALLY PLAYS, in seconds.
+
+    `source_out` is `source_in` plus the clip's TIMELINE duration, not
+    `GetSourceEndFrame()`. Measured 2026-09-04: on 50 of the field
+    test's 167 clips those two disagree by exactly one frame, in both
+    directions. The timeline duration is what Resolve renders - the same
+    PLAYED-versus-SOURCE distinction `library/tools/fusion/played_window.py`
+    already states for comp time - so it is what a caller extracting the
+    audio must use. Anything laying spans end to end by source length
+    while positioning them by timeline gaps drifts a frame per
+    disagreement."""
+
+    source_in_frame: int
+    source_out_frame: int
+    """Resolve's RAW frame report, file-relative and kept verbatim.
+    `source_out_frame` is the one that disagrees with the timeline
+    duration by a frame on about a third of clips; it is retained
+    because the exact bounds check is a frame comparison against
+    `source_frames`, and because a raw reading should be recoverable."""
+
+    source_frames: Optional[int]
+    """How many frames the MEDIA POOL says the source file holds. The
+    denominator of the only exact bounds check available without
+    re-probing the file."""
 
     timeline_start: float
     timeline_end: float
@@ -115,7 +155,15 @@ class TimelineClip:
 
     @property
     def duration(self) -> float:
+        """How long this clip occupies the timeline - the PLAYED length,
+        and the authoritative one for extracting its audio."""
         return self.timeline_end - self.timeline_start
+
+    @property
+    def source_length_disagrees(self) -> bool:
+        """True when Resolve's source frame count is not the played one."""
+        return (self.source_out_frame - self.source_in_frame) != round(
+            self.duration * 24000 / 1001) and self.source_frames is not None
 
 
 @dataclass(frozen=True)
@@ -247,6 +295,19 @@ def timeline_named(project, name: str):
 
 # ── Reading ──────────────────────────────────────────────────────────
 
+def _pool_frames(pool_item) -> Optional[int]:
+    """`Frames` off a media pool item, or None if it does not say.
+
+    Judged by what it RETURNS (AGENTS.md section 5) - the property is a
+    string on Resolve's proxies, and a missing one is the empty string
+    rather than an absent key.
+    """
+    try:
+        return int(pool_item.GetClipProperty("Frames"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _setting_int(timeline, key: str, label: str) -> int:
     raw = timeline.GetSetting(key)
     try:
@@ -300,6 +361,10 @@ def snapshot_timeline(timeline, project_name: str,
                 source_file = pool_item.GetClipProperty("File Path") or ""
                 if not source_file:
                     continue
+                # FRAMES, converted here - never GetSourceStartTime(),
+                # which is timecode-absolute and lands outside the file
+                # for any clip whose media has a non-zero start
+                # timecode. See the module docstring.
                 clips.append(TimelineClip(
                     resolve_item_id=item.GetUniqueId(),
                     track_type=track_type,
@@ -307,8 +372,15 @@ def snapshot_timeline(timeline, project_name: str,
                     track_name=track_name,
                     speaker=speaker,
                     source_file=source_file,
-                    source_in=float(item.GetSourceStartTime()),
-                    source_out=float(item.GetSourceEndTime()),
+                    source_in=item.GetSourceStartFrame() / fps,
+                    # The PLAYED range: in-point plus the timeline
+                    # duration. Never GetSourceEndFrame(), which
+                    # disagrees by a frame on about a third of clips.
+                    source_out=(item.GetSourceStartFrame() / fps
+                                + (item.GetEnd() - item.GetStart()) / fps),
+                    source_in_frame=int(item.GetSourceStartFrame()),
+                    source_out_frame=int(item.GetSourceEndFrame()),
+                    source_frames=_pool_frames(pool_item),
                     timeline_start=item.GetStart() / fps,
                     timeline_end=item.GetEnd() / fps,
                     name=item.GetName() or "",
@@ -331,6 +403,75 @@ def snapshot_timeline(timeline, project_name: str,
         end_frame=timeline.GetEndFrame(),
         clips=tuple(clips),
     )
+
+
+# ── Checking the snapshot against the media it names ─────────────────
+
+def verify_against_media(snapshot: TimelineSnapshot) -> List[str]:
+    """Every complaint about a clip's range, measured against its file.
+
+    Returns COMPLAINTS rather than raising, so a caller can report all of
+    them at once; `write_external` raises on a non-empty result, because
+    supplying a range that is not inside its file is supplying a false
+    ground truth.
+
+    This is the check that would have caught the
+    `GetSourceStartTime()` defect immediately, and it is cheap: one
+    `ffprobe` per DISTINCT source file, not per clip.  A claim about a
+    file on disk is checkable, so it gets checked.
+    """
+    from library.steps.step_1_02_catalog_footage.step import extract_metadata
+
+    durations: Dict[str, Optional[float]] = {}
+    complaints: List[str] = []
+    for clip in snapshot.clips:
+        # FIRST, and exactly: the frame range against the media pool's own
+        # frame count. No ffprobe, no floats.
+        #
+        # This is the check that catches the case the duration check
+        # CANNOT. When source ranges were read with GetSourceStartTime()
+        # they were displaced by the media's start timecode; for
+        # LC4932.MXF that is 512.9s inside a 4941s file, so 74 of 167
+        # clips asked for a real, in-bounds range holding COMPLETELY
+        # DIFFERENT speech. They extracted cleanly and passed every
+        # output-shaped guard. Only comparing the frame numbers to the
+        # file's own frame count finds them.
+        if clip.source_frames is not None:
+            if clip.source_out_frame > clip.source_frames:
+                complaints.append(
+                    f"{clip.resolve_item_id} plays "
+                    f"{os.path.basename(clip.source_file)} to frame "
+                    f"{clip.source_out_frame}, and the media pool reports "
+                    f"only {clip.source_frames} frames in it")
+            if clip.source_in_frame < 0:
+                complaints.append(
+                    f"{clip.resolve_item_id} starts at frame "
+                    f"{clip.source_in_frame}, before the file begins")
+        path = clip.source_file
+        if path not in durations:
+            if not os.path.isfile(path):
+                durations[path] = None
+            else:
+                measured = extract_metadata(path) or {}
+                durations[path] = measured.get("duration_seconds")
+        duration = durations[path]
+        if duration is None:
+            complaints.append(
+                f"{clip.resolve_item_id} plays {path}, which ffprobe "
+                f"cannot measure")
+            continue
+        if clip.source_out > duration + 0.05:
+            complaints.append(
+                f"{clip.resolve_item_id} on {clip.track_type}"
+                f"{clip.track_index} plays {os.path.basename(path)} to "
+                f"{clip.source_out:.2f}s, and the file is "
+                f"{duration:.2f}s long")
+        if clip.source_in < -0.05:
+            complaints.append(
+                f"{clip.resolve_item_id} starts at {clip.source_in:.2f}s, "
+                f"before the beginning of "
+                f"{os.path.basename(path)}")
+    return complaints
 
 
 # ── Turning a snapshot into checkable pipeline state ─────────────────
@@ -530,6 +671,20 @@ def write_external(project_folder, snapshot: TimelineSnapshot,
             f"nothing here builds {unknown}. This module supplies "
             f"{sorted(builders)}.")
 
+    # Never supply a range that is not inside its own file. A supplied
+    # value is CHECKED, and this is the half only the producer can
+    # check - `_check_a_roll_assignments` cross-checks durations only
+    # when a catalog is on file, and a timeline-entry run has none.
+    complaints = verify_against_media(snapshot)
+    if complaints:
+        shown = "\n  - ".join(complaints[:10])
+        more = (f"\n  ... and {len(complaints) - 10} more"
+                if len(complaints) > 10 else "")
+        raise TimelineIngestError(
+            f"{len(complaints)} clip range(s) are not inside the file "
+            f"they name, so this snapshot would supply a false ground "
+            f"truth:\n  - {shown}{more}")
+
     directory = external_dir(project_folder)
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -548,3 +703,82 @@ def snapshot_to_dict(snapshot: TimelineSnapshot) -> dict:
     body["clips"] = [asdict(c) for c in snapshot.clips]
     body["duration_seconds"] = snapshot.duration
     return body
+
+
+# ── CLI ──────────────────────────────────────────────────────────────
+
+def connect(project_name: str = "", timeline_name: str = ""):
+    """`(snapshot, project, timeline)` for the live Resolve session.
+
+    Both names come from the project's own `project.yaml` unless
+    overridden.  Nothing is opened: `resolve_project_exactly` refuses a
+    project that is not already the open one, because opening one is a
+    write to the captain's session.
+    """
+    # Through `marker_feedback.connect_resolve`, which owns the module
+    # path and already goes through `resolve_locale` (AGENTS.md 9 lists
+    # it as one of the two migrated call sites). Duplicating the setup
+    # here would add a ninth unmigrated one.
+    from library.tools.marker_feedback import ResolveUnavailable, connect_resolve
+
+    try:
+        resolve = connect_resolve()
+    except ResolveUnavailable as exc:
+        raise TimelineIngestError(
+            f"cannot reach Resolve: {exc} This reads a LIVE project, and a "
+            f"closed one is the case that stays withdrawn (see "
+            f"external_inputs.WITHDRAWN).") from exc
+    manager = resolve.GetProjectManager()
+    project = resolve_project_exactly(manager, project_name)
+    timeline = timeline_named(project, timeline_name)
+    return snapshot_timeline(timeline, project.GetName()), project, timeline
+
+
+def _names_from(project_folder: str):
+    from library.schemas.project_config import load_project_config
+    config = load_project_config(os.path.join(project_folder, "project.yaml"))
+    return config.resolve.project_name, config.resolve.timeline_name
+
+
+def main(argv=None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Read a live Resolve timeline as pipeline state.")
+    parser.add_argument("project_folder")
+    parser.add_argument("--project", default="",
+                        help="Resolve project name; default from project.yaml")
+    parser.add_argument("--timeline", default="",
+                        help="timeline name; default from project.yaml")
+    parser.add_argument("--write", action="store_true",
+                        help="write the supplied values into <project>/external/")
+    args = parser.parse_args(argv)
+
+    project_name, timeline_name = _names_from(args.project_folder)
+    snapshot, _project, _timeline = connect(args.project or project_name,
+                                            args.timeline or timeline_name)
+
+    print(f"{snapshot.project_name!r} / {snapshot.timeline_name!r}")
+    print(f"  {len(snapshot.clips)} clips, {snapshot.duration / 60:.1f} min, "
+          f"{snapshot.width}x{snapshot.height} @ {snapshot.reported_fps} "
+          f"(computed at {snapshot.fps})")
+    print(f"  speakers: {snapshot.speakers()}")
+
+    complaints = verify_against_media(snapshot)
+    if complaints:
+        print(f"  REFUSED: {len(complaints)} clip range(s) fall outside "
+              f"the file they name:")
+        for line in complaints[:10]:
+            print(f"    - {line}")
+        return 1
+    print(f"  every clip range verified inside its own source file")
+
+    if args.write:
+        for key, path in write_external(args.project_folder, snapshot).items():
+            print(f"  wrote {key} -> {path}")
+    else:
+        print("  (dry run; pass --write to supply these to the pipeline)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

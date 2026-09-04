@@ -189,6 +189,9 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 **A Resolve project is addressed by its EXACT listed name, never a prefix** - a near match lands elsewhere.
 Detail: `library/tools/timeline_ingest.py`.
 
+**Timeline speech is REBUILT from source, not rendered**
+Detail: `library/tools/timeline_transcript.py`.
+
 ### Process isolation
 
 Never create a timeline and use `ImportFusionComp` in the same Python process.
@@ -236,11 +239,7 @@ Detail: `library/tools/fusion/effects.py`.
 ### Tracks
 
 **Per-clip Fusion comps reach V1 AND V2.**
-Detail: `library/tools/execution/fusion_tracks.py`.
-
 **A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**
-Detail: `library/tools/execution/fusion_tracks.py`.
-
 **A3 is a logical SFX bucket, and TWO SOUNDS AT ONE SPAN IS LAYERING.**
 Detail: `library/tools/execution/fusion_tracks.py`.
 
@@ -296,19 +295,13 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 ### Where a project's files go
 
 **One module owns the project-side layout: `library/tools/project_layout.py`.**
-Detail: `library/tools/project_layout.py`.
-
 **`pipeline_output/steps/` IS the pipeline.**
-Detail: `library/tools/project_layout.py`.
-
 **Backups of `pipeline_data.json` are automatic and bounded.**
 Detail: `library/tools/project_layout.py`.
 
 ### Reading a run back
 
 **The layout answers "which step wrote this" by where the file is. Provenance adds WHICH RUN and FROM WHAT.**
-Detail: `library/tools/provenance.py`.
-
 **Never attribute a file to the nearest plausible step.**
 Detail: `library/tools/provenance.py`.
 
@@ -421,8 +414,6 @@ Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#vi
 Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
 
 **A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
-Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
-
 **A project's own declarations reach every step through `state["project_config"]`.**
 Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
@@ -497,6 +488,9 @@ Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVID
 **A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
 Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
+**A project may caption each speaker differently, and the engine declares no per-speaker values.**
+Detail: `library/tools/subtitle_style.py`.
+
 **A rendered subtitle segment is named for its speaker, timeline and source audio span.**
 Detail: `library/tools/subtitle_segment_id.py`.
 
@@ -552,6 +546,9 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why - the fo
 
 ### 10.4 Gates, and what counts as evidence
 
+**A reel is BUILT only once the captain approves it, and PROPOSED fails that gate as REJECTED does.**
+Detail: `library/tools/reel_proposal.py`.
+
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
@@ -571,22 +568,12 @@ Detail: `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-te
 If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
 **Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
-Detail: `library/tools/render_qa.py`.
-
-`render_qa.py` measures the RENDER:
-Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
-
+`render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 **`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
+`manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+Chroma and the mix REPORT A NUMBER and pass. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+`SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 Detail: `library/tools/render_qa.py`.
-
-`manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
-Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
-
-Chroma and the mix REPORT A NUMBER and pass.
-Detail: `library/tools/render_qa.py`. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
-
-`SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION.
-Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.**
 Detail: `library/tools/music_behavior.py`.

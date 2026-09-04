@@ -59,6 +59,13 @@ def generate_subtitle_props_per_block(
             "inert."
         )
 
+    # A project may caption each speaker differently. 4.01 resolved one
+    # style per speaker and grouped the captions with THAT style's
+    # metrics, so rendering them with the shared style would draw cards
+    # the grouper never measured. Absent for a project that declared no
+    # speaker styles, which then renders exactly as before.
+    styles_by_speaker = subtitle_data.get('styles_by_speaker') or {}
+
     # Group entries by spine_block_position
     block_groups: dict[int, list] = {}
     for entry in entries:
@@ -75,6 +82,12 @@ def generate_subtitle_props_per_block(
         block_entries = block_groups[block_pos]
         
         block_info = block_lookup.get(block_pos)
+        # The spine block names the speaker where the edit provides one;
+        # an entry carries it too, for a plan whose spine did not.
+        block_speaker = ((block_info or {}).get("speaker")
+                         or next((e.get("speaker") for e in block_entries
+                                  if e.get("speaker")), None))
+        block_style = styles_by_speaker.get(block_speaker) or style
         # 4.01 subtitle_entries are already in the timeline domain.
         # No offset should be applied here.
 
@@ -165,7 +178,7 @@ def generate_subtitle_props_per_block(
             "width": width,
             "height": height,
             "durationInFrames": total_frames,
-            "style": style,
+            "style": block_style,
             # Metadata for placement (not consumed by Remotion).
             # timeline bounds are the block's TRUE content bounds; the
             # source_in/out frames trim the render padding.
@@ -180,7 +193,7 @@ def generate_subtitle_props_per_block(
             # library/tools/subtitle_segment_id.py - an ordinal collides
             # the moment a second timeline exists.  `block_info` was
             # already looked up above and previously went unread.
-            "_speaker": (block_info or {}).get("speaker"),
+            "_speaker": block_speaker,
             "_source_clip_id": (block_info or {}).get("clip_id"),
             "_source_start": (block_info or {}).get("source_start"),
             "_source_end": (block_info or {}).get("source_end"),
