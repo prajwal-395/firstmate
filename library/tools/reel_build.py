@@ -456,7 +456,11 @@ def rebuild_reels_in_project(project_slug: str):
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)
         
-    resolve_name = config.get("resolve", {}).get("project_name", os.path.basename(project_slug))
+    resolve_config = config.get("resolve", {})
+    resolve_name = resolve_config.get("project_name", os.path.basename(project_slug))
+    master_timeline_name = resolve_config.get("timeline_name")
+    if not master_timeline_name:
+        raise ValueError("Missing 'timeline_name' under 'resolve' in project.yaml")
     
     project = resolve_project_exactly(pm, resolve_name)
         
@@ -473,12 +477,12 @@ def rebuild_reels_in_project(project_slug: str):
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):
         t = project.GetTimelineByIndex(i)
-        if t.GetName() == "GEO Podcast - Synced":
+        if t.GetName() == master_timeline_name:
             timeline = t
             break
             
     if not timeline:
-        raise ValueError("Could not find master timeline GEO Podcast - Synced")
+        raise ValueError(f"Could not find master timeline {master_timeline_name}")
         
     snapshot = snapshot_timeline(timeline, project.GetName())
     master_clips = snapshot.clips
@@ -514,6 +518,13 @@ def rebuild_reels_in_project(project_slug: str):
             transcript=transcript
         )
 
+    verify_built_reels(
+        project_folder=project_folder,
+        resolve_project_name=resolve_name,
+        master_timeline_name=master_timeline_name,
+        plan_path=proposal_path,
+        transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")
+    )
 
 def calculate_snapped_records(placements_list: list[dict], fps: float) -> None:
     """Pre-calculate record frames to eliminate rounding gaps (F3)"""
@@ -534,3 +545,51 @@ def calculate_snapped_records(placements_list: list[dict], fps: float) -> None:
                 
         p["snapped_record"] = ideal_record
         track_cursors[track_key] = ideal_record + duration_frames
+
+def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str) -> None:
+    """Run the reel conformance verifier as a quality gate after building reels.
+    
+    If the verifier finds ANY errors, this raises a RuntimeError with the findings,
+    failing the build. The raw JSON and human-readable table are preserved in 
+    the project's pipeline_output/review directory.
+    """
+    import os
+    import json
+    
+    out_dir = os.path.join(project_folder, "pipeline_output", "review")
+    os.makedirs(out_dir, exist_ok=True)
+    json_path = os.path.join(out_dir, "conformance_report.json")
+    
+    try:
+        from library.tools.reel_conformance_verifier import run_verification
+    except ImportError as e:
+        raise RuntimeError(f"Reel conformance verifier is unavailable: {e}")
+        
+    try:
+        with open(transcript_path, 'r', encoding='utf-8') as f:
+            transcript = json.load(f)
+            
+        exit_code = run_verification(
+            project_name=resolve_project_name,
+            master_name=master_timeline_name,
+            plan_path=plan_path,
+            transcript=transcript,
+            json_path=json_path
+        )
+    except Exception as e:
+        raise RuntimeError(f"Reel conformance verifier failed to run: {e}")
+        
+    if exit_code == 1:
+        findings_msg = "See conformance_report.json for details."
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    report = json.load(f)
+                errors = [f for f in report.get("findings", []) if f.get("severity") == "error"]
+                if errors:
+                    findings_msg = json.dumps(errors, indent=2)
+            except Exception:
+                pass
+        raise RuntimeError(f"Reel build produced a defective timeline. Verification failed with findings:\n{findings_msg}")
+    elif exit_code == 2:
+        raise RuntimeError("Reel conformance verifier encountered a fatal error (e.g. timeline changed during verification).")

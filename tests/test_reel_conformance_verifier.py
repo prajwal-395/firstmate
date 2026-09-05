@@ -175,18 +175,19 @@ class TestF1PictureHoles:
         items = (
             # V2 track: Craig clips at [0,589) and [1076,1140) - gap at 589
             _item("video", 2, 0, 589, speaker="Craig"),
-            _item("video", 2, 590, 1140, speaker="Craig"),
+            _item("video", 2, 1076, 1140, speaker="Craig"),
             # V1 track: Akshita clips at [590,1075) and [1141,1269) - gap at 1075
-            _item("video", 1, 0, 1075),
-            _item("video", 1, 1076, 1269),
+            _item("video", 1, 590, 1075),
+            _item("video", 1, 1141, 1269),
         )
         findings = check_picture_holes("Reel 01", items)
-        # Two gaps: one on V2 at 589, one on V1 at 1075
-        assert len(findings) == 2
+        # Three global gaps: 589, 1075, 1140
+        assert len(findings) == 3
         assert all(f.finding_class == FindingClass.F1 for f in findings)
         gap_frames = {f.detail["frame"] for f in findings}
         assert 589 in gap_frames
         assert 1075 in gap_frames
+        assert 1140 in gap_frames
 
     def test_no_gap_reports_nothing(self):
         """Contiguous clips produce no findings."""
@@ -195,6 +196,16 @@ class TestF1PictureHoles:
             _item("video", 1, 594, 1080),
         )
         findings = check_picture_holes("Reel 01", items)
+        assert len(findings) == 0
+
+    def test_covered_gap_reports_nothing(self):
+        """A gap on V1 is completely covered by a clip on V2."""
+        items = (
+            _item("video", 1, 0, 100),
+            _item("video", 1, 200, 300),
+            _item("video", 2, 80, 220), # Covers the 100-200 gap perfectly
+        )
+        findings = check_picture_holes("Reel 02", items)
         assert len(findings) == 0
 
     def test_two_frame_gap(self):
@@ -247,7 +258,7 @@ class TestF2CaptionDuration:
         planned = (PlannedCaption(
             start_seconds=1.0, end_seconds=2.0,
             text="hello world", speaker="Akshita", frames=24),)
-        actual = (_item("video", 3, 24, 47, name="akshita_01"),)
+        actual = (_item("video", 2, 24, 47, name="akshita_01"),)
         # actual duration = 47 - 24 = 23, planned = 24, delta = -1
         findings = check_caption_duration("Reel 01", planned, actual, FPS)
         assert len(findings) == 1
@@ -259,7 +270,7 @@ class TestF2CaptionDuration:
         planned = (PlannedCaption(
             start_seconds=1.0, end_seconds=2.0,
             text="hello world", speaker="Akshita", frames=24),)
-        actual = (_item("video", 3, 24, 48, name="akshita_01"),)
+        actual = (_item("video", 2, 24, 48, name="akshita_01"),)
         findings = check_caption_duration("Reel 01", planned, actual, FPS)
         assert len(findings) == 0
 
@@ -366,6 +377,20 @@ class TestF4ItemCount:
         actual = (
             _item("video", 1, 0, int(25 * FPS)),
             _item("video", 2, 0, int(25 * FPS), speaker="Craig"),
+        )
+        findings = check_item_count("Reel 01", planned, actual, FPS)
+        assert len(findings) == 0
+
+    def test_speakers_on_numbered_tracks_mapped_correctly(self):
+        """Timeline tracks Video 1 and Video 2 are mapped to speakers using the plan."""
+        planned = (
+            _placement(1, 0.0, 27.30, "Akshita"),
+            _placement(2, 0.0, 27.30, "Craig"),
+        )
+        actual = (
+            # No speaker name on the items, simulating bare "Video 1" and "Video 2" tracks
+            _item("video", 1, 0, int(27.30 * FPS), speaker="Video 1"),
+            _item("video", 2, 0, int(27.32 * FPS), speaker="Video 2"),
         )
         findings = check_item_count("Reel 01", planned, actual, FPS)
         assert len(findings) == 0
@@ -720,10 +745,10 @@ class TestF11SubtitleStyling:
         verified for per-speaker styling.  The check must SAY SO rather
         than returning clean."""
         captions = (
-            _item("video", 3, 0, int(5 * FPS),
+            _item("video", 2, 0, int(5 * FPS),
                   name="caption_block_0.mov",
                   source_file="/overlays/caption_block_0.mov"),
-            _item("video", 3, int(5 * FPS), int(10 * FPS),
+            _item("video", 2, int(5 * FPS), int(10 * FPS),
                   name="caption_block_1.mov",
                   source_file="/overlays/caption_block_1.mov"),
         )
@@ -742,10 +767,10 @@ class TestF11SubtitleStyling:
         file means identical rendering."""
         shared_source = "/overlays/sub_synced_shared_body0_0-1000_abc123.mov"
         captions = (
-            _item("video", 3, 0, int(5 * FPS),
+            _item("video", 2, 0, int(5 * FPS),
                   name="sub_synced_akshita_body0_0-1000_abc123.mov",
                   source_file=shared_source),
-            _item("video", 3, int(5 * FPS), int(10 * FPS),
+            _item("video", 2, int(5 * FPS), int(10 * FPS),
                   name="sub_synced_craig_body0_1000-2000_def456.mov",
                   source_file=shared_source),
         )
@@ -1063,3 +1088,18 @@ class TestCLI:
         # Should exit 2 (fatal) because Resolve is not running in CI
         assert code == 2
 
+
+    def test_unmapped_track_distinct_finding(self):
+        """A track that cannot be mapped to a speaker is reported distinctly."""
+        planned = (
+            _placement(1, 0.0, 27.30, "Akshita"),
+        )
+        actual = (
+            _item("video", 1, 0, int(27.30 * FPS), speaker="Akshita"),
+            _item("video", 2, 0, 120, speaker="UnknownSpeaker"), # Not in plan!
+        )
+        findings = check_item_count("Reel 01", planned, actual, FPS)
+        unmapped_findings = [f for f in findings if "could not be mapped" in f.message]
+        assert len(unmapped_findings) == 1
+        assert unmapped_findings[0].detail["track"] == 2
+        assert unmapped_findings[0].detail["unmapped_duration"] == round(120 / FPS, 2)

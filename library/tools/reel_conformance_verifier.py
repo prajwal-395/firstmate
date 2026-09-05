@@ -225,79 +225,72 @@ def check_picture_holes(reel_name: str,
                         video_items: Sequence[TimelineItem],
                         master_holes: Optional[Sequence[dict]] = None,
                         ) -> List[Finding]:
-    """F1: Find every gap between consecutive video items on each track.
+    """F1: Find every gap across the union of all picture tracks.
 
-    A gap is a span where no picture item exists - a black frame.  The
-    audit found 53 such holes, 52 of them exactly one frame, caused by
-    the builder placing each clip one frame too short.
-
-    Distinguished from F3 (master-inherited holes) when master_holes
-    is provided.  A hole that exists in the master at the same position
-    is F3 (warning); a hole the builder introduced is F1 (error).
+    A gap is a span where no picture item exists across ANY track - a genuine black frame.
+    Distinguished from F3 (master-inherited holes) when master_holes is provided.
     """
     findings: List[Finding] = []
+    
+    global_coverage = []
+    sorted_all = sorted(video_items, key=lambda i: i.start_frame)
+    if sorted_all:
+        c_start, c_end = sorted_all[0].start_frame, sorted_all[0].end_frame
+        for item in sorted_all[1:]:
+            if item.start_frame <= c_end:
+                c_end = max(c_end, item.end_frame)
+            else:
+                global_coverage.append((c_start, c_end))
+                c_start, c_end = item.start_frame, item.end_frame
+        global_coverage.append((c_start, c_end))
+
+    global_gaps = []
+    for i in range(len(global_coverage) - 1):
+        global_gaps.append((global_coverage[i][1], global_coverage[i+1][0]))
+
     by_track: Dict[int, List[TimelineItem]] = {}
     for item in video_items:
         by_track.setdefault(item.track_index, []).append(item)
 
-    master_hole_set = set()
-    if master_holes:
-        for hole in master_holes:
-            # master_holes entries have 'frame' and 'length' keys
-            master_hole_set.add((hole.get("frame"), hole.get("length")))
+    for g_start, g_end in global_gaps:
+        gap = g_end - g_start
+        if gap > 0:
+            tracks_with_gaps = []
+            for track, items in sorted(by_track.items()):
+                s_items = sorted(items, key=lambda i: i.start_frame)
+                for i in range(len(s_items) - 1):
+                    if s_items[i].end_frame <= g_start and s_items[i+1].start_frame >= g_end:
+                        tracks_with_gaps.append(track)
+                        break
+            
+            track_msg = f"V{tracks_with_gaps[0]}" if len(tracks_with_gaps) == 1 else "The timeline"
+            track_val = tracks_with_gaps[0] if tracks_with_gaps else None
+            
+            is_master_hole = False
+            if master_holes is not None:
+                for mh in master_holes:
+                    mh_len = mh.get("length", 0)
+                    if (abs(gap - mh_len) <= 2 and gap > 2):
+                        is_master_hole = True
+                        break
 
-    for track, items in sorted(by_track.items()):
-        sorted_items = sorted(items, key=lambda i: i.start_frame)
-        for i in range(len(sorted_items) - 1):
-            curr = sorted_items[i]
-            nxt = sorted_items[i + 1]
-            gap = nxt.start_frame - curr.end_frame
-            if gap > 0:
-                # Check if this is a master-inherited hole (F3)
-                is_master_hole = False
-                if master_holes is not None:
-                    for mh in master_holes:
-                        mh_frame = mh.get("frame", -1)
-                        mh_len = mh.get("length", 0)
-                        # The master hole maps into the reel: check if
-                        # the gap at curr.end_frame corresponds to a
-                        # master hole.  Approximate match - the reel's
-                        # frame position may differ from the master's.
-                        if (abs(gap - mh_len) <= 2 and gap > 2):
-                            is_master_hole = True
-                            break
+            if is_master_hole:
+                findings.append(Finding(
+                    finding_class=FindingClass.F3,
+                    reel=reel_name,
+                    message=f"{track_msg} has a {gap}-frame picture hole at frame {g_start}, inherited from the master timeline",
+                    severity="warning",
+                    detail={"track": track_val, "frame": g_start, "gap_frames": gap, "inherited": True, "tracks": tracks_with_gaps}
+                ))
+            else:
+                findings.append(Finding(
+                    finding_class=FindingClass.F1,
+                    reel=reel_name,
+                    message=f"{track_msg} has a {gap}-frame black hole at frame {g_start}",
+                    severity="error",
+                    detail={"track": track_val, "frame": g_start, "gap_frames": gap, "inherited": False, "tracks": tracks_with_gaps}
+                ))
 
-                if is_master_hole:
-                    findings.append(Finding(
-                        finding_class=FindingClass.F3,
-                        reel=reel_name,
-                        message=(
-                            f"V{track} has a {gap}-frame picture hole at "
-                            f"frame {curr.end_frame}, inherited from the "
-                            f"master timeline"),
-                        severity="warning",
-                        detail={
-                            "track": track,
-                            "frame": curr.end_frame,
-                            "gap_frames": gap,
-                            "inherited": True,
-                        },
-                    ))
-                else:
-                    findings.append(Finding(
-                        finding_class=FindingClass.F1,
-                        reel=reel_name,
-                        message=(
-                            f"V{track} has a {gap}-frame black hole at "
-                            f"frame {curr.end_frame}"),
-                        severity="error",
-                        detail={
-                            "track": track,
-                            "frame": curr.end_frame,
-                            "gap_frames": gap,
-                            "inherited": False,
-                        },
-                    ))
     return findings
 
 
@@ -374,18 +367,53 @@ def check_item_count(reel_name: str,
 
     # Per-speaker duration comparison
     planned_by_speaker: Dict[str, float] = {}
+    track_to_speaker: Dict[int, str] = {}
     for p in planned_placements:
         speaker = p.speaker or "unknown"
         planned_by_speaker[speaker] = (
             planned_by_speaker.get(speaker, 0.0)
             + (p.source_out - p.source_in))
+        if speaker != "unknown":
+            track_to_speaker[p.track_index] = speaker
 
     actual_by_speaker: Dict[str, float] = {}
+    unmapped_duration: Dict[int, float] = {}
+    track_names: Dict[int, str] = {}
+
     for item in actual_picture:
-        speaker = item.speaker or "unknown"
+        if item.speaker:
+            track_names[item.track_index] = item.speaker
+            
+        speaker = track_to_speaker.get(item.track_index)
+        if not speaker:
+            # Fall back to timeline's track names if they match a planned speaker
+            if item.speaker and item.speaker in planned_by_speaker:
+                speaker = item.speaker
+            else:
+                unmapped_duration[item.track_index] = (
+                    unmapped_duration.get(item.track_index, 0.0)
+                    + item.duration_frames / fps)
+                continue
+
         actual_by_speaker[speaker] = (
             actual_by_speaker.get(speaker, 0.0)
             + item.duration_frames / fps)
+
+    for track_idx, dur in sorted(unmapped_duration.items()):
+        name_str = f"named '{track_names[track_idx]}'" if track_names.get(track_idx) else "unnamed"
+        findings.append(Finding(
+            finding_class=FindingClass.F4,
+            reel=reel_name,
+            message=(
+                f"Track V{track_idx} ({name_str}) has {dur:.2f}s of video, "
+                f"but could not be mapped to any speaker in the plan."
+            ),
+            severity="error",
+            detail={
+                "track": track_idx,
+                "unmapped_duration": round(dur, 2)
+            },
+        ))
 
     for speaker in set(list(planned_by_speaker) + list(actual_by_speaker)):
         planned_s = planned_by_speaker.get(speaker, 0.0)

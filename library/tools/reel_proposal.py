@@ -534,8 +534,7 @@ def overlaps_picture_hole(moment: ReelMoment,
                 f"contains a picture hole at "
                 f"{overlap_start:.2f}-{overlap_end:.2f}s "
                 f"({hole_dur:.1f}s hole in the master). "
-                f"A reel selected over a hole will play black, and "
-                f"the model cannot see where the holes are."
+                f"A reel selected over a hole will play black."
             )
     return None
 
