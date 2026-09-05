@@ -1568,7 +1568,22 @@ def build_timeline(
         cmd = [sys.executable, script_path, temp_manifest]
         if project_folder:
             cmd += ["--project-folder", project_folder]
+        # ── Destination guard ──
+        # Tell the subprocess which project and timeline it must find
+        # current before writing any Fusion comp.  The subprocess
+        # verifies immediately before its first mutation and refuses on
+        # mismatch, which is the guard against H2 (the wrong-destination
+        # hazard where ImportFusionComp lands on the captain's rough
+        # cut because the same footage matches on both timelines).
+        #
+        # project.GetName() is the EXACT listed name (AGENTS.md section
+        # 5); timeline_name is the name build_timeline just created.
+        current_project_name = project.GetName()
+        cmd += ["--expected-project", current_project_name]
+        cmd += ["--expected-timeline", timeline_name]
         print(f"\n── Launching subprocess for Fusion Comps ──", file=sys.stderr)
+        print(f"  expected: project={current_project_name!r} "
+              f"timeline={timeline_name!r}", file=sys.stderr)
         # BOUNDED. This call had no timeout, and it is the one subprocess in
         # the renderer that talks to Resolve from a second process - so when
         # Resolve does not answer, it waits forever. That is not only a test
@@ -1598,8 +1613,18 @@ def build_timeline(
         if proc is None:
             pass
         elif proc.returncode != 0:
-            results["warnings"].append(f"Fusion subprocess failed: {proc.stderr}")
+            # A non-zero return from a subprocess that mutates the captain's
+            # project is an ERROR, not a warning.  The comps it claims it
+            # drew may be on the wrong timeline (destination mismatch),
+            # partially applied, or absent, and the parent cannot tell which.
+            # Downgrading this to a warning allowed a destination-mismatch
+            # refusal to read as a soft problem the build survived, when in
+            # fact no comps reached the intended timeline.
+            msg = f"Fusion subprocess failed (exit {proc.returncode}): {proc.stderr}"
+            results["errors"].append(msg)
             print(f"  ✗ Fusion Comps Subprocess Failed", file=sys.stderr)
+            if proc.stderr:
+                print(proc.stderr, file=sys.stderr)
         else:
             print(proc.stderr, file=sys.stderr)
             

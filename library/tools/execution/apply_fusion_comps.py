@@ -87,12 +87,78 @@ def _source_resolution(mpi):
     return (width, height)
 
 
+class DestinationMismatchError(Exception):
+    """Raised when the current Resolve project or timeline does not match
+    the expected destination.
+
+    This is the REFUSAL that prevents the Fusion subprocess from writing
+    comps onto the wrong timeline.  The subprocess is launched as a
+    separate process (because ImportFusionComp cannot share a process
+    with timeline creation), and between launch and first mutation the
+    current project or timeline can change - eleven live davinci-resolve-mcp
+    server processes were measured on this machine, each able to call
+    SetCurrentTimeline.  Verify-immediately-before-and-refuse is what
+    protects a write from a mutator that never agreed to any lock.
+    """
+
+
+def verify_destination(resolve, expected_project, expected_timeline):
+    """Check that the current Resolve project and timeline match expectations.
+
+    Must be called IMMEDIATELY before the first mutation, not at import
+    time or argument parsing time - the window between check and use must
+    be as small as possible.
+
+    Returns (project, timeline) on success.
+    Raises DestinationMismatchError on any mismatch.
+    """
+    pm = resolve.GetProjectManager()
+    project = pm.GetCurrentProject()
+    if not project:
+        raise DestinationMismatchError(
+            "No Resolve project is open. Expected project "
+            f"{expected_project!r}, timeline {expected_timeline!r}."
+        )
+
+    actual_project = project.GetName()
+    if actual_project != expected_project:
+        raise DestinationMismatchError(
+            f"Wrong Resolve project: expected {expected_project!r}, "
+            f"got {actual_project!r}. Refusing to write Fusion comps "
+            f"onto the wrong project."
+        )
+
+    timeline = project.GetCurrentTimeline()
+    if not timeline:
+        raise DestinationMismatchError(
+            f"No timeline is current in project {actual_project!r}. "
+            f"Expected timeline {expected_timeline!r}."
+        )
+
+    actual_timeline = timeline.GetName()
+    if actual_timeline != expected_timeline:
+        raise DestinationMismatchError(
+            f"Wrong timeline: expected {expected_timeline!r}, "
+            f"got {actual_timeline!r} in project {actual_project!r}. "
+            f"Refusing to write Fusion comps onto the wrong timeline."
+        )
+
+    return project, timeline
+
+
 def _map_clips_to_items(clips, items):
     """Match one track's manifest clip specs to the items really placed.
 
     A spec that names no source file, or whose file does not match the
     next unconsumed item, is skipped rather than guessed at: the index is
     what decides which clip a comp lands on.
+
+    Matching is by FULL PATH only.  The basename fallback that used to
+    sit here was the exact defect H2 describes: the captain's rough cut
+    is built from the same footage, so on the wrong timeline the matcher
+    does not fail - it SUCCEEDS, and writes Fusion comps onto the wrong
+    clips.  A matcher that succeeds against wrong material is worse than
+    one that fails.
     """
     mapping = {}
     item_idx = 0
@@ -104,28 +170,42 @@ def _map_clips_to_items(clips, items):
             continue
         mpi = items[item_idx].GetMediaPoolItem()
         mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
-        if mpi_path == src or os.path.basename(mpi_path) == os.path.basename(src):
+        if mpi_path == src:
             mapping[orig_ci] = item_idx
             item_idx += 1
     return mapping
 
 
-def apply_fusion_comps(manifest, project_folder):
+def apply_fusion_comps(manifest, project_folder,
+                       expected_project=None, expected_timeline=None):
     resolve = dvr.scriptapp("Resolve")
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
         return False
-        
-    pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-    if not project:
-        print("ERROR: No project open.", file=sys.stderr)
-        return False
-        
-    timeline = project.GetCurrentTimeline()
-    if not timeline:
-        print("ERROR: No timeline open.", file=sys.stderr)
-        return False
+
+    # ── Destination guard ──
+    # Verify IMMEDIATELY before the first mutation.  The subprocess is
+    # handed its expected destination across the process boundary; if what
+    # Resolve reports does not match, refuse loudly rather than writing
+    # comps onto the captain's rough cut.
+    if expected_project and expected_timeline:
+        try:
+            project, timeline = verify_destination(
+                resolve, expected_project, expected_timeline)
+        except DestinationMismatchError as exc:
+            print(f"DESTINATION MISMATCH: {exc}", file=sys.stderr)
+            return False
+    else:
+        pm = resolve.GetProjectManager()
+        project = pm.GetCurrentProject()
+        if not project:
+            print("ERROR: No project open.", file=sys.stderr)
+            return False
+
+        timeline = project.GetCurrentTimeline()
+        if not timeline:
+            print("ERROR: No timeline open.", file=sys.stderr)
+            return False
         
     fps = float(timeline.GetSetting("timelineFrameRate") or 30)
     
@@ -492,6 +572,12 @@ if __name__ == "__main__":
                         help="Project directory - where the custom asset "
                              "bank lives. Without it the bank was keyed to "
                              "the temp directory the manifest was written to")
+    parser.add_argument("--expected-project", default=None,
+                        help="Resolve project name the subprocess expects to "
+                             "find current. Mismatch refuses all mutations.")
+    parser.add_argument("--expected-timeline", default=None,
+                        help="Resolve timeline name the subprocess expects to "
+                             "find current. Mismatch refuses all mutations.")
     args = parser.parse_args()
 
     with open(args.manifest) as f:
@@ -499,5 +585,9 @@ if __name__ == "__main__":
 
     project_folder = args.project_folder or os.path.abspath(
         os.path.dirname(args.manifest))
-    success = apply_fusion_comps(manifest, project_folder)
+    success = apply_fusion_comps(
+        manifest, project_folder,
+        expected_project=args.expected_project,
+        expected_timeline=args.expected_timeline,
+    )
     sys.exit(0 if success else 1)
