@@ -41,13 +41,6 @@
         "type": "int",
         "description": "State output: total_a_roll_segments"
       }
-    ],
-    "preconditions": [
-      "'audio_spine' exists in state",
-      "'clip_catalog' exists in state"
-    ],
-    "postconditions": [
-      "'a_roll_assignments' is written to state"
     ]
   },
   "classification": {

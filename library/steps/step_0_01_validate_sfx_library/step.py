@@ -48,14 +48,41 @@ from library.tools.sfx_library import (  # noqa: E402
 )
 
 
+class SfxLibraryInvalid(Exception):
+    """The library cannot serve a run, and says so carrying its status.
+
+    This was `_fail()`: a module-level function that wrote to stdout and
+    then killed the process.  Both halves still happen - `main()` emits
+    the same payload and still exits 1 - but at the process boundary, so
+    a caller that is not a process gets an exception it can catch.
+    """
+
+    def __init__(self, status: dict):
+        self.status = status
+        super().__init__(status.get("error", "sfx library invalid"))
+
+
 def _fail(status: dict) -> None:
-    json.dump({"sfx_library_status": status}, sys.stdout, indent=2)
-    sys.exit(1)
+    raise SfxLibraryInvalid(status)
 
 
-def main():
-    data = json.loads(sys.stdin.read())
-    sfx_library = data.get("sfx_library", "")
+def validate_sfx_library(inputs: dict) -> dict:
+    """Check the SFX library can actually serve a run.
+
+    Returns the status dict.  Raises `SfxLibraryInvalid` carrying the
+    same status where the library cannot: no path, no directory, no
+    readable index, nothing playable, or an empty catalogue.
+
+    Takes the step's INPUTS rather than the resolved path, and reads
+    `sfx_library` off them here, because this is the refusal that makes
+    the manifest's `required: true` true.  `input_contract.read_step_code`
+    finds it by binding the declared key to a name and then seeing a
+    guard on that name exit; lifting the read into `main()` and passing
+    a bare string moved the binding out of the guard's reach, and the
+    survey reported `sfx_library` as declared-required-but-unenforced.
+    See library/tools/input_contract.py.
+    """
+    sfx_library = inputs.get("sfx_library", "")
 
     if not sfx_library:
         _fail({
@@ -150,6 +177,17 @@ def main():
           f"{len(playable)} playable, {len(catalog)} in the catalogue, "
           f"{described} described, VALID",
           file=sys.stderr)
+
+    return status
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    try:
+        status = validate_sfx_library(data)
+    except SfxLibraryInvalid as invalid:
+        json.dump({"sfx_library_status": invalid.status}, sys.stdout, indent=2)
+        sys.exit(1)
 
     json.dump({"sfx_library_status": status}, sys.stdout, indent=2)
 

@@ -78,18 +78,6 @@
         "type": "object",
         "description": "State output: rough_cut_review"
       }
-    ],
-    "preconditions": [
-      "'a_roll_assignments' exists in state",
-      "'b_roll_assignments' exists in state",
-      "'b_roll_interjections' exists in state",
-      "'audio_spine' exists in state",
-      "'speech_sequence' exists in state",
-      "'creative_direction' exists in state"
-    ],
-    "postconditions": [
-      "'rough_cut_review' is written to state",
-      "'rough_cut_review.passed' is true OR 'rough_cut_review.rejection_reasons' is non-empty"
     ]
   },
   "classification": {

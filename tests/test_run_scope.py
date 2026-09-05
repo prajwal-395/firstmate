@@ -229,11 +229,53 @@ def test_only_runs_the_step_and_what_it_cannot_run_without(dag, manifests):
     scope = _resolve(Selection(only=("plan_subtitles",)), dag, manifests)
     assert "plan_subtitles" in scope.steps_to_run
     # Its hard parents come with it.
-    for parent in ("mesh_spine", "speech_sequence", "review_rough_cut"):
+    for parent in ("mesh_spine", "review_rough_cut"):
         assert parent in scope.steps_to_run
     # Its consumers do not.
     assert "compile_manifest" not in scope.steps_to_run
     assert "render" not in scope.steps_to_run
+
+
+def test_only_does_not_drag_in_a_producer_of_a_value_nothing_reads(
+        dag, manifests):
+    """`--only plan_subtitles` used to pull `review_rough_cut` and
+    `speech_sequence` in as HARD parents.
+
+    Both were declared `required: true` on 4.01 and neither is read by
+    its code, which reads `audio_spine`, `brand_effect`, `brand_style`
+    and `project_folder` and nothing else. The closure is derived from
+    `inputs[].required`, so a false declaration became a real cost: the
+    captain's own example - "regenerate just this small segment of
+    subtitles" - could not be expressed at all. Following the runner's
+    own remediation advice converged, in three rounds, on advising you to
+    skip `plan_subtitles` itself.
+
+    Both are now declared optional, and the requirement they were
+    standing in for is executable instead
+    (`requirements.spine.word_timings`). The DAG edges are unchanged, so
+    the values still arrive; they are simply no longer a refusal.
+    """
+    hard = run_scope.hard_requirements(dag, manifests)["plan_subtitles"]
+
+    assert "speech_sequence" not in hard, (
+        "4.01 declares speech_sequence a hard parent again, for a value "
+        "its code never names")
+
+    # `review_rough_cut` IS still a hard parent, and deliberately so.
+    # That declaration is the captain's open `rough-cut-gate-on-reentry`
+    # decision, not a tidy-up: relaxing it here would answer them in the
+    # delete direction. It stays until they rule.
+    assert "review_rough_cut" in hard
+
+    # `speech_sequence` is still in the RUN, and correctly so: it is a
+    # hard parent of `mesh_spine`, which really does read it. The
+    # declaration that was false was 4.01's, not 2.05's - worth pinning,
+    # because "it still appears" is not the same as "the fix did
+    # nothing".
+    scope = _resolve(Selection(only=("plan_subtitles",)), dag, manifests)
+    assert "speech_sequence" in scope.steps_to_run
+    assert "speech_sequence" in run_scope.hard_requirements(
+        dag, manifests)["mesh_spine"]
 
 
 def test_skip_removes_a_step_nothing_needs(dag, manifests):

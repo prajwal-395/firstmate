@@ -356,6 +356,14 @@ function renderReviewNoteCard(note, index) {
     const remove = note.status === 'queued'
         ? `<button class="btn btn-ghost review-note-remove" onclick="removeReviewNote('${note.id}')">&#10005;</button>`
         : '';
+    // A note the captain did not write says so, in the same feed as the
+    // ones they did. Automation that is indistinguishable from the
+    // captain's own notes is the failure mode this badge exists against.
+    // Notes written before the field existed carry no origin and are the
+    // captain's - which is what they were.
+    const machine = (note.origin && note.origin !== 'captain')
+        ? `<span class="review-note-origin" title="written by the ${escapeHtml(note.origin)} layer, not by you">${escapeHtml(note.origin)}</span>`
+        : '';
 
     return `
         <div class="review-note review-note-${escapeHtml(note.status)}"
@@ -367,6 +375,7 @@ function renderReviewNoteCard(note, index) {
                 <span class="review-note-anchor" title="${escapeHtml(anchor.selector || '')}">
                     &lt;${escapeHtml(anchor.tag || '?')}&gt; ${escapeHtml(anchor.label || '')}
                 </span>
+                ${machine}
                 ${remove}
             </div>
             ${where ? `<div class="review-note-where">${escapeHtml(where)}</div>` : ''}

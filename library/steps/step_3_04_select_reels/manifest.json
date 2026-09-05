@@ -6,32 +6,60 @@
   "level": "step",
   "interface": {
     "inputs": [
-      {"name": "audio_spine", "type": "object", "required": false,
-       "description": "State input: audio_spine, when the run has one."},
-      {"name": "timeline_transcript", "type": "object", "required": true,
-       "description": "What the cut SAYS, per speaker, in timeline time - library/tools/timeline_transcript.py."},
-      {"name": "creative_direction", "type": "object", "required": false,
-       "description": "The direction this episode is cut under. Read so the step can SAY where the conversation's own measurements contradict it (library/tools/direction_contradiction.py), never to be overridden by it."},
-      {"name": "brand_constraints", "type": "object", "required": false,
-       "description": "Brand template constraints (injected by the pipeline runner)."}
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": false,
+        "description": "State input: audio_spine, when the run has one."
+      },
+      {
+        "name": "timeline_transcript",
+        "type": "object",
+        "required": true,
+        "description": "What the cut SAYS, per speaker, in timeline time - library/tools/timeline_transcript.py."
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": false,
+        "description": "The direction this episode is cut under. Read so the step can SAY where the conversation's own measurements contradict it (library/tools/direction_contradiction.py), never to be overridden by it."
+      },
+      {
+        "name": "brand_constraints",
+        "type": "object",
+        "required": false,
+        "description": "Brand template constraints (injected by the pipeline runner)."
+      }
     ],
     "outputs": [
-      {"name": "reel_selection", "type": "object",
-       "description": "State output: reel_selection",
-       "expected_schema": {"moments": "list", "considered": "list", "undetermined": "list"}}
+      {
+        "name": "reel_selection",
+        "type": "object",
+        "description": "State output: reel_selection",
+        "expected_schema": {
+          "moments": "list",
+          "considered": "list",
+          "undetermined": "list"
+        }
+      }
     ],
     "llm_outputs": [
-      {"name": "reel_selection", "type": "object",
-       "expected_schema": {"moments": "list", "considered": "list", "undetermined": "list"}}
+      {
+        "name": "reel_selection",
+        "type": "object",
+        "expected_schema": {
+          "moments": "list",
+          "considered": "list",
+          "undetermined": "list"
+        }
+      }
     ],
     "context_fields": [
       "timeline_transcript.turns",
       "reel_candidates",
       "creative_direction",
       "brand_constraints"
-    ],
-    "preconditions": ["'timeline_transcript' exists in state"],
-    "postconditions": ["'reel_selection' is written to state"]
+    ]
   },
   "classification": {
     "stage": "edit",
@@ -40,11 +68,24 @@
     "idempotent": false
   },
   "dependencies": [],
-  "tags": ["creative_judgement", "video-editing", "shortform"],
+  "tags": [
+    "creative_judgement",
+    "video-editing",
+    "shortform"
+  ],
   "domain": "video-editing",
-  "implementation": {"default": {"runtime": "python", "entry_point": "step.py"},
-                     "variants": {}, "test_entry_point": ""},
-  "metadata": {"author": "prajwal", "created": "2026-09-04",
-               "last_modified": "2026-09-04",
-               "source_process": "video_editing_pipeline"}
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-09-04",
+    "last_modified": "2026-09-04",
+    "source_process": "video_editing_pipeline"
+  }
 }

@@ -304,6 +304,71 @@ def source_to_timeline(source_time: float, block: dict) -> float:
     return source_time - block["source_start"] + block["timeline_start"]
 
 
+def timeline_to_source(timeline_time: float, block: dict) -> float:
+    """Map a timeline-domain time into the source domain for a block.
+
+    The inverse of `source_to_timeline`, and it lives beside it because
+    the pair is the whole conversion: the spine is the only artifact that
+    carries both domains, so it is the only place either direction can be
+    computed at all.
+
+    This direction had no implementation for the life of the pipeline,
+    which is what made a timeline second unusable as an ADDRESS - "the
+    captions at 45.0-72.0s are wrong" could be read by a human and by
+    nothing else.  `library/tools/region.py` is the caller that turns it
+    into one.
+
+    **There is no project-wide offset, so a conversion without a block is
+    not a function.**  Measured on project 001: eight speech-bearing
+    blocks, eight distinct offsets, spread over 146.5s on a 56.6s
+    timeline, and the sign is not even constant - seven blocks map one
+    way and the eighth the other, because a later timeline block may be
+    cut from an earlier second of its source clip.  A caller holding a
+    time and no block has nothing to convert with.
+    """
+    return timeline_time - block["timeline_start"] + block["source_start"]
+
+
+def blocks_overlapping(structure: list, start: float, end: float) -> list:
+    """Every spine block a TIMELINE interval touches, in spine order.
+
+    Half-open, `[start, end)`, which is the reading that makes abutting
+    blocks partition the timeline rather than both claiming their shared
+    instant - the spine's own blocks abut exactly (`post_bridge` lays
+    each one's `timeline_start` on the previous one's `timeline_end`), so
+    the closed reading would return two blocks for every boundary.
+
+    Two edge cases are DECIDED here rather than discovered by a caller:
+
+    - a **zero-length** interval is a point, and returns the one block
+      containing it.  Read half-open the general rule returns nothing for
+      `[t, t)`, which would make "what is at 12.0s?" unanswerable.
+    - an interval **past the end of the timeline** returns empty rather
+      than clamping to the last block.  A region nothing plays at is a
+      real answer, and clamping would silently retarget a typo onto the
+      outro.
+
+    A reversed interval raises: `[10, 5)` is not an empty region, it is a
+    caller with its arguments the wrong way round.
+    """
+    if end < start:
+        raise SpineContractError(
+            f"region end {end} precedes start {start}. An interval is "
+            f"(start, end) in timeline seconds, both in the same domain."
+        )
+    if end == start:
+        return [b for b in structure
+                if b["timeline_start"] <= start < b["timeline_end"]]
+    return [b for b in structure
+            if b["timeline_end"] > start and b["timeline_start"] < end]
+
+
+def block_at(structure: list, timeline_time: float):
+    """The single block playing at a timeline second, or None."""
+    found = blocks_overlapping(structure, timeline_time, timeline_time)
+    return found[0] if found else None
+
+
 def block_word_end_times_timeline(block: dict) -> list:
     """Word end times for a block, mapped into the timeline domain."""
     if not is_speech_block(block) or not block["word_timestamps"]:

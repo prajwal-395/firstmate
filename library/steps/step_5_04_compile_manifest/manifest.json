@@ -121,18 +121,6 @@
         "type": "object",
         "description": "State output: assembly_manifest"
       }
-    ],
-    "preconditions": [
-      "'a_roll_assignments' exists in state",
-      "'b_roll_assignments' exists in state",
-      "'subtitle_plan' exists in state",
-      "'audio_mix_spec' exists in state",
-      "'music_selection' exists in state",
-      "'clip_catalog' exists in state",
-      "'semantic_analysis' exists in state"
-    ],
-    "postconditions": [
-      "'assembly_manifest' is written to state"
     ]
   },
   "classification": {

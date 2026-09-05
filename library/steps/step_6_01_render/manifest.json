@@ -25,12 +25,6 @@
         "type": "object",
         "description": "State output: render_output"
       }
-    ],
-    "preconditions": [
-      "'assembly_manifest' exists in state"
-    ],
-    "postconditions": [
-      "'render_output' is written to state"
     ]
   },
   "classification": {

@@ -30,13 +30,6 @@
         "type": "int",
         "description": "State output: total_clips_analyzed"
       }
-    ],
-    "preconditions": [
-      "'raw_footage_files' exists in state",
-      "'clip_catalog' exists in state"
-    ],
-    "postconditions": [
-      "'semantic_analysis_documents' is written to state"
     ]
   },
   "classification": {

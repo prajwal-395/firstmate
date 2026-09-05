@@ -23,6 +23,12 @@ docs/PIPELINE_PLAN.md.
 
 Classification: Deterministic / Data Transformation
 Idempotent: Yes (same track → same analysis)
+
+The work is `analyse_music`, which takes its inputs as arguments and
+returns the payload.  `main()` owns the process: stdin and stdout.
+Every branch here is a SUCCESS - an unavailable analysis is a reported
+fact, not a failure, because SFX placement works without a beat grid -
+so the function returns on all of them and never exits.  See AGENTS.md 3.
 """
 import json
 import os
@@ -34,11 +40,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.project_layout import Area, ProjectLayout
 
 
-def main():
-    data = json.loads(sys.stdin.read())
-    music_selection = data.get("music_selection", {})
-    project_folder = data.get("project_folder", "")
+def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
+    """Analyse the selected track for beat grid, BPM, key and structure.
 
+    Returns `{"music_analysis": {...}}`.  `available: False` with a
+    reason is a normal return: music analysis is optional and the run
+    continues without it.
+    """
     # Extract track path from music selection
     track_path = music_selection.get("track_path", "")
     if not track_path:
@@ -55,13 +63,12 @@ def main():
         print(f"ERROR: Music track not found: {track_path}", file=sys.stderr)
         # Return empty analysis rather than failing — music analysis
         # is optional (SFX placement works without beat grid)
-        json.dump({
+        return {
             "music_analysis": {
                 "available": False,
                 "error": f"Track not found: {track_path}"
             }
-        }, sys.stdout, indent=2)
-        return
+        }
 
     # Output directory for analysis results.
     # See library/tools/project_layout.py.
@@ -77,13 +84,12 @@ def main():
     if not os.path.exists(MUSIC_PIPELINE):
         print(f"ERROR: Music pipeline not found at {MUSIC_PIPELINE}",
               file=sys.stderr)
-        json.dump({
+        return {
             "music_analysis": {
                 "available": False,
                 "error": f"music_pipeline.py not found"
             }
-        }, sys.stdout, indent=2)
-        return
+        }
 
     # Check if analysis already exists for this track
     analysis_path = os.path.join(output_dir, "music_analysis.json")
@@ -96,8 +102,7 @@ def main():
                 print(f"Music analysis already exists for {os.path.basename(track_path)}, "
                       f"reusing cached result", file=sys.stderr)
                 existing["available"] = True
-                json.dump({"music_analysis": existing}, sys.stdout, indent=2)
-                return
+                return {"music_analysis": existing}
         except (json.JSONDecodeError, IOError):
             pass  # Re-run analysis
 
@@ -122,14 +127,13 @@ def main():
             cause = stderr.splitlines()[-1] if stderr else "no stderr"
             print(f"Music pipeline failed: {cause}", file=sys.stderr)
             print(stderr[-2000:], file=sys.stderr)
-            json.dump({
+            return {
                 "music_analysis": {
                     "available": False,
                     "error": cause,
                     "traceback_tail": stderr[-2000:],
                 }
-            }, sys.stdout, indent=2)
-            return
+            }
 
         # Load the generated analysis
         if os.path.exists(analysis_path):
@@ -146,24 +150,33 @@ def main():
                   f"downbeats={len(_tempo.get('downbeats') or [])}, "
                   f"Key={_key.get('key', '?')}",
                   file=sys.stderr)
-            json.dump({"music_analysis": analysis}, sys.stdout, indent=2)
+            return {"music_analysis": analysis}
         else:
             # Pipeline ran but didn't produce expected output
-            json.dump({
+            return {
                 "music_analysis": {
                     "available": False,
                     "error": "Pipeline completed but music_analysis.json not found"
                 }
-            }, sys.stdout, indent=2)
+            }
 
     except subprocess.TimeoutExpired:
         print("Music analysis timed out after 5 minutes", file=sys.stderr)
-        json.dump({
+        return {
             "music_analysis": {
                 "available": False,
                 "error": "Analysis timed out"
             }
-        }, sys.stdout, indent=2)
+        }
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    result = analyse_music(
+        music_selection=data.get("music_selection", {}),
+        project_folder=data.get("project_folder", ""),
+    )
+    json.dump(result, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

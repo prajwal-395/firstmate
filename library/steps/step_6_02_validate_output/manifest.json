@@ -35,13 +35,6 @@
         "type": "object",
         "description": "State output: validation_result"
       }
-    ],
-    "preconditions": [
-      "'rendered_output' exists in state",
-      "'assembly_manifest' exists in state"
-    ],
-    "postconditions": [
-      "'validation_result' is written to state"
     ]
   },
   "classification": {

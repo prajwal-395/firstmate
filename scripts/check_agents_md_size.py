@@ -25,7 +25,7 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 53499
+CEILING = 53481
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,

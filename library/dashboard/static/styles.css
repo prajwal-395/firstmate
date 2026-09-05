@@ -793,6 +793,20 @@ body {
     color: var(--text-primary);
 }
 
+/* V3 captions. An OVERLAY on the picture rather than picture itself,
+   so it takes the translucent treatment .music and .a_roll_audio use,
+   not a solid accent like .a_roll and .b_roll.
+
+   A caption card is short - 30 of them across 56s on 001 - so the
+   blocks sit shoulder to shoulder and need to read as separate cards.
+   The outline does that where a left border alone could not: at two
+   pixels wide a 3px border IS the whole block. */
+.timeline-block.subtitle {
+    background: rgba(230, 237, 243, 0.22);
+    outline: 1px solid var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
 .timeline-block.a_roll_audio {
     background: rgba(88, 166, 255, 0.4);
     border-left: 3px solid var(--accent-blue);
@@ -1560,6 +1574,21 @@ body.review-panel-open #app {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* A note the captain did not write. Deliberately the loudest thing in
+   the note's head: it sits in the same feed as their own notes, so the
+   difference has to be visible without being read for. */
+.review-note-origin {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--color-revise);
+    color: var(--text-primary);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .review-note-remove {

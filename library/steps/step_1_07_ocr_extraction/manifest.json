@@ -25,12 +25,6 @@
         "type": "object",
         "description": "State output: ocr_extraction per clip"
       }
-    ],
-    "preconditions": [
-      "'raw_footage_files' exists in state"
-    ],
-    "postconditions": [
-      "'ocr_extraction' is written to state"
     ]
   },
   "classification": {

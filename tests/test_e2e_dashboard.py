@@ -229,6 +229,128 @@ def test_timeline_reads_video_segments(client, temp_project):
     assert a2_blocks[0]["clip_name"] == "Morning Momentum"
 
 
+# ── Timeline: the captions the captain's own notes are about ────────
+
+def test_timeline_draws_the_caption_plan_on_v3(client, temp_project):
+    """V3 carries one block per caption CARD, from `plan_subtitles`.
+
+    The captain's real note off 001's timeline was "why are the
+    subtitles so big?", and until this track existed the dashboard drew
+    a timeline with no captions on it at all - so the one thing they had
+    typed a note about was the one thing they could not point at.
+
+    The unit is the PLAN's entry, not step 4.05's rendered `.mov`: on
+    001 the same captions are 30 plan entries and 8 rendered segments,
+    and 30 is what a reviewer is looking at.
+    """
+    timeline = client.get("/api/timeline").json()
+    v3 = [b for b in timeline["blocks"] if b["track"] == "V3"]
+
+    assert len(v3) == 6, (
+        f"Expected 6 V3 caption blocks, got {len(v3)}. Reader should be "
+        "reading plan_subtitles.subtitle_plan.subtitle_entries[]."
+    )
+    assert [b["id"] for b in v3] == [
+        "sub_001", "sub_002", "sub_003", "sub_004", "sub_005", "sub_006"]
+    assert all(b["block_type"] == "subtitle" for b in v3)
+
+    # Times come from the entry's own timeline_start/timeline_end - the
+    # entry is already in the TIMELINE domain, so nothing is converted.
+    assert v3[0]["start_s"] == 0.0 and v3[0]["end_s"] == 1.6
+    assert v3[0]["duration_s"] == pytest.approx(1.6)
+    assert v3[-1]["end_s"] == 30.8
+
+    # The caption text reaches the view; it is what the block is FOR.
+    assert v3[0]["text"] == "listen if you're"
+    assert v3[3]["text"] == "to really commit to this new routine"
+
+    # A caption is not cut from a clip, so it names none. Putting the
+    # caption text in clip_id would make it read as a filename.
+    assert all(b["clip_id"] == "" for b in v3)
+
+
+def test_track_count_counts_the_tracks_that_carry_something(client):
+    """`track_count` was `2 if any V2 else 1`, which is not a count.
+
+    It reported 1 for this fixture's V1 + V3 + A1 + A2. Nothing read the
+    field, which is how it stayed wrong; adding a track would have made
+    a wrong number wronger.
+    """
+    timeline = client.get("/api/timeline").json()
+    tracks = {b["track"] for b in timeline["blocks"]}
+    assert tracks == {"V1", "V3", "A1", "A2"}, sorted(tracks)
+    assert timeline["track_count"] == 4
+
+
+def test_the_ruler_covers_a_block_that_outlives_the_a_roll(tmp_path):
+    """`total_duration_s` is measured over every block, not over A-roll.
+
+    `timeline-view.js` positions a block at `start_s / total_duration_s`
+    and draws the A2 music block to `total_duration_s` exactly, so a
+    short total pushes picture off the end of the ruler AND cuts the bed
+    short underneath it.
+
+    This is not hypothetical. On 001, A-roll ends at 52.605s and the
+    last B-roll cutaway runs 52.605 -> 56.605, so four seconds of
+    picture were drawn off the ruler and the bed under them was four
+    seconds short. The fixture above cannot show it - its A-roll and its
+    captions end at the same second - so the disagreement is built here
+    explicitly, because the view may not assume its producers agree
+    about where the end is.
+    """
+    project_dir = tmp_path / "long_broll"
+    project_dir.mkdir()
+    state = json.loads(FIXTURE_PATH.read_text())
+    # A-roll ends at 30.8; this cutaway runs to 34.0.
+    state["step_outputs"]["select_broll"] = {
+        "b_roll_assignments": [
+            {"entry_id": "broll_tail", "clip_id": "IMG_1001",
+             "timeline_start": 28.0, "duration": 6.0},
+        ]
+    }
+    (project_dir / "pipeline_data.json").write_text(json.dumps(state))
+    (project_dir / "project.yaml").write_text("name: Long\nslug: long\n")
+
+    with patch("library.dashboard.server._get_project_dir",
+               return_value=str(project_dir)):
+        timeline = TestClient(app).get("/api/timeline").json()
+
+    total = timeline["total_duration_s"]
+    assert total == pytest.approx(34.0), (
+        f"total_duration_s is {total}; the B-roll runs to 34.0s and "
+        "would be drawn off the end of the ruler."
+    )
+    for block in timeline["blocks"]:
+        assert block["end_s"] <= total + 1e-6, (
+            f"{block['track']} block {block['id']} ends at "
+            f"{block['end_s']}s, past total_duration_s {total}s."
+        )
+    # The bed is drawn under the whole picture, not under V1 alone.
+    a2 = [b for b in timeline["blocks"] if b["track"] == "A2"]
+    assert a2[0]["end_s"] == pytest.approx(34.0)
+
+
+def test_timeline_survives_a_project_with_no_subtitle_plan(tmp_path):
+    """No plan means no V3, not a 500 and not an empty track.
+
+    A project that has not reached step 4.01 is the ordinary case, and
+    the endpoint is the first thing the dashboard calls.
+    """
+    project_dir = tmp_path / "no_subs"
+    project_dir.mkdir()
+    state = json.loads(FIXTURE_PATH.read_text())
+    del state["step_outputs"]["plan_subtitles"]
+    (project_dir / "pipeline_data.json").write_text(json.dumps(state))
+    (project_dir / "project.yaml").write_text("name: No Subs\nslug: no-subs\n")
+
+    with patch("library.dashboard.server._get_project_dir",
+               return_value=str(project_dir)):
+        timeline = TestClient(app).get("/api/timeline").json()
+
+    assert [b for b in timeline["blocks"] if b["track"] == "V3"] == []
+    assert timeline["blocks"], "the rest of the timeline still draws"
+
+
 # ── Gates ───────────────────────────────────────────────────────────
 
 def test_api_gates(client, temp_project):

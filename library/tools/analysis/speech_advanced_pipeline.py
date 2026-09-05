@@ -199,9 +199,10 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     except ImportError as exc:
         raise ProsodyUnavailable(
             "praat-parselmouth is not installed, so no prosodic feature can "
-            "be measured. It is declared in requirements.txt and in step "
-            f"1.05's manifest preconditions: pip install praat-parselmouth "
-            f"({exc})"
+            "be measured. It is declared in requirements.txt and as step "
+            f"1.05's `env.parselmouth` requirement, which now refuses "
+            f"before the run starts rather than here: pip install "
+            f"praat-parselmouth ({exc})"
         ) from exc
     except Exception as e:
         print(f"  ERROR: prosody analysis failed: {e}", file=sys.stderr)

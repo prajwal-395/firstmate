@@ -135,7 +135,11 @@ def test_advice_says_so_when_there_is_no_venv(tmp_path):
     lines = cli._venv_advice(tmp_path)
     text = "\n".join(lines)
     assert "no virtual environment" in text
-    assert "python3 -m venv" in text
+    # 3.12 EXPLICITLY. Bare `python3` is 3.14 on the build machine, and
+    # following that instruction rebuilds the environment
+    # requirements.txt forbids - see test_advice_does_not_send_anyone_to
+    # _a_forbidden_interpreter below.
+    assert "python3.12 -m venv" in text
     assert "requirements.txt" in text
     # It must NOT hand over a bare `source .venv/bin/activate`: that is
     # the instruction that produced the captain's second error.
@@ -331,3 +335,138 @@ def test_the_picker_names_the_project_being_served(tmp_path, monkeypatch):
     # And it appears exactly once, not twice.
     roots = [p["project_root"] for p in listed]
     assert roots.count(str(outside)) == 1, roots
+
+
+# ── 4. Importable is not the same as USABLE ─────────────────────
+#
+# Added 2026-09-05.  Every ML environment on the build machine carried
+# whisperx 3.2.0 against a declared `whisperx>=3.8,<4`, because they were
+# built on Python 3.14 - which requirements.txt forbids in its header.
+# 3.2.0 imports perfectly and raises TypeError on every transcribe call;
+# step 1.04 catches that per clip, so a real run produced no transcript,
+# no spine and no subtitles and reported success.  The import check above
+# passed the whole time, because a wrong version is not a missing one.
+
+
+def test_the_manifest_really_declares_a_whisperx_floor():
+    """The check is only worth anything if requirements.txt pins something."""
+    declared = cli._declared_specifiers(REPO_ROOT)
+    assert "whisperx" in declared, declared
+    # The floor that matters: 3.2.0 is out, 3.8.6 is in.
+    assert not declared["whisperx"].contains("3.2.0", prereleases=True)
+    assert declared["whisperx"].contains("3.8.6", prereleases=True)
+
+
+def test_a_version_outside_the_declared_range_is_reported(monkeypatch):
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda dist: "3.2.0" if dist == "whisperx" else "1.0.0")
+    problems = cli._noncompliant_ml_packages(REPO_ROOT)
+    assert [p[0] for p in problems] == ["whisperx"]
+    assert problems[0][1] == "3.2.0"
+
+
+def test_a_version_inside_the_declared_range_is_not_reported(monkeypatch):
+    """The check must be capable of PASSING, or it is not a check."""
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
+    assert cli._noncompliant_ml_packages(REPO_ROOT) == []
+
+
+def test_an_undeterminable_version_is_reported_not_passed(monkeypatch):
+    """An environment that cannot say what it has has not been shown to comply."""
+    from importlib.metadata import PackageNotFoundError
+
+    def absent(dist):
+        raise PackageNotFoundError(dist)
+
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr("importlib.metadata.version", absent)
+    problems = cli._noncompliant_ml_packages(REPO_ROOT)
+    assert [(p[0], p[1]) for p in problems] == [("whisperx", "unknown")]
+
+
+def test_a_package_the_manifest_does_not_constrain_is_not_invented(
+        tmp_path, monkeypatch):
+    """This file must not hold an opinion requirements.txt does not.
+
+    Written against a SYNTHETIC manifest rather than the real one: which
+    packages the repository happens to pin today is not an environment,
+    and a test that skips on it is the always-skip `skip_audit` exists to
+    catch.
+    """
+    (tmp_path / "requirements.txt").write_text(
+        "whisperx>=3.8,<4\neasyocr\n", encoding="utf-8")
+
+    declared = cli._declared_specifiers(tmp_path)
+    assert "whisperx" in declared
+    assert "easyocr" not in declared, "an unpinned line must yield no specifier"
+
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("easyocr",))
+    monkeypatch.setattr("importlib.metadata.version", lambda dist: "0.0.1")
+    assert cli._noncompliant_ml_packages(tmp_path) == []
+
+
+def test_comments_and_options_in_the_manifest_are_not_requirements(tmp_path):
+    """requirements.txt is mostly prose; none of it may parse as a pin."""
+    (tmp_path / "requirements.txt").write_text(
+        "# whisperx>=99 in a comment is not a requirement\n"
+        "--extra-index-url https://example.invalid\n"
+        "\n"
+        "whisperx>=3.8,<4  # trailing comment\n",
+        encoding="utf-8")
+    declared = cli._declared_specifiers(tmp_path)
+    assert set(declared) == {"whisperx"}
+    assert declared["whisperx"].contains("3.8.6", prereleases=True)
+
+
+def test_an_unreadable_manifest_constrains_nothing_rather_than_raising(tmp_path):
+    """A missing manifest must not crash the CLI on its way to a refusal."""
+    assert cli._declared_specifiers(tmp_path / "nope") == {}
+
+
+def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda dist: "3.2.0" if dist == "whisperx" else "1.0.0")
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.preflight_check("run")
+    assert exit_info.value.code == 1
+
+    out = capsys.readouterr().out
+    assert "whisperx" in out
+    assert "3.2.0" in out, "the refusal must say what IS installed"
+    assert ">=3.8" in out, "the refusal must say what is REQUIRED"
+    # It explains the consequence, because "wrong version" reads as
+    # cosmetic and this one deletes the entire edit.
+    assert "reports success" in out
+
+
+def test_a_compliant_environment_is_not_refused(monkeypatch):
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
+    cli.preflight_check("run")  # must not raise
+
+
+def test_advice_does_not_send_anyone_to_a_forbidden_interpreter(tmp_path):
+    """`python3` is 3.14 on this machine, and 3.14 is the broken case.
+
+    requirements.txt: "BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a
+    preference."  Advice that says bare `python3 -m venv` rebuilds the
+    exact environment that caused the outage.
+    """
+    text = "\n".join(cli._venv_advice(tmp_path))
+    assert "3.12" in text
+    for line in text.splitlines():
+        stripped = line.strip()
+        if "-m venv" in stripped:
+            assert "python3.12" in stripped, stripped

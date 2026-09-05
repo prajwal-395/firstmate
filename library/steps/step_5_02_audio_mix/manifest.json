@@ -31,13 +31,6 @@
         "type": "object",
         "description": "State output: audio_mix_spec - the track levels, the per-block music automation with the clip gain and where it puts the measured bed, what the bed measures, and the separation target, which is undeclared."
       }
-    ],
-    "preconditions": [
-      "'audio_spine' exists in state",
-      "'music_selection' exists in state"
-    ],
-    "postconditions": [
-      "'audio_mix_spec' is written to state"
     ]
   },
   "classification": {

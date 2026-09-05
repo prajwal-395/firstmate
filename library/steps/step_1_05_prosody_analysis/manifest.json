@@ -26,12 +26,9 @@
         "description": "Per-clip prosody data: pitch contour, speaking rate, voice quality, intensity"
       }
     ],
-    "preconditions": [
-      "parselmouth is installed (pip install praat-parselmouth)",
-      "'temporal_index' exists in state with speech regions"
-    ],
-    "postconditions": [
-      "'prosody_analysis' is written to state with per-clip prosody data"
+    "requirements": [
+      "env.parselmouth",
+      "prosody.speech_regions"
     ]
   },
   "classification": {

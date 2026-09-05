@@ -59,14 +59,6 @@
           "rationale": "string"
         }
       }
-    ],
-    "preconditions": [
-      "'semantic_analysis_documents' exists in state",
-      "'temporal_index' exists in state",
-      "'clip_catalog' exists in state"
-    ],
-    "postconditions": [
-      "'creative_direction' is written to state"
     ]
   },
   "classification": {

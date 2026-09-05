@@ -19,13 +19,6 @@
         "type": "object",
         "description": "State output: per-clip segmentation results"
       }
-    ],
-    "preconditions": [
-      "'raw_footage_files' exists in state",
-      "'clip_catalog' exists in state"
-    ],
-    "postconditions": [
-      "'object_segmentation' is written to state"
     ]
   },
   "classification": {

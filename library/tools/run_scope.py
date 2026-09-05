@@ -584,6 +584,21 @@ def resolve(selection: Selection,
     _assert_dependencies_met(run_set, needs, recorded, external, excluded,
                              order)
 
+    # The predicate, environment and coverage kinds are NOT asked here,
+    # and that is deliberate.
+    #
+    # Step 4 can only ever say "a key is present" - it is derived from
+    # `inputs[].required` and `data_mapping`, which is the whole of what
+    # those two declarations can express. The other three kinds live in
+    # `library/tools/requirements.py`, and they are asked by the RUNNER,
+    # against the steps that will actually EXECUTE.
+    #
+    # Asking them here would ask the wrong set: `--from` and `--step`
+    # narrow the step list after this function has already returned, so a
+    # requirement refused here could belong to a step the run was never
+    # going to reach. `run_pipeline` asks once, after that narrowing.
+    # See the module docstring of `requirements.py`.
+
     steps_to_run = tuple(sorted(run_set, key=lambda n: rank[n]))
     skipped = tuple(node_id for node_id in universe if node_id not in run_set)
 

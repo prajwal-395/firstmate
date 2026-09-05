@@ -170,16 +170,21 @@ class ClipInfo(BaseModel):
 # ── Timeline Models ────────────────────────────────────────────────
 
 class TimelineBlock(BaseModel):
-    """A block on the timeline (A-roll, B-roll, or transition)."""
+    """A block on the timeline (A-roll, B-roll, caption, or transition).
+
+    `track` uses the built timeline's own numbering, so what the
+    dashboard draws and what step 6.01 places carry the same names.
+    """
     id: str
-    track: str                     # "V1", "V2", "A1", "A2"
-    clip_id: str = ""
+    track: str                     # "V1", "V2", "V3", "A1", "A2"
+    clip_id: str = ""              # Empty for a caption: it is not a clip
     clip_name: str = ""
     start_s: float = 0.0
     end_s: float = 0.0
     duration_s: float = 0.0
-    block_type: str = ""           # "a_roll", "b_roll", "transition", "music"
-    text: str = ""                 # Speech text if A-roll
+    block_type: str = ""           # "a_roll", "b_roll", "subtitle",
+                                   # "transition", "music", "a_roll_audio"
+    text: str = ""                 # Speech text if A-roll; the caption if V3
     thumbnail_url: str = ""
 
 
@@ -187,7 +192,7 @@ class TimelineView(BaseModel):
     """Rough cut timeline for visualization."""
     blocks: List[TimelineBlock] = Field(default_factory=list)
     total_duration_s: float = 0.0
-    track_count: int = 0
+    track_count: int = 0           # Tracks actually carrying something
 
 
 # ── Pipeline Control ───────────────────────────────────────────────

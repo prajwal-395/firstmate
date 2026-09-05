@@ -14,6 +14,13 @@ Delegates to library/tools/analysis/speech_advanced_pipeline.py.
 
 Classification: Deterministic / Data Transformation
 Idempotent: Yes (same audio → same prosody)
+
+The work is `analyse_prosody`, which takes its inputs as arguments and
+returns the payload.  `main()` owns the process: stdin and stdout.
+Every branch is a SUCCESS - an unavailable profile is a reported fact
+carried in `error`, which is what makes a hollow measurement visible
+rather than silent (AGENTS.md 10.3) - so the function returns on all of
+them and never exits.  See AGENTS.md 3.
 """
 import json
 import os
@@ -32,16 +39,22 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools.prosody_profile import profile_defect
 
 
-def main():
-    data = json.loads(sys.stdin.read())
-    raw_footage_files = data.get("raw_footage_files", [])
-    project_folder = data.get("project_folder", "")
+def analyse_prosody(raw_footage_files: list, project_folder: str = "",
+                    temporal_index=None, index_dir: str = "") -> dict:
+    """Measure pitch, pace, voice quality and intensity per clip.
 
+    Returns `{"prosody_analysis": {...}}`.  A run that measured nothing
+    returns `available: False` with the reason in `error`; a file on
+    disk is not a measurement, so a hollow profile is counted as
+    unmeasured rather than as data (AGENTS.md 10.3).
+
+    `index_dir` is the fallback the runner used to pass alongside
+    `temporal_index`; it is only read when the index itself names none.
+    """
     # C8 fix: Extract temporal boundaries from the temporal_index input.
     # The manifest declares temporal_index as a required input - use it to
     # focus prosody analysis on voiced segments only (avoids wasting compute
     # on silence and improves pitch/rate accuracy).
-    temporal_index = data.get("temporal_index", data)
     speech_boundaries = {}
     
     if isinstance(temporal_index, list):
@@ -56,7 +69,7 @@ def main():
                 ]
     elif isinstance(temporal_index, dict):
         # Primary path: read from per-clip JSON files on disk
-        index_dir = temporal_index.get("index_dir", "") or data.get("index_dir", "")
+        index_dir = temporal_index.get("index_dir", "") or index_dir
         if index_dir and os.path.isdir(index_dir):
             for ti_file in glob.glob(os.path.join(index_dir, "*.json")):
                 clip_id = os.path.splitext(os.path.basename(ti_file))[0]
@@ -87,13 +100,12 @@ def main():
                     ]
 
     if not raw_footage_files:
-        json.dump({
+        return {
             "prosody_analysis": {
                 "available": False,
                 "error": "No raw footage files provided"
             }
-        }, sys.stdout, indent=2)
-        return
+        }
 
     # Resolve audio files from the temporal index's audio cache.
     # Praat cannot read raw .MOV containers ("PraatError: Not an audio
@@ -134,13 +146,12 @@ def main():
             causes.append("no raw footage files provided")
         if not causes:
             causes.append("no source files exist on disk")
-        json.dump({
+        return {
             "prosody_analysis": {
                 "available": False,
                 "error": "; ".join(causes),
             }
-        }, sys.stdout, indent=2)
-        return
+        }
 
     # Output directory. See library/tools/project_layout.py - a step
     # names an area and gets a path; it does not compose one.
@@ -156,13 +167,12 @@ def main():
     if not os.path.exists(PROSODY_PIPELINE):
         print(f"ERROR: Prosody pipeline not found at {PROSODY_PIPELINE}",
               file=sys.stderr)
-        json.dump({
+        return {
             "prosody_analysis": {
                 "available": False,
                 "error": "speech_advanced_pipeline.py not found"
             }
-        }, sys.stdout, indent=2)
-        return
+        }
 
     # Check which clips already have prosody data.
     #
@@ -299,7 +309,7 @@ def main():
     if error:
         print(f"ERROR: {error}", file=sys.stderr)
 
-    json.dump({
+    return {
         "prosody_analysis": {
             # A partial pass is a failure too: the consumers read a
             # per-clip mapping and a missing clip reads as silence.
@@ -309,7 +319,20 @@ def main():
             "unmeasured_clips": sorted(hollow),
             "error": error,
         }
-    }, sys.stdout, indent=2)
+    }
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    result = analyse_prosody(
+        raw_footage_files=data.get("raw_footage_files", []),
+        project_folder=data.get("project_folder", ""),
+        # The runner's own fallback, preserved: a step handed no
+        # `temporal_index` key reads the whole input for one.
+        temporal_index=data.get("temporal_index", data),
+        index_dir=data.get("index_dir", ""),
+    )
+    json.dump(result, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

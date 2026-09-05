@@ -1,6 +1,10 @@
 """
 Step 1.07: OCR Extraction
 Extracts on-screen text from raw footage using EasyOCR.
+
+The work is `extract_ocr`, which takes its inputs as arguments and
+returns the result.  `main()` owns the process: stdin, stdout, and
+nothing else.  See AGENTS.md 3.
 """
 import json
 import sys
@@ -10,18 +14,20 @@ from pathlib import Path
 from library.tools.analysis.ocr_extractor import OCRExtractor
 from library.tools.project_layout import Area, ProjectLayout
 
-def main():
-    data = json.loads(sys.stdin.read())
-    
-    raw_footage_files = data.get('raw_footage_files', [])
+def extract_ocr(raw_footage_files: list, project_folder: str = "",
+                temporal_index=None) -> dict:
+    """Extract on-screen text for each clip, reusing anything already on disk.
 
+    Returns `{"ocr_extraction": {clip_id: result}}`.  A clip whose
+    extraction raises is reported on stderr and left out of the result
+    rather than failing the others.
+    """
     # OCR results are output, so they land in the output tree rather than
     # in raw/analysis/ocr/ inside the captain's footage directory.
     # See library/tools/project_layout.py.
-    layout = ProjectLayout(data.get('project_folder') or os.getcwd())
+    layout = ProjectLayout(project_folder or os.getcwd())
     ocr_dir = str(layout.write_dir(Area.OCR, step="ocr_extraction"))
-    
-    temporal_index = data.get("temporal_index", {})
+
     temporal_dir = ""
     if isinstance(temporal_index, dict):
         temporal_dir = temporal_index.get("index_dir", "")
@@ -88,9 +94,18 @@ def main():
         except Exception as e:
             print(f"⚠ Error extracting OCR for {clip_id}: {e}", file=sys.stderr)
             
-    json.dump({
-        'ocr_extraction': ocr_results
-    }, sys.stdout, indent=2)
+    return {'ocr_extraction': ocr_results}
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    result = extract_ocr(
+        raw_footage_files=data.get('raw_footage_files', []),
+        project_folder=data.get('project_folder', ''),
+        temporal_index=data.get('temporal_index', {}),
+    )
+    json.dump(result, sys.stdout, indent=2)
+
 
 if __name__ == '__main__':
     main()

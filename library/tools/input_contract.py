@@ -117,6 +117,7 @@ and points here.
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
@@ -999,6 +1000,42 @@ def disagreements(rows: Sequence[InputContract]) -> List[str]:
                 f"and something now reads it. Delete the entry.")
     lines.extend(unrouted_but_documented(rows))
     return lines
+
+
+PROSE_FIELDS = ("preconditions", "postconditions")
+"""The two `interface` fields that held 126 strings nothing evaluated."""
+
+
+def prose_preconditions() -> List[str]:
+    """Manifests still carrying a prose `preconditions`/`postconditions`.
+
+    This is what stops the defect returning.  Both fields were prose -
+    `"'audio_spine' exists in state"`, `"'rough_cut_review.passed' is
+    true in state"` - and across 29 manifests **nothing evaluated one of
+    them**.  71 of the 90 preconditions merely restated an
+    `inputs[].required` the DAG already enforced; the rest expressed
+    things `required` cannot say at all, so they could only ever be
+    prose.
+
+    They are replaced by `interface.requirements`, naming executable
+    `Requirement`s in `library/tools/requirements.py`.  A manifest that
+    grows the old field back is a manifest declaring a contract again
+    with nothing behind it, which is worse than declaring none - it reads
+    as coverage.
+
+    `tests/test_input_declarations_are_true.py` asserts this is empty.
+    """
+    out: List[str] = []
+    for path in sorted((_LIBRARY_ROOT / "steps").glob("*/manifest.json")):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        interface = manifest.get("interface") or {}
+        for field_name in PROSE_FIELDS:
+            if field_name in interface:
+                out.append(f"{path.parent.name}: interface.{field_name}")
+    return out
 
 
 def unrouted_but_documented(rows: Sequence[InputContract]) -> List[str]:

@@ -733,11 +733,18 @@ async def review_notes(view: str = "", status: str = ""):
 
 @app.post("/api/review/notes")
 async def review_queue_note(request: ReviewNoteRequest):
-    """Queue one anchored note. Queued notes are invisible to agents until sent."""
+    """Queue one anchored note. Queued notes are invisible to agents until sent.
+
+    `origin` is NOT taken from the request. A note posted here came from
+    the dashboard, so it is the captain's by construction rather than by
+    trust - a browser cannot claim to be a hook, and a hook cannot claim
+    to be the captain. See `review_channel.NOTE_ORIGINS`.
+    """
     project_dir = _get_project_dir()
     try:
         return review_channel.queue_note(
-            project_dir, request.text, request.anchor.model_dump()
+            project_dir, request.text, request.anchor.model_dump(),
+            origin=review_channel.ORIGIN_CAPTAIN,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -992,7 +999,22 @@ async def footage_search_segment(segment_id: str):
 
 @app.get("/api/timeline")
 async def get_timeline():
-    """Get rough cut timeline data for visualization."""
+    """Get rough cut timeline data for visualization.
+
+    The tracks are the built timeline's own, by the numbering step 6.01
+    uses (`resolve_build_timeline.py:9`): V1 A-roll, V2 B-roll, V3
+    captions, A1 speech, A2 music.
+
+    V3 is drawn from the PLAN - `plan_subtitles.subtitle_plan
+    .subtitle_entries[]` - and not from the rendered overlay segments
+    step 4.05 writes.  The two are different granularities of the same
+    track and the plan is the right one here: it is one block per caption
+    CARD, which is the thing a reviewer is looking at when they type
+    "why are the subtitles so big?", while 4.05 groups a whole spine
+    block into one `.mov` (measured on 001: 30 plan entries, 8 rendered
+    segments).  The plan also exists before anything is rendered, so the
+    captions appear on the timeline as soon as they are decided.
+    """
     project_dir = _get_project_dir()
     state = _load_pipeline_state(project_dir)
     outputs = state.get("step_outputs", {})
@@ -1064,6 +1086,49 @@ async def get_timeline():
             thumbnail_url=get_thumbnail_url(project_dir, b.get("clip_id", "")),
         ))
 
+    # Captions (V3), from the PLAN - see this function's docstring for
+    # why the plan and not the rendered segments.
+    #
+    # `id`, `timeline_start`, `timeline_end` and `text` are indexed
+    # directly: step 4.01 writes all four at both of its construction
+    # sites, so a rename has to fail here rather than draw an empty
+    # track at zero seconds (AGENTS.md 10.1).  `speaker` is NOT read -
+    # it is written by the current step and is absent from every one of
+    # the 30 entries on 001's completed run, so it is not a key this
+    # view may promise.
+    subtitle_plan = outputs.get("plan_subtitles", {}).get("subtitle_plan", {})
+    entries = subtitle_plan.get("subtitle_entries", [])
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        start = float(entry["timeline_start"])
+        end = float(entry["timeline_end"])
+        blocks.append(TimelineBlock(
+            id=entry["id"],
+            track="V3",
+            clip_name=entry["text"][:40],
+            start_s=start,
+            end_s=end,
+            duration_s=end - start,
+            block_type="subtitle",
+            text=entry["text"],
+        ))
+
+    # How long the timeline is, measured over every block placed so far
+    # rather than over A-roll alone.
+    #
+    # It used to be A-roll's `timeline_end` only, so a cutaway that
+    # outlived the last A-roll block was drawn off the right-hand end of
+    # the ruler - and the music bed below, whose length IS this number,
+    # was cut short by the same amount.
+    #
+    # Measured on 001: A-roll ends at 52.605s and the last B-roll
+    # cutaway runs 52.605 -> 56.605, so four seconds of picture were
+    # drawn past the end of the ruler and the bed under them was four
+    # seconds short. Found while adding V3, on the captain's own
+    # project, which is the answer to "does this matter in practice".
+    total_dur = max([total_dur] + [b.end_s for b in blocks])
+
     # Music track (A2).
     # The music_selection step wraps its output under "music_selection".
     music = outputs.get("music_selection", {}).get("music_selection", {})
@@ -1079,10 +1144,16 @@ async def get_timeline():
             block_type="music",
         ))
 
+    # The number of tracks actually carrying something.
+    #
+    # This read `2 if any V2 else 1`, which was never a track count: it
+    # reported 1 for a timeline with V1, A1 and A2 on it, and adding V3
+    # would have made a wrong number wronger. Nothing reads the field
+    # today, which is why it could be wrong for so long.
     return TimelineView(
         blocks=blocks,
         total_duration_s=total_dur,
-        track_count=2 if any(b.track == "V2" for b in blocks) else 1,
+        track_count=len({b.track for b in blocks}),
     )
 
 

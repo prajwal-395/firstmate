@@ -67,6 +67,7 @@ from library.tools import footage_identity, code_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
 from library.tools import external_inputs, run_scope, run_archive
+from library.tools import requirements
 from library.tools import breakpoints as run_breakpoints
 from library.tools import run_profile
 
@@ -854,11 +855,23 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                         # Fix H3: Raise on missing required mapped input
                         # instead of silently skipping, so contract
                         # violations surface immediately.
+                        #
+                        # This is the BACKSTOP, not the gate. Since the
+                        # requirements layer landed, the same condition
+                        # is refused before the run starts - and against
+                        # the EXECUTE set, so --step and --from no longer
+                        # slip past it (library/tools/requirements.py).
+                        # Reaching here means state changed under the run
+                        # or a caller built inputs directly, so it still
+                        # raises rather than continuing, and it names the
+                        # producer the way a refusal would.
                         raise RuntimeError(
                             f"Step '{node_id}': data_mapping expects key "
                             f"'{src_key}' from upstream step '{source_id}', "
                             f"but it is missing from that step's outputs. "
-                            f"Available keys: {list(source_outputs.keys())}"
+                            f"Available keys: {list(source_outputs.keys())}. "
+                            f"Run the producer once so its output is on "
+                            f"file: --only {source_id}"
                         )
             else:
                 # No explicit mapping - merge all outputs
@@ -2292,6 +2305,102 @@ def run_pipeline(
             steps_to_run.append(node_id)
     
     print(f"  Steps to run: {steps_to_run}", file=sys.stderr)
+
+    # Requirements are checked against what will EXECUTE, not against the
+    # plan the scope agreed to.
+    #
+    # `run_scope.resolve` above was handed the SELECTION, which carries
+    # neither --from nor --step.  Both narrow `steps_to_run` right here,
+    # AFTER the refusal has already been computed against the wider set.
+    # So `--step plan_subtitles` on a fresh project passed the scope
+    # check - every producer was notionally "in this run" - and then died
+    # inside `gather_step_inputs` with an unhandled traceback:
+    #
+    #   RuntimeError: Step 'plan_subtitles': data_mapping expects key
+    #   'audio_spine' from upstream step 'mesh_spine', but it is missing
+    #   from that step's outputs. Available keys: []
+    #
+    # Asking again against the narrowed set turns that into a REFUSED
+    # before anything is written, which matters beyond ergonomics: the
+    # mid-run raise is recorded as a STEP FAILURE and colours `status` on
+    # every later run until that step succeeds, while a refusal is
+    # traceless.
+    unmet = requirements.check(
+        steps_to_run,
+        requirements.Context(
+            project_folder=str(project_dir),
+            state=state,
+            run_set=frozenset(steps_to_run),
+            recorded=run_scope.recorded_outputs(state),
+            external={key: entry.value for key, entry in external.items()},
+        ),
+        # Derived from THIS RUN's dag and manifests, never from the copy
+        # on disk. A caller may hand `run_pipeline` a reduced DAG - the
+        # e2e tests drive a three-node one - and requirements read off
+        # the full graph would refuse it for producers that graph does
+        # not contain.
+        requirements.all_requirements(dag, manifests),
+    )
+    # Two answers, because the two kinds are about different things.
+    #
+    # A STATE requirement being unmet means the run is incoherent: a
+    # value it needs will not exist and no step in this run will make
+    # one. Nothing can fix that but changing the selection, so it
+    # REFUSES.
+    #
+    # An ENVIRONMENT requirement being unmet means this machine is not
+    # provisioned - `npm install` has not been run, parselmouth is not
+    # importable. That is a different claim, and it is REPORTED rather
+    # than refused, for two reasons. The repository already treats a
+    # missing `remotion-subtitles/node_modules` as an ordinary state and
+    # skips honestly on it in twenty-odd tests; and a run may legitimately
+    # never reach the renderer - it may stop at a review gate, or be
+    # scoped short. Refusing every run on a box that has not npm-installed
+    # would forbid work that succeeds today, which is a gate that fails
+    # correct input (AGENTS.md 10.4) - no more coverage than one that
+    # cannot fail.
+    #
+    # The value the requirement exists for is still delivered in full:
+    # the operator is told at second zero, by name, with the remedy,
+    # instead of finding out thirty-eight minutes in.
+    machine_side = [u for u in unmet
+                    if u.requirement.kind == requirements.KIND_ENVIRONMENT]
+    unmet = [u for u in unmet
+             if u.requirement.kind != requirements.KIND_ENVIRONMENT]
+
+    if machine_side:
+        print(f"\n  ⚠ THIS MACHINE IS NOT READY FOR EVERY SELECTED STEP "
+              f"(reported, not refused)\n", file=sys.stderr)
+        for entry in machine_side:
+            print(f"  {entry.satisfaction.reason}", file=sys.stderr)
+            print(f"      needed by: "
+                  f"{', '.join(entry.requirement.consumers)}",
+                  file=sys.stderr)
+        print("", file=sys.stderr)
+
+    if unmet:
+        reason = "\n".join(requirements.describe_refusal(unmet))
+        if dry_run:
+            # A dry run REPORTS and does not refuse.
+            #
+            # Its whole job is to show the plan, and the plan is still
+            # the plan on a machine that has not installed Remotion yet.
+            # Refusing here would make the one command that exists to
+            # ANSWER "what would this run do, and what is missing"
+            # decline to answer it.  The findings are printed and carried
+            # in the summary, so nothing goes quiet.
+            print(f"\n  ⚠ REQUIREMENTS NOT MET (reported, not refused - "
+                  f"this is a dry run)\n", file=sys.stderr)
+            print(reason, file=sys.stderr)
+            print("", file=sys.stderr)
+        else:
+            print(f"\n  ✗ REFUSED\n", file=sys.stderr)
+            print(reason, file=sys.stderr)
+            print("", file=sys.stderr)
+            summary = {"status": "REFUSED", "reason": reason}
+            json.dump(summary, sys.stdout, indent=2)
+            return summary
+
     # Where this run stops, and - loudly - anywhere it was asked to stop
     # and will not reach.  Printed against `steps_to_run` rather than the
     # scope, because --step and --from narrow it further.

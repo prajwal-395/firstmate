@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 from library.tools.render_fonts import measurable_font_path
 from library.tools.safe_area import resolve_safe_area
+from library.tools.subtitle_segment_id import slug
 from library.tools.subtitle_style import resolve_subtitle_style
 
 # ── Minimum display duration (seconds) ──
@@ -572,7 +573,32 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     structure = audio_spine.get("structure", [])
 
     subtitle_entries = []
-    sub_counter = 0
+
+    # ── A caption id is BLOCK-LOCAL, and that is what makes a region
+    #    splice provable ──
+    #
+    # This used to be one counter across the whole timeline, so an id was
+    # the card's ordinal position in the finished video.  Measured on
+    # project 001: forcing one block to produce five more cards renumbered
+    # 13 entries in blocks that had not changed.  Nothing reads the id
+    # today, so that was harmless - right up until a region-scoped re-plan
+    # has to PROVE it changed only the region it was given, which it does
+    # by comparing the entries either side of it.  Under a global counter
+    # that comparison reports churn that is not there, and a proof that
+    # cries wolf is the gate AGENTS.md 10.4 warns about from the other
+    # direction.
+    #
+    # Numbering within the block instead makes an id stable under every
+    # change outside its own block, and it is the same component
+    # `subtitle_segment_id` already names a rendered overlay by - so
+    # `sub_10_003` reads against `sub_<timeline>_<speaker>_10_<span>_<hash>`
+    # without a lookup.
+    sub_counters = {}
+
+    def _next_id(block_position) -> str:
+        token = slug(block_position, "noblock")
+        sub_counters[token] = sub_counters.get(token, 0) + 1
+        return f"sub_{token}_{sub_counters[token]:03d}"
 
     # ── The caption look, and the width it has to fit inside ──
     # Resolved once, at the top, and used for BOTH the grouping below and
@@ -670,10 +696,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 display_until=block_end)
 
             for g in groups:
-                sub_counter += 1
                 entry_text = apply_caption_case(g["text"], caption_case).strip()
                 subtitle_entries.append({
-                    "id": f"sub_{sub_counter:03d}",
+                    "id": _next_id(block["position"]),
                     "timeline_start": max(g["start"], block_start),
                     "timeline_end": min(g["end"], block_end),
                     "text": entry_text,
@@ -762,10 +787,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 display_until=block_end)
 
                 for g in groups:
-                    sub_counter += 1
                     entry_text = apply_caption_case(g["text"], caption_case).strip()
                     subtitle_entries.append({
-                        "id": f"sub_{sub_counter:03d}",
+                        "id": _next_id(block["position"]),
                         "timeline_start": max(g["start"], seg_tl_start),
                         "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,

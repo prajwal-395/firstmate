@@ -55,16 +55,9 @@
         "description": "Rendered timed text segments for the brand template's effect.timed_text_overlay declaration, or declared:false when the template declares none. See library/tools/timed_text_overlay.py."
       }
     ],
-    "preconditions": [
-      "'audio_spine' exists in state",
-      "'creative_direction' exists in state",
-      "'enhancement_spec' exists in state",
-      "Remotion project is set up in remotion-subtitles/",
-      "Node.js and npx are available"
-    ],
-    "postconditions": [
-      "'motion_graphics_overlay' is written to state with segment overlay paths and planning_basis",
-      "'timed_text_overlay' is written to state: one rendered segment per cluster of declared moments, or declared:false"
+    "requirements": [
+      "env.npx",
+      "env.remotion_installed"
     ],
     "llm_outputs": [
       {

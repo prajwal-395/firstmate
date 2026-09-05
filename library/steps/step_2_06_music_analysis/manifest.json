@@ -20,11 +20,8 @@
         "description": "Beat grid, BPM, key, song structure analysis"
       }
     ],
-    "preconditions": [
-      "'music_selection' exists in state with a valid track path"
-    ],
-    "postconditions": [
-      "'music_analysis' is written to state with beat_grid, bpm, key, and structure"
+    "requirements": [
+      "music.track_on_disk"
     ]
   },
   "classification": {

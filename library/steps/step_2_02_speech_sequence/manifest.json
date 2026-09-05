@@ -75,14 +75,6 @@
         "type": "string",
         "description": "State output: transcripts_toon"
       }
-    ],
-    "preconditions": [
-      "'temporal_index' exists in state",
-      "'creative_direction' exists in state",
-      "'semantic_analysis_documents' exists in state"
-    ],
-    "postconditions": [
-      "'speech_sequence' is written to state"
     ]
   },
   "classification": {

@@ -53,6 +53,19 @@ MAX_ANCHOR_TEXT_CHARS = 240
 # part of exactly one batch, and answered when an agent replies to it.
 NOTE_STATUSES = ("queued", "sent", "answered")
 
+# WHO wrote a note. The channel could already say who wrote a REPLY -
+# `add_reply` takes an `author` - and could not say who wrote a NOTE, so a
+# machine-written note was indistinguishable from the captain's own. That
+# asymmetry is what made the hook layer's `steer` action unbuildable
+# without either a second feed or a lie, and both were worse than a field.
+#
+# `library/tools/hooks.py` writes ORIGIN_HOOK. The browser never sets this:
+# `/api/review/notes` does not accept it, so a note posted from the
+# dashboard is the captain's by construction rather than by trust.
+ORIGIN_CAPTAIN = "captain"
+ORIGIN_HOOK = "hook"
+NOTE_ORIGINS = (ORIGIN_CAPTAIN, ORIGIN_HOOK)
+
 
 def channel_path(project_dir: str | os.PathLike) -> Path:
     return ProjectLayout(project_dir).read_path(Area.REVIEW, "channel.json")
@@ -111,16 +124,28 @@ def queue_note(
     project_dir: str | os.PathLike,
     text: str,
     anchor: dict[str, Any] | None,
+    origin: str = ORIGIN_CAPTAIN,
 ) -> dict[str, Any]:
-    """Queue one anchored note. It is not visible to an agent until sent."""
+    """Queue one anchored note. It is not visible to an agent until sent.
+
+    `origin` says who wrote it, and defaults to the captain because that
+    is who every caller before the hook layer was. An unknown origin
+    raises rather than being stored: a note whose author cannot be read
+    is exactly the thing the field exists to prevent.
+    """
     body = str(text or "").strip()
     if not body:
         raise ValueError("a note needs text")
+    if origin not in NOTE_ORIGINS:
+        raise ValueError(
+            f"unknown note origin {origin!r}. Known: {', '.join(NOTE_ORIGINS)}"
+        )
 
     note = {
         "id": f"note_{uuid.uuid4().hex[:12]}",
         "text": body[:MAX_NOTE_CHARS],
         "anchor": normalise_anchor(anchor),
+        "origin": origin,
         "status": "queued",
         "created_at": _now(),
         "sent_at": None,

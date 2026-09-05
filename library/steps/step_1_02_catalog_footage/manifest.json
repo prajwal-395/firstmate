@@ -39,12 +39,6 @@
         "type": "array",
         "description": "Modal SOURCE resolution. Describes the footage; NOT the render target. The delivery format comes from library/tools/delivery_format.py."
       }
-    ],
-    "preconditions": [
-      "'raw_footage_files' exists in state"
-    ],
-    "postconditions": [
-      "'clip_catalog' is written to state"
     ]
   },
   "classification": {

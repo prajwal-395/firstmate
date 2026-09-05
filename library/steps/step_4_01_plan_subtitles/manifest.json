@@ -21,8 +21,8 @@
       {
         "name": "speech_sequence",
         "type": "object",
-        "required": true,
-        "description": "State input: speech_sequence"
+        "required": false,
+        "description": "OPTIONAL, and the step's code never names it. 4.01 takes its word timings off the SPINE (step.py:517-533 _require_word_timestamps), not off this key; the docstring's lineage note - produced by 1.04, enriched via bridge 2.02 - runs through mesh_spine. Declared REQUIRED it made a scoped re-plan of one region pay for 2.02 as well, and it was one of the two declarations that made 'regenerate just these subtitles' impossible to express. The requirement it was standing in for is real and is now executable: requirements.spine.word_timings. The edge still routes it - the DAG is unchanged - it is simply no longer a refusal. Surveyed by library/tools/input_contract.py."
       },
       {
         "name": "brand_effect",
@@ -49,13 +49,8 @@
         }
       }
     ],
-    "preconditions": [
-      "'audio_spine' exists in state",
-      "'temporal_index' exists in state",
-      "'rough_cut_review.passed' is true in state"
-    ],
-    "postconditions": [
-      "'subtitle_plan' is written to state"
+    "requirements": [
+      "spine.word_timings"
     ]
   },
   "classification": {

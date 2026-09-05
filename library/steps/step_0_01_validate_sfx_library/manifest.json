@@ -19,12 +19,8 @@
         "description": "Validation result: { valid: bool, profiles_count: int, index_searchable: bool }"
       }
     ],
-    "preconditions": [
-      "SFX library folder exists with profiles/ subdirectory",
-      "FAISS index has been built (run sfx_pipeline.py once to create)"
-    ],
-    "postconditions": [
-      "'sfx_library_status.valid' is true"
+    "requirements": [
+      "env.sfx_library"
     ]
   },
   "classification": {

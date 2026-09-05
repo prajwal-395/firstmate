@@ -1,9 +1,33 @@
 /**
  * timeline-view.js - Rough cut timeline visualization.
  *
- * Displays A-roll and B-roll placements as horizontal blocks
+ * Displays A-roll, B-roll and caption placements as horizontal blocks
  * on a timeline with a time ruler.
+ *
+ * The track names are the built timeline's own, so what is drawn here
+ * and what step 6.01 places in Resolve are called the same thing.
+ * V3 is one block per caption CARD, which is the unit a reviewer is
+ * looking at when they type a note about the captions.
  */
+
+/**
+ * Drop the label of every block too narrow to hold it.
+ *
+ * Ellipsised to a character or two a label reads as damage rather than
+ * as a name: 001's 30 caption cards across 56.6s rendered as
+ * "i ju to 2! de th ev on", and V1 showed "clip_0" beside "clip_011".
+ * A row of clean bars is easier to read than a row of stubs, and the
+ * text is still on the tooltip and in the inspector.
+ *
+ * The fit is MEASURED rather than guessed from a width percentage: only
+ * the browser knows how wide the text it just laid out actually is, and
+ * a percentage that suits one label length is wrong for the next.
+ */
+function dropLabelsThatDoNotFit(container) {
+    for (const el of container.querySelectorAll('.timeline-block')) {
+        if (el.scrollWidth > el.clientWidth) el.textContent = '';
+    }
+}
 
 async function renderTimelineView() {
     const container = document.getElementById('timeline-content');
@@ -30,7 +54,12 @@ async function renderTimelineView() {
         // Header
         html += `<div class="timeline-header">`;
         html += `<h2>Rough Cut Timeline</h2>`;
-        html += `<div class="text-sm muted">${timeline.blocks.length} clips - ${totalDur.toFixed(1)}s total</div>`;
+        // "blocks", not "clips": a caption card is not a clip, and V3
+        // is most of the count on a finished cut.
+        const trackNames = [...new Set(timeline.blocks.map(b => b.track))];
+        html += `<div class="text-sm muted">${timeline.blocks.length} blocks`
+              + ` across ${trackNames.length} track${trackNames.length === 1 ? '' : 's'}`
+              + ` - ${totalDur.toFixed(1)}s total</div>`;
         html += `</div>`;
 
         // Time ruler
@@ -44,8 +73,8 @@ async function renderTimelineView() {
             tracks[track].push(block);
         }
 
-        // Render tracks in order: V1, V2, A1, A2
-        const trackOrder = ['V1', 'V2', 'A1', 'A2'];
+        // Render tracks in the built timeline's own order.
+        const trackOrder = ['V1', 'V2', 'V3', 'A1', 'A2'];
         for (const trackName of trackOrder) {
             const blocks = tracks[trackName];
             if (!blocks) continue;
@@ -59,7 +88,11 @@ async function renderTimelineView() {
                 const width = ((block.duration_s || (block.end_s - block.start_s)) / totalDur * 100).toFixed(2);
                 const blockClass = block.block_type || 'a_roll';
                 const label = block.clip_name || block.clip_id || '';
-                const textPreview = block.text ? ` - ${block.text.substring(0, 30)}` : '';
+                // A caption's label IS its text, so appending the text
+                // again would tooltip "i can feel the silent - i can
+                // feel the silent".
+                const textPreview = (block.text && block.text !== label)
+                    ? ` - ${block.text.substring(0, 30)}` : '';
 
                 html += `<div class="timeline-block ${blockClass}"
                             style="left: ${left}%; width: ${Math.max(0.5, parseFloat(width))}%;"
@@ -74,6 +107,8 @@ async function renderTimelineView() {
         }
 
         container.innerHTML = html;
+        // Measured after layout, never guessed before it.
+        dropLabelsThatDoNotFit(container);
 
     } catch (err) {
         container.innerHTML = `
@@ -114,13 +149,19 @@ function showBlockDetail(blockId) {
         content += `<div class="inspector-field"><div class="inspector-field-label">ID</div><div class="inspector-field-value">${escapeHtml(block.id)}</div></div>`;
         content += `<div class="inspector-field"><div class="inspector-field-label">Track</div><div class="inspector-field-value">${escapeHtml(block.track)}</div></div>`;
         content += `<div class="inspector-field"><div class="inspector-field-label">Type</div><div class="inspector-field-value">${escapeHtml(block.block_type)}</div></div>`;
-        content += `<div class="inspector-field"><div class="inspector-field-label">Clip</div><div class="inspector-field-value">${escapeHtml(block.clip_name || block.clip_id)}</div></div>`;
+        // A caption is not cut from a clip, so it has no clip to name -
+        // and a "Clip" row repeating the caption text reads as though
+        // the words were a filename.
+        const isCaption = block.block_type === 'subtitle';
+        if (!isCaption) {
+            content += `<div class="inspector-field"><div class="inspector-field-label">Clip</div><div class="inspector-field-value">${escapeHtml(block.clip_name || block.clip_id)}</div></div>`;
+        }
         content += `<div class="inspector-field"><div class="inspector-field-label">Time</div><div class="inspector-field-value">${block.start_s?.toFixed(2)}s - ${block.end_s?.toFixed(2)}s (${block.duration_s?.toFixed(2)}s)</div></div>`;
         content += `</div>`;
 
         if (block.text) {
             content += `<div class="inspector-section">`;
-            content += `<div class="inspector-section-title">Speech</div>`;
+            content += `<div class="inspector-section-title">${isCaption ? 'Caption' : 'Speech'}</div>`;
             content += `<div class="inspector-field-value">${escapeHtml(block.text)}</div>`;
             content += `</div>`;
         }

@@ -90,18 +90,6 @@
         }
       }
     ],
-    "preconditions": [
-      "'speech_sequence' exists in state",
-      "'creative_direction' exists in state",
-      "'music_selection' exists in state",
-      "'music_analysis' exists in state",
-      "'semantic_analysis_documents' exists in state",
-      "'clip_catalog' exists in state"
-    ],
-    "postconditions": [
-      "'audio_spine' is written to state",
-      "'timed_spine' is written to state"
-    ],
     "llm_outputs": [
       {
         "name": "structure",

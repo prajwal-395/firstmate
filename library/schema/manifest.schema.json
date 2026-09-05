@@ -46,12 +46,21 @@
     },
     "level": {
       "type": "string",
-      "enum": ["step", "sequence", "sub_process", "process", "pattern"],
+      "enum": [
+        "step",
+        "sequence",
+        "sub_process",
+        "process",
+        "pattern"
+      ],
       "description": "Granularity level of this component."
     },
     "interface": {
       "type": "object",
-      "required": ["inputs", "outputs", "preconditions", "postconditions"],
+      "required": [
+        "inputs",
+        "outputs"
+      ],
       "properties": {
         "inputs": {
           "type": "array",
@@ -67,35 +76,53 @@
           },
           "description": "Named return values with types."
         },
-        "preconditions": {
+        "requirements": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Conditions that must be true before execution."
+          "description": "Names of executable Requirements this step needs, from library/tools/requirements.py. REPLACED the prose 'preconditions' and 'postconditions' arrays, which were 126 strings across 29 manifests that nothing ever evaluated. Only the hand-written kinds are named here - predicate, environment and coverage. The state_key kind is AUTO-DERIVED from inputs[].required plus the DAG's data_mapping and must never be listed, because a second declaration of it is a second thing to drift."
         },
-        "postconditions": {
+        "llm_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/output_parameter"
+          },
+          "description": "Outputs the LLM half of a hybrid step emits. Declared where a bridge emits a key the step also declares as an output; see AGENTS.md 10.1 and run_pipeline.py. Present on 9 manifests and previously absent from this schema, which nothing loads - added when the prose preconditions were removed so the schema describes what the manifests actually carry."
+        },
+        "context_fields": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Conditions guaranteed after successful execution."
+          "description": "The prompt projection allow-list. NOTE: every other manifest carries this at the TOP LEVEL, which is where input_contract._reaches_prompt reads it; step_3_04_select_reels carries it here instead and is therefore not read. Described rather than silently rejected - the inconsistency is real and predates this schema edit."
         }
       },
       "additionalProperties": false
     },
     "classification": {
       "type": "object",
-      "required": ["stage", "determinism", "archetype", "idempotent"],
+      "required": [
+        "stage",
+        "determinism",
+        "archetype",
+        "idempotent"
+      ],
       "properties": {
         "stage": {
           "type": "string",
-          "enum": ["preflight", "edit"],
+          "enum": [
+            "preflight",
+            "edit"
+          ],
           "description": "Which ledger records this step's completion. 'preflight' enriches this project's source footage and survives an edit reset; 'edit' sits downstream of a creative decision and is discarded by one. See library/tools/step_ledger.py."
         },
         "determinism": {
           "type": "string",
-          "enum": ["deterministic", "nondeterministic"],
+          "enum": [
+            "deterministic",
+            "nondeterministic"
+          ],
           "description": "Whether identical inputs always produce identical outputs."
         },
         "archetype": {
@@ -117,7 +144,9 @@
         },
         "per_clip_artifacts": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Project-relative paths, one per clip, that this step writes and reuses when already present. May contain {clip_id} and {stem}. Declaring them is what makes --rerun <step>:<clip_id> possible."
         }
       },
@@ -125,16 +154,23 @@
     },
     "state": {
       "type": "object",
-      "required": ["reads", "writes"],
+      "required": [
+        "reads",
+        "writes"
+      ],
       "properties": {
         "reads": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "State keys this component reads from."
         },
         "writes": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "State keys this component writes to."
         }
       },
@@ -142,12 +178,16 @@
     },
     "dependencies": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Library entry IDs this component depends on. Empty array if none."
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "description": "Searchable keywords for discovery."
     },
@@ -158,11 +198,18 @@
     },
     "implementation": {
       "type": "object",
-      "required": ["default", "variants", "test_entry_point"],
+      "required": [
+        "default",
+        "variants",
+        "test_entry_point"
+      ],
       "properties": {
         "default": {
           "type": "object",
-          "required": ["runtime", "entry_point"],
+          "required": [
+            "runtime",
+            "entry_point"
+          ],
           "properties": {
             "runtime": {
               "type": "string",
@@ -182,19 +229,30 @@
             "oneOf": [
               {
                 "type": "object",
-                "required": ["runtime", "entry_point"],
+                "required": [
+                  "runtime",
+                  "entry_point"
+                ],
                 "properties": {
-                  "runtime": { "type": "string" },
-                  "entry_point": { "type": "string" }
+                  "runtime": {
+                    "type": "string"
+                  },
+                  "entry_point": {
+                    "type": "string"
+                  }
                 },
                 "additionalProperties": false,
                 "description": "Deterministic variant: environment -> script path."
               },
               {
                 "type": "object",
-                "required": ["context_notes"],
+                "required": [
+                  "context_notes"
+                ],
                 "properties": {
-                  "context_notes": { "type": "string" }
+                  "context_notes": {
+                    "type": "string"
+                  }
                 },
                 "additionalProperties": false,
                 "description": "Nondeterministic variant: environment -> context notes for prompt injection."
@@ -212,7 +270,11 @@
     },
     "metadata": {
       "type": "object",
-      "required": ["author", "created", "last_modified"],
+      "required": [
+        "author",
+        "created",
+        "last_modified"
+      ],
       "properties": {
         "author": {
           "type": "string",
@@ -245,20 +307,31 @@
     }
   },
   "additionalProperties": false,
-
   "if": {
     "properties": {
-      "level": { "enum": ["sequence", "sub_process", "process"] }
+      "level": {
+        "enum": [
+          "sequence",
+          "sub_process",
+          "process"
+        ]
+      }
     }
   },
   "then": {
-    "required": ["composition"]
+    "required": [
+      "composition"
+    ]
   },
-
   "definitions": {
     "parameter": {
       "type": "object",
-      "required": ["name", "type", "required", "description"],
+      "required": [
+        "name",
+        "type",
+        "required",
+        "description"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -288,7 +361,11 @@
     },
     "output_parameter": {
       "type": "object",
-      "required": ["name", "type", "description"],
+      "required": [
+        "name",
+        "type",
+        "description"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -307,11 +384,19 @@
     },
     "composition": {
       "type": "object",
-      "required": ["type", "definition_file", "components"],
+      "required": [
+        "type",
+        "definition_file",
+        "components"
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["sequence", "dag", "pattern_instance"],
+          "enum": [
+            "sequence",
+            "dag",
+            "pattern_instance"
+          ],
           "description": "How sub-components are organized."
         },
         "definition_file": {
@@ -322,7 +407,11 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["step_ref", "version_constraint", "role"],
+            "required": [
+              "step_ref",
+              "version_constraint",
+              "role"
+            ],
             "properties": {
               "step_ref": {
                 "type": "string",

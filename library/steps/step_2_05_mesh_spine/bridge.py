@@ -15,6 +15,10 @@ Input:  (whatever gather_step_inputs hands)
 Output: { "duration_zone": { "minimum_seconds", "target_seconds",
                               "maximum_seconds", "zone_legend" } }
         or {} when nothing declared a target.
+
+The work is `build_duration_zone`, which takes the step's inputs and
+returns what the bridge contributes.  `main()` owns the process: stdin
+and stdout.  See AGENTS.md 3.
 """
 import json
 import sys
@@ -26,17 +30,19 @@ from library.tools.duration_targets import (
 )
 
 
-def main():
-    data = json.loads(sys.stdin.read())
+def build_duration_zone(data: dict) -> dict:
+    """Resolve the project's target duration into the band the model is shown.
 
+    Returns `{}` when nothing declared a target - the absence is a fact
+    about the project, not a value to invent (AGENTS.md 10.5).
+    """
     zone = get_target_duration_zone(data)
     if zone is None:
         print(
             f"  duration zone: {NO_TARGET_DECLARED}",
             file=sys.stderr,
         )
-        json.dump({}, sys.stdout)
-        return
+        return {}
 
     min_dur, target_dur, max_dur = zone
     result = {
@@ -52,7 +58,12 @@ def main():
         f"  duration zone: [{min_dur:.1f}s, {target_dur:.1f}s, {max_dur:.1f}s]",
         file=sys.stderr,
     )
-    json.dump(result, sys.stdout)
+    return result
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    json.dump(build_duration_zone(data), sys.stdout)
 
 
 if __name__ == "__main__":

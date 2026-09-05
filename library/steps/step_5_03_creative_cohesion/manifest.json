@@ -66,14 +66,6 @@
         "type": "string",
         "description": "State output: step"
       }
-    ],
-    "preconditions": [
-      "'creative_direction' exists in state",
-      "'transition_spec' exists in state",
-      "'sfx_spec' exists in state"
-    ],
-    "postconditions": [
-      "'cohesion_review' is written to state"
     ]
   },
   "classification": {

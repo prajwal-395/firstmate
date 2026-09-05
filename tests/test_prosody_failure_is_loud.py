@@ -46,19 +46,36 @@ def profile_defect(profile):
 # ── The dependency is declared ────────────────────────────────────────
 
 def test_requirements_carries_parselmouth():
-    """The manifest precondition and the requirements file must agree."""
+    """The declared requirement and the requirements file must agree."""
     text = (REPO / "requirements.txt").read_text(encoding="utf-8")
     lines = [l.strip() for l in text.splitlines()
              if l.strip() and not l.strip().startswith("#")]
     assert any(l.startswith("praat-parselmouth") for l in lines), (
-        "step 1.05's manifest lists parselmouth as a precondition; "
+        "step 1.05 declares env.parselmouth as a requirement; "
         f"requirements.txt must install it. Got: {lines}")
 
 
-def test_the_manifest_still_declares_the_precondition():
+def test_the_manifest_still_declares_the_requirement():
+    """This used to assert the SUBSTRING "parselmouth" appeared in a
+    prose precondition - the only consumer any of those 126 strings ever
+    had, and it could not tell a declaration from a sentence that
+    happened to mention the word.
+
+    It now asserts the EXECUTABLE requirement, which is checked before
+    the run starts and refuses with the install instruction.
+    See library/tools/requirements.py.
+    """
+    from library.tools import requirements as R
+
     manifest = json.loads((STEP / "manifest.json").read_text(encoding="utf-8"))
-    preconditions = " ".join(manifest["interface"]["preconditions"]).lower()
-    assert "parselmouth" in preconditions
+    declared = manifest["interface"].get("requirements", [])
+    assert "env.parselmouth" in declared
+
+    requirement = next(r for r in R.registry() if r.name == "env.parselmouth")
+    assert "prosody_analysis" in requirement.consumers
+    refusal = requirement.check(requirement.refuting_context())
+    assert refusal.is_unsatisfied
+    assert "pip install praat-parselmouth" in refusal.reason
 
 
 # ── What counts as a profile ──────────────────────────────────────────

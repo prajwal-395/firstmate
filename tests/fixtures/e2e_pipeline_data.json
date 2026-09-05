@@ -9,7 +9,8 @@
     "creative_direction": {"completed_at": "2024-08-01T12:03:00", "elapsed_s": 15},
     "music_selection": {"completed_at": "2024-08-01T12:04:00", "elapsed_s": 30},
     "music_analysis": {"completed_at": "2024-08-01T12:05:00", "elapsed_s": 45},
-    "assign_aroll": {"completed_at": "2024-08-01T12:06:00", "elapsed_s": 5}
+    "assign_aroll": {"completed_at": "2024-08-01T12:06:00", "elapsed_s": 5},
+    "plan_subtitles": {"completed_at": "2024-08-01T12:07:00", "elapsed_s": 3}
   },
   "failed_steps": ["music_analysis"],
   "step_outputs": {
@@ -320,6 +321,85 @@
         "text": "listen if you're watching this right now"
       },
       "total_a_roll_segments": 3
+    },
+    "plan_subtitles": {
+      "subtitle_plan": {
+        "subtitle_entries": [
+        {
+          "id": "sub_001",
+          "timeline_start": 0.0,
+          "timeline_end": 1.6,
+          "text": "listen if you're",
+          "emphasis_words": ["listen"],
+          "spine_block_position": 0,
+          "word_count": 3,
+          "fit_scale": 1.0,
+          "words": [{"word": "listen", "start": 0.0, "end": 0.533}, {"word": "if", "start": 0.533, "end": 1.067}, {"word": "you're", "start": 1.067, "end": 1.6}]
+        },
+        {
+          "id": "sub_002",
+          "timeline_start": 1.6,
+          "timeline_end": 3.5,
+          "text": "watching this right now",
+          "emphasis_words": ["right", "now"],
+          "spine_block_position": 0,
+          "word_count": 4,
+          "fit_scale": 1.0,
+          "words": [{"word": "watching", "start": 1.6, "end": 2.075}, {"word": "this", "start": 2.075, "end": 2.55}, {"word": "right", "start": 2.55, "end": 3.025}, {"word": "now", "start": 3.025, "end": 3.5}]
+        },
+        {
+          "id": "sub_003",
+          "timeline_start": 3.5,
+          "timeline_end": 8.4,
+          "text": "so this morning i decided",
+          "emphasis_words": ["decided"],
+          "spine_block_position": 1,
+          "word_count": 5,
+          "fit_scale": 1.0,
+          "words": [{"word": "so", "start": 3.5, "end": 4.48}, {"word": "this", "start": 4.48, "end": 5.46}, {"word": "morning", "start": 5.46, "end": 6.44}, {"word": "i", "start": 6.44, "end": 7.42}, {"word": "decided", "start": 7.42, "end": 8.4}]
+        },
+        {
+          "id": "sub_004",
+          "timeline_start": 8.4,
+          "timeline_end": 13.3,
+          "text": "to really commit to this new routine",
+          "emphasis_words": ["commit"],
+          "spine_block_position": 1,
+          "word_count": 7,
+          "fit_scale": 1.0,
+          "words": [{"word": "to", "start": 8.4, "end": 9.1}, {"word": "really", "start": 9.1, "end": 9.8}, {"word": "commit", "start": 9.8, "end": 10.5}, {"word": "to", "start": 10.5, "end": 11.2}, {"word": "this", "start": 11.2, "end": 11.9}, {"word": "new", "start": 11.9, "end": 12.6}, {"word": "routine", "start": 12.6, "end": 13.3}]
+        },
+        {
+          "id": "sub_005",
+          "timeline_start": 13.3,
+          "timeline_end": 22.0,
+          "text": "walking through the park",
+          "emphasis_words": ["park"],
+          "spine_block_position": 2,
+          "word_count": 4,
+          "fit_scale": 1.0,
+          "words": [{"word": "walking", "start": 13.3, "end": 15.475}, {"word": "through", "start": 15.475, "end": 17.65}, {"word": "the", "start": 17.65, "end": 19.825}, {"word": "park", "start": 19.825, "end": 22.0}]
+        },
+        {
+          "id": "sub_006",
+          "timeline_start": 22.0,
+          "timeline_end": 30.8,
+          "text": "and just reflecting on how far we've come",
+          "emphasis_words": ["far"],
+          "spine_block_position": 2,
+          "word_count": 8,
+          "fit_scale": 1.0,
+          "words": [{"word": "and", "start": 22.0, "end": 23.1}, {"word": "just", "start": 23.1, "end": 24.2}, {"word": "reflecting", "start": 24.2, "end": 25.3}, {"word": "on", "start": 25.3, "end": 26.4}, {"word": "how", "start": 26.4, "end": 27.5}, {"word": "far", "start": 27.5, "end": 28.6}, {"word": "we've", "start": 28.6, "end": 29.7}, {"word": "come", "start": 29.7, "end": 30.8}]
+        }
+        ],
+        "total_subtitles": 6,
+        "style": {
+          "font_family": "Montserrat",
+          "font_weight": 800,
+          "font_size_px": 84,
+          "color": "#FFFFFF"
+        }
+      }
     }
   }
 }

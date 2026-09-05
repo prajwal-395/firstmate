@@ -22,6 +22,10 @@ passed because a model answered this step, so an empty list records
 `judged_no_correction_needed`; a run that never reached a model records
 `no_correction_decision`. Those are different facts and the old output
 conflated them into one identity CDL.
+
+The work is `resolve_color_grade`, which takes the merged answer and
+returns `color_grade_spec`.  `main()` owns the process: stdin and
+stdout.  See AGENTS.md 3.
 """
 import json
 import sys
@@ -38,8 +42,12 @@ from library.tools.color_correction import (
 )
 
 
-def main():
-    data = json.loads(sys.stdin.read())
+def resolve_color_grade(data: dict) -> dict:
+    """Join the colourist's answer to the pre-bridge's measurements.
+
+    `data` is the merged dict the runner hands a post-bridge: the step's
+    inputs, the pre-bridge's output, and the model's answer.
+    """
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
 
@@ -76,7 +84,12 @@ def main():
         decided=True,
         assessment=str(data.get(ASSESSMENT_FIELD) or "").strip(),
     )
-    json.dump(result, sys.stdout, indent=2)
+    return result
+
+
+def main():
+    json.dump(resolve_color_grade(json.loads(sys.stdin.read())),
+              sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

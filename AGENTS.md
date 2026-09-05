@@ -45,12 +45,11 @@ measured score floor that lets it answer "not in this footage", and the 66x redu
 ## 3. Pipeline execution
 
 The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`, ordered by topological sort.
- 
+
 
 - Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`.  **ONE exists and is not wired into the DAG:** `object_segmentation` (1.06) - nothing consumes masks ([`docs/SUBJECT_MASKING_MEASURED.md`](docs/SUBJECT_MASKING_MEASURED.md)). It carries a documented `unwired_reason` in `project_layout.STEPS`, `StepDir.__post_init__` rejects `wired=False` without one, and `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration. **Unwiring says nothing consumes it, not that the capability is gone.** `prosody_analysis` (1.05) was re-wired on 2026-09-01: its deterministic measurements (pitch, pace, voice quality, intensity) are unbiased signal the model lacked. Its output routes to 2.01 and 2.02 via `view:prosody`. See [`docs/PROSODY_MEASURED.md`](docs/PROSODY_MEASURED.md) for the original measurement that led to unwiring, now overruled.
 - **UNWIRED and DESELECTED are different things, and only one is a property of the pipeline.** Unwired means no DAG node exists (1.06).  The two lists are `project_layout.STEPS` and `run_scope.DESELECTED_BY_DEFAULT`; a step is in one or the other, never both.
-- `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**; a recorded claim that it "provably cannot" read text was wrong.  
-- `objects[].readable_text` is the VLM's field (step 1.03).  The two are independent.
+- `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**; a recorded claim that it "provably cannot" read text was wrong.
 - Step 1.07 `ocr_extraction` is WIRED and DESELECTED BY DEFAULT: `--with ocr_extraction` turns it on.
 
 | Flag | Effect |
@@ -73,7 +72,6 @@ The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/
 ### Scoping a run
 
 One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags from it.
-Detail: `library/tools/run_scope.py`.
 
 ### Configuring a run
 
@@ -91,7 +89,8 @@ Detail: `library/tools/external_inputs.py`, `library/tools/timeline_ingest.py`.
 ### A declaration must be true
 
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
-Detail: `library/tools/input_contract.py`.
+**A prerequisite is EXECUTABLE, not prose, and is asked of what will RUN.**
+Detail: `library/tools/requirements.py`, `library/tools/input_contract.py`.
 
 ### Two ledgers, two lifetimes
 

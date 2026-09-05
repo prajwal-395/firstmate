@@ -61,12 +61,6 @@
         }
       }
     ],
-    "preconditions": [
-      "'creative_direction' exists in state"
-    ],
-    "postconditions": [
-      "'music_selection' is written to state"
-    ],
     "llm_outputs": [
       {
         "name": "music_selection",

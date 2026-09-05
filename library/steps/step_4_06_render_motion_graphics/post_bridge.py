@@ -94,9 +94,28 @@ def _nothing_to_draw_output(reason: str, basis: dict = None) -> dict:
     return out
 
 
-def main():
+class MotionGraphicsRenderRefused(Exception):
+    """The step cannot deliver overlays, and says so carrying its payload.
+
+    The three refusal paths used to emit and then `sys.exit(1)` where
+    they stood.  Both halves still happen in `main()`; a function that
+    kills its caller's process cannot be called by one.
+    """
+
+    def __init__(self, payload: dict):
+        self.payload = payload
+        super().__init__(
+            payload.get("motion_graphics_overlay", {}).get("error", "refused"))
+
+
+def render_motion_graphics(data: dict) -> dict:
+    """Render the model's motion-graphics plan, its bookends and timed text.
+
+    `data` is the merged dict the runner hands a post-bridge: the step's
+    inputs, the pre-bridge's output, and the model's answer.  Raises
+    `MotionGraphicsRenderRefused` where nothing can be delivered.
+    """
     import sys
-    data = json.loads(sys.stdin.read())
     audio_spine = data.get("audio_spine", {})
     project_folder = data.get("project_folder", "")
     # The model's answer. `enhancement_spec` and `creative_direction`
@@ -113,13 +132,12 @@ def main():
     if not os.path.isdir(REMOTION_DIR):
         print(f"ERROR: Remotion project not found at {REMOTION_DIR}",
               file=sys.stderr)
-        json.dump({
+        raise MotionGraphicsRenderRefused({
             "motion_graphics_overlay": {
                 "available": False,
                 "error": "Remotion project not found at remotion-subtitles/"
             }
-        }, sys.stdout, indent=2)
-        sys.exit(1)
+        })
 
     # Prep Remotion: link brand assets (logos, fonts) into Remotion's
     # public/brand/ directory so staticFile("brand/...") resolves at render
@@ -163,14 +181,13 @@ def main():
             fps=fps, width=width, height=height)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
-        json.dump({
+        raise MotionGraphicsRenderRefused({
             "motion_graphics_overlay": {
                 "available": False,
                 "segments": [],
                 "error": f"bookend render failed: {e}",
             }
-        }, sys.stdout, indent=2)
-        sys.exit(1)
+        })
     if bookends_rendered:
         print(f"Bookends ready: {len(bookends_rendered)}", file=sys.stderr)
 
@@ -197,14 +214,13 @@ def main():
         )
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
-        json.dump({
+        raise MotionGraphicsRenderRefused({
             "motion_graphics_overlay": {
                 "available": False,
                 "segments": [],
                 "error": f"timed text render failed: {e}",
             }
-        }, sys.stdout, indent=2)
-        sys.exit(1)
+        })
 
     timed_text_overlay = _timed_text_output(timed_text_segments, fps)
 
@@ -229,12 +245,11 @@ def main():
     if not segments_plan:
         print(f"No motion graphics to draw ({basis['basis']}): "
               f"{basis['what_the_basis_means']}", file=sys.stderr)
-        json.dump({
+        return {
             "motion_graphics_overlay": _nothing_to_draw_output(
                 basis["what_the_basis_means"], basis),
             "timed_text_overlay": timed_text_overlay,
-        }, sys.stdout, indent=2)
-        return
+        }
 
     print(f"Rendering {len(segments_plan)} motion graphics segments "
           f"({basis['resolved']} elements)...", file=sys.stderr)
@@ -311,7 +326,7 @@ def main():
             print(f"WARNING: QA Check 2.1 execution failed: {e}",
                   file=sys.stderr)
 
-    json.dump({
+    return {
         "motion_graphics_overlay": {
             "available": len(segments) > 0,
             "segments": segments,
@@ -322,7 +337,18 @@ def main():
             "planning_basis": basis,
         },
         "timed_text_overlay": timed_text_overlay,
-    }, sys.stdout, indent=2)
+    }
+
+
+def main():
+    import sys
+    try:
+        result = render_motion_graphics(json.loads(sys.stdin.read()))
+    except MotionGraphicsRenderRefused as refusal:
+        json.dump(refusal.payload, sys.stdout, indent=2)
+        sys.exit(1)
+
+    json.dump(result, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

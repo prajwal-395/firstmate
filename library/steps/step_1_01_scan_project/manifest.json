@@ -34,15 +34,6 @@
         "type": "int",
         "description": "State output: total_files"
       }
-    ],
-    "preconditions": [
-      "'project_folder' exists in state"
-    ],
-    "postconditions": [
-      "'raw_footage_files' is written to state",
-      "'total_files' is written to state",
-      "'skipped_files' is written to state",
-      "'project_config' is written to state"
     ]
   },
   "classification": {

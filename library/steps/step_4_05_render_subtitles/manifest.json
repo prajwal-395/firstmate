@@ -32,14 +32,9 @@
         "description": "Per-segment rendered ProRes 4444 overlays with timeline positions"
       }
     ],
-    "preconditions": [
-      "'subtitle_plan' exists in state",
-      "'audio_spine' exists in state",
-      "Remotion project is set up in remotion-subtitles/",
-      "Node.js and npx are available"
-    ],
-    "postconditions": [
-      "'subtitle_overlay' is written to state with segments array"
+    "requirements": [
+      "env.npx",
+      "env.remotion_installed"
     ]
   },
   "classification": {

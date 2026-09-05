@@ -94,6 +94,44 @@ METHOD_MEANING = {
               "file"),
 }
 
+# ── WHAT KIND OF THING PRODUCED A FILE ──────────────────────────────
+#
+# Until now the only producer was a DAG node, so `step_id` said
+# everything.  An OPERATION - a named, scoped entry point into a step's
+# own code, reachable without a DAG run - is the second kind, and a
+# reader that cannot tell the two apart cannot answer "was this file
+# written by the pipeline, or by someone correcting one region of it?"
+#
+# The two are recorded SEPARATELY and both are kept, because they answer
+# different questions and neither substitutes for the other:
+#
+#   `step_id`       WHICH DAG NODE this file is attributed to.  For an
+#                   operation this is its OWNING NODE, so every reader
+#                   that already groups by step keeps working untouched.
+#   `operation_id`  WHICH OPERATION actually ran, or None for a step.
+#
+# Why an operation MUST name an owning node, and is refused without one:
+# four separate records in this pipeline are keyed by node id - the two
+# step ledgers, the run status the dashboard and the Resolve panel read,
+# and the three run-level collectors.  A producer that resolves to no
+# node loses its place in all four, and would be attributed to nothing
+# while still appearing to have been recorded.  That is the shape of
+# defect this module exists to prevent, so it raises instead.
+PRODUCER_STEP = "step"
+PRODUCER_OPERATION = "operation"
+
+PRODUCER_MEANING = {
+    PRODUCER_STEP: "a node of the DAG, run by the pipeline runner",
+    PRODUCER_OPERATION: ("a named operation, invoked against a scope "
+                         "without a DAG run, and attributed to the node "
+                         "that owns the decision it made"),
+}
+
+
+class ProvenanceError(ValueError):
+    """A producer that could not be recorded truthfully."""
+
+
 # Keys an artifact may use to name what it was made from.  Only these,
 # and only at the top level of a JSON document: a heuristic that went
 # looking would eventually find a path that means something else.
@@ -144,10 +182,25 @@ class ArtifactRecord:
     path: str                       # project-relative, posix
     method: str                     # OBSERVED | DECLARED | UNKNOWN
     step_id: str | None = None
+    """The DAG node this file is attributed to.
+
+    For an operation this is its OWNING node, never None - see
+    `PRODUCER_MEANING`.  Keeping this field meaning the same thing for
+    both kinds is what lets every existing reader group by step without
+    knowing operations exist.
+    """
     run_id: str | None = None
     recorded_at: str | None = None
     bytes: int = 0
     area: str | None = None
+    producer_kind: str = PRODUCER_STEP
+    """PRODUCER_STEP | PRODUCER_OPERATION.
+
+    Defaulted to a step so every record written before operations
+    existed reads as what it actually was, rather than as unknown.
+    """
+    operation_id: str | None = None
+    """The operation that ran, or None when a DAG node wrote this."""
     derived_from: list = field(default_factory=list)
     candidates: list = field(default_factory=list)
     """Every step the area declares, when the declaration names more than
@@ -163,6 +216,16 @@ class ArtifactRecord:
     def is_attributed(self) -> bool:
         return self.method != UNKNOWN and bool(self.step_id)
 
+    @property
+    def producer(self) -> str | None:
+        """The narrowest name for what wrote this - operation, else step.
+
+        A reader that wants "which operation" asks this; a reader that
+        wants "which node" keeps asking `step_id`.  Both are always
+        answerable, which is the whole point of recording two fields.
+        """
+        return self.operation_id or self.step_id
+
 
 @dataclass
 class RunRecord:
@@ -172,6 +235,14 @@ class RunRecord:
     started_at: str
     mode: str = ""
     steps: list = field(default_factory=list)
+    operations: list = field(default_factory=list)
+    """Operations this run performed, if any.
+
+    Recorded separately from `steps` rather than folded in, because the
+    run summary's status is computed from DAG completeness alone: an
+    operation must be visible in the account of the run without being
+    able to make an incomplete DAG look complete.
+    """
     ended_at: str = ""
     status: str = ""
     restart: dict | None = None
@@ -237,7 +308,8 @@ def read_declared_sources(path: Path) -> list:
 class ProvenanceLedger:
     """The record of what each run wrote, for one project."""
 
-    def __init__(self, project_folder, step_ids=None) -> None:
+    def __init__(self, project_folder, step_ids=None,
+                 operation_ids=None) -> None:
         self.layout = (project_folder if isinstance(project_folder, ProjectLayout)
                        else ProjectLayout(project_folder))
         self.root = self.layout.root
@@ -246,6 +318,11 @@ class ProvenanceLedger:
         # a step, so `notes.json` dropped in by hand is not attributed to
         # a step called "notes".
         self.step_ids = frozenset(step_ids or ())
+        # The registry's operation names, on the same terms and for the
+        # same reason.  An operation id nobody declared is refused rather
+        # than recorded: inventing a producer is the one thing worse than
+        # admitting the gap, and `UNKNOWN` already exists to admit it.
+        self.operation_ids = frozenset(operation_ids or ())
 
     # ── Where it is stored ──────────────────────────────────────────
 
@@ -303,13 +380,83 @@ class ProvenanceLedger:
         return out
 
     def observe(self, step_id: str, run_id: str, before: dict,
-                after: dict) -> list:
-        """Record every file that appeared or changed while a step ran.
+                after: dict, operation_id: str | None = None) -> list:
+        """Record every file that appeared or changed while a producer ran.
 
         The strongest attribution the pipeline can make, and it costs the
-        steps nothing - which is the point, because half of them hand the
-        actual writing to ffmpeg, Remotion or Resolve.
+        producer nothing - which is the point, because half the steps
+        hand the actual writing to ffmpeg, Remotion or Resolve.  That is
+        also why this generalises to operations without any new
+        machinery: it watches the tree, so it does not care what ran.
+
+        `operation_id` names an OPERATION rather than a DAG node.  When
+        it is given, `step_id` must still name the operation's OWNING
+        node - see `PRODUCER_MEANING` for why that is required rather
+        than optional.
         """
+        kind = PRODUCER_OPERATION if operation_id else PRODUCER_STEP
+
+        if operation_id:
+            # An operation with no owning node cannot be recorded
+            # truthfully: four step-keyed records would lose it while
+            # this one claimed to have it.
+            if not step_id:
+                raise ProvenanceError(
+                    f"operation {operation_id!r} was given no owning step. "
+                    f"Every operation is attributed to the DAG node that "
+                    f"owns the decision it makes, because the step "
+                    f"ledgers, the run status and the run-level "
+                    f"collectors are all keyed by node id. Pass the "
+                    f"owning node as step_id.")
+            # `if self.operation_ids and ...` was the original shape of
+            # both checks below, and it is the defect this whole change
+            # exists to remove wearing the other hat: an OMITTED list
+            # made the guard check NOTHING rather than everything, so
+            # the protection was OFF BY DEFAULT.  Measured: a ledger
+            # built without `operation_ids` RECORDED `totally.made.up`,
+            # while the same call against a ledger given the list
+            # refused it.  Nothing exercised it yet, so it was latent
+            # rather than live - and landing a known gate that cannot
+            # fail, inside the change whose purpose is removing them,
+            # is not something to do knowingly.
+            #
+            # So an absent declaration is now a REFUSAL, not a permit.
+            # The reasoning is the same one `UNKNOWN` rests on: a
+            # producer that cannot be CHECKED cannot be recorded as
+            # fact.  Steps are untouched - both checks sit inside
+            # `if operation_id:`, and the runner records steps against a
+            # ledger with no declarations exactly as before.
+            if not self.operation_ids:
+                raise ProvenanceError(
+                    f"operation {operation_id!r} cannot be recorded: this "
+                    f"ledger was built with no declared operations, so "
+                    f"nothing here can tell a real operation from an "
+                    f"invented one. Construct it with "
+                    f"operation_ids=operations.names(). Recording an "
+                    f"unverifiable producer is the one thing worse than "
+                    f"recording UNKNOWN.")
+            if operation_id not in self.operation_ids:
+                raise ProvenanceError(
+                    f"operation {operation_id!r} is not a declared "
+                    f"operation. Declared: "
+                    f"{sorted(self.operation_ids)}. An "
+                    f"undeclared producer is recorded as UNKNOWN rather "
+                    f"than invented.")
+            if not self.step_ids:
+                raise ProvenanceError(
+                    f"operation {operation_id!r} names owning step "
+                    f"{step_id!r}, but this ledger was built with no "
+                    f"declared steps, so the owning node cannot be "
+                    f"checked. Construct it with step_ids from the DAG. "
+                    f"An owning node that is merely asserted is what "
+                    f"lets an operation vanish from the four step-keyed "
+                    f"records while this one claims to have it.")
+            if step_id not in self.step_ids:
+                raise ProvenanceError(
+                    f"operation {operation_id!r} names owning step "
+                    f"{step_id!r}, which is not a step of this pipeline. "
+                    f"Known: {sorted(self.step_ids)}.")
+
         changed = [rel for rel, sig in after.items()
                    if before.get(rel) != sig]
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -325,6 +472,8 @@ class ProvenanceLedger:
                 recorded_at=now,
                 bytes=after[rel][0],
                 area=area.value if area else None,
+                producer_kind=kind,
+                operation_id=operation_id,
                 derived_from=read_declared_sources(p),
             )
             records.append(rec)
@@ -341,12 +490,21 @@ class ProvenanceLedger:
         self._append(RUNS_FILE, asdict(rec))
         return rec
 
-    def end_run(self, run_id: str, status: str, steps: list) -> None:
+    def end_run(self, run_id: str, status: str, steps: list,
+                operations: list | None = None) -> None:
+        """Close a run's record.
+
+        `operations` is recorded beside `steps`, never merged into it:
+        the run summary decides SUCCESS from DAG completeness, so an
+        operation has to be visible in the account without being able to
+        make an incomplete DAG read as complete.
+        """
         self._append(RUNS_FILE, {
             "run_id": run_id,
             "started_at": "",
             "mode": "",
             "steps": list(steps),
+            "operations": list(operations or ()),
             "ended_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "status": status,
         })
@@ -360,6 +518,7 @@ class ProvenanceLedger:
                 continue
             cur = merged.setdefault(rid, {"run_id": rid, "started_at": "",
                                           "mode": "", "steps": [],
+                                          "operations": [],
                                           "ended_at": "", "status": "",
                                           "restart": None})
             for k, v in row.items():

@@ -396,11 +396,13 @@ def run(inputs: dict) -> dict:
             catalogue["max_track_duration_seconds"],
             catalogue["candidates"],
             creative_direction=creative_direction)
-    except MusicSearchError as exc:
+    except MusicSearchError:
         # A malformed declaration is a mistake to report, not one to
-        # search around.
-        print(json.dumps({"error": str(exc), "step": "2.04_bridge"}))
-        sys.exit(1)
+        # search around.  It travels as the exception it already is:
+        # `run()` is the name an operation points at, and a function
+        # that writes stdout and kills the process cannot be called by
+        # anything but a subprocess.  `main()` does both, below.
+        raise
     catalogue["candidates"].extend(fetched)
     catalogue["search"] = search_report
 
@@ -446,7 +448,11 @@ def main():
     except Exception:
         input_data = {}
 
-    result = run(input_data)
+    try:
+        result = run(input_data)
+    except MusicSearchError as exc:
+        print(json.dumps({"error": str(exc), "step": "2.04_bridge"}))
+        sys.exit(1)
     json.dump(result, sys.stdout, indent=2)
 
 

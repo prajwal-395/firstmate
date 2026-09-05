@@ -49,13 +49,6 @@
         "type": "int",
         "description": "Clips whose per-clip index was reused from disk rather than re-transcribed."
       }
-    ],
-    "preconditions": [
-      "'raw_footage_files' exists in state"
-    ],
-    "postconditions": [
-      "'temporal_event_indices' is written to state",
-      "'full_indices' is written to state"
     ]
   },
   "classification": {

@@ -99,14 +99,20 @@ def _require_keys(obj, keys, context):
     if missing:
         raise ValueError(f"{context}: missing required keys: {missing}")
 
-def main():
-    data = json.loads(sys.stdin.read())
-    
-    if not isinstance(data, dict):
-        raise ValueError("Input data must be a dictionary")
-    
-    raw_footage_files = data.get('raw_footage_files', [])
+class VisionPipelineMissing(Exception):
+    """The v3 analyser is not on disk, so nothing can be measured."""
 
+
+def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict:
+    """Run the v3 vision pass over any clip without a profile, then collect all.
+
+    Returns `{"semantic_analysis_documents": [...], "total_clips_analyzed": n}`.
+    Raises `VisionPipelineMissing` when the analyser is absent.
+
+    A clip that times out or errors is reported on stderr and left
+    without a profile rather than failing the others - the collection
+    below reads whatever is on disk.
+    """
     # Profiles are pipeline OUTPUT and land in the output tree.
     #
     # They used to be written to raw/analysis/, inside the captain's own
@@ -115,7 +121,7 @@ def main():
     # practice. The layout owner has no writable area under raw/, which
     # is what makes that unrepeatable rather than merely fixed.
     # See library/tools/project_layout.py.
-    layout = ProjectLayout(data.get('project_folder') or os.getcwd())
+    layout = ProjectLayout(project_folder or os.getcwd())
     analysis_dir = str(layout.write_dir(Area.VISION_ANALYSIS, step="semantic_analysis"))
     
     # Path to the vision pipeline tool (repo-relative)
@@ -125,7 +131,7 @@ def main():
     if not os.path.exists(VISION_PIPELINE):
         print(f"  ✗ Vision pipeline not found at {VISION_PIPELINE}", file=sys.stderr)
         print(f"    Expected: library/tools/analysis/vision_pipeline_v3.py", file=sys.stderr)
-        sys.exit(1)
+        raise VisionPipelineMissing(VISION_PIPELINE)
     
     # Which clips already have a profile, keyed by file stem - the same key
     # the analyser caches on. See the note above _profile_stems.
@@ -206,10 +212,28 @@ def main():
     print(f"Collected {len(profiles)} clip profiles "
           f"({adapted_count} adapted from the v3 vision schema)", file=sys.stderr)
     
-    json.dump({
+    return {
         'semantic_analysis_documents': profiles,
-        'total_clips_analyzed': len(profiles)
-    }, sys.stdout, indent=2)
+        'total_clips_analyzed': len(profiles),
+    }
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+
+    try:
+        result = analyse_semantics(
+            raw_footage_files=data.get('raw_footage_files', []),
+            project_folder=data.get('project_folder', ''),
+        )
+    except VisionPipelineMissing:
+        sys.exit(1)
+
+    json.dump(result, sys.stdout, indent=2)
+
 
 if __name__ == '__main__':
     main()

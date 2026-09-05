@@ -69,6 +69,13 @@ ALL_COMMANDS = (
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
 
+# Import name -> the distribution name on PyPI, for the ones that differ.
+# Needed because the version check below asks `importlib.metadata` for an
+# installed version, and it answers by DISTRIBUTION name.
+ML_DISTRIBUTION_NAMES = {
+    "mlx_vlm": "mlx-vlm",
+}
+
 
 def _missing_ml_packages():
     """Return the ML packages this interpreter cannot import."""
@@ -89,6 +96,94 @@ def _missing_ml_packages():
     return missing
 
 
+# ─── Importable is not the same as USABLE ─────────────────────────
+#
+# An import check answers "is a whisperx here", never "is it the
+# whisperx this pipeline declares".  On 2026-09-05 every ML environment
+# on the build machine carried whisperx 3.2.0 against a declared
+# `whisperx>=3.8,<4`, because they were built on Python 3.14 - which
+# requirements.txt forbids in its own header, in capitals, for exactly
+# this reason.  3.2.0 imports perfectly and then raises
+#
+#     TypeError: TranscriptionOptions.__init__() missing 2 required
+#     positional arguments: 'multilingual' and 'hotwords'
+#
+# on every transcribe call.  step_1_04 catches that per clip and carries
+# on, so the measured outcome on project 001 was 17 clips reporting
+# "0 regions, 0.0s speech, 0 words", no spine, no subtitles - the entire
+# edit missing, reported as success.  requirements.txt has documented
+# that whole chain since 2026-08-17 and nothing ever checked it.
+#
+# The declared version is read from requirements.txt rather than
+# restated here.  A second copy of the pin in this file is the local
+# answer that CI never sees, and it drifts from the manifest the moment
+# either moves - which is the same defect one level up.
+
+def _declared_specifiers(repo_root: Path) -> dict:
+    """{distribution: specifier} for the ML packages requirements.txt pins.
+
+    A package the manifest does not constrain simply has no entry: there
+    is nothing to be non-compliant with, and inventing a bound here would
+    be this file having an opinion the manifest does not.
+    """
+    from packaging.requirements import Requirement
+
+    wanted = {ML_DISTRIBUTION_NAMES.get(p, p).lower()
+              for p in ML_REQUIRED_PACKAGES}
+    found = {}
+    path = repo_root / "requirements.txt"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return found
+    for raw in lines:
+        line = raw.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        try:
+            req = Requirement(line)
+        except Exception:
+            continue
+        if req.name.lower() in wanted and str(req.specifier):
+            found[req.name.lower()] = req.specifier
+    return found
+
+
+def _noncompliant_ml_packages(repo_root: Path = None) -> list:
+    """ML packages whose INSTALLED version the manifest does not allow.
+
+    Each entry is `(import_name, installed, specifier)`.  A package whose
+    version cannot be determined is REPORTED as undetermined rather than
+    passed: an environment that cannot say what it has is not an
+    environment that has been shown to comply.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    repo_root = REPO_ROOT if repo_root is None else repo_root
+    try:
+        declared = _declared_specifiers(repo_root)
+    except ImportError:
+        # `packaging` is a transitive dependency of the ML stack itself,
+        # so this only happens in an environment that has already failed
+        # the import check above.  Say nothing rather than guess.
+        return []
+
+    problems = []
+    for pkg in ML_REQUIRED_PACKAGES:
+        dist = ML_DISTRIBUTION_NAMES.get(pkg, pkg).lower()
+        specifier = declared.get(dist)
+        if specifier is None:
+            continue
+        try:
+            installed = version(dist)
+        except PackageNotFoundError:
+            problems.append((pkg, "unknown", specifier))
+            continue
+        if not specifier.contains(installed, prereleases=True):
+            problems.append((pkg, installed, specifier))
+    return problems
+
+
 def _venv_advice(repo_root: Path) -> list[str]:
     """Say what to actually do, naming only paths that exist.
 
@@ -105,12 +200,25 @@ def _venv_advice(repo_root: Path) -> list[str]:
             "This checkout has a virtual environment. Activate it and try again:",
             f"    source {activate}",
         ]
+    # 3.12 EXPLICITLY, not bare `python3`.  This advice used to say
+    # `python3 -m venv`, and on a machine whose `python3` is 3.14 that
+    # instruction rebuilds the exact environment requirements.txt forbids
+    # in its header - the resolver finds no ctranslate2 wheel, settles on
+    # a whisperx below the declared floor, and transcription is broken
+    # again in a way that imports cleanly.  Following the advice has to
+    # produce a working environment or it is not advice.
     return [
         f"This checkout has no virtual environment: {repo_root / '.venv'} does not exist.",
-        "Create one and install the pipeline's dependencies:",
-        f"    python3 -m venv {repo_root / '.venv'}",
+        "Create one on PYTHON 3.12 - requirements.txt explains why no other "
+        "version works - and install the pipeline's dependencies:",
+        f"    python3.12 -m venv {repo_root / '.venv'}",
         f"    source {repo_root / '.venv' / 'bin' / 'activate'}",
         f"    pip install -r {repo_root / 'requirements.txt'}",
+        "",
+        "With uv, which resolves this stack faster and can fetch 3.12 itself:",
+        f"    uv venv --python 3.12 {repo_root / '.venv'}",
+        f"    uv pip install --python {repo_root / '.venv' / 'bin' / 'python3'} "
+        f"-r {repo_root / 'requirements.txt'}",
     ]
 
 
@@ -122,10 +230,33 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
     if command not in ML_DEPENDENT_COMMANDS:
         return
     missing = _missing_ml_packages()
-    if not missing:
-        return
-    print(f"ERROR: '{command}' needs ML dependencies this interpreter "
-          f"cannot import: {', '.join(missing)}")
+    if missing:
+        print(f"ERROR: '{command}' needs ML dependencies this interpreter "
+              f"cannot import: {', '.join(missing)}")
+        _print_ml_advice(command, repo_root)
+        sys.exit(1)
+
+    # Present, but is it the one the manifest declares?  See the note
+    # above `_declared_specifiers`.
+    wrong = _noncompliant_ml_packages(repo_root)
+    if wrong:
+        print(f"ERROR: '{command}' has ML dependencies this interpreter can "
+              f"import but requirements.txt does not allow:")
+        for pkg, installed, specifier in wrong:
+            print(f"  {pkg}: installed {installed}, requires {specifier}")
+        print("")
+        print("  A version outside the declared range imports fine and then "
+              "fails inside the step.")
+        print("  whisperx below 3.8 raises TypeError on every transcribe "
+              "call, step 1.04 catches it per clip, and the run reports "
+              "success with no transcript, no spine and no subtitles.")
+        print("  requirements.txt's header has the full chain.")
+        _print_ml_advice(command, repo_root)
+        sys.exit(1)
+
+
+def _print_ml_advice(command: str, repo_root: Path) -> None:
+    """The shared tail of both ML preflight refusals."""
     print(f"  Interpreter: {sys.executable}")
     print("")
     for line in _venv_advice(repo_root):
@@ -135,7 +266,6 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
     print(f"Only {', '.join(ML_DEPENDENT_COMMANDS)} needs them. These still "
           f"work from this interpreter:")
     print(f"    {others}")
-    sys.exit(1)
 
 
 from library.tools.paths import PROJECTS_ROOT, PILOT_ROOT
