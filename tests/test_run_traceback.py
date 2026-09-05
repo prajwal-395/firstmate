@@ -217,7 +217,13 @@ def test_the_unwired_steps_are_exactly_the_ones_agents_md_names():
     ruled that its deterministic measurements are unbiased signal the
     model lacks. `ocr_extraction` is not unwired either: since #245 it
     has a DAG node and is DESELECTED BY DEFAULT instead, which is a
-    property of a run rather than of the pipeline."""
+    property of a run rather than of the pipeline. `select_reels` (3.04)
+    was created unwired by PR #504 (reel selection runs on a finished
+    cut, nothing in the DAG consumes its output); PR #513 wired it in
+    and deselected it by default, reversing #504's explicit choice -
+    a DAG node with declared dependencies is auditable by the same tests
+    that check every other step, while a separately driven caller is
+    invisible to them."""
     from library.tools.run_traceback import unwired_step_ids
     from library.tools.run_scope import DESELECTED_BY_DEFAULT
 
@@ -225,6 +231,8 @@ def test_the_unwired_steps_are_exactly_the_ones_agents_md_names():
     assert "prosody_analysis" not in unwired_step_ids()
     assert "ocr_extraction" not in unwired_step_ids()
     assert "ocr_extraction" in DESELECTED_BY_DEFAULT
+    assert "select_reels" not in unwired_step_ids()
+    assert "select_reels" in DESELECTED_BY_DEFAULT
 
 
 def test_an_unsorted_file_reads_as_unknown_not_as_organizes_work(project):

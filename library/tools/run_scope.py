@@ -203,6 +203,18 @@ DESELECTED_BY_DEFAULT: Dict[str, str] = {
         "little until something reads the key. Captain's ruling on "
         "#245, 2026-08-28. Turn on with --with ocr_extraction."
     ),
+
+    # select_reels requires a timeline_transcript, which is produced
+    # by `python3 -m library.tools.timeline_transcript <project> --write`
+    # outside the pipeline (it needs Resolve open and WhisperX).  Running
+    # it by default would crash any pipeline run that hasn't produced one.
+    # Turn on with --with select_reels once the transcript exists.
+    "select_reels": (
+        "Requires a timeline_transcript produced outside the pipeline "
+        "(needs Resolve open and WhisperX). Running it by default would "
+        "crash on the missing transcript. Build the transcript first, "
+        "then turn on with --with select_reels."
+    ),
 }
 
 

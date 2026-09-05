@@ -949,6 +949,13 @@ Verified against the tree rather than recalled:
   `speech_sequence`, `mesh_spine`, `select_broll`, `review_rough_cut`,
   `plan_transitions`, `plan_vfx`, `plan_sfx`, `music_selection`,
   `color_grade`, `render_motion_graphics`, `validate`.
+  **[Corrected 2026-09-04]** PR #504 created `step_3_04_select_reels`
+  with a handoff, bridge, post_bridge, craft role and membership in
+  `DECLARING_STEPS`, fixing item 1 below. PR #513 wired it into the
+  `edit_video` DAG (deselected by default; `--with select_reels` turns
+  it on) - reversing #504's explicit choice to keep it unwired and
+  separately driven, because a step with declared dependencies that the
+  DAG can check is more honest than an ad-hoc caller nobody audits.
 
 So the sixteen conversations were chosen **by a crewmate, in its own
 turn**, and the one-line reason on each was written by hand. What the
@@ -1032,11 +1039,19 @@ circumvention, the harder the circumvention is to see.
 
 ### What stops the next worker doing the same
 
-1. **Reel selection becomes a real model-reaching step** - a handoff
+1. **Reel selection is a real model-reaching step** (PR #504) - a handoff
    document, a declared `craft_role`, `context_fields`, and membership in
    `undetermined.DECLARING_STEPS`, like every other creative step here.
-   The measurements in `reel_exchange.py` become PROMPT CONTEXT; they
-   stop being a filter.
+   The measurements in `reel_exchange.py` are PROMPT CONTEXT; they are
+   not a filter. PR #504 marked it `wired=False` on the grounds that
+   reel selection runs on a finished cut and nothing in the edit_video DAG
+   consumes its output. PR #513 reversed that choice: a DAG node with
+   declared dependencies (audio_spine, creative_direction,
+   timeline_transcript) is auditable by the same tests that check every
+   other step, while a separately driven caller is invisible to them.
+   The step is wired and DESELECTED BY DEFAULT (`--with select_reels`).
+   Nothing in the edit_video DAG consumes `reel_selection`; its reader is
+   the reel builder, driven separately once the captain approves.
 2. **Length becomes guidance the model weighs, not a hard window.** A
    candidate outside 45-90s is reported with its length, never silently
    absent.

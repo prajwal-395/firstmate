@@ -114,6 +114,14 @@ PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief")
 # `gather_step_inputs` that fills it, and library/tools/qa_findings.py.
 QA_FINDINGS_INPUT = "render_qa_findings"
 
+# The timeline transcript, produced by `library/tools/timeline_transcript.py`
+# running outside the pipeline (it needs Resolve open and WhisperX).
+# Like qa_findings, it is not DAG-routable: the producer is a CLI tool,
+# not a step, so an edge cannot carry it.  It reaches a step because the
+# step's manifest declares it, and `gather_step_inputs` reads it from
+# the project's scratch directory.
+TIMELINE_TRANSCRIPT_INPUT = "timeline_transcript"
+
 
 # ── DAG Loader ──────────────────────────────────────────────────────
 
@@ -905,6 +913,41 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         from library.tools import qa_findings as _qa_findings
         inputs[QA_FINDINGS_INPUT] = _qa_findings.findings_for_review(
             _qa_findings.load_findings(state.get("project_folder", ""), state))
+
+    # The timeline transcript, produced by
+    # `python3 -m library.tools.timeline_transcript <project> --write`
+    # outside the pipeline.  It cannot be a DAG step: it needs Resolve
+    # open and WhisperX loaded.  Like qa_findings above, it reaches a
+    # step because the manifest declares it, and the file is read from
+    # the project's scratch directory.
+    if manifest and TIMELINE_TRANSCRIPT_INPUT in {
+            inp.get("name") for inp in
+            manifest.get("interface", {}).get("inputs", [])}:
+        if TIMELINE_TRANSCRIPT_INPUT not in inputs:
+            project_folder = state.get("project_folder", "")
+            if project_folder:
+                transcript_path = (
+                    Path(project_folder) / "pipeline_output" / "scratch"
+                    / "timeline_transcript" / "transcript.json")
+                if transcript_path.is_file():
+                    import json as _json
+                    inputs[TIMELINE_TRANSCRIPT_INPUT] = _json.loads(
+                        transcript_path.read_text(encoding="utf-8"))
+                else:
+                    # Check whether the input is required.
+                    _required = True
+                    for inp in manifest.get("interface", {}).get("inputs", []):
+                        if inp.get("name") == TIMELINE_TRANSCRIPT_INPUT:
+                            _required = inp.get("required", True)
+                            break
+                    if _required:
+                        raise RuntimeError(
+                            f"Step '{node_id}' declares required input "
+                            f"'{TIMELINE_TRANSCRIPT_INPUT}' but no transcript "
+                            f"file exists at {transcript_path}. Run "
+                            f"'python3 -m library.tools.timeline_transcript "
+                            f"<project> --write' first."
+                        )
 
     if manifest and manifest.get("state", {}).get("reads"):
         import sys

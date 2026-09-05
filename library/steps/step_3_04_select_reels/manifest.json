@@ -20,7 +20,10 @@
        "description": "State output: reel_selection",
        "expected_schema": {"moments": "list", "considered": "list", "undetermined": "list"}}
     ],
-    "llm_outputs": ["reel_selection"],
+    "llm_outputs": [
+      {"name": "reel_selection", "type": "object",
+       "expected_schema": {"moments": "list", "considered": "list", "undetermined": "list"}}
+    ],
     "context_fields": [
       "timeline_transcript.turns",
       "reel_candidates",

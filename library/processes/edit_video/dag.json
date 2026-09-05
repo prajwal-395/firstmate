@@ -113,6 +113,13 @@
       "estimated_duration_seconds": 15
     },
     {
+      "id": "select_reels",
+      "name": "Select Reels",
+      "step_ref": "steps/step_3_04_select_reels",
+      "type": "step",
+      "estimated_duration_seconds": 30
+    },
+    {
       "id": "plan_subtitles",
       "name": "Plan Subtitles",
       "step_ref": "steps/step_4_01_plan_subtitles",
@@ -380,6 +387,20 @@
       "to": "review_rough_cut",
       "data_mapping": {
         "audio_spine": "audio_spine"
+      }
+    },
+    {
+      "from": "mesh_spine",
+      "to": "select_reels",
+      "data_mapping": {
+        "audio_spine": "audio_spine"
+      }
+    },
+    {
+      "from": "creative_direction",
+      "to": "select_reels",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
       }
     },
     {

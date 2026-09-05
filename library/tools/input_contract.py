@@ -278,6 +278,14 @@ _PROCESS_LEVEL = ("sfx_library", "music_library", "creative_brief")
 _GLOBALS = ("project_folder", "project_config")
 _BRAND = ("brand_template", "brand_style", "brand_effect", "brand_content")
 _LAST_RENDER = ("render_qa_findings",)
+_TIMELINE_TRANSCRIPT = ("timeline_transcript",)
+
+ROUTE_TIMELINE_TRANSCRIPT = "timeline transcript"
+"""`run_pipeline.TIMELINE_TRANSCRIPT_INPUT` - the per-speaker timeline
+transcript, produced by `library/tools/timeline_transcript.py` outside
+the pipeline (it needs Resolve open and WhisperX).  Injected only if the
+step's own manifest declares it, and read from the project's scratch
+directory.  Required inputs raise when the file is absent."""
 
 
 # ── Who refuses ──────────────────────────────────────────────────────
@@ -329,7 +337,8 @@ class InputContract:
     def refused_by(self) -> str:
         if self.step_refusal:
             return REFUSED_BY_STEP
-        if self.required and self.route == ROUTE_EDGE:
+        if self.required and self.route in (
+                ROUTE_EDGE, ROUTE_TIMELINE_TRANSCRIPT):
             return REFUSED_BY_RUNNER
         return REFUSED_BY_NOBODY
 
@@ -770,6 +779,8 @@ def _route(name: str, node_id: str, routed: Mapping[str, Set[str]],
         return ROUTE_BRAND
     if name in _LAST_RENDER:
         return ROUTE_LAST_RENDER
+    if name in _TIMELINE_TRANSCRIPT:
+        return ROUTE_TIMELINE_TRANSCRIPT
     if node_id in merging:
         return ROUTE_EDGE_MERGE
     return ROUTE_NONE

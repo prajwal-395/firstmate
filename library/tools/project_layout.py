@@ -209,19 +209,7 @@ STEPS: tuple = (
     StepDir("assign_aroll", "3_01_assign_aroll"),
     StepDir("select_broll", "3_02_select_broll"),
     StepDir("review_rough_cut", "3_03_review_rough_cut"),
-    StepDir("select_reels", "3_04_select_reels", wired=False,
-            unwired_reason=(
-                "Reel selection runs on a FINISHED cut, not inside the "
-                "edit_video DAG that produces one. Nothing in that DAG "
-                "consumes `reel_selection`; its reader is the reel "
-                "builder, driven separately once the captain has "
-                "approved the moments. It is a declared model-reaching "
-                "step (undetermined.DECLARING_STEPS) with a craft role "
-                "and a handoff - unwired says no DAG node consumes it, "
-                "not that the capability is absent. See section 15 of "
-                "docs/FIELD_TEST_PODCAST_FINDINGS.md for why it became a "
-                "step at all."
-            )),
+    StepDir("select_reels", "3_04_select_reels"),
     StepDir("plan_subtitles", "4_01_plan_subtitles"),
     StepDir("plan_transitions", "4_02_plan_transitions"),
     StepDir("plan_vfx", "4_03_plan_vfx"),

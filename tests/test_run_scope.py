@@ -393,7 +393,8 @@ def test_a_default_run_reports_what_is_off_by_default(dag, manifests):
 def test_with_turns_a_default_off_step_back_on(dag, manifests):
     scope = _resolve(Selection(with_steps=("ocr_extraction",)), dag, manifests)
     assert "ocr_extraction" in scope.steps_to_run
-    assert scope.default_off == ()
+    assert "ocr_extraction" not in scope.default_off
+    assert "select_reels" in scope.default_off
 
 
 def test_naming_a_default_off_step_in_only_selects_it(dag, manifests):
