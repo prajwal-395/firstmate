@@ -38,4 +38,19 @@ test_lane_wrapper_protects_checked_out_branches() {
 }
 
 test_lane_wrapper_protects_checked_out_branches
-echo "ok - git wrapper test"
+pass "git wrapper blocks checkout -B for branches checked out elsewhere"
+
+test_wrapper_fails_when_no_real_git() {
+  # PATH contains only the wrapper directory - no real git visible
+  local rc
+  set +e
+  PATH="$ROOT/bin/lane-wrappers" "$BASH" "$ROOT/bin/lane-wrappers/git" --version 2>"$TMP_ROOT/no-git-err"
+  rc=$?
+  set -e
+  [ "$rc" != 0 ] || fail "wrapper should have failed when no real git is on PATH"
+  [ "$rc" = 127 ] || fail "expected exit 127, got $rc"
+  assert_contains "$(cat "$TMP_ROOT/no-git-err")" "cannot find real git binary on PATH" "wrapper names the problem"
+  pass "wrapper fails clearly when no real git is on PATH"
+}
+
+test_wrapper_fails_when_no_real_git
