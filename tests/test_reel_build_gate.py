@@ -171,3 +171,37 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
     
     rebuild_reels_in_project(str(mock_project_env))
     mock_run_verif.assert_called_once()
+
+@patch("library.tools.reel_subtitles.reel_captions")
+@patch("library.tools.reel_build.build_reel_timeline")
+@patch("library.tools.resolve_locale.scriptapp_preserving_locale")
+@patch("library.tools.reel_build.resolve_project_exactly")
+@patch("library.tools.reel_proposal.read_proposal")
+@patch("library.tools.timeline_ingest.snapshot_timeline")
+@patch("library.tools.subtitle_style.resolve_subtitle_style")
+@patch("library.tools.reel_conformance_verifier.run_verification")
+def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop, mock_resolve_proj, mock_scriptapp, mock_build, mock_reel_captions, mock_project_env):
+    """Proves that passing skip_captions skips caption generation and passes None to build_reel_timeline."""
+    moment = MagicMock()
+    moment.approval = "approved"
+    moment.timeline_name = "Reel 01"
+    moment.timeline_start = 0.0
+    moment.timeline_end = 10.0
+    mock_read_prop.return_value = [moment]
+
+    mock_proj = MagicMock()
+    mock_proj.GetName.return_value = "Mock Project"
+    mock_timeline = MagicMock()
+    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
+    mock_proj.GetTimelineCount.return_value = 1
+    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_resolve_proj.return_value = mock_proj
+    
+    mock_run_verif.return_value = 0
+    
+    rebuild_reels_in_project(str(mock_project_env), skip_captions=True)
+    
+    mock_reel_captions.assert_not_called()
+    mock_build.assert_called_once()
+    assert mock_build.call_args[1]["captions"] is None
+

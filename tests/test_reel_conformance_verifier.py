@@ -225,7 +225,7 @@ class TestF1AudioHoles:
     """F1 - ENCODING: audio holes mirror picture holes."""
 
     def test_detects_audio_gap(self):
-        """Plant a one-frame gap in audio, matching the picture gap."""
+        """Plant a one-frame gap in audio."""
         items = (
             _item("audio", 1, 0, 589),
             _item("audio", 1, 590, 1075),
@@ -234,11 +234,24 @@ class TestF1AudioHoles:
         assert len(findings) == 1
         assert findings[0].finding_class == FindingClass.F1
         assert findings[0].detail["type"] == "audio"
+        assert findings[0].detail["gap_frames"] == 1
+        assert findings[0].detail["track"] == 1
+        assert "A1 has a 1-frame silent hole" in findings[0].message
 
     def test_no_audio_gap(self):
         items = (
             _item("audio", 1, 0, 594),
             _item("audio", 1, 594, 1080),
+        )
+        findings = check_audio_holes("Reel 01", items)
+        assert len(findings) == 0
+
+    def test_audio_gap_covered_by_other_track_reports_nothing(self):
+        """A gap on A1 is not an error if A2 covers it."""
+        items = (
+            _item("audio", 1, 0, 589),
+            _item("audio", 1, 654, 1075),
+            _item("audio", 2, 589, 654),  # Fills the A1 gap completely
         )
         findings = check_audio_holes("Reel 01", items)
         assert len(findings) == 0

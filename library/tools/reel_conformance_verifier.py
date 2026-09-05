@@ -308,37 +308,55 @@ def check_picture_holes(reel_name: str,
 def check_audio_holes(reel_name: str,
                       audio_items: Sequence[TimelineItem],
                       ) -> List[Finding]:
-    """F1 (audio half): Find gaps between consecutive audio items.
+    """F1 (audio half): Find every gap across the union of all audio tracks.
 
-    The audit found audio holes are identical to picture holes - A1
-    mirrors V1 and A2 mirrors V2.
+    A gap is a span where no audio item exists across ANY track - a genuine silent hole.
+    The audit found audio holes are identical to picture holes.
     """
     findings: List[Finding] = []
+    
+    global_coverage = []
+    sorted_all = sorted(audio_items, key=lambda i: i.start_frame)
+    if sorted_all:
+        c_start, c_end = sorted_all[0].start_frame, sorted_all[0].end_frame
+        for item in sorted_all[1:]:
+            if item.start_frame <= c_end:
+                c_end = max(c_end, item.end_frame)
+            else:
+                global_coverage.append((c_start, c_end))
+                c_start, c_end = item.start_frame, item.end_frame
+        global_coverage.append((c_start, c_end))
+
+    global_gaps = []
+    for i in range(len(global_coverage) - 1):
+        global_gaps.append((global_coverage[i][1], global_coverage[i+1][0]))
+
     by_track: Dict[int, List[TimelineItem]] = {}
     for item in audio_items:
         by_track.setdefault(item.track_index, []).append(item)
 
-    for track, items in sorted(by_track.items()):
-        sorted_items = sorted(items, key=lambda i: i.start_frame)
-        for i in range(len(sorted_items) - 1):
-            curr = sorted_items[i]
-            nxt = sorted_items[i + 1]
-            gap = nxt.start_frame - curr.end_frame
-            if gap > 0:
-                findings.append(Finding(
-                    finding_class=FindingClass.F1,
-                    reel=reel_name,
-                    message=(
-                        f"A{track} has a {gap}-frame silent hole at "
-                        f"frame {curr.end_frame}"),
-                    severity="error",
-                    detail={
-                        "track": track,
-                        "frame": curr.end_frame,
-                        "gap_frames": gap,
-                        "type": "audio",
-                    },
-                ))
+    for g_start, g_end in global_gaps:
+        gap = g_end - g_start
+        if gap > 0:
+            tracks_with_gaps = []
+            for track, items in sorted(by_track.items()):
+                s_items = sorted(items, key=lambda i: i.start_frame)
+                for i in range(len(s_items) - 1):
+                    if s_items[i].end_frame <= g_start and s_items[i+1].start_frame >= g_end:
+                        tracks_with_gaps.append(track)
+                        break
+            
+            track_msg = f"A{tracks_with_gaps[0]}" if len(tracks_with_gaps) == 1 else "The timeline"
+            track_val = tracks_with_gaps[0] if tracks_with_gaps else None
+            
+            findings.append(Finding(
+                finding_class=FindingClass.F1,
+                reel=reel_name,
+                message=f"{track_msg} has a {gap}-frame silent hole at frame {g_start}",
+                severity="error",
+                detail={"track": track_val, "frame": g_start, "gap_frames": gap, "inherited": False, "tracks": tracks_with_gaps, "type": "audio"}
+            ))
+
     return findings
 
 

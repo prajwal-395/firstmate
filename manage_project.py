@@ -638,7 +638,7 @@ def cmd_dashboard(args):
 
 def cmd_build_reels(args):
     from library.tools.reel_build import rebuild_reels_in_project
-    rebuild_reels_in_project(args.project)
+    rebuild_reels_in_project(args.project, skip_captions=args.skip_captions)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -676,6 +676,8 @@ def main():
         "build-reels", help="Rebuild approved reels in Resolve")
     build_reels_parser.add_argument(
         "project", help="The project to rebuild reels for")
+    build_reels_parser.add_argument(
+        "--skip-captions", action="store_true", help="Skip rendering subtitles (saves CPU)")
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     p_status = sub.add_parser("status", help="Show project status")

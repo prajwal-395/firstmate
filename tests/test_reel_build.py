@@ -140,7 +140,7 @@ def test_both_tracks_shift_by_the_same_amount():
     cut = Cut(20.0, 25.0, "d", 26.0, 31.0, "k", "Akshita", 0.9, 0.8)
     ranges = keep_ranges(0.0, 60.0, [cut])
     clips = [_clip(1, "Akshita", 0.0, 60.0), _clip(2, "Craig", 0.0, 60.0)]
-    spots = placements(ranges, clips)
+    spots = placements(ranges, clips, 23.976)
     by_track = {}
     for spot in spots:
         by_track.setdefault(spot["track_index"], []).append(round(spot["record"], 3))
@@ -151,10 +151,10 @@ def test_a_reel_closes_the_gap_a_cut_leaves():
     from library.tools.reel_build import Cut
     cut = Cut(20.0, 25.0, "d", 26.0, 31.0, "k", "Akshita", 0.9, 0.8)
     ranges = keep_ranges(0.0, 60.0, [cut])
-    spots = placements(ranges, [_clip(1, "Akshita", 0.0, 60.0)])
+    spots = placements(ranges, [_clip(1, "Akshita", 0.0, 60.0)], 23.976)
     assert spots[0]["record"] == 0.0
-    assert spots[1]["record"] == pytest.approx(20.0), "the second range butts up"
-    assert sum(s["source_out"] - s["source_in"] for s in spots) == pytest.approx(55.0)
+    assert spots[1]["snapped_record"] == 480, "the second range butts up"
+    assert sum((s["source_out"] - s["source_in"]) * 23.976 for s in spots) == pytest.approx(1320)
 
 
 # ── The resolution that would otherwise be silently wrong ────────────
@@ -201,7 +201,7 @@ def test_the_track_count_is_never_left_at_the_default():
 def test_every_speaker_in_the_plan_has_a_track_to_land_on():
     clips = [_clip(1, "Akshita", 0.0, 20.0), _clip(2, "Craig", 21.0, 40.0)]
     from library.tools.reel_build import required_tracks
-    spots = placements([(0.0, 40.0)], clips)
+    spots = placements([(0.0, 40.0)], clips, 23.976)
     needed = max(s["track_index"] for s in spots)
     assert required_tracks(clips)["audio"] >= needed
 
@@ -236,36 +236,28 @@ def test_a_stray_is_an_item_whose_source_does_not_belong_to_its_track():
     found = strays(TL(), layout)
     assert len(found) == 1, "the duplicate of Akshita on A2 is the stray"
 
-def test_reel_contiguous_placement():
+def test_reel_contiguous_placement_exact_frames():
     """
-    Two contiguous master clips must snap exactly with no uncovered frames
-    between them. This tests the F3 fix (floating point rounding error snapping).
+    Two contiguous ranges must snap exactly with no uncovered frames between them.
+    This tests the exact frame arithmetic in placements.
     """
-    from library.tools.reel_build import calculate_snapped_records
+    from library.tools.reel_build import placements
     from unittest.mock import MagicMock
     
-    # Clip 1: 0 to 5.1 seconds
-    # Clip 2: 5.1 to 10.0 seconds
-    clip1 = MagicMock()
-    clip1.track_type = "video"
-    clip2 = MagicMock()
-    clip2.track_type = "video"
+    # Range 1: 0 to 5.1 seconds
+    # Range 2: 5.1 to 10.0 seconds
+    clip1 = MagicMock(timeline_start=0.0, timeline_end=5.1, source_in=100.0, track_index=1, speaker="A")
+    clip2 = MagicMock(timeline_start=5.1, timeline_end=10.0, source_in=200.0, track_index=1, speaker="A")
     
-    placements_list = [
-        {"clip": clip1, "source_in": 0.0, "source_out": 5.1, "record": 0.0, "track_index": 1},
-        {"clip": clip2, "source_in": 5.1, "source_out": 10.0, "record": 5.1, "track_index": 1},
-    ]
+    ranges = [(0.0, 5.1), (5.1, 10.0)]
     
-    # Run the function
-    calculate_snapped_records(placements_list, 23.976)
+    placements_list = placements(ranges, [clip1, clip2], 23.976)
     
     p1 = placements_list[0]
     p2 = placements_list[1]
     
-    # First clip starts at 0, ends at int(round(5.1 * 23.976)) = 122
     dur1 = int(round(p1["source_out"] * 23.976)) - int(round(p1["source_in"] * 23.976))
     
-    # Check that second clip snapped exactly to end of first
     assert p1["snapped_record"] == 0
     assert p2["snapped_record"] == p1["snapped_record"] + dur1
 
@@ -286,7 +278,6 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
 
     from library.tools.reel_build import (
         build_reel_timeline,
-        calculate_snapped_records,
         keep_ranges,
         placements as compute_placements,
         redundant_takes,
@@ -321,8 +312,7 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
 
     # --- Compute the PLAN so we can assert the Resolve calls match it ---
     ranges = keep_ranges(0.0, 20.0, redundant_takes(0.0, 20.0, transcript))
-    planned = compute_placements(ranges, master_clips)
-    calculate_snapped_records(planned, fps)
+    planned = compute_placements(ranges, master_clips, fps)
 
     # --- Wire up a fake Resolve ---
     project = MagicMock()
@@ -411,3 +401,28 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
             f"clip {i} ends at frame {this_end}, "
             f"clip {i+1} starts at frame {next_call['recordFrame']}"
         )
+def test_reel_05_boundary_rounding():
+    """
+    Test the exact rounding boundary from Reel 05 that produced the 1-frame hole.
+    Frame 841 at 23.976 fps corresponds to ~35.0767 seconds.
+    """
+    from library.tools.reel_build import placements
+    from unittest.mock import MagicMock
+    
+    # 841 frames at 23.976 fps is exactly 841 / 23.976 = 35.07674341007674 seconds.
+    boundary_time = 841 / 23.976
+    clip1 = MagicMock(timeline_start=0.0, timeline_end=boundary_time, source_in=100.0, track_index=1, speaker="A")
+    clip2 = MagicMock(timeline_start=boundary_time, timeline_end=boundary_time + 10.0, source_in=200.0, track_index=1, speaker="A")
+    
+    ranges = [(0.0, boundary_time), (boundary_time, boundary_time + 10.0)]
+    
+    placements_list = placements(ranges, [clip1, clip2], 23.976)
+    
+    p1 = placements_list[0]
+    p2 = placements_list[1]
+    
+    # Check that second clip snapped exactly to end of first
+    dur1 = int(round(p1["source_out"] * 23.976)) - int(round(p1["source_in"] * 23.976))
+    assert p1["snapped_record"] == 0
+    assert dur1 == 841
+    assert p2["snapped_record"] == 841

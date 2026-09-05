@@ -278,31 +278,47 @@ def reel_time(master_time: float,
 
 
 def placements(ranges: Sequence[Tuple[float, float]],
-               clips: Sequence) -> List[dict]:
-    """Where each master clip lands on the reel, in seconds.
+               clips: Sequence, fps: float) -> List[dict]:
+    """Where each master clip lands on the reel, in exact frames and seconds.
 
     One entry per (keep range, overlapping clip). `record` is the running
     offset on the REEL, so the ranges close up and both tracks move
-    together.
+    together. Math is done in frames to prevent rounding holes at cuts.
     """
     out: List[dict] = []
-    cursor = 0.0
+    cursor_frames = 0
     for range_start, range_end in ranges:
+        range_start_f = int(round(range_start * fps))
+        range_end_f = int(round(range_end * fps))
+        range_frames = range_end_f - range_start_f
+        
         for clip in clips:
-            overlap_start = max(clip.timeline_start, range_start)
-            overlap_end = min(clip.timeline_end, range_end)
-            if overlap_end - overlap_start <= 0.04:
+            clip_start_f = int(round(clip.timeline_start * fps))
+            clip_end_f = int(round(clip.timeline_end * fps))
+            
+            overlap_start_f = max(clip_start_f, range_start_f)
+            overlap_end_f = min(clip_end_f, range_end_f)
+            if overlap_end_f - overlap_start_f <= 0:
                 continue
-            into_clip = overlap_start - clip.timeline_start
+                
+            into_clip_f = overlap_start_f - clip_start_f
+            clip_source_in_f = int(round(clip.source_in * fps))
+            
+            # Keep seconds for backward compatibility, but provide exact snapped frames
+            source_in_f = clip_source_in_f + into_clip_f
+            source_out_f = source_in_f + (overlap_end_f - overlap_start_f)
+            record_f = cursor_frames + (overlap_start_f - range_start_f)
+            
             out.append({
                 "clip": clip,
-                "source_in": clip.source_in + into_clip,
-                "source_out": clip.source_in + into_clip + (overlap_end - overlap_start),
-                "record": cursor + (overlap_start - range_start),
+                "source_in": source_in_f / fps,
+                "source_out": source_out_f / fps,
+                "record": record_f / fps,
+                "snapped_record": record_f,
                 "track_index": clip.track_index,
                 "speaker": clip.speaker,
             })
-        cursor += range_end - range_start
+        cursor_frames += range_frames
     return out
 
 
@@ -327,7 +343,7 @@ def build_reel_timeline(project, moment, master_clips, captions, fps, width, hei
     timeline.SetTrackName("video", 3, "Captions")
     
     ranges = keep_ranges(moment.timeline_start, moment.timeline_end, redundant_takes(moment.timeline_start, moment.timeline_end, transcript))
-    placements_list = placements(ranges, master_clips)
+    placements_list = placements(ranges, master_clips, fps)
     
     root_folder = pool.GetRootFolder()
     def _find_pool_item(folder, filepath):
@@ -340,7 +356,7 @@ def build_reel_timeline(project, moment, master_clips, captions, fps, width, hei
         return None
         
 
-    calculate_snapped_records(placements_list, fps)
+
         
     for p in placements_list:
         c = p["clip"]
@@ -418,7 +434,7 @@ def build_reel_timeline(project, moment, master_clips, captions, fps, width, hei
                     "recordFrame": int(round(cap["reel_start"] * fps))
                 }])
 
-def rebuild_reels_in_project(project_slug: str):
+def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     import os
     import sys
     import json
@@ -512,13 +528,13 @@ def rebuild_reels_in_project(project_slug: str):
         built_reel_names.append(moment.timeline_name)
         cuts = redundant_takes(moment.timeline_start, moment.timeline_end, transcript)
         ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
-        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920)
+        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920) if not skip_captions else None
         
         build_reel_timeline(
             project=project,
             moment=moment,
             master_clips=master_clips,
-            captions=captions,
+            captions=None,
             fps=24000/1001,
             width=1080,
             height=1920,
@@ -540,25 +556,7 @@ def rebuild_reels_in_project(project_slug: str):
         transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")
     )
 
-def calculate_snapped_records(placements_list: list[dict], fps: float) -> None:
-    """Pre-calculate record frames to eliminate rounding gaps (F3)"""
-    track_cursors = {}
-    for p in placements_list:
-        track_key = (p["clip"].track_type, p["track_index"])
-        raw_start = int(round(p["source_in"] * fps)) # assuming pool_fps == fps
-        raw_end = int(round(p["source_out"] * fps))
-        duration_frames = raw_end - raw_start
-        
-        ideal_record = int(round(p["record"] * fps))
-        
-        if track_key in track_cursors:
-            prev_end = track_cursors[track_key]
-            # If the ideal record is within 2 frames of the previous end, it's contiguous. Snap it!
-            if abs(ideal_record - prev_end) <= 2:
-                ideal_record = prev_end
-                
-        p["snapped_record"] = ideal_record
-        track_cursors[track_key] = ideal_record + duration_frames
+
 
 def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str) -> None:
     """Run the reel conformance verifier as a quality gate after building reels.
