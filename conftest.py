@@ -82,7 +82,11 @@ import pytest
 
 
 def pytest_collection_modifyitems(session, config, items):
-    """Fail immediately if a test module globally mocked sys.modules during import."""
+    """Fail immediately if a test module globally mocked sys.modules during import.
+
+    Note: Detection keys on 'Mock' in the type name, so it catches unittest.mock
+    types but not hand-rolled fake classes.
+    """
     import sys
     import inspect
     leaked = []
@@ -91,12 +95,15 @@ def pytest_collection_modifyitems(session, config, items):
             leaked.append(f"{k} ({type(v).__name__})")
     
     if leaked:
-        raise RuntimeError(f"Global module-level mock leak detected during collection: {', '.join(leaked)}. Never assign Mocks to sys.modules at the module level.")
+        raise RuntimeError(f"Global module-level mock leak detected during collection: {', '.join(leaked)}. Never assign Mocks to sys.modules at top-level; use pytest monkeypatch or fixture with cleanup.")
 
-import pytest
 @pytest.fixture(autouse=True, scope="function")
 def guard_sys_modules_against_test_leaks():
-    """Fail if a test leaks a mock into sys.modules during execution."""
+    """Fail if a test leaks a mock into sys.modules during execution.
+
+    Note: Detection keys on 'Mock' in the type name, so it catches unittest.mock
+    types but not hand-rolled fake classes.
+    """
     yield
     import sys
     import inspect

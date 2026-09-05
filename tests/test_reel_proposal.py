@@ -576,3 +576,47 @@ def test_post_bridge_drops_a_moment_over_a_hole():
     hole_drops = [d for d in sel["dropped"] if "picture hole" in d["reason"]]
     assert len(hole_drops) == 1
     assert "play black" in hole_drops[0]["reason"]
+
+
+def test_validate_proposal_refuses_overlapping_moments():
+    from library.tools.reel_proposal import validate_proposal, ProposalError
+    tx = _transcript()
+    # Add a fourth segment so both ranges are two-speaker and match whole segments
+    tx["segments"].append({
+        "speaker": "Akshita", "text": "Yes exactly.",
+        "timeline_start": 409.5, "timeline_end": 420.0,
+        "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
+        "source_start": 210.0, "source_end": 220.5
+    })
+    # m1: 10.0-26.0, m2: 18.5-420.0 -> overlap by 7.5s (18.5 to 26.0)
+    m1 = _moment(number=1, slug="first", timeline_start=10.0, timeline_end=26.0)
+    m2 = _moment(number=2, slug="second", timeline_start=18.5, timeline_end=420.0)
+    with pytest.raises(ProposalError, match="overlap by 7.5s"):
+        validate_proposal([m1, m2], tx, 500.0)
+
+
+def test_post_bridge_resolves_overlapping_moments():
+    from library.steps.step_3_04_select_reels.post_bridge import resolve
+    tx = _transcript()
+    tx["segments"].append({
+        "speaker": "Akshita", "text": "Yes exactly.",
+        "timeline_start": 409.5, "timeline_end": 420.0,
+        "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
+        "source_start": 210.0, "source_end": 220.5
+    })
+    # Moment 1: 400.0-409.0 (only Craig, so not convo -> will be dropped by is_conversation)
+    # Let's test with two conversations that overlap:
+    # First: 10.0-26.0 (Craig & Akshita, 16s)
+    # Second: 10.0-420.0 (Craig & Akshita & Craig & Akshita, 410s)
+    llm_output = {
+        "moments": [
+            {"start": 10.0, "end": 26.0, "slug": "shorter", "reason": "Shorter clip"},
+            {"start": 10.0, "end": 420.0, "slug": "longer", "reason": "Longer clip"},
+        ]
+    }
+    result = resolve(llm_output, {"timeline_transcript": tx})
+    sel = result["reel_selection"]
+    assert len(sel["moments"]) == 1
+    assert sel["moments"][0]["slug"] == "longer"
+    assert len(sel["dropped"]) == 1
+    assert "overlaps" in sel["dropped"][0]["reason"]

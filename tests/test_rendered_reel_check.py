@@ -160,3 +160,25 @@ def test_inherited_black_hole(tmp_path, plan_data):
     # Inherited hole should not fail
     assert len(failures) == 0
 
+
+def test_absent_caption_plan_reports_failure(tmp_path):
+    from library.tools.render_check import check_captions
+    video_path = str(tmp_path / "dummy.mp4")
+    # Empty dictionary without caption fields
+    findings = check_captions(video_path, {})
+    assert len(findings) == 1
+    assert findings[0].metric == "captions"
+    assert findings[0].passed is False
+    assert "absent" in findings[0].message
+
+
+def test_explicit_zero_captions_plan_passes(tmp_path):
+    from library.tools.render_check import check_captions
+    video_path = str(tmp_path / "dummy.mp4")
+    # Explicitly declared empty segments
+    findings = check_captions(video_path, {"subtitle_overlay": {"segments": []}})
+    assert len(findings) == 1
+    assert findings[0].metric == "captions"
+    assert findings[0].passed is True
+    assert "Zero captions planned" in findings[0].message
+

@@ -69,7 +69,43 @@ def resolve(llm_output: dict, data: dict) -> dict:
         if not_convo:
             dropped.append({"entry": entry, "reason": not_convo})
             continue
+
+        # Overlap check against already accepted moments
+        overlap_idx = None
+        overlap_reason = None
+        for i, existing in enumerate(moments):
+            overlap_start = max(enriched.timeline_start, existing.timeline_start)
+            overlap_end = min(enriched.timeline_end, existing.timeline_end)
+            overlap_dur = overlap_end - overlap_start
+            if overlap_dur >= 1.0:
+                overlap_idx = i
+                overlap_reason = (
+                    f"overlaps {existing.timeline_name} ({existing.timeline_start:.1f}-{existing.timeline_end:.1f}s) "
+                    f"by {overlap_dur:.1f}s. Two reels cannot share the same conversation."
+                )
+                break
+
+        if overlap_idx is not None:
+            existing = moments[overlap_idx]
+            if enriched.duration > existing.duration:
+                dropped.append({
+                    "entry": existing.as_dict(),
+                    "reason": (
+                        f"overlaps longer/better-formed candidate {enriched.slug} "
+                        f"({enriched.timeline_start:.1f}-{enriched.timeline_end:.1f}s) "
+                        f"by {min(enriched.timeline_end, existing.timeline_end) - max(enriched.timeline_start, existing.timeline_start):.1f}s. "
+                        f"Two reels cannot share the same conversation."
+                    )
+                })
+                moments[overlap_idx] = enriched
+            else:
+                dropped.append({"entry": entry, "reason": overlap_reason})
+            continue
+
         moments.append(enriched)
+
+    from dataclasses import replace
+    moments = [replace(m, number=idx) for idx, m in enumerate(moments, 1)]
 
     if moments:
         validate_proposal(moments, transcript, duration or max(

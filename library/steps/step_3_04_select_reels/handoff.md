@@ -107,7 +107,7 @@ For each stretch you choose:
 |-------|------------|
 | `start`, `end` | Where the short begins and ends, in seconds of the cut |
 | `slug` | A short topic name, lowercase words joined by hyphens |
-| `reason` | One line: what makes this stretch worth a short. Written for the captain to accept or reject on — what happens in it, not a score |
+| `reason` | One line: the argument for why this stretch works as a standalone reel under the captain's definition. Do NOT write a generic topic label (e.g. 'Breakdown of X'). Explain what complete exchange is delivered and how it lands/closes (e.g., crisp takeaway, realization, or CTA) |
 | `value` | What the viewer gets from it |
 | `close` | How it ends, and whether that ending is a CTA |
 | `takes_dropped` | Any repeated take you are choosing not to play, with its timecode |

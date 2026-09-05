@@ -89,10 +89,22 @@ def check_audio_speakers(video_path: str, placements: Tuple[PlannedPlacement, ..
     return findings
 
 def check_captions(video_path: str, plan_data: dict) -> List[RenderCheckFinding]:
-    subtitle_overlay = plan_data.get("subtitle_overlay", {})
-    segments = subtitle_overlay.get("segments", [])
+    if not isinstance(plan_data, dict):
+        return [RenderCheckFinding("captions", False, "No plan data provided (cannot verify captions)")]
+
+    if "subtitle_overlay" not in plan_data and "captions" not in plan_data:
+        return [RenderCheckFinding("captions", False, "Caption plan data is absent (cannot verify captions)")]
+
+    subtitle_overlay = plan_data.get("subtitle_overlay")
+    if subtitle_overlay is not None:
+        if not isinstance(subtitle_overlay, dict) or "segments" not in subtitle_overlay:
+            return [RenderCheckFinding("captions", False, "Invalid or missing 'segments' in subtitle_overlay plan")]
+        segments = subtitle_overlay.get("segments", [])
+    else:
+        segments = plan_data.get("captions", [])
+
     if not segments:
-        return [RenderCheckFinding("captions", True, "No captions planned")]
+        return [RenderCheckFinding("captions", True, "Zero captions planned")]
         
     failures = []
     

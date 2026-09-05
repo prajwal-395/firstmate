@@ -64,8 +64,10 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
         "findings": [{"severity": "error", "finding_class": "F1", "message": "Hole found"}]
     }))
     
-    with pytest.raises(RuntimeError, match="Reel build produced a defective timeline"):
+    with pytest.raises(RuntimeError, match="Reel build produced a defective timeline") as exc_info:
         rebuild_reels_in_project(str(mock_project_env))
+    assert "Hole found" in str(exc_info.value)
+    assert "F1" in str(exc_info.value)
 
 @patch("library.tools.reel_build.build_reel_timeline")
 @patch("library.tools.resolve_locale.scriptapp_preserving_locale")
@@ -75,7 +77,14 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
 @patch("library.tools.subtitle_style.resolve_subtitle_style")
 @patch("library.tools.reel_conformance_verifier.run_verification")
 def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop, mock_resolve_proj, mock_scriptapp, mock_build, mock_project_env):
-    """Proves that a clean build passes and calls the verifier."""
+    """Proves that a clean build passes and writes the conformance report."""
+    moment = MagicMock()
+    moment.approval = "approved"
+    moment.timeline_name = "Reel 01"
+    moment.timeline_start = 0.0
+    moment.timeline_end = 10.0
+    mock_read_prop.return_value = [moment]
+
     mock_proj = MagicMock()
     mock_proj.GetName.return_value = "Mock Project"
     mock_timeline = MagicMock()
@@ -84,10 +93,23 @@ def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mo
     mock_proj.GetTimelineByIndex.return_value = mock_timeline
     mock_resolve_proj.return_value = mock_proj
     
-    mock_run_verif.return_value = 0
+    def side_effect(**kwargs):
+        report_path = kwargs.get("json_path")
+        if report_path:
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump({"has_errors": False, "findings": []}, f)
+        return 0
+
+    mock_run_verif.side_effect = side_effect
     
     rebuild_reels_in_project(str(mock_project_env))
+    mock_build.assert_called_once()
     mock_run_verif.assert_called_once()
+    
+    report_file = mock_project_env / "pipeline_output" / "review" / "conformance_report.json"
+    assert report_file.exists()
+    report_data = json.loads(report_file.read_text(encoding="utf-8"))
+    assert report_data["has_errors"] is False
 
 @patch("library.tools.reel_build.build_reel_timeline")
 @patch("library.tools.resolve_locale.scriptapp_preserving_locale")

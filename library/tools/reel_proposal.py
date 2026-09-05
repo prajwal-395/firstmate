@@ -513,6 +513,16 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
                 f"move the boundaries out to whole segments.")
 
+    for i, m1 in enumerate(moments):
+        for m2 in moments[i + 1:]:
+            overlap_start = max(m1.timeline_start, m2.timeline_start)
+            overlap_end = min(m1.timeline_end, m2.timeline_end)
+            if overlap_end > overlap_start + 1.0:
+                raise ProposalError(
+                    f"reel {m1.number} ({m1.slug!r}) and reel {m2.number} ({m2.slug!r}) "
+                    f"overlap by {overlap_end - overlap_start:.1f}s ({overlap_start:.1f}-{overlap_end:.1f}s). "
+                    f"Two reels cannot share the same conversation.")
+
 
 def overlaps_picture_hole(moment: ReelMoment,
                           transcript: dict) -> Optional[str]:
@@ -674,5 +684,12 @@ def render_for_review(moments: Sequence[ReelMoment]) -> str:
             preview = moment.transcript_preview
             lines.append(f"      \"{preview[:150]}"
                          f"{'...' if len(preview) > 150 else ''}\"")
+        if moment.source_spans:
+            sources = ", ".join(
+                f"{Path(s['source_file']).name} [{s.get('source_start', 0.0):.1f}-{s.get('source_end', 0.0):.1f}s]"
+                for s in moment.source_spans if s.get("source_file")
+            )
+            if sources:
+                lines.append(f"      sources: {sources}")
         lines.append("")
     return "\n".join(lines)
