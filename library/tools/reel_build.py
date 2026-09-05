@@ -466,6 +466,12 @@ def rebuild_reels_in_project(project_slug: str):
         
     proposal_path = os.path.join(project_folder, "pipeline_output/review/reel_proposals_v2.json")
     moments = read_proposal(proposal_path)
+
+    # Archive the plan so it survives being overwritten by the next
+    # selector run.  The archive sits alongside the live file, named
+    # with a timestamp so it sorts chronologically and never collides.
+    from library.tools.plan_provenance import archive_plan
+    archive_plan(proposal_path)
     
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")) as f:
         transcript = json.load(f)
@@ -496,12 +502,14 @@ def rebuild_reels_in_project(project_slug: str):
             
     if timelines_to_delete:
         pool.DeleteTimelines(timelines_to_delete)
-        
+
+    built_reel_names = []
     for moment in moments:
         if moment.approval != "approved":
             continue
             
         print(f"Building {moment.timeline_name}", flush=True)
+        built_reel_names.append(moment.timeline_name)
         cuts = redundant_takes(moment.timeline_start, moment.timeline_end, transcript)
         ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
         captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920)
@@ -517,6 +525,12 @@ def rebuild_reels_in_project(project_slug: str):
             project_folder=project_folder,
             transcript=transcript
         )
+
+    # Record which plan we built from, so the verifier can detect
+    # if the plan changes before verification runs.
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    from library.tools.plan_provenance import write_provenance
+    write_provenance(review_dir, proposal_path, built_reel_names)
 
     verify_built_reels(
         project_folder=project_folder,

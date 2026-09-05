@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from dataclasses import asdict, dataclass, field
@@ -74,7 +75,7 @@ class FindingClass:
     F4 = "F4"  # ENCODING: dropped clips (item count mismatch)
     F5 = "F5"  # PLANNING: uncaptioned speech (straddling segments)
     F6 = "F6"  # PLANNING: overlapping caption cards
-    F7 = "F7"  # PLANNING: short caption cards (< 0.5s)
+    F7 = "F7"  # PLANNING: short caption cards (<0.5s)
     F8 = "F8"  # PLANNING: boundary cuts through unseen speech
 
     # Plan quality gates (not from the audit, from the captain's list)
@@ -93,6 +94,15 @@ class FindingClass:
     F10 = "F10"  # ENCODING: timeline format mismatch (not 1080x1920 or wrong fps)
     F11 = "F11"  # PLANNING: subtitle styling - speakers not differentiated
 
+    # Plan provenance, 2026-09-05: the verifier was caught grading 16
+    # reels against a plan describing 14 completely different moments,
+    # producing 42 confident, precise, meaningless errors.  This class
+    # fires when the verifier cannot establish that the plan it was
+    # handed actually describes the timelines it is reading - and the
+    # entire run is REFUSED rather than producing numbers that look like
+    # signal but are noise.
+    PLAN_MISMATCH = "PLAN-MISMATCH"
+
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10}
@@ -100,6 +110,7 @@ PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
                     FindingClass.F7, FindingClass.F8, FindingClass.F11}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
+PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH}
 
 WARNING_CLASSES = {FindingClass.F3}
 """F3 (master-inherited holes) is the plan's fault, not the build's.
@@ -1218,10 +1229,13 @@ class VerificationReport:
     'DERIVED from master'.  A verifier that silently grades against a
     re-derived plan when the real one was missing tells the captain
     something different from what he thinks he is reading."""
+    provenance_findings: List[Finding] = field(default_factory=list)
+    """Plan provenance findings (PLAN-MISMATCH).  Separate from per-reel
+    findings because they apply to the run as a whole, not to one reel."""
 
     @property
     def all_findings(self) -> List[Finding]:
-        out = []
+        out = list(self.provenance_findings)
         for r in self.reel_results:
             out.extend(r.findings)
         return out
@@ -1239,7 +1253,7 @@ class VerificationReport:
         return sum(1 for f in self.all_findings if f.severity == "warning")
 
     def as_dict(self) -> dict:
-        return {
+        d = {
             "project": self.project_name,
             "master_timeline": self.master_timeline,
             "plan_source": self.plan_source,
@@ -1274,6 +1288,11 @@ class VerificationReport:
                 for r in self.reel_results
             ],
         }
+        if self.provenance_findings:
+            d["provenance_findings"] = [
+                f.as_dict() for f in self.provenance_findings
+            ]
+        return d
 
 
 def _findings_by_class(findings: Sequence[Finding]) -> dict:
@@ -1385,7 +1404,8 @@ def format_findings(report: VerificationReport) -> str:
         warnings = [f for f in class_findings if f.severity == "warning"]
 
         label = "ENCODING" if cls in ENCODING_CLASSES else (
-            "PLANNING" if cls in PLANNING_CLASSES else "PLAN-QUALITY")
+            "PLANNING" if cls in PLANNING_CLASSES else (
+            "PROVENANCE" if cls in PROVENANCE_CLASSES else "PLAN-QUALITY"))
         lines.append(f"\n### {cls} - {label} ({len(class_findings)} findings)")
 
         for f in class_findings[:20]:  # cap per class for readability
@@ -1679,6 +1699,98 @@ def _find_master_picture_holes(master_snapshot) -> List[dict]:
     return holes
 
 
+# ── Plan provenance check ────────────────────────────────────────────
+
+def check_plan_provenance(
+    plan_path: str,
+    reel_names: list[str],
+    review_dir: str,
+) -> List[Finding]:
+    """Refuse to grade when the plan does not describe the timelines.
+
+    The verifier was caught grading 16 built reels against a plan that
+    described 14 completely different moments, producing 42 confident,
+    precise, meaningless errors.  This check prevents that: it reads
+    the provenance sidecar the builder wrote and compares the plan being
+    graded now against the plan that was actually used to build.
+
+    When provenance is absent (reels built before this change, or a
+    standalone CLI invocation), the check falls back to comparing reel
+    names in the plan against reel names on the timeline.  A plan that
+    lists none of the reels it is being asked to grade is refused;
+    missing provenance alone is a warning, not a refusal, because the
+    common standalone-CLI path should not break.
+    """
+    from library.tools.plan_provenance import (
+        read_provenance,
+        check_plan_matches_provenance,
+        check_reels_in_provenance,
+    )
+
+    findings: List[Finding] = []
+
+    provenance = read_provenance(review_dir)
+    if provenance is None:
+        # No provenance file - reels predate this change or standalone
+        # CLI invocation.  Warn but do not refuse.
+        findings.append(Finding(
+            finding_class=FindingClass.PLAN_MISMATCH,
+            reel="(all)",
+            message=(
+                "no plan provenance record found - cannot verify that "
+                "this plan describes these timelines. Reels built before "
+                "provenance tracking are honestly lost to plan "
+                "verification."),
+            severity="warning",
+            detail={
+                "reason": "no_provenance_file",
+                "review_dir": review_dir,
+            },
+        ))
+        return findings
+
+    # Provenance exists - check the content hash
+    if plan_path and os.path.isfile(plan_path):
+        matches, reason = check_plan_matches_provenance(plan_path, provenance)
+        if not matches:
+            findings.append(Finding(
+                finding_class=FindingClass.PLAN_MISMATCH,
+                reel="(all)",
+                message=(
+                    f"REFUSING to grade: {reason}. "
+                    f"Every finding below would be noise. The plan used "
+                    f"to build these reels was recorded at build time; "
+                    f"the plan being graded now is a different document."),
+                severity="error",
+                detail={
+                    "reason": "content_hash_mismatch",
+                    "plan_path": plan_path,
+                    "provenance_hash": provenance.get(
+                        "plan_content_hash", ""),
+                },
+            ))
+            return findings
+
+    # Check that the reels on the timeline are the ones the build produced
+    all_present, missing = check_reels_in_provenance(reel_names, provenance)
+    if missing:
+        findings.append(Finding(
+            finding_class=FindingClass.PLAN_MISMATCH,
+            reel="(all)",
+            message=(
+                f"{len(missing)} reel(s) on the timeline were not built "
+                f"from the recorded plan: {missing}"),
+            severity="warning",
+            detail={
+                "reason": "reels_not_in_provenance",
+                "missing_reels": missing,
+                "built_reels": provenance.get("built_reels", []),
+            },
+        ))
+
+    return findings
+
+
 # ── The full verification pipeline ───────────────────────────────────
 
 def run_verification(
@@ -1687,6 +1799,7 @@ def run_verification(
     plan_path: str = "",
     transcript: Optional[dict] = None,
     json_path: str = "",
+    review_dir: str = "",
     out=None,
 ) -> int:
     """Connect to Resolve, read everything, verify, report.
@@ -1794,7 +1907,6 @@ def run_verification(
     moments = []
     plan_source = ""
     if plan_path:
-        import os
         if os.path.isfile(plan_path):
             from library.tools.reel_proposal import read_proposal
             moments = read_proposal(plan_path)
@@ -1810,6 +1922,29 @@ def run_verification(
         plan_source = "DERIVED from master (no --plan provided)"
         print(f"Plan:    {plan_source}", file=err)
 
+    # ── Plan provenance check ────────────────────────────────────────
+    # If a review_dir is provided, check whether the plan being graded
+    # is the one that was actually used to build these reels.  A
+    # content-hash mismatch means the selector has overwritten the plan
+    # since the build - every finding would be noise.
+    provenance_findings: List[Finding] = []
+    plan_refused = False
+    effective_review_dir = review_dir
+    if not effective_review_dir and plan_path:
+        # Infer review_dir from plan_path (plan sits in the review dir)
+        effective_review_dir = os.path.dirname(os.path.abspath(plan_path))
+
+    if effective_review_dir and plan_path:
+        reel_names_on_timeline = [tl.GetName() for tl in reel_timelines]
+        provenance_findings = check_plan_provenance(
+            plan_path, reel_names_on_timeline, effective_review_dir)
+
+        prov_errors = [f for f in provenance_findings
+                       if f.severity == "error"]
+        if prov_errors:
+            plan_refused = True
+            print(f"PLAN MISMATCH: {prov_errors[0].message}", file=err)
+
     # ── Find master picture holes for F3 attribution ─────────────────
     master_holes = _find_master_picture_holes(master_snapshot)
     if master_holes:
@@ -1821,54 +1956,60 @@ def run_verification(
     # ── Verify each reel ─────────────────────────────────────────────
     reel_results = []
 
-    for tl in reel_timelines:
-        name = tl.GetName()
-        snap = snapshots[name]
-        reel_tl = _snapshot_to_reel_timeline(snap)
+    if plan_refused:
+        # The plan does not describe these timelines.  Every F1-F11
+        # finding would be noise that looks like signal.  REFUSE.
+        print("  REFUSED: skipping all reel checks (plan mismatch).",
+              file=err)
+    else:
+        for tl in reel_timelines:
+            name = tl.GetName()
+            snap = snapshots[name]
+            reel_tl = _snapshot_to_reel_timeline(snap)
 
-        # Parse reel number from name "Reel 01 - slug"
-        reel_number = 0
-        m = re_mod.match(r"Reel\s+(\d+)", name)
-        if m:
-            reel_number = int(m.group(1))
+            # Parse reel number from name "Reel 01 - slug"
+            reel_number = 0
+            m = re_mod.match(r"Reel\s+(\d+)", name)
+            if m:
+                reel_number = int(m.group(1))
 
-        # Find matching moment from the plan
-        moment = None
-        for mom in moments:
-            if mom.timeline_name == name or mom.number == reel_number:
-                moment = mom
-                break
+            # Find matching moment from the plan
+            moment = None
+            for mom in moments:
+                if mom.timeline_name == name or mom.number == reel_number:
+                    moment = mom
+                    break
 
-        if moment:
-            # Derive plan from the proposal moment + master timeline
-            plan = _derive_plan_from_master(
-                name, reel_number,
-                moment.timeline_start, moment.timeline_end,
-                master_snapshot, transcript)
-        else:
-            # No plan proposal available - we can still detect holes,
-            # duplicates, and caption defects but item count comparison
-            # against a plan is not possible.  The plan will carry empty
-            # placements so F4 comparisons are skipped (planned count is
-            # 0, so the expected == actual assertion is not run).
-            plan_seconds = snap.duration
-            plan = ReelPlan(
-                reel_name=name,
-                reel_number=reel_number,
-                plan_seconds=plan_seconds,
-                plan_frames=plan_seconds * snap.fps,
-                span_start=0.0,
-                span_end=plan_seconds,
-                placements=(),
-                keep_ranges=((0.0, plan_seconds),),
-            )
+            if moment:
+                # Derive plan from the proposal moment + master timeline
+                plan = _derive_plan_from_master(
+                    name, reel_number,
+                    moment.timeline_start, moment.timeline_end,
+                    master_snapshot, transcript)
+            else:
+                # No plan proposal available - we can still detect holes,
+                # duplicates, and caption defects but item count comparison
+                # against a plan is not possible.  The plan will carry empty
+                # placements so F4 comparisons are skipped (planned count is
+                # 0, so the expected == actual assertion is not run).
+                plan_seconds = snap.duration
+                plan = ReelPlan(
+                    reel_name=name,
+                    reel_number=reel_number,
+                    plan_seconds=plan_seconds,
+                    plan_frames=plan_seconds * snap.fps,
+                    span_start=0.0,
+                    span_end=plan_seconds,
+                    placements=(),
+                    keep_ranges=((0.0, plan_seconds),),
+                )
 
-        result = verify_reel(plan, reel_tl, master_holes=master_holes,
-                             master_fps=master_snapshot.fps)
-        reel_results.append(result)
-        status = "FAIL" if result.errors else "ok"
-        print(f"  {name}: {status} ({len(result.errors)} errors, "
-              f"{len(result.warnings)} warnings)", file=err)
+            result = verify_reel(plan, reel_tl, master_holes=master_holes,
+                                 master_fps=master_snapshot.fps)
+            reel_results.append(result)
+            status = "FAIL" if result.errors else "ok"
+            print(f"  {name}: {status} ({len(result.errors)} errors, "
+                  f"{len(result.warnings)} warnings)", file=err)
 
     # ── Snapshot everything AFTER (for read-only proof) ───────────────
     print("Re-reading all timelines (after hash)...", file=err)
@@ -1924,6 +2065,7 @@ def run_verification(
         reel_results=reel_results,
         read_only_proof=read_only_proof,
         plan_source=plan_source,
+        provenance_findings=provenance_findings,
     )
 
     # ── Print human-readable output ──────────────────────────────────
@@ -2000,6 +2142,10 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--json", default="",
         help="Path to write machine-readable JSON output")
+    parser.add_argument(
+        "--review-dir", default="",
+        help="Path to the review directory containing plan provenance "
+             "(defaults to the plan file's parent directory)")
     args = parser.parse_args(argv)
 
     return run_verification(
@@ -2007,6 +2153,7 @@ def main(argv=None) -> int:
         master_name=args.master,
         plan_path=args.plan,
         json_path=args.json,
+        review_dir=args.review_dir,
     )
 
 
