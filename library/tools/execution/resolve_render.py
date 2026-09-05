@@ -153,135 +153,172 @@ def render_timeline(
         raise RenderError("output_dir is required")
     os.makedirs(output_dir, exist_ok=True)
 
-    resolve.OpenPage("deliver")
+    prev_page = resolve.GetCurrentPage()
 
-    if not project.SetCurrentRenderFormatAndCodec(fmt, codec):
-        raise RenderError(
-            f"Resolve rejected render format/codec {fmt}/{codec}. "
-            f"Available formats: {list((project.GetRenderFormats() or {}).keys())}"
-        )
+    # Save format/codec - the ONLY render state Resolve lets us read
+    # back (H4 from the statefulness hazards investigation).  The rest
+    # of SetRenderSettings is write-only, so we cannot save-and-restore
+    # the full settings dict.  We track our own job ID and clean it up
+    # on every exit path including exceptions.
+    saved_format_codec = project.GetCurrentRenderFormatAndCodec() or {}
+    our_job_id = None
 
-    # Render the whole timeline: clear any inherited in/out marks by
-    # spanning the timeline's own frame range.
-    start_frame = timeline.GetStartFrame()
-    end_frame = timeline.GetEndFrame()
-    # Nor is RESOLUTION on by default, and it is the same defect as audio
-    # one line down: SetRenderSettings inherits whatever the PROJECT's
-    # render preset last held, and a freshly created Resolve project
-    # defaults to 1920x1080. Project 001 built a correct 1080x1920
-    # timeline and rendered out landscape, and every structural check
-    # passed - duration, framerate, audio streams, frame occupancy - on a
-    # file of the wrong shape. It only stayed hidden because every project
-    # the pipeline had rendered into before had been set to vertical BY
-    # HAND. Read off the TIMELINE that was actually built, so there is no
-    # second source of truth to disagree with the manifest, and REFUSE
-    # rather than inherit when it cannot be read.
-    def _timeline_setting(key: str) -> int:
-        try:
-            return int(timeline.GetSetting(key))
-        except (TypeError, ValueError):
-            return 0
+    try:
+        resolve.OpenPage("deliver")
 
-    width = _timeline_setting("timelineResolutionWidth")
-    height = _timeline_setting("timelineResolutionHeight")
-    if width <= 0 or height <= 0:
-        raise RenderError(
-            f"Timeline {timeline_name!r} reports no usable resolution "
-            f"({width}x{height}), so the render would silently inherit the "
-            f"Resolve project's own default. Refusing rather than guessing."
-        )
+        if not project.SetCurrentRenderFormatAndCodec(fmt, codec):
+            raise RenderError(
+                f"Resolve rejected render format/codec {fmt}/{codec}. "
+                f"Available formats: {list((project.GetRenderFormats() or {}).keys())}"
+            )
 
-    settings = {
-        "TargetDir": output_dir,
-        "CustomName": output_name,
-        "MarkIn": start_frame,
-        "MarkOut": max(start_frame, end_frame - 1),
-        "SelectAllFrames": False,
-        "FormatWidth": width,
-        "FormatHeight": height,
-        # Audio is NOT on by default: whatever the project's last render
-        # preset had wins, and a silent export passes every structural
-        # check while being useless. State it explicitly.
-        "ExportAudio": True,
-        "AudioCodec": "aac",
-        "AudioBitDepth": 16,
-        "AudioSampleRate": 48000,
-    }
-    if not project.SetRenderSettings(settings):
-        raise RenderError(f"Resolve rejected render settings: {settings}")
+        # Render the whole timeline: clear any inherited in/out marks by
+        # spanning the timeline's own frame range.
+        start_frame = timeline.GetStartFrame()
+        end_frame = timeline.GetEndFrame()
+        # Nor is RESOLUTION on by default, and it is the same defect as audio
+        # one line down: SetRenderSettings inherits whatever the PROJECT's
+        # render preset last held, and a freshly created Resolve project
+        # defaults to 1920x1080. Project 001 built a correct 1080x1920
+        # timeline and rendered out landscape, and every structural check
+        # passed - duration, framerate, audio streams, frame occupancy - on a
+        # file of the wrong shape. It only stayed hidden because every project
+        # the pipeline had rendered into before had been set to vertical BY
+        # HAND. Read off the TIMELINE that was actually built, so there is no
+        # second source of truth to disagree with the manifest, and REFUSE
+        # rather than inherit when it cannot be read.
+        def _timeline_setting(key: str) -> int:
+            try:
+                return int(timeline.GetSetting(key))
+            except (TypeError, ValueError):
+                return 0
 
-    job_id = project.AddRenderJob()
-    if not job_id:
-        raise RenderError(
-            "AddRenderJob returned no job id - Resolve would not queue the "
-            "render (check that the timeline is not empty)"
-        )
+        width = _timeline_setting("timelineResolutionWidth")
+        height = _timeline_setting("timelineResolutionHeight")
+        if width <= 0 or height <= 0:
+            raise RenderError(
+                f"Timeline {timeline_name!r} reports no usable resolution "
+                f"({width}x{height}), so the render would silently inherit the "
+                f"Resolve project's own default. Refusing rather than guessing."
+            )
 
-    print(f"  Queued render job {job_id} for {timeline_name} "
-          f"({start_frame}-{end_frame})", file=sys.stderr)
+        settings = {
+            "TargetDir": output_dir,
+            "CustomName": output_name,
+            "MarkIn": start_frame,
+            "MarkOut": max(start_frame, end_frame - 1),
+            "SelectAllFrames": False,
+            "FormatWidth": width,
+            "FormatHeight": height,
+            # Audio is NOT on by default: whatever the project's last render
+            # preset had wins, and a silent export passes every structural
+            # check while being useless. State it explicitly.
+            "ExportAudio": True,
+            "AudioCodec": "aac",
+            "AudioBitDepth": 16,
+            "AudioSampleRate": 48000,
+        }
+        if not project.SetRenderSettings(settings):
+            raise RenderError(f"Resolve rejected render settings: {settings}")
 
-    # Filesystem mtimes have coarse resolution on some volumes; back the
-    # cutoff off by a second so this run's own output is never excluded.
-    render_started_at = time.time() - 1.0
+        our_job_id = project.AddRenderJob()
+        if not our_job_id:
+            raise RenderError(
+                "AddRenderJob returned no job id - Resolve would not queue the "
+                "render (check that the timeline is not empty)"
+            )
 
-    if not project.StartRendering([job_id], isInteractiveMode=False):
-        raise RenderError(f"StartRendering failed for job {job_id}")
+        print(f"  Queued render job {our_job_id} for {timeline_name} "
+              f"({start_frame}-{end_frame})", file=sys.stderr)
 
-    deadline = time.time() + timeout_seconds
-    status = {}
-    while time.time() < deadline:
-        if not project.IsRenderingInProgress():
-            break
-        status = project.GetRenderJobStatus(job_id) or {}
-        print(f"  Rendering... {status.get('CompletionPercentage', 0)}%",
+        # Filesystem mtimes have coarse resolution on some volumes; back the
+        # cutoff off by a second so this run's own output is never excluded.
+        render_started_at = time.time() - 1.0
+
+        if not project.StartRendering([our_job_id], isInteractiveMode=False):
+            raise RenderError(f"StartRendering failed for job {our_job_id}")
+
+        deadline = time.time() + timeout_seconds
+        status = {}
+        while time.time() < deadline:
+            if not project.IsRenderingInProgress():
+                break
+            status = project.GetRenderJobStatus(our_job_id) or {}
+            print(f"  Rendering... {status.get('CompletionPercentage', 0)}%",
+                  file=sys.stderr)
+            time.sleep(POLL_SECONDS)
+        else:
+            project.StopRendering()
+            raise RenderError(
+                f"Render did not finish within {timeout_seconds}s "
+                f"(last status: {status})"
+            )
+
+        status = project.GetRenderJobStatus(our_job_id) or {}
+        job_status = status.get("JobStatus", "Unknown")
+        if job_status != "Complete":
+            raise RenderError(
+                f"Render job {our_job_id} ended as {job_status}: "
+                f"{status.get('Error', 'no error reported')}"
+            )
+
+        produced = _files_written_since(output_dir, output_name, render_started_at)
+        if not produced:
+            stale = sorted(_candidate_render_files(output_dir, output_name))
+            raise RenderError(
+                f"Render reported Complete but wrote no file starting with "
+                f"{output_name!r} in {output_dir} during this run "
+                f"(pre-existing files there: {stale or 'none'})"
+            )
+
+        output_path = os.path.join(output_dir, produced[-1])
+        size_bytes = os.path.getsize(output_path)
+        if size_bytes < MIN_PLAUSIBLE_BYTES:
+            raise RenderError(
+                f"Rendered file {output_path} is only {size_bytes} bytes - "
+                f"that is not a video"
+            )
+
+        _assert_has_audio(output_path)
+
+        print(f"  \u2713 Rendered {output_path} ({size_bytes / 1e6:.1f} MB)",
               file=sys.stderr)
-        time.sleep(POLL_SECONDS)
-    else:
-        project.StopRendering()
-        raise RenderError(
-            f"Render did not finish within {timeout_seconds}s "
-            f"(last status: {status})"
-        )
 
-    status = project.GetRenderJobStatus(job_id) or {}
-    job_status = status.get("JobStatus", "Unknown")
-    if job_status != "Complete":
-        raise RenderError(
-            f"Render job {job_id} ended as {job_status}: "
-            f"{status.get('Error', 'no error reported')}"
-        )
+        return {
+            "output_path": output_path,
+            "size_bytes": size_bytes,
+            "job_id": our_job_id,
+            "job_status": job_status,
+            "timeline_name": timeline_name,
+            "format": fmt,
+            "codec": codec,
+        }
 
-    produced = _files_written_since(output_dir, output_name, render_started_at)
-    if not produced:
-        stale = sorted(_candidate_render_files(output_dir, output_name))
-        raise RenderError(
-            f"Render reported Complete but wrote no file starting with "
-            f"{output_name!r} in {output_dir} during this run "
-            f"(pre-existing files there: {stale or 'none'})"
-        )
+    finally:
+        # Restore format/codec - the only render state with a read-back
+        # API.  Do this BEFORE deleting the job so any error here does
+        # not skip the job cleanup.
+        if saved_format_codec:
+            try:
+                project.SetCurrentRenderFormatAndCodec(
+                    saved_format_codec.get("format", ""),
+                    saved_format_codec.get("codec", ""),
+                )
+            except Exception:
+                pass  # best-effort; the job cleanup below is more important
 
-    output_path = os.path.join(output_dir, produced[-1])
-    size_bytes = os.path.getsize(output_path)
-    if size_bytes < MIN_PLAUSIBLE_BYTES:
-        raise RenderError(
-            f"Rendered file {output_path} is only {size_bytes} bytes - "
-            f"that is not a video"
-        )
+        # Delete ONLY the job this process created.
+        if our_job_id:
+            try:
+                project.DeleteRenderJob(our_job_id)
+            except Exception:
+                pass  # best-effort
 
-    _assert_has_audio(output_path)
-
-    print(f"  ✓ Rendered {output_path} ({size_bytes / 1e6:.1f} MB)",
-          file=sys.stderr)
-
-    return {
-        "output_path": output_path,
-        "size_bytes": size_bytes,
-        "job_id": job_id,
-        "job_status": job_status,
-        "timeline_name": timeline_name,
-        "format": fmt,
-        "codec": codec,
-    }
+        if prev_page and prev_page != "deliver":
+            try:
+                resolve.OpenPage(prev_page)
+            except Exception:
+                pass  # best-effort; must not mask a propagating exception
 
 
 def main():

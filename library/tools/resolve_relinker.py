@@ -22,6 +22,19 @@ if str(_PILOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PILOT_ROOT))
 
 
+class DestinationMismatchError(RuntimeError):
+    """The current Resolve project does not match the expected destination.
+
+    `relink_project` rewrites the media pool of whatever project is
+    open (H12 from the statefulness hazards investigation).  The
+    function's `project_slug` argument was used only to build path
+    mappings, never to check the open project's name.  Run the relinker
+    for project A while project B is open and B's media pool is
+    rewritten.  Verify-immediately-before-and-refuse is what protects
+    the write.
+    """
+
+
 def _get_resolve():
     """Connect to DaVinci Resolve."""
     try:
@@ -112,7 +125,8 @@ def build_path_mappings(project_slug: str = "") -> list[tuple[str, str]]:
     return mappings
 
 
-def relink_project(project_slug: str = "", dry_run: bool = False) -> dict:
+def relink_project(project_slug: str = "", dry_run: bool = False,
+                   expected_project: str = "") -> dict:
     """Relink offline clips in the current Resolve project.
 
     Scans the media pool for offline clips, builds path mappings,
@@ -121,12 +135,39 @@ def relink_project(project_slug: str = "", dry_run: bool = False) -> dict:
     Args:
         project_slug: Optional project slug for targeted mappings
         dry_run: If True, just report what would be relinked
+        expected_project: If non-empty, the current Resolve project
+            must have this exact name or the function refuses.  This
+            is the H12 guard: rewriting a media pool is a mutation
+            with no easy reversal, and "not silent" only helps if
+            someone is watching.
 
     Returns a status dict.
+
+    Raises:
+        DestinationMismatchError: If expected_project is set and the
+            current project does not match.
     """
     resolve = _get_resolve()
     if not resolve:
         return {"success": False, "error": "Resolve not running"}
+
+    project = resolve.GetProjectManager().GetCurrentProject()
+    if not project:
+        if expected_project:
+            raise DestinationMismatchError(
+                f"No Resolve project is open. Expected project "
+                f"{expected_project!r}."
+            )
+        return {"success": False, "error": "No project open"}
+
+    # Verify destination BEFORE any mutation.
+    actual_project = project.GetName()
+    if expected_project and actual_project != expected_project:
+        raise DestinationMismatchError(
+            f"Wrong Resolve project: expected {expected_project!r}, "
+            f"got {actual_project!r}. Refusing to rewrite the media pool "
+            f"of the wrong project."
+        )
 
     offline = scan_offline_clips(resolve)
     if not offline:
@@ -174,6 +215,17 @@ def relink_project(project_slug: str = "", dry_run: bool = False) -> dict:
         ]
         return result
 
+    # Re-verify destination IMMEDIATELY before the first mutation.
+    # The window between the earlier check and now is where another
+    # process could have changed the current project.
+    actual_project = project.GetName()
+    if expected_project and actual_project != expected_project:
+        raise DestinationMismatchError(
+            f"Project changed between scan and mutation: expected "
+            f"{expected_project!r}, got {actual_project!r}. "
+            f"Refusing to rewrite the media pool of the wrong project."
+        )
+
     # Execute relinking
     relinked = 0
     failed = 0
@@ -202,9 +254,15 @@ def main():
     parser = argparse.ArgumentParser(description="Relink offline media in Resolve")
     parser.add_argument("slug", nargs="?", default="", help="Project slug")
     parser.add_argument("--scan", action="store_true", help="Scan only, don't relink")
+    parser.add_argument(
+        "--expected-project", default="",
+        help="Refuse if the current Resolve project does not match this name",
+    )
     args = parser.parse_args()
 
-    result = relink_project(args.slug, dry_run=args.scan)
+    result = relink_project(
+        args.slug, dry_run=args.scan, expected_project=args.expected_project,
+    )
     print(json.dumps(result, indent=2, default=str))
 
 

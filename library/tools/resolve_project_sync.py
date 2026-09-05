@@ -75,6 +75,17 @@ def _get_resolve():
         return None
 
 
+class FolderRestoreError(RuntimeError):
+    """The project manager's current folder could not be restored.
+
+    The project manager's folder is GLOBAL in Resolve (H10 from the
+    statefulness hazards investigation).  After navigating to find or
+    create a project, anything that resolves a project by folder is
+    looking in the wrong place - including the captain in the UI.
+    Save-and-restore on every exit path is the minimum guard.
+    """
+
+
 def ensure_resolve_project(config: ProjectConfig, create_if_missing: bool = True) -> dict:
     """Ensure the Resolve project for this config exists and is loaded.
 
@@ -82,6 +93,12 @@ def ensure_resolve_project(config: ProjectConfig, create_if_missing: bool = True
     1. Check if a project with config.resolve.project_name exists
     2. Load it if it does
     3. Create it if create_if_missing is True and it doesn't exist
+
+    The project manager folder is saved before navigation and restored
+    on every exit path, because the folder is project-manager-global
+    and leaving it changed means anything that resolves a project by
+    folder - including the captain in the UI - is looking in the wrong
+    place (H10).
 
     Returns a status dict with project info.
     """
@@ -102,70 +119,142 @@ def ensure_resolve_project(config: ProjectConfig, create_if_missing: bool = True
 
     # Navigate to the correct folder if specified
     if config.resolve.folder:
+        # Save the current folder so we can restore it on every exit
+        # path.  GetCurrentFolder returns the folder name (string), and
+        # GotoRootFolder + OpenFolder restores it.  We save the full
+        # folder path we intend to navigate to so the restore can
+        # GotoRootFolder to get back to a known state.
+        saved_folder = pm.GetCurrentFolder()
+
         folder_parts = config.resolve.folder.split("/")
         pm.GotoRootFolder()
-        for part in folder_parts:
-            if part:
-                if not pm.OpenFolder(part):
-                    if create_if_missing:
-                        pm.CreateFolder(part)
-                        pm.OpenFolder(part)
-                    else:
-                        return {
-                            "success": False,
-                            "error": f"Resolve folder '{config.resolve.folder}' not found",
-                        }
+        try:
+            for part in folder_parts:
+                if part:
+                    if not pm.OpenFolder(part):
+                        if create_if_missing:
+                            pm.CreateFolder(part)
+                            pm.OpenFolder(part)
+                        else:
+                            return {
+                                "success": False,
+                                "error": f"Resolve folder '{config.resolve.folder}' not found",
+                            }
 
-    # Check current project
-    current = pm.GetCurrentProject()
-    if current and current.GetName() == target_name:
-        return {
-            "success": True,
-            "action": "already_loaded",
-            "project_name": target_name,
-        }
+            # Check current project
+            current = pm.GetCurrentProject()
+            if current and current.GetName() == target_name:
+                return {
+                    "success": True,
+                    "action": "already_loaded",
+                    "project_name": target_name,
+                }
 
-    # Try to load existing project
-    existing_projects = pm.GetProjectListInCurrentFolder()
-    if target_name in (existing_projects or []):
-        project = pm.LoadProject(target_name)
-        if project:
+            # Try to load existing project
+            existing_projects = pm.GetProjectListInCurrentFolder()
+            if target_name in (existing_projects or []):
+                project = pm.LoadProject(target_name)
+                if project:
+                    return {
+                        "success": True,
+                        "action": "loaded",
+                        "project_name": target_name,
+                    }
+                return {
+                    "success": False,
+                    "error": f"Project '{target_name}' exists but failed to load",
+                }
+
+            # Create new project
+            if create_if_missing:
+                project = pm.CreateProject(target_name)
+                if project:
+                    # Apply basic settings from config
+                    if config.source.resolution:
+                        w, h = config.source.width, config.source.height
+                        project.SetSetting("timelineResolutionWidth", str(w))
+                        project.SetSetting("timelineResolutionHeight", str(h))
+                    if config.source.fps:
+                        project.SetSetting("timelineFrameRate", str(config.source.fps))
+
+                    return {
+                        "success": True,
+                        "action": "created",
+                        "project_name": target_name,
+                    }
+                return {
+                    "success": False,
+                    "error": f"Failed to create project '{target_name}'",
+                }
+
+            return {
+                "success": False,
+                "error": f"Project '{target_name}' not found and create_if_missing is False",
+            }
+        finally:
+            # Restore the project manager folder.  GotoRootFolder is
+            # the only guaranteed starting point; we then re-navigate to
+            # the saved folder.  If the saved folder was root, just
+            # GotoRootFolder.
+            try:
+                pm.GotoRootFolder()
+                if saved_folder:
+                    pm.OpenFolder(saved_folder)
+            except Exception:
+                pass  # best-effort
+    else:
+        # No folder navigation needed - no save/restore required.
+
+        # Check current project
+        current = pm.GetCurrentProject()
+        if current and current.GetName() == target_name:
             return {
                 "success": True,
-                "action": "loaded",
+                "action": "already_loaded",
                 "project_name": target_name,
             }
-        return {
-            "success": False,
-            "error": f"Project '{target_name}' exists but failed to load",
-        }
 
-    # Create new project
-    if create_if_missing:
-        project = pm.CreateProject(target_name)
-        if project:
-            # Apply basic settings from config
-            if config.source.resolution:
-                w, h = config.source.width, config.source.height
-                project.SetSetting("timelineResolutionWidth", str(w))
-                project.SetSetting("timelineResolutionHeight", str(h))
-            if config.source.fps:
-                project.SetSetting("timelineFrameRate", str(config.source.fps))
-
+        # Try to load existing project
+        existing_projects = pm.GetProjectListInCurrentFolder()
+        if target_name in (existing_projects or []):
+            project = pm.LoadProject(target_name)
+            if project:
+                return {
+                    "success": True,
+                    "action": "loaded",
+                    "project_name": target_name,
+                }
             return {
-                "success": True,
-                "action": "created",
-                "project_name": target_name,
+                "success": False,
+                "error": f"Project '{target_name}' exists but failed to load",
             }
+
+        # Create new project
+        if create_if_missing:
+            project = pm.CreateProject(target_name)
+            if project:
+                # Apply basic settings from config
+                if config.source.resolution:
+                    w, h = config.source.width, config.source.height
+                    project.SetSetting("timelineResolutionWidth", str(w))
+                    project.SetSetting("timelineResolutionHeight", str(h))
+                if config.source.fps:
+                    project.SetSetting("timelineFrameRate", str(config.source.fps))
+
+                return {
+                    "success": True,
+                    "action": "created",
+                    "project_name": target_name,
+                }
+            return {
+                "success": False,
+                "error": f"Failed to create project '{target_name}'",
+            }
+
         return {
             "success": False,
-            "error": f"Failed to create project '{target_name}'",
+            "error": f"Project '{target_name}' not found and create_if_missing is False",
         }
-
-    return {
-        "success": False,
-        "error": f"Project '{target_name}' not found and create_if_missing is False",
-    }
 
 
 def import_project_media(config: ProjectConfig) -> dict:

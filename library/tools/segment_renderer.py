@@ -43,6 +43,25 @@ class SegmentRenderResult:
     error: Optional[str] = None
 
 
+class RenderSettingsError(RuntimeError):
+    """A render left project-global state dirty and the cleanup failed.
+
+    Render settings and the render queue are PROJECT-global in Resolve
+    (H4 from the statefulness hazards investigation).  A render that
+    changes them and does not clean up means the NEXT render - including
+    the captain's own manual render on the Deliver page - inherits
+    whatever this process left behind: a temp TargetDir, a QA custom
+    name, 720p resolution, ExportAudio False.
+
+    The Resolve scripting API has no GetRenderSettings(), so a full
+    save-and-restore of the settings dict is impossible.  What IS
+    restorable: format/codec (via GetCurrentRenderFormatAndCodec /
+    SetCurrentRenderFormatAndCodec) and the render job itself (via
+    DeleteRenderJob with the job ID this process created).  The guard
+    is: borrow and restore on EVERY exit path including exceptions.
+    """
+
+
 def render_segment(resolve, project, timeline,
                    mark_in: int, mark_out: int,
                    output_dir: str = None,
@@ -74,11 +93,18 @@ def render_segment(resolve, project, timeline,
 
     prev_page = resolve.GetCurrentPage()
 
+    # Save the format/codec so we can restore it.  This is the ONLY
+    # render state Resolve lets us read back; the rest of
+    # SetRenderSettings is write-only.
+    saved_format_codec = project.GetCurrentRenderFormatAndCodec() or {}
+
+    # Track the job id we create so we can delete ONLY our own job in
+    # the finally block - never DeleteAllRenderJobs, which destroys
+    # the captain's queued jobs and any concurrent process's jobs.
+    our_job_id = None
+
     try:
         resolve.OpenPage("deliver")
-
-        # Clear stale render jobs
-        project.DeleteAllRenderJobs()
 
         settings = {
             "TargetDir": output_dir,
@@ -92,7 +118,7 @@ def render_segment(resolve, project, timeline,
         }
 
         project.SetRenderSettings(settings)
-        project.AddRenderJob()
+        our_job_id = project.AddRenderJob()
         project.StartRendering()
 
         # Poll for completion
@@ -136,6 +162,25 @@ def render_segment(resolve, project, timeline,
         )
 
     finally:
+        # Restore format/codec - the only render state with a read-back
+        # API.  Do this BEFORE deleting the job so any error here does
+        # not skip the job cleanup.
+        if saved_format_codec:
+            try:
+                project.SetCurrentRenderFormatAndCodec(
+                    saved_format_codec.get("format", ""),
+                    saved_format_codec.get("codec", ""),
+                )
+            except Exception:
+                pass  # best-effort; the job cleanup below is more important
+
+        # Delete ONLY the job this process created.
+        if our_job_id:
+            try:
+                project.DeleteRenderJob(our_job_id)
+            except Exception:
+                pass  # best-effort
+
         if prev_page and prev_page != "deliver":
             resolve.OpenPage(prev_page)
 
