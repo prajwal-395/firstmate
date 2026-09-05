@@ -46,7 +46,9 @@ def mock_resolve():
     project.GetMediaPool.return_value = media_pool
     
     timeline = MagicMock()
+    timeline.GetUniqueId.return_value = "12345"
     media_pool.CreateEmptyTimeline.return_value = timeline
+    project.GetCurrentTimeline.return_value = timeline
 
     # Settings are a STORE, not a MagicMock that says yes to everything.
     # `build_timeline` now reads the resolution back off Resolve rather

@@ -200,6 +200,7 @@ def test_the_document_reports_what_could_not_be_bound():
     class Snap:
         project_name, timeline_name = "P", "T"
         fps, duration = 23.976, 100.0
+        clips = []
         def speakers(self): return ["Craig", None]
 
     merged = [

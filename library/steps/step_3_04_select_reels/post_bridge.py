@@ -22,7 +22,8 @@ from typing import List
 
 def resolve(llm_output: dict, data: dict) -> dict:
     from library.tools.reel_proposal import (
-        Approval, ReelMoment, enrich, slugify, snap_to_speech,
+        Approval, ReelMoment, enrich, is_conversation,
+        overlaps_picture_hole, slugify, snap_to_speech,
         validate_proposal)
 
     transcript = data.get("timeline_transcript") or {}
@@ -44,14 +45,26 @@ def resolve(llm_output: dict, data: dict) -> dict:
         # mid-sentence, and 63 of this episode's 906 segments straddle a
         # cut and are excluded from the arithmetic entirely.
         start, end = snap_to_speech(start, end, transcript)
-        moments.append(enrich(ReelMoment(
+        enriched = enrich(ReelMoment(
             number=index,
             slug=slugify(entry.get("slug") or entry.get("title") or ""),
             reason=str(entry.get("reason") or "").strip(),
             timeline_start=start,
             timeline_end=end,
             approval=Approval.PROPOSED,
-        ), transcript))
+        ), transcript)
+        # Drop bad PICKS, not integrity failures. The model told the
+        # truth about the timecode; it just made a pick it could not
+        # know was bad. Raising would discard the whole batch.
+        hole_reason = overlaps_picture_hole(enriched, transcript)
+        if hole_reason:
+            dropped.append({"entry": entry, "reason": hole_reason})
+            continue
+        not_convo = is_conversation(enriched, transcript)
+        if not_convo:
+            dropped.append({"entry": entry, "reason": not_convo})
+            continue
+        moments.append(enriched)
 
     if moments:
         validate_proposal(moments, transcript, duration or max(

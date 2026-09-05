@@ -62,7 +62,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # adding a subcommand without listing it here fails loudly rather than
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
-    "init-root", "list", "new", "status", "info", "trace", "organize",
+    "init-root", "list", "new", "build-reels", "status", "info", "trace", "organize",
     "check", "run", "dashboard", "archive", "notes", "relink",
 )
 
@@ -636,6 +636,10 @@ def cmd_dashboard(args):
     start_server(project_dir, slug=slug, port=args.port)
 
 
+def cmd_build_reels(args):
+    from library.tools.reel_build import rebuild_reels_in_project
+    rebuild_reels_in_project(args.project)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Manage video editing projects",
@@ -668,6 +672,12 @@ def main():
     p_new.set_defaults(func=cmd_new)
 
     # status
+    build_reels_parser = sub.add_parser(
+        "build-reels", help="Rebuild approved reels in Resolve")
+    build_reels_parser.add_argument(
+        "project", help="The project to rebuild reels for")
+    build_reels_parser.set_defaults(func=cmd_build_reels)
+
     p_status = sub.add_parser("status", help="Show project status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_status.set_defaults(func=cmd_status)
@@ -783,3 +793,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

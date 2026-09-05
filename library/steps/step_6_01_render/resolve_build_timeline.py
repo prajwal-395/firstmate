@@ -81,6 +81,8 @@ from library.tools import timeline_decisions  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
+from library.tools.timeline_ingest import resolve_project_exactly  # noqa: E402
+from library.tools.resolve_lock import assert_current_timeline  # noqa: E402
 
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
@@ -559,13 +561,9 @@ def build_timeline(
         return results
 
     pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-
-    if project_name and (not project or project.GetName() != project_name):
-        project = pm.LoadProject(project_name)
-        if not project:
-            project = pm.CreateProject(project_name)
-    if not project:
+    if project_name:
+        project = resolve_project_exactly(pm, project_name)
+    else:
         project = pm.GetCurrentProject()
 
     media_pool = project.GetMediaPool()
@@ -896,6 +894,7 @@ def build_timeline(
         tl_in_f = clip.get('timeline_in_frame', 0)
 
         # Place Video (V1)
+        assert_current_timeline(project, timeline)
         v_res = media_pool.AppendToTimeline([{
             "mediaPoolItem": pool_item,
             "startFrame": v_in,
@@ -916,6 +915,7 @@ def build_timeline(
         if clip.get("video_only"):
             a_res = None
         else:
+            assert_current_timeline(project, timeline)
             a_res = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": a_in,
@@ -999,6 +999,7 @@ def build_timeline(
             src_out_f = round(src_out * fps)
             tl_in_f = clip['timeline_in_frame']
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
@@ -1091,6 +1092,7 @@ def build_timeline(
             # Shift the subtitle's timeline_start by the offset
             tl_in_frame += offset_f
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
@@ -1131,6 +1133,7 @@ def build_timeline(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": 0,
@@ -1188,6 +1191,7 @@ def build_timeline(
             dur_frames = round((tl_end - tl_start) * fps)
             tl_in_frame = round(tl_start * fps)
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": transparent_carrier,
                 "startFrame": 0,
@@ -1247,6 +1251,7 @@ def build_timeline(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": 0,
@@ -1303,6 +1308,7 @@ def build_timeline(
             src_dur_f = round((tl_out_sec - tl_in_sec) * src_fps)
             src_in_f = round(clip.get('source_in', 0) * src_fps)
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
@@ -1357,6 +1363,7 @@ def build_timeline(
             src_dur_f = round(((tl_out_f - tl_in_f) / fps) * src_fps)
             src_in_f = round(clip.get('source_in', 0) * src_fps)
 
+            assert_current_timeline(project, timeline)
             result = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
@@ -1485,6 +1492,7 @@ def build_timeline(
                 
             if preset_exists:
                 try:
+                    assert_current_timeline(project, timeline)
                     applied = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
                 except TypeError:
                     applied = False
@@ -1746,11 +1754,13 @@ def build_timeline(
     if fairlight_preset:
         print(f"\n── Fairlight Preset: {fairlight_preset} ──", file=sys.stderr)
         try:
+            assert_current_timeline(project, timeline)
             result = project.ApplyFairlightPresetToCurrentTimeline(fairlight_preset)
             if result:
                 print(f"  ✓ Applied Fairlight preset: {fairlight_preset}", file=sys.stderr)
             else:
                 print(f"  ⚠ Fairlight preset '{fairlight_preset}' failed, applying fallback", file=sys.stderr)
+                assert_current_timeline(project, timeline)
                 fallback_res = project.ApplyFairlightPresetToCurrentTimeline("Dialogue")
                 if fallback_res:
                     print(f"  ✓ Applied fallback preset: Dialogue", file=sys.stderr)

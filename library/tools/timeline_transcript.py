@@ -443,12 +443,32 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
     for segment in merged:
         if segment.speaker and segment.speaker not in speaking:
             speaking.append(segment.speaker)
+    video_ranges = [(c.timeline_start, c.timeline_end) for c in snapshot.clips if c.track_type == "video"]
+    video_ranges.sort()
+    merged_video = []
+    for s, e in video_ranges:
+        if not merged_video:
+            merged_video.append([s, e])
+        else:
+            if s <= merged_video[-1][1]:
+                merged_video[-1][1] = max(merged_video[-1][1], e)
+            else:
+                merged_video.append([s, e])
+                
+    picture_holes = []
+    cursor = 0.0
+    for s, e in merged_video:
+        if s > cursor + 0.04:
+            picture_holes.append([round(cursor, 3), round(s, 3)])
+        cursor = max(cursor, e)
+    
     return {
         "derived_from": {
             "project": snapshot.project_name,
             "timeline": snapshot.timeline_name,
             "fps": snapshot.fps,
             "duration_seconds": snapshot.duration,
+            "picture_holes": picture_holes,
         },
         "measurement": (
             "Speech transcribed by WhisperX from audio REBUILT out of the "

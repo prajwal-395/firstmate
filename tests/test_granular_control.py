@@ -119,13 +119,16 @@ def test_apply_fusion_comps_uses_engine_path(monkeypatch, tmp_path):
             return None
             
     class MockTimeline:
+        def GetUniqueId(self): return str(id(self))
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, track_type, index):
             return [MockTimelineClip()]
             
     class MockProject:
-        def GetCurrentTimeline(self): return MockTimeline()
-        
+        def __init__(self):
+            self._current_timeline = MockTimeline()
+        def GetCurrentTimeline(self): return self._current_timeline
+        def SetCurrentTimeline(self, tl): self._current_timeline = tl; return True
     class MockProjectManager:
         def GetCurrentProject(self): return MockProject()
         

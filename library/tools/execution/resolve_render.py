@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import time
+from library.tools.resolve_lock import assert_current_timeline
 
 # Resolve's Python API is not importable until these are set - see
 # AGENTS.md section 5.
@@ -221,6 +222,7 @@ def render_timeline(
         if not project.SetRenderSettings(settings):
             raise RenderError(f"Resolve rejected render settings: {settings}")
 
+        assert_current_timeline(project, timeline)
         our_job_id = project.AddRenderJob()
         if not our_job_id:
             raise RenderError(

@@ -78,6 +78,10 @@ look at, not a rejection: a low speaking share is a real observation, and
 a short question that opens a long answer can still be worth more than
 its seconds.
 
+`picture_holes` lists spans where the master timeline has no picture
+(start and end in seconds). A reel that contains a hole will play black
+there, so avoid it or move the boundaries clear of it.
+
 ### Length
 
 The series' guidance is **45 to 90 seconds, averaging around a minute**.

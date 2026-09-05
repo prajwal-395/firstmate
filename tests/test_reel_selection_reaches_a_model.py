@@ -202,13 +202,17 @@ def test_the_post_bridge_leaves_every_moment_proposed():
     from library.tools.reel_proposal import Approval, read_proposal  # noqa
     from library.steps.step_3_04_select_reels.post_bridge import resolve
 
-    seg = {"speaker": "Craig", "text": "a line about the topic here",
-           "timeline_start": 10.0, "timeline_end": 60.0,
-           "resolve_item_id": "u", "source_file": "/m/a.MXF",
-           "source_start": 10.0, "source_end": 60.0}
+    seg1 = {"speaker": "Craig", "text": "a line about the topic here",
+            "timeline_start": 10.0, "timeline_end": 30.0,
+            "resolve_item_id": "u", "source_file": "/m/a.MXF",
+            "source_start": 10.0, "source_end": 30.0}
+    seg2 = {"speaker": "Akshita", "text": "and here is the response",
+            "timeline_start": 30.5, "timeline_end": 55.0,
+            "resolve_item_id": "u2", "source_file": "/m/b.MXF",
+            "source_start": 30.5, "source_end": 55.0}
     out = resolve({"moments": [{"start": 12.0, "end": 55.0, "slug": "x",
                                 "reason": "because it lands"}]},
-                  {"timeline_transcript": {"segments": [seg],
+                  {"timeline_transcript": {"segments": [seg1, seg2],
                                            "derived_from": {"duration_seconds": 600.0}}})
     moments = out["reel_selection"]["moments"]
     assert moments and all(m["approval"] == "proposed" for m in moments)

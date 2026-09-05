@@ -53,6 +53,9 @@ class MockTimeline:
     def GetName(self):
         return self._name
 
+    def GetUniqueId(self):
+        return str(id(self))
+
 
 class MockProject:
     def __init__(self, name, timeline=None):
@@ -64,6 +67,10 @@ class MockProject:
 
     def GetCurrentTimeline(self):
         return self._timeline
+
+    def SetCurrentTimeline(self, tl):
+        self._timeline = tl
+        return True
 
 
 class MockProjectManager:

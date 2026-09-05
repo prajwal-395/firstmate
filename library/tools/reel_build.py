@@ -47,8 +47,10 @@ removing a take cannot slide one speaker against the other.
 
 `tests/test_reel_build.py`.
 """
-
 from __future__ import annotations
+
+from library.tools.resolve_lock import assert_current_timeline
+from library.tools.timeline_ingest import resolve_project_exactly
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -302,3 +304,233 @@ def placements(ranges: Sequence[Tuple[float, float]],
             })
         cursor += range_end - range_start
     return out
+
+
+def build_reel_timeline(project, moment, master_clips, captions, fps, width, height, project_folder, transcript):
+    import sys, os
+    pool = project.GetMediaPool()
+    timeline = pool.CreateEmptyTimeline(moment.timeline_name)
+    if not timeline:
+        raise ValueError(f"Failed to create timeline {moment.timeline_name}")
+        
+    project.SetCurrentTimeline(timeline)
+    
+    timeline.SetSetting("useCustomSettings", "1")
+    timeline.SetSetting("timelineResolutionWidth", "1080")
+    timeline.SetSetting("timelineResolutionHeight", "1920")
+    
+    while timeline.GetTrackCount("video") < 3:
+        timeline.AddTrack("video")
+    while timeline.GetTrackCount("audio") < 2:
+        timeline.AddTrack("audio")
+        
+    timeline.SetTrackName("video", 3, "Captions")
+    
+    ranges = keep_ranges(moment.timeline_start, moment.timeline_end, redundant_takes(moment.timeline_start, moment.timeline_end, transcript))
+    placements_list = placements(ranges, master_clips)
+    
+    root_folder = pool.GetRootFolder()
+    def _find_pool_item(folder, filepath):
+        for item in folder.GetClipList():
+            if item.GetClipProperty("File Path") == filepath:
+                return item
+        for sub in folder.GetSubFolderList():
+            found = _find_pool_item(sub, filepath)
+            if found: return found
+        return None
+        
+
+    calculate_snapped_records(placements_list, fps)
+        
+    for p in placements_list:
+        c = p["clip"]
+        pool_item = _find_pool_item(root_folder, c.source_file)
+        if not pool_item:
+            print(f"Source file {c.source_file} not in media pool", file=sys.stderr)
+            continue
+
+        pool_fps_str = pool_item.GetClipProperty("FPS") or str(fps)
+        pool_fps = float(pool_fps_str)
+
+        assert_current_timeline(project, timeline)
+
+        pool.AppendToTimeline([{
+            "mediaPoolItem": pool_item,
+            "startFrame": int(round(p["source_in"] * pool_fps)),
+            "endFrame": int(round(p["source_out"] * pool_fps)),
+            "mediaType": 1 if c.track_type == "video" else 2,
+            "trackIndex": p["track_index"],
+            "recordFrame": p["snapped_record"]
+        }])
+
+    if captions:
+        pilot_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        remotion_dir = os.path.join(pilot_root, "remotion-subtitles")
+        out_dir = os.path.join(project_folder, "pipeline_output", "scratch", "reel_subtitles", f"reel_{moment.number:02d}")
+        os.makedirs(out_dir, exist_ok=True)
+        
+        from concurrent.futures import ThreadPoolExecutor
+        import hashlib, json, subprocess
+        from library.tools.subtitle_segment_id import slug
+        
+        def render_cap(cap):
+            text_slug = slug(cap["text"], "notext")[:30]
+            sig = f"{cap['speaker']}_{cap['frames']}_{cap['text']}"
+            digest = hashlib.md5(sig.encode("utf-8")).hexdigest()[:8]
+            filename = f"sub_{slug(moment.timeline_name, 'notimeline')}_{slug(cap['speaker'], 'nospeaker')}_{text_slug}_{digest}.mov"
+            overlay_path = os.path.join(out_dir, filename)
+            props_path = os.path.join(out_dir, filename.replace(".mov", "_props.json"))
+            
+            if not os.path.exists(overlay_path):
+                with open(props_path, "w") as f2:
+                    json.dump(cap["props"], f2)
+                print(f"Rendering {filename}...", file=sys.stderr)
+                res = subprocess.run(
+                    ["npx", "remotion", "render", "SubtitleOverlay", overlay_path,
+                     "--props", props_path, "--codec", "prores", "--prores-profile", "4444",
+                     "--image-format", "png", "--transparent"],
+                    cwd=remotion_dir, capture_output=True, text=True, encoding="utf-8",
+                    check=False
+                )
+                if res.returncode != 0:
+                    print(f"Render failed for {filename}: {res.stderr}", file=sys.stderr)
+                    return None
+            return (cap, overlay_path)
+            
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(render_cap, captions))
+            
+        for res in results:
+            if not res: continue
+            cap, overlay_path = res
+            items = pool.ImportMedia([overlay_path])
+            if not items:
+                print(f"Failed to import {overlay_path}", file=sys.stderr)
+                continue
+            cap_item = items[0]
+            
+            assert_current_timeline(project, timeline)
+            pool.AppendToTimeline([{
+                    "mediaPoolItem": cap_item,
+                    "startFrame": 0,
+                    "endFrame": cap["frames"],
+                    "trackIndex": 3,
+                    "recordFrame": int(round(cap["reel_start"] * fps))
+                }])
+
+def rebuild_reels_in_project(project_slug: str):
+    import os
+    import sys
+    import json
+    import yaml
+    
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+        os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
+        if "PYTHONPATH" not in os.environ:
+            os.environ["PYTHONPATH"] = ""
+        os.environ["PYTHONPATH"] += ":" + os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
+        sys.path.insert(0, os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
+        import DaVinciResolveScript as dvr
+
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    from library.tools.reel_proposal import read_proposal
+    from library.tools.reel_subtitles import reel_captions
+    from library.tools.timeline_ingest import snapshot_timeline
+    from library.tools.subtitle_style import resolve_subtitle_style
+    from library.tools.project_registry import get_project
+    
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
+    pm = resolve.GetProjectManager()
+    
+    if os.path.isabs(project_slug) and os.path.isdir(project_slug):
+        project_folder = project_slug
+    else:
+        proj = get_project(project_slug)
+        if not proj:
+            raise ValueError(f"Unknown project {project_slug}")
+        project_folder = proj.root
+    
+    with open(os.path.join(project_folder, "project.yaml")) as f:
+        config = yaml.safe_load(f)
+        
+    resolve_name = config.get("resolve", {}).get("project_name", os.path.basename(project_slug))
+    
+    project = resolve_project_exactly(pm, resolve_name)
+        
+    proposal_path = os.path.join(project_folder, "pipeline_output/review/reel_proposals_v2.json")
+    moments = read_proposal(proposal_path)
+    
+    with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")) as f:
+        transcript = json.load(f)
+        
+    styles = {}
+    for spk in ["Akshita", "Craig", None]:
+        styles[spk] = resolve_subtitle_style(project_folder=project_folder, speaker=spk)
+        
+    timeline = None
+    for i in range(1, project.GetTimelineCount() + 1):
+        t = project.GetTimelineByIndex(i)
+        if t.GetName() == "GEO Podcast - Synced":
+            timeline = t
+            break
+            
+    if not timeline:
+        raise ValueError("Could not find master timeline GEO Podcast - Synced")
+        
+    snapshot = snapshot_timeline(timeline, project.GetName())
+    master_clips = snapshot.clips
+    
+    pool = project.GetMediaPool()
+    timelines_to_delete = []
+    for i in range(1, project.GetTimelineCount() + 1):
+        t = project.GetTimelineByIndex(i)
+        if t.GetName().startswith("Reel "):
+            timelines_to_delete.append(t)
+            
+    if timelines_to_delete:
+        pool.DeleteTimelines(timelines_to_delete)
+        
+    for moment in moments:
+        if moment.approval != "approved":
+            continue
+            
+        print(f"Building {moment.timeline_name}", flush=True)
+        cuts = redundant_takes(moment.timeline_start, moment.timeline_end, transcript)
+        ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
+        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920)
+        
+        build_reel_timeline(
+            project=project,
+            moment=moment,
+            master_clips=master_clips,
+            captions=captions,
+            fps=24000/1001,
+            width=1080,
+            height=1920,
+            project_folder=project_folder,
+            transcript=transcript
+        )
+
+
+def calculate_snapped_records(placements_list: list[dict], fps: float) -> None:
+    """Pre-calculate record frames to eliminate rounding gaps (F3)"""
+    track_cursors = {}
+    for p in placements_list:
+        track_key = (p["clip"].track_type, p["track_index"])
+        raw_start = int(round(p["source_in"] * fps)) # assuming pool_fps == fps
+        raw_end = int(round(p["source_out"] * fps))
+        duration_frames = raw_end - raw_start
+        
+        ideal_record = int(round(p["record"] * fps))
+        
+        if track_key in track_cursors:
+            prev_end = track_cursors[track_key]
+            # If the ideal record is within 2 frames of the previous end, it's contiguous. Snap it!
+            if abs(ideal_record - prev_end) <= 2:
+                ideal_record = prev_end
+                
+        p["snapped_record"] = ideal_record
+        track_cursors[track_key] = ideal_record + duration_frames

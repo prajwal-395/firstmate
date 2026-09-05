@@ -84,6 +84,13 @@ class MockProject:
     def GetRenderFormats(self):
         return {"mp4": ".mp4", "mov": ".mov"}
 
+    def GetCurrentTimeline(self):
+        return getattr(self, "_current_timeline", None)
+
+    def SetCurrentTimeline(self, tl):
+        self._current_timeline = tl
+        return True
+
 
 class MockTimeline:
     def __init__(self, name="TestTimeline"):
@@ -91,6 +98,9 @@ class MockTimeline:
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return str(id(self))
 
     def GetStartFrame(self):
         return 0
@@ -322,9 +332,6 @@ class RenderTimelineMockProject(MockProject):
 
     def GetTimelineByIndex(self, i):
         return self._timeline
-
-    def SetCurrentTimeline(self, timeline):
-        return True
 
 
 class RenderTimelineMockProjectManager:

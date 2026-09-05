@@ -456,3 +456,123 @@ def test_snapping_reaches_a_fixed_point():
     assert (start, end) == (10.0, 34.0)
     validate_proposal([_moment(timeline_start=start, timeline_end=end)],
                       tx, 2656.6)
+
+
+# ── A reel must be a conversation ────────────────────────────────────
+#
+# The captain, rejecting the first ten reels: "none of what you proposed
+# is good - its mostly just a single person yapping and not really a
+# convo".  They classified 'both speakers with real turns' as the
+# CHECKABLE half, explicitly not taste.
+#
+# A single-speaker moment is a bad PICK, not an integrity failure.
+# It is DROPPED with a reason, not raised - raising would discard the
+# other nineteen good reels because one was a monologue.
+
+def test_a_two_speaker_moment_is_a_conversation():
+    """Both speakers with real turns - is_conversation returns None."""
+    from library.tools.reel_proposal import is_conversation
+    assert is_conversation(_moment(), _transcript()) is None
+
+
+def test_a_single_speaker_moment_is_not_a_conversation():
+    """The captain: 'its mostly just a single person yapping and not
+    really a convo'.  is_conversation returns a reason string."""
+    from library.tools.reel_proposal import is_conversation
+    tx = _tx(_bound(speaker="Craig", timeline_start=10.0, timeline_end=26.0))
+    reason = is_conversation(
+        _moment(timeline_start=10.0, timeline_end=26.0), tx)
+    assert reason is not None
+    assert "single person yapping" in reason
+
+
+def test_a_stray_word_does_not_count_as_a_turn():
+    """A speaker with less than MIN_TURN_SECONDS of speech is a stray
+    word from mic bleed, not a real conversational turn."""
+    from library.tools.reel_proposal import is_conversation
+    tx = _tx(
+        _bound(speaker="Craig", timeline_start=10.0, timeline_end=26.0),
+        # Akshita has only 1 second of speech - below MIN_TURN_SECONDS
+        _bound(speaker="Akshita", timeline_start=20.0, timeline_end=21.0,
+               resolve_item_id="uid-2"),
+    )
+    reason = is_conversation(
+        _moment(timeline_start=10.0, timeline_end=26.0), tx)
+    assert reason is not None
+    assert "single person yapping" in reason
+
+
+def test_post_bridge_drops_a_monologue_and_keeps_a_conversation():
+    """post_bridge drops single-speaker moments with a reason rather
+    than raising and discarding the whole batch."""
+    from library.steps.step_3_04_select_reels.post_bridge import resolve
+    tx = _transcript()
+    llm_output = {
+        "moments": [
+            # This one covers both Craig (10-18) and Akshita (18.5-26) -
+            # a real conversation.
+            {"start": 10.0, "end": 26.0,
+             "slug": "seo-vs-geo",
+             "reason": "The clearest contrast."},
+            # This one is Craig only (400-409) - a monologue.
+            {"start": 400.0, "end": 409.0,
+             "slug": "different-system",
+             "reason": "A good aside."},
+        ],
+    }
+    result = resolve(llm_output, {"timeline_transcript": tx})
+    sel = result["reel_selection"]
+    # The conversation survives
+    assert len(sel["moments"]) == 1
+    assert sel["moments"][0]["slug"] == "seo-vs-geo"
+    # The monologue is dropped with the captain's words
+    assert len(sel["dropped"]) == 1
+    assert "single person yapping" in sel["dropped"][0]["reason"]
+
+
+# ── Picture holes are drops, not raises ──────────────────────────────
+#
+# A hole in the captain's master is invisible to the model. Raising
+# kills the whole batch for a defect the model had no way to avoid.
+
+def test_a_moment_over_a_picture_hole_is_dropped():
+    """overlaps_picture_hole returns a reason naming the hole's position."""
+    from library.tools.reel_proposal import overlaps_picture_hole
+    tx = _transcript()
+    tx["derived_from"]["picture_holes"] = [(12.0, 13.5)]
+    reason = overlaps_picture_hole(_moment(), tx)
+    assert reason is not None
+    assert "picture hole" in reason
+    assert "play black" in reason
+
+
+def test_a_moment_avoiding_holes_passes():
+    from library.tools.reel_proposal import overlaps_picture_hole
+    tx = _transcript()
+    tx["derived_from"]["picture_holes"] = [(50.0, 52.0)]
+    assert overlaps_picture_hole(_moment(), tx) is None
+
+
+def test_post_bridge_drops_a_moment_over_a_hole():
+    """post_bridge drops the moment over a hole and keeps the clean one."""
+    from library.steps.step_3_04_select_reels.post_bridge import resolve
+    tx = _transcript()
+    tx["derived_from"]["picture_holes"] = [(12.0, 13.5)]
+    llm_output = {
+        "moments": [
+            # This one overlaps the hole at 12-13.5
+            {"start": 10.0, "end": 26.0,
+             "slug": "seo-vs-geo",
+             "reason": "The clearest contrast."},
+            # This one is clear of the hole (400-409)
+            {"start": 400.0, "end": 409.0,
+             "slug": "different-system",
+             "reason": "A good aside."},
+        ],
+    }
+    result = resolve(llm_output, {"timeline_transcript": tx})
+    sel = result["reel_selection"]
+    # The moment over the hole is dropped
+    hole_drops = [d for d in sel["dropped"] if "picture hole" in d["reason"]]
+    assert len(hole_drops) == 1
+    assert "play black" in hole_drops[0]["reason"]

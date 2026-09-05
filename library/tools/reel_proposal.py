@@ -66,6 +66,11 @@ MEASUREMENT, not on taste: it refuses a span too short to contain the
 speech the proposal claims, and says nothing about how long a good reel
 is. There is deliberately no maximum - that is the captain's call."""
 
+MIN_TURN_SECONDS = 1.5
+"""A speaker must contribute at least this much speech to count as having
+a REAL TURN in the conversation, not just a stray word picked up by mic
+bleed. The captain's words on batch one: 'its mostly just a single
+person yapping and not really a convo'."""
 
 class ProposalError(ValueError):
     """A proposal is not something that could be built."""
@@ -244,7 +249,8 @@ def partial_overlaps(start: float, end: float,
     contains.  Non-empty means the reel would open or close mid-sentence.
     """
     cut = []
-    for segment in bound_segments(transcript):
+    segments = transcript.get("segments") or []
+    for segment in segments:
         s, e = float(segment["timeline_start"]), float(segment["timeline_end"])
         if e > start and s < end and not (start <= s and e <= end):
             cut.append(segment)
@@ -258,11 +264,8 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     Outward rather than inward, because trimming to the nearest inner
     boundary silently drops words the proposer meant to include, while
     extending adds only what was already being spoken across the line.
-
-    Straddling segments are ignored as anchors; a span that touches only
-    those comes back unchanged and `validate_proposal` refuses it.
     """
-    segments = bound_segments(transcript)
+    segments = transcript.get("segments") or []
     # ITERATE to a fixed point. Extending the span pulls in segments that
     # were outside it, and those can themselves be partially covered - so
     # one pass leaves a boundary mid-sentence and `validate_proposal`
@@ -509,6 +512,69 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"{first['timeline_end']:.2f}s] "
                 f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
                 f"move the boundaries out to whole segments.")
+
+
+def overlaps_picture_hole(moment: ReelMoment,
+                          transcript: dict) -> Optional[str]:
+    """None if the moment avoids all picture holes, else a reason string.
+
+    A hole in the captain's master is invisible to the model - it cannot
+    avoid selecting over one.  This is a bad PICK, not an integrity
+    failure: the model told the truth about the timecode, and raising
+    would kill the whole batch for a defect the model had no way to avoid.
+    Dropped with a reason so the captain sees which moments were affected.
+    """
+    holes = (transcript.get("derived_from") or {}).get("picture_holes") or []
+    for h_start, h_end in holes:
+        overlap_start = max(moment.timeline_start, h_start)
+        overlap_end = min(moment.timeline_end, h_end)
+        if overlap_end > overlap_start + 0.04:
+            hole_dur = h_end - h_start
+            return (
+                f"contains a picture hole at "
+                f"{overlap_start:.2f}-{overlap_end:.2f}s "
+                f"({hole_dur:.1f}s hole in the master). "
+                f"A reel selected over a hole will play black, and "
+                f"the model cannot see where the holes are."
+            )
+    return None
+
+def is_conversation(moment: ReelMoment, transcript: dict) -> Optional[str]:
+    """None if the moment is a conversation, else a reason string.
+
+    A single-speaker moment is a bad PICK, not an integrity failure.
+    validate_proposal raises on integrity; this returns a reason for
+    post_bridge to drop the moment and report it.
+
+    The captain, rejecting the first ten reels: 'its mostly just a
+    single person yapping and not really a convo'.  They classified
+    'both speakers with real turns' as the CHECKABLE half, explicitly
+    not taste.
+    """
+    bound = bound_segments(transcript)
+    hits = _speech_within(bound, moment.timeline_start, moment.timeline_end)
+    turn_by_speaker: Dict[Optional[str], float] = {}
+    for seg in hits:
+        speaker = seg.get("speaker")
+        if not speaker:
+            continue
+        seg_start = max(float(seg["timeline_start"]), moment.timeline_start)
+        seg_end = min(float(seg["timeline_end"]), moment.timeline_end)
+        dur = max(seg_end - seg_start, 0.0)
+        turn_by_speaker[speaker] = turn_by_speaker.get(speaker, 0.0) + dur
+    real_speakers = [s for s, d in turn_by_speaker.items()
+                     if d >= MIN_TURN_SECONDS]
+    if len(real_speakers) < 2:
+        found = ", ".join(f"{s} ({d:.1f}s)" for s, d in
+                          sorted(turn_by_speaker.items(),
+                                 key=lambda x: -x[1]))
+        return (
+            f"has {len(real_speakers)} speaker(s) with real turns "
+            f"(>= {MIN_TURN_SECONDS}s each): {found or 'none'}. "
+            f"The captain: 'its mostly just a single person yapping "
+            f"and not really a convo'."
+        )
+    return None
 
 
 def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:

@@ -115,8 +115,9 @@ def reel_captions(transcript: dict, ranges: Sequence[Tuple[float, float]],
     from library.tools.timeline_transcript import interpolate_untimed_words
 
     by_speaker: Dict[Optional[str], List[dict]] = {}
-    for segment in sorted(bound_segments(transcript),
-                          key=lambda s: s["timeline_start"]):
+    segments = transcript.get("segments") or []
+    for segment in sorted(segments,
+                          key=lambda s: float(s["timeline_start"])):
         start, end = ranges[0][0], ranges[-1][1]
         if segment["timeline_end"] <= start or segment["timeline_start"] >= end:
             continue
@@ -155,7 +156,78 @@ def reel_captions(transcript: dict, ranges: Sequence[Tuple[float, float]],
                     }],
                     "fps": fps, "width": width, "height": height,
                     "durationInFrames": frames, "style": style,
+                    "safeArea": style.get("safeArea") or {},
+                    "captionMaxWidth": style.get("captionMaxWidth", width),
+
                 },
             })
     captions.sort(key=lambda c: c["reel_start"])
+
+    # ── F7: enforce minimum caption duration ──
+    # Never DROP a short card - that re-creates uncaptioned speech.
+    # Extend its end to the minimum instead.
+    min_dur = 0.5
+    min_frames = max(int(round(min_dur * fps)), 2)
+    for c in captions:
+        if c["frames"] < min_frames:
+            c["reel_end"] = c["reel_start"] + min_dur
+            c["frames"] = min_frames
+            c["props"]["durationInFrames"] = min_frames
+            c["props"]["subtitles"][0]["endFrame"] = min_frames
+
+    # ── F6: deconflict overlapping cards ──
+    # Full-pass: repeatedly sweep until no overlaps remain, so three-way
+    # overlaps and cards exposed by earlier resolution are caught.
+    def _normalise(text):
+        return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+    def _is_bleed(a, b):
+        """Two cards are mic bleed when their word sets substantially overlap."""
+        wa, wb = _normalise(a["text"]), _normalise(b["text"])
+        if not wa or not wb:
+            return False
+        return wa.issubset(wb) or wb.issubset(wa) or (
+            len(wa & wb) / max(1, len(wa | wb)) > 0.5)
+
+    changed = True
+    while changed:
+        changed = False
+        result = []
+        for c in captions:
+            if not result:
+                result.append(c)
+                continue
+            prev = result[-1]
+            if c["reel_start"] >= prev["reel_end"]:
+                # No overlap
+                result.append(c)
+                continue
+
+            # Overlap detected
+            if _is_bleed(prev, c):
+                # Mic bleed: the primary mic picks up speech FIRST; bleed
+                # arrives on the other mic with a slight delay.  The earlier
+                # card's speaker field is the correct attribution because
+                # that is the mic the words were spoken into.  If both start
+                # at the same time, keep the earlier card (already prev).
+                # Either way the later card is dropped - it is the bleed.
+                if c["reel_start"] < prev["reel_start"]:
+                    result[-1] = c
+                # else: prev started first or tied, keep prev
+                changed = True
+            else:
+                # Interruption: trim the later card's start past the overlap
+                c["reel_start"] = prev["reel_end"]
+                dur = c["reel_end"] - c["reel_start"]
+                if dur < min_dur:
+                    # Extend to minimum rather than dropping
+                    c["reel_end"] = c["reel_start"] + min_dur
+                    dur = min_dur
+                c["frames"] = max(int(round(dur * fps)), min_frames)
+                c["props"]["durationInFrames"] = c["frames"]
+                c["props"]["subtitles"][0]["endFrame"] = c["frames"]
+                result.append(c)
+                changed = True
+        captions = result
+
     return captions

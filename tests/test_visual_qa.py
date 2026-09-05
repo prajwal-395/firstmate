@@ -33,14 +33,18 @@ def mock_resolve():
     return resolve
 
 @pytest.fixture
-def mock_project():
-    project = MagicMock()
-    project.IsRenderingInProgress.side_effect = [True, False]
-    return project
+def mock_timeline():
+    tl = MagicMock()
+    tl.GetUniqueId.return_value = "test-timeline-uid"
+    tl.GetName.return_value = "Test Timeline"
+    return tl
 
 @pytest.fixture
-def mock_timeline():
-    return MagicMock()
+def mock_project(mock_timeline):
+    project = MagicMock()
+    project.IsRenderingInProgress.side_effect = [True, False]
+    project.GetCurrentTimeline.return_value = mock_timeline
+    return project
 
 
 # --- 1. segment_renderer.py tests ---

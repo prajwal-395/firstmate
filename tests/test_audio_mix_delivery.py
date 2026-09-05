@@ -360,6 +360,7 @@ class FakeTimeline:
         self.markers, self.settings = {}, {}
 
     def GetName(self): return self.name
+    def GetUniqueId(self): return str(id(self))
     def SetName(self, name):
         self.name = name
         return True
@@ -672,7 +673,9 @@ def _run_build(tmp_path, manifest, media):
     project = _BuildProject()
     resolve = MagicMock()
     resolve.EXPORT_OTIO = 15
-    resolve.GetProjectManager.return_value.GetCurrentProject.return_value = project
+    pm = resolve.GetProjectManager.return_value
+    pm.GetCurrentProject.return_value = project
+    pm.GetProjectListInCurrentFolder.return_value = ["Pipeline_Edit"]
 
     pool_items = {p: _PoolItem(p) for p in media.values()}
     root = MagicMock()

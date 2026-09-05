@@ -80,6 +80,12 @@ class MockProject:
     def GetMediaPool(self):
         return self._mp
 
+    def GetCurrentTimeline(self):
+        return getattr(self, "_current_timeline", None)
+
+    def SetCurrentTimeline(self, tl):
+        self._current_timeline = tl
+        return True
 
 class MockProjectManager:
     def __init__(self, project=None):

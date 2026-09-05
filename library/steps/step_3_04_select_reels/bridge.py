@@ -117,6 +117,8 @@ def build_context(data: dict) -> dict:
         } for t in turns],
         "reel_candidates": candidates,
         "length_guidance_seconds": list(LENGTH_GUIDANCE),
+        "picture_holes": (transcript.get("derived_from") or {}).get(
+            "picture_holes") or [],
         LEAD: lead,
         ANSWERER: answerer,
         "who_leads_was_inferred": why,

@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 import time
+from library.tools.resolve_lock import assert_current_timeline
 from dataclasses import dataclass
 from typing import Optional
 
@@ -118,8 +119,9 @@ def render_segment(resolve, project, timeline,
         }
 
         project.SetRenderSettings(settings)
+        assert_current_timeline(project, timeline)
         our_job_id = project.AddRenderJob()
-        project.StartRendering()
+        project.StartRendering([our_job_id], isInteractiveMode=False)
 
         # Poll for completion
         elapsed = 0.0
