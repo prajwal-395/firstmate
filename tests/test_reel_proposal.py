@@ -620,3 +620,163 @@ def test_post_bridge_resolves_overlapping_moments():
     assert sel["moments"][0]["slug"] == "longer"
     assert len(sel["dropped"]) == 1
     assert "overlaps" in sel["dropped"][0]["reason"]
+
+
+# ── The closing CTA, from anywhere in the episode ────────────────────
+#
+# A moment is a BODY window plus, optionally, one CTA range taken from
+# anywhere else in the episode.  The captain's format ends on a spoken
+# call to action and this episode says about six of them, so while a
+# moment was one contiguous window the two requirements could not both
+# be met.  What is checked here is that the closer is REAL - real
+# seconds, real speech - and never that it is a GOOD one.
+
+
+def _cta_transcript():
+    """A transcript with a body exchange and, far away, a spoken CTA."""
+    return {
+        "derived_from": {"duration_seconds": 1200.0},
+        "segments": [
+            {"speaker": "Craig", "text": "So what actually changes for them?",
+             "timeline_start": 600.0, "timeline_end": 612.0,
+             "source_file": "/m/LCATL0013.MXF", "resolve_item_id": "uid-b1",
+             "source_start": 10.0, "source_end": 22.0},
+            {"speaker": "Akshita", "text": "The whole retrieval path changes.",
+             "timeline_start": 612.5, "timeline_end": 660.0,
+             "source_file": "/m/LC4932.MXF", "resolve_item_id": "uid-b2",
+             "source_start": 30.0, "source_end": 77.5},
+            {"speaker": "Craig",
+             "text": "jump on lucycontent.com take it dm us "
+                     "it's also in the link below",
+             "timeline_start": 468.06, "timeline_end": 476.5,
+             "source_file": "/m/LCATL0013.MXF", "resolve_item_id": "uid-cta",
+             "source_start": 300.0, "source_end": 308.44},
+        ],
+    }
+
+
+def _with_cta(number=1, start=600.0, end=660.0,
+              cta=(468.06, 476.5), slug="retrieval"):
+    from library.tools.reel_proposal import CallToAction
+    return ReelMoment(
+        number=number, slug=slug, reason="a complete exchange",
+        timeline_start=start, timeline_end=end,
+        call_to_action=CallToAction(timeline_start=cta[0],
+                                    timeline_end=cta[1]) if cta else None)
+
+
+def test_a_moment_carries_a_cta_from_anywhere_in_the_episode():
+    """The closer is EARLIER on the master than the body it closes."""
+    moment = _with_cta()
+    validate_proposal([moment], _cta_transcript(), 1200.0)
+    assert moment.call_to_action.timeline_start < moment.timeline_start
+
+
+def test_a_moment_with_no_cta_is_still_valid():
+    """The field is additive - a reel with no declared closer ends where
+    its body ends, exactly as every reel did before."""
+    validate_proposal([_with_cta(cta=None)], _cta_transcript(), 1200.0)
+
+
+def test_two_reels_may_close_on_the_same_cta():
+    """Six spoken CTAs closing sixteen reels is the point of the
+    mechanism. Two reels may not share a BODY; they may share a CLOSER."""
+    shared = (468.06, 476.5)
+    first = _with_cta(number=1, start=600.0, end=612.0, cta=shared)
+    second = _with_cta(number=2, start=612.5, end=660.0, cta=shared,
+                       slug="other")
+    validate_proposal([first, second], _cta_transcript(), 1200.0)
+    assert (first.call_to_action.master_range
+            == second.call_to_action.master_range)
+
+
+def test_a_cta_where_nobody_speaks_is_refused():
+    """The rule that stops a CTA being authored, templated or padded."""
+    with pytest.raises(ProposalError, match="genuinely SPOKEN"):
+        validate_proposal([_with_cta(cta=(900.0, 910.0))],
+                          _cta_transcript(), 1200.0)
+
+
+def test_a_cta_outside_the_timeline_is_refused():
+    with pytest.raises(ProposalError, match="outside the timeline"):
+        validate_proposal([_with_cta(cta=(1300.0, 1310.0))],
+                          _cta_transcript(), 1200.0)
+
+
+def test_a_cta_that_is_not_a_range_is_refused():
+    with pytest.raises(ProposalError, match="not a range"):
+        validate_proposal([_with_cta(cta=(476.5, 468.06))],
+                          _cta_transcript(), 1200.0)
+
+
+def test_a_cta_inside_its_own_body_is_refused():
+    """The reel would play those seconds twice."""
+    with pytest.raises(ProposalError, match="play those seconds twice"):
+        validate_proposal([_with_cta(cta=(612.5, 660.0))],
+                          _cta_transcript(), 1200.0)
+
+
+def test_a_cta_that_opens_mid_sentence_is_refused():
+    with pytest.raises(ProposalError, match="close\\s+mid-sentence"):
+        validate_proposal([_with_cta(cta=(470.0, 476.5))],
+                          _cta_transcript(), 1200.0)
+
+
+def test_nothing_scores_or_ranks_a_cta():
+    """A passage that says nothing CTA-like passes, because whether a
+    closer is a good one is taste (AGENTS.md 10.5) and this module has
+    no opinion. There is no keyword list, no pitch floor, no cutoff."""
+    validate_proposal([_with_cta(start=468.06, end=476.5,
+                                 cta=(600.0, 612.0))],
+                      _cta_transcript(), 1200.0)
+
+
+def test_a_cta_reads_its_words_back_off_the_transcript():
+    """MEASURED, never asked of the model - a model that had to restate
+    the words could restate them wrongly, and the whole guarantee is that
+    the closer is speech the episode really contains."""
+    enriched = enrich(_with_cta(), _cta_transcript())
+    assert "lucycontent.com" in enriched.call_to_action.text
+    assert enriched.call_to_action.speaker == "Craig"
+
+
+def test_a_cta_survives_being_written_and_read_back(tmp_path):
+    """`from_dict` drops any key it does not name, so a closer that does
+    not round-trip never reaches the build path at all."""
+    path = tmp_path / "reel_proposals_v2.json"
+    write_proposal(path, [enrich(_with_cta(), _cta_transcript())],
+                   _cta_transcript())
+    back = read_proposal(path)[0]
+    assert back.call_to_action is not None
+    assert back.call_to_action.timeline_start == pytest.approx(468.06)
+    assert back.call_to_action.timeline_end == pytest.approx(476.5)
+    assert "lucycontent.com" in back.call_to_action.text
+
+
+def test_a_reel_with_no_cta_round_trips_as_none(tmp_path):
+    path = tmp_path / "reel_proposals_v2.json"
+    write_proposal(path, [_with_cta(cta=None)], _cta_transcript())
+    assert read_proposal(path)[0].call_to_action is None
+
+
+def test_total_duration_counts_the_closer_and_duration_does_not():
+    moment = _with_cta()
+    assert moment.duration == pytest.approx(60.0)
+    assert moment.total_duration == pytest.approx(60.0 + 8.44)
+
+
+def test_the_review_surface_names_the_closer():
+    """The captain reads this. A reel that plays eight seconds nobody can
+    see in the timecodes is a surprise in Resolve."""
+    rendered = render_for_review([enrich(_with_cta(), _cta_transcript())])
+    assert "closes on" in rendered
+    assert "lucycontent.com" in rendered
+
+
+def test_a_cta_over_a_picture_hole_is_a_bad_pick_not_a_raise():
+    """A closer plays black over a hole exactly as the body would."""
+    from library.tools.reel_proposal import overlaps_picture_hole
+    transcript = _cta_transcript()
+    transcript["derived_from"]["picture_holes"] = [[470.0, 474.0]]
+    reason = overlaps_picture_hole(_with_cta(), transcript)
+    assert reason and "call to action" in reason

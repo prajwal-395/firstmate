@@ -40,6 +40,12 @@ Three things follow from it:
   You will see pitch measured below; that is information about the shape
   of a stretch, never a reason to avoid it.
 
+**The closer does not have to be next to the body.** A stretch that says
+something whole but does not happen to end on an invitation can still be
+a reel: name the CTA separately and it is played after the body. See
+"The closing CTA" below — this is what stops the number of reels being
+capped by where the hosts happened to say "go check it out".
+
 This is a two-hander. A stretch where one person talks and the other
 says nothing is a monologue with a prompt attached, whatever else is good
 about it.
@@ -92,6 +98,42 @@ story that needs longer to finish is a real answer and a truncated one is
 not. If a stretch needs 95 seconds to deliver something and close, say
 so and take the 95 seconds.
 
+### The closing CTA
+
+The hosts say a call to action a handful of times across the episode, and
+the format asks every reel to end on one. Those two facts do not fit
+unless a reel can take its closer from somewhere other than its own
+stretch — so it can.
+
+For any stretch you choose, you may name a `cta`: a second span, from
+**anywhere** in the conversation, that the reel plays **after** its body.
+
+| Field | What it is |
+|-------|------------|
+| `cta.start`, `cta.end` | Where the spoken call to action begins and ends, in seconds of the cut |
+| `cta.note` | One line: why this closer suits this reel |
+
+Four things about it:
+
+- **It must be genuinely spoken.** Every second of it is speech the
+  episode really contains, and a span nobody speaks in is refused. Do not
+  write, template, pad or invent one — if you cannot find a spoken CTA
+  worth closing on, name none and say so.
+- **The same CTA may close as many reels as you like.** Reusing a closer
+  is an ordinary editing move; nothing is copied or synthesised, the real
+  clip is simply placed again. Whether every reel ends on the same one or
+  each gets the closer that suits it best is your call.
+- **It must not be inside its own reel's body**, or the reel plays those
+  seconds twice. A stretch that already ends on a CTA needs no `cta`.
+- **It is one span, and the body is still one window.** This is a way to
+  close a reel, not a way to assemble one out of pieces. A reel built
+  from scattered fragments reads as two halves of different scripts
+  stitched together, and the captain has rejected exactly that.
+
+`turns` is where you find them: read the conversation and pick the
+passages where somebody actually invites the viewer to go and do
+something. Nothing has been shortlisted or scored for you.
+
 ### Repeated takes
 
 The hosts re-record. Both whole exchanges and single lines are repeated,
@@ -110,6 +152,7 @@ For each stretch you choose:
 | `reason` | One line: the argument for why this stretch works as a standalone reel under the captain's definition. Do NOT write a generic topic label (e.g. 'Breakdown of X'). Explain what complete exchange is delivered and how it lands/closes (e.g., crisp takeaway, realization, or CTA) |
 | `value` | What the viewer gets from it |
 | `close` | How it ends, and whether that ending is a CTA |
+| `cta` | Optional. `{start, end, note}` — the spoken closer this reel ends on, from anywhere in the episode. Omit it if the stretch already closes on one, or if you found none worth using |
 | `takes_dropped` | Any repeated take you are choosing not to play, with its timecode |
 
 Also emit `considered`: stretches you looked at and did NOT choose, with
@@ -125,8 +168,9 @@ If something cannot be determined from what you were given, say so in
 
 **Yours to decide:** which stretches are worth a short at all, including
 that a stretch the measurements like is not one; where each starts and
-ends; whether a stretch carries a complete story; which take plays; and
-why each choice is worth making.
+ends; whether a stretch carries a complete story; which take plays;
+which spoken passage closes each reel and whether reels share a closer;
+and why each choice is worth making.
 
 **Not yours:** whether a chosen short is actually built — the captain
 approves every one before a timeline exists. How the shorts are

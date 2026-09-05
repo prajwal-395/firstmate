@@ -178,6 +178,13 @@ class ReelPlan:
     cuts: tuple = ()
     """Bad takes removed (from reel_build.Cut)."""
     keep_ranges: Tuple[Tuple[float, float], ...] = ()
+    call_to_action: Optional[Tuple[float, float]] = None
+    """The closing CTA range on the MASTER, which may come from anywhere
+    in the episode and is the LAST of `keep_ranges`.  Recorded separately
+    because the checks that read reel BOUNDARIES want the body span and
+    the closer's span - the seams `keep_ranges` also carries are bad-take
+    cuts inside the body, which are a different thing and were never
+    boundaries any check looked at."""
 
 
 # ── Data structures for what is on the timeline ──────────────────────
@@ -675,6 +682,7 @@ def check_boundary_speech(reel_name: str,
                           span_start: float,
                           span_end: float,
                           transcript_segments: Sequence[dict],
+                          ranges: Optional[Sequence[Tuple[float, float]]] = None,
                           ) -> List[Finding]:
     """F8: Find reel boundaries that cut through speech the boundary
     logic cannot see.
@@ -682,8 +690,35 @@ def check_boundary_speech(reel_name: str,
     `snap_to_speech` widens a span to whole BOUND segments, but straddling
     segments are invisible to it.  The audit found 11 boundaries that cut
     through a real sentence.
+
+    `ranges` is every master span the reel PLAYS, and every edge of every
+    one is a boundary a viewer hears.  A reel that closes on a CTA taken
+    from elsewhere in the episode has four such edges, not two, and the
+    closer's are the ones that decide whether it ends on a finished
+    sentence.  Omitted, the single body span is used, which is what every
+    reel was before a closer could come from elsewhere.
+
+    A boundary time is reported ONCE.  A closer beginning exactly where
+    the body ends is one edge the viewer hears, not two, and reporting it
+    as both an END and a START would read as two defects.
     """
     findings: List[Finding] = []
+    checked = list(ranges) if ranges else [(span_start, span_end)]
+
+    # Distinct boundary times, each labelled by what it is. A time that is
+    # both an end and a start is reported as an END - it is where the
+    # picture leaves the passage, which is the half a viewer hears cut.
+    boundaries: List[Tuple[float, str]] = []
+    seen: Dict[float, str] = {}
+    for range_start, range_end in checked:
+        for when, kind in ((range_start, "start"), (range_end, "end")):
+            key = round(when, 6)
+            if key in seen:
+                if seen[key] != "end" and kind == "end":
+                    seen[key] = "end"
+                continue
+            seen[key] = kind
+    boundaries = sorted(seen.items())
 
     for segment in transcript_segments:
         seg_start = float(segment.get("timeline_start", 0))
@@ -694,43 +729,23 @@ def check_boundary_speech(reel_name: str,
         if has_item_id:
             continue
 
-        # Check if reel boundary cuts through this segment
         text = (segment.get("text") or "")[:60]
         speaker = segment.get("speaker", "unknown")
 
-        # START boundary cuts through segment
-        if seg_start < span_start < seg_end:
+        for when, kind in boundaries:
+            if not (seg_start < when < seg_end):
+                continue
             findings.append(Finding(
                 finding_class=FindingClass.F8,
                 reel=reel_name,
                 message=(
-                    f"START at {span_start:.2f}s cuts {speaker} "
+                    f"{kind.upper()} at {when:.2f}s cuts {speaker} "
                     f"{seg_start:.2f}-{seg_end:.2f}s "
                     f"\"{text}\""),
                 severity="error",
                 detail={
-                    "boundary": "start",
-                    "boundary_time": round(span_start, 2),
-                    "segment_start": round(seg_start, 2),
-                    "segment_end": round(seg_end, 2),
-                    "speaker": speaker,
-                    "text": text,
-                },
-            ))
-
-        # END boundary cuts through segment
-        if seg_start < span_end < seg_end:
-            findings.append(Finding(
-                finding_class=FindingClass.F8,
-                reel=reel_name,
-                message=(
-                    f"END at {span_end:.2f}s cuts {speaker} "
-                    f"{seg_start:.2f}-{seg_end:.2f}s "
-                    f"\"{text}\""),
-                severity="error",
-                detail={
-                    "boundary": "end",
-                    "boundary_time": round(span_end, 2),
+                    "boundary": kind,
+                    "boundary_time": round(when, 2),
                     "segment_start": round(seg_start, 2),
                     "segment_end": round(seg_end, 2),
                     "speaker": speaker,
@@ -1105,6 +1120,7 @@ def check_plan_picture_continuity(
     span_start: float,
     span_end: float,
     master_video_items: Optional[Sequence[dict]] = None,
+    ranges: Optional[Sequence[Tuple[float, float]]] = None,
 ) -> List[Finding]:
     """Plan quality: no picture holes in the master across the reel span.
 
@@ -1115,10 +1131,26 @@ def check_plan_picture_continuity(
     Master-inherited holes are a warning because they are the plan's
     fault, not the build's.  The verifier reports them distinctly so the
     captain can decide whether they should fail.
+
+    `ranges` is every master range the reel plays, measured INDEPENDENTLY:
+    a closing CTA taken from elsewhere in the episode plays black over a
+    hole exactly as the body would, and the dead master time BETWEEN the
+    body and the closer is not a hole in the reel because the reel never
+    plays it.  Omitted, the single body span is measured.
     """
     findings: List[Finding] = []
     if not master_video_items:
         return findings
+
+    spans = list(ranges) if ranges else [(span_start, span_end)]
+    if len(spans) > 1:
+        out: List[Finding] = []
+        for one_start, one_end in spans:
+            out.extend(check_plan_picture_continuity(
+                reel_name, one_start, one_end, master_video_items))
+        return out
+
+    span_start, span_end = spans[0]
 
     # Find gaps in master video within the span
     items_in_span = []
@@ -1505,18 +1537,30 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_short_captions(
             plan.reel_name, caption_cards, fps))
 
-    # F8: Boundary speech
+    # The spans a viewer hears an edge of: the body, and the closer if
+    # the reel has one.  NOT the bad-take seams inside the body, which
+    # `keep_ranges` also carries - those were never boundaries these
+    # checks looked at, and a reel with no closer must measure exactly
+    # what it measured before.
+    heard_spans = [(plan.span_start, plan.span_end)]
+    if plan.call_to_action:
+        heard_spans.append(plan.call_to_action)
+
+    # F8: Boundary speech, at every edge of every span heard - a reel
+    # closing on a CTA from elsewhere has four, and the closer's two
+    # decide whether it ends on a finished sentence.
     if transcript_segments:
         findings.extend(check_boundary_speech(
             plan.reel_name, plan.span_start, plan.span_end,
-            transcript_segments))
+            transcript_segments, ranges=heard_spans))
 
     # Plan quality gates
     findings.extend(check_plan_length(plan.reel_name, plan.plan_seconds))
     findings.extend(check_plan_speakers(plan.reel_name, plan.placements))
     if master_holes is not None:
         findings.extend(check_plan_picture_continuity(
-            plan.reel_name, plan.span_start, plan.span_end))
+            plan.reel_name, plan.span_start, plan.span_end,
+            ranges=heard_spans))
 
     # Compute summary numbers
     one_frame_holes = sum(
@@ -1621,12 +1665,22 @@ def _derive_plan_from_master(
     span_end: float,
     master_snapshot,
     transcript: Optional[dict] = None,
+    call_to_action: Optional[Tuple[float, float]] = None,
 ) -> ReelPlan:
     """Derive what the plan says about one reel from the master timeline.
 
     Uses the repo's own build arithmetic: reel_build.redundant_takes,
     keep_ranges, placements - the same route the audit used to re-derive
     the plan.
+
+    `call_to_action` is the moment's closing CTA range, which may come
+    from ANYWHERE on the master and is laid down LAST.  It has to be
+    re-derived here or the whole verification reads a reel built with one
+    as defective: the built timeline would carry picture items the
+    derived plan never listed, and F4 would report every such reel as
+    "planned N items, found N+k" - a hard error, on a correct build.
+    `plan_seconds` would be short by the CTA's length everywhere it is
+    reported or compared, including `render_check.check_duration`.
     """
     from library.tools.reel_build import (
         keep_ranges as compute_keep_ranges,
@@ -1644,9 +1698,17 @@ def _derive_plan_from_master(
         cuts = tuple(cuts_list)
         kr = compute_keep_ranges(span_start, span_end, cuts_list)
 
+    # The closer, whole and last - the same order `reel_build.reel_ranges`
+    # builds it in, and the reason a reel cannot be built to one order and
+    # checked against another.
+    closer = None
+    if call_to_action and call_to_action[1] - call_to_action[0] > 0.04:
+        closer = (float(call_to_action[0]), float(call_to_action[1]))
+        kr = list(kr) + [closer]
+
     # Compute placements from master clips
     master_clips = master_snapshot.picture_clips()
-    placed = compute_placements(kr, master_clips)
+    placed = compute_placements(kr, master_clips, fps)
 
     planned_placements = tuple(
         PlannedPlacement(
@@ -1673,6 +1735,7 @@ def _derive_plan_from_master(
         placements=planned_placements,
         cuts=cuts,
         keep_ranges=tuple(kr),
+        call_to_action=closer,
     )
 
 
@@ -2000,10 +2063,12 @@ def run_verification(
 
             if moment:
                 # Derive plan from the proposal moment + master timeline
+                from library.tools.reel_build import cta_range
                 plan = _derive_plan_from_master(
                     name, reel_number,
                     moment.timeline_start, moment.timeline_end,
-                    master_snapshot, transcript)
+                    master_snapshot, transcript,
+                    call_to_action=cta_range(moment))
             else:
                 # No plan proposal available - we can still detect holes,
                 # duplicates, and caption defects but item count comparison

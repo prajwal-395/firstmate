@@ -45,6 +45,39 @@ copying clips and closing gaps per track.  Both picture tracks are cut
 against the same ranges and laid down at the same running offset, so
 removing a take cannot slide one speaker against the other.
 
+The closing CTA comes from anywhere in the episode
+--------------------------------------------------
+A reel's body is ONE contiguous master window with its bad takes taken
+out of it.  Its closer need not be next to it: `reel_ranges` appends the
+moment's `call_to_action` range LAST, and `placements` lays the ranges
+end to end at a running offset without caring how far apart they were on
+the master.  That is not a new capability in the placement math - it has
+always taken a list of ranges and never objected to a distant one - it is
+only the first thing to hand it one.
+
+Why this had to exist: the captain's format closes every reel on a
+genuinely spoken call to action, and this episode says about six of them
+in nineteen minutes.  While a reel was one window, "every reel ends on a
+spoken CTA" and "about sixteen reels" could not both be true, and the
+batch came out at three.  **The same CTA range may close any number of
+reels** - nothing is copied or synthesised to do it, the same real clip is
+placed again, which is an ordinary editing move.
+
+Two things this deliberately is not:
+
+- **Not a way to assemble a body.**  The captain rejected a batch that
+  read as "two halves of different scripts combined".  `reel_ranges`
+  takes ONE body window and at most ONE closer, so a collage is not
+  expressible here rather than merely discouraged.
+- **Not a chooser.**  Which passage is a good CTA, and which reel it
+  suits, is the model's judgement and the captain's approval.  Nothing in
+  this module scores, ranks or matches one.
+
+The CTA range is placed WHOLE - `redundant_takes` is not run over it.  It
+is a passage the plan named to the second and the captain approved; a
+retake scan silently shortening the closer would be a worse failure than
+leaving a repetition in a clip somebody chose deliberately.
+
 `tests/test_reel_build.py`.
 """
 from __future__ import annotations
@@ -260,18 +293,118 @@ def keep_ranges(start: float, end: float,
     return [(a, b) for a, b in ranges if b - a > 0.04]
 
 
+def cta_range(moment) -> Optional[Tuple[float, float]]:
+    """The moment's closing CTA range on the MASTER, or None.
+
+    One place reads `call_to_action` off a moment, so a moment that does
+    not carry the attribute at all - an older plan, a stand-in - reads as
+    "no closer" rather than raising.
+
+    **A closer must present two real NUMBERS, or it is not a closer.**
+    That is not defensiveness about types: a bare `unittest.mock.MagicMock`
+    answers every attribute with a truthy mock, and `float()` of one is
+    1.0, so a moment stand-in that never mentioned a CTA otherwise reads
+    as closing on the single second 1.00-1.00. `ReelMoment.from_dict`
+    already coerces the real thing through `float()`, so anything
+    reaching here that is not a number is a stand-in rather than a plan.
+    """
+    cta = getattr(moment, "call_to_action", None)
+    if cta is None:
+        return None
+    start = getattr(cta, "timeline_start", None)
+    end = getattr(cta, "timeline_end", None)
+    if not isinstance(start, (int, float)) or isinstance(start, bool):
+        return None
+    if not isinstance(end, (int, float)) or isinstance(end, bool):
+        return None
+    return (float(start), float(end))
+
+
+def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
+    """Every master range this reel plays, IN THE ORDER IT PLAYS THEM.
+
+    The body first, with its bad takes cut out of it, and then the
+    closing CTA - which may come from anywhere in the episode and is
+    under no obligation to be adjacent to, or after, the body.
+
+    This is the ONE place that order is spelled.  `build_reel_timeline`,
+    the caption pass and the conformance verifier all call it, so a reel
+    cannot be built to one order and checked against another.
+    """
+    ranges = keep_ranges(
+        moment.timeline_start, moment.timeline_end,
+        redundant_takes(moment.timeline_start, moment.timeline_end,
+                        transcript))
+    closer = cta_range(moment)
+    if closer is None:
+        return ranges
+    if closer[1] - closer[0] <= 0.04:
+        raise ReelBuildError(
+            f"the closer runs {closer[0]:.2f}-{closer[1]:.2f}s, under a "
+            f"frame. Nothing can be placed from it.")
+    if min(closer[1], moment.timeline_end) > max(closer[0],
+                                                 moment.timeline_start):
+        raise ReelBuildError(
+            f"the closer ({closer[0]:.2f}-{closer[1]:.2f}s) overlaps its "
+            f"own body ({moment.timeline_start:.2f}-"
+            f"{moment.timeline_end:.2f}s), so the reel would play those "
+            f"seconds twice and `reel_time` would map them to the first "
+            f"copy only - leaving the second silently uncaptioned. "
+            f"`validate_proposal` refuses this when the proposal is "
+            f"WRITTEN; this is the same refusal at BUILD time, because a "
+            f"plan is a file the captain edits and `read_proposal` does "
+            f"not re-run validation.")
+    return ranges + [closer]
+
+
+def closer_seam(moment, ranges: Sequence[Tuple[float, float]]
+                ) -> Optional[float]:
+    """The REEL second at which the closer starts, or None if there is
+    no closer.
+
+    The one seam a caption card may not span. The seams a bad-take cut
+    leaves are NOT this: those join speech the editor deliberately made
+    contiguous, and a card reading across one is a sentence as spoken.
+    A closer is a different passage of the episode, and a card joining
+    the body's last words to its first would be a sentence nobody said.
+    """
+    if cta_range(moment) is None:
+        return None
+    return sum(range_end - range_start
+               for range_start, range_end in ranges[:-1])
+
+
 def reel_time(master_time: float,
-              ranges: Sequence[Tuple[float, float]]) -> Optional[float]:
+              ranges: Sequence[Tuple[float, float]],
+              at_end: bool = False) -> Optional[float]:
     """Where a MASTER second lands on the reel, or None if it was cut.
 
     A reel is its keep ranges laid end to end, so a caption timed against
     the master has to come through the same arithmetic the picture did -
     otherwise removing a bad take slides every caption after it out of
     sync with the speech it belongs to.
+
+    The ranges are walked IN LIST ORDER and the first one containing the
+    second wins, so a closing CTA range that sits earlier on the master
+    than the body still maps to the END of the reel.  That holds because
+    the ranges are DISJOINT: a CTA overlapping its own body is refused by
+    `reel_proposal.validate_proposal` when the proposal is written and by
+    `reel_ranges` when the reel is built, which is what stops one master
+    second having two answers here.
+
+    A range is half-open, `[start, end)`, which is the right reading for
+    a word's START and the wrong one for its END. `snap_to_speech` lands
+    a range end EXACTLY on a segment's `timeline_end`, which is exactly
+    the last word's end - so the closing word of every range read the
+    exclusive way falls outside every range and returns None. On a reel
+    that closes on a CTA those are the words the whole feature exists to
+    deliver. Pass `at_end=True` to read `(start, end]` instead.
     """
     cursor = 0.0
     for range_start, range_end in ranges:
-        if range_start <= master_time < range_end:
+        inside = (range_start < master_time <= range_end if at_end
+                  else range_start <= master_time < range_end)
+        if inside:
             return cursor + (master_time - range_start)
         cursor += range_end - range_start
     return None
@@ -342,7 +475,7 @@ def build_reel_timeline(project, moment, master_clips, captions, fps, width, hei
         
     timeline.SetTrackName("video", 3, "Captions")
     
-    ranges = keep_ranges(moment.timeline_start, moment.timeline_end, redundant_takes(moment.timeline_start, moment.timeline_end, transcript))
+    ranges = reel_ranges(moment, transcript)
     placements_list = placements(ranges, master_clips, fps)
     
     root_folder = pool.GetRootFolder()
@@ -526,9 +659,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
             
         print(f"Building {moment.timeline_name}", flush=True)
         built_reel_names.append(moment.timeline_name)
-        cuts = redundant_takes(moment.timeline_start, moment.timeline_end, transcript)
-        ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
-        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920) if not skip_captions else None
+        ranges = reel_ranges(moment, transcript)
+        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920, closer_seam=closer_seam(moment, ranges)) if not skip_captions else None
         
         build_reel_timeline(
             project=project,

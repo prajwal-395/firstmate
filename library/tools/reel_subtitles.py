@@ -65,14 +65,33 @@ MIN_WORDS, MAX_WORDS = 3, 6
 MAX_GAP_SECONDS = 1.5
 """The captain's `place_subtitles.py` values, kept."""
 
+SEAM_TOLERANCE = 0.02
+"""How far a seam may sit from a word boundary and still be that
+boundary. Half a frame at 24fps.
+
+A seam is a sum of range lengths and a word time comes from the
+transcript, so the two agree to about a part in 1e15 and not exactly:
+measured, a word ended at 2.8000000000000003 where the seam read 2.8,
+and an exact comparison declined to flush. A card spanning the seam is
+the body's last words joined to the closer's first, which is the one
+thing the flush exists to prevent, so the comparison is made at the
+resolution the picture actually cuts at."""
+
 
 def _boundary(word: str, kind: str) -> bool:
     return bool(re.search(r"[.!?]$" if kind == "sentence" else r"[,;:\-]$",
                           word.strip()))
 
 
-def caption_groups(words: Sequence[dict]) -> List[dict]:
-    """Words grouped into caption cards, the captain's script's way."""
+def caption_groups(words: Sequence[dict],
+                   seams: Sequence[float] = ()) -> List[dict]:
+    """Words grouped into caption cards, the captain's script's way.
+
+    `seams` are reel seconds a card may not span - in practice the one
+    second at which a reel jumps to its closer, from
+    `reel_build.closer_seam`. Empty by default, which is every reel that
+    has no closer.
+    """
     groups: List[dict] = []
     buffer: List[dict] = []
 
@@ -89,6 +108,11 @@ def caption_groups(words: Sequence[dict]) -> List[dict]:
     for word in words:
         if buffer and (word["start"] - buffer[-1]["end"]) > MAX_GAP_SECONDS:
             flush()
+        elif buffer and any(
+                buffer[-1]["end"] <= seam + SEAM_TOLERANCE
+                and word["start"] >= seam - SEAM_TOLERANCE
+                for seam in seams):
+            flush()
         buffer.append(word)
         if len(buffer) >= MAX_WORDS:
             flush()
@@ -103,12 +127,37 @@ def caption_groups(words: Sequence[dict]) -> List[dict]:
 
 def reel_captions(transcript: dict, ranges: Sequence[Tuple[float, float]],
                   styles: Dict[Optional[str], dict], fps: float,
-                  width: int, height: int) -> List[dict]:
+                  width: int, height: int,
+                  closer_seam: Optional[float] = None) -> List[dict]:
     """Every caption for one reel: props to render, and where it goes.
 
     A caption whose speech was CUT returns nothing - `reel_time` gives
     None for a master second inside a removed take, so a dropped bad take
     takes its captions with it.
+
+    **A range may sit anywhere on the master, in any order.** The last
+    range is a reel's closing CTA and can come from earlier in the
+    episode than its body (`reel_build.reel_ranges`), so a segment is
+    kept when it touches ANY range rather than when it falls inside the
+    envelope from the first range's start to the last range's end. That
+    envelope was the old test, and on a reel whose CTA precedes its body
+    it inverts - `start > end` - and silently drops every caption on the
+    reel. `reel_time` was already order-following and needed no change.
+
+    **A card does not straddle the CLOSER's seam, and nothing else is a
+    seam.** `closer_seam` is the reel second the closer starts at, from
+    `reel_build.closer_seam`, and is None on a reel that has no closer -
+    which is every reel built before one could exist. The seams a
+    bad-take cut leaves are deliberately NOT flush points: those join
+    speech the editor made contiguous on purpose, so a card reading
+    across one is a sentence as spoken. A closer is a different passage
+    of the episode, so a card joining the body's last words to its first
+    would be a sentence nobody said.
+
+    A word's END is read with `at_end=True`. A range end lands exactly on
+    a segment's `timeline_end`, which is exactly its last word's end, so
+    read the half-open way the closing word of the reel - and of the
+    closer - falls outside every range and is silently dropped.
     """
     from library.tools.reel_build import reel_time
     from library.tools.reel_proposal import bound_segments
@@ -118,14 +167,15 @@ def reel_captions(transcript: dict, ranges: Sequence[Tuple[float, float]],
     segments = transcript.get("segments") or []
     for segment in sorted(segments,
                           key=lambda s: float(s["timeline_start"])):
-        start, end = ranges[0][0], ranges[-1][1]
-        if segment["timeline_end"] <= start or segment["timeline_start"] >= end:
+        if not any(float(segment["timeline_end"]) > range_start
+                   and float(segment["timeline_start"]) < range_end
+                   for range_start, range_end in ranges):
             continue
         words = segment.get("words") or []
         timed = interpolate_untimed_words(words) if words else []
         for word in timed:
             at = reel_time(float(word["start"]), ranges)
-            out = reel_time(float(word["end"]), ranges)
+            out = reel_time(float(word["end"]), ranges, at_end=True)
             if at is None or out is None or out <= at:
                 continue
             by_speaker.setdefault(segment.get("speaker"), []).append(
@@ -134,7 +184,9 @@ def reel_captions(transcript: dict, ranges: Sequence[Tuple[float, float]],
     captions: List[dict] = []
     for speaker, words in by_speaker.items():
         style = styles.get(speaker) or styles.get(None) or {}
-        for group in caption_groups(sorted(words, key=lambda w: w["start"])):
+        seams = () if closer_seam is None else (closer_seam,)
+        for group in caption_groups(sorted(words, key=lambda w: w["start"]),
+                                    seams):
             frames = max(int(round((group["end"] - group["start"]) * fps)), 2)
             captions.append({
                 "speaker": speaker,

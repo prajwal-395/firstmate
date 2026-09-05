@@ -1116,3 +1116,162 @@ class TestCLI:
         assert len(unmapped_findings) == 1
         assert unmapped_findings[0].detail["track"] == 2
         assert unmapped_findings[0].detail["unmapped_duration"] == round(120 / FPS, 2)
+
+
+# ── A reel that closes on a CTA from elsewhere in the episode ────────
+#
+# The verifier RE-DERIVES the plan from the master, so a reel built with
+# a closing CTA range verifies as defective unless the derivation knows
+# about it: the built timeline carries picture items the derived plan
+# never listed (F4, a hard error, on a correct build) and `plan_seconds`
+# is short by the closer's length everywhere it is reported or compared.
+
+class TestClosingCallToAction:
+
+    @staticmethod
+    def _master():
+        """A master with continuous picture: Akshita on V1, Craig on V2."""
+        from library.tools.timeline_ingest import TimelineClip, TimelineSnapshot
+
+        def clip(track, speaker, start, end, source):
+            return TimelineClip(
+                resolve_item_id=f"{speaker}-{start}", track_type="video",
+                track_index=track, track_name=speaker, speaker=speaker,
+                source_file=source, source_in=start,
+                source_out=end,
+                source_in_frame=int(start * FPS),
+                source_out_frame=int(end * FPS),
+                source_frames=200000, timeline_start=start,
+                timeline_end=end, name=f"{speaker} {start}")
+
+        return TimelineSnapshot(
+            project_name="P", timeline_name="Master",
+            fps=FPS, reported_fps=24.0, width=3840, height=2160,
+            start_frame=0, end_frame=int(1200 * FPS),
+            clips=(clip(1, "Akshita", 0.0, 1200.0, "/m/ak.MXF"),
+                   clip(2, "Craig", 0.0, 1200.0, "/m/cr.MXF")))
+
+    @staticmethod
+    def _moment(cta=None, start=600.0, end=660.0, number=1):
+        from library.tools.reel_proposal import CallToAction, ReelMoment
+        return ReelMoment(
+            number=number, slug="retrieval", reason="a complete exchange",
+            timeline_start=start, timeline_end=end,
+            call_to_action=(CallToAction(timeline_start=cta[0],
+                                         timeline_end=cta[1])
+                            if cta else None))
+
+    def _derive(self, moment):
+        from library.tools.reel_build import cta_range
+        from library.tools.reel_conformance_verifier import (
+            _derive_plan_from_master)
+        return _derive_plan_from_master(
+            "Reel 01 - retrieval", 1,
+            moment.timeline_start, moment.timeline_end,
+            self._master(), {"segments": []},
+            call_to_action=cta_range(moment))
+
+    def test_the_plan_can_be_derived_at_all(self):
+        """Would have FAILED on main: `placements` takes (ranges, clips,
+        fps) since the frame-exact rewrite and this call site passed two,
+        so every plan derivation raised TypeError."""
+        plan = self._derive(self._moment())
+        assert plan.placements
+
+    def test_the_derived_plan_carries_the_closer_as_its_last_range(self):
+        plan = self._derive(self._moment(cta=(468.0, 476.0)))
+        assert plan.keep_ranges[-1] == (468.0, 476.0)
+        assert plan.keep_ranges[0] == (600.0, 660.0)
+
+    def test_the_derived_plan_lists_the_closers_own_placements(self):
+        """F4 compares planned item count to what is on the timeline. A
+        plan that omits the closer reports a correct build as defective."""
+        without = self._derive(self._moment())
+        with_cta = self._derive(self._moment(cta=(468.0, 476.0)))
+        assert (len(with_cta.placements)
+                == len(without.placements) + 2), "one per picture track"
+        assert with_cta.placements[-1].source_in == pytest.approx(476.0 - 8.0,
+                                                                  abs=0.1)
+
+    def test_plan_seconds_counts_the_closer(self):
+        """`check_plan_length` and `render_check.check_duration` both read
+        this; short by the closer's length, every rendered reel fails."""
+        plan = self._derive(self._moment(cta=(468.0, 476.0)))
+        assert plan.plan_seconds == pytest.approx(68.0)
+
+    def test_the_closers_own_boundaries_are_checked_for_cut_speech(self):
+        """F8 tested only the body's two boundaries. The closer's are the
+        ones that decide whether the reel ends on a finished sentence."""
+        segments = [
+            {"timeline_start": 470.0, "timeline_end": 480.0,
+             "resolve_item_id": None, "speaker": "Craig",
+             "text": "jump on lucycontent.com and dm us"},
+        ]
+        findings = check_boundary_speech(
+            "Reel 01", span_start=600.0, span_end=660.0,
+            transcript_segments=segments,
+            ranges=[(600.0, 660.0), (468.0, 476.0)])
+        assert len(findings) == 1
+        assert findings[0].detail["boundary"] == "end"
+        assert findings[0].detail["boundary_time"] == pytest.approx(476.0)
+
+    def test_the_body_only_call_is_unchanged(self):
+        """Same check, no ranges: exactly what every reel got before."""
+        segments = [
+            {"timeline_start": 470.0, "timeline_end": 480.0,
+             "resolve_item_id": None, "speaker": "Craig", "text": "x"},
+        ]
+        assert check_boundary_speech(
+            "Reel 01", span_start=600.0, span_end=660.0,
+            transcript_segments=segments) == []
+
+    def test_dead_master_time_between_the_ranges_is_not_a_picture_hole(self):
+        """The reel never plays those seconds, so a gap there is not a
+        gap in the reel - but a gap INSIDE a range still is."""
+        master_items = [
+            {"timeline_start": 0.0, "timeline_end": 200.0, "track_index": 1},
+            {"timeline_start": 600.0, "timeline_end": 700.0, "track_index": 1},
+        ]
+        assert check_plan_picture_continuity(
+            "Reel 01", 600.0, 660.0, master_items,
+            ranges=[(600.0, 660.0), (100.0, 108.0)]) == []
+
+        holed = check_plan_picture_continuity(
+            "Reel 01", 600.0, 660.0, master_items,
+            ranges=[(600.0, 660.0), (190.0, 610.0)])
+        assert holed and holed[0].finding_class == FindingClass.PQ_PICTURE
+
+    def test_a_bad_take_seam_is_not_treated_as_a_reel_boundary(self):
+        """`keep_ranges` also carries the seams a bad-take cut leaves
+        inside the body. Those were never boundaries F8 looked at, and a
+        reel with no closer must measure exactly what it measured before
+        a closer could exist."""
+        from library.tools.reel_conformance_verifier import verify_reel
+        plan = _plan(span_start=100.0, span_end=160.0,
+                     keep_ranges=((100.0, 120.0), (125.0, 160.0)))
+        segments = [
+            {"timeline_start": 118.0, "timeline_end": 127.0,
+             "resolve_item_id": None, "speaker": "Craig",
+             "text": "a sentence straddling the bad-take seam"},
+        ]
+        result = verify_reel(plan, _timeline(), transcript_segments=segments)
+        assert plan.call_to_action is None
+        assert [f for f in result.findings
+                if f.finding_class == FindingClass.F8] == []
+
+    def test_one_shared_cta_serves_two_reels_in_the_derived_plan(self):
+        """Six spoken CTAs closing sixteen reels: the same master range
+        is re-derived for each reel, at each reel's own record offset."""
+        shared = (468.0, 476.0)
+        first = self._derive(self._moment(cta=shared, start=600.0, end=660.0))
+        second = self._derive(
+            self._moment(cta=shared, start=700.0, end=745.0, number=2))
+        assert first.keep_ranges[-1] == second.keep_ranges[-1] == shared
+        assert (first.placements[-1].source_in
+                == pytest.approx(second.placements[-1].source_in))
+        assert (first.placements[-1].record_seconds
+                != second.placements[-1].record_seconds)
+        assert first.placements[-1].record_seconds == pytest.approx(60.0,
+                                                                    abs=0.05)
+        assert second.placements[-1].record_seconds == pytest.approx(45.0,
+                                                                     abs=0.05)

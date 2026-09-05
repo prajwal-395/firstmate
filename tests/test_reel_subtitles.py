@@ -213,3 +213,126 @@ def test_three_way_overlap_resolves_completely():
             f"Cards {i} and {i+1} still overlap: "
             f"{caps[i]['reel_end']} > {caps[i+1]['reel_start']}"
         )
+
+
+# ── A closing CTA range from elsewhere in the episode ────────────────
+#
+# The last keep range on a reel is its closer, and it may come from
+# EARLIER on the master than the body it closes. The old segment filter
+# read the range list as one window - `ranges[0][0]` to `ranges[-1][1]` -
+# which inverts in that case (start > end) and silently drops every
+# caption on the reel.
+
+
+def _cta_ranges():
+    """Body at 600-660s, closer at 468-476s: the closer comes FIRST on
+    the master and LAST on the reel."""
+    return [(600.0, 660.0), (468.0, 476.0)]
+
+
+def _cta_transcript():
+    return {"segments": [
+        _seg("Akshita", "the whole retrieval path changes for them", 600.0),
+        _seg("Craig", "jump on lucycontent dot com and dm us", 468.0),
+    ]}
+
+
+def test_a_caption_in_a_distant_closer_still_reaches_the_reel():
+    """Would have FAILED before the fix: with the closer earlier on the
+    master than the body, the envelope test dropped EVERY caption."""
+    caps = reel_captions(_cta_transcript(), _cta_ranges(), STYLES,
+                         fps=24000 / 1001, width=1080, height=1920)
+    assert caps, "a reel with a distant closer must still be captioned"
+    assert any("lucycontent" in c["text"] for c in caps)
+    assert any("retrieval" in c["text"] for c in caps)
+
+
+def test_the_closers_captions_are_timed_after_the_bodys():
+    """The closer plays last on the reel, so its cards do too - even
+    though its master seconds come first."""
+    caps = reel_captions(_cta_transcript(), _cta_ranges(), STYLES,
+                         fps=24000 / 1001, width=1080, height=1920)
+    body_end = max(c["reel_end"] for c in caps if "retrieval" in c["text"])
+    cta_start = min(c["reel_start"] for c in caps
+                    if "lucycontent" in c["text"])
+    assert cta_start >= body_end - 0.001
+
+
+def test_a_caption_card_never_spans_the_closers_seam():
+    """The body's last words and the closer's first ones are far apart on
+    the master, so a card grouped across that seam would read as a
+    sentence nobody said."""
+    ranges = _cta_ranges()
+    seam = 60.0
+    caps = reel_captions(_cta_transcript(), ranges, STYLES,
+                         fps=24000 / 1001, width=1080, height=1920,
+                         closer_seam=seam)
+    for cap in caps:
+        assert not (cap["reel_start"] < seam - 0.001
+                    and cap["reel_end"] > seam + 0.001), (
+            f"card {cap['text']!r} spans the closer's seam at {seam:.2f}s")
+
+
+def test_a_bad_take_seam_is_not_a_flush_point():
+    """Would have FAILED before the fix: seams were taken from EVERY
+    range, so a bad-take cut on a reel with no closer regrouped its
+    cards. A cut joins speech the editor made contiguous on purpose."""
+    from library.tools.reel_build import closer_seam
+
+    tx = {"segments": [_seg("Akshita",
+                            "we talked about the thing and then we moved on",
+                            0.0)]}
+    # The seam must land exactly on a word boundary - that is where a
+    # flush is decided, and where the old every-seam rule regrouped.
+    ranges = [(0.0, 2.8), (2.8, 20.0)]
+    whole = reel_captions(tx, [(0.0, 20.0)], STYLES, fps=24000 / 1001,
+                          width=1080, height=1920)
+    cut = reel_captions(tx, ranges, STYLES, fps=24000 / 1001,
+                        width=1080, height=1920, closer_seam=None)
+    assert [c["text"] for c in cut] == [c["text"] for c in whole]
+
+    class NoCloser:
+        timeline_start, timeline_end = 0.0, 20.0
+        call_to_action = None
+
+    assert closer_seam(NoCloser(), ranges) is None
+
+
+def test_the_closers_seam_is_the_bodys_kept_length():
+    from library.tools.reel_build import closer_seam
+
+    class WithCloser:
+        timeline_start, timeline_end = 600.0, 660.0
+
+        class call_to_action:
+            timeline_start, timeline_end = 468.0, 476.0
+
+    assert closer_seam(WithCloser(), _cta_ranges()) == 60.0
+    assert closer_seam(WithCloser(),
+                       [(600.0, 620.0), (625.0, 660.0),
+                        (468.0, 476.0)]) == 55.0
+
+
+def test_the_closing_word_of_the_closer_is_captioned():
+    """A range end lands EXACTLY on a segment's last word's end, so read
+    the half-open way that word falls outside every range and vanishes -
+    on the closing line of every reel that has a closer."""
+    tx = _cta_transcript()
+    closer_end = tx["segments"][1]["timeline_end"]
+    ranges = [(600.0, 660.0), (468.0, closer_end)]
+    caps = reel_captions(tx, ranges, STYLES, fps=24000 / 1001,
+                         width=1080, height=1920, closer_seam=60.0)
+    said = " ".join(c["text"] for c in caps)
+    assert said.strip().endswith("us"), (
+        f"the closer's last word is missing from {said!r}")
+
+
+def test_a_speech_segment_in_the_dead_master_time_is_not_captioned():
+    """The reel never plays the seconds between the body and the closer,
+    so nothing said there reaches it."""
+    transcript = _cta_transcript()
+    transcript["segments"].append(
+        _seg("Craig", "this is in neither range at all", 520.0, uid="u3"))
+    caps = reel_captions(transcript, _cta_ranges(), STYLES,
+                         fps=24000 / 1001, width=1080, height=1920)
+    assert not any("neither range" in c["text"] for c in caps)

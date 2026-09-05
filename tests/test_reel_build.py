@@ -291,6 +291,7 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
     moment.timeline_start = 0.0
     moment.timeline_end = 20.0
     moment.number = 1
+    moment.call_to_action = None
 
     # 4 master clips, each 5 seconds, all on video track 1.
     master_clips = []
@@ -426,3 +427,206 @@ def test_reel_05_boundary_rounding():
     assert p1["snapped_record"] == 0
     assert dur1 == 841
     assert p2["snapped_record"] == 841
+
+
+# ── The closing CTA, from anywhere in the episode ────────────────────
+#
+# The captain's format closes every reel on a genuinely spoken call to
+# action, and this episode says about six of them in nineteen minutes.
+# While a moment was ONE contiguous master window those two requirements
+# could not both be met and the batch came out at three reels.  A moment
+# now carries a second range - its closer - which `reel_ranges` appends
+# LAST and `placements` lays down at the running offset like any other.
+#
+# Nothing is copied or synthesised to let six CTAs close sixteen reels:
+# the same real clip is placed again, which is an ordinary editing move.
+
+
+def _moment(start, end, cta=None, number=1, slug="topic"):
+    from library.tools.reel_proposal import CallToAction, ReelMoment
+    return ReelMoment(
+        number=number, slug=slug, reason="a complete exchange",
+        timeline_start=start, timeline_end=end,
+        call_to_action=(CallToAction(timeline_start=cta[0],
+                                     timeline_end=cta[1])
+                        if cta else None))
+
+
+def test_a_moment_with_no_cta_plays_only_its_body():
+    """The field is additive: every reel built before it behaves the same."""
+    from library.tools.reel_build import reel_ranges
+    assert reel_ranges(_moment(100.0, 160.0), _tx()) == [(100.0, 160.0)]
+
+
+def test_the_cta_range_is_appended_after_the_body():
+    from library.tools.reel_build import reel_ranges
+    ranges = reel_ranges(_moment(600.0, 660.0, cta=(468.06, 476.5)), _tx())
+    assert ranges == [(600.0, 660.0), (468.06, 476.5)], (
+        "the closer is laid down LAST, however far away it is on the master")
+
+
+def test_a_distant_cta_clip_lands_last_on_the_reel():
+    """The done-check: build the placements and prove the CTA is the final
+    clip, at the record frame the body's length puts it at.
+
+    Craig's closer at 468.06s is EARLIER on the master than this reel's
+    body at 600-660s, which is the case that cannot be expressed by
+    subtracting from one window - `keep_ranges` only ever removes.
+    """
+    from library.tools.reel_build import placements, reel_ranges
+
+    fps = 24000 / 1001
+    body = _clip(1, "Akshita", 600.0, 660.0, src_in=600.0)
+    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
+
+    ranges = reel_ranges(_moment(600.0, 660.0, cta=(468.0, 476.0)), _tx())
+    spots = placements(ranges, [body, closer], fps)
+
+    assert len(spots) == 2, "the body clip and the closer, once each"
+    assert spots[0]["clip"] is body
+    assert spots[-1]["clip"] is closer, "the CTA plays LAST on the reel"
+
+    # The closer starts exactly where the body ends: no hole, no overlap.
+    body_frames = (int(round(660.0 * fps)) - int(round(600.0 * fps)))
+    assert spots[0]["snapped_record"] == 0
+    assert spots[-1]["snapped_record"] == body_frames
+
+    # And it plays the master seconds the plan named, not the body's.
+    assert spots[-1]["source_in"] == pytest.approx(468.0, abs=1 / fps)
+    assert spots[-1]["source_out"] == pytest.approx(476.0, abs=1 / fps)
+
+    # The reel is exactly body + closer long, with nothing between them.
+    reel_frames = sum(int(round(b * fps)) - int(round(a * fps))
+                      for a, b in ranges)
+    last_len = (int(round(spots[-1]["source_out"] * fps))
+                - int(round(spots[-1]["source_in"] * fps)))
+    assert spots[-1]["snapped_record"] + last_len == reel_frames
+
+
+def test_one_shared_cta_range_closes_two_different_reels():
+    """Six spoken CTAs must be able to close sixteen reels.
+
+    Two reels whose bodies are nowhere near each other close on the SAME
+    seconds of the episode. Nothing about the second build differs from
+    the first except where the closer lands, because the reels differ in
+    length - which is the whole proof that the range is reused rather
+    than owned by one reel.
+    """
+    from library.tools.reel_build import placements, reel_ranges
+
+    fps = 24000 / 1001
+    shared = (468.0, 476.0)
+    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
+
+    first_body = _clip(1, "Akshita", 100.0, 160.0, src_in=100.0)
+    second_body = _clip(1, "Akshita", 700.0, 745.0, src_in=700.0)
+
+    first = placements(
+        reel_ranges(_moment(100.0, 160.0, cta=shared, number=1), _tx()),
+        [first_body, closer], fps)
+    second = placements(
+        reel_ranges(_moment(700.0, 745.0, cta=shared, number=2), _tx()),
+        [second_body, closer], fps)
+
+    for spots in (first, second):
+        assert spots[-1]["clip"] is closer, "both reels close on the same clip"
+        assert spots[-1]["source_in"] == pytest.approx(468.0, abs=1 / fps)
+        assert spots[-1]["source_out"] == pytest.approx(476.0, abs=1 / fps)
+
+    # Same source seconds, different record frames - the clip is PLACED
+    # again, not copied, and each reel puts it after its own body.
+    assert (first[-1]["snapped_record"]
+            == int(round(160.0 * fps)) - int(round(100.0 * fps)))
+    assert (second[-1]["snapped_record"]
+            == int(round(745.0 * fps)) - int(round(700.0 * fps)))
+    assert first[-1]["snapped_record"] != second[-1]["snapped_record"]
+
+
+def test_a_cta_survives_the_bad_takes_being_cut_from_the_body():
+    """Cutting a retake out of the body must not disturb the closer - it
+    moves earlier by exactly the cut's length and plays the same seconds."""
+    from library.tools.reel_build import Cut, placements, reel_ranges
+
+    fps = 24000 / 1001
+    tx = _tx(_seg("Akshita", AUDIT_1, 120.0, 125.0),
+             _seg("Akshita", AUDIT_2, 128.0, 132.5, "u2"))
+    ranges = reel_ranges(_moment(100.0, 160.0, cta=(468.0, 476.0)), tx)
+
+    assert ranges[:-1] == [(100.0, 120.0), (125.0, 160.0)], "the retake is cut"
+    assert ranges[-1] == (468.0, 476.0), "the closer is untouched and last"
+
+    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
+    spots = placements(ranges, [_clip(1, "Akshita", 100.0, 160.0,
+                                      src_in=100.0), closer], fps)
+    assert spots[-1]["clip"] is closer
+    kept = sum(int(round(b * fps)) - int(round(a * fps))
+               for a, b in ranges[:-1])
+    assert spots[-1]["snapped_record"] == kept
+
+
+def test_the_cta_range_is_not_scanned_for_retakes():
+    """The closer is placed WHOLE. A retake scan silently shortening a
+    passage the captain approved is worse than a repetition in it."""
+    from library.tools.reel_build import reel_ranges
+    tx = _tx(_seg("Craig", AUDIT_1, 468.0, 473.0),
+             _seg("Craig", AUDIT_2, 474.0, 478.5, "u2"))
+    ranges = reel_ranges(_moment(100.0, 160.0, cta=(468.0, 480.0)), tx)
+    assert ranges[-1] == (468.0, 480.0)
+
+
+def test_a_moment_that_cannot_carry_a_cta_reads_as_having_none():
+    """An older plan, or a stand-in, has no `call_to_action` at all."""
+    from unittest.mock import MagicMock
+    from library.tools.reel_build import cta_range, reel_ranges
+    old = MagicMock(spec=["timeline_start", "timeline_end"])
+    old.timeline_start, old.timeline_end = 10.0, 40.0
+    assert cta_range(old) is None
+    assert reel_ranges(old, _tx()) == [(10.0, 40.0)]
+
+
+def test_a_closer_must_present_two_real_numbers():
+    """A bare MagicMock answers every attribute with a truthy mock, and
+    `float()` of one is 1.0 - so a stand-in that never mentioned a CTA
+    read as closing on the single second 1.00-1.00, and every reel built
+    through one raised "the closer runs 1.00-1.00s, under a frame"."""
+    from unittest.mock import MagicMock
+    from library.tools.reel_build import cta_range, reel_ranges
+    stand_in = MagicMock()
+    stand_in.timeline_start, stand_in.timeline_end = 10.0, 40.0
+    assert cta_range(stand_in) is None
+    assert reel_ranges(stand_in, _tx()) == [(10.0, 40.0)]
+
+
+def test_a_closer_overlapping_its_own_body_is_refused_at_build_time():
+    """`validate_proposal` refuses this when the proposal is WRITTEN, but
+    the plan is a file the captain edits and `read_proposal` does not
+    re-run validation. Without a refusal here the reel plays those
+    seconds twice and `reel_time` maps them to the first copy only,
+    leaving the second silently uncaptioned."""
+    from library.tools.reel_build import ReelBuildError, reel_ranges
+    with pytest.raises(ReelBuildError, match="play those seconds twice"):
+        reel_ranges(_moment(600.0, 660.0, cta=(610.0, 620.0)), _tx())
+
+
+def test_a_sub_frame_closer_is_refused_rather_than_dropped():
+    from library.tools.reel_build import ReelBuildError, reel_ranges
+    with pytest.raises(ReelBuildError, match="under a frame"):
+        reel_ranges(_moment(600.0, 660.0, cta=(468.0, 468.01)), _tx())
+
+
+def test_a_word_ending_exactly_on_a_range_end_is_inside_it():
+    """The closing word of every range - and so of every closer - ends
+    EXACTLY on the range end that `snap_to_speech` produced."""
+    from library.tools.reel_build import reel_time
+    ranges = [(600.0, 660.0), (468.0, 471.2)]
+    assert reel_time(471.2, ranges) is None, "half-open, for a word START"
+    assert reel_time(471.2, ranges, at_end=True) == pytest.approx(63.2)
+    assert reel_time(660.0, ranges, at_end=True) == pytest.approx(60.0)
+
+
+def test_a_range_start_is_still_exclusive_at_the_end_reading():
+    """`at_end` must not make a range's START belong to the range before
+    it, or a word would be timed into a passage it is not in."""
+    from library.tools.reel_build import reel_time
+    assert reel_time(0.0, [(0.0, 20.0)], at_end=True) is None
+    assert reel_time(0.0, [(0.0, 20.0)]) == 0.0

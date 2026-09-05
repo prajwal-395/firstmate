@@ -33,6 +33,39 @@ proposal naming seconds where nothing is said is refused by
 `validate_proposal`, the same way `speech_sequence` is refused when its
 chain disagrees with the files on disk.
 
+The closing CTA, which need not be next to the body
+---------------------------------------------------
+**A moment is a BODY window plus, optionally, one CTA range taken from
+ANYWHERE else in the episode.**  The captain's format ends on a spoken
+call to action, and this episode says about six of them across nineteen
+minutes.  While a moment was one contiguous window those two facts
+capped the batch at about six reels; carrying the CTA as a SECOND range
+uncaps it, and `reel_build.reel_ranges` lays it down last.
+
+Three things this does NOT become:
+
+- **It is not a licence to assemble a body from pieces.**  The captain
+  rejected a batch that read as "two halves of different scripts
+  combined".  A body plus one closing CTA is a format; a body stitched
+  from scattered fragments is a collage.  `CallToAction` is ONE range and
+  the body stays ONE window, which is what keeps the difference
+  structural rather than a matter of restraint.
+- **It is not an invented CTA.**  Every second of it is speech the
+  episode really contains, and `validate_proposal` refuses a CTA range
+  where the transcript measured nothing said - the same refusal a body
+  span gets.  Nothing here authors, templates, pads or synthesises one.
+- **It is not a judgement about which CTA suits which reel.**  That is
+  taste and belongs to a model and the captain (AGENTS.md 10.5).
+  Nothing in this module scores a CTA, ranks CTAs, or prefers the
+  nearest one.
+
+**The same CTA range may close any number of reels.**  Six spoken CTAs
+closing sixteen reels is the whole point of the mechanism, and nothing is
+copied or synthesised to do it - the same real clip is placed again,
+which is an ordinary editing move.  So the cross-moment overlap rule
+("two reels cannot share the same conversation") is deliberately about
+BODIES only, and `validate_proposal` says so where it is enforced.
+
 Naming
 ------
 The captain's format, verbatim: `Reel 01 - <short topic slug>`.
@@ -66,6 +99,12 @@ MEASUREMENT, not on taste: it refuses a span too short to contain the
 speech the proposal claims, and says nothing about how long a good reel
 is. There is deliberately no maximum - that is the captain's call."""
 
+MIN_CTA_SECONDS = 0.04
+"""Under one frame at any rate this engine renders, so nothing can be
+placed from a closer this short. A MECHANICAL floor - it says a range is
+too short to CUT, never anything about how long a good call to action is.
+`reel_build.reel_ranges` refuses the same range at build time."""
+
 MIN_TURN_SECONDS = 1.5
 """A speaker must contribute at least this much speech to count as having
 a REAL TURN in the conversation, not just a stray word picked up by mic
@@ -84,6 +123,57 @@ class Approval(str, Enum):
     PROPOSED = "proposed"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class CallToAction:
+    """The spoken call to action a reel closes on.
+
+    A range over the MASTER's own timebase, exactly like the body window,
+    and under no obligation to sit next to it or after it.  The whole
+    reason the type exists is that the episode's CTAs are where they are:
+    six of them, scattered, and every reel has to end on one.
+
+    `text` and `speaker` are MEASURED from the transcript by `enrich`, not
+    asked of the model.  They are how a reader (and the captain) can see
+    at a glance that the closer is real speech from the episode rather
+    than a line somebody wrote - and they are the reason a CTA never has
+    to be authored to be described.
+
+    `note` is the model's one line on why this CTA closes THIS reel.
+    Optional, because which CTA suits which reel is taste rather than
+    something this module checks.
+    """
+
+    timeline_start: float
+    timeline_end: float
+    text: str = ""
+    speaker: Optional[str] = None
+    note: str = ""
+
+    @property
+    def duration(self) -> float:
+        return self.timeline_end - self.timeline_start
+
+    @property
+    def master_range(self) -> tuple:
+        """The (start, end) pair `reel_build.reel_ranges` lays down last."""
+        return (self.timeline_start, self.timeline_end)
+
+    def as_dict(self) -> dict:
+        out = asdict(self)
+        out["duration_seconds"] = round(self.duration, 3)
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CallToAction":
+        return cls(
+            timeline_start=float(data["timeline_start"]),
+            timeline_end=float(data["timeline_end"]),
+            text=str(data.get("text", "")),
+            speaker=data.get("speaker") or None,
+            note=str(data.get("note", "")),
+        )
 
 
 @dataclass(frozen=True)
@@ -114,9 +204,28 @@ class ReelMoment:
     `{source_file, source_start, source_end}` - the ground truth, carried
     so a reel can be traced back without re-reading the timeline."""
 
+    call_to_action: Optional["CallToAction"] = None
+    """The spoken CTA this reel closes on, from ANYWHERE in the episode.
+
+    `None` means this reel ends where its body ends, which is what every
+    moment did before the field was added.  A moment that carries one
+    plays its body and then this range, and `reel_build.reel_ranges` is
+    the only place that order is spelled."""
+
     @property
     def duration(self) -> float:
+        """The BODY window's length.  `total_duration` includes the CTA."""
         return self.timeline_end - self.timeline_start
+
+    @property
+    def total_duration(self) -> float:
+        """How long the reel runs before any bad take is cut out of it.
+
+        Body plus CTA.  `duration` is the body alone, and the two are
+        deliberately different names rather than one that quietly changed
+        meaning when the CTA arrived."""
+        return self.duration + (self.call_to_action.duration
+                                if self.call_to_action else 0.0)
 
     @property
     def timeline_name(self) -> str:
@@ -131,6 +240,9 @@ class ReelMoment:
         body["has_duplicate_take"] = bool(self.duplicate_takes)
         body["timeline_name"] = self.timeline_name
         body["duration_seconds"] = round(self.duration, 3)
+        body["call_to_action"] = (self.call_to_action.as_dict()
+                                  if self.call_to_action else None)
+        body["total_duration_seconds"] = round(self.total_duration, 3)
         return body
 
     @classmethod
@@ -148,6 +260,8 @@ class ReelMoment:
             source_spans=tuple(dict(s) for s in (data.get("source_spans") or ())),
             duplicate_takes=tuple(dict(d) for d in
                                   (data.get("duplicate_takes") or ())),
+            call_to_action=(CallToAction.from_dict(data["call_to_action"])
+                            if data.get("call_to_action") else None),
         )
 
 
@@ -452,6 +566,73 @@ def _text_between(start: float, end: float, transcript: dict) -> str:
     return joined[:200].rstrip() + ("..." if len(joined) > 200 else "")
 
 
+def _check_call_to_action(moment: ReelMoment, transcript: dict,
+                          timeline_duration: float, label: str) -> None:
+    """Refuse a CTA range that is not real spoken audio from the episode.
+
+    Exactly the refusals a body span gets - a real range, inside the
+    timeline, speech measured inside it, whole segments at both edges -
+    plus the one a body span cannot need: a CTA may not overlap its own
+    reel's body, because that would play the same seconds of the episode
+    twice on one reel.
+
+    What is deliberately NOT checked is whether the passage is a GOOD
+    call to action, or a call to action at all.  There is no keyword
+    list, no pitch score and no similarity cutoff, because that judgement
+    is the model's and the captain's (AGENTS.md 10.5).  What is checked
+    is only that the seconds are real and somebody speaks in them, which
+    is what stops a CTA being authored, templated, padded or invented.
+    """
+    cta = moment.call_to_action
+    if cta is None:
+        return
+    if cta.timeline_end <= cta.timeline_start:
+        raise ProposalError(
+            f"{label}: its call to action runs {cta.timeline_start} to "
+            f"{cta.timeline_end}, which is not a range")
+    if cta.duration <= MIN_CTA_SECONDS:
+        raise ProposalError(
+            f"{label}: its call to action runs {cta.duration:.3f}s, under "
+            f"a frame. Nothing can be placed from it, so a range this "
+            f"short is a mistyped timecode rather than a closer.")
+    if cta.timeline_start < 0 or cta.timeline_end > timeline_duration + 0.001:
+        raise ProposalError(
+            f"{label}: its call to action runs {cta.timeline_start:.2f}-"
+            f"{cta.timeline_end:.2f}s, outside the timeline's "
+            f"0-{timeline_duration:.2f}s")
+
+    segments = transcript.get("segments") or []
+    if segments and not _speech_within(segments, cta.timeline_start,
+                                       cta.timeline_end):
+        raise ProposalError(
+            f"{label}: its call to action runs {cta.timeline_start:.2f}-"
+            f"{cta.timeline_end:.2f}s, where the transcript measured no "
+            f"speech at all. A CTA must be genuinely SPOKEN in the "
+            f"episode - it is never authored, templated or padded.")
+
+    cut = partial_overlaps(cta.timeline_start, cta.timeline_end, transcript)
+    if cut:
+        first = cut[0]
+        raise ProposalError(
+            f"{label}: its call to action cuts {len(cut)} segment(s) "
+            f"rather than containing them, so the reel would close "
+            f"mid-sentence. First: [{first['timeline_start']:.2f}-"
+            f"{first['timeline_end']:.2f}s] "
+            f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
+            f"move the boundaries out to whole segments.")
+
+    overlap_start = max(cta.timeline_start, moment.timeline_start)
+    overlap_end = min(cta.timeline_end, moment.timeline_end)
+    if overlap_end > overlap_start:
+        raise ProposalError(
+            f"{label}: its call to action ({cta.timeline_start:.2f}-"
+            f"{cta.timeline_end:.2f}s) overlaps its own body "
+            f"({moment.timeline_start:.2f}-{moment.timeline_end:.2f}s) by "
+            f"{overlap_end - overlap_start:.2f}s, so the reel would play "
+            f"those seconds twice. A CTA already inside the body needs no "
+            f"second range - drop it, or move it to one that is elsewhere.")
+
+
 def validate_proposal(moments: Sequence[ReelMoment],
                       transcript: dict,
                       timeline_duration: float) -> None:
@@ -512,7 +693,13 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"{first['timeline_end']:.2f}s] "
                 f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
                 f"move the boundaries out to whole segments.")
+        _check_call_to_action(moment, transcript, timeline_duration, label)
 
+    # Two reels may not share a BODY. They MAY share a CTA, and that is
+    # the point of `CallToAction` rather than an oversight here: this
+    # episode says about six calls to action and the format asks every
+    # reel to close on one, so the closer is reused by design while the
+    # conversation is not. Only the body spans are compared below.
     for i, m1 in enumerate(moments):
         for m2 in moments[i + 1:]:
             overlap_start = max(m1.timeline_start, m2.timeline_start)
@@ -535,17 +722,26 @@ def overlaps_picture_hole(moment: ReelMoment,
     Dropped with a reason so the captain sees which moments were affected.
     """
     holes = (transcript.get("derived_from") or {}).get("picture_holes") or []
-    for h_start, h_end in holes:
-        overlap_start = max(moment.timeline_start, h_start)
-        overlap_end = min(moment.timeline_end, h_end)
-        if overlap_end > overlap_start + 0.04:
-            hole_dur = h_end - h_start
-            return (
-                f"contains a picture hole at "
-                f"{overlap_start:.2f}-{overlap_end:.2f}s "
-                f"({hole_dur:.1f}s hole in the master). "
-                f"A reel selected over a hole will play black."
-            )
+    # Every master range the reel PLAYS, not just its body - a CTA taken
+    # from elsewhere in the episode can sit over a hole the body avoids,
+    # and it would play black just the same.
+    spans = [("", moment.timeline_start, moment.timeline_end)]
+    if moment.call_to_action:
+        spans.append(("its call to action ",
+                      moment.call_to_action.timeline_start,
+                      moment.call_to_action.timeline_end))
+    for where, span_start, span_end in spans:
+        for h_start, h_end in holes:
+            overlap_start = max(span_start, h_start)
+            overlap_end = min(span_end, h_end)
+            if overlap_end > overlap_start + 0.04:
+                hole_dur = h_end - h_start
+                return (
+                    f"{where}contains a picture hole at "
+                    f"{overlap_start:.2f}-{overlap_end:.2f}s "
+                    f"({hole_dur:.1f}s hole in the master). "
+                    f"A reel selected over a hole will play black."
+                )
     return None
 
 def is_conversation(moment: ReelMoment, transcript: dict) -> Optional[str]:
@@ -617,9 +813,36 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
         preview = preview[:397].rstrip() + "..."
     return replace(moment, speakers=tuple(speakers),
                    transcript_preview=preview, source_spans=tuple(spans),
+                   call_to_action=enrich_call_to_action(
+                       moment.call_to_action, transcript),
                    duplicate_takes=tuple(duplicate_takes(
                        moment.timeline_start, moment.timeline_end,
                        transcript)))
+
+
+def enrich_call_to_action(cta: Optional[CallToAction],
+                          transcript: dict) -> Optional[CallToAction]:
+    """Fill a CTA's `text` and `speaker` from the transcript.
+
+    MEASURED, never asked of the model, for the same reason the body's
+    preview is: a model that had to restate the words could restate them
+    wrongly, and the whole guarantee here is that the closer is speech
+    the episode really contains. A CTA naming seconds nobody speaks in
+    keeps its empty text and is refused by `validate_proposal`.
+    """
+    if cta is None:
+        return None
+    hits = _speech_within(bound_segments(transcript),
+                          cta.timeline_start, cta.timeline_end)
+    said = " ".join((h.get("text") or "").strip() for h in hits).strip()
+    speakers = [h.get("speaker") for h in hits if h.get("speaker")]
+    # The MEASUREMENT wins over anything already on the record. A CTA
+    # whose range the captain moved keeps its old words and speaker
+    # otherwise, which is a stale reading presented as a measured one.
+    return replace(
+        cta,
+        text=said or cta.text,
+        speaker=(speakers[0] if speakers else cta.speaker))
 
 
 # ── Persistence, which is also the captain's review surface ──────────
@@ -636,8 +859,16 @@ def proposal_document(moments: Sequence[ReelMoment], transcript: dict) -> dict:
             "The pipeline PROPOSES; the captain approves. Set each "
             "moment's \"approval\" to \"approved\" or \"rejected\" (and "
             "optionally an \"approval_note\"). Nothing is built for a "
-            "moment left \"proposed\". Adjust timeline_start/end freely - "
-            "they are re-checked against the transcript on load."),
+            "moment left \"proposed\". A moment's \"call_to_action\" "
+            "is the spoken closer it ends on and may name ANY seconds of "
+            "the episode, including seconds another reel also closes on. "
+            "Adjust any timecode freely, but note WHERE it is checked: "
+            "the spans in this file were checked against the transcript "
+            "when it was written, and reading it back does NOT re-run "
+            "those checks. A closer overlapping its own body is refused "
+            "again when the reel is BUILT; a body span you edit here is "
+            "not re-checked at all, so move it with snap_to_speech or "
+            "re-run the selector."),
         "moment_count": len(moments),
         "moments": [m.as_dict() for m in moments],
     }
@@ -680,6 +911,16 @@ def render_for_review(moments: Sequence[ReelMoment]) -> str:
             f"({moment.duration:.0f}s)"
             + (f"  {', '.join(moment.speakers)}" if moment.speakers else ""))
         lines.append(f"      {moment.reason}")
+        if moment.call_to_action:
+            cta = moment.call_to_action
+            lines.append(
+                f"      closes on {timecode(cta.timeline_start)}-"
+                f"{timecode(cta.timeline_end)} "
+                f"({cta.duration:.0f}s"
+                + (f", {cta.speaker}" if cta.speaker else "") + ")"
+                + (f": \"{cta.text[:110]}"
+                   f"{'...' if len(cta.text) > 110 else ''}\""
+                   if cta.text else ""))
         if moment.transcript_preview:
             preview = moment.transcript_preview
             lines.append(f"      \"{preview[:150]}"
