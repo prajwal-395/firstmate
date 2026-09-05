@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 TMP_ROOT=$(fm_test_tmproot fm-lane-wrappers)
 fm_git_identity fmtest fmtest@example.invalid
