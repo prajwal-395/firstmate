@@ -151,6 +151,19 @@ class CallToAction:
     speaker: Optional[str] = None
     note: str = ""
 
+    straddling_within: tuple = ()
+    """Speech inside the CLOSER that `text` does not contain.
+
+    `text` is measured from bound segments, so it has the same blind spot
+    the body's preview had: a straddling segment is not in it and the
+    reel plays it anyway.  On a borrowed closer that matters more than it
+    does on a body - the whole claim being made about a CTA is that it is
+    a COMPLETE spoken invitation, and the half of this episode's best one
+    that finishes the sentence ("jump on lucycontent.com ... it's also in
+    the link below") sits in exactly such a segment.  A closer whose
+    completing words are here is not atomic, whatever `text` reads like.
+    """
+
     @property
     def duration(self) -> float:
         return self.timeline_end - self.timeline_start
@@ -163,6 +176,7 @@ class CallToAction:
     def as_dict(self) -> dict:
         out = asdict(self)
         out["duration_seconds"] = round(self.duration, 3)
+        out["straddling_within"] = [dict(x) for x in self.straddling_within]
         return out
 
     @classmethod
@@ -173,6 +187,8 @@ class CallToAction:
             text=str(data.get("text", "")),
             speaker=data.get("speaker") or None,
             note=str(data.get("note", "")),
+            straddling_within=tuple(dict(x) for x in
+                                    (data.get("straddling_within") or ())),
         )
 
 
@@ -203,6 +219,14 @@ class ReelMoment:
     """Which raw footage this moment plays, as
     `{source_file, source_start, source_end}` - the ground truth, carried
     so a reel can be traced back without re-reading the timeline."""
+
+    straddling_within: tuple = ()
+    """Speech inside this moment's span that `transcript_preview` does
+    NOT contain, because it straddles a cut and has no single source.
+    The reel PLAYS it - `reel_build.placements` copies the master's
+    clips over the keep ranges and knows nothing about segments - so a
+    review surface that showed only the preview showed a reel that does
+    not exist.  Reported per moment, never used for a boundary."""
 
     call_to_action: Optional["CallToAction"] = None
     """The spoken CTA this reel closes on, from ANYWHERE in the episode.
@@ -237,6 +261,7 @@ class ReelMoment:
         body["speakers"] = list(self.speakers)
         body["source_spans"] = [dict(s) for s in self.source_spans]
         body["duplicate_takes"] = [dict(d) for d in self.duplicate_takes]
+        body["straddling_within"] = [dict(x) for x in self.straddling_within]
         body["has_duplicate_take"] = bool(self.duplicate_takes)
         body["timeline_name"] = self.timeline_name
         body["duration_seconds"] = round(self.duration, 3)
@@ -260,6 +285,8 @@ class ReelMoment:
             source_spans=tuple(dict(s) for s in (data.get("source_spans") or ())),
             duplicate_takes=tuple(dict(d) for d in
                                   (data.get("duplicate_takes") or ())),
+            straddling_within=tuple(dict(x) for x in
+                                    (data.get("straddling_within") or ())),
             call_to_action=(CallToAction.from_dict(data["call_to_action"])
                             if data.get("call_to_action") else None),
         )
@@ -362,8 +389,17 @@ def partial_overlaps(start: float, end: float,
     """Bound segments a `[start, end]` span cuts through rather than
     contains.  Non-empty means the reel would open or close mid-sentence.
     """
+    # BOUND segments only - what this docstring has always said, and
+    # what the code did not do.  A straddling segment carries no single
+    # source, so `snap_to_speech` will not move a boundary to its edges
+    # and `enrich` leaves it out of the preview; refusing a boundary for
+    # cutting one therefore refuses spans that nothing can fix, and on
+    # this episode a straddler overlaps almost every reel-length window.
+    # What it cuts is REPORTED instead, by `straddling_within`, which is
+    # the honest answer: the words are audible, they are not a sentence
+    # boundary anyone can snap to, and the reader gets to see them.
     cut = []
-    segments = transcript.get("segments") or []
+    segments = bound_segments(transcript)
     for segment in segments:
         s, e = float(segment["timeline_start"]), float(segment["timeline_end"])
         if e > start and s < end and not (start <= s and e <= end):
@@ -379,7 +415,21 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     boundary silently drops words the proposer meant to include, while
     extending adds only what was already being spoken across the line.
     """
-    segments = transcript.get("segments") or []
+    # BOUND segments only.  `bound_segments` states the rule - "a reel
+    # boundary is never placed using one" - and this function used to
+    # read `transcript["segments"]` whole, which broke it in the one
+    # direction that matters: a straddling segment is usually WhisperX
+    # bridging SILENCE, so its far edge sits seconds past the last word
+    # of the sentence the proposer meant to close on, in the middle of
+    # the next topic.  Measured on the field test: a reel asked to end
+    # at 195.2s was widened to 200.46s, which is 3.9s of silence and
+    # then "so this is why like if you have an hvac company or you're
+    # an attorney or you're" - cut mid-sentence; a reel asked to end at
+    # 480.6s was widened the same way.  Neither ending was visible to a
+    # reviewer, because `enrich` reads bound segments only, so the
+    # preview showed a clean close that the built reel did not have.
+    # The two halves now read the same list.
+    segments = bound_segments(transcript)
     # ITERATE to a fixed point. Extending the span pulls in segments that
     # were outside it, and those can themselves be partially covered - so
     # one pass leaves a boundary mid-sentence and `validate_proposal`
@@ -695,20 +745,27 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"move the boundaries out to whole segments.")
         _check_call_to_action(moment, transcript, timeline_duration, label)
 
-    # Two reels may not share a BODY. They MAY share a CTA, and that is
-    # the point of `CallToAction` rather than an oversight here: this
-    # episode says about six calls to action and the format asks every
-    # reel to close on one, so the closer is reused by design while the
-    # conversation is not. Only the body spans are compared below.
-    for i, m1 in enumerate(moments):
-        for m2 in moments[i + 1:]:
-            overlap_start = max(m1.timeline_start, m2.timeline_start)
-            overlap_end = min(m1.timeline_end, m2.timeline_end)
-            if overlap_end > overlap_start + 1.0:
-                raise ProposalError(
-                    f"reel {m1.number} ({m1.slug!r}) and reel {m2.number} ({m2.slug!r}) "
-                    f"overlap by {overlap_end - overlap_start:.1f}s ({overlap_start:.1f}-{overlap_end:.1f}s). "
-                    f"Two reels cannot share the same conversation.")
+    # NOTHING here refuses two reels for sharing seconds, and that is
+    # true of the BODY as well as the CTA.
+    #
+    # The CTA half is #526's and is unchanged: this episode says about
+    # six calls to action while the format asks every reel to close on
+    # one, so a closer is reused BY DESIGN and closers are never compared.
+    #
+    # The BODY half is the captain's later ruling, and it reverses the
+    # refusal #526 shipped ("Two reels cannot share the same
+    # conversation", at a 1.0s threshold). Asked directly whether two
+    # reels may draw on one passage he said "i mean they can as long as
+    # its not like the exact same video yk", and then chose: judge it on
+    # whether the two reels SAY DIFFERENT THINGS, never on seconds
+    # shared. A 1.0s threshold is exactly the mechanical proxy for that
+    # judgement he ruled out - one was measured against his own verdicts
+    # and did not predict them - and it refuses a second reel on an
+    # exchange worth two before he ever sees it.
+    #
+    # So the shared span is REPORTED, on both moments, and he decides.
+    # See step_3_04_select_reels/post_bridge.py for where it is written,
+    # and the handoff's "Two reels may draw on the same passage".
 
 
 def overlaps_picture_hole(moment: ReelMoment,
@@ -782,6 +839,48 @@ def is_conversation(moment: ReelMoment, transcript: dict) -> Optional[str]:
     return None
 
 
+def straddling_within(start: float, end: float,
+                      transcript: dict) -> List[dict]:
+    """The words a span plays that `transcript_preview` cannot show.
+
+    A straddling segment carries no single source, so no boundary is
+    placed with one and `enrich` leaves it out of the preview.  It is
+    still on the timeline and the built reel still plays it, so leaving
+    it out of the REPORT as well is what let two reels be reviewed on a
+    closing line they did not close on.
+
+    Reported WORD BY WORD, intersected with the span, because a
+    straddling segment is usually WhisperX bridging silence: its
+    `timeline_start`/`timeline_end` can span half a minute of which two
+    seconds are spoken.  `word_count` beside `first_word_at` and
+    `last_word_at` is what tells a reader which it is - two words over
+    nineteen seconds is a bridge, nineteen words over nineteen seconds
+    is a sentence.  Summed word DURATIONS would not: WhisperX hangs the
+    bridged silence on the last word before it, so the two words "well
+    that's" measure 19.2 voiced seconds on this episode.  No gap
+    threshold is applied and none is needed - the words are the
+    measurement.
+    """
+    out: List[dict] = []
+    for segment in straddling_segments(transcript):
+        if not (float(segment["timeline_end"]) > start
+                and float(segment["timeline_start"]) < end):
+            continue
+        inside = [w for w in (segment.get("words") or ())
+                  if float(w.get("end", 0)) > start
+                  and float(w.get("start", 0)) < end]
+        if not inside:
+            continue
+        out.append({
+            "speaker": segment.get("speaker"),
+            "first_word_at": round(float(inside[0]["start"]), 2),
+            "last_word_at": round(float(inside[-1]["end"]), 2),
+            "word_count": len(inside),
+            "text": " ".join(str(w.get("word", "")) for w in inside),
+        })
+    return sorted(out, key=lambda x: x["first_word_at"])
+
+
 def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
     """Fill a moment's measured fields from the transcript.
 
@@ -809,10 +908,11 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
                 "source_end": segment.get("source_end"),
             })
     preview = " ".join(w for w in words if w)
-    if len(preview) > 400:
-        preview = preview[:397].rstrip() + "..."
     return replace(moment, speakers=tuple(speakers),
                    transcript_preview=preview, source_spans=tuple(spans),
+                   straddling_within=tuple(straddling_within(
+                       moment.timeline_start, moment.timeline_end,
+                       transcript)),
                    call_to_action=enrich_call_to_action(
                        moment.call_to_action, transcript),
                    duplicate_takes=tuple(duplicate_takes(
@@ -842,7 +942,9 @@ def enrich_call_to_action(cta: Optional[CallToAction],
     return replace(
         cta,
         text=said or cta.text,
-        speaker=(speakers[0] if speakers else cta.speaker))
+        speaker=(speakers[0] if speakers else cta.speaker),
+        straddling_within=tuple(straddling_within(
+            cta.timeline_start, cta.timeline_end, transcript)))
 
 
 # ── Persistence, which is also the captain's review surface ──────────
@@ -872,6 +974,66 @@ def proposal_document(moments: Sequence[ReelMoment], transcript: dict) -> dict:
         "moment_count": len(moments),
         "moments": [m.as_dict() for m in moments],
     }
+
+
+PROPOSAL_FILENAME = "reel_proposals_v2.json"
+"""The captain's review surface, and the file `build-reels` reads.
+
+Spelled ONCE. It was spelled in `reel_build.rebuild_reels_in_project` as
+a composed string and nowhere else, which meant the build read a plan
+that nothing in this repository wrote: every batch of proposals reached
+that path by hand. `write_from_step_output` is the writer.
+"""
+
+
+def proposal_path(project_folder) -> Path:
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return (ProjectLayout(str(project_folder))
+            .read_path(Area.REVIEW, PROPOSAL_FILENAME))
+
+
+def write_from_step_output(project_folder, force: bool = False) -> Path:
+    """Publish step 3.4's chosen moments as the captain's review file.
+
+    The step writes `reel_selection` into its own output; the captain
+    reviews `reel_proposals_v2.json`; `build-reels` reads that file back.
+    Without this function the middle of that chain was a person copying
+    JSON, and a plan that was never regenerated read exactly like one
+    that was.
+
+    REFUSES to overwrite a file the captain has already ruled on unless
+    `force` is set. An approval is their answer and losing it silently
+    would put a rejected moment back in front of the builder.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    layout = ProjectLayout(str(project_folder))
+    step_output = layout.step_dir("select_reels", "output.json")
+    if not step_output.exists():
+        raise ProposalError(
+            f"{step_output} does not exist - step 3.4 has not run for "
+            f"this project, so there is nothing to propose.")
+    selection = (json.loads(step_output.read_text())
+                 .get("reel_selection") or {})
+    moments = [ReelMoment.from_dict(m) for m in (selection.get("moments") or [])]
+
+    transcript_file = layout.read_path(
+        Area.SCRATCH, "timeline_transcript", "transcript.json")
+    transcript = json.loads(transcript_file.read_text())
+
+    path = proposal_path(project_folder)
+    if path.exists() and not force:
+        existing = read_proposal(path)
+        ruled = [m for m in existing if m.approval is not Approval.PROPOSED]
+        if ruled:
+            raise ProposalError(
+                f"{path} already carries {len(ruled)} moment(s) the "
+                f"captain has ruled on "
+                f"({', '.join(m.slug for m in ruled)}). Overwriting would "
+                f"discard their answer. Pass force=True only if that is "
+                f"what is intended.")
+    return write_proposal(path, moments, transcript)
 
 
 def write_proposal(path, moments: Sequence[ReelMoment],
@@ -922,9 +1084,7 @@ def render_for_review(moments: Sequence[ReelMoment]) -> str:
                    f"{'...' if len(cta.text) > 110 else ''}\""
                    if cta.text else ""))
         if moment.transcript_preview:
-            preview = moment.transcript_preview
-            lines.append(f"      \"{preview[:150]}"
-                         f"{'...' if len(preview) > 150 else ''}\"")
+            lines.append(f"      \"{moment.transcript_preview}\"")
         if moment.source_spans:
             sources = ", ".join(
                 f"{Path(s['source_file']).name} [{s.get('source_start', 0.0):.1f}-{s.get('source_end', 0.0):.1f}s]"

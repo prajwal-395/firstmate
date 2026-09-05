@@ -1118,6 +1118,57 @@ class TestCLI:
         assert unmapped_findings[0].detail["unmapped_duration"] == round(120 / FPS, 2)
 
 
+# ── The plan the verifier grades against ─────────────────────────────
+#
+# `_derive_plan_from_master` re-derives what a reel SHOULD be, using the
+# builder's own arithmetic, and every other check is measured against
+# it. Nothing exercised it, so when PR #524 gave `reel_build.placements`
+# a required `fps` and did not update the call here, the verifier raised
+# `TypeError` on every run - and `verify_built_reels` turned that into
+# "Reel conformance verifier failed to run", which is how the build gate
+# reported a verifier that could not start.
+
+def _master_clip(**kw):
+    from library.tools.timeline_ingest import TimelineClip
+
+    base = dict(resolve_item_id="uid-1", track_type="video", track_index=1,
+                track_name="V1", speaker="Craig", source_file="/m/a.MXF",
+                source_in=100.0, source_out=110.0, source_in_frame=2400,
+                source_out_frame=2640, source_frames=100000,
+                timeline_start=10.0, timeline_end=20.0, name="a.MXF")
+    base.update(kw)
+    return TimelineClip(**base)
+
+
+def _master_snapshot(*clips, fps=24000 / 1001):
+    from library.tools.timeline_ingest import TimelineSnapshot
+
+    return TimelineSnapshot(
+        project_name="scratch", timeline_name="master", fps=fps,
+        reported_fps=24.0, width=1080, height=1920, start_frame=0,
+        end_frame=int(round(2656.0 * fps)), clips=tuple(clips))
+
+
+def test_the_plan_can_be_derived_from_the_master():
+    from library.tools.reel_conformance_verifier import _derive_plan_from_master
+
+    master = _master_snapshot(
+        _master_clip(),
+        _master_clip(resolve_item_id="uid-2", track_index=2, track_name="V2",
+                     speaker="Akshita", source_file="/m/b.MXF",
+                     timeline_start=14.0, timeline_end=22.0))
+    plan = _derive_plan_from_master("Reel 01 - x", 1, 12.0, 21.0, master)
+
+    assert plan.reel_name == "Reel 01 - x"
+    assert plan.keep_ranges == ((12.0, 21.0),)
+    assert plan.plan_seconds == 9.0
+    # Both tracks are placed, each trimmed to the part inside the span.
+    assert {p.source_file for p in plan.placements} == {"/m/a.MXF", "/m/b.MXF"}
+    v1 = next(p for p in plan.placements if p.source_file == "/m/a.MXF")
+    assert v1.record_seconds == 0.0
+    # 2s into the clip, to within a frame: PR #524 made `placements`
+    # land each clip on a whole frame, which is why it needs `fps`.
+    assert abs(v1.source_in - 102.0) < 1 / master.fps
 # ── A reel that closes on a CTA from elsewhere in the episode ────────
 #
 # The verifier RE-DERIVES the plan from the master, so a reel built with

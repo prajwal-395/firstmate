@@ -613,7 +613,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     
     project = resolve_project_exactly(pm, resolve_name)
         
-    proposal_path = os.path.join(project_folder, "pipeline_output/review/reel_proposals_v2.json")
+    from library.tools.reel_proposal import proposal_path as _proposal_path
+    proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
 
     # Archive the plan so it survives being overwritten by the next

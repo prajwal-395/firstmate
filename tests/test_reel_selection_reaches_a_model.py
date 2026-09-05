@@ -216,3 +216,64 @@ def test_the_post_bridge_leaves_every_moment_proposed():
                                            "derived_from": {"duration_seconds": 600.0}}})
     moments = out["reel_selection"]["moments"]
     assert moments and all(m["approval"] == "proposed" for m in moments)
+
+
+# ── The format, as the captain defined it ────────────────────────────
+#
+# These pin the parts of the definition that were ANSWERED rather than
+# inferred. Each one was missing at some point and cost a review round:
+# the opening was never mentioned to the model at all, the transcript
+# being garbled was read as a bad reel rather than a bad passage, and
+# both the CTA and overlap rules had been written as prohibitions the
+# captain does not hold.
+
+
+def _handoff() -> str:
+    return " ".join((STEP_DIR / "handoff.md").read_text().split()).lower()
+
+
+def test_the_handoff_asks_for_a_hook():
+    """A viewer decides in five seconds and the model was told nothing
+    about openings, so every earlier batch opened wherever the boundary
+    arithmetic happened to land."""
+    handoff = _handoff()
+    assert "opens on a hook" in handoff
+    assert "throat-clearing" in handoff
+
+
+def test_the_handoff_says_to_skip_a_garbled_passage():
+    """The captain's second reason for rejecting the worst reel was that
+    the TRANSCRIPT was a mess, which is a property of the passage and a
+    selection criterion - not a defect in the reel built from it."""
+    handoff = _handoff()
+    assert "garbled" in handoff
+    assert "skip those passages" in handoff
+
+
+def test_the_handoff_allows_a_cta_to_be_reused():
+    """"if there is not one explicitly associated with the clip, you can
+    reuse an atomic CTA again from elsewhere". The handoff said the
+    opposite - do not create a reel without one of its own - and that is
+    what held the last batch to four."""
+    handoff = _handoff()
+    assert "from anywhere in the episode" in handoff
+    assert "may close as many reels as you like" in handoff
+    # ... but never one that is not a complete invitation.
+    assert "we'd love for you to" in handoff
+
+
+def test_the_handoff_does_not_ask_for_a_topically_matched_cta():
+    """His ruling is that any atomic CTA works. Matching a closer to the
+    body's subject is a requirement he does not have, and inventing it
+    would silently cut the number of reels the episode can support."""
+    handoff = _handoff()
+    assert "topical fit does not matter" in handoff
+
+
+def test_the_handoff_judges_overlap_on_meaning_not_seconds():
+    """"they can as long as its not like the exact same video". A
+    seconds threshold is the mechanical proxy that was tested against his
+    verdicts and failed to predict them."""
+    handoff = _handoff()
+    assert "say different things" in handoff
+    assert "no seconds threshold" in handoff

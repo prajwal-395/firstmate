@@ -128,37 +128,16 @@ def resolve(llm_output: dict, data: dict) -> dict:
             dropped.append({"entry": entry, "reason": not_convo})
             continue
 
-        # Overlap check against already accepted moments
-        overlap_idx = None
-        overlap_reason = None
         for i, existing in enumerate(moments):
             overlap_start = max(enriched.timeline_start, existing.timeline_start)
             overlap_end = min(enriched.timeline_end, existing.timeline_end)
             overlap_dur = overlap_end - overlap_start
             if overlap_dur >= 1.0:
-                overlap_idx = i
-                overlap_reason = (
-                    f"overlaps {existing.timeline_name} ({existing.timeline_start:.1f}-{existing.timeline_end:.1f}s) "
-                    f"by {overlap_dur:.1f}s. Two reels cannot share the same conversation."
-                )
-                break
-
-        if overlap_idx is not None:
-            existing = moments[overlap_idx]
-            if enriched.duration > existing.duration:
-                dropped.append({
-                    "entry": existing.as_dict(),
-                    "reason": (
-                        f"overlaps longer/better-formed candidate {enriched.slug} "
-                        f"({enriched.timeline_start:.1f}-{enriched.timeline_end:.1f}s) "
-                        f"by {min(enriched.timeline_end, existing.timeline_end) - max(enriched.timeline_start, existing.timeline_start):.1f}s. "
-                        f"Two reels cannot share the same conversation."
-                    )
-                })
-                moments[overlap_idx] = enriched
-            else:
-                dropped.append({"entry": entry, "reason": overlap_reason})
-            continue
+                from dataclasses import replace
+                warning1 = f" [OVERLAP: shares {overlap_dur:.1f}s ({overlap_start:.1f}-{overlap_end:.1f}s) with {existing.slug}]"
+                enriched = replace(enriched, reason=enriched.reason + warning1)
+                warning2 = f" [OVERLAP: shares {overlap_dur:.1f}s ({overlap_start:.1f}-{overlap_end:.1f}s) with {enriched.slug}]"
+                moments[i] = replace(existing, reason=existing.reason + warning2)
 
         moments.append(enriched)
 
@@ -195,7 +174,9 @@ def resolve(llm_output: dict, data: dict) -> dict:
             "dropped": dropped,
             "approval": (
                 "every moment is PROPOSED. Nothing is built until the "
-                "captain approves it - see reel_proposal.assert_approved."
+                "captain approves it - see reel_proposal.assert_approved. "
+                "The FULL absolute transcript is available at: "
+                "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/pipeline_output/scratch/timeline_transcript/transcript.json"
             ),
         }
     }

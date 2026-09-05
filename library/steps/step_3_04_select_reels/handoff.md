@@ -25,20 +25,41 @@ own as short videos, and where each one should start and stop.
 **A reel is an atomic segment of conversation that provides value and
 then closes with a small call to action.** Those are the captain's own
 words for this format and they are the definition you are working to.
-Three things follow from it:
+Asked what he needs from one, he put it as three requirements:
 
-- **Atomic.** It is a complete small thing, not an excerpt. Somebody who
-  has never heard the episode should be able to watch it and get
-  something whole. A clip that ends because the time ran out reads as a
-  fragment however good the line in it was.
+> "i just need the script to be atomic and coherent and to have a CTA"
+
+Everything below serves those three.
+
+- **Atomic.** ONE idea developing, not two bolted together. A reel that
+  reads as "two halves of different scripts combined" is the thing that
+  has been rejected before, and it is rejected for what it MEANS, not for
+  how it is shaped: there is no gap count, segment count or span length
+  that separates a coherent passage from a stitched one. This is your
+  judgement about meaning and nothing measures it for you.
+- **Coherent.** A viewer who has never heard the episode can follow it.
+  Two ways that fails, and both are yours to catch:
+  - the passage leans on something said earlier in the episode that is
+    not inside the reel;
+  - the TRANSCRIPT itself is garbled, so the words read as nonsense
+    whatever was actually said. Skip those passages. A stretch you cannot
+    read is a stretch the captain cannot read either, and it is not made
+    good by the idea underneath it.
 - **Provides value.** Something is actually delivered — an idea, a
   contrast, a story, a number that changes how the viewer sees their own
   situation.
 - **Closes with a CTA.** The hosts inviting the viewer to go and do
-  something is the ENDING of this format, not noise in it. A stretch that
-  delivers something and then closes on the invitation is a complete one.
-  You will see pitch measured below; that is information about the shape
-  of a stretch, never a reason to avoid it.
+  something is the ENDING of this format, not noise in it. See "The
+  closing CTA" below for where one comes from when the passage has none
+  of its own.
+
+**It opens on a hook.** The first line has to earn the next five seconds:
+a question, a claim, or a provocation. Not throat-clearing, not a
+speaker settling into a sentence, not "yeah, so". A viewer decides in
+those five seconds whether to keep watching, and a reel whose first line
+is a warm-up has spent them. This is a boundary decision, and it is the
+same kind of decision as where to end: move the start to where the hook
+is.
 
 **The closer does not have to be next to the body.** A stretch that says
 something whole but does not happen to end on an invitation can still be
@@ -88,15 +109,44 @@ its seconds.
 (start and end in seconds). A reel that contains a hole will play black
 there, so avoid it or move the boundaries clear of it.
 
+### The rules this format is held to
+
+1. **Opens on a hook.** A question, a claim, or a provocation. Never
+   throat-clearing.
+2. **One coherent idea.** Do not stitch two topics together, and skip a
+   passage whose transcript is garbled.
+3. **Ends on a CTA**, its own or a reused atomic one. The words are
+   always spoken in the episode.
+4. **A conversation.** Both people say something that matters to it.
+
+### Two reels may draw on the same passage
+
+Overlap is judged on whether the two reels SAY DIFFERENT THINGS, never on
+how many seconds they share. The captain's words: "they can as long as
+its not like the exact same video". Two reels covering one exchange from
+different angles, each making its own point, are two reels. The same
+point twice is one reel proposed twice.
+
+There is no seconds threshold here and you should not reason as though
+there is. Where two of your choices overlap, the shared span is reported
+on both so the captain can see it and rule.
+
 ### Length
 
-The series' guidance is **45 to 90 seconds, averaging around a minute**.
+The guidance is **45 to 90 seconds**, because this is short-form social
+content and that is the band it plays in. It is guidance you weigh, not a
+boundary: there is no hard cap and no floor.
 
-It is guidance you weigh, not a boundary. Candidates outside it are shown
-to you with their length and `within_length_guidance: false`, because a
-story that needs longer to finish is a real answer and a truncated one is
-not. If a stretch needs 95 seconds to deliver something and close, say
-so and take the 95 seconds.
+**Neither end of that band is a reason to cut.** A passage that needs 95
+seconds to finish its argument is a better reel than one truncated to 89,
+and a 30-second passage is not improved by padding it. Length is a
+consequence of picking a passage that is whole; it is not the thing being
+optimised.
+
+What was rejected in an earlier batch was never length on its own - it
+was COLLAGE, a reel assembled from two different subjects. A 90-second
+reel that is one idea is right; a 47-second reel that is two halves of
+different scripts is not.
 
 ### The closing CTA
 
@@ -130,6 +180,21 @@ Four things about it:
   from scattered fragments reads as two halves of different scripts
   stitched together, and the captain has rejected exactly that.
 
+Two more, from the captain's own answers, and both of them cut work
+rather than adding it:
+
+- **Topical fit does not matter.** Asked whether a borrowed closer has to
+  suit the subject of the reel it closes, he ruled that any atomic CTA
+  works. They are interchangeable. Do not try to match a closer to the
+  body, and do not treat a poor match as a reason to drop a reel - that
+  is a requirement he does not have, and applying it would silently cut
+  the number of reels this episode can support.
+- **"Atomic" qualifies the CLOSER too.** It must be a complete, self
+  contained invitation. A fragment that trails off part way through the
+  sentence - "we'd love for you to", and then nothing - is not one, and
+  must never be named as a `cta` by any reel however well the seconds
+  line up.
+
 `turns` is where you find them: read the conversation and pick the
 passages where somebody actually invites the viewer to go and do
 something. Nothing has been shortlisted or scored for you.
@@ -151,8 +216,9 @@ For each stretch you choose:
 | `slug` | A short topic name, lowercase words joined by hyphens |
 | `reason` | One line: the argument for why this stretch works as a standalone reel under the captain's definition. Do NOT write a generic topic label (e.g. 'Breakdown of X'). Explain what complete exchange is delivered and how it lands/closes (e.g., crisp takeaway, realization, or CTA) |
 | `value` | What the viewer gets from it |
+| `hook` | The opening line, and why it earns the next five seconds |
 | `close` | How it ends, and whether that ending is a CTA |
-| `cta` | Optional. `{start, end, note}` — the spoken closer this reel ends on, from anywhere in the episode. Omit it if the stretch already closes on one, or if you found none worth using |
+| `cta` | Optional. `{start, end, note}` — the spoken closer this reel ends on, taken from anywhere in the episode and played after the body. Omit it when the stretch already closes on one of its own. `note` is one line on why you chose that closer |
 | `takes_dropped` | Any repeated take you are choosing not to play, with its timecode |
 
 Also emit `considered`: stretches you looked at and did NOT choose, with
@@ -177,6 +243,19 @@ approves every one before a timeline exists. How the shorts are
 captioned, graded or titled. Anything about the master timeline; the cut
 is the captain's and this step only reads it.
 
+**Do not curate.** Propose every stretch that meets the bar above, not
+the best few of them. Rejecting is the captain's half of this and it is
+cheap for them; a passage you leave out because you already have enough
+good ones is a decision they never get to see, and there is no surface
+anywhere that will show it to them later. If a stretch works, propose it.
+
+That is not licence to pad. A stretch that does not deliver something, or
+does not close on an invitation, is not made eligible by the fact that
+few do - and `considered` is where it goes, with the line saying why.
+
 No count of reels is stated anywhere in this document or anywhere in this
 engine, and none is implied. How many this episode yields is part of what
-you are being asked.
+you are being asked, and it is an answer READ OFF THE MATERIAL: propose
+every stretch that clears the bar and the count is whatever that comes
+to. A target would be something to pad toward, and padding costs more
+than a small batch does.

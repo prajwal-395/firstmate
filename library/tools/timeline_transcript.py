@@ -55,7 +55,7 @@ Nothing about which moments are interesting.  This module measures what
 was said and where; choosing what matters is taste and belongs to a
 model (AGENTS.md 10.5).  See `library/tools/reel_proposal.py`.
 
-    python3 -m library.tools.timeline_transcript <project_folder> --write
+    python3 -m library.tools.timeline_transcript <project_folder>
 
 `tests/test_timeline_transcript.py`.
 """

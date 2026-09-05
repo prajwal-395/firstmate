@@ -13,6 +13,7 @@ state fails it. A gate whose default is "allowed" is ornamental
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -35,6 +36,7 @@ from library.tools.reel_proposal import (
     bound_segments,
     straddling_segments,
     snap_to_speech,
+    straddling_within,
     duplicate_takes,
 )
 
@@ -311,13 +313,76 @@ def test_a_straddling_segment_is_never_a_boundary_anchor():
     assert snap_to_speech(11.0, 17.0, tx) == (10.0, 18.0)
 
 
-def test_a_straddling_segment_does_not_make_a_boundary_illegal():
-    """It is excluded from the check, not treated as a cut segment."""
+def test_a_straddler_the_span_touches_still_does_not_widen_it():
+    """The case the test above could not reach, and the one that bit.
+
+    The straddler OVERLAPS the proposed span here, so a `snap_to_speech`
+    reading `transcript["segments"]` whole widens the end to 47.2s -
+    which on the field test is seconds of bridged silence and then the
+    next topic, cut mid-sentence.  The reel closed on that and the
+    review surface showed the clean line instead, because `enrich`
+    reads bound segments only.
+    """
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=16.0, timeline_end=47.2,
+                    resolve_item_id=None))          # straddles a cut
+    assert snap_to_speech(11.0, 17.0, tx) == (10.0, 18.0)
+
+
+def test_straddling_speech_inside_a_span_is_reported():
+    """The reel PLAYS it, so a review surface has to show it."""
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=16.0, timeline_end=47.2,
+                    resolve_item_id=None, speaker="Craig",
+                    text="well that's",
+                    words=[{"word": "well", "start": 16.0, "end": 40.0},
+                           {"word": "that's", "start": 40.1, "end": 47.2}]))
+    start, end = snap_to_speech(11.0, 17.0, tx)
+    reported = straddling_within(start, end, tx)
+    assert len(reported) == 1
+    assert reported[0]["speaker"] == "Craig"
+    assert reported[0]["text"] == "well"
+    # ONE word over a 24-second segment: a bridge, and the count is
+    # what says so.  Summed word durations would read 24 voiced seconds.
+    assert reported[0]["word_count"] == 1
+
+
+def test_a_straddler_outside_the_span_is_not_reported():
     tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
              _bound(timeline_start=22.0, timeline_end=47.2,
-                    resolve_item_id=None))
+                    resolve_item_id=None,
+                    words=[{"word": "later", "start": 22.0, "end": 22.4}]))
+    assert straddling_within(10.0, 18.0, tx) == []
+
+
+def test_enrich_carries_the_straddling_report_and_it_round_trips():
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=16.0, timeline_end=47.2,
+                    resolve_item_id=None, speaker="Craig",
+                    words=[{"word": "well", "start": 16.5, "end": 17.0}]))
+    moment = enrich(_moment(timeline_start=10.0, timeline_end=18.0), tx)
+    assert moment.straddling_within[0]["text"] == "well"
+    assert "well" not in moment.transcript_preview
+    body = moment.as_dict()
+    assert body["straddling_within"][0]["word_count"] == 1
+    assert ReelMoment.from_dict(body).straddling_within == moment.straddling_within
+
+
+def test_a_straddling_segment_does_not_make_a_boundary_illegal():
+    """It is excluded from the check, not treated as a cut segment.
+
+    The straddler here OVERLAPS the span and is cut by it, which is the
+    case that matters: `snap_to_speech` will not move a boundary onto a
+    straddler's edges, so refusing the boundary for cutting one refuses
+    a span nothing can repair.  `straddling_within` reports it instead.
+    """
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=16.0, timeline_end=47.2,
+                    resolve_item_id=None,
+                    words=[{"word": "bridged", "start": 16.5, "end": 17.0}]))
     validate_proposal([_moment(timeline_start=10.0, timeline_end=18.0)],
                       tx, 2656.6)
+    assert straddling_within(10.0, 18.0, tx)[0]["text"] == "bridged"
 
 
 def test_enrich_ignores_straddling_segments_too():
@@ -578,8 +643,17 @@ def test_post_bridge_drops_a_moment_over_a_hole():
     assert "play black" in hole_drops[0]["reason"]
 
 
-def test_validate_proposal_refuses_overlapping_moments():
-    from library.tools.reel_proposal import validate_proposal, ProposalError
+def test_overlapping_moments_are_surfaced_rather_than_refused():
+    """Overlap is REPORTED, not a rejection.
+
+    Two moments drawing on one stretch is an editorial question - the
+    same exchange can be worth two shorts - so 6f3ee03 stopped dropping
+    the shorter one and started writing the overlap into both reasons
+    where the captain can see it and decide.  These two tests still
+    asserted the old refusal and had failed ever since; they now pin the
+    behaviour the code actually has.
+    """
+    from library.tools.reel_proposal import validate_proposal
     tx = _transcript()
     # Add a fourth segment so both ranges are two-speaker and match whole segments
     tx["segments"].append({
@@ -591,11 +665,10 @@ def test_validate_proposal_refuses_overlapping_moments():
     # m1: 10.0-26.0, m2: 18.5-420.0 -> overlap by 7.5s (18.5 to 26.0)
     m1 = _moment(number=1, slug="first", timeline_start=10.0, timeline_end=26.0)
     m2 = _moment(number=2, slug="second", timeline_start=18.5, timeline_end=420.0)
-    with pytest.raises(ProposalError, match="overlap by 7.5s"):
-        validate_proposal([m1, m2], tx, 500.0)
+    validate_proposal([m1, m2], tx, 500.0)   # does not raise
 
 
-def test_post_bridge_resolves_overlapping_moments():
+def test_post_bridge_keeps_both_overlapping_moments_and_says_so():
     from library.steps.step_3_04_select_reels.post_bridge import resolve
     tx = _transcript()
     tx["segments"].append({
@@ -604,10 +677,8 @@ def test_post_bridge_resolves_overlapping_moments():
         "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
         "source_start": 210.0, "source_end": 220.5
     })
-    # Moment 1: 400.0-409.0 (only Craig, so not convo -> will be dropped by is_conversation)
-    # Let's test with two conversations that overlap:
-    # First: 10.0-26.0 (Craig & Akshita, 16s)
-    # Second: 10.0-420.0 (Craig & Akshita & Craig & Akshita, 410s)
+    # Both spans are two-speaker conversations, and the second contains
+    # the first entirely.
     llm_output = {
         "moments": [
             {"start": 10.0, "end": 26.0, "slug": "shorter", "reason": "Shorter clip"},
@@ -616,10 +687,11 @@ def test_post_bridge_resolves_overlapping_moments():
     }
     result = resolve(llm_output, {"timeline_transcript": tx})
     sel = result["reel_selection"]
-    assert len(sel["moments"]) == 1
-    assert sel["moments"][0]["slug"] == "longer"
-    assert len(sel["dropped"]) == 1
-    assert "overlaps" in sel["dropped"][0]["reason"]
+    assert [m["slug"] for m in sel["moments"]] == ["shorter", "longer"]
+    assert sel["dropped"] == []
+    # Each one names the other, with the shared span, in its reason.
+    assert "OVERLAP: shares 16.0s (10.0-26.0s) with longer" in sel["moments"][0]["reason"]
+    assert "OVERLAP: shares 16.0s (10.0-26.0s) with shorter" in sel["moments"][1]["reason"]
 
 
 # ── The closing CTA, from anywhere in the episode ────────────────────
@@ -780,3 +852,121 @@ def test_a_cta_over_a_picture_hole_is_a_bad_pick_not_a_raise():
     transcript["derived_from"]["picture_holes"] = [[470.0, 474.0]]
     reason = overlaps_picture_hole(_with_cta(), transcript)
     assert reason and "call to action" in reason
+
+
+# ── Publishing the plan the builder reads ────────────────────────────
+#
+# `build-reels` read `pipeline_output/review/reel_proposals_v2.json` and
+# NOTHING in this repository wrote it: every batch of proposals reached
+# that path by hand, which is why a round where the selector was never
+# re-run looked exactly like one where it was.
+
+def _project_with_step_output(tmp_path, moments, transcript=None):
+    root = tmp_path / "project"
+    step = root / "pipeline_output" / "steps" / "3_04_select_reels"
+    step.mkdir(parents=True)
+    (step / "output.json").write_text(json.dumps(
+        {"reel_selection": {"moments": moments}}))
+    scratch = root / "pipeline_output" / "scratch" / "timeline_transcript"
+    scratch.mkdir(parents=True)
+    (scratch / "transcript.json").write_text(
+        json.dumps(transcript if transcript is not None else _transcript()))
+    return root
+
+
+def _emitted(**kw):
+    base = dict(number=1, slug="seo-vs-geo", reason="The clearest contrast.",
+                timeline_start=10.0, timeline_end=26.0)
+    base.update(kw)
+    return base
+
+
+def test_the_step_output_becomes_the_file_the_builder_reads(tmp_path):
+    from library.tools.reel_proposal import (proposal_path,
+                                             write_from_step_output)
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    path = write_from_step_output(root)
+    assert path == proposal_path(root)
+    written = read_proposal(path)
+    assert [m.slug for m in written] == ["seo-vs-geo"]
+    assert written[0].approval is Approval.PROPOSED
+
+
+def test_a_published_moment_carries_its_borrowed_closer(tmp_path):
+    """The CTA range survives the trip through the review file, because
+    that file is what `build-reels` reads back."""
+    from library.tools.reel_proposal import write_from_step_output
+
+    root = _project_with_step_output(
+        tmp_path, [_emitted(call_to_action={"timeline_start": 400.0,
+                                            "timeline_end": 409.0,
+                                            "note": "the closer"})])
+    written = read_proposal(write_from_step_output(root))
+    assert written[0].call_to_action is not None
+    assert written[0].call_to_action.timeline_start == 400.0
+    assert written[0].call_to_action.timeline_end == 409.0
+
+
+def test_publishing_refuses_to_discard_the_captains_answer(tmp_path):
+    from library.tools.reel_proposal import write_from_step_output
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    path = write_from_step_output(root)
+    ruled = read_proposal(path)
+    write_proposal(path, [replace(ruled[0], approval=Approval.REJECTED)],
+                   _transcript())
+
+    with pytest.raises(ProposalError) as excinfo:
+        write_from_step_output(root)
+    assert "ruled on" in str(excinfo.value)
+    assert "seo-vs-geo" in str(excinfo.value)
+    # and the answer is still there
+    assert read_proposal(path)[0].approval is Approval.REJECTED
+
+    write_from_step_output(root, force=True)
+    assert read_proposal(path)[0].approval is Approval.PROPOSED
+
+
+def test_publishing_before_the_step_has_run_says_so(tmp_path):
+    from library.tools.reel_proposal import write_from_step_output
+    root = tmp_path / "project"
+    (root / "pipeline_output").mkdir(parents=True)
+    with pytest.raises(ProposalError) as excinfo:
+        write_from_step_output(root)
+    assert "step 3.4 has not run" in str(excinfo.value)
+
+
+def test_a_borrowed_closer_reports_the_speech_its_text_omits():
+    """The CTA has the body's old blind spot, and it matters more here.
+
+    `enrich_call_to_action` measures `text` from bound segments, so a
+    straddling segment inside the closer is not in it - and the reel
+    plays it. The claim being made about a CTA is that it is a COMPLETE
+    invitation, so a closer whose finishing words are only in a straddler
+    is not atomic however clean its text reads.
+    """
+    from library.tools.reel_proposal import (CallToAction,
+                                             enrich_call_to_action)
+    tx = _tx(_bound(speaker="Craig", text="we'd love for you to",
+                    timeline_start=400.0, timeline_end=404.0),
+             _bound(speaker="Craig", timeline_start=404.1, timeline_end=417.0,
+                    resolve_item_id=None,
+                    text="jump on lucycontent.com it's also in the link below",
+                    words=[{"word": "jump", "start": 404.1, "end": 404.4},
+                           {"word": "on", "start": 404.5, "end": 404.7}]))
+    enriched = enrich_call_to_action(
+        CallToAction(timeline_start=400.0, timeline_end=417.0), tx)
+
+    assert enriched.text == "we'd love for you to"
+    assert enriched.straddling_within[0]["text"] == "jump on"
+    assert enriched.straddling_within[0]["word_count"] == 2
+
+
+def test_a_closer_with_no_straddling_speech_reports_none():
+    from library.tools.reel_proposal import (CallToAction,
+                                             enrich_call_to_action)
+    tx = _tx(_bound(speaker="Craig", text="go check it out",
+                    timeline_start=400.0, timeline_end=404.0))
+    enriched = enrich_call_to_action(
+        CallToAction(timeline_start=400.0, timeline_end=404.0), tx)
+    assert enriched.text == "go check it out"
+    assert enriched.straddling_within == ()

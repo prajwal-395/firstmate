@@ -1708,6 +1708,11 @@ def _derive_plan_from_master(
 
     # Compute placements from master clips
     master_clips = master_snapshot.picture_clips()
+    # `fps` is REQUIRED: `placements` computes each clip's record frame
+    # from it (PR #524), and calling without it raised on every run -
+    # `verify_built_reels` caught the TypeError and re-raised it as
+    # "Reel conformance verifier failed to run", so the verifier the
+    # build gate depends on could not run at all.
     placed = compute_placements(kr, master_clips, fps)
 
     planned_placements = tuple(

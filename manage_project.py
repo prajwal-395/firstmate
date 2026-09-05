@@ -62,7 +62,8 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # adding a subcommand without listing it here fails loudly rather than
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
-    "init-root", "list", "new", "build-reels", "status", "info", "trace", "organize",
+    "init-root", "list", "new", "propose-reels", "build-reels", "status",
+    "info", "trace", "organize",
     "check", "run", "dashboard", "archive", "notes", "relink",
 )
 
@@ -636,6 +637,18 @@ def cmd_dashboard(args):
     start_server(project_dir, slug=slug, port=args.port)
 
 
+def cmd_propose_reels(args):
+    """Publish step 3.4's chosen moments as the captain's review file."""
+    from library.tools.reel_proposal import write_from_step_output
+    try:
+        config = get_project(args.project)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    path = write_from_step_output(str(config._project_root), force=args.force)
+    print(f"Wrote {path}")
+
+
 def cmd_build_reels(args):
     from library.tools.reel_build import rebuild_reels_in_project
     rebuild_reels_in_project(args.project, skip_captions=args.skip_captions)
@@ -672,6 +685,16 @@ def main():
     p_new.set_defaults(func=cmd_new)
 
     # status
+    propose_reels_parser = sub.add_parser(
+        "propose-reels",
+        help="Publish step 3.4's chosen moments as the reel review file")
+    propose_reels_parser.add_argument(
+        "project", help="The project to publish reel proposals for")
+    propose_reels_parser.add_argument(
+        "--force", action="store_true",
+        help="Overwrite a proposal file the captain has already ruled on")
+    propose_reels_parser.set_defaults(func=cmd_propose_reels)
+
     build_reels_parser = sub.add_parser(
         "build-reels", help="Rebuild approved reels in Resolve")
     build_reels_parser.add_argument(
