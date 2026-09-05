@@ -21,11 +21,16 @@
 set -euo pipefail
 
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-if GIT_DIR="$(cd "${THIS_DIR}" && git rev-parse --git-common-dir 2>/dev/null)"; then
-  REPO_ROOT="$(cd "${THIS_DIR}" && cd "${GIT_DIR}/.." && pwd -P)"
-else
+# `--show-toplevel`, never `--git-common-dir`.  In a git WORKTREE the
+# common dir is the PRIMARY checkout's `.git`, so `${GIT_DIR}/..` stamped
+# the primary checkout's path into a copy taken from the worktree - the
+# installed script then imported a `library/` that was not the one being
+# installed.  `--show-toplevel` is the root of THIS checkout, which is
+# what the stamp is for.
+if ! REPO_ROOT="$(cd "${THIS_DIR}" && git rev-parse --show-toplevel 2>/dev/null)"; then
   REPO_ROOT="$(cd "${THIS_DIR}/.." && pwd -P)"
 fi
+REPO_ROOT="$(cd "${REPO_ROOT}" && pwd -P)"
 SOURCE_DIR="$(cd "${THIS_DIR}/.." && pwd -P)/resolve_scripts"
 
 # Under Utility a script is listed on EVERY page, which is what the

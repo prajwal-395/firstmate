@@ -1,54 +1,89 @@
 name: CI
 
-# The full suite is DELIBERATE - once per batch, on the `run-tests`
-# label - and never per push or per merge. It ran on every push to main
-# as well, which re-ran 12-18 minutes against the exact tree the PR had
-# just proved green, for no information at all. Measured 2026-09-05: the
-# account was at 1,801 of 2,000 Actions minutes on the fifth of the
-# month, and merges were a large share of it.
+# ONE GitHub job class remains, and it is the CLEAN-ROOM GATE.
 #
-# `workflow_dispatch` stays a trigger, but no longer reaches the
-# expensive jobs - see their `if:` conditions.
+# WHAT THIS WORKFLOW IS FOR, and the boundary nobody may widen:
+#
+#   This is NOT the project's test runner.  The full suite runs LOCALLY,
+#   on the machine the fleet works on, in 4m54s for free - and that local
+#   run is the real regression gate (layer 1 below).  What a GitHub runner
+#   uniquely provides is a CLEAN ROOM: a fresh Linux checkout with nothing
+#   preinstalled, which installs this project from its DECLARED manifests
+#   (`requirements.txt`) and nothing else.
+#
+#   It therefore exists to catch exactly the class of defect no local
+#   machine can see, because a local machine already has the thing:
+#     - an UNDECLARED dependency (2026-08-10: a missing transitive `httpx`
+#       failed 82 jobs across 21 branches),
+#     - an absent SYSTEM TOOL (commit f577510: no ffmpeg on the runner, so
+#       27 library files' worth of audio and video measurement had been
+#       skipping itself, honestly and invisibly, on every build the
+#       workflow had ever run),
+#     - a PLATFORM assumption that holds on the captain's macOS and not on
+#       Linux (the `parselmouth` cp314 exclusion, the darwin-only
+#       `mlx_vlm` marker).
+#
+#   If you are here to add a job because "CI should also check X", stop:
+#   put X in the local layer.  Widening this back into a general test
+#   runner is how the account reached 1,801 of 2,000 Actions minutes on
+#   the fifth of September, and how August's allowance was exhausted on
+#   the 26th with 82 jobs blocked for the last five days of the month.
+#
+# THE THREE LAYERS (measurement: docs/CI_LAYERS.md):
+#
+#   0. Scoped tests   crewmate, local, before opening the PR   ~seconds
+#   1. FULL SUITE     firstmate, local, once per batch,        4m54s
+#                     before the batch merges:
+#                         scripts/full_suite_gate.sh
+#   2. CLEAN ROOM     this file, `run-tests` label, once per batch, ~13 min
+#
+# WHY NOTHING FIRES AUTOMATICALLY.  Both jobs below are DELIBERATE: they
+# start only when a human or firstmate applies a label.  There is no
+# `push` trigger, and no `workflow_dispatch` trigger - a run against the
+# tree a PR had already proved green bought no information and cost 307
+# billed minutes in five days.  `path-filter` is deleted: it spent a
+# whole billed minute (GitHub's floor is one minute PER JOB) computing a
+# boolean that the label already encodes.
+#
+# `fast-checks` is FOLDED IN rather than kept per-PR.  At the one-minute
+# billing floor it measured 129 billed minutes over 1-5 September; the
+# same rate over the 26 days to 1 October is ~670 minutes against 199
+# remaining.  It costs zero extra minutes as steps of this job, and it
+# runs FIRST so a lint failure bills one minute instead of thirteen.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [labeled]
     branches: [ main ]
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  path-filter:
+  clean-room-gate:
+    name: Clean-room gate (declared manifests only)
+    # DELIBERATE ONLY.  `run-tests` is applied once per BATCH, not per PR.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'run-tests'
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-      contents: read
-    outputs:
-      code_changed: ${{ steps.filter.outputs.code_changed }}
     steps:
     - uses: actions/checkout@v4
-    - uses: dorny/paths-filter@v3
-      id: filter
-      with:
-        filters: |
-          code_changed:
-            - 'library/**'
-            - 'tests/**'
-            - 'requirements.txt'
-            - '.github/**'
-            - 'pyproject.toml'
 
-  fast-checks:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
     - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
         python-version: "3.14"
+        # A pip DOWNLOAD cache, not an environment: every package still
+        # has to be named in a manifest to be installed at all, so an
+        # undeclared dependency cannot hide behind it.
+        cache: 'pip'
+
+    # --- the folded-in fast checks --------------------------------------
+    # These run before the dependency install on purpose: they need only
+    # ruff, and a failure here ends the job in seconds, billing one
+    # minute rather than thirteen.
 
     - name: Install fast dependencies
       run: |
@@ -59,6 +94,7 @@ jobs:
       run: python scripts/check_agents_md_size.py
 
     - name: Compile check
+      if: ${{ !cancelled() }}
       run: |
         python -m py_compile manage_project.py
         find library/steps -name "step.py" -o -name "bridge.py" | xargs -I {} python -m py_compile {}
@@ -75,24 +111,8 @@ jobs:
         echo "--- what the report-only half found ---"
         ruff check library/ tests/ --statistics || true
 
-  full-suite:
-    needs: path-filter
-    if: |
-      !cancelled() &&
-      needs.path-filter.outputs.code_changed != 'false' &&
-      (
-        github.event_name == 'pull_request' && (github.event.action == 'ready_for_review' || (github.event.action == 'labeled' && github.event.label.name == 'run-tests'))
-      )
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.14
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.14"
-        cache: 'pip'
-        
+    # --- the clean room proper ------------------------------------------
+
     - name: Report disk usage and free space
       run: |
         echo "Disk usage before freeing space:"
@@ -101,7 +121,7 @@ jobs:
         echo "Disk usage after freeing space:"
         df -h
 
-    - name: Install dependencies
+    - name: Install dependencies from the declared manifests
       run: |
         python -m pip install --upgrade pip
         pip install pytest ruff httpx2
@@ -114,10 +134,11 @@ jobs:
         sudo apt-get install -y -qq --no-install-recommends ffmpeg
         ffmpeg -version | head -1
         ffprobe -version | head -1
-        
+
     - name: Run Pytest
       run: |
         python -m pytest tests/ -m "not heavy_ml" -rs --tb=short
+
     - name: Report disk usage (after install)
       if: always()
       run: |
@@ -125,22 +146,32 @@ jobs:
         df -h
 
   heavy-ml-suite:
-    needs: path-filter
-    if: |
-      !cancelled() &&
-      needs.path-filter.outputs.code_changed != 'false' &&
-      (
-        github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ml'
-      )
+    name: Heavy ML suite (deliberate label only)
+    # DELIBERATE ONLY, and RARE.  This installs the whole of
+    # requirements.txt - 9 billed minutes of `pip install` - in order to
+    # run TWO tests, and it cannot exercise `mlx_vlm` at all because that
+    # package is darwin-only.  It cost 107 billed minutes over 1-5
+    # September for that.  Those two tests belong in the local layer,
+    # where the Apple-Silicon dependencies are the real ones; the job
+    # stays here for the rare occasion someone wants the Linux answer.
+    #
+    # It must never be reachable from `push`, from `workflow_dispatch`,
+    # or by default.  Neither trigger exists in `on:` above, AND the
+    # condition below re-states it, so re-opening `on:` alone does not
+    # re-open this job.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'run-heavy-ml'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.12
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-        
+
     - name: Report disk usage and free space
       run: |
         echo "Disk usage before freeing space:"
@@ -161,7 +192,7 @@ jobs:
         sudo apt-get install -y -qq --no-install-recommends ffmpeg espeak
         ffmpeg -version | head -1
         espeak --version | head -1
-        
+
     - name: Run Pytest
       run: |
         python -m pytest tests/ -m heavy_ml -rs --tb=short

@@ -348,15 +348,15 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
 - `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
 
-**Run the tests that cover what you changed. CI runs the rest.**
-Captain's standing rule, 2026-09-03: *"is there a reason why we run all these test
-locally and fry the CPU? ... i feel like we spend more time on testing than actual
-implementaion"*. The workflow above already runs the whole suite on every push, so a
-local full run pays the same 5-6 minutes and ~3,600 tests twice for one answer.
+**CI is THREE LAYERS, and only the last is on GitHub.**
+Detail: `docs/CI_LAYERS.md`. Nothing fires on push, on dispatch, or on your PR: one
+clean-room gate runs per BATCH on the `run-tests` label, proving the project installs
+from its declared manifests. The real full-suite gate is LOCAL and free - firstmate
+runs `scripts/full_suite_gate.sh` (4m54s) before a batch merges.
 
-- **Pick the narrowest selection that answers your question** - the test files covering
-  the files you changed, or a runner-scoped family. Then push, and let CI find what the
-  scoped run missed. That is the system working, not a failure.
+- **Run the tests that cover what you changed**, and expect no CI verdict on your PR.
+  Captain's rule, 2026-09-03: *"is there a reason why we run all these test locally
+  and fry the CPU?"* - so pick the narrowest selection that answers your question.
 - **The one exception is genuinely wide fan-out, and you must NAME it in one line when
   you claim it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
   AGENTS.md restructure is not.

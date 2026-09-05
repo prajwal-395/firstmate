@@ -25,7 +25,7 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 53507
+CEILING = 53499
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -68,7 +68,7 @@ SECTION_BUDGETS = {
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
-    "## 9. Environment and dependencies": 6324,
+    "## 9. Environment and dependencies": 6316,
     "## 10. Cross-cutting rules": 17394,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 573,
