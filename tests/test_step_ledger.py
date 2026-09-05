@@ -532,3 +532,282 @@ def test_every_declared_area_resolves_inside_the_declaring_steps_directory(tmp_p
             assert layout.step_of(rendered) == node, (
                 f"{node} declares {pattern}, which lands in "
                 f"{layout.step_of(rendered)!r}'s directory")
+
+
+# ── 4. Code identity ────────────────────────────────────────────────
+
+from library.tools import code_identity
+
+
+def test_step_code_hash_is_deterministic(tmp_path):
+    """The same files produce the same hash every time."""
+    step_dir = tmp_path / "step_1_99_test"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('hello')")
+    (step_dir / "manifest.json").write_text('{"id": "test"}')
+
+    h1 = code_identity.step_code_hash(str(step_dir))
+    h2 = code_identity.step_code_hash(str(step_dir))
+    assert h1 is not None
+    assert h1 == h2
+
+
+def test_step_code_hash_changes_on_code_edit(tmp_path):
+    """Editing a .py file produces a different hash."""
+    step_dir = tmp_path / "step_1_99_test"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('hello')")
+    (step_dir / "manifest.json").write_text('{"id": "test"}')
+
+    h_before = code_identity.step_code_hash(str(step_dir))
+    (step_dir / "step.py").write_text("print('hello, world')")
+    h_after = code_identity.step_code_hash(str(step_dir))
+
+    assert h_before != h_after
+
+
+def test_step_code_hash_changes_on_manifest_edit(tmp_path):
+    """Editing a manifest.json file produces a different hash."""
+    step_dir = tmp_path / "step_1_99_test"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('hello')")
+    (step_dir / "manifest.json").write_text('{"id": "test"}')
+
+    h_before = code_identity.step_code_hash(str(step_dir))
+    (step_dir / "manifest.json").write_text('{"id": "test", "v": 2}')
+    h_after = code_identity.step_code_hash(str(step_dir))
+
+    assert h_before != h_after
+
+
+def test_step_code_hash_ignores_md_files(tmp_path):
+    """Editing a .md file does NOT change the hash - prose is not code."""
+    step_dir = tmp_path / "step_1_99_test"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('hello')")
+    (step_dir / "manifest.json").write_text('{"id": "test"}')
+    (step_dir / "handoff.md").write_text("# Original")
+
+    h_before = code_identity.step_code_hash(str(step_dir))
+    (step_dir / "handoff.md").write_text("# Rewritten entirely")
+    h_after = code_identity.step_code_hash(str(step_dir))
+
+    assert h_before == h_after
+
+
+def test_step_code_hash_ignores_pycache(tmp_path):
+    """__pycache__ directories do not affect the hash."""
+    step_dir = tmp_path / "step_1_99_test"
+    step_dir.mkdir()
+    (step_dir / "step.py").write_text("print('hello')")
+
+    h_before = code_identity.step_code_hash(str(step_dir))
+    pycache = step_dir / "__pycache__"
+    pycache.mkdir()
+    (pycache / "step.cpython-312.pyc").write_bytes(b"\x00\x00bytecode")
+    h_after = code_identity.step_code_hash(str(step_dir))
+
+    assert h_before == h_after
+
+
+def test_changed_code_invalidates_preflight_cache(tmp_path, monkeypatch):
+    """THE done-check for this fix: cache a value, change the code, the
+    cached value is NOT reused.
+
+    This is the defect that prompted this entire change - three commits
+    of work read a path that never fired because the cache survived a
+    code fix.
+    """
+    # Create fake step directories with source files.
+    steps_root = tmp_path / "steps"
+    scan_dir = steps_root / "step_1_01_scan_project"
+    scan_dir.mkdir(parents=True)
+    (scan_dir / "step.py").write_text("# original scan code")
+    (scan_dir / "manifest.json").write_text('{"id": "scan"}')
+
+    temporal_dir = steps_root / "step_1_04_temporal_index"
+    temporal_dir.mkdir(parents=True)
+    (temporal_dir / "step.py").write_text("# original temporal code")
+    (temporal_dir / "manifest.json").write_text('{"id": "temporal_index"}')
+
+    # Build nodes dict that get_step_dir can resolve.
+    fake_nodes = {
+        "scan": {"step_ref": "steps/step_1_01_scan_project"},
+        "temporal_index": {"step_ref": "steps/step_1_04_temporal_index"},
+        "creative_direction": {"step_ref": "steps/step_2_01_creative_direction"},
+    }
+    stage_by_node = {
+        "scan": step_ledger.PREFLIGHT,
+        "temporal_index": step_ledger.PREFLIGHT,
+        "creative_direction": step_ledger.EDIT,
+    }
+    manifests = {
+        "scan": MANIFESTS["scan"],
+        "temporal_index": MANIFESTS["temporal_index"],
+        "creative_direction": MANIFESTS["creative_direction"],
+    }
+
+    # Monkey-patch LIBRARY_ROOT to use our temp directory.
+    monkeypatch.setattr(runner, "LIBRARY_ROOT", steps_root.parent)
+
+    # State with completed preflight steps.
+    state = {
+        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
+            "scan": {"completed_at": "2026-08-20T10:00:00"},
+            "temporal_index": {"completed_at": "2026-08-20T10:00:00"},
+        },
+        step_ledger.LEDGER_KEY[step_ledger.EDIT]: {
+            "creative_direction": {"completed_at": "2026-08-20T11:00:00"},
+        },
+    }
+
+    # First run: adopt current hashes.
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == []  # nothing invalidated on adoption
+    assert step_ledger.is_completed(state, "scan")
+    assert step_ledger.is_completed(state, "temporal_index")
+    assert step_ledger.CODE_FINGERPRINTS_KEY in state
+
+    # Now change the scan step's code.
+    (scan_dir / "step.py").write_text("# FIXED scan code with new field")
+
+    # Second run: scan should be invalidated, temporal_index should survive.
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert "scan" in result, "changed code must invalidate the cache"
+    assert "temporal_index" not in result, (
+        "unchanged code must NOT invalidate the cache")
+
+    assert not step_ledger.is_completed(state, "scan"), (
+        "scan must be removed from the ledger after code change")
+    assert step_ledger.is_completed(state, "temporal_index"), (
+        "temporal_index must remain completed - its code did not change")
+    assert step_ledger.is_completed(state, "creative_direction"), (
+        "edit steps must be untouched by code identity checks")
+
+
+def test_unchanged_code_still_hits_cache(tmp_path, monkeypatch):
+    """The cache still works for unchanged code - this is NOT a disabled
+    cache with extra steps.
+
+    Without this test passing alongside the invalidation test, the fix
+    would be indistinguishable from simply disabling the cache, which
+    costs 69 minutes of cold vision analysis per run.
+    """
+    steps_root = tmp_path / "steps"
+    scan_dir = steps_root / "step_1_01_scan_project"
+    scan_dir.mkdir(parents=True)
+    (scan_dir / "step.py").write_text("# scan code")
+    (scan_dir / "manifest.json").write_text('{"id": "scan"}')
+
+    fake_nodes = {"scan": {"step_ref": "steps/step_1_01_scan_project"}}
+    stage_by_node = {"scan": step_ledger.PREFLIGHT}
+    manifests = {"scan": MANIFESTS["scan"]}
+
+    monkeypatch.setattr(runner, "LIBRARY_ROOT", steps_root.parent)
+
+    state = {
+        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
+            "scan": {"completed_at": "2026-08-20T10:00:00"},
+        },
+    }
+
+    # First run: adopt.
+    runner.apply_code_identity(state, stage_by_node, manifests, fake_nodes)
+    assert step_ledger.is_completed(state, "scan")
+
+    # Second run: same code, cache should survive.
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == [], "unchanged code must not invalidate"
+    assert step_ledger.is_completed(state, "scan"), (
+        "the cache must still work for unchanged code")
+
+    # Third run: still the same code, still cached.
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == []
+    assert step_ledger.is_completed(state, "scan")
+
+
+def test_first_encounter_adopts_without_invalidating(tmp_path, monkeypatch):
+    """A project that has never carried code hashes must not be wiped.
+
+    This matches the adoption pattern apply_source_identity uses for
+    footage fingerprints on first encounter.
+    """
+    steps_root = tmp_path / "steps"
+    scan_dir = steps_root / "step_1_01_scan_project"
+    scan_dir.mkdir(parents=True)
+    (scan_dir / "step.py").write_text("# scan code")
+    (scan_dir / "manifest.json").write_text('{"id": "scan"}')
+
+    fake_nodes = {"scan": {"step_ref": "steps/step_1_01_scan_project"}}
+    stage_by_node = {"scan": step_ledger.PREFLIGHT}
+    manifests = {"scan": MANIFESTS["scan"]}
+
+    monkeypatch.setattr(runner, "LIBRARY_ROOT", steps_root.parent)
+
+    state = {
+        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
+            "scan": {"completed_at": "2026-08-20T10:00:00"},
+        },
+        # No CODE_FINGERPRINTS_KEY - simulates pre-upgrade state.
+    }
+
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == [], "first encounter must adopt, not invalidate"
+    assert step_ledger.is_completed(state, "scan"), (
+        "the step must remain completed on first encounter")
+    assert step_ledger.CODE_FINGERPRINTS_KEY in state, (
+        "hashes must be recorded for next run")
+
+
+def test_code_identity_does_not_touch_edit_steps(tmp_path, monkeypatch):
+    """Edit steps are not checked or invalidated by code identity."""
+    steps_root = tmp_path / "steps"
+    edit_dir = steps_root / "step_2_01_creative_direction"
+    edit_dir.mkdir(parents=True)
+    (edit_dir / "step.py").write_text("# creative code")
+    (edit_dir / "manifest.json").write_text('{"id": "creative_direction"}')
+
+    fake_nodes = {
+        "creative_direction": {
+            "step_ref": "steps/step_2_01_creative_direction"
+        },
+    }
+    stage_by_node = {"creative_direction": step_ledger.EDIT}
+    manifests = {"creative_direction": MANIFESTS["creative_direction"]}
+
+    monkeypatch.setattr(runner, "LIBRARY_ROOT", steps_root.parent)
+
+    state = {
+        step_ledger.LEDGER_KEY[step_ledger.EDIT]: {
+            "creative_direction": {"completed_at": "2026-08-20T11:00:00"},
+        },
+        step_ledger.CODE_FINGERPRINTS_KEY: {},
+    }
+
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == []
+    assert step_ledger.is_completed(state, "creative_direction")
+
+
+def test_real_step_directories_produce_a_hash():
+    """Every real preflight step directory hashes without error."""
+    preflight_steps = [
+        "step_1_01_scan_project",
+        "step_1_02_catalog_footage",
+        "step_1_03_semantic_analysis",
+        "step_1_04_temporal_index",
+        "step_1_05_prosody_analysis",
+    ]
+    for name in preflight_steps:
+        step_dir = STEPS_ROOT / name
+        h = code_identity.step_code_hash(str(step_dir))
+        assert h is not None, f"{name} produced no hash"
+        assert len(h) == 64, f"{name} hash is not SHA-256"
+

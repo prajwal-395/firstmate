@@ -77,7 +77,7 @@ One enumeration: `library/tools/step_ledger.py`.
 - `music_analysis` (2.06) is edit: it enriches a CHOSEN asset, and the choice is what an edit reset discards.
 - Per-clip granularity works because each step declares where its per-clip artifacts live, in `classification.per_clip_artifacts`.  **Add a per-clip artifact and you must declare it**, or nothing can invalidate it.
 - Preflight is skipped once done, and that is safe because identity is checked. `library/tools/footage_identity.py` fingerprints each clip by size plus a digest of its first and last mebibyte - not a whole-file hash and NOT mtime - against `source_fingerprints` in the state file.
-- **The identity check watches the FOOTAGE, not the CODE. A fix that adds a field to a preflight output is invisible to it**, so a cached step keeps answering in the old shape.
+- **The identity check watches the FOOTAGE and the CODE.** `library/tools/code_identity.py` hashes each preflight step's source files (.py, .json) against `preflight_code_hashes` in the state file. A fix to a preflight step invalidates its cached output on the next run.
 - **A project's own declarations do NOT travel in a preflight cache.** `project_config` carries only `brand_registry.PROJECT_CONFIG_KEYS`, and `pipeline.framing_intent`, `pipeline.subtitle_typography` and the rest of the `pipeline:` block are read straight off `project.yaml` at the point of use, every run.  The mechanism is one declared field, one split ledger, one re-run flag, one identity check.
 - The per-clip index lives with the PROJECT: it resolves from `project_folder`, not the runner's CWD, and reuses any per-clip file already there instead of re-transcribing it.
 """
@@ -102,6 +102,10 @@ LEGACY_LEDGER_KEY = "steps_completed"
 
 # The project-level record of the footage the preflight stage last saw.
 SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
+
+# The project-level record of the code that produced each preflight cache.
+# {node_id: hash_hex} - see library/tools/code_identity.py.
+CODE_FINGERPRINTS_KEY = "preflight_code_hashes"
 
 
 class LedgerError(ValueError):

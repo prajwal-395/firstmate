@@ -63,7 +63,7 @@ from library.tools import (brief_attachment, briefing_interview,
                            post_bridge_retry, run_restart, second_pass,
                            undetermined)
 from library.tools import run_control
-from library.tools import footage_identity, step_ledger
+from library.tools import footage_identity, code_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
 from library.tools import external_inputs, run_scope, run_archive
@@ -714,6 +714,64 @@ def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
 
     state[step_ledger.SOURCE_FINGERPRINTS_KEY] = current
     return delta
+
+
+def apply_code_identity(state: dict, stage_by_node: dict,
+                        manifests: dict, nodes: dict):
+    """Invalidate cached preflight work whose step code has changed.
+
+    The companion to ``apply_source_identity``: that one watches the
+    footage, this one watches the code.  Together they make "preflight
+    is skipped once done" safe rather than merely fast.
+
+    On a project that has never carried code hashes (every project
+    before this check existed), the current hashes are ADOPTED without
+    invalidating anything - the same pattern ``apply_source_identity``
+    uses for a project with no recorded footage fingerprints.  The check
+    earns its keep from the second run onward.
+    """
+    # Build {node_id: step_dir_path} for every preflight step.
+    preflight_dirs = {}
+    for node_id, stage in stage_by_node.items():
+        if stage != step_ledger.PREFLIGHT:
+            continue
+        node = nodes.get(node_id)
+        if not node:
+            continue
+        step_dir = get_step_dir(node)
+        preflight_dirs[node_id] = str(step_dir)
+
+    current = code_identity.code_hashes_for(preflight_dirs)
+    recorded = state.get(step_ledger.CODE_FINGERPRINTS_KEY)
+
+    if not recorded:
+        # First run under the new bookkeeping. Adopt, do not invalidate.
+        state[step_ledger.CODE_FINGERPRINTS_KEY] = current
+        return []
+
+    invalidated = []
+    for node_id, current_hash in current.items():
+        recorded_hash = recorded.get(node_id)
+        if recorded_hash is None:
+            # A step that was added after the hashes were first recorded.
+            # Adopt its current hash.
+            continue
+        if recorded_hash != current_hash:
+            if step_ledger.is_completed(state, node_id):
+                step_ledger.forget(state, node_id)
+                invalidated.append(node_id)
+                print(f"     - {node_id}: re-runs (step code changed)",
+                      file=sys.stderr)
+
+    if invalidated:
+        print(f"  ⚠ Step code changed for "
+              f"{', '.join(sorted(invalidated))} - "
+              f"invalidating their cached preflight output",
+              file=sys.stderr)
+
+    # Always record current hashes so future runs can compare.
+    state[step_ledger.CODE_FINGERPRINTS_KEY] = current
+    return invalidated
 
 
 _EXTERNAL_STATE_CACHE = {}
@@ -2139,6 +2197,7 @@ def run_pipeline(
 
     if not dry_run:
         apply_source_identity(project_dir, state, stage_by_node, manifests)
+        apply_code_identity(state, stage_by_node, manifests, nodes)
         save_pipeline_state(project_dir, state)
 
     # The steps a DEFAULT run of this pipeline would attempt: the whole
