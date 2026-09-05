@@ -15,15 +15,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Mock mlx_vlm before importing vision_pipeline_v3
 mlx_mock = MagicMock()
 mlx_mock.load.return_value = (MagicMock(), MagicMock())
 mlx_mock.generate.return_value = MagicMock(text="[]")
 mlx_prompt_utils = MagicMock()
 mlx_prompt_utils.apply_chat_template.return_value = "prompt"
 mlx_mock.prompt_utils = mlx_prompt_utils
-sys.modules.setdefault("mlx_vlm", mlx_mock)
-sys.modules.setdefault("mlx_vlm.prompt_utils", mlx_prompt_utils)
+
+
+from unittest.mock import patch
+@pytest.fixture(autouse=True)
+def mock_mlx_functions():
+    with patch("library.tools.analysis.vision_pipeline_v3.load", mlx_mock.load), \
+         patch("library.tools.analysis.vision_pipeline_v3.generate", mlx_mock.generate), \
+         patch("library.tools.analysis.vision_pipeline_v3.apply_chat_template", mlx_prompt_utils.apply_chat_template):
+        yield
 
 from library.tools.analysis.vision_pipeline_v3 import (
     _complement_ranges,

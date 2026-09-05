@@ -144,11 +144,13 @@ def test_the_suite_prints_why_a_test_skipped():
     This is what made hole 2 invisible for the life of the workflow: the
     summary reported a number, and nothing said what went unmeasured.
     """
-    run = _step_named("Run Pytest")["run"]
-    assert " -rs" in run or run.rstrip().endswith("-rs"), (
-        "pytest is not asked for skip reasons, so the build reports a skip "
-        "COUNT and never says what it declined to measure"
-    )
+    runs = [s["run"] for s in _steps_named("Run Pytest")]
+    assert len(runs) > 0, "No 'Run Pytest' steps found"
+    for run in runs:
+        assert " -rs" in run or run.rstrip().endswith("-rs"), (
+            f"pytest is not asked for skip reasons in '{run}', so the build reports a skip "
+            "COUNT and never says what it declined to measure"
+        )
 
 
 def test_no_deferral_names_a_file_that_is_gone():

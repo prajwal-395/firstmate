@@ -11,11 +11,17 @@ mlx_mock.generate.return_value = MagicMock(text="[]")
 mlx_prompt_utils = MagicMock()
 mlx_prompt_utils.apply_chat_template.return_value = "prompt"
 mlx_mock.prompt_utils = mlx_prompt_utils
-sys.modules["mlx_vlm"] = mlx_mock
-sys.modules["mlx_vlm.prompt_utils"] = mlx_prompt_utils
 
 # Now we can import the pipeline safely
 from library.tools.analysis import vision_pipeline_v3 as vp
+
+@pytest.fixture(autouse=True)
+def mock_mlx_functions():
+    with patch("library.tools.analysis.vision_pipeline_v3.load", mlx_mock.load), \
+         patch("library.tools.analysis.vision_pipeline_v3.generate", mlx_mock.generate), \
+         patch("library.tools.analysis.vision_pipeline_v3.apply_chat_template", mlx_prompt_utils.apply_chat_template):
+        yield
+
 
 @pytest.fixture
 def sample_temporal_index():

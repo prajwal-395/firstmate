@@ -5,17 +5,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 import numpy as np
 
-# Mock heavy dependencies BEFORE importing the module
-sys.modules['transformers'] = MagicMock()
-sys.modules['speechbrain'] = MagicMock()
-sys.modules['torchaudio'] = MagicMock()
-
-# Mock parselmouth
-mock_parselmouth = MagicMock()
-mock_praat = MagicMock()
-mock_parselmouth.praat = mock_praat
-sys.modules['parselmouth'] = mock_parselmouth
-sys.modules['parselmouth.praat'] = mock_praat
 
 # Now import the module to test
 from library.tools.analysis.speech_advanced_pipeline import (

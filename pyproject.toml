@@ -11,3 +11,6 @@ testpaths = [
     "tests",
     "library/tools/fusion/tests",
 ]
+markers = [
+    "heavy_ml: marks tests that require heavy ml dependencies like whisperx or parselmouth",
+]

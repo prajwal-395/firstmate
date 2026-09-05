@@ -557,7 +557,6 @@ def test_a_plan_with_nothing_in_it_is_not_a_failure(tmp_path):
 # costs nothing - but it is now load-bearing, and this is what holds it.
 
 sys.path.insert(0, str(REPO / "library" / "steps" / "step_6_01_render"))
-sys.modules.setdefault("DaVinciResolveScript", MagicMock())
 
 
 class _BuildProject(FakeProject):

@@ -25,15 +25,9 @@ _EXECUTION_DIR = os.path.join(
 )
 
 
-class _FakeDvr:
-    """Minimal stand-in for DaVinciResolveScript."""
-    @staticmethod
-    def scriptapp(name):
-        return None
 
 
 # Inject the fake before importing the module under test.
-sys.modules.setdefault("DaVinciResolveScript", _FakeDvr)
 if _EXECUTION_DIR not in sys.path:
     sys.path.insert(0, _EXECUTION_DIR)
 
@@ -96,7 +90,6 @@ class MockMediaPoolItem:
     def GetClipProperty(self, prop):
         if prop == "File Path":
             return self._path
-        return None
 
 
 class MockTimelineItem:

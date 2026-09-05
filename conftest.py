@@ -74,3 +74,37 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 def pytest_sessionfinish(session, exitstatus):
     if _undeclared:
         session.exitstatus = 1
+
+
+import sys
+import pytest
+
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Fail immediately if a test module globally mocked sys.modules during import."""
+    import sys
+    import inspect
+    leaked = []
+    for k, v in sys.modules.items():
+        if v is not None and not inspect.ismodule(v) and "Mock" in type(v).__name__:
+            leaked.append(f"{k} ({type(v).__name__})")
+    
+    if leaked:
+        raise RuntimeError(f"Global module-level mock leak detected during collection: {', '.join(leaked)}. Never assign Mocks to sys.modules at the module level.")
+
+import pytest
+@pytest.fixture(autouse=True, scope="function")
+def guard_sys_modules_against_test_leaks():
+    """Fail if a test leaks a mock into sys.modules during execution."""
+    yield
+    import sys
+    import inspect
+    leaked = []
+    for k, v in list(sys.modules.items()):
+        if v is not None and not inspect.ismodule(v) and "Mock" in type(v).__name__:
+            leaked.append(f"{k} ({type(v).__name__})")
+            del sys.modules[k]
+    
+    if leaked:
+        pytest.fail(f"Test leaked mock objects into sys.modules: {', '.join(leaked)}")

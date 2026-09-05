@@ -20,10 +20,6 @@ from library.tools.visual_qa_prompts import (
 )
 from library.tools.timeline_qa import VisualQACheck
 
-import sys
-sys.modules['library.tools.video_segment_analyzer'] = MagicMock()
-sys.modules['library.tools.vision_model'] = MagicMock()
-
 
 # --- Mocks ---
 @pytest.fixture

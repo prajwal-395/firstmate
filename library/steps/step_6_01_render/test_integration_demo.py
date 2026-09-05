@@ -27,7 +27,16 @@ os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolv
 # Add our library to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-import DaVinciResolveScript as dvr
+try:
+    import DaVinciResolveScript as dvr
+except ImportError as e:
+    err_msg = str(e)
+    class _MissingDVR:
+        def __getattr__(self, name):
+            def _missing(*args, **kwargs):
+                raise RuntimeError(f"DaVinciResolveScript is not installed: {err_msg}")
+            return _missing
+    dvr = _MissingDVR()
 from fusion_comp_generator import generate_comp, write_comp
 from fusion_transition_generator import generate_transition_comp, write_transition_comp
 

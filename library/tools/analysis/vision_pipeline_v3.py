@@ -28,8 +28,14 @@ from pathlib import Path
 
 import numpy as np
 
-from mlx_vlm import load, generate
-from mlx_vlm.prompt_utils import apply_chat_template
+try:
+    from mlx_vlm import load, generate
+    from mlx_vlm.prompt_utils import apply_chat_template
+except ImportError as e:
+    err_msg = str(e)
+    def _missing_mlx(*args, **kwargs):
+        raise RuntimeError(f"mlx_vlm is not installed. To run the vision pipeline, install mlx_vlm (macOS only): {err_msg}")
+    load = generate = apply_chat_template = _missing_mlx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from model_lifecycle import managed_model

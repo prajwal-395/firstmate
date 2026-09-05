@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [ main ]
   workflow_dispatch:
 
@@ -12,6 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  path-filter:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code_changed }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          code_changed:
+            - 'library/**'
+            - 'tests/**'
+            - 'requirements.txt'
+            - '.github/**'
+            - 'pyproject.toml'
+
   fast-checks:
     runs-on: ubuntu-latest
     steps:
@@ -48,6 +69,15 @@ jobs:
         ruff check library/ tests/ --statistics || true
 
   full-suite:
+    needs: path-filter
+    if: |
+      !cancelled() &&
+      needs.path-filter.outputs.code_changed != 'false' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && (github.event.action == 'ready_for_review' || (github.event.action == 'labeled' && github.event.label.name == 'run-tests')))
+      )
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -82,7 +112,58 @@ jobs:
         
     - name: Run Pytest
       run: |
-        python -m pytest tests/ -rs --tb=short
+        python -m pytest tests/ -m "not heavy_ml" -rs --tb=short
+    - name: Report disk usage (after install)
+      if: always()
+      run: |
+        echo "Disk usage after dependency installation:"
+        df -h
+
+  heavy-ml-suite:
+    needs: path-filter
+    if: |
+      !cancelled() &&
+      needs.path-filter.outputs.code_changed != 'false' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ml')
+      )
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+        
+    - name: Report disk usage and free space
+      run: |
+        echo "Disk usage before freeing space:"
+        df -h
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+        echo "Disk usage after freeing space:"
+        df -h
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest ruff httpx2
+        pip install -r requirements.txt
+
+    - name: Install ffmpeg and espeak
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends ffmpeg espeak
+        ffmpeg -version | head -1
+        espeak --version | head -1
+        
+    - name: Run Pytest
+      run: |
+        python -m pytest tests/ -m heavy_ml -rs --tb=short
+
     - name: Report disk usage (after install)
       if: always()
       run: |

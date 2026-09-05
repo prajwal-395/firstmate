@@ -85,4 +85,4 @@ if "DaVinciResolveScript" not in sys.modules:
     try:
         import DaVinciResolveScript  # noqa: F401
     except ImportError:
-        sys.modules["DaVinciResolveScript"] = MagicMock()
+        pass

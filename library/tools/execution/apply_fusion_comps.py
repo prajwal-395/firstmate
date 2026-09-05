@@ -40,7 +40,16 @@ import tempfile
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
 os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-import DaVinciResolveScript as dvr
+try:
+    import DaVinciResolveScript as dvr
+except ImportError as e:
+    err_msg = str(e)
+    class _MissingDVR:
+        def __getattr__(self, name):
+            def _missing(*args, **kwargs):
+                raise RuntimeError(f"DaVinciResolveScript is not installed or not found on PYTHONPATH: {err_msg}")
+            return _missing
+    dvr = _MissingDVR()
 
 # This module runs both as a script (launched by resolve_build_timeline in
 # its own process) and as `library.tools.execution.apply_fusion_comps`, so

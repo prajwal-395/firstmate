@@ -87,4 +87,4 @@ faiss-cpu>=1.7
 
 # Subtitles subsystem
 # Node.js Remotion used for rendering (see remotion-subtitles)
-mlx_vlm>=0.0.14
+mlx_vlm>=0.0.14; sys_platform == 'darwin'

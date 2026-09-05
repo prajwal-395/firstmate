@@ -9,11 +9,7 @@ from unittest.mock import MagicMock, patch
 # whole session and displaced the real module on a machine that has
 # Resolve. Eighteen tests that need a real connection skipped because of
 # it, reporting "Resolve is not running" on a machine where it was.
-# `setdefault` is the import-time fallback (apply_fusion_comps imports
-# DaVinciResolveScript at module level, so SOMETHING has to be there);
-# the autouse fixture below is what makes the fake this file's own.
 mock_dvr = MagicMock()
-sys.modules.setdefault('DaVinciResolveScript', mock_dvr)
 
 # Add library path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/steps/step_6_01_render')))

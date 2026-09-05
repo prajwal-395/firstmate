@@ -28,9 +28,6 @@ from library.steps.step_5_04_compile_manifest.step import _conform_fields
 
 
 # ── Import the renderer helper under test ──
-# Stub DaVinciResolveScript so the renderer module can be imported.
-if "DaVinciResolveScript" not in sys.modules:
-    sys.modules["DaVinciResolveScript"] = MagicMock()
 
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render"))
 from resolve_build_timeline import _apply_conform
