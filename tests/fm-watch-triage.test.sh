@@ -2481,6 +2481,144 @@ test_afk_paused_changed_pane_hands_off_plain_stale() {
   pass "AFK changed paused panes hand off plain stale identities for daemon-owned pause triage"
 }
 
+test_armed_source_with_explicit_owner_is_absorbed() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid armed_wakes
+  dir=$(make_case armed-source-explicit); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/review.status"
+  window="test:fm-review"
+  mkdir -p "$state/procevent"
+
+  # Idle pane with a paused crew - the shape that surfaces WITHOUT an armed
+  # source (proven by the unarmed divergence test and the existing
+  # live-parked-unarmed case). The armed procevent source is what absorbs it.
+  printf 'idle, lavish review armed\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
+  printf 'paused: hosting the Lavish review, awaiting captain feedback\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle, lavish review armed")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  cat << 'SRC' > "$state/procevent/test-id.source"
+adapter=lavish
+owner=review
+argc=3
+argv:
+lavish-axi
+poll
+/proj/other/artifact.html
+SRC
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · hosting the Lavish review' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; fail "watcher exited for a paused worker with an explicitly owned armed source: $(cat "$out")"
+  fi
+  reap "$pid"
+  armed_wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
+    "$state/.wake-queue" 2>/dev/null || printf 0)
+  [ "$armed_wakes" -eq 0 ] \
+    || fail "an explicitly owned armed source raised $armed_wakes stale alarms"
+  [ ! -s "$out" ] || fail "an explicitly owned armed source printed a wake reason: $(cat "$out")"
+  [ -e "$state/.paused-$key" ] || fail "the armed source did not apply the declared-pause cadence"
+  [ ! -e "$state/.stale-since-$key" ] || fail "the armed source started a wedge timer"
+  pass "armed source with explicit owner is absorbed"
+}
+
+test_unarmed_pause_still_surfaces() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid bare_wakes
+  dir=$(make_case unarmed-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/review.status"
+  window="test:fm-review"
+  mkdir -p "$state/procevent"
+
+  # Idle pane with a paused crew - the shape a live worker parked at a gate takes.
+  # Mirrors the existing live-parked-unarmed divergence test: no busy pane, crew
+  # reports paused from the status log, and no armed check or procevent source.
+  printf 'idle, awaiting captain review\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
+  printf 'paused: waiting for manual captain review\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle, awaiting captain review")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # No procevent source, no custom check - nothing armed.
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting captain review' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || { reap "$pid"; fail "watcher did not surface an unarmed pause: $(cat "$out")"; }
+  bare_wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
+    "$state/.wake-queue" 2>/dev/null || printf 0)
+  [ "$bare_wakes" -ge 1 ] \
+    || fail "an unarmed pause raised no stale alarm: $(cat "$out")"
+  grep -F "stale: $window" "$out" >/dev/null \
+    || fail "unarmed pause did not print a stale wake: $(cat "$out")"
+  pass "unarmed pause still surfaces immediately (no armed source, no custom check)"
+}
+
+test_reused_worktree_slot_stale_source_not_absorbed() {
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid bare_wakes
+  dir=$(make_case reused-worktree-slot); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/review.status"
+  window="test:fm-review"
+  mkdir -p "$state/procevent"
+
+  # Idle pane with a paused crew - same shape as the unarmed divergence test.
+  # A stale procevent source (predating the task) must NOT absorb the pause.
+  printf 'idle, waiting for review\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\nworktree=/proj/review\n' "$window" > "$state/review.meta"
+  # Task created at 01:00
+  touch -t 202601010100 "$state/review.meta"
+  printf 'paused: waiting for review\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle, waiting for review")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # Source created at 00:00 (older than the task!) - no owner= field, and the
+  # worktree path match is guarded by timestamp, so this must be rejected.
+  cat << 'SRC' > "$state/procevent/test-id.source"
+adapter=lavish
+argc=3
+argv:
+lavish-axi
+poll
+/proj/review/artifact.html
+SRC
+  touch -t 202601010000 "$state/procevent/test-id.source"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting review' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || { reap "$pid"; fail "watcher did not surface a stale armed source on a reused slot: $(cat "$out")"; }
+  bare_wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
+    "$state/.wake-queue" 2>/dev/null || printf 0)
+  [ "$bare_wakes" -ge 1 ] \
+    || fail "a stale source raised no stale alarm: $(cat "$out")"
+  grep -F "stale: $window" "$out" >/dev/null \
+    || fail "stale source did not print a stale wake: $(cat "$out")"
+  pass "reused slot with a stale source is NOT absorbed"
+}
 test_signal_reason_is_actionable_classifier
 test_stale_is_terminal_classifier
 test_scan_captain_relevant_statuses_classifier
@@ -2539,3 +2677,6 @@ test_heartbeat_backstop_surfaces_unsurfaced_status
 test_beacon_stays_fresh_while_absorbing
 test_afk_present_reverts_watcher_to_one_shot
 test_afk_paused_changed_pane_hands_off_plain_stale
+test_armed_source_with_explicit_owner_is_absorbed
+test_unarmed_pause_still_surfaces
+test_reused_worktree_slot_stale_source_not_absorbed
