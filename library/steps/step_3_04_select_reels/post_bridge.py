@@ -29,7 +29,12 @@ def resolve(llm_output: dict, data: dict) -> dict:
     transcript = data.get("timeline_transcript") or {}
     duration = float((transcript.get("derived_from") or {})
                      .get("duration_seconds") or 0.0)
-    chosen = llm_output.get("moments") or llm_output.get("reels") or []
+    chosen = (
+        llm_output.get("moments")
+        or llm_output.get("reels")
+        or (llm_output.get("reel_selection") or {}).get("moments")
+        or []
+    )
 
     moments: List[ReelMoment] = []
     dropped: List[dict] = []
@@ -70,11 +75,22 @@ def resolve(llm_output: dict, data: dict) -> dict:
         validate_proposal(moments, transcript, duration or max(
             m.timeline_end for m in moments))
 
+    considered = (
+        llm_output.get("considered")
+        or (llm_output.get("reel_selection") or {}).get("considered")
+        or []
+    )
+    undetermined = (
+        llm_output.get("undetermined")
+        or (llm_output.get("reel_selection") or {}).get("undetermined")
+        or []
+    )
+
     return {
         "reel_selection": {
             "moments": [m.as_dict() for m in moments],
-            "considered": llm_output.get("considered") or [],
-            "undetermined": llm_output.get("undetermined") or [],
+            "considered": considered,
+            "undetermined": undetermined,
             "dropped": dropped,
             "approval": (
                 "every moment is PROPOSED. Nothing is built until the "
@@ -82,3 +98,19 @@ def resolve(llm_output: dict, data: dict) -> dict:
             ),
         }
     }
+
+
+def main():
+    import sys
+    import json
+    import traceback
+    try:
+        data = json.loads(sys.stdin.read())
+        print(json.dumps(resolve(data, data)))
+    except Exception as e:
+        sys.stderr.write(traceback.format_exc())
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -31,19 +31,6 @@ ANSWERER = "answering_speaker"
 
 
 def _speakers(transcript: dict) -> tuple:
-    """Who leads and who answers, and it is REPORTED as an inference.
-
-    The lead is the one asking. Counting question WORDS does not find
-    them: measured on the field-test episode, that named Akshita, because
-    her answers are full of "what your company does" and "how AI sees
-    you" and she has more turns to put them in.
-
-    What separates an interviewer is the SHAPE of their turns - they ask
-    more often per turn and they talk for less time when they do. Both
-    signals are used, and the answer is published in the context as an
-    inference rather than a fact, because a project that knows who hosts
-    it should be able to say so instead of having it guessed.
-    """
     from library.tools.reel_exchange import turns_from_transcript
 
     turns = turns_from_transcript(transcript)
@@ -66,7 +53,6 @@ def _speakers(transcript: dict) -> tuple:
     def mean_turn(speaker: str) -> float:
         return seconds[speaker] / counts[speaker]
 
-    # Asks more often per turn, and says less when they do.
     lead = max(counts, key=lambda s: (ask_rate(s), -mean_turn(s)))
     answerer = max((s for s in counts if s != lead),
                    key=lambda s: seconds[s])
@@ -78,7 +64,6 @@ def _speakers(transcript: dict) -> tuple:
 
 
 def build_context(data: dict) -> dict:
-    """`turns` and `reel_candidates`, as the handoff names them."""
     from library.tools.reel_exchange import (
         LENGTH_GUIDANCE, collapse_overlapping, collapse_retakes,
         exchange_windows)
@@ -97,8 +82,6 @@ def build_context(data: dict) -> dict:
         }
 
     windows = exchange_windows(turns, lead, answerer)
-    # Same stretch first, THEN recorded-twice: doing it the other way
-    # counts five framings of one conversation as five takes of it.
     stretches = collapse_overlapping(windows)
     grouped = collapse_retakes([group[0] for group in stretches])
 
@@ -123,3 +106,18 @@ def build_context(data: dict) -> dict:
         ANSWERER: answerer,
         "who_leads_was_inferred": why,
     }
+
+
+def main():
+    import sys
+    import json
+    import traceback
+    try:
+        data = json.loads(sys.stdin.read())
+        print(json.dumps(build_context(data)))
+    except Exception as e:
+        sys.stderr.write(traceback.format_exc())
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
