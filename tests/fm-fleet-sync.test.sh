@@ -725,12 +725,9 @@ test_non_signature_fetch_failure_is_not_retried
 test_fork_tracking_already_current
 test_fork_tracking_fast_forwards
 test_reversal_is_stuck_with_missing_files() {
-  local home clone out before head_before head_after
+  local home clone out head_after
   home=$(new_home)
   clone=$(build_pair "$home" reversalrepo)
-
-  # Record the current HEAD tree (this is the "pre-merge" state)
-  head_before=$(git -C "$clone" rev-parse HEAD)
 
   # Advance the main branch on origin with a new commit
   advance_origin "$home" reversalrepo C1
