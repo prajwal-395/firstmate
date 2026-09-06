@@ -519,6 +519,78 @@ def check_item_count(reel_name: str,
     return findings
 
 
+def check_plan_describes_timeline(reel_name: str,
+                                 keep_ranges: Sequence[Tuple[float, float]],
+                                 total_frames: int,
+                                 fps: float,
+                                 ) -> List[Finding]:
+    """Refuse F4 when the RE-DERIVED plan is not the plan that was built.
+
+    The picture plan this verifier grades against is not read from a
+    file: `_derive_plan_from_master` recomputes it by calling
+    `reel_build.redundant_takes` and `keep_ranges` with TODAY'S code.
+    That is the plan the build used only while the code has not moved,
+    and on the captain's nineteen it had.  `MIN_TAKE_SECONDS` was
+    removed from `reel_build` in 890a61b at 22:58 on 2026-09-05; the
+    nineteen were built at 14:46 the same day, eight hours earlier.
+    Today's cut rule therefore finds retakes the build never cut - and
+    on reel 06 loses one it did - so the derived plan lays down a
+    different number of picture items over a different number of frames.
+
+    F4 then reported that difference as clips the builder had DROPPED:
+    "planned 6 picture items, found 4 on the timeline", ten such
+    findings across five reels, every one of them the arithmetic
+    consequence of a cut set that never existed.  That reads as an
+    encoding defect and is not one - it is this tool comparing a reel to
+    a plan that never produced it, which is the same failure PR #522 and
+    PR #568 already refuse at the file and the caption level.
+
+    **The test is frame-exact and carries no tolerance.** The plan's
+    length in frames is what `reel_build.placements` lays down -
+    ``int(round(end * fps)) - int(round(start * fps))`` summed over the
+    keep ranges - and that is the same integer arithmetic the builder
+    ran, not an approximation of it. Measured on the nineteen: the two
+    numbers are EQUAL on all fourteen reels whose item counts agree and
+    differ on all five that do not. There is no band between them to
+    choose, so none is chosen.
+
+    A build that genuinely dropped a clip also fails this test, and says
+    so more precisely than F4 did - it names the frames that are missing
+    rather than inferring a cause from an item count. The gate is not
+    weakened: the same builds fail, with a truer message.
+    """
+    # `round()` on a float returns an int, so this IS
+    # `reel_build.placements`' own `int(round(x * fps))` per range edge -
+    # the builder's arithmetic, not an approximation of it.
+    planned_frames = sum(
+        round(end * fps) - round(start * fps)
+        for start, end in keep_ranges)
+    if planned_frames == total_frames:
+        return []
+    delta = total_frames - planned_frames
+    return [Finding(
+        finding_class=FindingClass.PLAN_MISMATCH,
+        reel=reel_name,
+        message=(
+            f"the plan re-derived for this reel lays down "
+            f"{planned_frames} frames and the timeline carries "
+            f"{total_frames} ({delta:+d} frames, "
+            f"{delta / fps:+.2f}s), so it is not the plan that built "
+            f"this reel - F4 is REFUSED rather than reporting the "
+            f"difference as dropped clips"),
+        severity="error",
+        detail={
+            "planned_frames": planned_frames,
+            "timeline_frames": total_frames,
+            "delta_frames": delta,
+            "delta_seconds": round(delta / fps, 3),
+            "keep_ranges": [(round(a, 3), round(b, 3))
+                            for a, b in keep_ranges],
+            "refused": "F4",
+        },
+    )]
+
+
 def check_caption_duration(reel_name: str,
                            planned_captions: Sequence[PlannedCaption],
                            actual_captions: Sequence[TimelineItem],
@@ -741,16 +813,23 @@ def check_caption_coverage(reel_name: str,
     cut runs through mapped to one contiguous reel interval spanning the
     removed take, so seconds the builder had cut out counted as speech.
 
-    **Seconds are ROW SPANS minus caption coverage, and a row's span is
-    not all speech.** WhisperX bridges a silent stretch into the row
+    **Seconds are WORD SPANS minus caption coverage, because a row's
+    span is not speech.** WhisperX bridges a silent stretch into the row
     beside it - 657.4-695.9 is 38.5s carrying nineteen words, and
-    606.3-614.4 is 8.1s carrying the single word "Yeah" - so this number
-    is an upper bound on speech a viewer hears with nothing on screen.
-    Measured word by word on the captain's nineteen, the genuinely
-    uncaptioned SPEECH is 42.8s against the 97.6s of row span this
-    reports. Both are honest and they answer different questions: this
-    one answers "how much of a row the reel plays is uncovered", which is
-    what a caption card is placed against.
+    606.3-614.4 is 8.1s carrying the single word "Yeah". This check used
+    to subtract caption coverage from the ROW ENVELOPE and report the
+    remainder as "speech with no caption", which is what its class
+    docstring, its message and AGENTS.md all say it measures and is not
+    what it measured: on the captain's nineteen it reported 95.1s of
+    uncaptioned speech across twelve reels, up to 32.3s on one, where the
+    silence inside the rows was the overwhelming majority of it.
+
+    The rows carry `words` with per-word start and end, so each word is
+    clipped to the reel separately and the uncovered part of a WORD is
+    what is counted. A row with no word list falls back to its envelope
+    and that fallback is REPORTED, never silent: a transcript that
+    stopped carrying word timings must not quietly turn this check back
+    into the one it replaced (AGENTS.md 10.4).
 
     **Seconds are summed PER ROW, so two uncaptioned rows overlapping each
     other count twice.** This is a two-mic recording and both tracks
@@ -781,23 +860,41 @@ def check_caption_coverage(reel_name: str,
     straddling_uncaptioned = 0.0
     residue_uncaptioned = 0.0
 
+    rows_without_words = 0
+
     for segment in transcript_segments:
         has_item_id = bool(segment.get("resolve_item_id"))
         seg_start = float(segment.get("timeline_start", 0))
         seg_end = float(segment.get("timeline_end", 0))
 
-        uncaptioned = 0.0
-        for reel_start, reel_end in _clip_to_reel(
-                seg_start, seg_end, keep_ranges):
-            # How much of this piece is captioned?
-            captioned = 0.0
-            for c_start, c_end in caption_intervals:
-                overlap_start = max(reel_start, c_start)
-                overlap_end = min(reel_end, c_end)
-                if overlap_end > overlap_start:
-                    captioned += overlap_end - overlap_start
+        # The speech this row carries. Word intervals when the row has
+        # them; its envelope only when it does not, and that is counted
+        # and reported rather than passed off as a word measurement.
+        spoken = [(a, b) for a, b, _ in _row_words(segment)]
+        envelope_only = not spoken
+        if envelope_only:
+            spoken = [(seg_start, seg_end)]
 
-            uncaptioned += (reel_end - reel_start) - captioned
+        uncaptioned = 0.0
+        played = 0.0
+        for spoken_start, spoken_end in spoken:
+            for reel_start, reel_end in _clip_to_reel(
+                    spoken_start, spoken_end, keep_ranges):
+                # How much of this piece is captioned?
+                captioned = 0.0
+                for c_start, c_end in caption_intervals:
+                    overlap_start = max(reel_start, c_start)
+                    overlap_end = min(reel_end, c_end)
+                    if overlap_end > overlap_start:
+                        captioned += overlap_end - overlap_start
+
+                played += reel_end - reel_start
+                uncaptioned += (reel_end - reel_start) - captioned
+
+        # A row the reel does not play cannot be missing a caption on it,
+        # and must not be counted as a row measured on its envelope.
+        if envelope_only and played > 0:
+            rows_without_words += 1
 
         if uncaptioned > 0.01:  # more than 10ms
             if not has_item_id:
@@ -820,6 +917,18 @@ def check_caption_coverage(reel_name: str,
                 "total_uncaptioned_seconds": round(
                     straddling_uncaptioned + residue_uncaptioned, 1),
             },
+        ))
+
+    if rows_without_words:
+        findings.append(Finding(
+            finding_class=FindingClass.F5,
+            reel=reel_name,
+            message=(
+                f"{rows_without_words} transcript row(s) carried no word "
+                f"timings, so their whole envelope was counted as speech "
+                f"- the seconds above are an upper bound for those rows"),
+            severity="warning",
+            detail={"rows_without_word_timings": rows_without_words},
         ))
 
     # Residue is NOT a defect - but report it for visibility if large
@@ -987,6 +1096,38 @@ def check_boundary_speech(reel_name: str,
     segments are invisible to it.  The audit found 11 boundaries that cut
     through a real sentence.
 
+    **A boundary is tested against the row's WORDS, never against the
+    row's outer envelope.**  A straddling row is not a sentence: it is
+    what WhisperX returned for one speaker's isolated track, and its
+    envelope spans every second that speaker was silent inside it.  On
+    the captain's nineteen, row 22.04-47.23s carries "this is a
+    completely different system right" ending at 24.28s and "so give me
+    an example of that difference" starting at 45.41s - twenty-one
+    seconds of that row's envelope is Craig not speaking.  Testing
+    `seg_start < when < seg_end` fired on boundaries that cut nothing:
+    measured over all nineteen, 16 findings, 13 of them landing in a
+    silence between two words of the same row, the nearest word edge as
+    far as 35.8s away.  The rows carry `words` with per-word start and
+    end and always have, so the envelope was never the finest
+    measurement available - it was just the one being read.
+
+    **A row with no word list falls back to its envelope, and SAYS it
+    did.**  A transcript that stopped carrying word timings must not
+    silently switch this check off, which is the vacuous-gate failure
+    this file exists to remove (AGENTS.md 10.4).
+
+    **The word's own duration travels in the finding.**  A word is a
+    tenth of a second; this transcript contains a "well" of 19.04s and
+    another of 34.47s, where the aligner stretched one word across the
+    silence before the speaker resumed.  A reader who sees the duration
+    can tell a cut sentence from a stretched alignment without leaving
+    the report.
+
+    **Boundaries that land inside a row and outside every word are
+    COUNTED AND REPORTED**, not dropped.  A check that narrows what it
+    looks at and does not say so reports a clean reel and tells nobody
+    what it declined to look at.
+
     `ranges` is every master span the reel PLAYS, and every edge of every
     one is a boundary a viewer hears.  A reel that closes on a CTA taken
     from elsewhere in the episode has four such edges, not two, and the
@@ -1016,6 +1157,9 @@ def check_boundary_speech(reel_name: str,
             seen[key] = kind
     boundaries = sorted(seen.items())
 
+    in_row_not_in_word = 0
+    rows_without_words = 0
+
     for segment in transcript_segments:
         seg_start = float(segment.get("timeline_start", 0))
         seg_end = float(segment.get("timeline_end", 0))
@@ -1027,15 +1171,43 @@ def check_boundary_speech(reel_name: str,
 
         text = (segment.get("text") or "")[:60]
         speaker = segment.get("speaker", "unknown")
+        words = _row_words(segment)
+        if not words:
+            rows_without_words += 1
 
         for when, kind in boundaries:
             if not (seg_start < when < seg_end):
                 continue
+
+            cut = _word_at(words, when)
+            if words and cut is None:
+                # Inside the row's envelope, between two of its words -
+                # the row is not speaking here.  Counted, not dropped.
+                in_row_not_in_word += 1
+                continue
+
+            if cut is None:
+                where = (f"row {seg_start:.2f}-{seg_end:.2f}s, which "
+                         f"carries no word timings")
+                detail_word = None
+            else:
+                word_start, word_end, word_text = cut
+                where = (f"the word '{word_text}' "
+                         f"({word_start:.2f}-{word_end:.2f}s, "
+                         f"{word_end - word_start:.2f}s long)")
+                detail_word = {
+                    "word": word_text,
+                    "start": round(word_start, 3),
+                    "end": round(word_end, 3),
+                    "duration_seconds": round(word_end - word_start, 3),
+                }
+
             findings.append(Finding(
                 finding_class=FindingClass.F8,
                 reel=reel_name,
                 message=(
                     f"{kind.upper()} at {when:.2f}s cuts {speaker} "
+                    f"mid-speech, through {where}, in row "
                     f"{seg_start:.2f}-{seg_end:.2f}s "
                     f"\"{text}\""),
                 severity="error",
@@ -1046,10 +1218,60 @@ def check_boundary_speech(reel_name: str,
                     "segment_end": round(seg_end, 2),
                     "speaker": speaker,
                     "text": text,
+                    "word": detail_word,
                 },
             ))
 
+    if in_row_not_in_word or rows_without_words:
+        findings.append(Finding(
+            finding_class=FindingClass.F8,
+            reel=reel_name,
+            message=(
+                f"{in_row_not_in_word} boundary/row overlap(s) landed "
+                f"between two words of a straddling row and cut no "
+                f"speech; {rows_without_words} straddling row(s) carried "
+                f"no word timings and were tested on their envelope"),
+            severity="warning",
+            detail={
+                "in_row_between_words": in_row_not_in_word,
+                "rows_without_word_timings": rows_without_words,
+            },
+        ))
+
     return findings
+
+
+def _row_words(segment: dict) -> List[Tuple[float, float, str]]:
+    """A transcript row's words as (start, end, text), timed ones only.
+
+    A word with no usable interval cannot say whether a boundary lands
+    inside it, so it is not offered as evidence that one did.
+    """
+    out: List[Tuple[float, float, str]] = []
+    for word in (segment.get("words") or ()):
+        try:
+            start = float(word["start"])
+            end = float(word["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        out.append((start, end, str(word.get("word", ""))))
+    return out
+
+
+def _word_at(words: Sequence[Tuple[float, float, str]],
+             when: float) -> Optional[Tuple[float, float, str]]:
+    """The word being spoken at `when`, or None.
+
+    Strictly inside, matching the row test it replaces: a boundary
+    sitting exactly on a word's first or last frame is the edge
+    `snap_to_speech` aims for, not a cut through it.
+    """
+    for start, end, text in words:
+        if start < when < end:
+            return (start, end, text)
+    return None
 
 
 # ── F9: Duplicate placements ─────────────────────────────────────────
@@ -1794,9 +2016,16 @@ def verify_reel(plan: ReelPlan,
     audio_findings = check_audio_holes(plan.reel_name, timeline.audio_items)
     findings.extend(audio_findings)
 
-    # F4: Item count and per-speaker duration
-    findings.extend(check_item_count(
-        plan.reel_name, plan.placements, timeline.video_items, fps))
+    # F4: Item count and per-speaker duration - only against a plan that
+    # demonstrably describes THIS timeline.  See
+    # `check_plan_describes_timeline` for what a re-derived plan is worth.
+    plan_ranges = plan.keep_ranges or ((plan.span_start, plan.span_end),)
+    not_this_plan = check_plan_describes_timeline(
+        plan.reel_name, plan_ranges, timeline.total_frames, fps)
+    findings.extend(not_this_plan)
+    if not not_this_plan:
+        findings.extend(check_item_count(
+            plan.reel_name, plan.placements, timeline.video_items, fps))
 
     # F9: Duplicate placements at same record position
     findings.extend(check_duplicate_placements(
@@ -1856,12 +2085,18 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_caption_duration(
             plan.reel_name, plan.captions, timeline.caption_items, fps))
 
-    # F5, F6 and F7 read the CARDS rather than the placed items, because
-    # they measure coverage, overlap and length in reel seconds.  The
+    # F6 and F7 read the CARDS rather than the placed items, because they
+    # measure overlap and length against what the plan asked for.  The
     # plan's own derived cards are the reference when the caller passes
     # none, which is every real run: `verify_built_reels` never passed
-    # `caption_cards`, so all three were skipped on live builds even
-    # before the plan side was empty.
+    # `caption_cards`, so both were skipped on live builds even before the
+    # plan side was empty.
+    #
+    # F5 no longer reads these - it reads the cards ON THE TIMELINE, for
+    # the reason spelled out below.  F6 and F7 still grade the re-derived
+    # plan, which is the same reference F2 above now REFUSES without a
+    # recorded baseline; extending that refusal to them is owed work, not
+    # something this comment should imply is already done.
     cards = caption_cards if caption_cards is not None else [
         {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
          "text": c.text, "speaker": c.speaker, "frames": c.frames,
@@ -1869,10 +2104,36 @@ def verify_reel(plan: ReelPlan,
          "block_end": c.block_end_seconds}
         for c in plan.captions]
 
-    # F5: Caption coverage
-    if have_reference and transcript_segments:
+    # F5: Caption coverage, measured against THE CARDS ON THE TIMELINE.
+    #
+    # F5 answers "how much speech plays with nothing on screen", and only
+    # a card that was placed is on screen.  It used to be handed `cards`
+    # - the plan's cards, RE-DERIVED here from today's code - and on the
+    # captain's nineteen that reference is not what was built: 832 cards
+    # derived against 763 placed, differing on every reel.  Grading
+    # coverage against cards that do not exist reported 95.1s of
+    # uncaptioned speech where the placed cards leave 6.3s, and 19.9s on
+    # reel 05 where the placed cards leave none.
+    #
+    # This is the rule F11 already applies one check along - read the
+    # cards on the timeline, not the config that asked for them - and
+    # for the same reason: a gate that grades the request rather than
+    # the output passes when the output disagrees with it.
+    #
+    # A reel with no cards at all is NOT measured here: that is either a
+    # `--skip-captions` build or captions planned and never built, and
+    # `check_caption_reference` above has already said which.
+    placed_cards = [
+        {"reel_start": item.start_frame / fps,
+         "reel_end": (item.start_frame + item.duration_frames) / fps,
+         "text": item.name,
+         "speaker": _caption_speaker(item),
+         "frames": item.duration_frames}
+        for item in timeline.caption_items]
+
+    if have_reference and transcript_segments and placed_cards:
         findings.extend(check_caption_coverage(
-            plan.reel_name, transcript_segments, cards,
+            plan.reel_name, transcript_segments, placed_cards,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
             fps))
 
@@ -2516,6 +2777,21 @@ def run_verification(
     print(f"Master:  {master_name}", file=err)
     print(f"Reels:   {len(reel_timelines)}", file=err)
 
+    # A check that was never asked is not a check that passed.  Without a
+    # transcript there is no speech to measure coverage or boundaries
+    # against and no bad-take cuts to derive, so the run says which
+    # checks did not run rather than printing a table with their columns
+    # at zero (AGENTS.md 10.4).
+    if not transcript:
+        not_run = "F5 (caption coverage) and F8 (boundary speech)"
+        print(f"Transcript: NONE - {not_run} DID NOT RUN, and the "
+              f"bad-take cuts are underived, so the plan is the "
+              f"uncut span. Pass --transcript to measure them.",
+              file=err)
+    else:
+        print(f"Transcript: {len(transcript.get('segments') or ())} rows",
+              file=err)
+
     # ── Snapshot everything BEFORE (for read-only proof) ─────────────
     print("Reading all timelines (before hash)...", file=err)
     before_hashes = {}
@@ -2777,12 +3053,20 @@ def main(argv=None) -> int:
     Every Resolve call is a getter.  Read-only is proven by hashing
     every timeline's snapshot before and after and comparing.
 
+    **`--transcript` is what lets F5 and F8 run at all.**  The build gate
+    (`reel_build.verify_built_reels`) has always passed one; the CLI had
+    no way to, so a human running this tool by hand got a report with the
+    caption-coverage and boundary-speech checks silently absent and no
+    line saying so.  A gate that cannot fail is worse than no gate
+    (AGENTS.md 10.4), and one that is not asked is the same thing.
+
     Usage::
 
         python3 -m library.tools.reel_conformance_verifier \\
             --project "Podcast (field test)" \\
             --master "GEO Podcast - Synced" \\
             [--plan reel_proposal.json] \\
+            [--transcript transcript.json] \\
             [--json output.json]
     """
     import argparse
@@ -2804,6 +3088,12 @@ def main(argv=None) -> int:
         help="Path to reel_proposal.json plan file (optional; derives "
              "from master if absent)")
     parser.add_argument(
+        "--transcript", default="",
+        help="Path to the timeline transcript "
+             "(pipeline_output/scratch/timeline_transcript/transcript.json). "
+             "F5, F8 and the bad-take cuts cannot be measured without it; "
+             "omitted, the run SAYS they did not run")
+    parser.add_argument(
         "--json", default="",
         help="Path to write machine-readable JSON output")
     parser.add_argument(
@@ -2812,10 +3102,20 @@ def main(argv=None) -> int:
              "(defaults to the plan file's parent directory)")
     args = parser.parse_args(argv)
 
+    transcript = None
+    if args.transcript:
+        if not os.path.isfile(args.transcript):
+            print(f"FATAL: no transcript at {args.transcript}",
+                  file=sys.stderr)
+            return 2
+        with open(args.transcript, encoding="utf-8") as handle:
+            transcript = json.load(handle)
+
     return run_verification(
         project_name=args.project,
         master_name=args.master,
         plan_path=args.plan,
+        transcript=transcript,
         json_path=args.json,
         review_dir=args.review_dir,
     )

@@ -37,6 +37,7 @@ from library.tools.reel_conformance_verifier import (
     check_format,
     check_item_count,
     check_picture_holes,
+    check_plan_describes_timeline,
     check_plan_length,
     check_plan_picture_continuity,
     check_plan_speakers,
@@ -98,6 +99,35 @@ def _caption_card(start: float, end: float, text: str,
         "text": text,
         "speaker": speaker,
         "frames": frames,
+    }
+
+
+def _row(start: float, end: float, speaker: str = "Craig",
+         text: str = "some speech", item_id=None,
+         words: tuple | None = None,
+         speaking: tuple | None = None) -> dict:
+    """A transcript row, with the word timings the checks measure.
+
+    `speaking` is the stretches this speaker is actually audible, as
+    (start, end) pairs; each becomes one word.  Omitted, the row speaks
+    for its whole envelope, which is the shape a fixture wants when the
+    envelope and the speech are the same thing.
+
+    `words=()` builds a row with NO word timings at all - the shape a
+    transcript takes when alignment produced none, and the case both F5
+    and F8 must fall back on and REPORT rather than skip.
+    """
+    if words is None:
+        spans = speaking if speaking is not None else ((start, end),)
+        words = tuple({"word": f"w{i}", "start": a, "end": b, "timed": True}
+                      for i, (a, b) in enumerate(spans))
+    return {
+        "timeline_start": start,
+        "timeline_end": end,
+        "resolve_item_id": item_id,
+        "speaker": speaker,
+        "text": text,
+        "words": list(words),
     }
 
 
@@ -488,13 +518,9 @@ class TestF5CaptionCoverage:
         """
         segments = [
             # Bound segment - has caption coverage
-            {"timeline_start": 0.0, "timeline_end": 10.0,
-             "resolve_item_id": "uid-1", "speaker": "Akshita",
-             "text": "hello world"},
+            _row(0.0, 10.0, "Akshita", "hello world", item_id="uid-1"),
             # Straddling segment - NO resolve_item_id, NO caption
-            {"timeline_start": 10.0, "timeline_end": 18.0,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "this straddles a cut"},
+            _row(10.0, 18.0, "Craig", "this straddles a cut"),
         ]
         # Only one caption covering the bound segment
         captions = [_caption_card(0.0, 10.0, "hello world")]
@@ -519,9 +545,8 @@ class TestF5CaptionCoverage:
         """
         segments = [
             # Begins 5s BEFORE the reel and runs 5s into it, uncaptioned.
-            {"timeline_start": 5.0, "timeline_end": 15.0,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "a row the reel starts in the middle of"},
+            _row(5.0, 15.0, "Craig",
+                 "a row the reel starts in the middle of"),
         ]
         keep_ranges = [(10.0, 20.0)]
 
@@ -540,9 +565,8 @@ class TestF5CaptionCoverage:
         speech that needed a caption.
         """
         segments = [
-            {"timeline_start": 0.0, "timeline_end": 30.0,
-             "resolve_item_id": None, "speaker": "Akshita",
-             "text": "a row with a bad take taken out of its middle"},
+            _row(0.0, 30.0, "Akshita",
+                 "a row with a bad take taken out of its middle"),
         ]
         # 10s removed from the middle: the reel plays 20s of this row.
         keep_ranges = [(0.0, 10.0), (20.0, 30.0)]
@@ -557,9 +581,8 @@ class TestF5CaptionCoverage:
     def test_row_the_reel_does_not_play_is_not_counted(self):
         """"Not in this reel" stays a real answer, not a clipped zero."""
         segments = [
-            {"timeline_start": 100.0, "timeline_end": 110.0,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "somewhere else in the episode entirely"},
+            _row(100.0, 110.0, "Craig",
+                 "somewhere else in the episode entirely"),
         ]
         findings = check_caption_coverage(
             "Reel 05", segments, [], [(0.0, 20.0)], FPS)
@@ -568,9 +591,7 @@ class TestF5CaptionCoverage:
     def test_fully_captioned_no_findings(self):
         """All speech covered by captions produces no findings."""
         segments = [
-            {"timeline_start": 0.0, "timeline_end": 10.0,
-             "resolve_item_id": "uid-1", "speaker": "Akshita",
-             "text": "hello world"},
+            _row(0.0, 10.0, "Akshita", "hello world", item_id="uid-1"),
         ]
         captions = [_caption_card(0.0, 10.0, "hello world")]
         keep_ranges = [(0.0, 10.0)]
@@ -651,10 +672,9 @@ class TestF8BoundarySpeech:
         that snap_to_speech cannot see (straddling segments).
         """
         segments = [
-            # Straddling segment - no resolve_item_id
-            {"timeline_start": 155.81, "timeline_end": 179.97,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "bunch of terms blogs and whatnot"},
+            # Straddling segment - no resolve_item_id, speaking throughout
+            _row(155.81, 179.97, "Craig",
+                 "bunch of terms blogs and whatnot"),
         ]
         # Reel END at 179.46 cuts through segment [155.81, 179.97]
         findings = check_boundary_speech(
@@ -667,9 +687,8 @@ class TestF8BoundarySpeech:
     def test_detects_start_boundary_cutting_speech(self):
         """Plant a straddling segment cut by the reel START boundary."""
         segments = [
-            {"timeline_start": 461.26, "timeline_end": 477.18,
-             "resolve_item_id": None, "speaker": "Akshita",
-             "text": "Yeah so ranking number one on Google"},
+            _row(461.26, 477.18, "Akshita",
+                 "Yeah so ranking number one on Google"),
         ]
         # Reel START at 463.44 cuts through segment [461.26, 477.18]
         findings = check_boundary_speech(
@@ -681,9 +700,7 @@ class TestF8BoundarySpeech:
     def test_bound_segment_not_reported(self):
         """A bound segment (has resolve_item_id) should not be F8."""
         segments = [
-            {"timeline_start": 155.81, "timeline_end": 179.97,
-             "resolve_item_id": "uid-1", "speaker": "Craig",
-             "text": "this is bound"},
+            _row(155.81, 179.97, "Craig", "this is bound", item_id="uid-1"),
         ]
         findings = check_boundary_speech(
             "Reel 02", span_start=112.0, span_end=179.46,
@@ -1054,8 +1071,15 @@ class TestVerifyReel:
     """End-to-end test of verify_reel with planted defects."""
 
     def test_clean_reel_passes(self):
-        """A reel with no defects should produce no errors."""
+        """A reel with no defects should produce no errors.
+
+        The plan's span is the timeline's own length in frames: a clean
+        reel is one whose plan describes it, and a plan that lays down a
+        different number of frames is refused by
+        `check_plan_describes_timeline` before F4 is asked anything.
+        """
         plan = _plan(
+            span_end=int(25 * FPS) / FPS,
             placements=(
                 _placement(1, 0.0, 25.0, "Akshita"),
                 _placement(2, 0.0, 25.0, "Craig"),
@@ -1096,8 +1120,16 @@ class TestVerifyReel:
         assert len(f1_findings) >= 1
 
     def test_reel_with_multiple_defects(self):
-        """A reel with holes AND missing clips reports both F1 and F4."""
+        """A reel with holes AND missing clips reports both F1 and F4.
+
+        Craig's V2 placement sits UNDER Akshita's V1, so dropping it
+        loses a clip without shortening the reel - the plan still
+        describes the timeline's length, F4 is still asked, and it still
+        reports the drop.  That is the case `check_plan_describes_
+        timeline` must not swallow.
+        """
         plan = _plan(
+            span_end=1075 / FPS,
             placements=(
                 _placement(1, 0.0, 25.0, "Akshita"),
                 _placement(2, 0.0, 25.0, "Craig"),
@@ -1378,9 +1410,8 @@ class TestClosingCallToAction:
         """F8 tested only the body's two boundaries. The closer's are the
         ones that decide whether the reel ends on a finished sentence."""
         segments = [
-            {"timeline_start": 470.0, "timeline_end": 480.0,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "jump on lucycontent.com and dm us"},
+            _row(470.0, 480.0, "Craig",
+                 "jump on lucycontent.com and dm us"),
         ]
         findings = check_boundary_speech(
             "Reel 01", span_start=600.0, span_end=660.0,
@@ -1393,8 +1424,7 @@ class TestClosingCallToAction:
     def test_the_body_only_call_is_unchanged(self):
         """Same check, no ranges: exactly what every reel got before."""
         segments = [
-            {"timeline_start": 470.0, "timeline_end": 480.0,
-             "resolve_item_id": None, "speaker": "Craig", "text": "x"},
+            _row(470.0, 480.0, "Craig", "x"),
         ]
         assert check_boundary_speech(
             "Reel 01", span_start=600.0, span_end=660.0,
@@ -1425,9 +1455,8 @@ class TestClosingCallToAction:
         plan = _plan(span_start=100.0, span_end=160.0,
                      keep_ranges=((100.0, 120.0), (125.0, 160.0)))
         segments = [
-            {"timeline_start": 118.0, "timeline_end": 127.0,
-             "resolve_item_id": None, "speaker": "Craig",
-             "text": "a sentence straddling the bad-take seam"},
+            _row(118.0, 127.0, "Craig",
+                 "a sentence straddling the bad-take seam"),
         ]
         result = verify_reel(plan, _timeline(), transcript_segments=segments)
         assert plan.call_to_action is None
@@ -1589,3 +1618,226 @@ class TestNoReferenceRefusesRatherThanSkipping:
                     if f.finding_class == FindingClass.NO_REFERENCE]
         assert len(refusals) == 1
         assert result.errors, "an empty reference set must FAIL the gate"
+
+
+# ── The three instrument defects found reading the nineteen ─────────
+#
+# Every test in this section FAILS on the code before the fix beside it.
+# The findings they describe were measured on the captain's nineteen
+# approved reels, which is why the numbers in them are the real ones.
+
+class TestF8MeasuresWordsNotRowEnvelopes:
+    """F8 asked whether a boundary sat inside a ROW; it claims to ask
+    whether the boundary cuts SPEECH, and a straddling row is not speech.
+
+    Measured on the nineteen: 16 findings, of which 13 landed in a
+    silence between two words of the same row.
+    """
+
+    def test_a_boundary_in_the_silence_inside_a_row_is_not_a_cut(self):
+        """Reel 01's END, exactly as it is on the captain's timeline.
+
+        Row 22.04-47.23s is one WhisperX segment of Craig's isolated
+        track carrying two separate utterances - "this is a completely
+        different system right" to 24.28s, then "so give me an example
+        of that difference" from 45.41s.  Twenty-one seconds of that row
+        is Craig silent.  The reel ends at 44.74s, inside the silence and
+        0.67s before he speaks again, and nothing is cut.
+        """
+        segments = [_row(22.04, 47.23, "Craig",
+                         "this is a completely different system right so "
+                         "give me an example of that difference",
+                         speaking=((22.04, 24.281), (45.409, 47.23)))]
+        findings = check_boundary_speech(
+            "Reel 01", span_start=0.125, span_end=44.74,
+            transcript_segments=segments)
+        errors = [f for f in findings if f.severity == "error"]
+        assert errors == [], "the boundary lands in a silence, not in speech"
+
+    def test_the_narrowing_is_counted_and_reported(self):
+        """A check that looks at less than it used to and does not say so
+        reports a clean reel and tells nobody what it declined to look at.
+        """
+        segments = [_row(22.04, 47.23, "Craig", "two utterances",
+                         speaking=((22.04, 24.281), (45.409, 47.23)))]
+        findings = check_boundary_speech(
+            "Reel 01", span_start=0.125, span_end=44.74,
+            transcript_segments=segments)
+        warnings = [f for f in findings if f.severity == "warning"]
+        assert len(warnings) == 1
+        assert warnings[0].detail["in_row_between_words"] == 1
+
+    def test_a_boundary_inside_a_word_is_still_a_cut(self):
+        """The gate must still fail on the thing it exists for."""
+        segments = [_row(781.75, 804.15, "Craig",
+                         "else is broken and that's why",
+                         speaking=((781.75, 781.911), (781.971, 782.051),
+                                   (782.071, 804.15)))]
+        findings = check_boundary_speech(
+            "Reel 07", span_start=782.03, span_end=819.13,
+            transcript_segments=segments)
+        errors = [f for f in findings if f.severity == "error"]
+        assert len(errors) == 1
+        assert errors[0].detail["boundary"] == "start"
+        assert errors[0].detail["word"]["start"] == pytest.approx(781.971)
+
+    def test_the_finding_names_the_word_and_its_duration(self):
+        """This transcript contains a "well" of 19.04s and another of
+        34.47s, where the aligner stretched one word across the silence
+        before the speaker resumed.  A reader who sees the duration can
+        tell a cut sentence from a stretched alignment.
+        """
+        segments = [_row(155.81, 179.97, "Craig", "... now well that's",
+                         speaking=((155.81, 160.714), (160.754, 179.790),
+                                   (179.830, 179.97)))]
+        findings = check_boundary_speech(
+            "Reel 02", span_start=117.79, span_end=179.46,
+            transcript_segments=segments)
+        errors = [f for f in findings if f.severity == "error"]
+        assert len(errors) == 1
+        assert errors[0].detail["word"]["duration_seconds"] == pytest.approx(
+            19.036, abs=0.001)
+        assert "19.04s long" in errors[0].message
+
+    def test_a_row_with_no_word_timings_falls_back_and_says_so(self):
+        """A transcript that stopped carrying word timings must not
+        silently switch this check off (AGENTS.md 10.4)."""
+        segments = [_row(470.0, 480.0, "Craig", "no timings", words=())]
+        findings = check_boundary_speech(
+            "Reel 01", span_start=460.0, span_end=476.0,
+            transcript_segments=segments)
+        errors = [f for f in findings if f.severity == "error"]
+        warnings = [f for f in findings if f.severity == "warning"]
+        assert len(errors) == 1, "the envelope still answers when it is all there is"
+        assert errors[0].detail["word"] is None
+        assert warnings[0].detail["rows_without_word_timings"] == 1
+
+
+class TestF5MeasuresSpeechNotRowSpan:
+    """F5's message, its class docstring and AGENTS.md all say it counts
+    SECONDS OF SPEECH.  It counted row span minus caption coverage, and a
+    row's span is mostly not speech: on the nineteen that reported 95.1s
+    uncaptioned where the placed cards leave 6.3s.
+    """
+
+    def test_only_the_words_count_not_the_row_envelope(self):
+        """A row 40s wide carrying 2s of speech is 2s of speech."""
+        segments = [_row(0.0, 40.0, "Craig", "two seconds of talking",
+                         speaking=((0.0, 1.0), (39.0, 40.0)))]
+        findings = check_caption_coverage(
+            "Reel 05", segments, [], [(0.0, 40.0)], FPS)
+        f5 = [f for f in findings if f.severity == "error"]
+        assert len(f5) == 1
+        assert f5[0].detail["straddling_seconds"] == pytest.approx(2.0, abs=0.05)
+
+    def test_a_row_with_no_word_timings_is_measured_on_its_envelope(self):
+        segments = [_row(0.0, 8.0, "Craig", "no timings", words=())]
+        findings = check_caption_coverage(
+            "Reel 05", segments, [], [(0.0, 40.0)], FPS)
+        errors = [f for f in findings if f.severity == "error"]
+        warnings = [f for f in findings if f.severity == "warning"]
+        assert errors[0].detail["straddling_seconds"] == pytest.approx(8.0, abs=0.05)
+        assert warnings[0].detail["rows_without_word_timings"] == 1
+
+    def test_a_row_the_reel_does_not_play_is_not_an_envelope_row(self):
+        """The fallback is reported for rows the reel PLAYS.  Counting
+        every wordless row in the episode reported the same number on all
+        nineteen reels and meant nothing on any of them."""
+        segments = [_row(100.0, 110.0, "Craig", "elsewhere", words=())]
+        findings = check_caption_coverage(
+            "Reel 05", segments, [], [(0.0, 40.0)], FPS)
+        assert findings == []
+
+    def test_f5_reads_the_cards_on_the_timeline_not_the_plans(self):
+        """F5 answers "what plays with nothing on screen", and only a
+        card that was placed is on screen.  The plan's cards are
+        RE-DERIVED at verification time: on the nineteen, 832 derived
+        against 763 placed, differing on every reel.  This is the rule
+        F11 already applies - read the output, not the request.
+        """
+        plan = _plan(
+            span_end=int(25 * FPS) / FPS,
+            placements=(_placement(1, 0.0, 25.0, "Akshita"),),
+            captions=(PlannedCaption(start_seconds=0.0, end_seconds=25.0,
+                                     text="a card the plan wanted",
+                                     speaker="Craig", frames=599),),
+        )
+        timeline = _timeline(
+            video_items=(_item("video", 1, 0, int(25 * FPS)),),
+            # One card, and it covers a single second of the reel.
+            caption_items=(_item("video", 3, 0, int(1 * FPS),
+                                 name="sub_reel-01_craig_one-second.mov"),),
+        )
+        segments = [_row(0.0, 25.0, "Craig", "talking the whole time",
+                         speaking=((0.0, 25.0),))]
+        result = verify_reel(plan, timeline, transcript_segments=segments)
+        f5 = [f for f in result.findings
+              if f.finding_class == FindingClass.F5 and f.severity == "error"]
+        assert len(f5) == 1, "the plan's card is not on screen; the placed one is"
+        assert f5[0].detail["straddling_seconds"] == pytest.approx(24.0, abs=0.1)
+
+
+class TestPlanMismatchRefusesF4:
+    """F4 reported a RE-DERIVED plan's disagreement with the timeline as
+    clips the builder had dropped.
+
+    `_derive_plan_from_master` recomputes the picture plan with today's
+    `reel_build`.  `MIN_TAKE_SECONDS` was removed from it in 890a61b at
+    22:58 on 2026-09-05; the captain's nineteen were built at 14:46 the
+    same day.  Today's cut rule finds retakes the build never cut, so the
+    derived plan lays down a different number of frames - and F4 read
+    that as "planned 6 picture items, found 4 on the timeline", ten
+    findings across five reels, none of them a build defect.
+    """
+
+    def test_a_plan_of_a_different_length_refuses_f4(self):
+        plan = _plan(span_end=60.0,
+                     placements=(_placement(1, 0.0, 25.0, "Akshita"),
+                                 _placement(1, 25.0, 25.0, "Akshita")))
+        timeline = _timeline(video_items=(_item("video", 1, 0, 599),))
+        result = verify_reel(plan, timeline)
+        classes = {f.finding_class for f in result.findings
+                   if f.severity == "error"}
+        assert FindingClass.PLAN_MISMATCH in classes
+        assert FindingClass.F4 not in classes, (
+            "a plan that is not this reel's cannot say a clip was dropped")
+
+    def test_the_refusal_names_both_frame_counts(self):
+        plan = _plan(span_end=60.0)
+        timeline = _timeline(video_items=(_item("video", 1, 0, 599),))
+        findings = check_plan_describes_timeline(
+            "Reel 03", plan.keep_ranges, timeline.total_frames, FPS)
+        assert len(findings) == 1
+        assert findings[0].detail["planned_frames"] == 1439
+        assert findings[0].detail["timeline_frames"] == 599
+        assert findings[0].detail["delta_frames"] == -840
+
+    def test_a_plan_that_describes_the_timeline_lets_f4_run(self):
+        """The gate is not weakened: a clip dropped from UNDER another
+        one loses no frames, so the plan still describes the timeline and
+        F4 is still asked."""
+        plan = _plan(span_end=int(25 * FPS) / FPS,
+                     placements=(_placement(1, 0.0, 25.0, "Akshita"),
+                                 _placement(2, 0.0, 25.0, "Craig")))
+        timeline = _timeline(video_items=(_item("video", 1, 0, int(25 * FPS)),))
+        result = verify_reel(plan, timeline)
+        classes = {f.finding_class for f in result.findings
+                   if f.severity == "error"}
+        assert FindingClass.PLAN_MISMATCH not in classes
+        assert FindingClass.F4 in classes
+
+    def test_the_frame_count_is_the_builders_own_arithmetic(self):
+        """No tolerance is chosen because none is needed.  `placements`
+        lays down ``round(end * fps) - round(start * fps)`` per range;
+        `plan_seconds * fps` is a different number - 491.5 against 491
+        here - and comparing THAT would need a band.  Measured on the
+        nineteen, the frame-exact counts are EQUAL on all fourteen reels
+        whose item counts agree and differ on all five that do not.
+        """
+        ranges = ((0.0, 10.0), (20.0, 30.5))
+        exact = sum(round(b * FPS) - round(a * FPS) for a, b in ranges)
+        assert exact == 491
+        assert sum(b - a for a, b in ranges) * FPS == pytest.approx(
+            491.51, abs=0.01)
+        assert check_plan_describes_timeline("R", ranges, 491, FPS) == []
+        assert check_plan_describes_timeline("R", ranges, 492, FPS) != []
