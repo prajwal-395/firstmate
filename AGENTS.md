@@ -65,6 +65,7 @@ The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/
 | `--only <step_id>` | run this step and whatever it cannot run without; repeatable |
 | `--skip <step_id>` | leave a step out; repeatable |
 | `--with <step_id>` | turn on a step that is off by default; repeatable |
+| `--override <req>` | proceed past a refusal the requirement allows; RECORDED |
 | `--profile <name>` | run under a DECLARED run configuration; `none` declines the one the project adopts |
 | `--break <step_id>` | stop after this step for review; repeatable, `*` means every step |
 | `--no-break <step_id>` | do not stop after this step; repeatable, `*` disarms every breakpoint |
@@ -95,7 +96,6 @@ Detail: `library/tools/requirements.py`, `library/tools/input_contract.py`.
 ### Two ledgers, two lifetimes
 
 One enumeration: `library/tools/step_ledger.py`.
-Detail: `library/tools/step_ledger.py`.
 
 ### Run status
 
@@ -105,17 +105,14 @@ Detail: `library/processes/edit_video/run_pipeline.py`.
 ### A run that was RESTARTED says so, in its own outputs
 
 One enumeration, `library/tools/run_restart.py`.
-Detail: `library/tools/run_restart.py`.
 
 ### A step says what it could not determine
 
 One enumeration, `library/tools/undetermined.py`.
-Detail: `library/tools/undetermined.py`.
 
 ### A step says where its measurements contradict the direction, and complies anyway
 
 One enumeration, `library/tools/direction_contradiction.py`.
-Detail: `library/tools/direction_contradiction.py`.
 
 ### A step that makes a craft judgement is told what craft it is
 
@@ -130,7 +127,6 @@ Detail: `library/tools/brief_attachment.py`.
 ### A contract rejection reaches the model that caused it
 
 One enumeration, `library/tools/post_bridge_retry.py`.
-Detail: `library/tools/post_bridge_retry.py`.
 
 ## 4. Dashboard
 

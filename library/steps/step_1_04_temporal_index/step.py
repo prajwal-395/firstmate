@@ -60,6 +60,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -2150,3 +2151,123 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+
+# ── Region-scoped re-index, and putting it back ─────────────────────
+#
+# The captain's worked example, middle two moves: "go back to the raw
+# footage and assets, re-index that specific region ... and splice that
+# into where the audio transcription is stored."
+#
+# WHERE the transcription is stored is this step's own per-clip index -
+# `{area:temporal_index}/<clip_id>.json`, whose `speech_regions[]` carry
+# `{start, end, text, words[]}` in SOURCE seconds.  There is no separate
+# transcript artifact on the DAG; this is it.
+#
+# Nothing here re-implements measurement.  `extract_span` already caches
+# an extracted span keyed by the span ITSELF - source file, in, out - and
+# was written for exactly this ask; `detect_speech_regions` already
+# measures a wav.  The only new thing is the arithmetic of putting a
+# span's results back on the clip's own clock.
+
+def reindex_region(project_folder: str, clip_id: str, source_file: str,
+                   source_start: float, source_end: float,
+                   whisper_model_size: str = "large-v3",
+                   pad_seconds: float = 0.5) -> list:
+    """Re-measure the speech in ONE span of one clip.
+
+    Returns `speech_regions` in the CLIP'S OWN source seconds, not the
+    span's - the span is an implementation detail of the measurement and
+    every consumer downstream reads clip time.
+
+    `pad_seconds` widens the extracted audio on both sides without
+    widening what is returned.  WhisperX aligns against context, and a
+    span cut exactly on a word boundary loses the consonant attack at
+    each end; the padding is measured audio, and regions that fall
+    entirely into it are dropped rather than reported, so the padding
+    cannot smuggle a neighbour's words into the region.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.timeline_transcript import extract_span
+
+    if source_end <= source_start:
+        raise ValueError(
+            f"reindex_region: {source_start}-{source_end} is not a span")
+
+    layout = ProjectLayout(project_folder)
+    cache_dir = Path(layout.write_dir(Area.AUDIO_CACHE, step="temporal_index"))
+
+    padded_start = max(0.0, source_start - pad_seconds)
+    padded_end = source_end + pad_seconds
+    span_wav = extract_span(source_file, padded_start, padded_end, cache_dir)
+
+    with tempfile.TemporaryDirectory() as scratch:
+        measured = detect_speech_regions(
+            audio_path=str(span_wav), output_dir=scratch, onsets=[],
+            whisper_model_size=whisper_model_size)
+
+    # Back onto the clip's clock, then bounded to what was ASKED for.
+    regions = []
+    for region in measured:
+        start = region["start"] + padded_start
+        end = region["end"] + padded_start
+        if end <= source_start or start >= source_end:
+            continue          # lives entirely in the padding
+        moved = dict(region)
+        moved["start"] = round(start, 3)
+        moved["end"] = round(end, 3)
+        moved["words"] = [
+            {**w,
+             "start": round(w["start"] + padded_start, 3),
+             "end": round(w["end"] + padded_start, 3)}
+            for w in (region.get("words") or [])
+        ]
+        moved["reindexed_span"] = [round(source_start, 3), round(source_end, 3)]
+        regions.append(moved)
+    return regions
+
+
+def splice_region_index(index_doc: dict, fresh_regions: list,
+                        source_start: float, source_end: float) -> dict:
+    """Replace the speech in `[source_start, source_end)` with `fresh_regions`.
+
+    Overlap, not containment, decides what goes: a region that straddles
+    the edge of the span was partly re-measured, so keeping it would
+    leave two descriptions of the same seconds - the old one and the new.
+
+    Refuses a fresh region that lies outside the span it claims to be
+    replacing.  Without that, a re-index whose padding leaked would
+    silently overwrite a neighbour's words, and the neighbour was never
+    re-measured.
+
+    Returns a new document; the input is not mutated.
+    """
+    if source_end <= source_start:
+        raise ValueError(
+            f"splice_region_index: {source_start}-{source_end} is not a span")
+
+    tolerance = 1e-6
+    for region in fresh_regions:
+        if (region["start"] < source_start - tolerance
+                or region["end"] > source_end + tolerance):
+            raise ValueError(
+                f"splice_region_index: a re-measured region "
+                f"{region['start']}-{region['end']}s lies outside the span "
+                f"{source_start}-{source_end}s it replaces. The padding "
+                f"leaked, and splicing it would overwrite speech that was "
+                f"never re-measured.")
+
+    kept = [r for r in (index_doc.get("speech_regions") or [])
+            if r["end"] <= source_start + tolerance
+            or r["start"] >= source_end - tolerance]
+    merged = sorted(kept + [dict(r) for r in fresh_regions],
+                    key=lambda r: (r["start"], r["end"]))
+
+    out = dict(index_doc)
+    out["speech_regions"] = merged
+    # `word_end_times` is derived, and a consumer reading it beside a
+    # spliced `speech_regions` would otherwise be reading two vintages.
+    if "word_end_times" in out:
+        out["word_end_times"] = [
+            w["end"] for r in merged for w in (r.get("words") or [])]
+    return out

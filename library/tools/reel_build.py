@@ -21,8 +21,7 @@ approved reels, every loose rule removed real content:
 So the cut rule is deliberately narrow, and everything it is not sure
 about is REPORTED rather than removed:
 
-    same speaker, both sides at least MIN_TAKE_SECONDS long,
-    durations within DURATION_RATIO of each other,
+    same speaker, durations within DURATION_RATIO of each other,
     containment >= CUT_CONTAINMENT and Jaccard >= CUT_JACCARD,
     the second beginning within CUT_WINDOW_SECONDS of the first ending.
 
@@ -91,10 +90,30 @@ from typing import Dict, List, Optional, Sequence, Tuple
 CUT_CONTAINMENT = 0.75
 CUT_JACCARD = 0.55
 CUT_WINDOW_SECONDS = 30.0
-MIN_TAKE_SECONDS = 1.5
 DURATION_RATIO = 2.0
 """A cut needs all of these. Each one is here because dropping it removed
-real content from the sixteen approved reels - see the module docstring."""
+real content from the sixteen approved reels - see the module docstring.
+
+`MIN_TAKE_SECONDS = 1.5` was a sixth condition and is GONE, 2026-09-05.
+It skipped any pair where EITHER side was shorter than a second and a
+half, and the protection the docstring claims for a duration test -
+"without a duration test it drops a 4.3s line to keep a 0.5s fragment of
+the same sentence" - is `DURATION_RATIO`'s, not its: a 4.3s line against
+a 0.5s fragment is a ratio of 8.6 and was already refused.  What the
+floor uniquely blocked was a pair where BOTH sides are short and their
+durations agree, which is a retake WhisperX happened to segment finely
+rather than anything a viewer would call short.
+
+Measured on reel 03 of the captain's approved nineteen: three takes of
+"search didn't change, the question changed, whoever AI understands best
+gets the answer" inside forty seconds, its retakes segmented at 0.20s to
+1.66s, the identical pair at 309.92/310.12 scoring containment 1.000 and
+Jaccard 1.000 with a duration ratio of 1.30 - and `redundant_takes`
+returned NOTHING, because every side was under the floor.  The proposal's
+own word-stream detector reported the repeat at similarity 1.0 and the
+build left it in.  A number with no reason of its own, standing between a
+confidently detected repeat and the cut it asked for, is the hardcoded
+threshold this pipeline does not have (AGENTS.md 10.5)."""
 
 SUSPECT_CONTAINMENT = 0.60
 """Below the cut bar and above this, a marker is written instead."""
@@ -236,7 +255,7 @@ def _scan(start: float, end: float, transcript: dict,
             da = first["timeline_end"] - first["timeline_start"]
             db = second["timeline_end"] - second["timeline_start"]
             if enforce_shape:
-                if da < MIN_TAKE_SECONDS or db < MIN_TAKE_SECONDS:
+                if da <= 0 or db <= 0:
                     continue
                 ratio = max(da, db) / min(da, db)
                 if ratio > DURATION_RATIO:
@@ -455,7 +474,74 @@ def placements(ranges: Sequence[Tuple[float, float]],
     return out
 
 
-def build_reel_timeline(project, moment, master_clips, captions, fps, width, height, project_folder, transcript):
+def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
+                           fps: float, width: int, height: int) -> list:
+    """Caption one reel THROUGH THE PIPELINE'S OWN STEPS.
+
+    The captain's ruling of 2026-09-04: `reel_subtitles.py` should never
+    have existed, and "whatever funcitonality was put into that python
+    file should have been augmented into the pipeline". This is that
+    augmentation, and it adds no caption logic of its own:
+
+        reel_spine.spine_for_reel   the reel's own audio spine, in reel time
+        subtitles.plan              step 4.01 groups and styles the cards
+        subtitles.render_segment    step 4.05 renders each one
+
+    Both steps are reached through the operation registry, so this is a
+    named operation being driven rather than a script reimplementing a
+    step. Neither step knows a reel from a master - the spine is the only
+    thing that differs, which is the whole point of the producer.
+
+    Per-speaker styling is 4.01's, resolved from the spine's own speakers.
+    This function names no speaker: the list that used to live here was
+    hardcoded to one series' two hosts.
+    """
+    import sys
+
+    from library.steps.step_4_05_render_subtitles.generate_remotion_props import (
+        generate_subtitle_props_per_block,
+    )
+    from library.tools import operations
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_spine import spine_for_reel
+
+    # A reel that cannot be spined is REPORTED and built without
+    # captions, not allowed to abort the other eighteen. The reason is
+    # printed rather than swallowed: a reel silently shipping with no
+    # subtitles is the defect this whole change exists to fix.
+    from library.tools.reel_spine import ReelSpineError
+    try:
+        spine = spine_for_reel(moment, transcript, ranges)
+    except ReelSpineError as why:
+        print(f"  {moment.timeline_name}: NO CAPTIONS - {why}",
+              file=sys.stderr)
+        return []
+    if spine.get("bleed_blocks_dropped"):
+        print(f"  {moment.timeline_name}: dropped "
+              f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
+              file=sys.stderr)
+
+    plan = operations.get("subtitles.plan").run(
+        spine, brand_effect={}, brand_style={}, project_folder=project_folder)
+    props_list = generate_subtitle_props_per_block(
+        plan["subtitle_plan"], fps=int(round(fps)), width=width, height=height,
+        audio_spine=spine)
+    if not props_list:
+        return []
+
+    out_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
+    render = operations.get("subtitles.render_segment")
+    segments = []
+    for index, props in enumerate(props_list, 1):
+        rendered = render.run(props, out_dir, moment.timeline_name,
+                              progress=f"[{index}/{len(props_list)}]")
+        if rendered is not None:
+            segments.append(rendered)
+    return segments
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript):
     import sys, os
     pool = project.GetMediaPool()
     timeline = pool.CreateEmptyTimeline(moment.timeline_name)
@@ -512,60 +598,29 @@ def build_reel_timeline(project, moment, master_clips, captions, fps, width, hei
             "recordFrame": p["snapped_record"]
         }])
 
-    if captions:
-        pilot_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        remotion_dir = os.path.join(pilot_root, "remotion-subtitles")
-        out_dir = os.path.join(project_folder, "pipeline_output", "scratch", "reel_subtitles", f"reel_{moment.number:02d}")
-        os.makedirs(out_dir, exist_ok=True)
-        
-        from concurrent.futures import ThreadPoolExecutor
-        import hashlib, json, subprocess
-        from library.tools.subtitle_segment_id import slug
-        
-        def render_cap(cap):
-            text_slug = slug(cap["text"], "notext")[:30]
-            sig = f"{cap['speaker']}_{cap['frames']}_{cap['text']}"
-            digest = hashlib.md5(sig.encode("utf-8")).hexdigest()[:8]
-            filename = f"sub_{slug(moment.timeline_name, 'notimeline')}_{slug(cap['speaker'], 'nospeaker')}_{text_slug}_{digest}.mov"
-            overlay_path = os.path.join(out_dir, filename)
-            props_path = os.path.join(out_dir, filename.replace(".mov", "_props.json"))
-            
-            if not os.path.exists(overlay_path):
-                with open(props_path, "w") as f2:
-                    json.dump(cap["props"], f2)
-                print(f"Rendering {filename}...", file=sys.stderr)
-                res = subprocess.run(
-                    ["npx", "remotion", "render", "SubtitleOverlay", overlay_path,
-                     "--props", props_path, "--codec", "prores", "--prores-profile", "4444",
-                     "--image-format", "png", "--transparent"],
-                    cwd=remotion_dir, capture_output=True, text=True, encoding="utf-8",
-                    check=False
-                )
-                if res.returncode != 0:
-                    print(f"Render failed for {filename}: {res.stderr}", file=sys.stderr)
-                    return None
-            return (cap, overlay_path)
-            
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            results = list(executor.map(render_cap, captions))
-            
-        for res in results:
-            if not res: continue
-            cap, overlay_path = res
-            items = pool.ImportMedia([overlay_path])
-            if not items:
-                print(f"Failed to import {overlay_path}", file=sys.stderr)
-                continue
-            cap_item = items[0]
-            
-            assert_current_timeline(project, timeline)
-            pool.AppendToTimeline([{
-                    "mediaPoolItem": cap_item,
-                    "startFrame": 0,
-                    "endFrame": cap["frames"],
-                    "trackIndex": 3,
-                    "recordFrame": int(round(cap["reel_start"] * fps))
-                }])
+    # Captions are PLACED here and RENDERED by step 4.05, which is the
+    # pipeline's renderer. This used to carry its own `npx remotion
+    # render` loop - a third implementation of the same call - and it is
+    # gone; `reel_subtitle_segments` above drives the step instead.
+    for segment in (subtitle_segments or []):
+        items = pool.ImportMedia([segment["overlay_path"]])
+        if not items:
+            print(f"Failed to import {segment['overlay_path']}",
+                  file=sys.stderr)
+            continue
+
+        assert_current_timeline(project, timeline)
+        pool.AppendToTimeline([{
+            "mediaPoolItem": items[0],
+            # 4.05 renders animation handles either side of the content
+            # and reports where the content actually starts and ends.
+            # Placing the whole rendered clip would overlap the next.
+            "startFrame": segment["source_in_frame"],
+            "endFrame": segment["source_out_frame"],
+            "trackIndex": 3,
+            "recordFrame": int(round(segment["timeline_start"] * fps)),
+        }])
+
 
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     import os
@@ -586,9 +641,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
 
     from library.tools.resolve_locale import scriptapp_preserving_locale
     from library.tools.reel_proposal import read_proposal
-    from library.tools.reel_subtitles import reel_captions
     from library.tools.timeline_ingest import snapshot_timeline
-    from library.tools.subtitle_style import resolve_subtitle_style
     from library.tools.project_registry import get_project
     
     resolve = scriptapp_preserving_locale(dvr, "Resolve")
@@ -626,10 +679,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")) as f:
         transcript = json.load(f)
         
-    styles = {}
-    for spk in ["Akshita", "Craig", None]:
-        styles[spk] = resolve_subtitle_style(project_folder=project_folder, speaker=spk)
-        
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):
         t = project.GetTimelineByIndex(i)
@@ -661,13 +710,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
         print(f"Building {moment.timeline_name}", flush=True)
         built_reel_names.append(moment.timeline_name)
         ranges = reel_ranges(moment, transcript)
-        captions = reel_captions(transcript, ranges, styles, fps=24000/1001, width=1080, height=1920, closer_seam=closer_seam(moment, ranges)) if not skip_captions else None
-        
+        # Was: computed by the standalone captioner and then passed as
+        # None, so every reel built since #524 carried no subtitles at
+        # all while the work was done and discarded.
+        subtitle_segments = None if skip_captions else reel_subtitle_segments(
+            moment, transcript, ranges, project_folder,
+            fps=24000 / 1001, width=1080, height=1920)
+
         build_reel_timeline(
             project=project,
             moment=moment,
             master_clips=master_clips,
-            captions=None,
+            subtitle_segments=subtitle_segments,
             fps=24000/1001,
             width=1080,
             height=1920,

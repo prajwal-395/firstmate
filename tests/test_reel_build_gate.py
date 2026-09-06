@@ -172,7 +172,7 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
     rebuild_reels_in_project(str(mock_project_env))
     mock_run_verif.assert_called_once()
 
-@patch("library.tools.reel_subtitles.reel_captions")
+@patch("library.tools.reel_build.reel_subtitle_segments")
 @patch("library.tools.reel_build.build_reel_timeline")
 @patch("library.tools.resolve_locale.scriptapp_preserving_locale")
 @patch("library.tools.reel_build.resolve_project_exactly")
@@ -180,8 +180,15 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
 @patch("library.tools.timeline_ingest.snapshot_timeline")
 @patch("library.tools.subtitle_style.resolve_subtitle_style")
 @patch("library.tools.reel_conformance_verifier.run_verification")
-def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop, mock_resolve_proj, mock_scriptapp, mock_build, mock_reel_captions, mock_project_env):
-    """Proves that passing skip_captions skips caption generation and passes None to build_reel_timeline."""
+def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop, mock_resolve_proj, mock_scriptapp, mock_build, mock_reel_segments, mock_project_env):
+    """skip_captions skips caption generation entirely.
+
+    It used to assert `captions is None` reached build_reel_timeline -
+    which was true whether or not captions had been generated, because
+    the caller passed None unconditionally and threw the computed
+    captions away. It now asserts the pipeline caption path is not
+    entered at all, and that None is what the builder is given.
+    """
     moment = MagicMock()
     moment.approval = "approved"
     moment.timeline_name = "Reel 01"
@@ -201,7 +208,7 @@ def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_sn
     
     rebuild_reels_in_project(str(mock_project_env), skip_captions=True)
     
-    mock_reel_captions.assert_not_called()
+    mock_reel_segments.assert_not_called()
     mock_build.assert_called_once()
-    assert mock_build.call_args[1]["captions"] is None
+    assert mock_build.call_args[1]["subtitle_segments"] is None
 

@@ -303,14 +303,29 @@ def reset_stage(state: dict, stage: str,
 def parse_rerun_target(target: str, known_steps: Iterable[str]) -> Tuple[str, str]:
     """Parse one ``--rerun`` value.
 
-    Four forms, and an unknown one raises rather than being ignored - a
+    FIVE forms, and an unknown one raises rather than being ignored - a
     typo that silently re-runs nothing is how an operator concludes the
     flag does not work:
 
-        preflight             -> ("stage", "preflight")
-        edit                  -> ("stage", "edit")
-        temporal_index        -> ("step",  "temporal_index")
-        temporal_index:clip_007 -> ("clip", "temporal_index:clip_007")
+        preflight                 -> ("stage",  "preflight")
+        edit                      -> ("stage",  "edit")
+        temporal_index            -> ("step",   "temporal_index")
+        temporal_index:clip_007   -> ("clip",   "temporal_index:clip_007")
+        plan_subtitles@45.0-72.0  -> ("region", "plan_subtitles@45.0-72.0")
+
+    The region form is increment 5's, and `@` rather than `:` because
+    the two axes are different: `:clip_007` names a piece of the
+    FOOTAGE, `@45.0-72.0` names an interval of the TIMELINE, and one
+    clip supplies several non-adjacent stretches of it - on project 001,
+    clip_011 supplies six blocks spread over 44s of a 56.6s timeline.
+    Reusing `:` would have made a footage address and a timeline address
+    indistinguishable at a glance.
+
+    The span is validated HERE by handing it to `region.parse`, so a
+    malformed interval is refused when the flag is read rather than
+    forty minutes into a run. This module deliberately does not become a
+    second reader of an interval - `library/tools/region.py` is the one
+    owner, and the timeline is part of that type.
     """
     target = (target or "").strip()
     if not target:
@@ -319,6 +334,22 @@ def parse_rerun_target(target: str, known_steps: Iterable[str]) -> Tuple[str, st
         return ("stage", target)
 
     known = set(known_steps)
+    if "@" in target:
+        step_id, _, span = target.partition("@")
+        if step_id not in known:
+            raise LedgerError(
+                f"--rerun {target!r}: no step named {step_id!r} in this "
+                f"pipeline."
+            )
+        from library.tools.region import parse as parse_region
+        try:
+            parse_region(span)
+        except ValueError as exc:
+            raise LedgerError(
+                f"--rerun {target!r}: {exc}"
+            ) from None
+        return ("region", f"{step_id}@{span}")
+
     if ":" in target:
         step_id, _, clip_id = target.partition(":")
         if step_id not in known:

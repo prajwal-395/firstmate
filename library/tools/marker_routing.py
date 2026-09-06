@@ -572,6 +572,22 @@ class RoutedNote:
     timeline: str
     pull_file: str
 
+    duration_frames: int = 1
+    """How long the marker is. A Resolve marker carries a `duration` and
+    `marker_feedback` reads it verbatim, so a COLLECTED note is an
+    INTERVAL - and this class used to drop it, collapsing every note to a
+    point at the one boundary where the interval could still have been
+    used. A `clip_comment` carries the clip's whole timeline span here."""
+
+    timeline_fps: float = 0.0
+    """The timeline's own frame rate, off the pull file's `timeline_fps`.
+    Recorded at pull time and read by nobody until now."""
+
+    timeline_start_frame: int = 0
+    """Where the timeline's own frame numbering starts, off the pull
+    file. Resolve's default is 01:00:00:00, which is frame 108000 at
+    30fps, so this is NOT zero and subtracting it is not optional."""
+
     target: dict = field(default_factory=dict)
     outcome: str = OUTCOME_UNROUTED
     basis: str = ""
@@ -599,6 +615,33 @@ class RoutedNote:
     frame.  CONTEXT for a reader, exactly like `clips_under`, and it
     routes nothing - `WITHDRAWN_ROUTERS['the_clip_under_the_playhead_decides']`
     is why."""
+
+
+def note_span_seconds(note: "RoutedNote"):
+    """The note's own interval, in TIMELINE SECONDS, or None.
+
+    THE ONE PLACE this conversion happens, because it is the conversion
+    that is easy to get wrong and expensive to notice:
+
+        seconds = (frame - timeline_start_frame) / fps
+
+    `MarkerNote.frame` is an ABSOLUTE timeline frame and a Resolve
+    timeline starts at 01:00:00:00 by default - frame 108000 at 30fps -
+    so `frame / fps` is an hour out and looks entirely plausible. That is
+    the same domain collision `library/tools/region.py` exists to make
+    unrepresentable, one level up, and the reason this returns SECONDS
+    rather than handing frames to a caller who will divide them.
+
+    None when the note could not be placed on the timeline, or when the
+    pull file predates `timeline_fps` being recorded. A span that cannot
+    be computed is ABSENT, never zero: a note at 0.0..0.0 would read as
+    the first frame of the cut.
+    """
+    if note.frame is None or not note.timeline_fps:
+        return None
+    start = (note.frame - note.timeline_start_frame) / note.timeline_fps
+    end = start + max(1, note.duration_frames) / note.timeline_fps
+    return (round(start, 3), round(end, 3))
 
 
 def _note_id(raw: dict, timeline: str, pull_file: str) -> str:
@@ -769,8 +812,15 @@ def stamped_decision(target: dict, custom_data=None, ledger=None) -> dict:
 
 
 def route_note(raw: dict, timeline: str = "", pull_file: str = "",
-               ledger=None) -> RoutedNote:
-    """Route ONE collected note.  Never raises on the note's content."""
+               ledger=None, timeline_fps: float = 0.0,
+               timeline_start_frame: int = 0) -> RoutedNote:
+    """Route ONE collected note.  Never raises on the note's content.
+
+    `timeline_fps` and `timeline_start_frame` are the PULL FILE's own
+    record of the timeline the note was typed on. They are what turn the
+    note's frames into the timeline seconds a region is measured in; both
+    default to a reading that produces no span rather than a wrong one.
+    """
     text = raw.get("text") or "\n\n".join(
         p for p in (raw.get("name") or "", raw.get("note") or "") if p)
     routed = RoutedNote(
@@ -786,6 +836,9 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
         collected_at=raw.get("read_at", ""),
         timeline=timeline,
         pull_file=pull_file,
+        duration_frames=int(raw.get("duration_frames") or 1),
+        timeline_fps=float(timeline_fps or 0.0),
+        timeline_start_frame=int(timeline_start_frame or 0),
         target=asdict(resolve_target(raw)),
         attachments=list(raw.get("attachments") or []),
     )
@@ -913,8 +966,10 @@ def route_project(project_folder) -> list:
                 raw.get("note", ""), raw.get("frame_in_timeline_space"),
                 _attachment_identity(raw.get("attachments")),
             )
-            routed = route_note(raw, payload.get("timeline", ""), str(path),
-                                ledger=ledger)
+            routed = route_note(
+                raw, payload.get("timeline", ""), str(path), ledger=ledger,
+                timeline_fps=payload.get("timeline_fps") or 0.0,
+                timeline_start_frame=payload.get("timeline_start_frame") or 0)
             if identity not in seen:
                 order.append(identity)
             seen[identity] = routed
@@ -965,6 +1020,21 @@ def _decision_summary(decision: dict) -> dict:
     }
 
 
+def _span_summary(note: "RoutedNote") -> dict:
+    """The note's own span, as the prompt block carries it.
+
+    A marker the captain DRAGGED to a length is an interval, and until
+    now the prompt was told only `at_timecode` - a point. The span is
+    what an operation scoped to a region needs, and the note has carried
+    it since it was collected.
+    """
+    span = note_span_seconds(note)
+    if span is None:
+        return {"at_region": ""}
+    return {"at_region": f"{span[0]:.3f}..{span[1]:.3f}",
+            "on_timeline": note.timeline or "(the master timeline)"}
+
+
 def _target_summary(target: dict) -> dict:
     if target.get("kind") == TARGET_CLIP:
         clip = target.get("clip") or {}
@@ -982,10 +1052,18 @@ def _target_summary(target: dict) -> dict:
             "attachment_basis": target.get("basis", ""),
             "attachment_reason": target.get("reason", ""),
         }
+    # A MOMENT note's context carries each clip's timeline span, not just
+    # its name. The pull file records `timeline_start`/`timeline_end` for
+    # every clip under the frame and this rendered names only, so the one
+    # reader who could act on "which of these covers my region" was told
+    # the least useful half. Still CONTEXT and still routes nothing -
+    # `WITHDRAWN_ROUTERS['the_clip_under_the_playhead_decides']` is
+    # unchanged.
     return {
         "attached_to": "moment",
         "clips_under": [
-            f"{c.get('name')} ({c.get('track_type')}{c.get('track_index')})"
+            f"{c.get('name')} ({c.get('track_type')}{c.get('track_index')}"
+            f" {c.get('timeline_start')}..{c.get('timeline_end')})"
             for c in (target.get("clips_under") or [])
         ],
         "attachment_basis": target.get("basis", ""),
@@ -1008,6 +1086,7 @@ def prompt_block(routed_notes) -> dict:
                 note_id=n.note_id,
                 typed=n.text,
                 at_timecode=n.timecode,
+                **_span_summary(n),
                 collected_at=n.collected_at,
                 timeline=n.timeline,
                 routed_because=n.reason,

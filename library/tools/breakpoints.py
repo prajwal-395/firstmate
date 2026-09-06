@@ -96,7 +96,20 @@ class Breakpoints:
     """One sentence per source that contributed, for the run header."""
 
     def armed_at(self, step_id: str) -> bool:
-        return self.every_step or step_id in self.steps
+        """Whether this run stops after `step_id`.
+
+        `step_id` may be a DAG node or an OPERATION ADDRESS. A bare
+        operation catches every region of itself - arming
+        `subtitles.render` stops at `subtitles.render@45.0-72.0` - which
+        is the same "a wildcard is said as data" idea `EVERY_STEP`
+        already is, one level narrower. A DAG node id never contains the
+        separator, so nothing here has to guess which it was handed.
+        """
+        if self.every_step or step_id in self.steps:
+            return True
+        from library.tools.operations import ADDRESS_SEPARATOR
+        operation, sep, _ = str(step_id).partition(ADDRESS_SEPARATOR)
+        return bool(sep) and operation in self.steps
 
     @property
     def any_armed(self) -> bool:
@@ -150,7 +163,8 @@ def resolve(known_steps: Iterable[str],
             review_all: bool = False,
             break_at: Sequence[str] = (),
             no_break_at: Sequence[str] = (),
-            profile_name: str = "") -> Breakpoints:
+            profile_name: str = "",
+            known_operations: Optional[Iterable[str]] = None) -> Breakpoints:
     """Arm this run's breakpoints, or raise `BreakpointError`.
 
     Four sources, and they compose the way the run profile's selection
@@ -164,12 +178,13 @@ def resolve(known_steps: Iterable[str],
       anywhere" is said.
     """
     known: Set[str] = set(known_steps)
+    operations_known: Set[str] = set(known_operations or ())
     profile_breakpoints = tuple(profile_breakpoints or ())
     break_at = tuple(break_at or ())
     no_break_at = tuple(no_break_at or ())
 
-    _reject_unknown(known, break_at, "--break")
-    _reject_unknown(known, no_break_at, "--no-break")
+    _reject_unknown(known, break_at, "--break", operations_known)
+    _reject_unknown(known, no_break_at, "--no-break", operations_known)
 
     contradicted = sorted(set(break_at) & set(no_break_at))
     if contradicted:
@@ -224,17 +239,39 @@ def resolve(known_steps: Iterable[str],
                        basis=tuple(basis))
 
 
-def _reject_unknown(known: Set[str], values: Sequence[str],
-                    label: str) -> None:
+def _reject_unknown(known: Set[str], values: Sequence[str], label: str,
+                    operations_known: Optional[Set[str]] = None) -> None:
+    """A breakpoint target is a DAG node OR an operation address.
+
+    An operation address cannot be checked by set membership - the region
+    half is unbounded - so it is PARSED, by the one parser that owns the
+    spelling. What is checked is the same thing a step id's membership
+    checks: that the thing named exists.
+    """
+    operations_known = operations_known or set()
     for value in values:
-        if value == EVERY_STEP:
+        if value == EVERY_STEP or value in known:
             continue
-        if value not in known:
-            raise BreakpointError(
-                f"{label} {value!r} is not a step in this pipeline "
-                f"(and is not {EVERY_STEP!r}, which means every step). "
-                f"Known steps: {', '.join(sorted(known))}."
-            )
+        from library.tools import operations as operations_mod
+        if operations_known and (
+                operations_mod.ADDRESS_SEPARATOR in value
+                or value in operations_known):
+            try:
+                operations_mod.parse_address(value, operations_known)
+                continue
+            except operations_mod.UnknownOperation as exc:
+                raise BreakpointError(f"{label} {exc}") from None
+        known_line = f"Known steps: {', '.join(sorted(known))}."
+        if operations_known:
+            known_line += (f" Known operations: "
+                           f"{', '.join(sorted(operations_known))}, each of "
+                           f"which may carry "
+                           f"{operations_mod.ADDRESS_SEPARATOR}<start>-<end>.")
+        raise BreakpointError(
+            f"{label} {value!r} is not a step in this pipeline "
+            f"(and is not {EVERY_STEP!r}, which means every step). "
+            f"{known_line}"
+        )
 
 
 # Flags that must NOT be carried into a resume, with the reason.

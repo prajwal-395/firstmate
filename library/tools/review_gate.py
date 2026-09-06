@@ -56,13 +56,55 @@ def _gates_dir(project_dir: str, *, create: bool = False) -> Path:
             else layout.read_dir(Area.GATES))
 
 
+class UnsafeGateId(ValueError):
+    """A gate id that would write outside the gates area."""
+
+
+def _assert_safe_gate_id(step_id: str) -> str:
+    """A gate id becomes a DIRECTORY NAME, so it may not be a path.
+
+    THIS LANDS WITH THE CHANGE THAT MAKES IT REACHABLE, deliberately.
+    Until operation breakpoints, every gate id came from the DAG and this
+    could not be exercised; `--break <address>` makes the id something an
+    operator types, and `/api/gates/{step_id}` makes it something an HTTP
+    path carries.
+
+    It was measured before it was closed - `save_gate_snapshot(project,
+    "../../../outside", ...)` wrote `outside/snapshot.json` OUTSIDE the
+    project directory entirely, because this function was
+    `_gates_dir(...) / step_id` with no validation at all.
+
+    Refused rather than sanitised: an id that needs sanitising is not an
+    id, and quietly rewriting what the operator typed is how they end up
+    answering a gate that is not the one they armed.
+    """
+    raw = str(step_id)
+    if not raw or raw.strip() != raw or not raw.strip():
+        raise UnsafeGateId(
+            f"gate id {step_id!r} is empty or padded; it names a directory.")
+    if raw in (".", ".."):
+        raise UnsafeGateId(f"gate id {step_id!r} names a directory, not a gate.")
+    for bad in ("/", "\\", "\x00"):
+        if bad in raw:
+            raise UnsafeGateId(
+                f"gate id {step_id!r} contains {bad!r}. A gate id is a single "
+                f"directory name - a step id, or an operation address like "
+                f"subtitles.render@45.0-72.0 - never a path.")
+    if ".." in raw:
+        raise UnsafeGateId(
+            f"gate id {step_id!r} contains '..', which would climb out of "
+            f"the gates directory. Measured before this check existed: "
+            f"'../../../outside' wrote outside the project entirely.")
+    return raw
+
+
 def _gate_dir(project_dir: str, step_id: str, *, create: bool = False) -> Path:
-    """Get the gate directory for a specific step.
+    """Get the gate directory for a specific step or operation address.
 
     Args:
         create: If True, create the directory tree.
     """
-    p = _gates_dir(project_dir, create=create) / step_id
+    p = _gates_dir(project_dir, create=create) / _assert_safe_gate_id(step_id)
     if create:
         p.mkdir(parents=True, exist_ok=True)
     return p

@@ -305,22 +305,36 @@ def test_the_per_segment_seam_is_region_scoped():
     segment.check_scope(where)          # must not raise
 
 
-def test_plan_subtitles_does_not_yet_offer_region():
-    """4.01 numbers cards from a run-global counter, so a region-scoped
-    plan would renumber every card after the region. Increment 5 owns that
-    id policy; the scope must not be offered before it exists.
+def test_plan_subtitles_now_offers_region():
+    """The scaffold that refused this is GONE, and increment 5 removed it.
 
-    THIS GUARD IS DELIBERATELY TEMPORARY, and increment 5 LIFTS it: the
-    captain's approved worked example requires `subtitles.plan --region`,
-    and block-local caption ids (increment 1, PR #540) are the thing that
-    removes the renumbering this refuses over. When you add REGION to
-    `subtitles.plan`, DELETE this test - you are removing a scaffold that
-    has served its purpose, not weakening a safety check.
+    `test_plan_subtitles_does_not_yet_offer_region` stood here and
+    refused REGION on `subtitles.plan`, because 4.01 numbered its cards
+    from a run-global counter: a region-scoped plan renumbered every card
+    after the region. Measured on project 001, changing one block moved
+    13 ids in blocks that had not changed.
+
+    Block-local caption ids (increment 1, PR #540) removed the cause -
+    the same measurement now moves 0 - so the guard had served its
+    purpose and deleting it is removing a scaffold, not weakening a
+    safety check. This test replaces it so the capability cannot quietly
+    regress to refusing.
     """
     plan = operations.get("subtitles.plan")
-    assert operations.REGION not in plan.scopes
-    with pytest.raises(operations.ScopeNotSupported):
-        plan.check_scope(operations.scope_mod.region("45.0-72.0"))
+    assert operations.REGION in plan.scopes
+    plan.check_scope(operations.scope_mod.region("45.0-72.0"))   # must not raise
+
+
+def test_a_region_only_operation_refuses_project_scope():
+    """`subtitles.splice` at project scope would be a whole-plan
+    overwrite, which `subtitles.plan` already is. Offering both names for
+    one behaviour is the second implementation Ruling 1 forbids."""
+    for name in ("subtitles.splice", "transcript.reindex",
+                 "transcript.splice"):
+        op = operations.get(name)
+        assert op.scopes == (operations.REGION,), name
+        with pytest.raises(operations.ScopeNotSupported):
+            op.check_scope(operations.scope_mod.project())
 
 
 # ── The skill is a PROJECTION of the registry, never a source ───────

@@ -234,6 +234,30 @@ def _git_head(repo_root: Path) -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def _declared_brief_name(project: Path):
+    """What this project calls its creative brief, or None.
+
+    `brief_attachment.read_declaration` is the one reader of that
+    declaration and is used here rather than a second parse of
+    `project.yaml`, so a project that moves the key does not need this
+    module changed too. A relative path is what the runner joins to the
+    project folder, and an absolute one is already readable where it is.
+    """
+    try:
+        from library.tools.brief_attachment import (
+            BriefAttachmentError, read_declaration)
+    except ImportError:
+        return None
+    try:
+        attachment = read_declaration(str(project))
+    except (BriefAttachmentError, OSError, ValueError):
+        return None
+    path = getattr(attachment, "path", None)
+    if not path or os.path.isabs(str(path)):
+        return None
+    return str(path)
+
+
 def capture(project_folder: str, snapshot_id: str | None = None, store: Path | None = None,
             repo_root: Path | None = None, force: bool = False,
             state_path: str | None = None, archive_dir: str | None = None,
@@ -294,6 +318,33 @@ def capture(project_folder: str, snapshot_id: str | None = None, store: Path | N
         files.append({"path": f"project/{name}", "sha256": _sha256(dst),
                       "bytes": dst.stat().st_size,
                       "source": str(src)})
+
+    # The creative brief, which `project.yaml` NAMES rather than fixes.
+    #
+    # Ten steps declare `creative_brief` and the runner RAISES when a
+    # declared brief cannot be read - deliberately, because a step that
+    # reported success having read a filename was the defect that rule
+    # replaced. So a snapshot without the brief cannot reconstruct any of
+    # those ten, which is every step that makes a creative judgement.
+    # Found 2026-09-05 when step 3.4 regained its declaration and the
+    # bench stopped being able to replay it at all.
+    #
+    # Copied rather than referenced: it is small text the captain edits,
+    # and the whole point of a snapshot is that a later edit does not
+    # silently change what a replay reconstructs. Its NAME comes from the
+    # project's own declaration - top level or under `pipeline:` - so a
+    # project that calls it something else is still frozen.
+    brief_name = _declared_brief_name(project)
+    if brief_name:
+        src = project / brief_name
+        if src.is_file():
+            dst = proj_dir / brief_name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            files.append({"path": f"project/{brief_name}",
+                          "sha256": _sha256(dst),
+                          "bytes": dst.stat().st_size,
+                          "source": str(src)})
 
     references = []
     for area in REFERENCED_AREAS:

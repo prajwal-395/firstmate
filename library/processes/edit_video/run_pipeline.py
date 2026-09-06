@@ -60,8 +60,8 @@ import logging
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
                            craft_role, direction_contradiction,
-                           post_bridge_retry, run_restart, second_pass,
-                           undetermined)
+                           operations, post_bridge_retry, run_restart,
+                           second_pass, undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, code_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -114,6 +114,23 @@ PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief")
 # process-level input and it is not DAG-routable - see the block in
 # `gather_step_inputs` that fills it, and library/tools/qa_findings.py.
 QA_FINDINGS_INPUT = "render_qa_findings"
+
+REQUIREMENT_OVERRIDES_KEY = "requirement_overrides"
+"""Where a deliberate override is recorded in the project state.
+
+An override is not a pass: a requirement REFUSED and a person said
+proceed anyway.  Writing it here means a later reader of
+`pipeline_data.json` - the dashboard, the panel, the captain tomorrow -
+can ask "was the rough cut rejected when these captions were planned?"
+and get an answer.  Going quiet about it is the defect the
+refuse-with-override ruling exists to remove
+(`data/decisions/rough-cut-gate.md`).
+
+The command line is already on `pipeline_run.json` via `argv`, but that
+records only that `--override` was TYPED.  This records what the
+requirement actually refused with, which is the half a later reader
+needs and cannot reconstruct.
+"""
 
 # The timeline transcript, produced by `library/tools/timeline_transcript.py`
 # running outside the pipeline (it needs Resolve open and WhisperX).
@@ -578,6 +595,8 @@ def _rerun_invalidates(targets, stage_by_node: dict) -> set:
             invalidated.add(value)
         elif kind == "clip":
             invalidated.add(value.split(":", 1)[0])
+        elif kind == "region":
+            invalidated.add(value.split("@", 1)[0])
     return invalidated
 
 
@@ -624,6 +643,28 @@ def apply_rerun_requests(project_dir: str, state: dict, targets: list,
             applied.append(
                 f"step {step_id}: ledger cleared"
                 + (f", {len(removed)} artifacts removed" if removed else ""))
+            continue
+
+        if kind == "region":
+            # A region target names a step and an interval of the
+            # TIMELINE. Unlike a clip target there are no per-clip
+            # artifacts to delete: what a region invalidates is decided
+            # from the region itself by the operation that runs it
+            # (library/tools/operations.py, subtitles.plan and
+            # subtitles.render at REGION scope), which is where the
+            # spine that maps the interval to blocks is in hand.
+            #
+            # So the runner does what it can honestly do here - forget
+            # the step's ledger entry so it runs again - and refuses to
+            # guess at artifacts. Deleting "everything for the step"
+            # would be the whole-step re-run the operator explicitly did
+            # not ask for.
+            step_id, _, span = value.partition("@")
+            step_ledger.forget(state, step_id)
+            _clear_step_failure(state, step_id)
+            applied.append(
+                f"region {span} of {step_id}: ledger cleared; the region "
+                f"scope decides what is recomputed")
             continue
 
         step_id, _, clip_id = value.partition(":")
@@ -2119,6 +2160,7 @@ def run_pipeline(
     only: list = None,
     skip: list = None,
     with_steps: list = None,
+    overrides: list = None,
     profile: str = None,
     break_at: list = None,
     no_break_at: list = None,
@@ -2191,6 +2233,11 @@ def run_pipeline(
     try:
         gates = run_breakpoints.resolve(
             known_steps=set(nodes),
+            # A breakpoint may name an OPERATION as well as a DAG node.
+            # The region half is unbounded, so this is the namespace, not
+            # the address set; `breakpoints._reject_unknown` parses the
+            # address against it. See library/tools/operations.py.
+            known_operations=set(operations.names()),
             profile_breakpoints=active_profile.breakpoints,
             review_all=bool(review_mode),
             break_at=tuple(break_at or ()),
@@ -2325,7 +2372,21 @@ def run_pipeline(
     # mid-run raise is recorded as a STEP FAILURE and colours `status` on
     # every later run until that step succeeds, while a refusal is
     # traceless.
-    unmet = requirements.check(
+    # An override is refused BY NAME before it is honoured: a typo, or a
+    # requirement that has not opted in, must not quietly disable
+    # nothing. See requirements.assert_overrides_are_real.
+    try:
+        requirements.assert_overrides_are_real(
+            overrides or (), requirements.all_requirements(dag, manifests))
+    except requirements.OverrideError as exc:
+        print(f"\n  \u2717 REFUSED\n", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("", file=sys.stderr)
+        summary = {"status": "REFUSED", "reason": str(exc)}
+        json.dump(summary, sys.stdout, indent=2)
+        return summary
+
+    verdict = requirements.evaluate(
         steps_to_run,
         requirements.Context(
             project_folder=str(project_dir),
@@ -2333,6 +2394,7 @@ def run_pipeline(
             run_set=frozenset(steps_to_run),
             recorded=run_scope.recorded_outputs(state),
             external={key: entry.value for key, entry in external.items()},
+            overrides=frozenset(overrides or ()),
         ),
         # Derived from THIS RUN's dag and manifests, never from the copy
         # on disk. A caller may hand `run_pipeline` a reduced DAG - the
@@ -2341,6 +2403,30 @@ def run_pipeline(
         # not contain.
         requirements.all_requirements(dag, manifests),
     )
+    unmet = verdict.unmet
+
+    # An override is not a pass, and it is never silent.
+    #
+    # The requirement REFUSED and a person said proceed anyway, so the
+    # refusal and what it refused about go onto the run's own record -
+    # `pipeline_run.json` via `overrides_applied` below, the state file,
+    # and the summary. A later reader asking "was the cut rejected when
+    # these captions were planned?" gets an answer instead of silence,
+    # which is the whole defect the ruling was about
+    # (data/decisions/rough-cut-gate.md).
+    override_records = [o.as_record() for o in verdict.overridden]
+    if override_records:
+        print(f"\n  \u26a0 OVERRIDDEN - proceeding past a requirement that "
+              f"refused\n", file=sys.stderr)
+        for record in override_records:
+            print(f"  {record['requirement']}: {record['refused_because']}",
+                  file=sys.stderr)
+            print(f"      needed by: {record['needed_by']}", file=sys.stderr)
+        print("", file=sys.stderr)
+        if not dry_run:
+            state[REQUIREMENT_OVERRIDES_KEY] = override_records
+            save_pipeline_state(project_dir, state)
+
     # Two answers, because the two kinds are about different things.
     #
     # A STATE requirement being unmet means the run is incoherent: a
@@ -2482,7 +2568,30 @@ def run_pipeline(
     # says whether a run is UP; this says which run a FILE came from,
     # which outlives the run by a lot. See library/tools/provenance.py.
     _run_id = provenance.new_run_id()
-    _provenance = provenance.ProvenanceLedger(project_dir)
+    # BUILT WITH BOTH DECLARATIONS, and the reason is not the one it
+    # looks like.
+    #
+    # `ProvenanceLedger` refuses to record an operation it cannot CHECK,
+    # and it reads the two id sets it was constructed with. The runner
+    # built it with NEITHER - so the obvious reading is "the guard was
+    # off and an invented operation would be recorded as fact".
+    #
+    # Measured, and it is the opposite. An absent declaration is already
+    # a REFUSAL rather than a permit, so the bare ledger refuses
+    # EVERYTHING:
+    #
+    #   bare  + operation_id="totally.made.up"   -> REFUSED
+    #   bare  + operation_id="sfx_library.validate" (real) -> REFUSED
+    #   wired + operation_id="sfx_library.validate" -> recorded
+    #
+    # So this is not a vacuous gate being closed; it is a fail-CLOSED
+    # one being given the declarations it asks for. Until it is wired the
+    # runner cannot attribute ANY operation - the first firing site to
+    # try would raise `ProvenanceError` and take the run down with it,
+    # which is latent only for as long as nothing attributes an
+    # operation.
+    _provenance = provenance.ProvenanceLedger(
+        project_dir, step_ids=set(nodes), operation_ids=operations.names())
     _provenance.start_run(
         _run_id, mode=run_mode,
         restart=run_restart.as_record(_restart) if _restart.is_restart else None)
@@ -2546,30 +2655,73 @@ def run_pipeline(
         # auto-skipped once done", and it is why there is no separate
         # preflight command.
         if step_ledger.is_completed(state, node_id):
-            if resume_mode:
-                from library.tools.review_gate import load_gate_feedback, apply_feedback_to_output
+            # A GATE VERDICT BINDS EVERY RUN, not only one that says
+            # --resume.
+            #
+            # This block used to sit inside `if resume_mode:`, so a
+            # plain re-run walked straight past an UNANSWERED gate and
+            # reported SUCCESS - measured: pause at `scan`, re-run
+            # without --resume, the gate is still `pending` and the run
+            # says SUCCESS. It walked past a REJECTED one too, which
+            # contradicts AGENTS.md 4's "a rejected gate halts the
+            # pipeline entirely" in the one mode most runs use.
+            #
+            # That is the gate-that-cannot-fail class (AGENTS.md 10.4):
+            # a pause a flag could skip reads as review coverage that
+            # is not there. Firstmate's ruling, 2026-09-05, with the
+            # reasoning in `data/decisions/gate-bypass.md`: an
+            # unanswered review gate HALTS THE RUN.
+            #
+            # WHAT THIS CHANGES FOR --resume, said plainly rather than
+            # discovered: this block was the flag's ONLY behavioural
+            # effect in the runner, so `--resume` no longer changes what
+            # happens at a gate. It is still accepted and still names
+            # the run's intent in `pipeline_run.json` via
+            # `run_control.describe_mode`; whether a flag with no
+            # remaining effect should be retired is a separate call and
+            # is not made here.
+            # The verdict is read off status.json, which is the file that
+            # HAS one. This used to branch on `load_gate_feedback(...)
+            # .action == "pending"`, and that branch was UNREACHABLE:
+            # `save_gate_snapshot` deletes feedback.json when it arms a
+            # gate, and a feedback file is only ever written carrying a
+            # real verdict, so an unanswered gate has no feedback.json at
+            # all and `load_gate_feedback` returns None.
+            #
+            # Measured on the harness below: pause at `scan`, then re-run
+            # WITH --resume and without answering - `['catalog',
+            # 'temporal_index']` ran and the summary said SUCCESS while
+            # status.json still said `pending`. So the pause was skippable
+            # in every mode, not only without the flag; the bypass this
+            # change was asked to close was the narrower half of it.
+            #
+            # feedback.json is still read, for the one verdict that
+            # carries a payload.
+            from library.tools.review_gate import (
+                apply_feedback_to_output, get_gate_status, load_gate_feedback)
+            verdict = get_gate_status(project_dir, node_id)
+            if verdict == "pending":
+                print(f"  ⏸  {node_id}: gate is pending, stopping.", file=sys.stderr)
+                paused_at_gate = node_id
+                break
+            elif verdict == "rejected":
+                print(f"  ✗  {node_id}: rejected by reviewer.", file=sys.stderr)
+                failed.append(node_id)
+                _record_step_failure(
+                    state, node_id, "rejected by reviewer at review gate")
+                save_pipeline_state(project_dir, state)
+                break
+            elif verdict == "revised":
                 feedback = load_gate_feedback(project_dir, node_id)
                 if feedback:
-                    if feedback.action == "pending":
-                        print(f"  ⏸  {node_id}: gate is pending, stopping.", file=sys.stderr)
-                        paused_at_gate = node_id
-                        break
-                    elif feedback.action == "rejected":
-                        print(f"  ✗  {node_id}: rejected by reviewer.", file=sys.stderr)
-                        failed.append(node_id)
-                        _record_step_failure(
-                            state, node_id, "rejected by reviewer at review gate")
-                        save_pipeline_state(project_dir, state)
-                        break
-                    elif feedback.action == "revised":
-                        outputs = state.get("step_outputs", {})
-                        step_output = outputs.get(node_id, {})
-                        merged = apply_feedback_to_output(step_output, feedback)
-                        outputs[node_id] = merged
-                        state["step_outputs"] = outputs
-                        save_pipeline_state(project_dir, state)
-                        print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
-            
+                    outputs = state.get("step_outputs", {})
+                    step_output = outputs.get(node_id, {})
+                    merged = apply_feedback_to_output(step_output, feedback)
+                    outputs[node_id] = merged
+                    state["step_outputs"] = outputs
+                    save_pipeline_state(project_dir, state)
+                    print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
+
             print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
             completed.append(node_id)
             continue
@@ -3265,6 +3417,7 @@ def main():
         only=args.only,
         skip=args.skip,
         with_steps=args.with_steps,
+        overrides=args.overrides,
         profile=args.profile,
         break_at=args.break_at,
         no_break_at=args.no_break_at,

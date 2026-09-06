@@ -167,22 +167,87 @@ class RegionAddress:
         return seen
 
 
+MASTER = None
+"""The project's own master timeline, which most projects never name.
+
+`None` rather than a string like `"master"`, because a name is a thing a
+project DECLARES and inventing one here would make an unnamed timeline
+indistinguishable from a project that really has a timeline called
+master.  `subtitle_segment_id.timeline_scope` already reports an unnamed
+timeline as `""`; `normalise_timeline` folds that to this."""
+
+
+def normalise_timeline(timeline):
+    """`""` and `None` both mean the unnamed master timeline."""
+    if timeline is None:
+        return MASTER
+    text = str(timeline).strip()
+    return text or MASTER
+
+
+class TimelineMismatch(ValueError):
+    """Two regions from different timelines were used together."""
+
+
+def assert_same_timeline(a: "Region", b, where: str) -> None:
+    """Refuse a master-timeline region where a reel one is expected, or back.
+
+    `b` is a `Region` or a bare timeline identifier.
+    """
+    other = b.timeline if isinstance(b, Region) else normalise_timeline(b)
+    if a.timeline != other:
+        raise TimelineMismatch(
+            f"{where}: this region is on timeline {a.timeline!r} and the "
+            f"other side is on {other!r}. A reel has its own time base, "
+            f"mapped from the master by reel_build.reel_time, so the same "
+            f"number means two different moments - the offsets on project "
+            f"001 spread 146.5s across one 56.6s timeline. Convert, or "
+            f"address the timeline you meant."
+        )
+
+
 @dataclass(frozen=True)
 class Region:
-    """An interval of the delivered timeline, in seconds.
+    """An interval of ONE NAMED TIMELINE, in seconds.
 
-    Always TIMELINE seconds.  The type has one domain and carries no flag
-    saying which, because a flag is a thing a caller can set wrongly.
+    Always TIMELINE seconds - the type has one time DOMAIN and carries no
+    flag saying which, because a flag is a thing a caller can set wrongly.
+    And always ONE timeline, for the same reason one level up.
+
+    Why the timeline is in the type
+    -------------------------------
+    This module exists because an interval is encoded four ways in this
+    repository and word timings five, two of which collide - measured per
+    block on project 001 at eight distinct offsets, seven negative and
+    one positive, spread 146.5s on a 56.6s timeline.  The fix was that
+    the domain belongs to the TYPE rather than to a convention.
+
+    A master-timeline region and a reel-timeline region are that same
+    collision one level up.  A reel is its keep ranges laid end to end
+    (`reel_build.reel_time`), so reel second 12.0 and master second 12.0
+    are different moments, and nothing about the numbers says so.  Were
+    the timeline carried by `Scope` instead, a bare `Region` passed
+    between functions - which is most of the region surface - would have
+    lost it, and a reel region could be handed where a master one is
+    expected with nothing to catch it.  Here, the mistake is
+    unrepresentable rather than discouraged.
+
+    `timeline` is `MASTER` (None) for the project's own timeline, or the
+    timeline's declared name.  It is REQUIRED and FIRST: a caller has to
+    have decided which timeline they mean before they can build one.
 
     Half-open, `[start, end)` - the same reading `blocks_overlapping`
     uses, so a region that ends exactly where a block does does not pull
     the next block in.
     """
 
+    timeline: object
     start: float
     end: float
 
     def __post_init__(self):
+        object.__setattr__(self, "timeline",
+                           normalise_timeline(self.timeline))
         if self.start < 0:
             raise ValueError(
                 f"region start {self.start} is negative. A region is "
@@ -209,21 +274,42 @@ class Region:
 
     def clipped_to(self, block: dict) -> "Region":
         """This region narrowed to one block's own timeline span."""
-        return Region(max(self.start, block["timeline_start"]),
+        return Region(self.timeline,
+                      max(self.start, block["timeline_start"]),
                       min(self.end, block["timeline_end"]))
 
+    def on_same_timeline_as(self, other) -> bool:
+        other_tl = (other.timeline if isinstance(other, Region)
+                    else normalise_timeline(other))
+        return self.timeline == other_tl
+
     def __str__(self) -> str:
-        return f"{self.start:g}-{self.end:g}s"
+        span = f"{self.start:g}-{self.end:g}s"
+        return span if self.timeline is MASTER else f"{self.timeline}@{span}"
 
 
-def parse(text: str) -> Region:
+def parse(text: str, timeline=MASTER) -> Region:
     """A region written the way an operator types it: ``45.0-72.0``.
 
-    Accepts `<start>-<end>` in seconds.  Raises on anything else rather
-    than guessing, because the two plausible mis-readings - a single
-    number meaning "from here" and a negative start - are both silent.
+    Accepts `<start>-<end>` in seconds, optionally prefixed with the
+    timeline it is on: ``reel_03@45.0-72.0``.  A prefix and an explicit
+    `timeline` that DISAGREE are refused rather than one winning - the
+    silent winner is how a reel span gets read against the master.
+
+    Raises on anything else rather than guessing, because the two
+    plausible mis-readings - a single number meaning "from here" and a
+    negative start - are both silent.
     """
     raw = (text or "").strip()
+    if "@" in raw:
+        prefix, _, raw = raw.partition("@")
+        prefix = normalise_timeline(prefix)
+        given = normalise_timeline(timeline)
+        if given is not MASTER and given != prefix:
+            raise TimelineMismatch(
+                f"region {text!r} names timeline {prefix!r} but was asked "
+                f"for on {given!r}. Pass one or the other, not two.")
+        timeline = prefix
     if not raw:
         raise ValueError(
             "a region needs <start>-<end> in timeline seconds, e.g. 45.0-72.0")
@@ -238,11 +324,17 @@ def parse(text: str) -> Region:
         raise ValueError(
             f"region {text!r}: both ends must be seconds, e.g. 45.0-72.0"
         ) from None
-    return Region(start, end)
+    return Region(timeline, start, end)
 
 
-def resolve(region: Region, structure: list) -> RegionAddress:
+def resolve(region: Region, structure: list, timeline=MASTER) -> RegionAddress:
     """Turn a region into the blocks, footage and owning steps behind it.
+
+    `timeline` is the timeline `structure` describes, and a region from a
+    different one is REFUSED rather than resolved against the wrong
+    spine.  It is a parameter rather than something read off the blocks
+    because a spine block carries no timeline identifier - the spine is
+    whichever timeline its producer built.
 
     A non-speech block inside the region - a transition slot, an outro, a
     bookend card - contributes no source span, because it has no
@@ -253,6 +345,7 @@ def resolve(region: Region, structure: list) -> RegionAddress:
     """
     from library.tools.timeline_decisions import TRACK_DECISIONS
 
+    assert_same_timeline(region, timeline, "resolve")
     touched = tuple(region.blocks(structure))
     spans = []
     for block in touched:

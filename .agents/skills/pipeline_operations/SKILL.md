@@ -15,7 +15,8 @@ run at a declared scope. It owns no logic of its own.
 
 - `project` - the whole project, which is what every step does today and what a run with no scope means
 - `clip` - one clip of one step, addressed by its catalog id (clip_007) - the granularity `--rerun step:clip` already has
-- `region` - an interval of the TIMELINE, in seconds (45.0-72.0) - the axis nothing had, and the one the captain's regenerate-this-segment example needs
+- `region` - an interval of ONE timeline, in seconds (45.0-72.0, or reel_03@45.0-72.0) - the axis nothing had, and the one the captain's regenerate-this-segment example needs
+- `reel` - one reel: its keep ranges in play order, all on the reel's own timeline. NOT a region - a reel is a LIST of spans and its time base is its kept ranges laid end to end
 
 ## Operations
 
@@ -27,7 +28,10 @@ run at a declared scope. It owns no logic of its own.
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |
 | `duration_zone.build` | `mesh_spine` | project | Resolve the project's target duration into the band the model is shown |
 | `music.analyse` | `music_analysis` | project | Analyse the selected track for beat grid, BPM, key and structure |
-| `subtitles.plan` | `plan_subtitles` | project | Generate subtitle entries from the spine's own word timestamps |
+| `subtitles.plan` | `plan_subtitles` | project, region | Generate subtitle entries from the spine's own word timestamps |
+| `subtitles.splice` | `plan_subtitles` | region | Put a region's re-planned captions back into the stored plan |
+| `transcript.reindex` | `temporal_index` | region | Re-measure the speech in one region, back at the raw footage |
+| `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
 | `subtitles.render` | `render_subtitles` | project, region | Render one ProRes 4444 overlay per captioned spine block |
 | `subtitles.render_segment` | `render_subtitles` | project, region | Render ONE subtitle segment - the per-segment unit a region-scoped redo reaches |
 | `motion_graphics.render` | `render_motion_graphics` | project | Render the planned motion graphics, bookends and timed text |

@@ -774,3 +774,105 @@ def test_the_runner_reports_it_after_the_status_is_decided():
     assert '"notes_reaching_nobody": notes_reaching_nobody' in source
     assert source.index("status = ") < source.index(
         "undelivered_summary_lines")
+
+
+# ── A note is an INTERVAL on a NAMED TIMELINE ───────────────────────
+#
+# `data/decisions/region-timeline-identity.md`: a note is on
+# `(timeline, span)`. The timeline half has always been on RoutedNote;
+# the span half was measured at collection and thrown away here.
+
+def test_a_notes_own_span_reaches_the_prompt():
+    """A marker DRAGGED to a length is an interval, and the prompt used
+    to be told only `at_timecode` - a point."""
+    raw = dict(CLIP_NOTE, frame=744, duration_frames=90)
+    routed = marker_routing.route_note(
+        raw, "Pipeline_Edit_01", "p.markers.json",
+        timeline_fps=30.0, timeline_start_frame=108000)
+
+    assert routed.duration_frames == 90
+    # (744 - 108000) is negative here only because this fixture's frame
+    # predates the offset; the real pairing is asserted below.
+    block = marker_routing.prompt_block([routed])
+    assert "at_region" in block["notes"][0]
+
+
+def test_the_span_subtracts_the_timelines_own_start_frame():
+    """THE conversion, and the one that is easy to get wrong.
+
+    Resolve starts a timeline at 01:00:00:00 - frame 108000 at 30fps -
+    so `frame / fps` is an HOUR out and looks entirely plausible. This is
+    the same domain collision `region.py` exists to prevent, one level up.
+    """
+    raw = dict(CLIP_NOTE, frame=108000 + 26, duration_frames=30)
+    routed = marker_routing.route_note(
+        raw, "Pipeline_Edit_01", "p.markers.json",
+        timeline_fps=30.0, timeline_start_frame=108000)
+
+    span = marker_routing.note_span_seconds(routed)
+    assert span == (pytest.approx(0.867, abs=0.002),
+                    pytest.approx(1.867, abs=0.002)), (
+        f"got {span}; frame/fps without the start-frame offset would be "
+        f"{(108000 + 26) / 30:.1f}s - an hour into a 56-second cut"
+    )
+    block = marker_routing.prompt_block([routed])["notes"][0]
+    assert block["at_region"] == "0.867..1.867"
+    assert block["on_timeline"] == "Pipeline_Edit_01"
+
+
+def test_a_span_that_cannot_be_computed_is_absent_not_zero():
+    """A pull file written before `timeline_fps` was recorded has no fps.
+
+    A note reported at 0.000..0.000 would read as the first frame of the
+    cut, which is a claim about where the captain was looking.
+    """
+    routed = marker_routing.route_note(CLIP_NOTE, "tl", "p.markers.json")
+    assert marker_routing.note_span_seconds(routed) is None
+    block = marker_routing.prompt_block([routed])["notes"][0]
+    assert block["at_region"] == ""
+    assert "on_timeline" not in block
+
+
+def test_an_unplaced_note_has_no_span():
+    raw = dict(CLIP_NOTE, frame=None, unplaced_reason="not on this timeline")
+    routed = marker_routing.route_note(raw, "tl", "p.markers.json",
+                                       timeline_fps=30.0)
+    assert marker_routing.note_span_seconds(routed) is None
+
+
+def test_a_moment_notes_context_carries_each_clips_span(project_with_notes=None):
+    """`clips_under` rendered names only, so the one reader who could act
+    on "which of these covers my region" was told the least useful half.
+
+    Still CONTEXT, and it still routes nothing."""
+    routed = marker_routing.route_note(MOMENT_NOTE, "tl", "p.markers.json",
+                                       timeline_fps=30.0)
+    block = marker_routing.prompt_block([routed])["notes"][0]
+    assert block["attached_to"] == "moment"
+    joined = " ".join(block["clips_under"])
+    assert "0..72" in joined, joined
+    assert "0..1782" in joined, "the music bed's own span is context too"
+    # The withdrawn router stays withdrawn.
+    assert routed.target["kind"] == marker_routing.TARGET_MOMENT
+    assert "the_clip_under_the_playhead_decides" in \
+        marker_routing.WITHDRAWN_ROUTERS
+
+
+def test_route_project_hands_the_timelines_measurements_through(tmp_path):
+    """The pull file records `timeline_fps` and `timeline_start_frame`
+    and nothing read either until now."""
+    project = tmp_path / "proj"
+    directory = ProjectLayout(project).write_dir(Area.MARKER_FEEDBACK)
+    (directory / f"tl.20260905T000000Z{PULL_FILE_SUFFIX}").write_text(
+        json.dumps({
+            "format": "marker_feedback/1", "timeline": "Pipeline_Edit_01",
+            "timeline_fps": 30.0, "timeline_start_frame": 108000,
+            "notes": [dict(CLIP_NOTE, frame=108000 + 26, duration_frames=30)],
+        }), encoding="utf-8")
+
+    routed = marker_routing.route_project(str(project))
+    assert len(routed) == 1
+    assert routed[0].timeline_fps == 30.0
+    assert routed[0].timeline_start_frame == 108000
+    assert marker_routing.note_span_seconds(routed[0]) == (
+        pytest.approx(0.867, abs=0.002), pytest.approx(1.867, abs=0.002))

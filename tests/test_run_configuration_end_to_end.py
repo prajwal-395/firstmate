@@ -352,3 +352,191 @@ def test_a_dry_run_reports_the_configuration(project, runner):
     assert summary["breakpoints"]["steps"] == ["catalog"]
     assert summary["steps_to_run"] == ["scan", "catalog"]
     assert runner.seen == []
+
+
+# ── A gate verdict binds EVERY run, not only a --resume ─────────────
+#
+# These four pin firstmate's ruling of 2026-09-05
+# (`data/decisions/gate-bypass.md`). Before it, the whole gate-feedback
+# block sat inside `if resume_mode:`, so omitting one flag walked past a
+# pause the captain had not answered - and reported SUCCESS.
+
+def test_a_plain_rerun_halts_at_an_unanswered_gate(project):
+    """THE fix. A pending gate is unanswered by definition, and a run
+    that skips it is a review gate that cannot fail (AGENTS.md 10.4)."""
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+    assert review_gate.get_gate_status(str(project), "scan") == "pending"
+
+    second = _Runner(project)
+    summary = second.run()          # NO resume_mode - this used to sail past
+
+    assert second.ran == [], "nothing may run past an unanswered gate"
+    assert summary["paused_at_gate"] == "scan"
+    assert summary["status"] == "PARTIAL", (
+        f"got {summary['status']}; a run held at an unanswered gate is "
+        f"incomplete, and must never report SUCCESS"
+    )
+    assert review_gate.get_gate_status(str(project), "scan") == "pending", (
+        "the gate is still the captain's to answer"
+    )
+
+
+def test_a_plain_rerun_halts_at_a_rejected_gate(project):
+    """AGENTS.md 4 already said a rejected gate halts the pipeline
+    entirely. It did not, in the mode most runs use."""
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+    review_gate.save_gate_feedback(str(project), "scan", "rejected",
+                                   feedback="wrong footage")
+
+    second = _Runner(project)
+    summary = second.run()          # NO resume_mode
+    assert second.ran == []
+    assert summary["status"] == "FAILED"
+    assert "scan" in load_pipeline_state(str(project))["failed_steps"]
+
+
+def test_a_plain_rerun_applies_a_revision(project):
+    """A revision answered from the CLI reaches the next step without
+    anyone having to remember a second flag.
+
+    `review_gate answer --revise` writes feedback and nothing else - it
+    is the runner that merges it - so before this the revision simply
+    never arrived unless the next run said --resume.
+    """
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+    review_gate.save_gate_feedback(
+        str(project), "scan", "revised",
+        feedback="only these two clips",
+        revisions={"raw_footage_files": ["a.mov", "b.mov"]})
+
+    second = _Runner(project)
+    second.run()                    # NO resume_mode
+    handed = second.inputs_of("catalog")
+    assert handed is not None, "catalog should have run"
+    assert handed["raw_footage_files"] == ["a.mov", "b.mov"], (
+        f"catalog was handed {handed.get('raw_footage_files')!r}, not the "
+        f"revised value")
+
+
+def test_an_approved_gate_does_not_halt_a_plain_rerun(project):
+    """The mirror. A gate that FAILS correct input is no more coverage
+    than one that cannot fail (AGENTS.md 10.4)."""
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+    review_gate.save_gate_feedback(str(project), "scan", "approved")
+
+    second = _Runner(project)
+    summary = second.run()          # NO resume_mode
+    assert second.ran == ["catalog", "temporal_index"]
+    assert summary["status"] == "SUCCESS"
+
+
+def test_resume_still_behaves_exactly_as_it_did(project):
+    """No regression: --resume was the only mode that honoured a gate,
+    and it still honours it."""
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+    review_gate.save_gate_feedback(str(project), "scan", "approved")
+
+    second = _Runner(project)
+    summary = second.run(resume_mode=True)
+    assert second.ran == ["catalog", "temporal_index"]
+    assert summary["status"] == "SUCCESS"
+
+
+def test_an_unanswered_gate_halts_a_resumed_run_too(project):
+    """The half that was never working at all.
+
+    The pause branched on `load_gate_feedback(...).action == "pending"`,
+    which is unreachable: arming a gate DELETES feedback.json, and a
+    feedback file is only ever written carrying a real verdict. So an
+    unanswered gate returned None and every mode ran on - measured
+    before the fix as `['catalog', 'temporal_index']` and SUCCESS, with
+    status.json still saying `pending`.
+    """
+    first = _Runner(project)
+    first.run(break_at=["scan"])
+
+    second = _Runner(project)
+    summary = second.run(resume_mode=True)   # WITH the flag, unanswered
+    assert second.ran == []
+    assert summary["paused_at_gate"] == "scan"
+    assert summary["status"] == "PARTIAL"
+# ── The runner knows the operation namespace ────────────────────────
+
+def test_the_runner_accepts_an_operation_breakpoint(project, runner):
+    """`--break <operation>@<region>` reaches `breakpoints.resolve` with
+    the registry behind it, or every address is refused as unknown."""
+    from library.tools import operations
+    one = sorted(operations.names())[0]
+
+    summary = runner.run(break_at=[f"{one}@45.0-72.0"])
+    assert summary["status"] != "REFUSED", summary.get("reason", "")
+
+    # The run's own account of itself carries where it meant to stop.
+    from library.tools import run_control
+    record = run_control.read_run_status(str(project))["breakpoints"]
+    assert f"{one}@45.0-72.0" in record["steps"]
+    # It names no step this run reaches, so it is REPORTED unreachable
+    # rather than refused - a breakpoint strands no consumer.
+    assert f"{one}@45.0-72.0" in record["unreachable"]
+
+
+def test_the_runner_still_refuses_an_operation_that_does_not_exist(project, runner):
+    summary = runner.run(break_at=["nope.jog@1.0-2.0"])
+    assert summary["status"] == "REFUSED"
+    assert "nope.jog" in summary["reason"]
+
+
+def test_the_runner_builds_a_provenance_ledger_that_can_record_an_operation(project):
+    """Observed on the RUNNER's own construction, not on a ledger the
+    test built - the latter documents the property and would pass with
+    the wiring reverted, which is the shape AGENTS.md 10.4 calls out.
+
+    Built with neither declaration the ledger refuses EVERY operation,
+    real or invented, because an absent declaration is a refusal and not
+    a permit. So this is a fail-CLOSED gate being given what it asks
+    for, not a vacuous one being closed.
+    """
+    from library.tools import operations, provenance
+
+    seen = {}
+    real = provenance.ProvenanceLedger
+
+    def watch(project_folder, step_ids=None, operation_ids=None):
+        seen["step_ids"] = set(step_ids or ())
+        seen["operation_ids"] = set(operation_ids or ())
+        return real(project_folder, step_ids=step_ids,
+                    operation_ids=operation_ids)
+
+    with patch("library.tools.provenance.ProvenanceLedger", side_effect=watch):
+        _Runner(project).run()
+
+    assert seen, "the runner never built a ProvenanceLedger"
+    assert seen["operation_ids"] == set(operations.names()), (
+        f"the runner built its ledger with operation_ids="
+        f"{sorted(seen['operation_ids'])}; without the registry it "
+        f"refuses every operation, real ones included"
+    )
+    assert "scan" in seen["step_ids"], (
+        "the owning-node check needs the DAG's ids too")
+
+
+def test_a_ledger_with_no_declarations_refuses_even_a_real_operation(project):
+    """Why the wiring above is not optional."""
+    from library.tools import operations, provenance
+    real = sorted(operations.names())[0]
+    owner = operations.get(real).owning_node
+
+    bare = provenance.ProvenanceLedger(str(project))
+    with pytest.raises(provenance.ProvenanceError):
+        bare.observe(owner, "run-1", {}, {}, operation_id=real)
+
+    wired = provenance.ProvenanceLedger(
+        str(project), step_ids={owner}, operation_ids=operations.names())
+    wired.observe(owner, "run-1", {}, {}, operation_id=real)
+    with pytest.raises(provenance.ProvenanceError):
+        wired.observe(owner, "run-1", {}, {}, operation_id="totally.made.up")

@@ -25,6 +25,12 @@
         "description": "The direction this episode is cut under. Read so the step can SAY where the conversation's own measurements contradict it (library/tools/direction_contradiction.py), never to be overridden by it."
       },
       {
+        "name": "creative_brief",
+        "type": "string",
+        "required": false,
+        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none. This is where a project says how many reels it wants and what it wants them to be - none of which the engine states."
+      },
+      {
         "name": "brand_constraints",
         "type": "object",
         "required": false,
@@ -57,6 +63,7 @@
     "context_fields": [
       "timeline_transcript.turns",
       "reel_candidates",
+      "creative_brief",
       "creative_direction",
       "brand_constraints"
     ]

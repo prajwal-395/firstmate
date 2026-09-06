@@ -80,7 +80,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 from library.tools import scope as scope_mod
 from library.tools.scope import CLIP, PROJECT, REGION, Scope
@@ -351,17 +351,49 @@ _REGISTRY: Tuple[Operation, ...] = (
         owning_node="plan_subtitles",
         owning_dir="step_4_01_plan_subtitles", body="step.py",
         attr="generate_subtitles",
-        # REGION is not offered YET: 4.01 numbers its cards from a
-        # run-global counter, so a region-scoped plan would renumber
-        # every card after the region.  Offering the scope before the id
-        # policy exists would be a name for something that does the
-        # wrong thing.
+        # REGION is offered as of increment 5.  It was withheld while
+        # 4.01 numbered its cards from a run-global counter, because a
+        # region-scoped plan renumbered every card after the region -
+        # measured on project 001, changing one block moved 13 ids in
+        # blocks that had not changed.  Block-local ids (increment 1)
+        # removed that, and the same measurement now moves 0.
         #
-        # This is TEMPORARY and increment 5 lifts it.  The captain's
-        # approved worked example requires `subtitles.plan --region`, and
-        # block-local caption ids (increment 1, PR #540) are what remove
-        # the renumbering.  Add REGION here and delete
-        # `test_plan_subtitles_does_not_yet_offer_region`.
+        # A region-scoped plan is a PARTIAL plan for
+        # `subtitle_splice.splice_plan`, never something to write over a
+        # whole one: 4.01 plans each block from its own bounds and its
+        # own words, so a block plans identically whether its neighbours
+        # are present or not.
+        scopes=(PROJECT, REGION),
+    ),
+    Operation(
+        name="subtitles.splice",
+        summary="Put a region's re-planned captions back into the stored plan",
+        owning_node="plan_subtitles",
+        owning_dir="step_4_01_plan_subtitles", body="step.py",
+        attr="splice_region_plan",
+        # REGION only.  A splice with no region is a whole-plan
+        # overwrite, which is what `subtitles.plan` at PROJECT scope
+        # already is - naming it twice would be the second
+        # implementation Ruling 1 forbids.
+        scopes=(REGION,),
+    ),
+    Operation(
+        name="transcript.reindex",
+        summary="Re-measure the speech in one region, back at the raw footage",
+        owning_node="temporal_index",
+        owning_dir="step_1_04_temporal_index", body="step.py",
+        attr="reindex_region",
+        # REGION only, for the same reason: re-indexing everything is
+        # what the step already does at PROJECT scope.
+        scopes=(REGION,),
+    ),
+    Operation(
+        name="transcript.splice",
+        summary="Put a re-measured region back into the per-clip speech index",
+        owning_node="temporal_index",
+        owning_dir="step_1_04_temporal_index", body="step.py",
+        attr="splice_region_index",
+        scopes=(REGION,),
     ),
     Operation(
         name="subtitles.render",
@@ -427,6 +459,92 @@ def get(name: str) -> Operation:
             return op
     raise UnknownOperation(
         f"unknown operation {name!r}. Known: {', '.join(names())}")
+
+
+# ── An operation, addressed at a region ──────────────────────────────
+
+ADDRESS_SEPARATOR = "@"
+"""What separates an operation from the region it runs at:
+``subtitles.render@45.0-72.0``.
+
+ONE spelling, parsed in ONE place. The design named three consumers -
+`--break`, `--rerun`'s fourth form and this module's own CLI - and three
+parsers for one address is three chances to disagree about what the
+captain typed."""
+
+
+@dataclass(frozen=True)
+class Address:
+    """An operation, and the region it is addressed at.
+
+    `region` is None for the whole project, which is what a bare
+    operation name means.
+    """
+
+    operation: str
+    region: object = None
+
+    def __str__(self) -> str:
+        if self.region is None:
+            return self.operation
+        return f"{self.operation}{ADDRESS_SEPARATOR}{self.region}"
+
+    @property
+    def is_region_scoped(self) -> bool:
+        return self.region is not None
+
+
+def parse_address(text: str, known: Optional[Iterable[str]] = None) -> Address:
+    """`subtitles.render@45.0-72.0`, or a bare `subtitles.render`.
+
+    The SPAN half is delegated to `region.parse` rather than re-parsed
+    here: that module owns what an interval is and, once a region carries
+    its own timeline, an address parsed here picks that up without this
+    function learning about timelines at all.
+
+    An unknown operation is refused BY NAME with the known set listed -
+    the shape `run_scope._reject_unknown` gives an unknown step - because
+    a breakpoint armed at an operation that does not exist is a pause the
+    captain asked for and will never get.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        raise UnknownOperation(
+            f"an operation address needs a name, optionally "
+            f"{ADDRESS_SEPARATOR}<start>-<end>, e.g. "
+            f"subtitles.render{ADDRESS_SEPARATOR}45.0-72.0")
+
+    name, sep, span = raw.partition(ADDRESS_SEPARATOR)
+    name = name.strip()
+    declared = tuple(known) if known is not None else names()
+    if name not in declared:
+        raise UnknownOperation(
+            f"unknown operation {name!r} in address {text!r}. "
+            f"Known: {', '.join(sorted(declared)) or '(none)'}.")
+    if not sep:
+        return Address(name)
+    if not span.strip():
+        raise UnknownOperation(
+            f"address {text!r} ends in {ADDRESS_SEPARATOR!r} with no "
+            f"region. Give <start>-<end> in timeline seconds, or drop the "
+            f"{ADDRESS_SEPARATOR!r} to mean the whole project.")
+
+    from library.tools import region as region_mod
+    try:
+        return Address(name, region_mod.parse(span))
+    except ValueError as exc:
+        raise UnknownOperation(f"address {text!r}: {exc}") from None
+
+
+def looks_like_an_address(text: str) -> bool:
+    """Whether a token is meant as an operation rather than a step id.
+
+    A step id never contains the separator, and every registered
+    operation name does contain a dot - so this needs no guessing and no
+    lookahead into the DAG.
+    """
+    raw = (text or "").strip()
+    return ADDRESS_SEPARATOR in raw or raw in names()
 
 
 def by_node(node_id: str) -> Tuple[Operation, ...]:

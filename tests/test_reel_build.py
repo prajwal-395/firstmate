@@ -13,7 +13,6 @@ import pytest
 
 from library.tools.reel_build import (
     DURATION_RATIO,
-    MIN_TAKE_SECONDS,
     REEL_RESOLUTION,
     keep_ranges,
     placements,
@@ -89,7 +88,12 @@ def test_a_fragment_is_never_kept_over_a_full_line():
              _seg("Akshita", "confused about what you actually do hallucinating",
                   15.0, 15.5, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
-    assert MIN_TAKE_SECONDS > 0.5
+    # DURATION_RATIO is what refuses this, and it is the guard the module
+    # docstring actually claims the protection for: 4.3s against 0.5s is
+    # a ratio of 8.6. `MIN_TAKE_SECONDS` was removed 2026-09-05 and this
+    # case is unaffected by that, which is the point of asserting the
+    # surviving guard here rather than the removed one.
+    assert 4.3 / 0.5 > DURATION_RATIO
 
 
 def test_takes_far_apart_are_not_paired():
@@ -630,3 +634,44 @@ def test_a_range_start_is_still_exclusive_at_the_end_reading():
     from library.tools.reel_build import reel_time
     assert reel_time(0.0, [(0.0, 20.0)], at_end=True) is None
     assert reel_time(0.0, [(0.0, 20.0)]) == 0.0
+
+
+def test_a_finely_segmented_retake_is_cut():
+    """Reel 03: three takes of one sentence, none of them long.
+
+    `MIN_TAKE_SECONDS = 1.5` skipped any pair where either side was
+    shorter than that, so a retake WhisperX segmented into sub-second
+    pieces was never even scored. Reel 03 of the captain's approved
+    nineteen played "search didn't change, the question changed, whoever
+    AI understands best gets the answer" three times inside forty
+    seconds, and `redundant_takes` returned an empty list for it while
+    the proposal's own detector reported the repeat at similarity 1.0.
+
+    Both sides here are well under the old floor and their durations
+    agree, which is exactly the shape the floor uniquely blocked.
+    """
+    line = ("search didn't change the question changed and whoever AI "
+            "understands best gets the answer")
+    tx = _tx(_seg("Akshita", line, 10.0, 10.9),
+             _seg("Akshita", line, 11.0, 12.0, "u2"))
+
+    cuts = redundant_takes(0.0, 60.0, tx)
+
+    assert len(cuts) == 1, cuts
+    # The LATER take is kept - a retake exists because the first was
+    # flubbed - so the cut removes the first.
+    assert cuts[0].dropped_start == 10.0
+    assert cuts[0].kept_start == 11.0
+
+
+def test_a_short_pair_of_different_lines_is_still_left_alone():
+    """Removing the floor did not make every short pair a take.
+
+    The content-word test is what separates a retake from two short
+    turns, and it still does: back-channel and two different short lines
+    share no content vocabulary and are not paired.
+    """
+    tx = _tx(_seg("Craig", "so what are the seven modules doing", 10.0, 10.8),
+             _seg("Craig", "and where does the score come from", 11.0, 11.9,
+                  "u2"))
+    assert redundant_takes(0.0, 60.0, tx) == []

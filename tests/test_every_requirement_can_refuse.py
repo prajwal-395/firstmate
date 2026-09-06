@@ -170,19 +170,19 @@ def test_a_refusal_cannot_be_empty():
         R.UNSATISFIED("   ")
 
 
-def test_the_held_requirement_is_named_and_not_implemented():
-    """`rough_cut.approved` is the captain's call, and must stay unbuilt.
+def test_the_held_table_is_honest():
+    """Whatever `UNAUTHORISED` holds must NOT be built, and whatever it
+    does not hold must not be pretended to be held.
 
-    Four planning steps declared `'rough_cut_review.passed' is true in
-    state` as prose and nothing read it. The value is mechanical, so a
-    predicate on it would be legal - but whether a rejected cut should
-    REFUSE caption re-entry, only warn, or refuse with a deliberate
-    override is an editorial decision the captain has not made.
-
-    This test fails if somebody implements it anyway.
+    This used to pin `rough_cut.approved` as unbuilt while the captain's
+    question was open. It is now built, by ruling, so the assertion is
+    the general one: the table and the registry may not both claim the
+    same name.
     """
-    assert "rough_cut.approved" in R.UNAUTHORISED
-    assert "rough_cut.approved" not in {r.name for r in R.all_requirements()}
-    note = R.UNAUTHORISED["rough_cut.approved"]
-    assert "captain" in note.lower()
-    assert "rough-cut-gate-on-reentry" in note
+    built = {r.name for r in R.all_requirements()}
+    both = built & set(R.UNAUTHORISED)
+    assert both == set(), (
+        f"these are registered AND recorded as held pending a decision, "
+        f"which cannot both be true: {sorted(both)}")
+    for name, note in R.UNAUTHORISED.items():
+        assert len(note) > 40, f"{name} is held with no stated reason"

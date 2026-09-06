@@ -135,8 +135,23 @@ def test_track_path_keys_match_the_step():
 
 # ── The held requirement, and the deleted ones, are recorded ─────────
 
-def test_the_unauthorised_requirement_is_not_implemented():
-    assert "rough_cut.approved" not in {r.name for r in R.all_requirements()}
+def test_nothing_is_held_and_what_left_the_table_exists():
+    """`UNAUTHORISED` is the table of requirements whose SHAPE is settled
+    but whose BEHAVIOUR is somebody else's call.
+
+    It is empty: `rough_cut.approved` lived there and was built once the
+    ruling landed (refuse with a deliberate override,
+    `data/decisions/rough-cut-gate.md`).
+
+    The table must stay, and a name may only leave it by being BUILT -
+    quietly dropping an entry would decide the question in the delete
+    direction, which is exactly as strong a decision as enforcing it.
+    """
+    built = {r.name for r in R.all_requirements()}
+    assert R.UNAUTHORISED == {}
+    assert "rough_cut.approved" in built, (
+        "rough_cut.approved left UNAUTHORISED without being built - a "
+        "silent drop is a decision, not a neutral default")
 
 
 def test_deleted_preconditions_are_recorded_with_reasons():

@@ -43,6 +43,13 @@ Two test files are excluded by name because they drive the **running** DaVinci R
 and switch the current timeline out from under whoever is using the app. CI has no
 Resolve, so they skip there and the exclusion costs no coverage.
 
+The `heavy_ml` selection needs an interpreter carrying the ML stack **at the versions
+`requirements.txt` declares** - importable is not enough, and a wrong version reports
+success while measuring nothing. Building that interpreter, verifying it, and pointing
+`FULL_SUITE_GATE_PYTHON` at it are in [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md). Without
+the variable set the heavy tier is named as not measured rather than passing quietly,
+but a verdict that names an omission still has the omission in it.
+
 ### Why layer 2 cannot be replaced by layer 1
 
 A fresh Linux checkout with nothing preinstalled is the only configuration that can see a

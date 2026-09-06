@@ -131,6 +131,21 @@ There is no seconds threshold here and you should not reason as though
 there is. Where two of your choices overlap, the shared span is reported
 on both so the captain can see it and rule.
 
+### What this episode wants
+
+A `creative_brief` is the project's own statement of what it is after -
+read it in full before choosing anything. It is where the answers this
+document deliberately does not hold live: how many reels this episode is
+expected to yield, what the series is for, who is watching.
+
+**The brief outranks the expectations below where the two differ.** This
+document states what a reel IS and what you are allowed to decide; the
+brief states what THIS video wants. A count, in particular, is never
+stated here and can only come from there.
+
+If no brief is attached, nothing about that is inferred: answer from the
+conversation and say in `undetermined` what you would have wanted told.
+
 ### Length
 
 The guidance is **45 to 90 seconds**, because this is short-form social
@@ -161,9 +176,9 @@ For any stretch you choose, you may name a `cta`: a second span, from
 | Field | What it is |
 |-------|------------|
 | `cta.start`, `cta.end` | Where the spoken call to action begins and ends, in seconds of the cut |
-| `cta.note` | One line: why this closer suits this reel |
+| `cta.note` | One line, written for THIS reel: why this closer is the one you chose for it. Not a description of the passage - you are naming several reels and the same sentence about the passage would be true of all of them |
 
-Four things about it:
+Five things about it:
 
 - **It must be genuinely spoken.** Every second of it is speech the
   episode really contains, and a span nobody speaks in is refused. Do not
@@ -173,6 +188,18 @@ Four things about it:
   is an ordinary editing move; nothing is copied or synthesised, the real
   clip is simply placed again. Whether every reel ends on the same one or
   each gets the closer that suits it best is your call.
+- **These are watched as a SET, and an ending repeats as visibly as a
+  body does.** You are choosing endings for the whole batch at once, and
+  somebody scrolling the account sees several of them in a row. Measured
+  on the batch of nineteen this step produced before: seven of them
+  closed on the same 4.4-second sentence, five more on another, and all
+  fifteen borrowed closers came from four passages - while the episode
+  held more usable ones that nothing chose. Nothing in the output said
+  so, because nothing was looking: every `cta.note` on those seven was
+  the same sentence, so the choice was made once and recorded nineteen
+  times. That is the fact you were missing, not a rule you are now given:
+  reuse is still permitted and how much of it reads as repetition is
+  yours to judge.
 - **It must not be inside its own reel's body**, or the reel plays those
   seconds twice. A stretch that already ends on a CTA needs no `cta`.
 - **It is one span, and the body is still one window.** This is a way to
@@ -185,10 +212,15 @@ rather than adding it:
 
 - **Topical fit does not matter.** Asked whether a borrowed closer has to
   suit the subject of the reel it closes, he ruled that any atomic CTA
-  works. They are interchangeable. Do not try to match a closer to the
-  body, and do not treat a poor match as a reason to drop a reel - that
-  is a requirement he does not have, and applying it would silently cut
-  the number of reels this episode can support.
+  works. Do not try to match a closer to the body, and do not treat a
+  poor match as a reason to drop a reel - that is a requirement he does
+  not have, and applying it would silently cut the number of reels this
+  episode can support.
+
+  He answered "must it be ABOUT the same thing", and the answer is no.
+  He was not asked, and did not answer, whether nineteen reels should
+  all end on the same words. Do not read the first as settling the
+  second.
 - **"Atomic" qualifies the CLOSER too.** It must be a complete, self
   contained invitation. A fragment that trails off part way through the
   sentence - "we'd love for you to", and then nothing - is not one, and
@@ -197,7 +229,10 @@ rather than adding it:
 
 `turns` is where you find them: read the conversation and pick the
 passages where somebody actually invites the viewer to go and do
-something. Nothing has been shortlisted or scored for you.
+something. Nothing has been shortlisted or scored for you, and nothing
+counts them for you either - so read the whole conversation for closers
+before you assign the first one, rather than finding one that works and
+reaching for it again each time a reel needs an ending.
 
 ### Repeated takes
 

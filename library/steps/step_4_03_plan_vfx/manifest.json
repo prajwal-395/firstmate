@@ -85,6 +85,9 @@
         "may_be_empty": true,
         "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, params, rationale"
       }
+    ],
+    "requirements": [
+      "rough_cut.approved"
     ]
   },
   "classification": {

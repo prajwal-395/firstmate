@@ -837,3 +837,12 @@ def add_scope_arguments(parser) -> None:
         dest="with_steps",
         help=f"Turn on a step that is off by default ({default_off}). "
              f"Repeatable.")
+    parser.add_argument(
+        "--override", action="append", metavar="REQUIREMENT", default=[],
+        dest="overrides",
+        help="Proceed past a requirement that refuses, deliberately. "
+             "Repeatable. Only a requirement that declares itself "
+             "overridable may be named; anything else is refused. The "
+             "override is RECORDED in the run's own outputs, so a later "
+             "reader can see what was overridden and why it refused. "
+             "See library/tools/requirements.py.")

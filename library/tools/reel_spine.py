@@ -1,0 +1,353 @@
+"""A reel's own spine, in the reel's own time.
+
+What this is, and what it deliberately is NOT
+---------------------------------------------
+This is a PRODUCER.  It makes an input the pipeline's steps already
+consume - a spine, `{"structure": [block, ...]}` satisfying AGENTS.md
+section 6 - and then it gets out of the way.  It plans nothing, styles
+nothing and renders nothing.
+
+That distinction is the captain's ruling of 2026-09-04, and it is the
+reason `reel_subtitles.py` is deleted rather than extended:
+
+    "the subtitles was meant to utilize the pipeline subtitles step and
+     whatever funcitonality was put into that python file should have
+     been augmented into the pipeline -- we are not tryig to create any
+     standalone artifacts and scripts"
+
+`reel_subtitles.py` grouped words into cards and attached a per-speaker
+style.  Both of those are step 4.01's job and 4.01 already does them,
+better: it groups by MEASURED PIXELS through `safe_area.fits_in_box`
+(AGENTS.md 10.2), where the standalone module counted words.  So the
+fold is not a copy - two of the three things it did were a second,
+weaker implementation of work that already existed, and the third (the
+closer seam) is the only behaviour that had to survive.
+
+    "each reel does have an audio spine, its just the audio in the
+     timeline itself"
+
+That is what this builds.  Nineteen reels, nineteen spines, and every
+step downstream runs against one exactly as it runs against a master -
+no reel branch anywhere in a step.
+
+The two clocks, and why this module exists at all
+-------------------------------------------------
+A reel is its keep ranges laid end to end, so **three different clocks
+touch one word** and mixing any two silently produces captions that
+drift:
+
+    MASTER timeline second  the transcript's own clock
+    REEL timeline second    what the viewer sees, via reel_build.reel_time
+    SOURCE second           where it sits in the raw clip
+
+The transcript's words carry bare `start`/`end`, which
+`region.domain_of` refuses to guess at - the temporal index uses those
+keys for SOURCE seconds and the subtitle plan uses them for TIMELINE
+seconds, and on project 001's first word those differ by 0.836s.  So
+every word here is put through `region.read_words(..., TIMELINE)` to
+NAME its domain before anything reads it, and the spine's
+`word_timestamps` come out in SOURCE, which is what section 6 requires.
+
+A block's `timeline_start`/`timeline_end` are REEL seconds.  A word's
+`source_start`/`source_end` are SOURCE seconds.  Those are different
+clocks in one dict on purpose, and the contract says which is which.
+
+Two mics, one sentence
+----------------------
+A two-camera shoot records the same words on both mics, so the
+transcript carries the sentence TWICE - once on the speaker's own mic
+and once, a fraction later and quieter, as bleed on the other's.  Left
+alone that becomes two spine blocks claiming the same speech, and every
+step downstream captions it twice with two different speakers.
+
+Resolving it is the PRODUCER's job and not step 4.01's, because it is a
+fact about the transcript rather than about captions: by the time 4.01
+sees a spine the duplication is indistinguishable from two people
+saying the same thing.  4.01 already handles what it CAN see - a card
+running short, or two cards overlapping - and that division is
+deliberate.  Each half resolves what it alone can detect.
+
+The earlier card wins: the primary mic hears the words first and the
+bleed arrives delayed.
+
+What a reel cannot supply, said rather than invented
+----------------------------------------------------
+A reel has no `hook` block, no bookends and no music behaviour; it is
+speech that was already cut.  Every block here is `speech`, and a step
+that needs more than speech gets an honest absence rather than a
+fabricated block (AGENTS.md 10.5).
+
+`tests/test_reel_spine.py`.
+"""
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from library.tools import region as region_mod
+from library.tools.spine_contract import validate_spine_blocks
+
+BLEED_WORD_OVERLAP = 0.5
+"""How much of two blocks' wording must coincide to read as one sentence
+on two mics rather than two people saying similar things."""
+
+ALIGNMENT_METHOD = "timeline_transcript"
+"""How a reel block's words were aligned.
+
+Not "whisperx": the words came from `timeline_transcript`, which
+transcribed the built timeline's own audio and bound each segment back
+to the clip it was cut from.  Naming the real producer is what lets a
+reader tell a reel spine from a preflight one.
+"""
+
+
+class ReelSpineError(ValueError):
+    """A reel that cannot be turned into a spine, and says why."""
+
+
+def _touches(segment_start: float, segment_end: float,
+             ranges: Sequence[tuple[float, float]]) -> bool:
+    """Does this speech touch ANY range this reel plays?
+
+    Any, never the envelope from the first range's start to the last
+    range's end.  A reel's closer may come from EARLIER in the episode
+    than its body (`reel_build.reel_ranges` spells the order), so on
+    such a reel the envelope inverts - `start > end` - and silently
+    drops every block.  That was a real defect in the standalone
+    captioner and it is not being reproduced here.
+    """
+    return any(min(end, segment_end) > max(start, segment_start)
+               for start, end in ranges)
+
+
+def spine_for_reel(moment, transcript: dict,
+                   ranges: Sequence[tuple[float, float]] | None = None
+                   ) -> dict:
+    """The spine for one reel, in the reel's own time.
+
+    `moment` is a reel proposal moment; `transcript` is the master
+    timeline's transcript.  `ranges` defaults to
+    `reel_build.reel_ranges(moment, transcript)` - pass it only when the
+    caller already computed it, so one reel cannot be spined against one
+    order and built against another.
+
+    Returns `{"structure": [...]}`, validated against the spine
+    contract before it is handed back: a spine that would fail
+    downstream fails HERE, where the reel that produced it is still in
+    hand.
+    """
+    from library.tools.reel_build import reel_ranges, reel_time
+
+    if ranges is None:
+        ranges = reel_ranges(moment, transcript)
+    if not ranges:
+        raise ReelSpineError(
+            "this reel plays no ranges, so it has no spine and nothing "
+            "downstream can run against it")
+
+    segments = transcript.get("segments") or []
+    if not segments:
+        raise ReelSpineError(
+            "the transcript carries no segments; a reel's spine is its "
+            "own timeline audio, and there is none to read")
+
+    blocks: list[dict] = []
+    dropped_no_binding = 0
+
+    for segment in sorted(segments, key=lambda s: s.get("timeline_start", 0.0)):
+        master_start = segment.get("timeline_start")
+        master_end = segment.get("timeline_end")
+        if master_start is None or master_end is None:
+            continue
+        if not _touches(master_start, master_end, ranges):
+            continue
+
+        # A segment that straddles a cut has no single source clip -
+        # `timeline_transcript.attribute_to_clip` says so by leaving
+        # these None rather than picking one.  A block with no clip_id
+        # fails the contract, so it is DROPPED and counted, never
+        # given an invented binding.
+        clip_id = segment.get("resolve_item_id") or segment.get("source_file")
+        source_start = segment.get("source_start")
+        source_end = segment.get("source_end")
+        if not clip_id or source_start is None or source_end is None:
+            dropped_no_binding += 1
+            continue
+
+        # Master seconds to REEL seconds.  `at_end=True` on the closing
+        # edge: a range end lands exactly on a segment's `timeline_end`,
+        # and read the half-open way the last word of the reel falls
+        # outside every range and disappears.
+        # CLIP to the words that survive, rather than dropping a segment
+        # whole because one edge of it fell in a removed take.  A cut
+        # rarely lands exactly on a segment boundary, and dropping the
+        # whole segment loses speech the reel really plays - silently,
+        # which is the worst way to lose it.
+        kept = [w for w in (segment.get("words") or [])
+                if w.get("start") is not None
+                and reel_time(float(w["start"]), ranges) is not None]
+        if not kept:
+            # Its speech was CUT entirely - a dropped bad take takes its
+            # words with it, which is correct and not a defect to report.
+            continue
+        if len(kept) != len(segment.get("words") or []):
+            segment = dict(segment, words=kept)
+            master_start = float(kept[0]["start"])
+            master_end = float(kept[-1]["end"])
+            source_start = float(source_start) + (
+                master_start - float(segment["timeline_start"]))
+
+        reel_start = reel_time(master_start, ranges)
+        reel_end = reel_time(master_end, ranges, at_end=True)
+        if reel_start is None or reel_end is None or reel_end <= reel_start:
+            continue
+
+        words = _source_words(segment, master_start, source_start)
+        if not words:
+            # The contract requires populated `word_timestamps` on a
+            # speech block.  Speech with no per-word timing cannot be
+            # captioned, so it is dropped rather than shipped hollow.
+            dropped_no_binding += 1
+            continue
+
+        blocks.append({
+            "position": len(blocks),
+            "block_type": "speech",
+            "clip_id": clip_id,
+            "source_start": float(source_start),
+            "source_end": float(source_end),
+            # REEL seconds. The other two clocks in this dict are
+            # SOURCE; see the module docstring.
+            "timeline_start": float(reel_start),
+            "timeline_end": float(reel_end),
+            "word_timestamps": words,
+            "alignment_method": ALIGNMENT_METHOD,
+            "speaker": segment.get("speaker"),
+            "content": {"text": segment.get("text", "").strip()},
+        })
+
+    # ORDER BY THE REEL, not by the master.  A reel's closer may be cut
+    # from EARLIER in the episode than its body but PLAYS LAST, so
+    # sorting by master second puts the closer first and `position` -
+    # which is block identity, and which 4.05 names its rendered
+    # segments by - stops meaning play order.  The bleed sweep below
+    # compares neighbours, so it needs this too.
+    blocks.sort(key=lambda b: (b["timeline_start"], b["timeline_end"]))
+    blocks, bled = _drop_bleed(blocks)
+
+    if not blocks:
+        raise ReelSpineError(
+            f"no speech survived onto this reel: {len(segments)} "
+            f"transcript segment(s), {len(ranges)} range(s), "
+            f"{dropped_no_binding} dropped for having no source binding "
+            f"or no word timings. A reel with no spine cannot be "
+            f"captioned by any step.")
+
+    # Fails here, with the reel in hand, rather than three steps later.
+    validate_spine_blocks(blocks)
+    return {"structure": blocks,
+            "dropped_segments": dropped_no_binding,
+            "bleed_blocks_dropped": bled}
+
+
+def _words_of(block: dict) -> set:
+    """The block's spoken words, lowercased and stripped of punctuation."""
+    import re
+    return {re.sub(r"[^a-z0-9']", "", w["word"].lower())
+            for w in block["word_timestamps"]} - {""}
+
+
+def _is_bleed(earlier: dict, later: dict) -> bool:
+    """Are these two blocks the SAME speech heard on two mics?
+
+    Substantial word overlap, never timing alone: two people really can
+    talk over each other, and an interruption is not a duplicate.  A
+    subset counts because the bleed mic often catches only part of the
+    sentence.
+    """
+    a, b = _words_of(earlier), _words_of(later)
+    if not a or not b:
+        return False
+    return a.issubset(b) or b.issubset(a) or (
+        len(a & b) / max(1, len(a | b)) > BLEED_WORD_OVERLAP)
+
+
+def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int]:
+    """Drop blocks that are another block's speech bleeding onto a second mic.
+
+    Swept repeatedly, because dropping one block can expose an overlap
+    between two that were not adjacent before.  Returns the surviving
+    blocks, renumbered, and how many went.
+    """
+    dropped = 0
+    changed = True
+    while changed:
+        changed = False
+        kept: list[dict] = []
+        for block in blocks:
+            if not kept:
+                kept.append(block)
+                continue
+            previous = kept[-1]
+            if block["timeline_start"] >= previous["timeline_end"]:
+                kept.append(block)
+                continue
+            if _is_bleed(previous, block):
+                # The later one is the bleed.  The earlier block already
+                # carries the mic the words were spoken into, which is
+                # also the right speaker attribution.
+                dropped += 1
+                changed = True
+                continue
+            # A real interruption: two people talking over each other.
+            # Both are kept - what to draw is 4.01's decision, and it can
+            # see the overlap once the cards exist.
+            kept.append(block)
+        blocks = kept
+
+    for position, block in enumerate(blocks):
+        block["position"] = position
+    return blocks, dropped
+
+
+def _source_words(segment: dict, master_start: float,
+                  source_start: float) -> list[dict]:
+    """This segment's words, in SOURCE seconds, as section 6 requires.
+
+    The transcript's words are bare `start`/`end` in MASTER timeline
+    seconds.  They are NAMED as timeline through `region.read_words`
+    before anything reads them - passing an undeclared word list on is
+    the defect `region.py` exists for - and then shifted into source by
+    this segment's own binding.
+
+    The shift is per SEGMENT and not a constant: on project 001 the
+    eight speech blocks had eight distinct offsets spread over 146.5
+    seconds, and the sign was not constant either.
+    """
+    from library.tools.timeline_transcript import interpolate_untimed_words
+
+    raw = list(segment.get("words") or [])
+    if not raw:
+        return []
+
+    # Untimed words get timing from their neighbours rather than being
+    # dropped - dropping them loses real speech from the caption.
+    timed = interpolate_untimed_words(raw)
+    named = region_mod.read_words(timed, region_mod.TIMELINE)
+
+    offset = float(source_start) - float(master_start)
+    out = []
+    for word in named:
+        text = str(word.get("word", ""))
+        if not text.strip():
+            continue
+        out.append({
+            "word": text,
+            "source_start": round(float(word["timeline_start"]) + offset, 4),
+            "source_end": round(float(word["timeline_end"]) + offset, 4),
+        })
+
+    # Proof rather than intention: if this ever hands back timeline
+    # seconds under source key names, the collision region.py was built
+    # to prevent has happened here.
+    region_mod.assert_domain(out, region_mod.SOURCE, "reel_spine._source_words")
+    return out

@@ -58,7 +58,30 @@ def test_every_step_that_asked_for_a_brief_can_be_interviewed():
         # brief carries a whole "Color System Philosophy" section that no
         # colour step had ever seen.
         "color_grade",
+        # The tenth, 2026-09-05. Reel selection decides WHICH moments of
+        # an episode become standalone shorts and how many there are -
+        # the most creative answer any step gives - and it was doing that
+        # with no brief and no question. See
+        # `test_select_reels_is_interviewed_without_a_brief` below.
+        "select_reels",
     })
+
+
+def test_select_reels_is_interviewed_without_a_brief():
+    """The reel selector ASKS rather than selecting in silence.
+
+    This landed once (89c61e6, the field-test lane) and was lost when
+    that lane was never merged, so main shipped a reel selector that
+    received no brief and was never asked what it would have wanted told.
+    Nineteen reels were approved off a run that HAD the brief, from a
+    worktree, which is why nothing downstream noticed.
+
+    Pinned separately from the membership assertion above because a set
+    comparison fails for any reason at all; this one fails for exactly
+    this reason and says so.
+    """
+    assert bi.asks("select_reels", brief_attached=False) is True
+    assert bi.asks("select_reels", brief_attached=True) is False
 
 
 def test_mesh_spine_is_interviewed_though_its_handoff_never_names_a_brief():

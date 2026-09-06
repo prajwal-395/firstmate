@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from library.tools import breakpoints, run_scope
+from library.tools import breakpoints, operations, run_scope
 from library.tools.breakpoints import EVERY_STEP, BreakpointError
 
 
@@ -195,3 +195,86 @@ def test_the_resume_command_drops_a_rerun_that_already_happened():
     # `--rerun=scan` is the same request spelled with an equals sign.
     assert "--rerun" not in breakpoints.resume_command(
         ["run.py", "--rerun=scan", "--break", "scan"], "python3")
+
+
+# ── A breakpoint may name an OPERATION, at a region ─────────────────
+
+
+OPS = set(operations.names())
+ONE = sorted(OPS)[0]
+
+
+def test_a_breakpoint_may_be_an_operation_address():
+    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                       break_at=(f"{ONE}@45.0-72.0",))
+    assert gates.armed_at(f"{ONE}@45.0-72.0")
+    assert not gates.armed_at("render")
+
+
+def test_a_bare_operation_arms_every_region_of_itself():
+    """The same "a wildcard is said as data" idea EVERY_STEP already is,
+    one level narrower."""
+    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                       break_at=(ONE,))
+    assert gates.armed_at(ONE)
+    assert gates.armed_at(f"{ONE}@45.0-72.0")
+    assert gates.armed_at(f"{ONE}@0.0-1.0")
+
+
+def test_a_region_breakpoint_does_not_arm_the_whole_operation():
+    """The other direction must NOT hold, or a region breakpoint is a
+    whole-operation one wearing a disguise."""
+    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                       break_at=(f"{ONE}@45.0-72.0",))
+    assert not gates.armed_at(ONE)
+    assert not gates.armed_at(f"{ONE}@0.0-1.0")
+
+
+def test_a_step_id_is_never_read_as_an_operation():
+    """A DAG node never contains the separator, so nothing guesses."""
+    gates = breakpoints.resolve(known_steps={"render", "scan"}, known_operations=OPS,
+                       break_at=("render",))
+    assert gates.armed_at("render")
+    assert not gates.armed_at("scan")
+
+
+def test_an_unknown_operation_is_refused_by_name():
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                   break_at=("nope.jog@1.0-2.0",))
+    assert "nope.jog" in str(exc.value)
+    assert ONE in str(exc.value), "the known operations are listed"
+
+
+def test_a_malformed_region_is_refused_by_the_one_parser():
+    """`region.parse` owns what an interval is; this does not re-parse
+    it, so a bad span is refused in that module's own words."""
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                   break_at=(f"{ONE}@notaspan",))
+    assert "notaspan" in str(exc.value)
+
+
+def test_the_refusal_names_both_namespaces():
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                   break_at=("mystery",))
+    message = str(exc.value)
+    assert "Known steps:" in message
+    assert "Known operations:" in message
+    assert "<start>-<end>" in message
+
+
+def test_operation_addresses_compose_with_everything_else():
+    """Nothing about the algebra changes: profiles, --no-break, the
+    unreachable warning and resume_command all still work on them."""
+    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                       profile_breakpoints=(f"{ONE}@0.0-1.0",),
+                       break_at=(f"{ONE}@45.0-72.0",),
+                       no_break_at=(f"{ONE}@0.0-1.0",),
+                       profile_name="podcast")
+    assert gates.armed_at(f"{ONE}@45.0-72.0")
+    assert not gates.armed_at(f"{ONE}@0.0-1.0"), "--no-break disarmed it"
+    assert f"{ONE}@45.0-72.0" in gates.unreachable(["render"])
+    assert "--resume" in breakpoints.resume_command(
+        ["run_pipeline.py", "--break", f"{ONE}@45.0-72.0"], "python3")

@@ -15,7 +15,9 @@ import pytest
 
 from library.tools.region import (
     DomainError,
+    MASTER,
     Region,
+    TimelineMismatch,
     SOURCE,
     TIMELINE,
     assert_domain,
@@ -138,21 +140,21 @@ def test_a_reversed_interval_raises_rather_than_reading_as_empty():
 
 def test_region_refuses_a_reversed_or_negative_interval():
     with pytest.raises(ValueError) as exc:
-        Region(10.0, 5.0)
+        Region(MASTER, 10.0, 5.0)
     assert "precedes start" in str(exc.value)
     with pytest.raises(ValueError) as exc:
-        Region(-1.0, 5.0)
+        Region(MASTER, -1.0, 5.0)
     assert "negative" in str(exc.value)
 
 
 def test_region_clipped_to_a_block_never_exceeds_it():
-    window = Region(45.0, 72.0).clipped_to(_001[10])
+    window = Region(MASTER, 45.0, 72.0).clipped_to(_001[10])
     assert (window.start, window.end) == (45.0, 51.142)
 
 
 def test_parse_reads_what_an_operator_types():
-    assert parse("45.0-72.0") == Region(45.0, 72.0)
-    assert parse("  0-2.398 ") == Region(0.0, 2.398)
+    assert parse("45.0-72.0") == Region(MASTER, 45.0, 72.0)
+    assert parse("  0-2.398 ") == Region(MASTER, 0.0, 2.398)
 
 
 @pytest.mark.parametrize("bad", ["", "45.0", "45.0-", "-72.0", "a-b", "45..72"])
@@ -165,7 +167,7 @@ def test_parse_refuses_anything_it_would_have_to_guess_at(bad):
 
 def test_resolve_turns_a_timestamp_into_footage():
     """The whole point: '45.0-72.0s' becomes clips and source seconds."""
-    address = resolve(Region(45.0, 72.0), _001)
+    address = resolve(Region(MASTER, 45.0, 72.0), _001)
     assert address.positions == [10, 11, 12]
     assert address.clip_ids == ["clip_011", "clip_012"]
     spans = {s.block_position: (s.source_start, s.source_end)
@@ -176,13 +178,13 @@ def test_resolve_turns_a_timestamp_into_footage():
 
 def test_a_non_speech_block_is_reported_but_contributes_no_footage():
     """Block 12 is 001's outro: inside the region, no clip behind it."""
-    address = resolve(Region(45.0, 72.0), _001)
+    address = resolve(Region(MASTER, 45.0, 72.0), _001)
     assert 12 in address.positions
     assert 12 not in [s.block_position for s in address.source_spans]
 
 
 def test_resolve_names_the_step_that_owns_each_track():
-    owners = dict(resolve(Region(0.0, 2.398), _001).owners)
+    owners = dict(resolve(Region(MASTER, 0.0, 2.398), _001).owners)
     assert owners["V3"] == "plan_subtitles"
     assert owners["V1"] == "speech_sequence"
     assert owner_of_track("V3") == "plan_subtitles"
@@ -190,7 +192,7 @@ def test_resolve_names_the_step_that_owns_each_track():
 
 
 def test_a_region_covering_nothing_resolves_to_nothing():
-    address = resolve(Region(60.0, 70.0), _001)
+    address = resolve(Region(MASTER, 60.0, 70.0), _001)
     assert address.positions == []
     assert address.source_spans == ()
 
@@ -280,3 +282,67 @@ def test_a_conversion_cannot_be_asked_for_without_a_block():
     """There is no project-wide offset, so the block is not optional."""
     with pytest.raises(TypeError):
         to_timeline_words(_SPINE_WORDS)
+
+
+# ── The timeline is part of the type ────────────────────────────
+#
+# Firstmate-decided 2026-09-05: `Region` carries WHICH TIMELINE, `Scope`
+# carries WHAT SHAPE. A master-timeline region and a reel-timeline region
+# are the domain collision above one level up - a reel is its keep ranges
+# laid end to end, so reel second 12.0 and master second 12.0 are
+# different moments and nothing about the numbers says so.
+
+
+def test_a_region_knows_which_timeline_it_is_on():
+    assert Region(MASTER, 1.0, 2.0).timeline is MASTER
+    assert Region("reel_03", 1.0, 2.0).timeline == "reel_03"
+    # "" is how `subtitle_segment_id.timeline_scope` reports an unnamed
+    # timeline, and it must not become a timeline literally called "".
+    assert Region("", 1.0, 2.0).timeline is MASTER
+    assert Region("  ", 1.0, 2.0).timeline is MASTER
+
+
+def test_the_same_span_on_two_timelines_is_two_different_regions():
+    """The whole point: identical numbers, different moments."""
+    assert Region(MASTER, 12.0, 15.0) != Region("reel_03", 12.0, 15.0)
+
+
+def test_mixing_timelines_is_refused_rather_than_converted():
+    master = Region(MASTER, 45.0, 72.0)
+    with pytest.raises(TimelineMismatch) as exc:
+        resolve(master, _001, timeline="reel_03")
+    assert "reel_03" in str(exc.value)
+
+
+def test_resolving_against_the_right_timeline_still_works():
+    """The guard must be capable of passing, or it is not a guard."""
+    assert resolve(Region(MASTER, 45.0, 72.0), _001, MASTER).positions \
+        == [10, 11, 12]
+    reel = [dict(b) for b in _001]
+    assert resolve(Region("reel_03", 45.0, 72.0), reel, "reel_03").positions \
+        == [10, 11, 12]
+
+
+def test_a_narrowed_region_keeps_its_timeline():
+    """clipped_to is where a timeline would silently be dropped."""
+    narrowed = Region("reel_03", 45.0, 72.0).clipped_to(_001[10])
+    assert narrowed.timeline == "reel_03"
+
+
+def test_the_text_form_may_name_its_timeline():
+    assert parse("reel_03@45.0-72.0") == Region("reel_03", 45.0, 72.0)
+    assert parse("45.0-72.0") == Region(MASTER, 45.0, 72.0)
+    assert parse("45.0-72.0", "reel_03") == Region("reel_03", 45.0, 72.0)
+
+
+def test_a_text_form_that_disagrees_with_its_argument_is_refused():
+    """One silent winner is how a reel span gets read against the master."""
+    with pytest.raises(TimelineMismatch):
+        parse("reel_03@45.0-72.0", timeline="reel_09")
+
+
+def test_on_same_timeline_as_reads_both_forms():
+    r = Region("reel_03", 1.0, 2.0)
+    assert r.on_same_timeline_as(Region("reel_03", 9.0, 9.5))
+    assert r.on_same_timeline_as("reel_03")
+    assert not r.on_same_timeline_as(MASTER)

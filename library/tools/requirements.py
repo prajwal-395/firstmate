@@ -204,6 +204,12 @@ class Context:
     recorded: Mapping = field(default_factory=dict)
     external: Mapping = field(default_factory=dict)
 
+    overrides: frozenset = field(default_factory=frozenset)
+    """Requirement names the operator explicitly overrode on the command
+    line. Empty on every run that did not say so - the override is never
+    reachable by default, and only a requirement that declares itself
+    `overridable` can appear here at all."""
+
     def step_output(self, node_id: str, key: str, default=None):
         """`state["step_outputs"][node_id][key]`, or `default`."""
         outputs = (self.state.get("step_outputs") or {}).get(node_id) or {}
@@ -253,6 +259,19 @@ class Requirement:
     check: Callable[[Context], Satisfaction]
     refuting_context: Callable[[], Context]
     satisfying_context: Callable[[], Context]
+
+    overridable: bool = False
+    """Whether an operator may deliberately proceed past this refusal.
+
+    FALSE by default, and that default is the safety property: an
+    override that applied to every requirement would be a general escape
+    hatch around the whole layer, and would put back the mid-run crashes
+    `state_key` exists to prevent. A requirement opts in, one at a time,
+    and `--override` on one that has not opted in is REFUSED by name.
+
+    Overriding is never silent. `evaluate` records what was overridden
+    and the verdict it was overriding, and the runner writes both into
+    the run's own outputs."""
 
     def __post_init__(self):
         if self.kind not in KINDS:
@@ -542,7 +561,84 @@ def _resolve_track_path(selection: Mapping) -> str:
     return ""
 
 
+def _rough_cut_approved(ctx: Context) -> Satisfaction:
+    """The rough cut passed its own mechanical review.
+
+    Declared as prose by four planning steps - 4.01, 4.02, 4.03 and
+    4.04 all carried `"'rough_cut_review.passed' is true in state"` - and
+    read by nothing: `grep -rn rough_cut_review --include=*.py library/`
+    found no read of `.passed` anywhere. Measured, a run against a
+    recorded review with `passed: false` planned four real subtitles.
+
+    A full run already stops at a failed review, because
+    `step_3_03_review_rough_cut/step.py:386-387` exits 1. So the hole was
+    only ever on RE-ENTRY - a `--resume`, a `--from`, a scoped `--only`,
+    anything that reads the recorded review instead of re-running 3.03.
+    There it proceeded in silence. That is a hole, not a designed
+    workflow (firstmate's ruling, 2026-09-05,
+    `data/decisions/rough-cut-gate.md`).
+
+    The value is MECHANICAL, so this encodes no taste and invents no
+    threshold: `step_3_03/step.py:293-301` computes it as `all()` of six
+    deterministic checks.
+
+    A MISSING `passed` is not a FAILED one. A review supplied through
+    `external_inputs`, or built from a hand-made timeline, need not carry
+    the field; reporting an absent measurement as a failed one is its own
+    defect (AGENTS.md 10.3). The two refusals say different things.
+    """
+    review = ctx.value_for("review_rough_cut", "rough_cut_review")
+    if not isinstance(review, dict):
+        return UNSATISFIED(
+            "no rough_cut_review is on file, so nothing says whether the "
+            "cut this would be planned against was ever reviewed",
+            missing="rough_cut_review", produced_by=("review_rough_cut",))
+    if "passed" not in review:
+        return UNSATISFIED(
+            "rough_cut_review carries no 'passed' field, so whether the "
+            "cut was approved was never measured - which is not the same "
+            "as it having failed",
+            missing="rough_cut_review.passed",
+            produced_by=("review_rough_cut",))
+    if review["passed"] is True:
+        return SATISFIED(IN_STATE)
+
+    reasons = review.get("rejection_reasons") or []
+    detail = ("; ".join(str(r) for r in reasons[:3])
+              if reasons else "no reasons recorded")
+    return UNSATISFIED(
+        f"the rough cut was REJECTED by its own mechanical review, so "
+        f"planning against it would decorate a cut that does not work: "
+        f"{detail}",
+        missing="rough_cut_review.passed",
+        produced_by=("review_rough_cut",))
+
+
+def _review(passed, **extra) -> Context:
+    review = {"passed": passed}
+    review.update(extra)
+    return Context(state={"step_outputs": {
+        "review_rough_cut": {"rough_cut_review": review}}})
+
+
 PREDICATES: Tuple[Requirement, ...] = (
+    Requirement(
+        name="rough_cut.approved", kind=KIND_PREDICATE,
+        describe="the rough cut passed its own mechanical review",
+        produced_by=("review_rough_cut",),
+        consumers=("plan_subtitles", "plan_transitions", "plan_vfx",
+                   "plan_sfx"),
+        check=_rough_cut_approved,
+        # The ONE overridable requirement, and it is overridable because
+        # the alternative readings are both worse. Refusing outright
+        # removes the iterate-on-a-rejected-cut loop the captain
+        # plausibly wants; proceeding silently is the defect itself.
+        # Refuse-with-override keeps the loop and removes the silence.
+        overridable=True,
+        refuting_context=lambda: _review(
+            False, rejection_reasons=["timeline continuity: gap at 12.4s"]),
+        satisfying_context=lambda: _review(True),
+    ),
     Requirement(
         name="prosody.speech_regions", kind=KIND_PREDICATE,
         describe="temporal_index carries speech regions to measure prosody over",
@@ -650,38 +746,24 @@ COVERAGE: Tuple[Requirement, ...] = (
 
 # ── The gap: one requirement the captain has not authorised ──────────
 
-UNAUTHORISED: Dict[str, str] = {
-    "rough_cut.approved":
-        "NOT IMPLEMENTED, and deliberately so. Four planning steps - "
-        "4.01 plan_subtitles, 4.02 plan_transitions, 4.03 plan_vfx and "
-        "4.04 plan_sfx - each declared the prose precondition "
-        "\"'rough_cut_review.passed' is true in state\". Nothing ever "
-        "read it: `grep -rn rough_cut_review --include=*.py library/` "
-        "finds no read of `.passed` at all, and a run against a recorded "
-        "review with `passed: false` was measured planning four real "
-        "subtitles.\n"
-        "\n"
-        "The value is MECHANICAL - `step_3_03_review_rough_cut/step.py` "
-        "computes it as `all()` of six deterministic checks - so a "
-        "predicate on it would encode no taste and invent no threshold. "
-        "What is NOT settled is the editorial half, and it is the "
-        "captain's call: today a re-entry against a rejected cut "
-        "PROCEEDS SILENTLY, and this requirement would make it REFUSE, "
-        "removing the ability to iterate captions on a cut that failed "
-        "mechanical review - which may be exactly the rework loop the "
-        "captain wants. Three shapes are open: refuse, refuse with a "
-        "deliberate override, or report and proceed.\n"
-        "\n"
-        "Held as `rough-cut-gate-on-reentry`. Implementing it means "
-        "adding one `Requirement` here with `consumers=('plan_subtitles', "
-        "'plan_transitions', 'plan_vfx', 'plan_sfx')` reading "
-        "`rough_cut_review.passed`, and its refusal must distinguish "
-        "`passed: false` from a review carrying NO `passed` field - a "
-        "missing measurement reported as a failed one is its own defect. "
-        "Do not add it until the captain has answered.",
-}
+UNAUTHORISED: Dict[str, str] = {}
+"""Requirements held pending a captain decision. Empty.
 
+`rough_cut.approved` lived here and is now BUILT. The decision
+(firstmate, 2026-09-05, `data/decisions/rough-cut-gate.md`) was
+REFUSE WITH A DELIBERATE OVERRIDE, and the reasoning is worth keeping
+next to the code: a full run already stops at a failed review because
+`step_3_03` exits 1, so the gap was only ever on RE-ENTRY, where it
+proceeded in silence. That is a hole, not a designed workflow. Refusing
+outright would have removed the iterate-on-a-rejected-cut loop; refusing
+with an override keeps the loop and removes the silence, which was the
+actual defect.
 
+Keep this table. A requirement whose SHAPE is settled but whose
+BEHAVIOUR is a captain call belongs here rather than being guessed at,
+and shipping one in the wrong direction is not a neutral default -
+deleting `rough_cut_review` would have decided this question just as
+firmly as enforcing it."""
 # ── Declarations that were DELETED rather than converted ─────────────
 #
 # Six of the prose preconditions named a key the DAG never routes.
@@ -780,11 +862,81 @@ class Unmet:
     satisfaction: Satisfaction
 
 
-def check(run_set: Iterable[str],
-          context: Context,
-          requirements: Optional[Sequence[Requirement]] = None
-          ) -> List[Unmet]:
-    """Every requirement a step in `run_set` needs, and what is unmet.
+@dataclass(frozen=True)
+class Overridden:
+    """A refusal the operator deliberately proceeded past.
+
+    This exists so that proceeding is never the same event as passing.
+    The requirement REFUSED; a person said go anyway; and the verdict it
+    refused with is carried here verbatim so the run's own outputs can
+    say WHAT was overridden rather than merely that something was.
+    """
+
+    requirement: Requirement
+    satisfaction: Satisfaction
+
+    def as_record(self) -> Dict[str, str]:
+        """The durable form, for the run's own outputs."""
+        return {
+            "requirement": self.requirement.name,
+            "kind": self.requirement.kind,
+            "describe": self.requirement.describe,
+            "refused_because": self.satisfaction.reason,
+            "needed_by": ", ".join(self.requirement.consumers),
+        }
+
+
+class OverrideError(ValueError):
+    """An override that names nothing, or names something closed."""
+
+
+def assert_overrides_are_real(names: Iterable[str],
+                              requirements: Optional[Sequence[Requirement]]
+                              = None) -> None:
+    """Refuse an override before the run, by name.
+
+    Two ways to be wrong, and both are refused rather than ignored:
+    naming a requirement that does not exist (a typo silently disabling
+    nothing is still a lie about what the run did), and naming one that
+    has not opted in - which is what stops `--override` becoming a
+    general way around the layer.
+    """
+    pool = list(requirements if requirements is not None
+                else all_requirements())
+    by_name = {r.name: r for r in pool}
+    for name in names:
+        requirement = by_name.get(name)
+        if requirement is None:
+            overridable = sorted(r.name for r in pool if r.overridable)
+            raise OverrideError(
+                f"--override {name!r} names no requirement. "
+                f"Overridable: {', '.join(overridable) or 'none'}.")
+        if not requirement.overridable:
+            raise OverrideError(
+                f"--override {name!r} is refused: that requirement is "
+                f"not overridable. It exists to stop a run that cannot "
+                f"work, and proceeding past it would move the failure "
+                f"into the run instead of removing it.")
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What the layer decided, in one object.
+
+    `unmet` refuses the run. `overridden` does NOT - but it is returned
+    rather than discarded, because an override the run does not record
+    is exactly the silence this gate was built to remove.
+    """
+
+    unmet: List[Unmet] = field(default_factory=list)
+    overridden: List[Overridden] = field(default_factory=list)
+
+
+def evaluate(run_set: Iterable[str],
+             context: Context,
+             requirements: Optional[Sequence[Requirement]] = None
+             ) -> Verdict:
+    """Every requirement a step in `run_set` needs, refused and overridden.
 
     `run_set` is what will EXECUTE. Under `--step` and `--from` that is
     narrower than the selection `run_scope` agreed to, and asking the
@@ -799,16 +951,36 @@ def check(run_set: Iterable[str],
                             external=context.external))
     pool = (requirements if requirements is not None
             else all_requirements())
-    unmet: List[Unmet] = []
+    result = Verdict()
     for req in pool:
         if not req.applies_to(run_set):
             continue
         if _producer_will_make_it(req, run_set):
             continue
         verdict = req.check(context)
-        if verdict.is_unsatisfied:
-            unmet.append(Unmet(req, verdict))
-    return unmet
+        if not verdict.is_unsatisfied:
+            continue
+        # An override does not make the requirement pass. It refused,
+        # and a person said proceed anyway - so it is moved onto the
+        # record rather than deleted from it.
+        if req.overridable and req.name in (context.overrides or frozenset()):
+            result.overridden.append(Overridden(req, verdict))
+        else:
+            result.unmet.append(Unmet(req, verdict))
+    return result
+
+
+def check(run_set: Iterable[str],
+          context: Context,
+          requirements: Optional[Sequence[Requirement]] = None
+          ) -> List[Unmet]:
+    """What REFUSES the run. Overridden requirements are not here.
+
+    Kept as the narrow reading because most callers only ask "may this
+    run start". A caller that must also RECORD what was overridden - the
+    runner - calls `evaluate` and reads both halves.
+    """
+    return evaluate(run_set, context, requirements).unmet
 
 
 def _producer_will_make_it(req: Requirement, run_set: Set[str]) -> bool:

@@ -50,6 +50,7 @@ carrying their payload rather than as `emit` plus `sys.exit` inline -
 a function that kills its caller's process cannot be called by one.
 See AGENTS.md 3.
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -94,10 +95,157 @@ class SubtitleRenderRefused(Exception):
             payload.get("subtitle_overlay", {}).get("error", "refused"))
 
 
+RENDERED = "rendered"
+REUSED = "reused"
+FAILED = "failed"
+PROVENANCES = (RENDERED, REUSED, FAILED)
+"""What actually happened to one segment.  Complete, and required.
+
+A two-valued return - an entry, or None for failure - has no room for a
+third outcome, and skip-if-present is a third outcome.  While the return
+was `dict | None` the caller inferred success from the ABSENCE of a
+value, so a skipped segment could only be reported by pretending it had
+been rendered.  Inference from absence is what made the collapse
+possible; every segment now says which of these three it is."""
+
+
+def _props_digest(props: dict) -> str:
+    """A stable hash of everything about this segment that draws pixels.
+
+    The whole props object, including its `_`-prefixed metadata.  Hashing
+    more than strictly draws is the SAFE direction: it re-renders on a
+    metadata-only change, where hashing less would skip on a real one.
+    """
+    canonical = json.dumps(props, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def renderer_fingerprint(remotion_dir: str) -> str:
+    """The identity of the code and fonts that turn props into pixels.
+
+    Props do NOT capture the Remotion composition or the bundled font, so
+    a props hash alone would skip every segment forever after an edit to
+    `remotion-subtitles/src/` - the pixels change and the key does not.
+    That is exactly the defect `library/tools/code_identity.py` exists to
+    remove one layer down, in its own words: "the system reports success
+    while the work did not happen."
+
+    Returns `""` when the tree cannot be read, and `""` NEVER matches -
+    see `_reuse_key`.  Unavailable evidence must not read as matching
+    evidence.
+    """
+    root = Path(remotion_dir)
+    parts = []
+    for pattern in ("src/**/*.tsx", "src/**/*.ts", "public/fonts/*"):
+        for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                return ""
+            parts.append(f"{path.relative_to(root)}={digest}")
+    if not parts:
+        return ""
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+def _reuse_key(props: dict, remotion_dir: str) -> str:
+    """The pair that has to match for a skip to be safe, or `""`.
+
+    Empty means "cannot be established", and every comparison against it
+    fails, so an unreadable renderer tree renders rather than skips.
+    """
+    fingerprint = renderer_fingerprint(remotion_dir)
+    if not fingerprint:
+        return ""
+    return f"{_props_digest(props)}+{fingerprint}"
+
+
+def _tally(segments) -> dict:
+    """How many of each provenance, DERIVED from the segments themselves.
+
+    Never counted alongside them.  A separate counter is a second source
+    of truth for one fact, and the two drift the first time an early exit
+    is added - which is how `Rendered N/M` came to report work that had
+    not happened.  A segment with no provenance raises rather than being
+    counted as anything.
+    """
+    counts = {name: 0 for name in PROVENANCES}
+    for segment in segments:
+        provenance = segment.get("provenance")
+        if provenance not in counts:
+            raise ValueError(
+                f"segment {segment.get('segment_id', '?')} reports "
+                f"provenance {provenance!r}; every segment must say which "
+                f"of {PROVENANCES} happened to it.")
+        counts[provenance] += 1
+    return counts
+
+
+class SubprocessRenderer:
+    """Today's mechanism: one `npx remotion render` process per card.
+
+    THE RENDERER SEAM.  `render_one_segment` decides WHICH cards render
+    and reports WHAT CAME BACK; a renderer decides only HOW one card
+    becomes pixels.  Keeping them apart means the expensive question -
+    763 process launches for a 19-reel pass, which is what makes the
+    caption path unusable at scale - can be answered by replacing this
+    class with a bundle-once/render-many one, without touching selection,
+    provenance or reporting.
+
+    The contract is two methods and no more:
+
+        render(props_path, overlay_path) -> (ok: bool, error: str)
+        close()                          -> None, optional
+
+    A replacement holding expensive state - a Remotion bundle, a browser -
+    should build it LAZILY, on the first card that actually renders.
+    `render_one_segment` can return without rendering at all: with reuse
+    on, a region-scoped pass skips most cards, so an eagerly-built bundle
+    would pay its whole cost to render one card and make the region path
+    slower than the thing it replaced.
+    """
+
+    TIMEOUT_SECONDS = 180
+
+    def __init__(self, remotion_dir: str):
+        self.remotion_dir = remotion_dir
+
+    def render(self, props_path: str, overlay_path: str):
+        try:
+            result = subprocess.run(
+                ["npx", "remotion", "render",
+                 "SubtitleOverlay",
+                 overlay_path,
+                 "--props", props_path,
+                 "--codec", "prores",
+                 "--prores-profile", "4444",
+                 "--image-format", "png",
+                 "--transparent",
+                 ],
+                cwd=self.remotion_dir,
+                capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+                timeout=self.TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return False, f"render timed out after {self.TIMEOUT_SECONDS}s"
+        if result.returncode != 0:
+            return False, (result.stderr or "").strip() or \
+                f"exit {result.returncode}"
+        return True, ""
+
+    def close(self):
+        """Nothing to release - a subprocess owns nothing between cards."""
+
+
 def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        remotion_dir: str = None,
-                       progress: str = "") -> dict:
-    """Render ONE subtitle segment.  Returns its manifest entry, or None.
+                       progress: str = "",
+                       reuse: bool = False,
+                       renderer=None) -> dict:
+    """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
     that is where a re-render decides things: whether this segment is
@@ -105,8 +253,26 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     region being redone.  Both are questions about ONE segment, and
     neither has anywhere to live while the loop body is inline.
 
-    Returns None where the render failed or timed out - the caller keeps
-    going, and the failure rate is judged over the whole set.
+    The entry carries `provenance`, one of `PROVENANCES`, and there is no
+    default: a failed render is REPORTED rather than dropped, because a
+    dropped segment is a segment the manifest never learns about, and
+    `compile_manifest._assert_subtitle_overlay_matches_plan` then refuses
+    the compile for a reason unrelated to the real fault.
+
+    `reuse` is OFF by default, so a plain run re-renders exactly as it
+    always has.  Reuse is the optimisation and fresh is the contract:
+    it trades ~7.7s a segment for the possibility of serving a stale
+    overlay, and stale-but-reported-fresh is the defect class this
+    refactor exists to remove.  A caller asking for a region, or asking
+    for reuse outright, opts in.
+
+    A skip requires BOTH the overlay and its recorded reuse key to be on
+    disk and to match - never mere presence.  The filename is built from
+    `SEGMENT_BINDING_KEYS`, which carries no caption content, so a
+    text-only correction produces the identical name: measured on project
+    001, changing every caption in a block changed 0 of 8 filenames.
+    Skipping on presence would skip exactly the work an operator asked
+    for.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
 
@@ -136,6 +302,62 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     segment_name = segment_identifier(binding)
     overlay_path = os.path.join(out_dir, f"{segment_name}.mov")
     props_path = os.path.join(out_dir, f"{segment_name}_props.json")
+    key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+
+    def entry(provenance: str, **extra) -> dict:
+        """One segment's manifest entry.  `provenance` is never defaulted."""
+        if provenance not in PROVENANCES:
+            raise ValueError(
+                f"provenance must be one of {PROVENANCES}, got "
+                f"{provenance!r}. A segment that does not say what "
+                f"happened to it is the thing this field exists to stop.")
+        record = {
+            "overlay_path": overlay_path,
+            "segment_id": segment_name,
+            # The unabridged binding. The filename slugs and truncates;
+            # this is what a reader checks a segment against its audio
+            # with, without parsing a name.
+            "binding": binding,
+            "timeline_start": tl_start,
+            "timeline_end": tl_end,
+            "block_position": block_pos,
+            "provenance": provenance,
+        }
+        record.update(extra)
+        return record
+
+    def measured(provenance: str) -> dict:
+        return entry(
+            provenance,
+            reuse_key=key,
+            # The rendered clip carries animation handles either side of
+            # the content; these trim them off at placement time so blocks
+            # sit on their true bounds and never overlap.
+            source_in_frame=props["_source_in_frame"],
+            source_out_frame=props["_source_out_frame"],
+            total_frames=props["_source_out_frame"] - props["_source_in_frame"],
+            rendered_frames=total_frames,
+        )
+
+    key = _reuse_key(props, remotion_dir)
+
+    # ── Skip only on proven-identical CONTENT ──
+    if reuse:
+        recorded = ""
+        try:
+            recorded = Path(key_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            recorded = ""
+        if key and recorded == key and os.path.isfile(overlay_path):
+            print(f"  {progress} {segment_name} reused "
+                  f"(tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+            return measured(REUSED)
+        if not key:
+            print(f"    note: renderer fingerprint unavailable, rendering "
+                  f"{segment_name} rather than reusing", file=sys.stderr)
+        elif recorded and recorded != key:
+            print(f"    note: {segment_name} changed since it was rendered "
+                  f"- re-rendering", file=sys.stderr)
 
     # Write props file
     with open(props_path, "w") as f:
@@ -145,59 +367,35 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
           f"({num_subs} subs, {total_frames}f, "
           f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
 
-    # Render via Remotion
-    try:
-        result = subprocess.run(
-            ["npx", "remotion", "render",
-             "SubtitleOverlay",
-             overlay_path,
-             "--props", props_path,
-             "--codec", "prores",
-             "--prores-profile", "4444",
-             "--image-format", "png",
-             "--transparent",
-             ],
-            cwd=remotion_dir,
-            capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
-            timeout=180,  # 3 min per segment
-        )
+    # Render.  WHICH cards render and what comes back is this function's
+    # business; HOW one card is turned into pixels is the renderer's, and
+    # the two are deliberately separable - see `SubprocessRenderer`.
+    engine = renderer or SubprocessRenderer(remotion_dir)
+    ok, error = engine.render(props_path, overlay_path)
+    if not ok:
+        print(f"    WARN: Render failed: {error[:200]}", file=sys.stderr)
+        return entry(FAILED, failure=error[:500].strip() or "render failed")
+    print(f"    OK: {overlay_path}", file=sys.stderr)
 
-        if result.returncode != 0:
-            print(f"    WARN: Render failed: {result.stderr[:200]}",
+    # Recorded only after a render that SUCCEEDED, so a failed or
+    # interrupted render leaves no key claiming the file is current.
+    if key:
+        try:
+            Path(key_path).write_text(key, encoding="utf-8")
+        except OSError as exc:
+            print(f"    note: could not record the reuse key for "
+                  f"{segment_name} ({exc}); it will re-render next time",
                   file=sys.stderr)
-            return None
 
-        print(f"    OK: {overlay_path}", file=sys.stderr)
-
-    except subprocess.TimeoutExpired:
-        print(f"    WARN: Render timed out for {segment_name}",
-              file=sys.stderr)
-        return None
-
-    return {
-        "overlay_path": overlay_path,
-        "segment_id": segment_name,
-        # The unabridged binding. The filename slugs and truncates;
-        # this is what a reader checks a segment against its audio
-        # with, without parsing a name.
-        "binding": binding,
-        "timeline_start": tl_start,
-        "timeline_end": tl_end,
-        "block_position": block_pos,
-        # The rendered clip carries animation handles either side of
-        # the content; these trim them off at placement time so blocks
-        # sit on their true bounds and never overlap.
-        "source_in_frame": props["_source_in_frame"],
-        "source_out_frame": props["_source_out_frame"],
-        "total_frames": props["_source_out_frame"] - props["_source_in_frame"],
-        "rendered_frames": total_frames,
-    }
+    return measured(RENDERED)
 
 
 def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              project_folder: str = "", fps: int = 30,
-                             remotion_dir: str = None) -> dict:
+                             remotion_dir: str = None,
+                             reuse: bool = False,
+                             scope=None,
+                             renderer=None) -> dict:
     """Render one ProRes 4444 overlay per captioned spine block.
 
     Returns the `subtitle_overlay` payload.  Raises
@@ -264,6 +462,33 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             }
         }
 
+    # ── Region scope narrows WHICH segments render, and nothing else ──
+    #
+    # Filtered on the spine block, not on the segment's own time span: a
+    # segment IS a block, so a region that clips a block still re-renders
+    # the whole of it.  Rendering half a block's captions would leave a
+    # card split across two vintages of the plan.
+    planned_total = len(props_list)
+    if scope is not None and scope.is_region:
+        from library.tools.spine_contract import blocks_overlapping
+        span = scope.region_span
+        wanted = {b["position"]
+                  for b in blocks_overlapping(
+                      audio_spine.get("structure", []), span.start, span.end)}
+        props_list = [p for p in props_list
+                      if p.get("_block_position") in wanted]
+        if not props_list:
+            return {
+                "subtitle_overlay": {
+                    "available": False,
+                    "segments": [],
+                    "reason": (f"region {span} covers no captioned block "
+                               f"(of {planned_total} planned)"),
+                }
+            }
+        print(f"Region {span}: {len(props_list)} of {planned_total} "
+              f"segments", file=sys.stderr)
+
     print(f"Rendering {len(props_list)} subtitle segments...",
           file=sys.stderr)
 
@@ -275,23 +500,55 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     print(f"Naming segments under timeline "
           f"{timeline_label or '<unnamed>'}", file=sys.stderr)
 
-    segments = []
-    for i, props in enumerate(props_list):
-        segment = render_one_segment(
-            props, sub_output_dir, timeline_label,
-            remotion_dir=remotion_dir,
-            progress=f"[{i+1}/{len(props_list)}]")
-        if segment is not None:
-            segments.append(segment)
+    # ONE renderer for the whole pass, so a replacement holding a bundle
+    # or a browser builds it once rather than per card.  See
+    # `SubprocessRenderer` for the contract and for why it should be lazy.
+    #
+    # CLOSED IN A `finally`, and only if WE built it.  A renderer holding
+    # a Remotion bundle or a browser owns an OS resource, and a pass that
+    # raises - a QA refusal, a failed segment - would otherwise leak it;
+    # over nineteen reels that is nineteen leaks.  Ownership decides who
+    # closes: a caller who passed one in may be reusing it across several
+    # passes, and closing someone else's renderer is how the second pass
+    # fails for a reason the first pass caused.
+    engine = renderer or SubprocessRenderer(remotion_dir)
+    owns_engine = renderer is None
 
-    print(f"\nRendered {len(segments)}/{len(props_list)} subtitle segments",
+    segments = []
+    try:
+        for i, props in enumerate(props_list):
+            segment = render_one_segment(
+                props, sub_output_dir, timeline_label,
+                remotion_dir=remotion_dir,
+                progress=f"[{i+1}/{len(props_list)}]",
+                reuse=reuse, renderer=engine)
+            # Appended unconditionally, failures included.  A dropped
+            # segment is one the manifest never learns about, and 5.04
+            # then refuses the compile citing a missing block rather than
+            # the render that actually failed.
+            segments.append(segment)
+    finally:
+        if owns_engine:
+            closer = getattr(engine, "close", None)
+            if callable(closer):
+                closer()
+
+    # DERIVED from the segments, never tallied alongside them.  A second
+    # counter is a second source of truth for one fact and the two drift
+    # the first time an early exit is added.  `Rendered N/M` was the old
+    # line and it is false about every reused file - it reports work that
+    # did not happen.
+    tally = _tally(segments)
+    print(f"\nrendered {tally[RENDERED]}, reused {tally[REUSED]}, "
+          f"failed {tally[FAILED]}  ({len(props_list)} planned)",
           file=sys.stderr)
 
-    if segments:
+    usable = [s for s in segments if s["provenance"] != FAILED]
+    if usable:
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.qa.subtitle_qa import run_subtitle_qa
-            run_subtitle_qa(segments[0]["overlay_path"], project_folder)
+            run_subtitle_qa(usable[0]["overlay_path"], project_folder)
         except Exception as e:
             error_msg = f"Subtitle QA Validation Failed: {str(e)}"
             print(f"ERROR: {error_msg}", file=sys.stderr)
@@ -303,25 +560,43 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                 }
             })
 
-    failure_rate = (len(props_list) - len(segments)) / len(props_list) if len(props_list) > 0 else 0
-    if failure_rate > MAX_RENDER_FAILURE_RATE:
-        error_msg = f"More than 10% of subtitle renders failed ({len(props_list) - len(segments)} out of {len(props_list)})."
+    # ── Availability is not a proportion ──
+    #
+    # This was `failure_rate > MAX_RENDER_FAILURE_RATE`, and a proportion
+    # means how many segments may vanish silently GROWS with the
+    # timeline: one failure of eight trips a 10% bound, one failure of
+    # eleven does not.  What may be missing is not a quantity this step
+    # gets to have an opinion about.
+    failed = [s for s in segments if s["provenance"] == FAILED]
+    if failed:
+        detail = "; ".join(
+            f"{s['segment_id']}: {s.get('failure', 'no reason recorded')}"
+            for s in failed[:5])
+        error_msg = (f"{len(failed)} of {len(props_list)} subtitle segments "
+                     f"failed to render - {detail}")
         print(f"ERROR: {error_msg}", file=sys.stderr)
         raise SubtitleRenderRefused({
             "subtitle_overlay": {
                 "available": False,
-                "error": error_msg
+                "error": error_msg,
+                "segments": segments,
             }
         })
 
     return {
         "subtitle_overlay": {
-            "available": len(segments) > 0,
+            # True only when every planned segment is present and none
+            # failed.  `len(segments) > 0` was true on a partial render.
+            "available": len(segments) == len(props_list) and not failed,
             "segments": segments,
             "format": "ProRes 4444",
             "has_alpha": True,
             "fps": fps,
             "total_segments": len(segments),
+            "rendered": tally[RENDERED],
+            "reused": tally[REUSED],
+            "failed": tally[FAILED],
+            "planned": len(props_list),
         }
     }
 

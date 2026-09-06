@@ -31,6 +31,8 @@ from library.tools.reel_conformance_verifier import (
     check_caption_coverage,
     check_caption_duration,
     check_caption_overlaps,
+    CaptionsUnavailable,
+    check_caption_reference,
     check_duplicate_placements,
     check_format,
     check_item_count,
@@ -1326,3 +1328,142 @@ class TestClosingCallToAction:
                                                                     abs=0.05)
         assert second.placements[-1].record_seconds == pytest.approx(45.0,
                                                                      abs=0.05)
+
+
+# ── NO-REFERENCE: the empty expected side ────────────────────────────
+
+class TestNoReferenceRefusesRatherThanSkipping:
+    """The vacuous caption gate, and why it is a class of its own.
+
+    Measured 2026-09-05 on the captain's nineteen: the verifier reported
+    captions expected/actual as 0/28, 0/39 ... 0/762. It expected zero
+    caption cards, found seven hundred and sixty-two, and PASSED - so F2,
+    F5, F6 and F7 were all vacuous. The guard was
+    `if plan.captions and timeline.caption_items:` and `plan.captions`
+    was `()` on every run the verifier had ever made, because
+    `reel_subtitles.py` was a parallel module whose output never entered
+    the plan the verifier reads.
+
+    The plan side is now derived, but that is not what makes this safe -
+    a derivation can break again, and the captioner is moving into step
+    4.01. What makes it safe is that the EMPTINESS is now the finding.
+    """
+
+    def test_cards_on_the_timeline_with_none_in_the_plan_refuses(self):
+        findings = check_caption_reference(
+            "Reel 01 - test", (),
+            (_item("video", 3, 0, 24), _item("video", 3, 24, 48)))
+
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.NO_REFERENCE
+        assert findings[0].severity == "error"
+        assert findings[0].detail["planned"] == 0
+        assert findings[0].detail["actual"] == 2
+
+    def test_cards_in_the_plan_with_none_on_the_timeline_refuses(self):
+        """The same hole seen from the other side.
+
+        A plan that asked for cards the build never placed is a reel
+        shipped without its captions, and it was equally silent.
+        """
+        findings = check_caption_reference(
+            "Reel 01 - test",
+            (PlannedCaption(0.0, 1.0, "hello there", "Akshita", 24),), ())
+
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.NO_REFERENCE
+        assert findings[0].detail["direction"] == "plan_only"
+
+    def test_a_reel_nobody_captioned_is_not_a_defect(self):
+        """`--skip-captions` builds a watchable timeline on purpose."""
+        assert check_caption_reference("Reel 01 - test", (), ()) == []
+
+    def test_both_sides_present_is_left_to_f2(self):
+        assert check_caption_reference(
+            "Reel 01 - test",
+            (PlannedCaption(0.0, 1.0, "hello there", "Akshita", 24),),
+            (_item("video", 3, 0, 24),)) == []
+
+    def test_could_not_be_asked_is_not_the_same_as_has_none(self):
+        """The branch that stops the gate going quiet when the producer moves.
+
+        `_derive_planned_captions` used to import `reel_subtitles` inside
+        `except ImportError: return ()`. That module is being deleted -
+        the captain ruled it should never have existed and its work
+        belongs in step 4.01 - and on the day it went the plan side would
+        have become permanently empty, the caption gate would have gone
+        back to expecting zero cards while finding hundreds, and every
+        test here would still have passed.
+
+        So "could not be asked" is now its own answer and it REFUSES,
+        while "has none" stays clean.
+        """
+        findings = check_caption_reference(
+            "Reel 01 - test", (), (),
+            unavailable="spine_for_reel is not available in "
+                        "library.tools.reel_spine")
+
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.NO_REFERENCE
+        assert findings[0].severity == "error"
+        assert findings[0].detail["direction"] == "unavailable"
+        assert "reel_spine" in findings[0].message
+
+    def test_an_unavailable_reference_disables_nothing_silently(self):
+        """F2, F5, F6 and F7 must not run on a guess either."""
+        result = verify_reel(
+            _plan(captions=()),
+            _timeline(caption_items=tuple(
+                _item("video", 3, i * 24, (i + 1) * 24) for i in range(28))))
+        vacuous = [f for f in result.findings
+                   if f.finding_class == FindingClass.NO_REFERENCE]
+        assert len(vacuous) == 1
+
+        unavailable = verify_reel(
+            _plan(captions=()),
+            _timeline(caption_items=tuple(
+                _item("video", 3, i * 24, (i + 1) * 24) for i in range(28))))
+        assert unavailable.errors
+
+    def test_the_deleted_parallel_module_is_not_imported(self):
+        """The verifier asks the PIPELINE, not a module beside it.
+
+        Named rather than left to a grep, because the import was LAZY and
+        inside a swallowing except - so its absence broke no test and its
+        presence broke no test either.
+        """
+        import inspect
+
+        from library.tools import reel_conformance_verifier as verifier
+
+        source = inspect.getsource(verifier)
+        assert "import reel_captions" not in source
+        assert "from library.tools.reel_subtitles import" not in source
+        assert verifier.REEL_SPINE_PRODUCER[0] == "library.tools.reel_spine"
+        # Step 4.01 is reached THROUGH THE REGISTRY, not by importing its
+        # module: `Operation.run` resolves the step's own function and
+        # never wraps it, so the verifier runs 4.01's code rather than a
+        # copy of its rule. Importing the step directly would work and
+        # would be the second implementation the registry exists to stop.
+        assert verifier.SUBTITLE_PLAN_OPERATION == "subtitles.plan"
+        assert "from library.steps.step_4_01" not in source
+
+    def test_captions_unavailable_is_raised_not_returned(self):
+        """An empty tuple reads exactly like a --skip-captions reel."""
+        from library.tools.reel_conformance_verifier import (
+            _derive_planned_captions)
+
+        with pytest.raises(CaptionsUnavailable):
+            _derive_planned_captions(None, [(0.0, 10.0)], None, FPS)
+
+    def test_verify_reel_refuses_the_vacuous_case_end_to_end(self):
+        """The exact shape of the live run: 0 expected, many found."""
+        result = verify_reel(
+            _plan(captions=()),
+            _timeline(caption_items=tuple(
+                _item("video", 3, i * 24, (i + 1) * 24) for i in range(28))))
+
+        refusals = [f for f in result.findings
+                    if f.finding_class == FindingClass.NO_REFERENCE]
+        assert len(refusals) == 1
+        assert result.errors, "an empty reference set must FAIL the gate"

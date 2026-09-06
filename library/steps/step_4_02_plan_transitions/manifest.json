@@ -112,6 +112,9 @@
         "required": true,
         "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale"
       }
+    ],
+    "requirements": [
+      "rough_cut.approved"
     ]
   },
   "classification": {

@@ -555,12 +555,28 @@ def _words_in_source_window(
 def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        brand_effect: dict = None,
                        brand_style: dict = None,
-                       project_folder: str = "") -> dict:
+                       project_folder: str = "",
+                       scope=None) -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
     Speech and hook blocks must carry populated word_timestamps; a block
     that does not fails the step rather than being timed by guesswork.
+
+    `scope` narrows WHICH blocks are planned, and nothing else.  At
+    REGION scope only the blocks the region touches are planned, and the
+    result is a partial plan meant for `subtitle_splice.splice_plan` -
+    never for writing over a whole one.  The grouping, the timing and the
+    fitting are identical either way: every block is planned from its own
+    `timeline_start`/`timeline_end` and its own words, so a block plans
+    the same whether its neighbours are present or not.  Measured on
+    project 001 - a region-scoped plan of block 10 reproduces that
+    block's five entries byte for byte, ids included.
+
+    That is only true because caption ids are BLOCK-LOCAL (increment 1).
+    While they came from a run-global counter, planning a region
+    renumbered every card after it, which is why the operation refused
+    REGION scope until now.
 
     Args:
         audio_spine: The audio spine with structure blocks.
@@ -571,6 +587,20 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             safe area the captions are grouped and positioned against.
     """
     structure = audio_spine.get("structure", [])
+
+    # The ONLY thing scope changes: which blocks are planned.  The block
+    # list is narrowed here and every line below is untouched, so a
+    # region-scoped plan cannot drift from a whole-project one.
+    if scope is not None and scope.is_region:
+        from library.tools.spine_contract import blocks_overlapping
+        span = scope.region_span
+        structure = blocks_overlapping(structure, span.start, span.end)
+        if not structure:
+            raise ValueError(
+                f"region {span} touches no spine block, so there is nothing "
+                f"to plan. The spine runs to "
+                f"{audio_spine.get('total_estimated_duration_seconds', '?')}s."
+            )
 
     subtitle_entries = []
 
@@ -1013,3 +1043,74 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ── Region-scoped re-plan, and putting it back ──────────────────────
+
+def splice_region_plan(audio_spine: dict, stored_plan: dict, scope,
+                       caption_case: str = "lowercase",
+                       brand_effect: dict = None,
+                       brand_style: dict = None,
+                       project_folder: str = "") -> dict:
+    """Re-plan the blocks a region touches and splice them into `stored_plan`.
+
+    The captain's worked example ends here: *"splice the refreshed
+    subtitles back in."*  Planning the region is `generate_subtitles` with
+    a scope; this is the half that has to leave the rest of the timeline
+    alone, and prove it did.
+
+    Returns `{"subtitle_plan": ..., "splice": <report>}`.  The report
+    carries `outside_unchanged`, MEASURED rather than asserted - a splice
+    that reports its own success without checking is the vacuous gate
+    this repository keeps removing.
+
+    Refuses, rather than doing something surprising:
+
+    - a region touching no block, so a typo redoes nothing quietly;
+    - a fresh plan carrying a block the region did not ask for;
+    - a splice that would change any touched block's DURATION, because
+      `mesh_spine`'s post-bridge lays blocks end to end and a longer
+      block moves every one after it.  That refusal lives in
+      `subtitle_splice` and is the boundary between a correction and a
+      re-plan.
+    """
+    from library.tools.spine_contract import blocks_overlapping
+    from library.tools.subtitle_splice import (
+        assert_durations_preserved, splice_plan, splice_report,
+    )
+
+    span = scope.region_span
+    structure = audio_spine.get("structure", [])
+    touched = blocks_overlapping(structure, span.start, span.end)
+    if not touched:
+        raise ValueError(
+            f"region {span} touches no spine block, so there is nothing to "
+            f"splice.")
+    positions = [b["position"] for b in touched]
+
+    # The durations either side of the splice are the SAME blocks here -
+    # a re-plan of captions cannot change a block's length - so this
+    # reads as a tautology today and is not one tomorrow: the same
+    # function is what `transcript.splice` upstream has to satisfy, and
+    # keeping the check on this path means a caller who re-indexed first
+    # cannot skip it by coming in through captions.
+    assert_durations_preserved(structure, touched)
+
+    fresh = generate_subtitles(
+        audio_spine, caption_case=caption_case, brand_effect=brand_effect,
+        brand_style=brand_style, project_folder=project_folder,
+        scope=scope)["subtitle_plan"]
+
+    stored_entries = stored_plan.get("subtitle_entries", [])
+    merged = splice_plan(stored_entries, fresh["subtitle_entries"], positions)
+    report = splice_report(stored_entries, merged, positions)
+
+    plan = dict(stored_plan)
+    plan["subtitle_entries"] = merged
+    plan["total_subtitles"] = len(merged)
+    # The style comes from the fresh pass: it is resolved from the brand
+    # template every time and is not a per-region value, so taking the
+    # stored one would let a template change reach the region's cards and
+    # not the record of what style they were drawn at.
+    plan["style"] = fresh["style"]
+    return {"subtitle_plan": plan, "splice": report}

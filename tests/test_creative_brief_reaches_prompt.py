@@ -88,6 +88,22 @@ def test_the_brief_is_documented_by_the_steps_we_think_it_is():
         "step_5_01_color_grade",
         "step_4_03_plan_vfx",
         "step_4_04_plan_sfx",
+        # The tenth, 2026-09-05. Reel selection is the one step whose
+        # answer is a COUNT as much as a set, and the engine states no
+        # count anywhere on purpose - `handoff.md` says so and
+        # `test_the_handoff_states_no_count_and_no_preference` holds it
+        # there, because that file is engine-wide and one episode's
+        # number would become every project's. The brief is the channel
+        # that can carry it: the engine states capability and authority,
+        # the project states what this particular video wants.
+        #
+        # Landed once as 89c61e6 in the field-test lane, used for the
+        # nineteen reels the captain approved, and LOST - that lane was
+        # never merged, so main shipped a reel selector that received no
+        # brief and was not asked what it would have wanted. Restored
+        # 2026-09-05; `test_select_reels_is_interviewed_without_a_brief`
+        # in tests/test_briefing_interview.py is the other half.
+        "step_3_04_select_reels",
     }, names
 
 

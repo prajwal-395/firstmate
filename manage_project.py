@@ -250,7 +250,8 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
         print("  whisperx below 3.8 raises TypeError on every transcribe "
               "call, step 1.04 catches it per clip, and the run reports "
               "success with no transcript, no spine and no subtitles.")
-        print("  requirements.txt's header has the full chain.")
+        print("  requirements.txt's header has the full chain, and "
+              "docs/ML_ENVIRONMENT.md is how to rebuild this environment.")
         _print_ml_advice(command, repo_root)
         sys.exit(1)
 
@@ -641,6 +642,8 @@ def cmd_run(args):
         cmd.extend(["--skip", step_id])
     for step_id in getattr(args, "with_steps", None) or []:
         cmd.extend(["--with", step_id])
+    for requirement in getattr(args, "overrides", None) or []:
+        cmd.extend(["--override", requirement])
     # The run configuration. See library/tools/run_profile.py and
     # library/tools/breakpoints.py.
     if getattr(args, "profile", None):

@@ -50,6 +50,7 @@
       }
     ],
     "requirements": [
+      "rough_cut.approved",
       "spine.word_timings"
     ]
   },

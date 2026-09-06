@@ -134,6 +134,9 @@
         "may_be_empty": true,
         "description": "Sound effects - as many as the piece earns, with no minimum and no maximum. Multiple entries MAY share a spine_block_position when layering serves the moment (e.g. whoosh + bass hit, riser under a textural bed); each carries its own volume_db. Each: spine_block_position, sfx_id (an exact sfx_id out of the catalogue sfx_catalog_reference points at - no other value is playable), volume_db (number, REQUIRED - the dB you want this sound played at, against speech's 0 dB reference; `bed_under_it` on the candidate row says where the music sits under the same block, and there is no ladder of words and no default. An entry naming no volume_db is dropped: the one sound of the last run was placed at a level nobody chose and could not be heard), duration_seconds (OPTIONAL - how long the sound plays for, which may be less than the sound's own measured length but never more; leave it out and the whole sound plays, which is the absence of a decision rather than a decision), rationale naming what in the chosen sound's library entry made it the right sound for this moment."
       }
+    ],
+    "requirements": [
+      "rough_cut.approved"
     ]
   },
   "classification": {

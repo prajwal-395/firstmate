@@ -503,3 +503,47 @@ def test_the_committed_snapshot_manifest_carries_no_payload():
             assert "content" not in entry
         assert path.stat().st_size < 200_000, (
             f"{path.name} is {path.stat().st_size} B - a manifest, not a payload")
+
+
+def test_capture_freezes_the_creative_brief_a_project_declares(tmp_path,
+                                                               store):
+    """A step that declares the brief must be replayable.
+
+    Ten steps declare `creative_brief` and the runner RAISES rather than
+    degrading when a declared brief cannot be read - correctly, because a
+    step that reported success having read a filename was the defect that
+    rule replaced. So a snapshot that did not carry the brief could not
+    reconstruct ANY of those ten, which is every step that makes a
+    creative judgement.
+
+    Found 2026-09-05: step 3.4 regained its declaration and
+    `replay_bench compare select_reels` stopped working entirely, with
+    "declares creative_brief and the project points at
+    <snapshot>/project/creative_brief.md, which cannot be read".
+    """
+    project = _write_project(tmp_path)
+    (project / "project.yaml").write_text(
+        "name: replay bench fixture\nslug: replay-fixture\n"
+        "pipeline:\n  creative_brief: creative_brief.md\n",
+        encoding="utf-8")
+    (project / "creative_brief.md").write_text(
+        "# what this episode wants\n\nnineteen reels, each ending its own "
+        "way.\n", encoding="utf-8")
+
+    snap = snapshot_mod.capture(str(project), store=store, snapshot_id="withbrief")
+
+    frozen = snap.project_dir / "creative_brief.md"
+    assert frozen.is_file(), "the declared brief must be inside the snapshot"
+    assert "nineteen reels" in frozen.read_text(encoding="utf-8")
+
+    # COPIED, not referenced: a later edit must not change what a replay
+    # reconstructs, which is the whole point of freezing state.
+    (project / "creative_brief.md").write_text("rewritten\n", encoding="utf-8")
+    assert "nineteen reels" in frozen.read_text(encoding="utf-8")
+
+
+def test_capture_is_unbothered_by_a_project_that_declares_no_brief(project,
+                                                                   store):
+    """Most projects declare none, and that is not an error."""
+    snap = snapshot_mod.capture(str(project), store=store, snapshot_id="nobrief")
+    assert not (snap.project_dir / "creative_brief.md").exists()

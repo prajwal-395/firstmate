@@ -103,6 +103,23 @@ class FindingClass:
     # signal but are noise.
     PLAN_MISMATCH = "PLAN-MISMATCH"
 
+    # Anti-vacuity, 2026-09-05.  The caption checks were guarded with
+    # `if plan.captions and timeline.caption_items:`, `plan.captions`
+    # defaulted to `()`, and nothing ever filled it - so the verifier
+    # reported captions expected/actual as 0/28, 0/39 ... 0/762: it
+    # expected zero captions, found 762, and PASSED.  An empty reference
+    # set silently DISABLED F2, F5, F6 and F7 rather than failing them,
+    # which is the gate-that-cannot-fail this repository keeps removing
+    # (AGENTS.md 10.4).
+    #
+    # So the emptiness is now the finding.  A check with nothing to
+    # compare against REFUSES; it never passes quietly.  The plan side is
+    # derived in `_derive_plan_from_master`, but this class exists so the
+    # guarantee does not depend on that derivation continuing to work: if
+    # the caption cards ever stop reaching the plan again, the verifier
+    # says so instead of going green on nothing.
+    NO_REFERENCE = "NO-REFERENCE"
+
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10}
@@ -110,7 +127,7 @@ PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
                     FindingClass.F7, FindingClass.F8, FindingClass.F11}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
-PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH}
+PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH, FindingClass.NO_REFERENCE}
 
 WARNING_CLASSES = {FindingClass.F3}
 """F3 (master-inherited holes) is the plan's fault, not the build's.
@@ -175,6 +192,15 @@ class ReelPlan:
     """End of the reel span on the master timeline, in seconds."""
     placements: Tuple[PlannedPlacement, ...]
     captions: Tuple[PlannedCaption, ...] = ()
+    captions_unavailable: Optional[str] = None
+    """Why the expected caption cards could not be derived AT ALL.
+
+    `None` means they were derived - `captions` is then the answer, and
+    an empty `captions` means this reel legitimately has none. A string
+    means the pipeline could not be asked, and the difference is the
+    whole point: collapsing the two is how the caption gate came to
+    expect zero cards, find 762, and pass."""
+
     cuts: tuple = ()
     """Bad takes removed (from reel_build.Cut)."""
     keep_ranges: Tuple[Tuple[float, float], ...] = ()
@@ -513,6 +539,73 @@ def check_caption_duration(reel_name: str,
             ))
 
     return findings
+
+
+def check_caption_reference(reel_name: str,
+                            planned_captions: Sequence[PlannedCaption],
+                            actual_captions: Sequence[TimelineItem],
+                            unavailable: Optional[str] = None,
+                            ) -> List[Finding]:
+    """NO-REFERENCE: a caption check with nothing to compare against.
+
+    The guard this replaces was `if plan.captions and
+    timeline.caption_items:`, and `plan.captions` was `()` on every run
+    the verifier ever made.  So F2 never ran, and the report printed
+    "captions expected 0, actual 762" beside a PASS.  A gate that cannot
+    fail is worse than no gate, because it reads as coverage
+    (AGENTS.md 10.4).
+
+    A reel with no captions on EITHER side is not a defect - that is a
+    reel built with `--skip-captions`, and it has nothing to say about
+    caption timing.  A disagreement about whether captions exist at all
+    is always a defect, in whichever direction it points: cards on the
+    timeline the plan never asked for cannot be checked, and cards the
+    plan asked for that are not on the timeline were not built.
+    """
+    # "Could not be asked" is not "has none", and the two must never
+    # collapse. This is the branch that stops the gate going quiet when
+    # whatever produces the expected cards moves or is deleted.
+    if unavailable:
+        return [Finding(
+            finding_class=FindingClass.NO_REFERENCE,
+            reel=reel_name,
+            message=(f"the expected caption cards could not be derived, so "
+                     f"F2, F5, F6 and F7 have no reference set and are "
+                     f"REFUSED: {unavailable}"),
+            severity="error",
+            detail={"planned": None, "actual": len(actual_captions),
+                    "direction": "unavailable", "reason": unavailable},
+        )]
+
+    if not planned_captions and not actual_captions:
+        return []
+    if planned_captions and actual_captions:
+        return []
+
+    if actual_captions:
+        message = (
+            f"{len(actual_captions)} caption cards are on the timeline "
+            f"and the plan derived NONE, so F2, F5, F6 and F7 have no "
+            f"reference set. They are REFUSED rather than skipped: an "
+            f"empty expected side used to disable them silently and "
+            f"report a pass")
+        detail = {"planned": 0, "actual": len(actual_captions),
+                  "direction": "timeline_only"}
+    else:
+        message = (
+            f"the plan derived {len(planned_captions)} caption cards and "
+            f"the timeline carries NONE, so the captions were planned and "
+            f"never built")
+        detail = {"planned": len(planned_captions), "actual": 0,
+                  "direction": "plan_only"}
+
+    return [Finding(
+        finding_class=FindingClass.NO_REFERENCE,
+        reel=reel_name,
+        message=message,
+        severity="error",
+        detail=detail,
+    )]
 
 
 def check_caption_coverage(reel_name: str,
@@ -1515,27 +1608,55 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_subtitle_styling(
         plan.reel_name, timeline.caption_items, timeline.video_items))
 
+    # The caption checks, and the emptiness that used to disable them.
+    #
+    # A reel built with `--skip-captions` legitimately has none on either
+    # side, and that is not a defect - it is a reel nobody captioned.
+    # Every OTHER combination is: cards on the timeline with nothing in
+    # the plan to check them against is the vacuous case this class was
+    # added for, and a plan that asked for cards the timeline does not
+    # carry is the same hole seen from the other side.  Both refuse.
+    findings.extend(check_caption_reference(
+        plan.reel_name, plan.captions, timeline.caption_items,
+        unavailable=plan.captions_unavailable))
+
+    # Below here every check needs a reference set. When it could not be
+    # derived at all, the refusal above IS the finding - running these on
+    # a guess would be the vacuity, one layer down.
+    have_reference = not plan.captions_unavailable
+
     # F2: Caption card duration
-    if plan.captions and timeline.caption_items:
+    if have_reference and plan.captions and timeline.caption_items:
         findings.extend(check_caption_duration(
             plan.reel_name, plan.captions, timeline.caption_items, fps))
 
+    # F5, F6 and F7 read the CARDS rather than the placed items, because
+    # they measure coverage, overlap and length in reel seconds.  The
+    # plan's own derived cards are the reference when the caller passes
+    # none, which is every real run: `verify_built_reels` never passed
+    # `caption_cards`, so all three were skipped on live builds even
+    # before the plan side was empty.
+    cards = caption_cards if caption_cards is not None else [
+        {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
+         "text": c.text, "speaker": c.speaker, "frames": c.frames}
+        for c in plan.captions]
+
     # F5: Caption coverage
-    if transcript_segments and caption_cards is not None:
+    if have_reference and transcript_segments:
         findings.extend(check_caption_coverage(
-            plan.reel_name, transcript_segments, caption_cards or [],
+            plan.reel_name, transcript_segments, cards,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
             fps))
 
     # F6: Caption overlap
-    if caption_cards:
+    if have_reference and cards:
         findings.extend(check_caption_overlaps(
-            plan.reel_name, caption_cards, fps))
+            plan.reel_name, cards, fps))
 
     # F7: Short captions
-    if caption_cards:
+    if have_reference and cards:
         findings.extend(check_short_captions(
-            plan.reel_name, caption_cards, fps))
+            plan.reel_name, cards, fps))
 
     # The spans a viewer hears an edge of: the body, and the closer if
     # the reel has one.  NOT the bad-take seams inside the body, which
@@ -1666,6 +1787,8 @@ def _derive_plan_from_master(
     master_snapshot,
     transcript: Optional[dict] = None,
     call_to_action: Optional[Tuple[float, float]] = None,
+    moment=None,
+    project_folder: str = "",
 ) -> ReelPlan:
     """Derive what the plan says about one reel from the master timeline.
 
@@ -1730,6 +1853,23 @@ def _derive_plan_from_master(
     plan_seconds = sum(b - a for a, b in kr)
     plan_frames = plan_seconds * fps
 
+    # A reel whose captions cannot be derived is REFUSED, not scored as
+    # zero. The reason travels with the plan so the finding can name it.
+    captions: Tuple[PlannedCaption, ...] = ()
+    captions_unavailable: Optional[str] = None
+    if moment is None:
+        captions_unavailable = (
+            "no proposal moment was matched to this timeline, so there is "
+            "nothing to build a reel spine from - `reel_proposal.read_"
+            "proposal` is what supplies it")
+    try:
+        if captions_unavailable:
+            raise CaptionsUnavailable(captions_unavailable)
+        captions = _derive_planned_captions(
+            moment, kr, transcript, fps, project_folder)
+    except CaptionsUnavailable as unavailable:
+        captions_unavailable = str(unavailable)
+
     return ReelPlan(
         reel_name=reel_name,
         reel_number=reel_number,
@@ -1738,10 +1878,153 @@ def _derive_plan_from_master(
         span_start=span_start,
         span_end=span_end,
         placements=planned_placements,
+        captions=captions,
+        captions_unavailable=captions_unavailable,
         cuts=cuts,
         keep_ranges=tuple(kr),
         call_to_action=closer,
     )
+
+
+#: Where the verifier asks the PIPELINE for a reel's spine.
+#:
+#: The expected cards come from step 4.01 - the same code that plans a
+#: master's captions - run against the reel's own spine.  What turns a
+#: moment into a spine is `reel_spine`, a PRODUCER and not a second
+#: captioner.  Both are named here rather than imported at module scope
+#: so this constant IS the dependency: a reader sees what the verifier
+#: needs without reading the function.
+#:
+#: This used to import `reel_subtitles.reel_captions`, and that was wrong
+#: twice over.  It was the parallel module the captain ruled should never
+#: have existed - "the subtitles was meant to utilize the pipeline
+#: subtitles step" - so the verifier checked the build against a rule
+#: living beside the pipeline rather than in it.  And the import was lazy
+#: inside `except ImportError: return ()`, so the day that module was
+#: deleted the plan side would have gone permanently empty and the
+#: caption gate would have returned to expecting zero cards, finding
+#: hundreds, and passing.  A silent fallback is how that defect survived
+#: the first time.
+REEL_SPINE_PRODUCER = ("library.tools.reel_spine", "spine_for_reel")
+
+#: Step 4.01, reached THROUGH THE REGISTRY rather than by importing its
+#: module.  `Operation.run` resolves the step's own function and never
+#: wraps it, so this is 4.01's code and not a copy of it - which is the
+#: whole reason the registry exists.
+SUBTITLE_PLAN_OPERATION = "subtitles.plan"
+
+
+class CaptionsUnavailable(Exception):
+    """The pipeline could not be asked what captions to expect.
+
+    Distinct from "this reel has no captions", which is a legitimate
+    answer and not an error.  Raised so the caller REFUSES and names what
+    is missing, rather than returning an empty tuple that reads exactly
+    like a reel nobody captioned.
+    """
+
+
+def _resolve(dotted: Tuple[str, str]):
+    """A module attribute by name, or None. Never a silent substitute."""
+    import importlib
+    module_name, attribute = dotted
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return None
+    return getattr(module, attribute, None)
+
+
+def _derive_planned_captions(
+    moment,
+    keep_ranges: Sequence[Tuple[float, float]],
+    transcript: Optional[dict],
+    fps: float,
+    project_folder: str = "",
+) -> Tuple[PlannedCaption, ...]:
+    """The caption cards the plan says this reel should carry.
+
+    Asked of the PIPELINE, for the same reason `_derive_plan_from_master`
+    re-derives placements from `reel_build`: a reel cannot be built to one
+    rule and checked against another.  The rule is step 4.01's, so 4.01 is
+    what runs - through the reel's own spine, which is what makes a step
+    written for a master reachable by a reel.
+
+    **`keep_ranges` is passed to the spine producer EXPLICITLY**, and it
+    is the same tuple `_derive_plan_from_master` built the placements
+    from.  `spine_for_reel` recomputes `reel_ranges` when the argument is
+    omitted, and a verifier that spines against one order while checking
+    a build made from another is checking a different reel -
+    `reel_ranges` is the one place play order is spelled.
+
+    Card timings come back in REEL SECONDS, which is the domain the
+    timeline items are in.  They are never compared against master times:
+    measured on 001, per-block offsets spread 146.5s across a 56.6s
+    timeline and the sign flips, so that comparison fails silently rather
+    than loudly.
+
+    Styling is deliberately NOT resolved.  A caption's look belongs to the
+    project (AGENTS.md 14) and none of F2, F5, F6 or F7 reads it - they
+    read timing, coverage, overlap and length.
+
+    RAISES `CaptionsUnavailable` when the pipeline cannot be asked at all,
+    which includes a reel with no speech left on it.  It does not return
+    `()`: an empty tuple is what a reel built with `--skip-captions`
+    legitimately produces, and collapsing "has none" into "could not find
+    out" is the whole defect this function exists to remove.
+    """
+    if not transcript:
+        raise CaptionsUnavailable(
+            "no timeline transcript, so the reel has no spine to plan "
+            "captions from - `timeline_transcript` is what produces it")
+
+    spine_for_reel = _resolve(REEL_SPINE_PRODUCER)
+    if spine_for_reel is None:
+        raise CaptionsUnavailable(
+            f"{REEL_SPINE_PRODUCER[1]} is not available in "
+            f"{REEL_SPINE_PRODUCER[0]} - that is what turns a reel's "
+            f"played ranges into the spine step 4.01 plans captions from, "
+            f"and without it the expected caption cards cannot be derived "
+            f"at all. REFUSED rather than reported as zero cards, because "
+            f"zero is what a --skip-captions reel legitimately has")
+
+    try:
+        from library.tools import operations
+        planner = operations.get(SUBTITLE_PLAN_OPERATION)
+    except Exception as unreachable:  # noqa: BLE001 - the registry names
+        # the operation; anything that stops it resolving is reported as
+        # itself rather than folded into "no captions".
+        raise CaptionsUnavailable(
+            f"the {SUBTITLE_PLAN_OPERATION} operation could not be "
+            f"resolved ({unreachable}) - step 4.01 is the captioner and "
+            f"the verifier has no second copy of its rule") from unreachable
+
+    try:
+        spine = spine_for_reel(moment, transcript, list(keep_ranges))
+    except Exception as no_spine:  # noqa: BLE001 - `ReelSpineError` names
+        # the counts and is a VERIFICATION FINDING, not a crash: a reel
+        # with no speech left on it is something the report must say.
+        raise CaptionsUnavailable(
+            f"the reel has no spine to caption: {no_spine}") from no_spine
+
+    plan = planner.run(spine, caption_case="lowercase", brand_effect={},
+                       brand_style={}, project_folder=project_folder) or {}
+    entries = (plan.get("subtitle_plan") or {}).get("subtitle_entries") or []
+
+    cards = []
+    for entry in entries:
+        # REEL seconds. Never compared against a master time.
+        start, end = entry.get("timeline_start"), entry.get("timeline_end")
+        if start is None or end is None:
+            continue
+        cards.append(PlannedCaption(
+            start_seconds=float(start),
+            end_seconds=float(end),
+            text=str(entry.get("text", "")),
+            speaker=entry.get("speaker"),
+            frames=max(int(round((float(end) - float(start)) * fps)), 1),
+        ))
+    return tuple(cards)
 
 
 def _find_master_picture_holes(master_snapshot) -> List[dict]:
@@ -1886,6 +2169,7 @@ def run_verification(
     transcript: Optional[dict] = None,
     json_path: str = "",
     review_dir: str = "",
+    project_folder: str = "",
     out=None,
 ) -> int:
     """Connect to Resolve, read everything, verify, report.
@@ -2042,6 +2326,28 @@ def run_verification(
     # ── Verify each reel ─────────────────────────────────────────────
     reel_results = []
 
+    # Step 4.01 resolves the delivery format - and through it the safe
+    # area captions are grouped against - from the project folder. The
+    # plan lives at <project>/pipeline_output/review/, so the folder is
+    # derivable from it; taking it from the caller when given keeps a
+    # project addressed by absolute path (AGENTS.md 8) working either way.
+    if not project_folder and plan_path:
+        # Walk up until the candidate's own layout agrees that the plan
+        # sits where it says the review area is. That asks
+        # `project_layout` rather than restating "three parents up", so a
+        # layout change moves this with it.
+        from pathlib import Path
+
+        from library.tools.project_layout import Area, ProjectLayout
+        here = Path(plan_path).expanduser().resolve().parent
+        for candidate in (here, *here.parents):
+            try:
+                if ProjectLayout(candidate).read_dir(Area.REVIEW) == here:
+                    project_folder = str(candidate)
+                    break
+            except Exception:  # noqa: BLE001 - not a project root
+                continue
+
     if plan_refused:
         # The plan does not describe these timelines.  Every F1-F11
         # finding would be noise that looks like signal.  REFUSE.
@@ -2073,7 +2379,9 @@ def run_verification(
                     name, reel_number,
                     moment.timeline_start, moment.timeline_end,
                     master_snapshot, transcript,
-                    call_to_action=cta_range(moment))
+                    call_to_action=cta_range(moment),
+                    moment=moment,
+                    project_folder=project_folder or "")
             else:
                 # No plan proposal available - we can still detect holes,
                 # duplicates, and caption defects but item count comparison
@@ -2092,8 +2400,14 @@ def run_verification(
                     keep_ranges=((0.0, plan_seconds),),
                 )
 
-            result = verify_reel(plan, reel_tl, master_holes=master_holes,
-                                 master_fps=master_snapshot.fps)
+            # The transcript is what F5 measures coverage against, and
+            # it was never passed - so F5 was skipped on every live run
+            # regardless of the plan's caption side.
+            result = verify_reel(
+                plan, reel_tl,
+                transcript_segments=(transcript or {}).get("segments"),
+                master_holes=master_holes,
+                master_fps=master_snapshot.fps)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "
