@@ -6192,3 +6192,98 @@ that redrawing the span is the way out.
 real segments as data and fires the guard in both directions - the
 coherent cut list passes, the cut list the rebuild actually used is
 REFUSED by name.
+
+---
+
+## the-declaration-nothing-read
+
+Step 3.04 declared a prompt allow-list and the projection never applied
+it.  The declaration was under `interface`, beside the `inputs` and
+`outputs` it reads as though it belongs with;
+`run_pipeline.project_step_context` reads the manifest's TOP LEVEL,
+found nothing there, and took that for the other legal state - "this
+step declares none, hand it every byte it was routed", which `render`
+and `validate` really are in.  An accident and a decision looked
+identical from the only place that could tell them apart.
+
+The request that reached the model that chooses which passages become
+reels, measured on the field-test run of 2026-09-06:
+
+| part | chars | |
+|---|---:|---|
+| creative brief reference + preamble | 3,717 | |
+| **`timeline_transcript`, the raw document** | **817,317** | **92% of it** |
+| `turns`, the summary the pre-bridge renders FROM that document | 51,531 | |
+| `reel_candidates`, the measured table | 15,908 | |
+| the rest | 362 | |
+| **total** | **888,835** | plus a 22,633-char prompt |
+
+**8,509 words arrived carrying individual `start`/`end`/`timed`
+timings**, along with 940 absolute source-file paths and 940 Resolve
+item ids.  Three rules in this section were broken at once - *"Word
+timings do not reach a prompt"*, *"Never send a summary and the
+structure it was rendered from"*, and the `context_fields` contract
+itself - and every reel selection this pipeline has ever made was made
+that way.
+
+The declaration was also FALSE in a second way that only became visible
+once it was read: `timeline_transcript.turns` names a path the document
+does not have.  The document carries `segments`; `turns` is the
+pre-bridge's own table, built from those segments and restored by name
+AFTER the projection.  `project_fields` prints a warning for a declared
+path that resolves to nothing, so the run would have said so on every
+invocation - had the projection ever run.
+
+**What the survey found once the reader was fixed.**  Twenty-two
+archived requests across three projects were re-read, every top-level
+key accounted for against the four routes that legitimately put one in
+a prompt (the allow-list, the five keys restored by name, the step's own
+pre-bridge table, and a `-`-only declaration meaning "everything minus
+these").  Every key on eleven steps was accounted for.  `select_reels`
+was the only step carrying anything undeclared, and it carried
+everything.
+
+**Two enumerations had never looked at it.**
+`test_llm_context_routing.LLM_STEPS` is hand-written and did not name
+`select_reels` or `render_motion_graphics`, so its assertion that every
+LLM step projects its context had never been asked about either.  The
+set is now DERIVED from the DAG through the same
+`get_step_implementation` the runner uses.
+
+**And one more false declaration.**  `input_contract._reaches_prompt`
+answers "does the prompt consume this input" off the same allow-list,
+so while 3.04's was unreadable the survey answered True for every one
+of its inputs.  With the declaration bound it found `audio_spine`:
+routed from `mesh_spine`, declared as an optional input, and read by
+neither the bridge, the post-bridge, the handoff nor the prompt.
+
+It is RECORDED rather than dropped, in
+`input_contract.UNCONSUMED_DECLARATIONS`, and the reason is measured:
+dropping the declaration while the DAG edge stays makes
+`tests/test_dag_contracts.py` fail ("maps 'audio_spine' ... but
+'audio_spine' is missing from select_reels's manifest inputs") and makes
+the auto-derived `state_key` requirement come out REQUIRED, because the
+`required: false` flag lived on the declaration.  Dropping the edge too
+would remove what orders `select_reels` after the spine - the step's own
+real dependency, `timeline_transcript`, is an EXTERNAL input and not a
+DAG edge at all - and that is a routing decision rather than a
+projection one.
+
+**What the fix costs the model.**  `timeline_transcript` no longer
+reaches the prompt except as its one-sentence `measurement`, which says
+what the times mean and how the speech was obtained.  The speech itself
+arrives as `turns`, and `turns` is built by `reel_exchange` from
+`bound_segments`, which excludes segments straddling a cut - so it is
+not the whole document.  On the field-test transcript that exclusion is
+11 of 940 segments carrying **88 characters in total**: "well",
+"about", "Yeah.", "audits" - WhisperX bridging silent gaps across cuts,
+which is what the exclusion exists for.  Measured, 888,834 characters
+become 71,908 and 8,509 word-timing records become 0.
+
+`library/tools/context_projector.declared_context_fields` is now the one
+reader of the location, and it RAISES on a misplaced declaration rather
+than falling back to reading it: a fallback would make the wrong
+location work, and the wrong location would then spread.
+`tests/test_context_fields_binds.py` fails on `origin/main` in both
+directions that matter - it fires on `select_reels` and stays silent on
+the eleven steps that project correctly.

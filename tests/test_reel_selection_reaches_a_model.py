@@ -178,8 +178,11 @@ def test_the_bridge_publishes_the_tables_the_handoff_names():
     from library.steps.step_3_04_select_reels.bridge import build_context
 
     manifest = json.loads((STEP_DIR / "manifest.json").read_text())
-    assert "reel_candidates" in " ".join(
-        manifest["interface"]["context_fields"])
+    # The manifest's TOP LEVEL, which is where the projection reads it.
+    # This assertion used to name `interface`, which is where the
+    # declaration sat and where nothing read it - so it passed while the
+    # projection never ran. See tests/test_context_fields_binds.py.
+    assert "reel_candidates" in " ".join(manifest["context_fields"])
 
     context = build_context({"timeline_transcript": {"segments": []}})
     for table in ("turns", "reel_candidates"):

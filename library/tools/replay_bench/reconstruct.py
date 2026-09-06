@@ -221,7 +221,18 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
         bridge_supplied = set(pre_output)
         notes.append(f"pre-bridge ran, contributed {sorted(pre_output)}")
 
-    projected_paths = manifest.get("context_fields")
+    # The bench reconstructs what a tree REALLY sent, so a declaration
+    # that tree never read is reported and then honoured as that tree
+    # honoured it - which is to say not at all. Raising here would make
+    # the bench refuse to show the very context the defect produced.
+    from library.tools.context_projector import (
+        MisplacedContextFields, declared_context_fields,
+    )
+    try:
+        projected_paths = declared_context_fields(manifest, node_id)
+    except MisplacedContextFields as inert:
+        projected_paths = None
+        notes.append(f"NOT PROJECTED: {inert}")
     if projected_paths:
         before = set(inputs)
         if api["project_step_context"] is not None:

@@ -89,16 +89,16 @@
             "$ref": "#/definitions/output_parameter"
           },
           "description": "Outputs the LLM half of a hybrid step emits. Declared where a bridge emits a key the step also declares as an output; see AGENTS.md 10.1 and run_pipeline.py. Present on 9 manifests and previously absent from this schema, which nothing loads - added when the prose preconditions were removed so the schema describes what the manifests actually carry."
-        },
-        "context_fields": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The prompt projection allow-list. NOTE: every other manifest carries this at the TOP LEVEL, which is where input_contract._reaches_prompt reads it; step_3_04_select_reels carries it here instead and is therefore not read. Described rather than silently rejected - the inconsistency is real and predates this schema edit."
         }
       },
       "additionalProperties": false
+    },
+    "context_fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The prompt projection allow-list, read by library/tools/context_projector.declared_context_fields - the one reader of this location. It lives at the manifest's TOP LEVEL and nowhere else: declared under `interface`, beside the inputs and outputs it reads as though it belongs with, nothing applies it and the step is silently handed every byte it was routed. That is how step_3_04_select_reels shipped a declaration the projection never ran. `interface.additionalProperties: false` now refuses it there, and tests/test_context_fields_binds.py refuses it independently of this schema, which nothing loads at run time."
     },
     "classification": {
       "type": "object",

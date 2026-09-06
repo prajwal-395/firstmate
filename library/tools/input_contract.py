@@ -140,6 +140,16 @@ _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 # means a new declaration nobody reads.
 
 UNCONSUMED_DECLARATIONS = {
+    ("select_reels", "audio_spine"):
+        "Read by neither the bridge, the post-bridge, the handoff nor "
+        "the prompt. It was invisible until the step's `context_fields` "
+        "declaration became readable: while it sat under `interface` "
+        "this survey answered `reaches the prompt` True for every one "
+        "of 3.04's inputs. Kept declared because the DAG edge carrying "
+        "it is also what orders `select_reels` after the spine, and a "
+        "routed key with no declaration derives as REQUIRED "
+        "(`tests/test_dag_contracts.py`); dropping both is a routing "
+        "decision rather than a projection one.",
     ("mesh_spine", "temporal_index"):
         "The post_bridge never names it and `context_fields` does not "
         "select it, so the projection deletes it before the prompt. "
@@ -863,7 +873,8 @@ def _reaches_prompt(manifest: Mapping, name: str,
         return False
     if name in _RESTORED_AROUND_PROJECTION:
         return True
-    fields = manifest.get("context_fields")
+    from library.tools.context_projector import declared_context_fields
+    fields = declared_context_fields(manifest)
     if fields is None:
         return True
     selectors = [str(f) for f in fields if not str(f).startswith("-")]

@@ -10,7 +10,7 @@
         "name": "audio_spine",
         "type": "object",
         "required": false,
-        "description": "State input: audio_spine, when the run has one."
+        "description": "State input: audio_spine, when the run has one. Nothing reads it - see input_contract.UNCONSUMED_DECLARATIONS. It is declared because the DAG edge that carries it is what orders this step after the spine, and a routed key with no declaration derives as REQUIRED."
       },
       {
         "name": "timeline_transcript",
@@ -59,15 +59,15 @@
           "undetermined": "list"
         }
       }
-    ],
-    "context_fields": [
-      "timeline_transcript.turns",
-      "reel_candidates",
-      "creative_brief",
-      "creative_direction",
-      "brand_constraints"
     ]
   },
+  "context_fields": [
+    "timeline_transcript.measurement",
+    "reel_candidates",
+    "creative_brief",
+    "creative_direction",
+    "brand_constraints"
+  ],
   "classification": {
     "stage": "edit",
     "determinism": "model",

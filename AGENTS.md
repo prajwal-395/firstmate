@@ -427,8 +427,8 @@ Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brie
 **A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.**
 Detail: `library/tools/footage_reference.py`. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
 
-**Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
-Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
+**Every LLM step declares `context_fields`, at the manifest's TOP LEVEL, and one declared where nothing reads it is REFUSED.**
+Detail: `library/tools/context_projector.py`, `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-declaration-nothing-read)
 
 **A step's decision must be SOURCED from its own context.**
 Detail: `library/tools/replay_bench/bench.py`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced)
@@ -463,10 +463,10 @@ Detail: `library/tools/delivery_format.py`. [why](docs/RULE_EVIDENCE.md#delivery
 **The beat grid is `tempo.beats` / `tempo.downbeats`, and it does not start at zero.**
 Detail: `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-does-not-start-at-zero)
 
-**`target_energy` has ONE reading: `library/tools/energy_reading.py`.**
+**`target_energy` has ONE reading.**
 Detail: `library/tools/energy_reading.py`. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
 
-**`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.** **The timeline's length comes from the spine, never from a passage's `end_time`.**
+**`music_behavior` has ONE vocabulary.** **The timeline's length comes from the spine, never from a passage's `end_time`.**
 Detail: `library/tools/music_behavior.py`. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
 
 ### 10.2 Reaching the picture and the sound

@@ -26,6 +26,11 @@ DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 STEPS = REPO / "library" / "steps"
 
 # Steps whose implementation reaches `present_llm_step`, by DAG node id.
+# Hand-written, and it was short: `select_reels` and
+# `render_motion_graphics` were absent, so every assertion below had
+# never once been asked about either. `test_context_fields_binds.py`
+# derives the same set from the DAG and fails when this one is missing a
+# node.
 LLM_STEPS = {
     "semantic_analysis": "step_1_03_semantic_analysis",
     "creative_direction": "step_2_01_creative_direction",
@@ -34,9 +39,11 @@ LLM_STEPS = {
     "mesh_spine": "step_2_05_mesh_spine",
     "select_broll": "step_3_02_select_broll",
     "review_rough_cut": "step_3_03_review_rough_cut",
+    "select_reels": "step_3_04_select_reels",
     "plan_transitions": "step_4_02_plan_transitions",
     "plan_vfx": "step_4_03_plan_vfx",
     "plan_sfx": "step_4_04_plan_sfx",
+    "render_motion_graphics": "step_4_06_render_motion_graphics",
     "color_grade": "step_5_01_color_grade",
     "render": "step_6_01_render",
     "validate": "step_6_02_validate_output",
@@ -278,6 +285,11 @@ BRIDGE_TABLES = {
     # suffix because they are lists the serialiser renders, not strings
     # the bridge formats - the stem check below is the same either way.
     "color_grade": ("clip_exposure", "cut_adjacency"),
+    # 3.04's two tables. The step reads `timeline_transcript` in its
+    # bridge and the model reads `turns`, which is the summary the
+    # bridge renders from it - so the projection dropping the raw
+    # document is only safe while this survives.
+    "select_reels": ("turns", "reel_candidates"),
 }
 
 

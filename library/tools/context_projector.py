@@ -1,3 +1,34 @@
+"""The prompt projection: what a step DECLARES, and what that leaves.
+
+`project_fields` is the projection.  `declared_context_fields` is the
+one place that answers WHERE a manifest declares it, because a
+declaration nothing reads is not a declaration.
+
+Rules relocated from AGENTS.md 10.1
+-----------------------------------
+**A `context_fields` declaration lives at the manifest's TOP LEVEL, and
+one written anywhere else is REFUSED rather than ignored.**
+`declared_context_fields` is the only reader of that location, and
+`run_pipeline.project_step_context`, `input_contract._reaches_prompt`
+and `replay_bench.reconstruct` all ask it rather than indexing the
+manifest themselves - three spellings of "where is it" are three places
+for it to be somewhere else.
+- Step 3.04 declared its allow-list under `interface`, which the
+  JSON Schema described and nothing read, so the projection never ran
+  and 817,317 characters of raw transcript - 92% of the request, with
+  8,509 per-word timings in it - reached the model that chooses which
+  passages become reels. It ran that way on every reel selection ever
+  made. [why](docs/RULE_EVIDENCE.md#the-declaration-nothing-read)
+- Raising is the point.  An unread declaration reads exactly like a
+  step that deliberately declares none, and the two must not look the
+  same from any caller.
+- `library/schema/manifest.schema.json` puts the field at the top level
+  for the same reason, so the schema and the reader agree.
+- `tests/test_context_fields_binds.py`.
+
+`project_fields` is documented on the function.
+"""
+
 import copy
 
 def _project_single_path(source, path_parts):
@@ -161,3 +192,41 @@ def project_fields(data: dict, dot_paths: list[str]) -> dict:
                     )
 
     return result
+
+
+CONTEXT_FIELDS_KEY = "context_fields"
+
+
+class MisplacedContextFields(ValueError):
+    """A manifest declared its allow-list where nothing reads it."""
+
+
+def declared_context_fields(manifest, step_id: str = ""):
+    """The prompt allow-list this manifest declares, or None for "all".
+
+    ONE location - the manifest's top level.  A declaration under
+    `interface`, beside `inputs` and `outputs` where it reads as though
+    it belongs, is REFUSED: that is exactly how step 3.04 shipped an
+    allow-list the projection never applied, and a silently-ignored
+    declaration is indistinguishable from a step that declares none.
+
+    `None` means the step declares nothing and is handed every byte it
+    was routed (AGENTS.md 10.1), which is a real and deliberate state -
+    `render` and `validate` are in it by a standing decision.  That is
+    why the misplaced case raises instead of returning `None`.
+    """
+    if not isinstance(manifest, dict):
+        return None
+
+    interface = manifest.get("interface")
+    if isinstance(interface, dict) and CONTEXT_FIELDS_KEY in interface:
+        where = f"{step_id}: " if step_id else ""
+        raise MisplacedContextFields(
+            f"{where}`{CONTEXT_FIELDS_KEY}` is declared under `interface`, "
+            f"where nothing reads it, so the prompt projection would never "
+            f"run and the model would be handed every byte the step was "
+            f"routed. Move it to the manifest's top level - see "
+            f"library/tools/context_projector.declared_context_fields."
+        )
+
+    return manifest.get(CONTEXT_FIELDS_KEY)

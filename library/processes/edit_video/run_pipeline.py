@@ -1108,7 +1108,9 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 inputs[marker_routing.STEP_INPUT_NAME] = (
                     marker_routing.prompt_block(mine))
 
-    if step_type == "llm_only" and manifest and "context_fields" in manifest:
+    from library.tools.context_projector import declared_context_fields
+    declared = declared_context_fields(manifest, node_id)
+    if step_type == "llm_only" and declared is not None:
         saved_project_folder = inputs.get("project_folder", "")
         saved_fps = inputs.get("project_fps")
         saved_brand_template = inputs.get("brand_template")
@@ -1116,7 +1118,7 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         saved_timeline_notes = inputs.get("timeline_notes")
         
         from library.tools.context_projector import project_fields
-        inputs = project_fields(inputs, manifest["context_fields"])
+        inputs = project_fields(inputs, declared)
         
         inputs["project_folder"] = saved_project_folder
         if saved_fps is not None:
@@ -1326,9 +1328,14 @@ def project_step_context(inputs: dict, manifest: dict = None,
     reconstruct a context by calling it rather than by modelling it.
     Returns `inputs` unchanged when the manifest declares no
     `context_fields` - a step declaring none is handed every byte it was
-    routed (AGENTS.md 10.1).
+    routed (AGENTS.md 10.1).  WHERE the declaration lives is
+    `context_projector.declared_context_fields`'s question, not this
+    function's: one written where nothing reads it raises rather than
+    reading as "declares none".
     """
-    if not (manifest and "context_fields" in manifest):
+    from library.tools.context_projector import declared_context_fields
+    declared = declared_context_fields(manifest)
+    if declared is None:
         return inputs
 
     saved_project_folder = inputs.get("project_folder", "")
@@ -1357,7 +1364,7 @@ def project_step_context(inputs: dict, manifest: dict = None,
                     if k in inputs}
 
     from library.tools.context_projector import project_fields
-    inputs = project_fields(inputs, manifest["context_fields"])
+    inputs = project_fields(inputs, declared)
 
     # Only where projection dropped the key ENTIRELY. A manifest that
     # names the table itself (select_broll does) may still narrow it
