@@ -249,6 +249,19 @@ DESELECTED_BY_DEFAULT: Dict[str, str] = {
         "crash on the missing transcript. Build the transcript first, "
         "then turn on with --with select_reels."
     ),
+
+    # `judge_reels` reads step 3.04's chosen moments and the same
+    # transcript, so it is off for exactly the reason 3.04 is: a default
+    # run has no transcript and there would be no reels to read either.
+    # `--only judge_reels` pulls 3.04 in with it (it cannot run without
+    # it); `--with select_reels --with judge_reels` runs the pair.
+    "judge_reels": (
+        "Reads the reels select_reels chose, from the same "
+        "timeline_transcript produced outside the pipeline. A default "
+        "run has neither. Turn on with --with judge_reels beside "
+        "--with select_reels, or --only judge_reels, which pulls the "
+        "selector in with it."
+    ),
 }
 
 
@@ -564,6 +577,16 @@ class ResolvedScope:
     silently never runs is the trap, and "you gave me this, so I did not
     make it" is the single most surprising thing this resolver does."""
 
+    pulled_in: Tuple[str, ...] = ()
+    """Steps that are off by default and are running anyway, because a
+    step this run NAMED cannot run without them.
+
+    Reported for the mirror of the reason `default_off` is: a step that
+    is off by default and turns itself on silently is the same trap from
+    the other side. `--only judge_reels` running `select_reels` too is
+    `--only`'s own contract - "run this step and whatever it cannot run
+    without" - and the run says which steps that turned out to be."""
+
     selection: Selection = field(default_factory=Selection)
 
     @property
@@ -621,12 +644,56 @@ def resolve(selection: Selection,
         external = {key: entry.value for key, entry
                     in external_inputs.load(folder, state).items()}
 
+    # The hard edges, indexed by consumer. Built HERE rather than at
+    # step 2 because `re_selected` below has to walk them: a default-off
+    # step that a named step cannot run without is turned on with it.
+    needs_by_consumer: Dict[str, Dict[str, List[Prerequisite]]] = {}
+    for need in needs:
+        needs_by_consumer.setdefault(need.consumer, {}).setdefault(
+            need.producer, []).append(need)
+
     # Which default-off steps this run turns back on. Naming a step in
     # --only, --with or --step is an explicit selection and outranks the
     # default; --skip on the same step is a contradiction and is refused
     # in _reject_unknown.
-    re_selected = (set(selection.with_steps) | set(selection.only)
-                   | set(always_include))
+    named = (set(selection.with_steps) | set(selection.only)
+             | set(always_include))
+
+    # AND whatever a named step CANNOT RUN WITHOUT, where that is itself
+    # off by default.
+    #
+    # `--only <step>` is documented as "run this step and whatever it
+    # cannot run without", and until 2026-09-06 it did not do that across
+    # a default-off producer: it left the producer excluded and then
+    # refused the selection for the gap it had just made. It never showed
+    # because `ocr_extraction` was the only default-off step and nothing
+    # consumes it. `judge_reels` consumes `select_reels`, both are off by
+    # default, and `--only judge_reels` was refused with advice to run
+    # `--only select_reels` first - so the step was reachable only by
+    # running the whole pipeline.
+    #
+    # `--skip` still wins: a step named there is left out and the
+    # selection is refused for the gap, which is the honest answer to
+    # "run this, but not the thing it needs".
+    pulled_in: Set[str] = set()
+    queue = deque(named)
+    seen: Set[str] = set()
+    while queue:
+        node_id = queue.popleft()
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        for producer, producer_needs in needs_by_consumer.get(
+                node_id, {}).items():
+            if all(need.names_a_key and need.state_key in external
+                   for need in producer_needs):
+                continue
+            if producer in DESELECTED_BY_DEFAULT and producer not in named \
+                    and producer not in set(selection.skip):
+                pulled_in.add(producer)
+            queue.append(producer)
+
+    re_selected = named | pulled_in
     off_by_default = {node_id for node_id in DESELECTED_BY_DEFAULT
                       if node_id in known and node_id not in re_selected}
 
@@ -635,7 +702,14 @@ def resolve(selection: Selection,
     # contradictory requests, so the pair is refused rather than one of
     # them silently winning.
     supplied = supplied_producers(dag, external)
-    _reject_supplied_and_selected(supplied, re_selected, selection)
+    # Asked of what was NAMED, not of `re_selected`: the refusal's own
+    # words are "was named on the command line", and a step the closure
+    # pulled in was not. It cannot arise anyway - the walk above skips a
+    # producer whose hard needs are all external, and a node is only in
+    # `supplied_producers` when every routed key of it is - but a guard
+    # that would print a false sentence if it ever did fire is worth
+    # narrowing to the thing it is actually about.
+    _reject_supplied_and_selected(supplied, named, selection)
 
     universe = [node_id for node_id in order
                 if node_id not in off_by_default and node_id not in supplied]
@@ -666,11 +740,6 @@ def resolve(selection: Selection,
     #    pipeline would not cut it again. A recorded output does NOT do
     #    this - history is not a request - so a re-run still rebuilds
     #    what it is asked to.
-    needs_by_consumer: Dict[str, Dict[str, List[Prerequisite]]] = {}
-    for need in needs:
-        needs_by_consumer.setdefault(need.consumer, {}).setdefault(
-            need.producer, []).append(need)
-
     wanted: Set[str] = set()
     queue = deque(goals)
     while queue:
@@ -767,6 +836,8 @@ def resolve(selection: Selection,
                           if node_id in off_by_default),
         supplied={node_id: supplied[node_id] for node_id in order
                   if node_id in supplied},
+        pulled_in=tuple(node_id for node_id in order
+                        if node_id in pulled_in),
         selection=selection,
     )
 
@@ -943,6 +1014,9 @@ def describe(scope: ResolvedScope) -> List[str]:
                      f"{', '.join(keys)} came from <project>/external/ "
                      f"and was verified, so this step is not asked to "
                      f"make it again")
+    for node_id in scope.pulled_in:
+        lines.append(f"  Off by default and running anyway: {node_id} - "
+                     f"a step this run named cannot run without it")
     if scope.skipped:
         lines.append(f"  Skipped:  {len(scope.skipped)} steps")
         for node_id in scope.skipped:

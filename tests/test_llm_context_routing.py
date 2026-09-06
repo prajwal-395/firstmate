@@ -40,6 +40,7 @@ LLM_STEPS = {
     "select_broll": "step_3_02_select_broll",
     "review_rough_cut": "step_3_03_review_rough_cut",
     "select_reels": "step_3_04_select_reels",
+    "judge_reels": "step_3_05_judge_reels",
     "plan_transitions": "step_4_02_plan_transitions",
     "plan_vfx": "step_4_03_plan_vfx",
     "plan_sfx": "step_4_04_plan_sfx",

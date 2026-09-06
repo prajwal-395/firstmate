@@ -104,6 +104,11 @@ def test_every_step_that_reaches_a_model_declares():
         # no model, no handoff, and absent from this set. See section 15
         # of docs/FIELD_TEST_PODCAST_FINDINGS.md.
         "select_reels",
+        # Joined 2026-09-06 with step 3.05: a reader that has not heard
+        # the episode reads each proposed reel and writes down what it
+        # says. It reaches a model, so it declares - and the field is
+        # where it says a reel's words were too garbled to read.
+        "judge_reels",
         "creative_direction", "speech_sequence", "music_selection",
         "mesh_spine", "select_broll", "review_rough_cut",
         "plan_transitions", "plan_vfx", "plan_sfx",

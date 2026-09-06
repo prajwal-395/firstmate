@@ -544,16 +544,13 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why - the fo
 ### 10.4 Gates, and what counts as evidence
 
 **A reel is BUILT only once the captain approves it, and PROPOSED fails that gate as REJECTED does.**
-Detail: `library/tools/reel_proposal.py`.
+Detail: `library/tools/reel_proposal.py`; its four qualities: `library/tools/reel_quality_bar.py`.
 
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
 **Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
-Detail: `library/tools/passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
-
-`tests/test_passage_engagement.py`.
-Detail: `library/tools/passage_engagement.py`.
+Detail: `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.**
 Detail: `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)

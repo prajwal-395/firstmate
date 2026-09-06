@@ -67,6 +67,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # The ONE exemption on the caption floor, shared with the manifest's own
 # P6 check so a reel and a master cannot be held to different rules.
 from library.tools.manifest_validator import ends_with_its_block
+from library.tools.reel_exchange import LENGTH_GUIDANCE
 
 
 # ── Finding classes ──────────────────────────────────────────────────
@@ -1685,44 +1686,59 @@ def check_subtitle_styling(reel_name: str,
 
 # ── Plan quality gates ───────────────────────────────────────────────
 
-REEL_LENGTH_MIN = 45.0
-REEL_LENGTH_MAX = 90.0
+# ONE spelling of the captain's length brief, owned by the module whose
+# docstring records where it came from.  It was `REEL_LENGTH_MIN = 45.0`
+# and `REEL_LENGTH_MAX = 90.0` written out here until 2026-09-06, which
+# is a second enumeration of a number `reel_exchange` already declares
+# (AGENTS.md 10.1) - and the two could have drifted without anything
+# noticing, because nothing in this file ever ran the check that used
+# them.
+REEL_LENGTH_MIN, REEL_LENGTH_MAX = LENGTH_GUIDANCE
 
 
 def check_plan_length(reel_name: str,
                       plan_seconds: float,
                       ) -> List[Finding]:
-    """Plan quality: reel duration within the agreed 45-90s guidance."""
-    findings: List[Finding] = []
-    if plan_seconds < REEL_LENGTH_MIN:
-        findings.append(Finding(
-            finding_class=FindingClass.PQ_LENGTH,
-            reel=reel_name,
-            message=(
-                f"plan is {plan_seconds:.1f}s, under the {REEL_LENGTH_MIN}s "
-                f"minimum guidance"),
-            severity="warning",
-            detail={
-                "plan_seconds": round(plan_seconds, 1),
-                "minimum": REEL_LENGTH_MIN,
-                "maximum": REEL_LENGTH_MAX,
-            },
-        ))
-    if plan_seconds > REEL_LENGTH_MAX:
-        findings.append(Finding(
-            finding_class=FindingClass.PQ_LENGTH,
-            reel=reel_name,
-            message=(
-                f"plan is {plan_seconds:.1f}s, over the {REEL_LENGTH_MAX}s "
-                f"maximum guidance"),
-            severity="warning",
-            detail={
-                "plan_seconds": round(plan_seconds, 1),
-                "minimum": REEL_LENGTH_MIN,
-                "maximum": REEL_LENGTH_MAX,
-            },
-        ))
-    return findings
+    """Plan quality: how long the reel runs, against the guidance.
+
+    **The measurement belongs to `library/tools/reel_quality_bar.py` and
+    this is the wrapper that puts its answer in this file's vocabulary.**
+    Until 2026-09-06 this function held the band as two literals of its
+    own AND was called by nothing: `verify_reel` never ran it, so a reel
+    running 108 seconds passed nineteen checks with the length gate
+    sitting in the file untouched.  A gate that cannot fire reads as
+    coverage (AGENTS.md 10.4).
+
+    It fires now - `verify_reel` calls it - and it fires as an ERROR
+    rather than a warning, because the point at which a reel is JUDGED is
+    where the captain's brief has to bite.  The SELECTOR still weighs the
+    guidance rather than obeying it (`reel_exchange.LENGTH_GUIDANCE`
+    records why a hard ceiling was removed): a story that needs 95
+    seconds to finish is a real answer while the boundary can still be
+    moved.  Once the boundary is fixed, it is a fact about the reel and
+    is reported as one.
+    """
+    from library.tools.reel_quality_bar import LENGTH_GUIDANCE as _band
+
+    low, high = _band
+    if low <= plan_seconds <= high:
+        return []
+    side, by = (("under", low - plan_seconds) if plan_seconds < low
+                else ("over", plan_seconds - high))
+    return [Finding(
+        finding_class=FindingClass.PQ_LENGTH,
+        reel=reel_name,
+        message=(
+            f"runs {plan_seconds:.1f}s, {by:.1f}s {side} the "
+            f"{low:.0f}-{high:.0f}s the brief asks for"),
+        severity="error",
+        detail={
+            "plan_seconds": round(plan_seconds, 1),
+            "minimum": low,
+            "maximum": high,
+            "outside_by_seconds": round(by, 1),
+        },
+    )]
 
 
 def check_plan_speakers(reel_name: str,
@@ -1927,6 +1943,15 @@ class VerificationReport:
     """Plan provenance findings (PLAN-MISMATCH).  Separate from per-reel
     findings because they apply to the run as a whole, not to one reel."""
 
+    quality_bar: object = None
+    """The captain's four qualities over the same plan, as a
+    `reel_quality_bar.BarReport`, or None when there was no plan to hold
+    them against.  Its FINDINGS are folded into the per-reel results
+    above so they count; this is the object itself, kept so the JSON can
+    carry the per-reel verdicts, the derived readings and the ordering -
+    none of which is a finding and all of which is what "as many good
+    reels as possible" needs to be able to rank."""
+
     @property
     def all_findings(self) -> List[Finding]:
         out = list(self.provenance_findings)
@@ -1986,6 +2011,8 @@ class VerificationReport:
             d["provenance_findings"] = [
                 f.as_dict() for f in self.provenance_findings
             ]
+        if self.quality_bar is not None:
+            d["quality_bar"] = self.quality_bar.as_dict()
         return d
 
 
@@ -2111,6 +2138,53 @@ def format_findings(report: VerificationReport) -> str:
     return "\n".join(lines)
 
 
+# ── Folding the quality bar into the per-reel results ────────────────
+
+def attach_quality_bar(bar_report, reel_results: Sequence[ReelResult],
+                       ) -> List[str]:
+    """Put the bar's findings on the reel results they are about.
+
+    Returns the reels whose findings reached NO result, as lines a caller
+    prints.  That return value is the point of the function: a finding
+    that quietly attaches to nothing makes the report read as though the
+    bar had nothing to say, which is the vacuity this file keeps removing
+    (AGENTS.md 10.4).
+
+    Matched by NAME first and then by NUMBER, the same two ways
+    `run_verification` matches a moment to a timeline.  A built reel's
+    name carries a suffix the plan's does not - "(pipeline rebuild)",
+    "(selector redraw)" - so name alone attached 20 of 25 on the field
+    test and dropped five without saying so.
+
+    DURATION is not folded: `check_plan_length` is the same measurement
+    in this file's vocabulary and carrying both would report one reel's
+    length twice under two codes.
+    """
+    from library.tools import reel_quality_bar as _bar
+
+    by_name = {r.reel_name: r for r in reel_results}
+    by_number: Dict[int, ReelResult] = {}
+    for result in reel_results:
+        by_number.setdefault(result.reel_number, result)
+
+    unattached: List[str] = []
+    for verdict in bar_report.verdicts:
+        target = by_name.get(verdict.name) or by_number.get(verdict.number)
+        if target is None:
+            if verdict.findings:
+                unattached.append(
+                    f"{verdict.name} ({len(verdict.findings)} finding(s))")
+            continue
+        for finding in verdict.findings:
+            if finding.code == _bar.QB_DURATION:
+                continue
+            target.findings.append(Finding(
+                finding_class=finding.code, reel=finding.reel,
+                message=finding.message, severity=finding.severity,
+                detail=finding.detail))
+    return unattached
+
+
 # ── Read-only proof ──────────────────────────────────────────────────
 
 def hash_snapshot_dict(data: dict) -> str:
@@ -2128,8 +2202,15 @@ def verify_reel(plan: ReelPlan,
                 master_holes: Optional[Sequence[dict]] = None,
                 master_fps: float = 0.0,
                 caption_provenance: Optional[dict] = None,
+                master_video_items: Optional[Sequence[dict]] = None,
                 ) -> ReelResult:
-    """Run all checks on one reel and return the result."""
+    """Run all checks on one reel and return the result.
+
+    `master_video_items` is what `check_plan_picture_continuity` measures
+    against - every video item on the MASTER, as dicts. It returns
+    nothing at all without them, so a caller that omits it gets that
+    gate's silence rather than its answer.
+    """
     fps = timeline.fps or _fps()
     findings: List[Finding] = []
 
@@ -2306,9 +2387,23 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_plan_length(plan.reel_name, plan.plan_seconds))
     findings.extend(check_plan_speakers(plan.reel_name, plan.placements))
     if master_holes is not None:
+        # `master_video_items` is what this check MEASURES, and until
+        # 2026-09-06 no caller passed it - `check_plan_picture_continuity`
+        # returns an empty list on its second line without them, so the
+        # gate ran on every reel and could not produce a finding
+        # (AGENTS.md 10.4). `run_verification` builds them off the same
+        # master snapshot `master_holes` comes from.
+        #
+        # The RANGES are what the reel PLAYS, not its body window: a
+        # bad-take cut removes seconds the viewer never sees, so a master
+        # hole inside one is not a hole in the reel. `plan.keep_ranges`
+        # is that list and already carries the closer last;
+        # `heard_spans` - the body whole, plus the closer - is the
+        # fallback for a plan that has none.
         findings.extend(check_plan_picture_continuity(
             plan.reel_name, plan.span_start, plan.span_end,
-            ranges=heard_spans))
+            master_video_items=master_video_items,
+            ranges=plan.keep_ranges or heard_spans))
 
     # Compute summary numbers
     one_frame_holes = sum(
@@ -2992,6 +3087,14 @@ def run_verification(
 
     # ── Find master picture holes for F3 attribution ─────────────────
     master_holes = _find_master_picture_holes(master_snapshot)
+    # The same clips, as dicts, for the plan-quality picture gate. That
+    # gate returns NOTHING without them, which is how it managed to be
+    # covered by tests and inert on every live run.
+    master_video_items = [
+        {"track_index": clip.track_index,
+         "timeline_start": clip.timeline_start,
+         "timeline_end": clip.timeline_end}
+        for clip in master_snapshot.picture_clips()]
     if master_holes:
         print(f"Master picture holes: {len(master_holes)}", file=err)
         for hole in master_holes:
@@ -3083,11 +3186,51 @@ def run_verification(
                 transcript_segments=(transcript or {}).get("segments"),
                 master_holes=master_holes,
                 master_fps=master_snapshot.fps,
-                caption_provenance=caption_provenance)
+                caption_provenance=caption_provenance,
+                master_video_items=master_video_items)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "
                   f"{len(result.warnings)} warnings)", file=err)
+
+    # ── The captain's four qualities ─────────────────────────────────
+    #
+    # Nineteen checks in this file and not one of them asked whether a
+    # reel was worth publishing.  `library/tools/reel_quality_bar.py` is
+    # where that question lives now, and this is where its answer reaches
+    # a report about built timelines - so a reel that FAILS the bar is
+    # reported as failing rather than shipped because its frame rate was
+    # right.
+    #
+    # DURATION is deliberately left out of the fold: `check_plan_length`
+    # above is the same measurement in this file's vocabulary, and
+    # carrying both would report one reel's length twice under two
+    # codes.  What comes in is the call-to-action half, which nothing
+    # here measured, and the two JUDGEMENT qualities, which nothing here
+    # could.
+    bar_report = None
+    if moments and transcript and not plan_refused:
+        from library.tools import reel_quality_bar as _bar
+
+        judgement = None
+        if project_folder:
+            try:
+                with open(_bar.judgement_path(project_folder),
+                          encoding="utf-8") as handle:
+                    judgement = json.load(handle)
+            except (OSError, ValueError):
+                judgement = None
+        bar_report = _bar.judge(moments, transcript, judgement)
+        unattached = attach_quality_bar(bar_report, reel_results)
+        if unattached:
+            print(f"Quality bar: {len(unattached)} planned reel(s) have no "
+                  f"timeline here, so their findings are in the quality_bar "
+                  f"section only and not against a built reel: "
+                  f"{'; '.join(unattached)}", file=err)
+        if not bar_report.judged:
+            print("Quality bar: no reading of these reels on file, so "
+                  "coherence and value are UNJUDGED. Run judge_reels "
+                  "(step 3.05).", file=err)
 
     # ── Snapshot everything AFTER (for read-only proof) ───────────────
     print("Re-reading all timelines (after hash)...", file=err)
@@ -3146,12 +3289,19 @@ def run_verification(
         provenance_findings=provenance_findings,
     )
 
+    report.quality_bar = bar_report
+
     # ── Print human-readable output ──────────────────────────────────
     print(file=out)
     print(f"Plan graded against: {plan_source}", file=out)
     print(file=out)
     print(format_table(report), file=out)
     print(file=out)
+    if bar_report is not None:
+        from library.tools.reel_quality_bar import format_table as _bar_table
+
+        print(_bar_table(bar_report), file=out)
+        print(file=out)
     if report.all_findings:
         print(format_findings(report), file=out)
         print(file=out)

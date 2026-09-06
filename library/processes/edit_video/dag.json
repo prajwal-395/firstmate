@@ -120,6 +120,13 @@
       "estimated_duration_seconds": 30
     },
     {
+      "id": "judge_reels",
+      "name": "Judge Reels",
+      "step_ref": "steps/step_3_05_judge_reels",
+      "type": "step",
+      "estimated_duration_seconds": 60
+    },
+    {
       "id": "plan_subtitles",
       "name": "Plan Subtitles",
       "step_ref": "steps/step_4_01_plan_subtitles",
@@ -401,6 +408,13 @@
       "to": "select_reels",
       "data_mapping": {
         "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "select_reels",
+      "to": "judge_reels",
+      "data_mapping": {
+        "reel_selection": "reel_selection"
       }
     },
     {

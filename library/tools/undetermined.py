@@ -92,6 +92,11 @@ DECLARING_STEPS = frozenset({
     # handoff, and absent from this set. See section 15 of
     # docs/FIELD_TEST_PODCAST_FINDINGS.md.
     "select_reels",
+    # Added 2026-09-06 with step 3.05. It reaches a model and the answer
+    # it writes is a judgement, so it declares like every other one - and
+    # the field is where it says a reel's words were too garbled to read,
+    # which is the one thing it genuinely cannot determine.
+    "judge_reels",
     "creative_direction",
     "speech_sequence",
     "music_selection",

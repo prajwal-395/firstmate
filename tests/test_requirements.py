@@ -89,7 +89,8 @@ def test_the_runner_injected_half_is_derived_and_is_a_state_key():
     assert [r.name for r in injected] == ["timeline_transcript.on_file"]
     only = injected[0]
     assert only.kind == R.KIND_STATE_KEY
-    assert only.consumers == ("build_reels", "select_reels", "verify_reels")
+    assert only.consumers == ("build_reels", "judge_reels", "select_reels",
+                              "verify_reels")
     # Empty and load-bearing: `_producer_will_make_it` never defers a
     # requirement with no producer, and `describe_refusal` prints no
     # "run the producers" line for one. There is no step to run.

@@ -1,0 +1,74 @@
+{
+  "id": "step_3_05_judge_reels",
+  "name": "Judge Reels",
+  "version": "1.0.0",
+  "description": "A reader who has not heard the episode reads each proposed reel and writes down what it says, quoting it. It is given the reel's words and nothing else - no slug, no reason, no measurement and no statement of what a reel is for - because the engine derives its verdicts from the reading afterwards and a reader who knew which way an answer counted would grade itself.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "reel_selection",
+        "type": "object",
+        "required": true,
+        "description": "Step 3.04's proposed moments. Read by this step's pre-bridge to work out which seconds each reel plays, and NOT projected into the prompt: the selection carries the slug, the reason, the hook and the close the selector wrote to argue for its own choice, and a reader handed that argument would be reading the argument. See context_fields, which names the pre-bridge's table alone."
+      },
+      {
+        "name": "timeline_transcript",
+        "type": "object",
+        "required": true,
+        "description": "What the cut SAYS, per speaker, in timeline time - library/tools/timeline_transcript.py. Required because the reel's own words are the only thing this step reads, and there is no reading without them. Injected by the runner from the project's scratch directory; NO STEP MAKES ONE."
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reel_judgement",
+        "type": "object",
+        "description": "State output: reel_judgement - the checked readings, the verdicts the engine derived from them, and the ordering. Shape: {readings: list, refused: list, ordering: list, contract: object}. A reading whose quotes are not in the reel it is about is REFUSED and reported as refused rather than stored as a judgement (library/tools/reel_quality_bar.check_reading)."
+      }
+    ],
+    "llm_outputs": [
+      {
+        "name": "readings",
+        "type": "list",
+        "required": true,
+        "description": "One entry per reel in `reels_to_read`, each: reel (the number), claim_quote, claim, opening_quote, closing_quote, closing_asks_for, takeaway_quote, takeaway, assumes_known ([{what, quote}]), stops_developing_at (seconds from the reel's own start), rank (1 is first), basis. Every quote is checked against what that reel says and an entry whose quotes are not in it is discarded rather than recorded.",
+        "expected_schema": {
+          "readings": "list"
+        }
+      }
+    ]
+  },
+  "context_fields": [
+    "reels_to_read"
+  ],
+  "classification": {
+    "stage": "edit",
+    "determinism": "hybrid",
+    "archetype": "evaluation_judgment",
+    "idempotent": false
+  },
+  "dependencies": [
+    "step_3_04_select_reels"
+  ],
+  "tags": [
+    "evaluation_judgment",
+    "video-editing",
+    "shortform"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "hybrid",
+      "entry_point": "handoff.md"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-09-06",
+    "last_modified": "2026-09-06",
+    "source_process": "video_editing_pipeline",
+    "notes": "The two EXACT qualities - how long a reel runs and whether it carries a call to action - are NOT asked here. They are measured by library/tools/reel_quality_bar.py from the plan itself, and naming either in this step's prompt is refused by assert_ask_is_uncontaminated."
+  }
+}

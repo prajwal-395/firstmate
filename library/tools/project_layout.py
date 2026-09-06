@@ -210,6 +210,7 @@ STEPS: tuple = (
     StepDir("select_broll", "3_02_select_broll"),
     StepDir("review_rough_cut", "3_03_review_rough_cut"),
     StepDir("select_reels", "3_04_select_reels"),
+    StepDir("judge_reels", "3_05_judge_reels"),
     StepDir("plan_subtitles", "4_01_plan_subtitles"),
     StepDir("plan_transitions", "4_02_plan_transitions"),
     StepDir("plan_vfx", "4_03_plan_vfx"),

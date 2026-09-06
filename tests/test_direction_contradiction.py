@@ -175,7 +175,15 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
     """A contradiction needs a prompt, an inherited direction and a
     measurement, all in one step."""
     assert dc.FLAGGING_STEPS == frozenset(
-        undetermined.DECLARING_STEPS - {"creative_direction", "validate"})
+        undetermined.DECLARING_STEPS
+        - {"creative_direction", "validate", "judge_reels"})
+    assert not dc.flags("judge_reels"), (
+        "3.05 is deliberately routed no creative_direction. Its reader is "
+        "given the reel's words and nothing else - the direction is this "
+        "episode's statement of what it is trying to be, and a reader "
+        "holding it would be reading the intention rather than the reel. "
+        "See library/tools/reel_quality_bar.FORBIDDEN_IN_THE_ASK."
+    )
     assert not dc.flags("creative_direction"), (
         "2.01 authors the direction; it has nothing inherited to "
         "contradict"

@@ -144,16 +144,89 @@ class CraftRole:
 #: roles on purpose: whatever else a role says, it never says how the
 #: judgement should come out, and a reader comparing two role blocks
 #: should be able to see that they agree about that.
+#:
+#: `a setting nobody chose` was `a value nobody chose` until 2026-09-06.
+#: The meaning is unchanged - the sentence has always been about counts,
+#: strengths and directions arriving from the engine - and the word was
+#: retired because `reel_quality_bar.FORBIDDEN_IN_THE_ASK` forbids it in
+#: any prompt sent to `judge_reels`, where "value" names one of the four
+#: things that step's answer is read for. A shared line that cannot go
+#: in one role's prompt is a shared line that has to be reworded, not
+#: carved out: a guard with an exemption reads as coverage of the case
+#: it exempts (AGENTS.md 10.4).
 NEUTRALITY_LINE = (
     "This block says who you are and what is yours to decide. It does not "
     "say how the decision should come out: no count, no strength and no "
     "direction is stated here or anywhere else in this engine, because a "
-    "value nobody chose arriving from the engine is the defect this "
+    "setting nobody chose arriving from the engine is the defect this "
     "pipeline keeps removing."
 )
 
 
 ROLES: Dict[str, CraftRole] = {
+    # The one role in this file written to be READ BY A GUARD as well as
+    # by a model.  Step 3.05's whole design is that the reader does not
+    # know what its answer will be read for, so every word of this block
+    # goes through `reel_quality_bar.assert_ask_is_uncontaminated` along
+    # with the handoff it is prepended to - and a role naming the four
+    # things the answer is read for would defeat the step rather than
+    # frame it.  See tests/test_reel_quality_bar.py.
+    "judge_reels": CraftRole(
+        step_id="judge_reels",
+        discipline="first listener",
+        addressed_as=(
+            "You are the first person to hear these short videos. You have "
+            "not heard the conversation they were cut from, nobody has "
+            "told you what it was about, and what reaches you is the words "
+            "a listener hears and nothing else. Writing down what each one "
+            "actually says is your job."
+        ),
+        reads_with=(
+            "A listener hears a short video ONCE, in order, with no way to "
+            "rewind and nothing before it. Anything the words lean on that "
+            "is not in the words is simply missing for them, however "
+            "obvious it would be to somebody who had heard the whole "
+            "conversation - and you are the only person in this pipeline "
+            "who has not.",
+            "Speech is not prose. People restart sentences, talk over each "
+            "other and finish a thought two turns after they start it, and "
+            "a transcript records all of it. A stumble is not a defect in "
+            "the recording and a tidy sentence is not evidence of "
+            "anything; read what was said, not what somebody meant to say.",
+            "What a listener carries away is a different thing from what "
+            "was interesting to hear. Somebody can enjoy two people "
+            "agreeing with each other for a minute and be left holding "
+            "nothing, and that is an ordinary outcome rather than a "
+            "failure of your reading.",
+            "You are shown these as a SET, and the ordering you write is "
+            "over the set as it stands. It is an ordering and nothing "
+            "else - which one you put first says something, and the "
+            "distance between the eleventh and the thirteenth says "
+            "nothing.",
+        ),
+        decides=(
+            "What each short video is saying, and in which of its own "
+            "words it says it.",
+            "What a listener is left holding afterwards, if anything.",
+            "What it takes for granted that a listener could not know from "
+            "it alone.",
+            "Where it stops going anywhere.",
+            "The ordering, and what you order them on - nobody has told "
+            "you what these are for, and that is deliberate.",
+        ),
+        defers=(
+            "Which of these is published, and whether any of them is "
+            "built. That is the captain's, after the whole set is read.",
+            "Where any of them starts or stops. The seconds were chosen "
+            "before you saw them and there is no route from here to "
+            "changing one.",
+            "How they are captioned, graded, titled or scored. None of "
+            "those exists yet and none of them is your reading's subject.",
+            "What is done with your reading. It is recorded and read by "
+            "code you do not see, so write what is true rather than what "
+            "would be convenient.",
+        ),
+    ),
     "select_reels": CraftRole(
         step_id="select_reels",
         discipline="short-form editor",

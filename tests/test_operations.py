@@ -411,10 +411,11 @@ def test_the_transcript_is_the_only_required_input_no_edge_carries():
         ("scan", "project_folder"),
         ("build_reels", "project_folder"),
         ("verify_reels", "project_folder"),
-        # The REAL ones: a file no step in any process writes. All three
+        # The REAL ones: a file no step in any process writes. All four
         # get `timeline_transcript.on_file`, derived off these very
         # declarations by `requirements.derive_runner_injected_keys`.
         ("select_reels", "timeline_transcript"),
+        ("judge_reels", "timeline_transcript"),
         ("build_reels", "timeline_transcript"),
         ("verify_reels", "timeline_transcript"),
     }, f"a required input with no producing edge appeared: {sorted(unrouted)}"

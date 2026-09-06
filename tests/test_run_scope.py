@@ -405,15 +405,70 @@ def test_the_default_off_list_names_real_dag_nodes(dag):
             f"project_layout.STEPS - and this is not that list.")
 
 
-def test_nothing_hard_depends_on_a_step_that_is_off_by_default(dag, manifests):
-    """Otherwise every default run would refuse."""
+def test_nothing_a_default_run_schedules_hard_depends_on_a_default_off_step(
+        dag, manifests):
+    """Otherwise every default run would refuse.
+
+    A consumer that is ITSELF off by default is not a counterexample:
+    a default run schedules neither, so there is nothing to strand.
+    `judge_reels` is the first of those - it reads what `select_reels`
+    chose and both are off for the same reason (no timeline transcript on
+    a default run). `test_a_default_run_is_clean` below is the assertion
+    that actually matters, and it is checked against the real resolver
+    rather than against this rule's restatement of it.
+    """
     requirements = run_scope.hard_requirements(dag, manifests)
     for node_id in DESELECTED_BY_DEFAULT:
         consumers = [c for c, parents in requirements.items()
-                     if node_id in parents]
+                     if node_id in parents
+                     and c not in DESELECTED_BY_DEFAULT]
         assert not consumers, (
             f"{node_id} is off by default but {consumers} hard-depend on "
-            f"it, so a default run would refuse")
+            f"it and are not themselves off by default, so a default run "
+            f"would refuse")
+
+
+def test_a_default_run_is_clean(bare_project):
+    """The property the rule above is a restatement of, asked of the
+    real resolver: a plain run resolves without refusing and schedules
+    no default-off step."""
+    summary = _dry_run(bare_project)
+    assert summary["steps_to_run"], "a default run refused"
+    for node_id in DESELECTED_BY_DEFAULT:
+        assert node_id not in summary["steps_to_run"]
+
+
+def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
+        bare_project):
+    """`--only` is documented as "run this step and whatever it cannot
+    run without", and across a default-off producer it did not.
+
+    `judge_reels` reads `reel_selection` from `select_reels`; both are
+    off by default. Before 2026-09-06 `--only judge_reels` left the
+    producer excluded and then refused the selection for the gap it had
+    just made, so the step was reachable only by running the whole
+    pipeline with `--with select_reels --with judge_reels`.
+    """
+    summary = _dry_run(bare_project, only=["judge_reels"])
+    assert summary["steps_to_run"] == ["select_reels", "judge_reels"]
+
+
+def test_a_step_pulled_in_that_way_is_reported_rather_than_silent(
+        dag, manifests):
+    """A default-off step turning itself on quietly is the trap
+    `default_off` exists to stop, arriving from the other side."""
+    scope = _resolve(Selection(only=("judge_reels",)), dag, manifests)
+    assert scope.pulled_in == ("select_reels",)
+    printed = "\n".join(run_scope.describe(scope))
+    assert "off by default and running anyway: select_reels" in printed.lower()
+
+
+def test_skip_still_wins_over_being_pulled_in(dag, manifests):
+    """"Run this, but not the thing it needs" is refused, not silently
+    resolved one way or the other."""
+    with pytest.raises(run_scope.ScopeError, match="select_reels"):
+        _resolve(Selection(only=("judge_reels",), skip=("select_reels",)),
+                 dag, manifests)
 
 
 def test_every_default_off_step_carries_a_reason(dag, manifests):
