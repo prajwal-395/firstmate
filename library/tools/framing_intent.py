@@ -124,6 +124,39 @@ FILL = 1.0
 # docstring for why this is FILL and not a heuristic.
 DEFAULT_FRAMING_INTENT = FILL
 
+# ── Crop factor ──────────────────────────────────────────────────────
+#
+# How much ADDITIONAL zoom beyond fill to apply.  1.0 means no extra
+# crop; 1.3 means 30% tighter, showing less of the source.  It is a
+# separate control from framing_intent because it answers a different
+# question:
+#
+# - framing_intent: how far between letterbox and fill?
+# - framing_crop_factor: how tight WITHIN fill?
+#
+# For a podcast with two speakers in a wide landscape frame, the fill
+# conform already zooms to 1920/2160 (if 4K) or 1920/1080 (if 1080p),
+# cropping to 31.6-56.25% of the source width.  That often leaves too
+# much empty room around the speakers.  The crop factor zooms in
+# further, making the visible portion smaller and the speakers larger
+# in frame.
+#
+# Declared in project.yaml as ``pipeline.framing_crop_factor`` or in
+# a brand template as ``style.framing_crop_factor``.  The precedence
+# chain is the same as framing_intent: project > template > default.
+#
+# ``_conform_fields`` multiplies ``fill_zoom`` by this factor, so the
+# subject-safety check still fires and the backdrop route still engages
+# when the tighter crop would cut a face.
+
+DEFAULT_CROP_FACTOR = 1.0
+"""No additional crop: the fill conform is used as-is."""
+
+# Upper bound: zooming in more than 2x beyond fill would be extreme
+# quality loss on most footage.  Not a threshold - it is a guard on a
+# configuration value.
+MAX_CROP_FACTOR = 2.0
+
 
 def validate_framing_intent(value, source: str) -> float:
     """A declared value as a float in 0.0..1.0, or raise naming *source*.
@@ -196,6 +229,78 @@ def resolve_framing_intent(block_intent=None,
         return declared
 
     return DEFAULT_FRAMING_INTENT
+
+
+def validate_crop_factor(value, source: str) -> float:
+    """A declared value as a float in 1.0..MAX_CROP_FACTOR, or raise.
+
+    Below 1.0 would zoom OUT from fill, which is what framing_intent
+    already controls.  Above MAX_CROP_FACTOR is extreme quality loss.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"framing_crop_factor in {source} must be a number between "
+            f"{DEFAULT_CROP_FACTOR} (no extra crop) and {MAX_CROP_FACTOR} "
+            f"(maximum tightening), got {type(value).__name__}: {value!r}"
+        )
+    factor = float(value)
+    if not (DEFAULT_CROP_FACTOR <= factor <= MAX_CROP_FACTOR):
+        raise ValueError(
+            f"framing_crop_factor in {source} must be between "
+            f"{DEFAULT_CROP_FACTOR} (no extra crop) and {MAX_CROP_FACTOR} "
+            f"(maximum tightening), got {factor}"
+        )
+    return factor
+
+
+def project_crop_factor(project_folder: Optional[str]) -> Optional[float]:
+    """``pipeline.framing_crop_factor`` from project.yaml, or None."""
+    from library.tools.brand_registry import project_pipeline_block
+
+    block = project_pipeline_block(project_folder)
+    if "framing_crop_factor" not in block:
+        return None
+    declared = block.get("framing_crop_factor")
+    if declared is None:
+        return None
+    where = os.path.join(project_folder or "", "project.yaml")
+    return validate_crop_factor(declared, where)
+
+
+def template_crop_factor(template) -> Optional[float]:
+    """``style.framing_crop_factor`` off a BrandTemplate, or None."""
+    if template is None:
+        return None
+    style = getattr(template, "style", None)
+    declared = getattr(style, "framing_crop_factor", None)
+    if declared is None:
+        return None
+    series = getattr(template, "series_id", None) or "brand template"
+    return validate_crop_factor(declared, f"template {series}")
+
+
+def resolve_crop_factor(
+    block_crop_factor=None,
+    project_folder: Optional[str] = None,
+    template=None,
+) -> float:
+    """The crop factor a clip runs under, by precedence.
+
+    ``block_crop_factor`` is the optional ``framing_crop_factor`` key
+    on a spine block - a per-clip choice, which outranks everything.
+    """
+    if block_crop_factor is not None:
+        return validate_crop_factor(block_crop_factor, "the spine block")
+
+    declared = project_crop_factor(project_folder)
+    if declared is not None:
+        return declared
+
+    declared = template_crop_factor(template)
+    if declared is not None:
+        return declared
+
+    return DEFAULT_CROP_FACTOR
 
 
 # How close two scale factors must be before the source counts as already

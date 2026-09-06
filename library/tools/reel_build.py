@@ -846,15 +846,18 @@ class _SegmentsWithEntries(list):
 
     ``reel_subtitle_segments`` returns rendered segments (overlay paths)
     for timeline building, but the provenance hash must digest the plan's
-    CAPTION ENTRIES (text, start, length).  This subclass is a plain
-    list everywhere an iterable or list is expected, so
+    CAPTION ENTRIES (text, start, length) and the FOOTAGE BINDING (which
+    clips they were computed against).  This subclass is a plain list
+    everywhere an iterable or list is expected, so
     ``build_reel_timeline`` and test mocks are unaffected, while the
-    build loop can read ``.caption_entries`` for the hash.
+    build loop can read ``.caption_entries`` for the caption hash and
+    ``.spine`` for the footage binding hash.
     """
 
     def __init__(self):
         super().__init__()
         self.caption_entries = []
+        self.spine = None
 
 
 def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
@@ -947,6 +950,7 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     if not props_list:
         result = _SegmentsWithEntries()
         result.caption_entries = plan_entries
+        result.spine = spine
         return result
 
     out_dir = str(ProjectLayout(project_folder).write_dir(
@@ -954,6 +958,7 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     render = operations.get("subtitles.render_segment")
     segments = _SegmentsWithEntries()
     segments.caption_entries = plan_entries
+    segments.spine = spine
     for index, props in enumerate(props_list, 1):
         rendered = render.run(props, out_dir, name,
                               progress=f"[{index}/{len(props_list)}]")
@@ -1307,6 +1312,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     built_reel_names = []
     caption_hashes = {}
+    footage_binding_hashes = {}
     for moment in building:
         name = built_name(moment, name_suffix)
         print(f"Building {name}", flush=True)
@@ -1331,15 +1337,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # written down nowhere, which is why the verifier could re-derive
         # a different grouping a day later and grade against it.
         #
-        # Hashed from the PLAN's subtitle entries (text, start, length),
-        # not from the rendered segments (overlay paths). The rendered
-        # segments carry no card content, so hashing them produced a
-        # hollow digest that matched any set of the same count.
+        # Two hashes, answering different questions:
+        # - caption_content_hash: WHAT was said and WHEN in the reel.
+        # - footage_binding_hash: WHICH footage the captions were
+        #   computed against. A caption that passes the content check
+        #   but fails the binding check was placed against footage that
+        #   moved - exactly the defect that was invisible before.
         if subtitle_segments:
             entries = getattr(subtitle_segments, "caption_entries", None)
             if entries:
                 from library.tools.plan_provenance import caption_content_hash
                 caption_hashes[name] = caption_content_hash(entries)
+            spine = getattr(subtitle_segments, "spine", None)
+            if spine:
+                from library.tools.plan_provenance import footage_binding_hash
+                try:
+                    footage_binding_hashes[name] = footage_binding_hash(spine)
+                except ValueError:
+                    pass  # No bindings in spine - skip silently
 
         build_reel_timeline(
             project=project,
@@ -1361,7 +1376,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # MERGES into any existing record: a partial rebuild must not
     # delete the provenance of the reels it did not touch.
     write_provenance(review_dir, proposal_path, built_reel_names,
-                     caption_hashes=caption_hashes)
+                     caption_hashes=caption_hashes,
+                     footage_binding_hashes=footage_binding_hashes)
 
     if verify:
         verify_built_reels(

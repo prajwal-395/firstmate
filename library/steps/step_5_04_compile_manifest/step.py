@@ -114,7 +114,8 @@ from tools.brand_registry import (
     project_template_name, resolve_project_template, project_timeline_name)
 from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   delivered_framing_intent,
-                                  resolve_framing_intent, source_covers_frame)
+                                  resolve_framing_intent, source_covers_frame,
+                                  resolve_crop_factor, DEFAULT_CROP_FACTOR)
 from tools.delivery_format import resolve_delivery_format
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
@@ -945,7 +946,8 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
                     framing_intent: float = None,
                     framing_pan_x: float = None,
                     subject_center_x: float = None,
-                    subject_width: float = None) -> dict:
+                    subject_width: float = None,
+                    framing_crop_factor: float = None) -> dict:
     """Scale factor needed to fill the output frame, if any.
 
     ``framing_intent`` is a normalised scalar spanning the continuum from
@@ -956,6 +958,14 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
     project 001.  Callers that resolve the intent themselves (compile_manifest
     does, through ``framing_intent.resolve_framing_intent``) always pass a
     number.
+
+    ``framing_crop_factor`` is an additional zoom multiplier applied on
+    top of the fill conform.  1.0 means no extra crop; 1.3 means 30%
+    tighter.  Declared per project as ``pipeline.framing_crop_factor``
+    or per template as ``style.framing_crop_factor``.  The factor is
+    applied BEFORE the subject-safety check, so a crop factor that would
+    cut a face still triggers the backdrop route.  *None* resolves to
+    ``DEFAULT_CROP_FACTOR`` (1.0).
 
     ``framing_pan_x`` is a normalised horizontal pan (-1.0 to 1.0) that
     shifts the crop window within the zoomed source.  0 = centred (default).
@@ -1062,6 +1072,15 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
         return {"needs_conform": False, "framing_intent": intent,
                 "framing_delivered": intent}
     zoom = round(1.0 + (max_zoom - 1.0) * intent, 4)
+    # Apply the crop factor: additional tightening on top of the fill
+    # conform.  The factor is applied here, before the subject-safety
+    # check, so a crop factor that would cut a face still triggers the
+    # backdrop route rather than silently cropping the speaker.
+    resolved_cf = (DEFAULT_CROP_FACTOR if framing_crop_factor is None
+                   else max(DEFAULT_CROP_FACTOR,
+                            min(float(framing_crop_factor), 2.0)))
+    if resolved_cf > DEFAULT_CROP_FACTOR:
+        zoom = round(zoom * resolved_cf, 4)
     result = {
         "needs_conform": True,
         "framing_intent": intent,
@@ -1073,6 +1092,8 @@ def _conform_fields(clip_metadata: dict, clip_id, proj_res,
         "source_height": height,
         "fill_zoom": zoom,
     }
+    if resolved_cf > DEFAULT_CROP_FACTOR:
+        result["framing_crop_factor"] = resolved_cf
 
     # ── Does the crop this zoom implies still hold the subject? ──
     # Only in the width-limited case. Portrait source in a portrait frame
@@ -1354,7 +1375,7 @@ def compile_manifest(out_dir: str) -> dict:
     _template = resolve_project_template(project_template_name(_project_root))
 
     def _resolve_framing(block_or_clip):
-        """Return (framing_intent, framing_pan_x) for a clip."""
+        """Return (framing_intent, framing_pan_x, framing_crop_factor) for a clip."""
         fi = resolve_framing_intent(
             block_intent=block_or_clip.get("framing_intent"),
             project_folder=_project_root,
@@ -1366,7 +1387,12 @@ def compile_manifest(out_dir: str) -> dict:
                 pan = float(pan)
             except (TypeError, ValueError):
                 pan = None
-        return fi, pan
+        cf = resolve_crop_factor(
+            block_crop_factor=block_or_clip.get("framing_crop_factor"),
+            project_folder=_project_root,
+            template=_template,
+        )
+        return fi, pan, cf
 
     # ── Subject-aware framing (P1.2) ──
     # Where the subject actually is, so a crop follows them instead of
@@ -1465,7 +1491,7 @@ def compile_manifest(out_dir: str) -> dict:
                     or content.get("link_group_id"))
 
             assignment = a_roll_dict.get(block.get("position"))
-            _fi, _fp = _resolve_framing(block)
+            _fi, _fp, _cf = _resolve_framing(block)
 
             if assignment and assignment.get("video_segments"):
                 current_tl_in = block.get("timeline_start", 0.0)
@@ -1485,6 +1511,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                     clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res,
                         framing_intent=_fi, framing_pan_x=_fp,
+                        framing_crop_factor=_cf,
                         **_subject_framing(
                             get_clip_id(seg), clip.get("source_in", 0.0),
                             clip.get("source_out", 0.0))))
@@ -1507,6 +1534,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res,
                     framing_intent=_fi, framing_pan_x=_fp,
+                    framing_crop_factor=_cf,
                     **_subject_framing(
                         get_clip_id(assignment), clip.get("source_in", 0.0),
                         clip.get("source_out", 0.0))))
@@ -1528,6 +1556,7 @@ def compile_manifest(out_dir: str) -> dict:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res,
                     framing_intent=_fi, framing_pan_x=_fp,
+                    framing_crop_factor=_cf,
                     **_subject_framing(
                         get_clip_id(block), clip.get("source_in", 0.0),
                         clip.get("source_out", 0.0))))
@@ -1556,9 +1585,10 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"broll_{broll['spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        _fi, _fp = _resolve_framing(broll)
+        _fi, _fp, _cf = _resolve_framing(broll)
         v2_clip.update(_conform_fields(clip_metadata, get_clip_id(broll), proj_res,
             framing_intent=_fi, framing_pan_x=_fp,
+            framing_crop_factor=_cf,
             **_subject_framing(
                 get_clip_id(broll), v2_clip.get("source_in", 0.0),
                 v2_clip.get("source_out", 0.0))))
@@ -1578,9 +1608,10 @@ def compile_manifest(out_dir: str) -> dict:
             "label": f"interjection_{interj['over_spine_block_position']}",
         }
         convert_clip_to_frames(v2_clip, fps)
-        _fi, _fp = _resolve_framing(interj)
+        _fi, _fp, _cf = _resolve_framing(interj)
         v2_clip.update(_conform_fields(clip_metadata, get_clip_id(assigned), proj_res,
             framing_intent=_fi, framing_pan_x=_fp,
+            framing_crop_factor=_cf,
             **_subject_framing(
                 get_clip_id(assigned), v2_clip.get("source_in", 0.0),
                 v2_clip.get("source_out", 0.0))))

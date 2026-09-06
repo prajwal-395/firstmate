@@ -166,6 +166,62 @@ def caption_content_hash(cards) -> str:
     return f"v1:{digest.hexdigest()}"
 
 
+def footage_binding_hash(spine: dict) -> str:
+    """A stable digest of the footage a reel's captions were computed against.
+
+    The caption content hash (above) records WHAT was said and WHERE it
+    appears in the reel.  This records WHERE IN THE SOURCE it came from:
+    each speech block's ``clip_id``, ``source_start`` and ``source_end``.
+
+    The two hashes answer different questions and neither replaces the
+    other:
+
+    - ``caption_content_hash`` changes when the text or timing changes.
+    - ``footage_binding_hash`` changes when the PICTURE moves - a re-cut,
+      a shifted boundary, or a different clip - even if the words stay
+      identical.
+
+    A caption that passes the content check but fails the binding check
+    is a caption placed against footage that is no longer under it.
+    That is exactly the defect the captain described: nothing bound them,
+    so nothing noticed.
+
+    The spine's ``structure`` is the source of truth.  Each block carries
+    ``clip_id``, ``source_start``, ``source_end`` and ``timeline_start``,
+    ``timeline_end`` under the spine contract (AGENTS.md section 6).
+    Only speech and hook blocks are hashed - those are the ones that
+    carry captions.
+
+    **Raises ``ValueError``** when no block carries a clip_id, because
+    a binding to nothing is not a binding.
+    """
+    digest = hashlib.sha256()
+    any_binding = False
+    for block in spine.get("structure", []):
+        if block.get("block_type") not in ("speech", "hook"):
+            continue
+        clip_id = block.get("clip_id") or ""
+        source_start = block.get("source_start")
+        source_end = block.get("source_end")
+        timeline_start = block.get("timeline_start")
+        timeline_end = block.get("timeline_end")
+        if clip_id and source_start is not None:
+            any_binding = True
+        digest.update(
+            f"{clip_id}|{float(source_start or 0.0):.6f}|"
+            f"{float(source_end or 0.0):.6f}|"
+            f"{float(timeline_start or 0.0):.6f}|"
+            f"{float(timeline_end or 0.0):.6f}\n"
+            .encode("utf-8"))
+    if not any_binding:
+        raise ValueError(
+            "footage_binding_hash was given a spine whose speech/hook "
+            "blocks carry no clip_id. A binding to nothing is not a "
+            "binding - the hash would be a digest of empty strings and "
+            "would match any other spine with no bindings.")
+    return f"v1:{digest.hexdigest()}"
+
+
 _V1_PREFIX = "v1:"
 
 
@@ -179,6 +235,7 @@ def write_provenance(
     plan_path: str,
     reel_names: list[str],
     caption_hashes: Optional[dict] = None,
+    footage_binding_hashes: Optional[dict] = None,
 ) -> str:
     """Record which plan the builder used and which reels it built.
 
@@ -194,6 +251,10 @@ def write_provenance(
     UNIONED into it. `caption_hashes` is per reel, so a rebuilt reel
     updates only its own entry and its neighbours keep theirs.
 
+    `footage_binding_hashes` records, per reel, a digest of the footage
+    identity (clip_id, source_start, source_end) the captions were
+    computed against. A rebuild updates only its own reel's entry.
+
     **A different plan is the one case that does NOT merge.** If the
     stored `plan_content_hash` differs, the old entries describe reels
     built from a plan this one is not, and carrying them forward would
@@ -207,6 +268,7 @@ def write_provenance(
     superseded = None
     built = set(reel_names)
     captions = dict(caption_hashes or {})
+    bindings = dict(footage_binding_hashes or {})
 
     if existing:
         if existing.get("plan_content_hash") == content_hash:
@@ -214,6 +276,10 @@ def write_provenance(
             merged = dict(existing.get("caption_hashes") or {})
             merged.update(captions)
             captions = merged
+            merged_bindings = dict(
+                existing.get("footage_binding_hashes") or {})
+            merged_bindings.update(bindings)
+            bindings = merged_bindings
         else:
             superseded = existing.get("plan_content_hash")
 
@@ -226,6 +292,10 @@ def write_provenance(
         # neighbours. A reel with no entry has no recorded caption plan,
         # which is a REFUSAL to grade rather than a pass.
         "caption_hashes": captions,
+        # Per reel: the footage each reel's captions were computed
+        # against. A caption whose content hash matches but whose
+        # footage binding does not is placed against footage that moved.
+        "footage_binding_hashes": bindings,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -288,6 +358,49 @@ def check_captions_match_provenance(
         f"is not the one this timeline was built from "
         f"({recorded[:16]}...) - the card grouping has changed since "
         f"the build. Caption durations are NOT graded.")
+
+
+def check_footage_binding_matches_provenance(
+    reel_name: str,
+    spine: dict,
+    provenance: Optional[dict],
+) -> tuple[bool, str]:
+    """Do the captions still belong to the footage under them.
+
+    The footage binding check answers a different question from the
+    caption content check: a caption whose text and timing are unchanged
+    can still be WRONG if the picture underneath moved.  This detects
+    that break.
+
+    Returns ``(bound, reason)``.  ``False`` means the footage has changed
+    since the captions were computed - the captions no longer match the
+    picture.  The caller must report the break rather than skip quietly.
+    """
+    if not provenance:
+        return False, (
+            f"{reel_name}: no provenance record exists, so nothing "
+            f"states which footage the captions were computed against. "
+            f"Footage binding is NOT checked.")
+    recorded = (provenance.get("footage_binding_hashes") or {}).get(reel_name)
+    if not recorded:
+        return False, (
+            f"{reel_name}: provenance records no footage binding for "
+            f"this reel. The captions may belong to different footage. "
+            f"Rebuild to record a binding baseline.")
+    if not _is_v1_hash(recorded):
+        return False, (
+            f"{reel_name}: the recorded footage binding hash is a "
+            f"pre-v1 digest. Treated as absent.")
+    actual = footage_binding_hash(spine)
+    if actual == recorded:
+        return True, (
+            f"{reel_name}: footage binding matches provenance - "
+            f"captions are still paired with their footage")
+    return False, (
+        f"{reel_name}: the footage under the captions has changed. "
+        f"Binding now ({actual[:16]}...) differs from the build "
+        f"({recorded[:16]}...). The captions were computed against "
+        f"different footage and are no longer paired.")
 
 
 def read_provenance(review_dir: str) -> Optional[dict]:
