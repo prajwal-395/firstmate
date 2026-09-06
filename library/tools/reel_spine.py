@@ -135,29 +135,33 @@ this module returns are the other half of that: `unanchored_blocks`,
 `unanchored_bleed_dropped` reach the run output, so the change is
 visible on one line rather than folded in silently.
 
-**AND ON THE CAPTAIN'S OWN EPISODE IT PLACES NOTHING, which is the
-finding, not a failure.** Turning it on and measuring: 0 blocks added,
-0 seconds, F5's coverage gap unmoved at 97.3s. `_place_unanchored`
-refuses every row, and the reason is the thing the whole authorisation
-rested on. Of those 42.8 uncaptioned word seconds, **0.0 fall on a clip
-of their own speaker** - all 42.8 sit in a stretch where that speaker
-has NO clip on the timeline. Allowing 3 seconds of slop on the inferred
-clip reach still leaves 23.1s outside.
+**ON THE CAPTAIN'S OWN EPISODE IT PLACES NOTHING, and the reason is
+`_place_unanchored`, not the footage.** Turning it on and measuring: 0
+blocks added, 0 seconds, F5's coverage gap unmoved at 97.3s. Two of
+this module's own choices make that unavoidable. `_clip_extents` reads
+a clip's reach off the SPEECH of the rows bound to it, which understates
+the clip by its silent head and tail; and `_place_unanchored` then
+demands that ALL of a row's played words fall inside ONE such extent.
+A row that straddles a cut has words on TWO clips by definition, so it
+can never satisfy that, whatever the footage looks like.
 
-The rows are unique as TEXT and that measurement stands. But a row
-straddling a cut carries WhisperX bridging its own silence - the model's
-own undetermined named it, "a timeline_end that runs across the
-following speaker's whole turn, 731.69 to 769.10 is one" - so the words
-in the bridged middle have timings that belong to the clips at the row's
-two ENDS. Captioning them would place text at seconds the speech is not
-at, which is a worse defect than the missing card and a louder one.
+**The claim this docstring used to carry - that 0.0 of those word
+seconds fall on a clip of their own speaker, and that the row's middle
+is WhisperX bridging its own silence with words whose timings belong to
+the two ENDS - was measured through that same understating extent, and
+it is wrong.** Measured 2026-09-06 against the real clip list: of the
+977 words in the 61 rows, **958 sit squarely on a clip of their own
+speaker**, and the bridged middle contains NO WORDS AT ALL. Row 206 of
+the field test spans 615.5..636.2 and carries two words at 615.5 and
+sixteen from 631.1, with nothing in the 14.4 seconds between.
 
-So this stays on, and it stays REFUSING, because refusing on a measured
-absence is different from dropping on a category. A row whose played
-words really do sit on one clip is captioned the moment one exists;
-none does here. Repairing this properly means fixing the row TIMINGS in
-`timeline_transcript`, not the caption pass, and that is a different
-piece of work."""
+So the repair really did belong in `timeline_transcript`, exactly where
+the old note pointed - and it has landed there: a row that does not sit
+inside one clip is now split at its own word boundaries, one bound
+segment per clip, and reaches this module already anchored. What is
+left for this path is the residue - the 19 words that sit on no clip at
+all, nine of them single words the aligner stretched across a silence.
+Those stay refused, and `unbindable_spans` now says where they are."""
 
 UNANCHORED_UNIQUE_CEILING = 0.30
 """Below this similarity a row carries speech no anchored row carries.
@@ -258,6 +262,80 @@ def _place_unanchored(segment: dict, first_word: float, last_word: float,
     return None
 
 
+def _merge_spans(spans: Sequence[tuple[float, float]]) -> list:
+    """Overlapping spans as one span each."""
+    out: list = []
+    for start, end in sorted(spans):
+        if out and start <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], end)
+        else:
+            out.append([start, end])
+    return out
+
+
+def _subtract_spans(spans: Sequence, taken: Sequence) -> list:
+    """`spans` minus `taken`, both already merged."""
+    out: list = []
+    for start, end in spans:
+        cursor = start
+        for a, b in taken:
+            if b <= cursor or a >= end:
+                continue
+            if a > cursor:
+                out.append([cursor, min(a, end)])
+            cursor = max(cursor, b)
+            if cursor >= end:
+                break
+        if cursor < end:
+            out.append([cursor, end])
+    return out
+
+
+def _unbindable_spans(dropped: Sequence[tuple], blocks: Sequence[dict],
+                      ranges) -> list:
+    """Where this reel plays speech that NO block carries, in reel seconds.
+
+    Measured three ways at once, because each is a way the count alone
+    would lie:
+
+    - **Words, not the row envelope.**  A row with no binding is usually
+      Whisper joining two utterances across a silence, so its envelope
+      is mostly nothing being said.  Reel 05's row 206 spans 20.7s and
+      holds 6.0s of words.  Reporting the envelope would say the captain
+      is missing three times what they are missing.
+    - **Minus what the surviving blocks already cover.**  A dropped row
+      whose seconds another block captions is not an uncaptioned second,
+      and reporting it would be a check firing on correct output
+      (AGENTS.md 10.4).
+    - **In REEL seconds**, because that is where the captain is looking.
+    """
+    from library.tools.reel_build import reel_time
+
+    covered = _merge_spans([(b["timeline_start"], b["timeline_end"])
+                            for b in blocks])
+    out: list = []
+    for segment, inside in dropped:
+        spans = []
+        for word in inside:
+            start = reel_time(float(word["start"]), ranges)
+            end = reel_time(float(word["end"]), ranges, at_end=True)
+            if start is None or end is None or end <= start:
+                continue
+            spans.append((float(start), float(end)))
+        remaining = _subtract_spans(_merge_spans(spans), covered)
+        if not remaining:
+            continue
+        out.append({
+            "reel_start": round(remaining[0][0], 3),
+            "reel_end": round(remaining[-1][1], 3),
+            "seconds": round(sum(b - a for a, b in remaining), 3),
+            "speaker": segment.get("speaker"),
+            "master_start": round(float(inside[0]["start"]), 3),
+            "master_end": round(float(inside[-1]["end"]), 3),
+            "text": (segment.get("text") or "").strip()})
+    return out
+
+
 def _unanchored_band(segment: dict, anchored: Sequence[dict]) -> str:
     """`bleed`, `ambiguous` or `unique` for a row with no binding.
 
@@ -327,6 +405,7 @@ def spine_for_reel(moment, transcript: dict,
     extents = _clip_extents(anchored_rows) if CAPTION_UNANCHORED_ROWS else {}
     unanchored_bands: dict = {"unique": 0, "ambiguous": 0, "bleed": 0}
     unanchored_seconds = 0.0
+    dropped_rows: list[tuple] = []
 
     for segment in sorted(segments, key=lambda s: s.get("timeline_start", 0.0)):
         master_start = segment.get("timeline_start")
@@ -347,12 +426,15 @@ def spine_for_reel(moment, transcript: dict,
         band = ""
         if not clip_id or source_start is None or source_end is None:
             placed = None
+            # The words this reel actually PLAYS. Computed either way,
+            # because a dropped row's own span is what the reel is
+            # missing and a count cannot say where it is.
+            inside = [w for w in (segment.get("words") or [])
+                      if w.get("start") is not None
+                      and reel_time(float(w["start"]), ranges) is not None]
             if CAPTION_UNANCHORED_ROWS:
                 # The ROW straddles a cut; the part this reel plays may
                 # not. Ask the narrower question before dropping it.
-                inside = [w for w in (segment.get("words") or [])
-                          if w.get("start") is not None
-                          and reel_time(float(w["start"]), ranges) is not None]
                 band = _unanchored_band(segment, anchored_rows) if inside else ""
                 if band == "bleed":
                     # The MEASURED bleed rows only - the second mic
@@ -366,6 +448,10 @@ def spine_for_reel(moment, transcript: dict,
                         float(inside[-1]["end"]), extents)
             if placed is None:
                 dropped_no_binding += 1
+                # A `bleed` row's words ARE on screen, under the anchored
+                # row on the other mic, so it is not a missing caption.
+                if inside and band != "bleed":
+                    dropped_rows.append((segment, inside))
                 continue
             clip_id, source_start = placed
             source_end = source_start + (
@@ -458,6 +544,8 @@ def spine_for_reel(moment, transcript: dict,
             f"or no word timings. A reel with no spine cannot be "
             f"captioned by any step.")
 
+    unbindable = _unbindable_spans(dropped_rows, blocks, ranges)
+
     # Fails here, with the reel in hand, rather than three steps later.
     validate_spine_blocks(blocks)
     for position, block in enumerate(blocks):
@@ -482,7 +570,14 @@ def spine_for_reel(moment, transcript: dict,
             "unanchored_seconds": round(unanchored_seconds, 2),
             "unanchored_unique": unanchored_bands["unique"],
             "unanchored_ambiguous": unanchored_bands["ambiguous"],
-            "unanchored_bleed_dropped": unanchored_bands["bleed"]}
+            "unanchored_bleed_dropped": unanchored_bands["bleed"],
+            # WHERE the reel plays speech that no block carries, in REEL
+            # seconds, not just how many rows were dropped. A count says
+            # a defect exists; a span says which nine seconds of reel 05
+            # the captain is looking at.
+            "unbindable_seconds": round(
+                sum(u["seconds"] for u in unbindable), 2),
+            "unbindable_spans": unbindable}
 
 
 def _words_of(block: dict) -> set:

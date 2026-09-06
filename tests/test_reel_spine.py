@@ -762,3 +762,84 @@ def test_unanchored_row_with_no_clip_under_it_is_still_dropped():
     spine = reel_spine.spine_for_reel(_Moment(), transcript, [(0.0, 10.0)])
     assert spine["unanchored_blocks"] == 0
     assert spine["dropped_segments"] == 1
+
+
+# ── An uncaptioned stretch is REPORTED, never guessed at ────────────
+
+
+def test_an_uncaptioned_stretch_is_reported_with_its_reel_seconds():
+    """A row nothing can bind is dropped, and the count alone does not
+    say WHERE. The captain looking at reel 05 needs the seconds."""
+    good = spoken("host", "this one is bound", 10.0, "cam_a.mov", 100.0)
+    orphan = spoken("host", "nobody wrote these words down", 12.4,
+                    "cam_a.mov", 120.0)
+    orphan["resolve_item_id"] = None
+    orphan["source_file"] = None
+    orphan["source_start"] = None
+    orphan["source_end"] = None
+    spine = spine_for_reel(Moment(10.0, 18.0),
+                           {"segments": [good, orphan]})
+    spans = spine["unbindable_spans"]
+    assert len(spans) == 1
+    assert spans[0]["speaker"] == "host"
+    assert spans[0]["reel_start"] == pytest.approx(2.4, abs=0.01)
+    assert spine["unbindable_seconds"] > 0.0
+    assert spine["unbindable_seconds"] == pytest.approx(
+        sum(s["seconds"] for s in spans))
+
+
+def test_the_seconds_are_the_WORDS_not_the_row_envelope():
+    """A row with no binding is usually Whisper joining two utterances
+    across a silence. Field test row 206 spans 20.7s and holds 6.0s of
+    words; reporting the envelope would treble what is really missing."""
+    good = spoken("host", "bound", 10.0, "cam_a.mov", 100.0)
+    orphan = segment("host", "start end", 12.0, 24.0, "cam_a.mov", 120.0,
+                     [word("start", 12.0, 12.4), word("end", 23.6, 24.0)])
+    orphan["resolve_item_id"] = None
+    orphan["source_file"] = None
+    orphan["source_start"] = None
+    orphan["source_end"] = None
+    spine = spine_for_reel(Moment(10.0, 26.0), {"segments": [good, orphan]})
+    assert spine["unbindable_seconds"] == pytest.approx(0.8, abs=0.05), (
+        "the envelope is 12 seconds and the words are 0.8 of it")
+
+
+def test_a_reel_whose_speech_all_binds_reports_nothing(transcript, moment):
+    """The other direction. A gate that fires on correct output reads as
+    a defect where there is none (AGENTS.md 10.4)."""
+    spine = spine_for_reel(moment, transcript)
+    assert spine["unbindable_spans"] == []
+    assert spine["unbindable_seconds"] == 0.0
+
+
+def test_a_row_whose_seconds_another_block_captions_is_not_reported():
+    """The second mic hears the same sentence, so the same reel seconds
+    already carry a card. Reporting them would be the check firing on
+    correct output."""
+    good = spoken("host", "the same words at the same instant", 10.0,
+                  "cam_a.mov", 100.0)
+    bleed = spoken("guest", "the same words at the same instant", 10.02,
+                   "cam_b.mov", 200.0)
+    bleed["resolve_item_id"] = None
+    bleed["source_file"] = None
+    bleed["source_start"] = None
+    bleed["source_end"] = None
+    spine = spine_for_reel(Moment(10.0, 18.0),
+                           {"segments": [good, bleed]})
+    assert spine["dropped_segments"] == 1, "the bleed row is still dropped"
+    assert spine["unbindable_spans"] == [], (
+        "its words are on screen under the anchored row's card")
+
+
+def test_a_row_cut_out_of_the_reel_entirely_is_not_reported():
+    """Its speech was removed on purpose, so the reel is missing nothing."""
+    good = spoken("host", "this one is bound", 10.0, "cam_a.mov", 100.0)
+    elsewhere = spoken("host", "cut from this reel", 300.0, "cam_a.mov",
+                       400.0)
+    elsewhere["resolve_item_id"] = None
+    elsewhere["source_file"] = None
+    elsewhere["source_start"] = None
+    elsewhere["source_end"] = None
+    spine = spine_for_reel(Moment(10.0, 16.0),
+                           {"segments": [good, elsewhere]})
+    assert spine["unbindable_spans"] == []

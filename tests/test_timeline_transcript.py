@@ -215,3 +215,161 @@ def test_the_document_reports_what_could_not_be_bound():
     # `Akshita CH1` beside `Akshita`.
     assert doc["speakers"] == ["Craig"]
     assert "Resolve was not opened" in doc["measurement"]
+
+
+# ── A row that crosses a cut is re-read from its own words ───────────
+#
+# The numbers here are the field test's, not invented: Craig's clips at
+# 606.796-614.013 and 614.765-616.560 and 630.909-636.583, and rows 204
+# and 206 of `transcript.json` as WhisperX left them. Reel 05 plays this
+# stretch and had no caption over about nine seconds of it.
+
+CLIP_A = {"src_in": 1273.898, "tl_start": 606.796, "tl_end": 614.013,
+          "uid": "A"}
+CLIP_B = {"src_in": 1289.830, "tl_start": 614.765, "tl_end": 616.560,
+          "uid": "B"}
+CLIP_C = {"src_in": 1421.295, "tl_start": 630.909, "tl_end": 636.583,
+          "uid": "C"}
+
+
+def _craig_clips():
+    return [_clip("/m/LCATL0013.MXF", c["src_in"],
+                  c["src_in"] + (c["tl_end"] - c["tl_start"]),
+                  c["tl_start"], c["tl_end"], uid=c["uid"], speaker="Craig")
+            for c in (CLIP_A, CLIP_B, CLIP_C)]
+
+
+def _word(text, start, end):
+    return {"word": text, "start": start, "end": end}
+
+
+ROW_204 = {
+    "start": 609.380, "end": 615.340,
+    "text": "on here yeah so ranking",
+    "words": [_word("on", 613.574, 613.654),
+              _word("here", 613.715, 613.875),
+              _word("yeah", 614.818, 615.059),
+              _word("so", 615.079, 615.139),
+              _word("ranking", 615.159, 615.340)],
+}
+
+ROW_206 = {
+    "start": 615.540, "end": 636.200,
+    "text": "tells google when it comes",
+    "words": [_word("tells", 615.540, 615.860),
+              _word("google", 615.921, 616.441),
+              _word("when", 631.115, 631.255),
+              _word("it", 631.295, 631.355),
+              _word("comes", 631.415, 631.716)],
+}
+
+
+def test_a_row_crossing_a_cut_is_split_at_its_own_words():
+    """Row 204. No WORD crosses the cut at 614.0/614.8 - eighteen end
+    before it and three begin after - so the row has two bindings, not
+    none."""
+    out = tt.segments_for_speaker({"segments": [ROW_204]}, "Craig",
+                                  _craig_clips())
+    assert [s.resolve_item_id for s in out] == ["A", "B"]
+    assert [s.text for s in out] == ["on here", "yeah so ranking"]
+    assert out[0].timeline_start == pytest.approx(613.574)
+    assert out[0].timeline_end == pytest.approx(613.875)
+    assert out[1].timeline_start == pytest.approx(614.818)
+    assert out[1].timeline_end == pytest.approx(615.340)
+    # SOURCE seconds, mapped through the clip each part actually sits on.
+    assert out[0].source_start == pytest.approx(
+        1273.898 + (613.574 - 606.796))
+    assert out[1].source_start == pytest.approx(
+        1289.830 + (614.818 - 614.765))
+    assert all(s.read_from_words for s in out)
+
+
+def test_a_row_whose_middle_is_silence_binds_both_ends():
+    """Row 206 spans 615.5-636.2, and Craig has no clip for 14.4s of
+    that. The row carries NO WORD in the middle: the envelope is Whisper
+    joining two utterances, and both ends are on real clips."""
+    out = tt.segments_for_speaker({"segments": [ROW_206]}, "Craig",
+                                  _craig_clips())
+    assert [s.resolve_item_id for s in out] == ["B", "C"]
+    assert [s.text for s in out] == ["tells google", "when it comes"]
+    # Nothing is emitted for the silence itself.
+    assert not any(616.5 < s.timeline_start < 631.0 for s in out)
+
+
+def test_a_row_inside_one_clip_is_left_exactly_as_it_was():
+    """The 814 rows that already bind must not move. `attribute_to_clip`
+    answering means the question is answered."""
+    row = {"start": 607.5, "end": 610.0, "text": "Whisper's own text.",
+           "words": [_word("Whisper's", 607.5, 608.0),
+                     _word("own", 608.2, 609.0),
+                     _word("text.", 609.2, 610.0)]}
+    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
+                                  _craig_clips())
+    assert len(out) == 1
+    assert out[0].resolve_item_id == "A"
+    assert out[0].text == "Whisper's own text."
+    assert out[0].timeline_start == 607.5 and out[0].timeline_end == 610.0
+    assert out[0].read_from_words is False
+
+
+def test_a_row_wholly_in_a_gap_stays_unbound():
+    """The honest outcome, unchanged. Nine of the field test's nineteen
+    unbindable words are single words the aligner stretched across a
+    silence; nothing here invents a clip for them."""
+    row = {"start": 620.0, "end": 628.0, "text": "well",
+           "words": [_word("well", 620.0, 628.0)]}
+    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
+                                  _craig_clips())
+    assert len(out) == 1
+    assert out[0].resolve_item_id is None
+    assert out[0].source_start is None
+    assert out[0].text == "well"
+
+
+def test_a_row_that_reaches_a_clip_only_at_its_edges_keeps_the_gap_out():
+    """Head on a clip, middle in the gap, tail on the next: three parts,
+    and the middle one is still refused."""
+    row = {"start": 613.0, "end": 632.0, "text": "here well when",
+           "words": [_word("here", 613.7, 613.9),
+                     _word("well", 620.0, 628.0),
+                     _word("when", 631.1, 631.3)]}
+    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
+                                  _craig_clips())
+    assert [s.resolve_item_id for s in out] == ["A", None, "C"]
+    assert [s.text for s in out] == ["here", "well", "when"]
+
+
+def test_a_word_is_placed_by_the_same_containment_rule_with_no_tolerance():
+    """`clip_of_word` is `attribute_to_clip`'s own test, asked of the
+    atom. A word one millisecond outside a clip is outside it - the
+    rebuilt track plays silence there, so there is nothing to be inside
+    of."""
+    clips = _craig_clips()
+    assert tt.clip_of_word(_word("x", 613.0, 613.2), clips).resolve_item_id == "A"
+    just_out = _word("x", 614.014, 614.016)
+    assert tt.clip_of_word(just_out, clips) is None
+
+
+def test_the_runs_are_maximal():
+    """Consecutive words on one clip are ONE run, not one run each: a
+    caption card per word is not what a split is for."""
+    runs = tt.clip_runs(ROW_204["words"], _craig_clips())
+    assert [(c.resolve_item_id if c else None, len(w)) for c, w in runs] \
+        == [("A", 2), ("B", 3)]
+
+
+def test_the_document_says_how_much_was_re_read():
+    class Snap:
+        project_name, timeline_name = "P", "T"
+        fps, duration = 23.976, 100.0
+        clips = ()
+
+        def speakers(self):
+            return ["Craig"]
+
+    merged = tt.segments_for_speaker({"segments": [ROW_204]}, "Craig",
+                                     _craig_clips())
+    doc = tt.transcript_document(Snap(), merged)
+    assert doc["segments_read_from_words"] == 2
+    assert doc["segments_rebound_from_words"] == 2
+    assert doc["segments_straddling_a_cut"] == 0

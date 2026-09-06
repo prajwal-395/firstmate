@@ -541,6 +541,16 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         print(f"  {moment.timeline_name}: dropped "
               f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
               file=sys.stderr)
+    # Speech this reel PLAYS that no block carries, in reel seconds. The
+    # honest outcome for a row nothing can bind is that the build SAYS
+    # which seconds go uncaptioned, rather than something guessing a
+    # clip for it.
+    for span in spine.get("unbindable_spans") or []:
+        print(f"  {moment.timeline_name}: NO CAPTION over reel "
+              f"{span['reel_start']:.2f}-{span['reel_end']:.2f}s "
+              f"({span['seconds']:.2f}s of {span['speaker']}'s words, "
+              f"master {span['master_start']:.1f}-{span['master_end']:.1f}) "
+              f"- no clip carries them", file=sys.stderr)
 
     plan = operations.get("subtitles.plan").run(
         spine, brand_effect={}, brand_style={}, project_folder=project_folder)

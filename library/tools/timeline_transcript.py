@@ -49,6 +49,20 @@ Three consequences, all of them the point:
 `AUDIO_CACHE_KEYS` is the enumeration of what the key is made of.  A key
 that included the timeline position would defeat all three.
 
+The row is not the atom - the WORD is
+-------------------------------------
+A Whisper row often joins two utterances that sit on two different
+clips, and one that does carries no single source binding.  Every such
+row used to be emitted unbound, and `reel_spine` drops those, so the
+reel played the speech and nothing captioned it.
+
+The words inside the row already answer the question the row cannot:
+they carry their own aligned times and they land on real clips.  So a
+row that does not sit inside one clip is SPLIT at its own word
+boundaries, one bound segment per clip.  `segments_for_speaker` holds
+the measurement and the reason; `clip_of_word` is the test, and it is
+`attribute_to_clip`'s own containment rule with no tolerance added.
+
 What is NOT decided here
 ------------------------
 Nothing about which moments are interesting.  This module measures what
@@ -120,6 +134,12 @@ class SpokenSegment:
     picking one."""
 
     words: tuple = ()
+
+    read_from_words: bool = False
+    """This row did not sit inside one clip, so it was re-read from its
+    own word timings - see `segments_for_speaker`. NAMED rather than
+    folded in silently: a reader asking why a row's timings are not the
+    ones Whisper emitted gets the answer on the row."""
 
     def as_dict(self) -> dict:
         body = asdict(self)
@@ -282,6 +302,40 @@ def attribute_to_clip(start: float, end: float, clips: Sequence):
     return None
 
 
+def clip_of_word(word: dict, clips: Sequence):
+    """The clip one WORD sits on, or None.
+
+    The same containment question `attribute_to_clip` asks of a whole
+    stretch, asked of the atom that carries its own measured time.  No
+    tolerance is added and none is needed: `build_speaker_audio` lays
+    this speaker's clips end to end with the timeline's own gaps as
+    SILENCE, so a word whose midpoint falls between two clips was
+    aligned against silence and sits on no clip at all.
+    """
+    midpoint = (float(word["start"]) + float(word["end"])) / 2.0
+    for clip in clips:
+        if clip.timeline_start <= midpoint <= clip.timeline_end:
+            return clip
+    return None
+
+
+def clip_runs(words: Sequence[dict], clips: Sequence) -> list[tuple]:
+    """A row's words grouped into maximal runs that share one clip.
+
+    Returns `[(clip_or_None, [word, ...]), ...]` in word order.  Two
+    runs mean the row crosses a cut BETWEEN two of its own words, which
+    is the case `attribute_to_clip` can only answer with None.
+    """
+    runs: list[tuple] = []
+    for word in words:
+        clip = clip_of_word(word, clips)
+        if runs and runs[-1][0] is clip:
+            runs[-1][1].append(word)
+            continue
+        runs.append((clip, [word]))
+    return runs
+
+
 def to_source_time(clip, timeline_time: float) -> float:
     """A timeline second, expressed in the SOURCE file's own timebase."""
     return clip.source_in + (timeline_time - clip.timeline_start)
@@ -395,9 +449,70 @@ def interpolate_untimed_words(words: List[dict]) -> List[dict]:
     return out
 
 
+def _bound(speaker, text, clip, start, end, words,
+           read_from_words=False) -> SpokenSegment:
+    return SpokenSegment(
+        speaker=speaker,
+        text=text,
+        timeline_start=start,
+        timeline_end=end,
+        source_file=clip.source_file if clip else None,
+        source_start=to_source_time(clip, start) if clip else None,
+        source_end=to_source_time(clip, end) if clip else None,
+        resolve_item_id=clip.resolve_item_id if clip else None,
+        words=tuple(words),
+        read_from_words=read_from_words,
+    )
+
+
 def segments_for_speaker(aligned: dict, speaker: Optional[str],
                          clips: Sequence) -> List[SpokenSegment]:
-    """WhisperX output as `SpokenSegment`s, bound to the footage."""
+    """WhisperX output as `SpokenSegment`s, bound to the footage.
+
+    A row that sits wholly inside one clip is emitted exactly as it
+    arrived.  A row that does NOT is re-read from its own WORDS, and
+    that is the whole of the difference.
+
+    Why, measured on the captain's field test 2026-09-06
+    ----------------------------------------------------
+    61 of 875 rows carried no binding, and `reel_spine` drops those - so
+    the reel plays the speech and nothing writes it.  Reel 05 loses
+    about 9 seconds of Craig that way, on rows 204 and 206.
+
+    Read the artefact and the rows are not what "straddles a cut"
+    suggests.  Row 204 runs 609.38..615.34 across a cut at 614.0/614.8,
+    and **no word of it crosses that cut**: eighteen words end at
+    613.875 on the clip before it and three begin at 614.818 on the clip
+    after.  Row 206 runs 615.54..636.20 over a 14.4-second stretch where
+    Craig has no clip at all, and carries no word in the middle of it -
+    two words at 615.5 on one clip, sixteen from 631.1 on another.  What
+    the row envelope spans is Whisper joining two utterances; what the
+    WORDS span is real speech on real clips.
+
+    Across all 61 rows: 977 words, of which **958 sit squarely on a clip
+    of their own speaker** and 19 do not.  Nine of the 19 are single
+    words the aligner stretched across the silence - one 'starting' runs
+    62.6 seconds - and it is exactly that stretch that puts their
+    midpoint in the gap.  They stay unbound, which is the honest answer
+    and the same one as before.
+
+    So the row is not the atom.  The WORD is, it carries its own
+    measured time, and asking the clip question of it recovers speech
+    that was being thrown away.  Nothing here widens what counts as a
+    match: `clip_of_word` is `attribute_to_clip`'s own containment test
+    with no tolerance added.
+
+    A row that already binds is left ALONE
+    --------------------------------------
+    Deliberately, and not for caution.  Measured over the same 875
+    rows, re-reading the 814 bound ones from their words would move
+    exactly 4 of them - and in all 4 the only word that moves is the
+    FIRST, by 0.05-0.12s, onto the clip that ends where this one starts.
+    That buys nothing and costs a one-word caption card on reels the
+    captain has already approved.  `attribute_to_clip` returning a clip
+    means the question is already answered; only the None needs asking
+    again.
+    """
     out: List[SpokenSegment] = []
     for segment in aligned.get("segments", []):
         text = (segment.get("text") or "").strip()
@@ -405,18 +520,29 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
             continue
         start = float(segment["start"])
         end = float(segment["end"])
+        words = interpolate_untimed_words(segment.get("words") or [])
+
         clip = attribute_to_clip(start, end, clips)
-        out.append(SpokenSegment(
-            speaker=speaker,
-            text=text,
-            timeline_start=start,
-            timeline_end=end,
-            source_file=clip.source_file if clip else None,
-            source_start=to_source_time(clip, start) if clip else None,
-            source_end=to_source_time(clip, end) if clip else None,
-            resolve_item_id=clip.resolve_item_id if clip else None,
-            words=tuple(interpolate_untimed_words(segment.get("words") or [])),
-        ))
+        if clip is not None or not words:
+            out.append(_bound(speaker, text, clip, start, end, words))
+            continue
+
+        for run_clip, run_words in clip_runs(words, clips):
+            # Every timing on a re-read row comes from the words, because
+            # the row's own envelope is the thing that was wrong.  A run
+            # that is the whole row keeps the row's text verbatim; a run
+            # that is part of one is named by the words it carries, which
+            # reproduces the row text on 860 of the 862 rows that have
+            # words at all.
+            whole = len(run_words) == len(words)
+            out.append(_bound(
+                speaker,
+                text if whole else " ".join(w["word"] for w in run_words).strip(),
+                run_clip,
+                float(run_words[0]["start"]),
+                float(run_words[-1]["end"]),
+                run_words,
+                read_from_words=True))
     return out
 
 
@@ -433,6 +559,9 @@ def merge_speakers(per_speaker: Dict[Optional[str], List[SpokenSegment]]
 def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
     """The whole transcript, as written to disk."""
     unbound = sum(1 for s in merged if s.resolve_item_id is None)
+    read_from_words = sum(1 for s in merged if s.read_from_words)
+    rebound = sum(1 for s in merged
+                  if s.read_from_words and s.resolve_item_id is not None)
     # The speakers who ACTUALLY SPEAK, from the segments themselves -
     # not `snapshot.speakers()`, which is the TRACK ROSTER and lists
     # `Akshita CH1` and `Craig CH1` beside the two real people. Four keys
@@ -477,6 +606,12 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
         "speakers": speaking,
         "segment_count": len(merged),
         "segments_straddling_a_cut": unbound,
+        # A row whose envelope crossed a cut is re-read from its own
+        # words (`segments_for_speaker`); these two say how much of the
+        # transcript that produced and how much of it came back BOUND.
+        # Without them the repair is invisible in its own output.
+        "segments_read_from_words": read_from_words,
+        "segments_rebound_from_words": rebound,
         "segments": [s.as_dict() for s in merged],
     }
 
@@ -573,9 +708,13 @@ def main(argv=None) -> int:
     out.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nwrote {document['segment_count']} segments -> {out}",
           file=sys.stderr)
+    if document["segments_read_from_words"]:
+        print(f"  {document['segments_read_from_words']} segment(s) came from "
+              f"rows re-read at word level, {document['segments_rebound_from_words']} "
+              f"of them bound to a clip", file=sys.stderr)
     if document["segments_straddling_a_cut"]:
-        print(f"  {document['segments_straddling_a_cut']} segments straddle a "
-              f"cut and carry no source binding", file=sys.stderr)
+        print(f"  {document['segments_straddling_a_cut']} segments carry no "
+              f"source binding even at word level", file=sys.stderr)
     return 0
 
 
