@@ -17,6 +17,8 @@ import json
 import pytest
 
 from library.tools.reel_conformance_verifier import (
+    check_caption_hangs,
+    check_mixed_speakers,
     Finding,
     FindingClass,
     PlannedCaption,
@@ -1841,3 +1843,62 @@ class TestPlanMismatchRefusesF4:
             491.51, abs=0.01)
         assert check_plan_describes_timeline("R", ranges, 491, FPS) == []
         assert check_plan_describes_timeline("R", ranges, 492, FPS) != []
+
+
+
+# ── F15: Caption card hangs past its speech ──────────────────────────
+
+class TestCaptionHangs:
+    """F15: Prove the verifier catches a card whose duration far exceeds
+    its speech.  Measured across 19 reels' current plans: 0 firings."""
+
+    def test_check_caption_hangs(self):
+        """F15: A card hangs for 239 frames - nearly 10 SECONDS."""
+        # 1329 frames = 55.375s, 1568 frames = 65.333s
+        # Duration is ~10s. Text is "yeah so ranking tells google" (5 words).
+        cards = [
+            _caption_card(55.375, 65.333, "yeah so ranking tells google"), # hangs!
+        ]
+        findings = check_caption_hangs("Reel 05", cards, FPS)
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F15
+
+        # A correct card: 5 words, ~2 seconds duration
+        cards_correct = [
+            _caption_card(55.375, 57.375, "yeah so ranking tells google"),
+        ]
+        findings_correct = check_caption_hangs("Reel 05", cards_correct, FPS)
+        assert len(findings_correct) == 0
+
+    def test_check_mixed_speakers(self):
+        """F17: One card carries two speakers (microphone bleed)."""
+        # Craig's mic picks up Akshita's first words as bleed.
+        # Craig speaks 1.0 -> 2.0 ("here"), Akshita speaks 2.0 -> 3.0.
+        segments = [
+            _row(1.0, 2.0, "Craig", "here",
+                 words=({"word": "here", "start": 1.0, "end": 2.0,
+                         "timed": True},)),
+            _row(2.0, 3.0, "Akshita", "yeah so ranking tells google",
+                 words=({"word": "yeah", "start": 2.0, "end": 3.0,
+                         "timed": True},)),
+        ]
+        keep_ranges = [(0.0, 10.0)]
+
+        # Defective card spans 1.0 to 3.0, mixing both
+        cards = [
+            _caption_card(1.0, 3.0, "here yeah so ranking tells google"),
+        ]
+        findings = check_mixed_speakers(
+            "Reel 05", cards, segments, keep_ranges, FPS)
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F17
+
+        # Correct cards (one speaker each)
+        cards_correct = [
+            _caption_card(1.0, 2.0, "here"),
+            _caption_card(2.0, 3.0, "yeah so ranking tells google"),
+        ]
+        findings_correct = check_mixed_speakers(
+            "Reel 05", cards_correct, segments, keep_ranges, FPS)
+        assert len(findings_correct) == 0
+

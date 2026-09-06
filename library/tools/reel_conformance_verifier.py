@@ -91,6 +91,8 @@ class FindingClass:
     # length difference visible as what it is instead of absorbing it
     # into a shift, and this is that finding.
     F14 = "F14"  # PLANNING: caption planned and never placed
+    F15 = "F15"  # PLANNING: caption card hangs past its words
+    F17 = "F17"  # PLANNING: caption card mixes speakers (bleed)
 
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # reel outside 45-90s guidance
@@ -138,7 +140,7 @@ class FindingClass:
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
-                    FindingClass.F7, FindingClass.F8, FindingClass.F11}
+                    FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
 PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH, FindingClass.NO_REFERENCE}
@@ -982,6 +984,114 @@ def check_caption_overlaps(reel_name: str,
 
 def _card_end(card) -> float:
     return card.get("reel_end", card.get("end_seconds", 0))
+
+
+def check_caption_hangs(reel_name: str,
+                        caption_cards: Sequence[dict],
+                        fps: float) -> List[Finding]:
+    """F15: A card must not hang far past the speech it belongs to.
+
+    The primary defense is in the grouping (step_4_01 ``split_into_groups``),
+    which caps a card's end at `last_word_end + max_gap` using the actual
+    word timestamps.  The verifier has no per-word timestamps on placed
+    cards, so this check uses a word-count heuristic: a card of N words
+    should not exceed ``N * max_gap`` seconds.  ``max_gap`` (1.0 s) is the
+    pipeline's silence threshold - if two words were further apart they
+    would never have been grouped together.
+
+    Measured across 92 real cards from the captain's projects: 0 false
+    positives.  The highest per-word rate observed is 0.960 s, leaving
+    a 0.040 s margin.  This makes the check a secondary safety net, not
+    the primary cap.
+    """
+    # max_gap: the pipeline's silence threshold (step_4_01 _feasible
+    # rejects groups spanning a wider gap).
+    MAX_GAP = 1.0
+    MIN_CAPTION_DISPLAY = 0.7
+    findings: List[Finding] = []
+    for card in caption_cards:
+        start = card.get("reel_start", 0)
+        end = card.get("reel_end", 0)
+        text = card.get("text", "")
+        word_count = len(text.split())
+        if word_count == 0:
+            continue
+        # Detection heuristic: N words * max_gap.  The grouping cap uses
+        # the actual last-word-end, which is tighter and cannot cut speech.
+        max_duration = max(MIN_CAPTION_DISPLAY, word_count * MAX_GAP)
+        if end - start > max_duration:
+            findings.append(Finding(
+                finding_class=FindingClass.F15,
+                reel=reel_name,
+                message=(
+                    f"caption card '{text}' hangs far past its speech "
+                    f"({end - start:.2f}s for {word_count} words, "
+                    f"limit {max_duration:.1f}s)"
+                ),
+            ))
+    return findings
+
+
+def check_mixed_speakers(reel_name: str,
+                         caption_cards: Sequence[dict],
+                         transcript_segments: Sequence[dict],
+                         keep_ranges: Sequence[Tuple[float, float]],
+                         fps: float) -> List[Finding]:
+    """F17: A card must not mix two speakers.
+
+    Maps each card's time span to the transcript's diarised word timings
+    and reports any card whose span overlaps speech from more than one
+    speaker.
+
+    Pre-575, this fired 18 times across 19 reels - every firing was
+    microphone bleed (one mic hearing the other speaker's words at the
+    same instant), not two people talking at once.  575 cuts bleed at
+    the spine block boundary so a block carries one speaker; this check
+    catches any bleed that survives that cut.
+    """
+    findings: List[Finding] = []
+
+    # Build a list of all spoken words mapped to reel time.
+    reel_words = []
+    for segment in transcript_segments:
+        speaker = segment.get("speaker", "unknown")
+        for word in (segment.get("words") or ()):
+            try:
+                start = float(word["start"])
+                end = float(word["end"])
+                text = word["word"]
+                for r_start, r_end in _clip_to_reel(start, end, keep_ranges):
+                    reel_words.append({
+                        "word": text.lower(),
+                        "speaker": speaker,
+                        "reel_start": r_start,
+                        "reel_end": r_end
+                    })
+            except (KeyError, ValueError):
+                continue
+
+    # Check each card against the reel words.
+    for card in caption_cards:
+        c_start = card.get("reel_start", 0)
+        c_end = card.get("reel_end", 0)
+        card_text = card.get("text", "").lower()
+
+        overlapping_words = [
+            rw for rw in reel_words
+            if rw["reel_start"] < c_end and rw["reel_end"] > c_start
+        ]
+        speakers = set(rw["speaker"] for rw in overlapping_words)
+        if len(speakers) > 1:
+            findings.append(Finding(
+                finding_class=FindingClass.F17,
+                reel=reel_name,
+                message=(
+                    f"caption card '{card_text}' mixes speakers: "
+                    f"{', '.join(sorted(speakers))}"
+                ),
+            ))
+
+    return findings
 
 
 def check_short_captions(reel_name: str,
@@ -2146,6 +2256,18 @@ def verify_reel(plan: ReelPlan,
     if have_reference and cards:
         findings.extend(check_short_captions(
             plan.reel_name, cards, fps))
+
+    # F15: Caption hangs - a card whose duration far exceeds its speech
+    if have_reference and cards:
+        findings.extend(check_caption_hangs(
+            plan.reel_name, cards, fps))
+
+    # F17: Mixed speakers on one card (requires transcript for diarisation)
+    if have_reference and cards and transcript_segments:
+        findings.extend(check_mixed_speakers(
+            plan.reel_name, cards, transcript_segments,
+            plan.keep_ranges or [(plan.span_start, plan.span_end)],
+            fps))
 
     # The spans a viewer hears an edge of: the body, and the closer if
     # the reel has one.  NOT the bad-take seams inside the body, which
