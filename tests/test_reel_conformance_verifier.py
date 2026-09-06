@@ -443,6 +443,64 @@ class TestF5CaptionCoverage:
         assert len(f5) == 1
         assert f5[0].detail["straddling_seconds"] > 7.0
 
+    def test_row_reaching_past_the_reel_is_clipped_not_dropped(self):
+        """A row that starts before the reel still counts inside it.
+
+        This is the case F5 was built for and used to skip: it mapped the
+        row's own start through `reel_time`, got None because the row
+        begins outside the reel, and `continue`d. Every reel has two such
+        rows by construction, at its two boundaries. On the captain's
+        nineteen approved reels that dropped 51 rows carrying 364.7s of
+        in-reel overlap and reported 29.2s of the 170.1s uncaptioned.
+        """
+        segments = [
+            # Begins 5s BEFORE the reel and runs 5s into it, uncaptioned.
+            {"timeline_start": 5.0, "timeline_end": 15.0,
+             "resolve_item_id": None, "speaker": "Craig",
+             "text": "a row the reel starts in the middle of"},
+        ]
+        keep_ranges = [(10.0, 20.0)]
+
+        findings = check_caption_coverage(
+            "Reel 03", segments, [], keep_ranges, FPS)
+        f5 = [f for f in findings if f.finding_class == FindingClass.F5]
+        assert len(f5) == 1, "the part inside the reel is what F5 measures"
+        assert f5[0].detail["straddling_seconds"] == pytest.approx(5.0, abs=0.05)
+
+    def test_row_an_interior_cut_runs_through_counts_only_what_plays(self):
+        """A cut inside a row removes seconds; they are not speech.
+
+        Mapping the two raw endpoints was wrong even when it returned
+        numbers - the row mapped to one contiguous reel interval spanning
+        the removed take, so seconds the builder had cut out counted as
+        speech that needed a caption.
+        """
+        segments = [
+            {"timeline_start": 0.0, "timeline_end": 30.0,
+             "resolve_item_id": None, "speaker": "Akshita",
+             "text": "a row with a bad take taken out of its middle"},
+        ]
+        # 10s removed from the middle: the reel plays 20s of this row.
+        keep_ranges = [(0.0, 10.0), (20.0, 30.0)]
+
+        findings = check_caption_coverage(
+            "Reel 04", segments, [], keep_ranges, FPS)
+        f5 = [f for f in findings if f.finding_class == FindingClass.F5]
+        assert len(f5) == 1
+        assert f5[0].detail["straddling_seconds"] == pytest.approx(
+            20.0, abs=0.05), "the cut-out 10s is not uncaptioned speech"
+
+    def test_row_the_reel_does_not_play_is_not_counted(self):
+        """"Not in this reel" stays a real answer, not a clipped zero."""
+        segments = [
+            {"timeline_start": 100.0, "timeline_end": 110.0,
+             "resolve_item_id": None, "speaker": "Craig",
+             "text": "somewhere else in the episode entirely"},
+        ]
+        findings = check_caption_coverage(
+            "Reel 05", segments, [], [(0.0, 20.0)], FPS)
+        assert findings == []
+
     def test_fully_captioned_no_findings(self):
         """All speech covered by captions produces no findings."""
         segments = [

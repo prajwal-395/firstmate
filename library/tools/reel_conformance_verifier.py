@@ -616,6 +616,42 @@ def check_caption_reference(reel_name: str,
     )]
 
 
+def _clip_to_reel(seg_start: float,
+                  seg_end: float,
+                  keep_ranges: Sequence[Tuple[float, float]],
+                  ) -> List[Tuple[float, float]]:
+    """The parts of a master interval that the reel PLAYS, in reel seconds.
+
+    A transcript row is not all-or-nothing against a reel. It can begin
+    before the reel and end inside it, begin inside and run past the end,
+    or have an interior cut taken out of its middle - and in every one of
+    those cases the part inside is real speech a viewer hears.
+
+    Returns one piece per keep range the interval touches, or an empty
+    list for an interval the reel does not play at all, which is the only
+    honest reading of "not in this reel".
+
+    `reel_build.reel_time` stays the sole owner of the arithmetic. Each
+    piece lies wholly inside one range, so its start is read inclusively
+    and its end with `at_end=True` - a range is `[start, end)` and a
+    piece ending exactly on a range edge would otherwise map to None.
+    """
+    from library.tools.reel_build import reel_time
+
+    pieces: List[Tuple[float, float]] = []
+    for range_start, range_end in keep_ranges:
+        low = max(range_start, seg_start)
+        high = min(range_end, seg_end)
+        if high <= low:
+            continue
+        at_low = reel_time(low, keep_ranges)
+        at_high = reel_time(high, keep_ranges, at_end=True)
+        if at_low is None or at_high is None or at_high <= at_low:
+            continue
+        pieces.append((at_low, at_high))
+    return pieces
+
+
 def check_caption_coverage(reel_name: str,
                            transcript_segments: Sequence[dict],
                            caption_cards: Sequence[dict],
@@ -630,6 +666,49 @@ def check_caption_coverage(reel_name: str,
 
     The 24.6s residue from the audit is frame quantisation at card edges
     spread over ~900 words and is not reported as a finding.
+
+    **A row is CLIPPED to the reel, never dropped for reaching past it.**
+    This used to map the row's own `timeline_start` and `timeline_end`
+    through `reel_time` and `continue` the moment either came back None -
+    which is every row that begins before the reel or ends after it, and
+    every row an interior cut runs through. Those are precisely the
+    straddling rows the paragraph above says this check exists to count,
+    so it was declining to look at its own subject: measured on the
+    captain's nineteen approved reels it reported **29.2s** of the
+    **170.1s** actually uncaptioned, and skipped 51 rows carrying 364.7s
+    of in-reel overlap. Two of those rows exist per reel by construction,
+    at the two boundaries, so this was never an edge case.
+
+    The row is therefore intersected with each keep range and each piece
+    mapped separately. `reel_time` is still the only arithmetic - read
+    inclusively at a piece's start and with `at_end=True` at its end,
+    because a range is half-open and a piece ending exactly on a range
+    edge would otherwise fall outside every range. Mapping the two raw
+    endpoints was wrong even when it returned numbers: a row an interior
+    cut runs through mapped to one contiguous reel interval spanning the
+    removed take, so seconds the builder had cut out counted as speech.
+
+    **Seconds are ROW SPANS minus caption coverage, and a row's span is
+    not all speech.** WhisperX bridges a silent stretch into the row
+    beside it - 657.4-695.9 is 38.5s carrying nineteen words, and
+    606.3-614.4 is 8.1s carrying the single word "Yeah" - so this number
+    is an upper bound on speech a viewer hears with nothing on screen.
+    Measured word by word on the captain's nineteen, the genuinely
+    uncaptioned SPEECH is 42.8s against the 97.6s of row span this
+    reports. Both are honest and they answer different questions: this
+    one answers "how much of a row the reel plays is uncovered", which is
+    what a caption card is placed against.
+
+    **Seconds are summed PER ROW, so two uncaptioned rows overlapping each
+    other count twice.** This is a two-mic recording and both tracks
+    carry rows, so the total is an upper bound on wall-clock uncaptioned
+    time rather than equal to it. That is deliberate: the finding names
+    rows, and halving a row because the other speaker was also
+    uncaptioned would report less speech missing than is missing.
+
+    This measures the INSTRUMENT, not the picture. Whether caption cards
+    should be derived from unanchored rows at all is a separate question
+    that changes what a viewer sees, and nothing here answers it.
     """
     findings: List[Finding] = []
     if not transcript_segments or not keep_ranges:
@@ -654,23 +733,19 @@ def check_caption_coverage(reel_name: str,
         seg_start = float(segment.get("timeline_start", 0))
         seg_end = float(segment.get("timeline_end", 0))
 
-        # Map to reel time
-        reel_start = reel_time(seg_start, keep_ranges)
-        reel_end = reel_time(seg_end, keep_ranges)
-        if reel_start is None or reel_end is None:
-            continue
-        if reel_end <= reel_start:
-            continue
+        uncaptioned = 0.0
+        for reel_start, reel_end in _clip_to_reel(
+                seg_start, seg_end, keep_ranges):
+            # How much of this piece is captioned?
+            captioned = 0.0
+            for c_start, c_end in caption_intervals:
+                overlap_start = max(reel_start, c_start)
+                overlap_end = min(reel_end, c_end)
+                if overlap_end > overlap_start:
+                    captioned += overlap_end - overlap_start
 
-        # How much of this segment is captioned?
-        captioned = 0.0
-        for c_start, c_end in caption_intervals:
-            overlap_start = max(reel_start, c_start)
-            overlap_end = min(reel_end, c_end)
-            if overlap_end > overlap_start:
-                captioned += overlap_end - overlap_start
+            uncaptioned += (reel_end - reel_start) - captioned
 
-        uncaptioned = (reel_end - reel_start) - captioned
         if uncaptioned > 0.01:  # more than 10ms
             if not has_item_id:
                 straddling_uncaptioned += uncaptioned

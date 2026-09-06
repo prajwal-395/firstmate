@@ -90,6 +90,56 @@ BLEED_WORD_OVERLAP = 0.5
 """How much of two blocks' wording must coincide to read as one sentence
 on two mics rather than two people saying similar things."""
 
+CAPTION_UNANCHORED_ROWS = True
+"""Whether a row with no clip binding of its own may still be captioned.
+
+The captain's ruling of 2026-09-06, on a measurement rather than a
+preference. `timeline_transcript.attribute_to_clip` returns None for a
+row that straddles a cut, and every such row was dropped here - so the
+reel played the speech and nothing wrote it. Measured across the
+captain's nineteen approved reels, 61 rows: **46 unique, 12 ambiguous,
+3 bleed**, carrying 42.8 seconds of spoken words that play with no
+caption over them. Ignoring them was not conservative, it was dropping
+speech.
+
+Flip this to False to restore the old behaviour in one place. The counts
+this module returns are the other half of that: `unanchored_blocks`,
+`unanchored_seconds`, `unanchored_ambiguous` and
+`unanchored_bleed_dropped` reach the run output, so the change is
+visible on one line rather than folded in silently.
+
+**AND ON THE CAPTAIN'S OWN EPISODE IT PLACES NOTHING, which is the
+finding, not a failure.** Turning it on and measuring: 0 blocks added,
+0 seconds, F5's coverage gap unmoved at 97.3s. `_place_unanchored`
+refuses every row, and the reason is the thing the whole authorisation
+rested on. Of those 42.8 uncaptioned word seconds, **0.0 fall on a clip
+of their own speaker** - all 42.8 sit in a stretch where that speaker
+has NO clip on the timeline. Allowing 3 seconds of slop on the inferred
+clip reach still leaves 23.1s outside.
+
+The rows are unique as TEXT and that measurement stands. But a row
+straddling a cut carries WhisperX bridging its own silence - the model's
+own undetermined named it, "a timeline_end that runs across the
+following speaker's whole turn, 731.69 to 769.10 is one" - so the words
+in the bridged middle have timings that belong to the clips at the row's
+two ENDS. Captioning them would place text at seconds the speech is not
+at, which is a worse defect than the missing card and a louder one.
+
+So this stays on, and it stays REFUSING, because refusing on a measured
+absence is different from dropping on a category. A row whose played
+words really do sit on one clip is captioned the moment one exists;
+none does here. Repairing this properly means fixing the row TIMINGS in
+`timeline_transcript`, not the caption pass, and that is a different
+piece of work."""
+
+UNANCHORED_UNIQUE_CEILING = 0.30
+"""Below this similarity a row carries speech no anchored row carries.
+
+The band boundaries are `reel_proposal.TAKE_SIMILARITY` above and this
+below, and they are the SAME comparison the measurement used - not a
+re-derivation with a different threshold, which would let a row be bleed
+to one half of the codebase and unique to the other."""
+
 ALIGNMENT_METHOD = "timeline_transcript"
 """How a reel block's words were aligned.
 
@@ -117,6 +167,98 @@ def _touches(segment_start: float, segment_end: float,
     """
     return any(min(end, segment_end) > max(start, segment_start)
                for start, end in ranges)
+
+
+def _clip_extents(segments: Sequence[dict]) -> dict:
+    """Each clip's timeline reach and its timeline-to-source offset.
+
+    Read off the rows that ARE bound, because they are the only ground
+    truth on disk: the transcript carries no clip list. A clip's reach is
+    the span of the speech attributed to it, which UNDERSTATES the clip -
+    it says nothing about its silent head and tail. That is the safe
+    direction: a row this cannot place is dropped exactly as before, so
+    the failure mode is the old behaviour rather than an invented
+    binding.
+
+    Keyed by `(speaker, clip_id)`. This is a two-mic recording and each
+    mic has its own clips, so a row must be placed on a clip that
+    carried its own speaker.
+    """
+    out: dict = {}
+    for segment in segments:
+        clip_id = segment.get("resolve_item_id") or segment.get("source_file")
+        start = segment.get("timeline_start")
+        source_start = segment.get("source_start")
+        if not clip_id or start is None or source_start is None:
+            continue
+        end = segment.get("timeline_end")
+        end = float(end) if end is not None else float(start)
+        key = (segment.get("speaker"), clip_id)
+        offset = float(source_start) - float(start)
+        seen = out.get(key)
+        if seen is None:
+            out[key] = {"clip_id": clip_id, "offset": offset,
+                        "first": float(start), "last": end}
+            continue
+        # An offset that moves means these rows are not one clip after
+        # all. Refuse the whole key rather than average two answers.
+        if (seen["offset"] is not None
+                and abs(seen["offset"] - offset) > 0.05):
+            seen["offset"] = None
+        seen["first"] = min(seen["first"], float(start))
+        seen["last"] = max(seen["last"], end)
+    return out
+
+
+def _place_unanchored(segment: dict, first_word: float, last_word: float,
+                      extents: dict):
+    """The clip an unbound row's SURVIVING words sit on, or None.
+
+    Same move as F5's clip: the ROW straddles a cut and has no single
+    clip, but the part of it the reel actually plays often sits wholly
+    inside one. Attributing that part is not guessing - it is asking the
+    narrower question that has an answer.
+
+    Returns `(clip_id, source_start)` or None. None keeps the row
+    dropped, which is what every one of them was before.
+    """
+    speaker = segment.get("speaker")
+    for (row_speaker, _), extent in extents.items():
+        if row_speaker != speaker or extent["offset"] is None:
+            continue
+        if extent["first"] <= first_word and last_word <= extent["last"]:
+            return extent["clip_id"], first_word + extent["offset"]
+    return None
+
+
+def _unanchored_band(segment: dict, anchored: Sequence[dict]) -> str:
+    """`bleed`, `ambiguous` or `unique` for a row with no binding.
+
+    THE SAME comparison the measurement used - `reel_proposal`'s own
+    content words and its `TAKE_SIMILARITY` - against the anchored rows
+    that overlap this one IN TIME. Bleed is the other microphone hearing
+    the same words at the same moment, so it is simultaneous by
+    definition; widening the window pools the vocabulary of everything
+    nearby and inflates the overlap until nothing reads as unique.
+    """
+    from library.tools.reel_proposal import TAKE_SIMILARITY, _content_words
+
+    words = _content_words(segment.get("text", ""))
+    if not words:
+        return "bleed"  # nothing to caption; treat as not worth adding
+    start = float(segment.get("timeline_start", 0.0))
+    end = float(segment.get("timeline_end", 0.0))
+    near: set = set()
+    for other in anchored:
+        if (min(end, float(other.get("timeline_end", 0.0)))
+                - max(start, float(other.get("timeline_start", 0.0))) > 0.001):
+            near |= _content_words(other.get("text", ""))
+    overlap = len(words & near) / len(words)
+    if overlap >= TAKE_SIMILARITY:
+        return "bleed"
+    if overlap <= UNANCHORED_UNIQUE_CEILING:
+        return "unique"
+    return "ambiguous"
 
 
 def spine_for_reel(moment, transcript: dict,
@@ -152,6 +294,12 @@ def spine_for_reel(moment, transcript: dict,
 
     blocks: list[dict] = []
     dropped_no_binding = 0
+    anchored_rows = [s for s in segments
+                     if (s.get("resolve_item_id") or s.get("source_file"))
+                     and s.get("source_start") is not None]
+    extents = _clip_extents(anchored_rows) if CAPTION_UNANCHORED_ROWS else {}
+    unanchored_bands: dict = {"unique": 0, "ambiguous": 0, "bleed": 0}
+    unanchored_seconds = 0.0
 
     for segment in sorted(segments, key=lambda s: s.get("timeline_start", 0.0)):
         master_start = segment.get("timeline_start")
@@ -169,9 +317,33 @@ def spine_for_reel(moment, transcript: dict,
         clip_id = segment.get("resolve_item_id") or segment.get("source_file")
         source_start = segment.get("source_start")
         source_end = segment.get("source_end")
+        band = ""
         if not clip_id or source_start is None or source_end is None:
-            dropped_no_binding += 1
-            continue
+            placed = None
+            if CAPTION_UNANCHORED_ROWS:
+                # The ROW straddles a cut; the part this reel plays may
+                # not. Ask the narrower question before dropping it.
+                inside = [w for w in (segment.get("words") or [])
+                          if w.get("start") is not None
+                          and reel_time(float(w["start"]), ranges) is not None]
+                band = _unanchored_band(segment, anchored_rows) if inside else ""
+                if band == "bleed":
+                    # The MEASURED bleed rows only - the second mic
+                    # carrying words an anchored row already carries.
+                    # Captioning these is the one case that really would
+                    # double the captions.
+                    unanchored_bands["bleed"] += 1
+                elif inside:
+                    placed = _place_unanchored(
+                        segment, float(inside[0]["start"]),
+                        float(inside[-1]["end"]), extents)
+            if placed is None:
+                dropped_no_binding += 1
+                continue
+            clip_id, source_start = placed
+            source_end = source_start + (
+                float(segment["timeline_end"])
+                - float(segment["timeline_start"]))
 
         # Master seconds to REEL seconds.  `at_end=True` on the closing
         # edge: a range end lands exactly on a segment's `timeline_end`,
@@ -209,9 +381,18 @@ def spine_for_reel(moment, transcript: dict,
             dropped_no_binding += 1
             continue
 
+        if band:
+            unanchored_bands[band] += 1
+            unanchored_seconds += float(reel_end) - float(reel_start)
+
         blocks.append({
             "position": len(blocks),
             "block_type": "speech",
+            # NAMED, never folded in silently. A reader asking "where did
+            # this card come from" gets an answer on the block itself,
+            # and an `ambiguous` one can be found again.
+            "from_unanchored_row": bool(band),
+            "unanchored_band": band or None,
             "clip_id": clip_id,
             "source_start": float(source_start),
             "source_end": float(source_end),
@@ -246,7 +427,15 @@ def spine_for_reel(moment, transcript: dict,
     validate_spine_blocks(blocks)
     return {"structure": blocks,
             "dropped_segments": dropped_no_binding,
-            "bleed_blocks_dropped": bled}
+            "bleed_blocks_dropped": bled,
+            # Visible on one line, so the captain can judge the change by
+            # looking at a number rather than at a diff.
+            "unanchored_blocks": (unanchored_bands["unique"]
+                                  + unanchored_bands["ambiguous"]),
+            "unanchored_seconds": round(unanchored_seconds, 2),
+            "unanchored_unique": unanchored_bands["unique"],
+            "unanchored_ambiguous": unanchored_bands["ambiguous"],
+            "unanchored_bleed_dropped": unanchored_bands["bleed"]}
 
 
 def _words_of(block: dict) -> set:

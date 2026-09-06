@@ -464,3 +464,76 @@ def test_a_segment_straddling_a_cut_is_CLIPPED_not_dropped():
     # the block still starts where its first surviving word does
     assert block["word_timestamps"][0]["source_start"] == pytest.approx(
         block["source_start"], abs=0.01)
+
+
+def test_unanchored_row_on_a_real_clip_is_captioned():
+    """A row with no binding of its own, whose PLAYED words sit on one clip.
+
+    The row straddles a cut so `attribute_to_clip` returned None and it
+    used to be dropped whole. The part the reel plays does have an
+    answer, and this is it. Measured on the captain's nineteen no such
+    row exists - every uncaptioned word sits where its speaker has no
+    clip - so this pins the mechanism rather than a live case.
+    """
+    from library.tools import reel_spine
+
+    transcript = {"segments": [
+        {"timeline_start": 0.0, "timeline_end": 4.0, "speaker": "Craig",
+         "resolve_item_id": "clip-a", "source_start": 100.0,
+         "source_end": 104.0, "text": "anchored speech here",
+         "words": [{"word": "anchored", "start": 0.0, "end": 1.0,
+                    "timed": True},
+                   {"word": "speech", "start": 1.0, "end": 2.0,
+                    "timed": True}]},
+        # No binding, but its words sit inside clip-a's reach.
+        {"timeline_start": 2.5, "timeline_end": 3.5, "speaker": "Craig",
+         "resolve_item_id": None, "source_start": None, "source_end": None,
+         "text": "wholly different unrelated wording",
+         "words": [{"word": "wholly", "start": 2.5, "end": 3.0,
+                    "timed": True},
+                   {"word": "different", "start": 3.0, "end": 3.5,
+                    "timed": True}]},
+    ]}
+
+    class _Moment:
+        timeline_start, timeline_end = 0.0, 4.0
+        call_to_action = None
+
+    spine = reel_spine.spine_for_reel(_Moment(), transcript, [(0.0, 4.0)])
+    added = [b for b in spine["structure"] if b["from_unanchored_row"]]
+    assert len(added) == 1, "the played part of the row has a clip"
+    assert added[0]["clip_id"] == "clip-a"
+    assert added[0]["unanchored_band"] == "unique"
+    assert spine["unanchored_blocks"] == 1
+    assert spine["unanchored_seconds"] > 0
+
+
+def test_unanchored_row_with_no_clip_under_it_is_still_dropped():
+    """Refusing on a measured absence, not inventing a binding."""
+    from library.tools import reel_spine
+
+    transcript = {"segments": [
+        {"timeline_start": 0.0, "timeline_end": 2.0, "speaker": "Craig",
+         "resolve_item_id": "clip-a", "source_start": 100.0,
+         "source_end": 102.0, "text": "anchored speech here",
+         "words": [{"word": "anchored", "start": 0.0, "end": 1.0,
+                    "timed": True},
+                   {"word": "speech", "start": 1.0, "end": 2.0,
+                    "timed": True}]},
+        # Craig has no clip anywhere near this, so it stays dropped.
+        {"timeline_start": 8.0, "timeline_end": 9.0, "speaker": "Craig",
+         "resolve_item_id": None, "source_start": None, "source_end": None,
+         "text": "wholly different unrelated wording",
+         "words": [{"word": "wholly", "start": 8.0, "end": 8.5,
+                    "timed": True},
+                   {"word": "different", "start": 8.5, "end": 9.0,
+                    "timed": True}]},
+    ]}
+
+    class _Moment:
+        timeline_start, timeline_end = 0.0, 10.0
+        call_to_action = None
+
+    spine = reel_spine.spine_for_reel(_Moment(), transcript, [(0.0, 10.0)])
+    assert spine["unanchored_blocks"] == 0
+    assert spine["dropped_segments"] == 1

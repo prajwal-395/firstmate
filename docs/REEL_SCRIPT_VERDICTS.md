@@ -318,3 +318,463 @@ compares two selections, and a selection is not a reel.
 Per-reel measurement uses `reel_build.reel_ranges` against the plan and the
 timeline transcript. Nothing here needs Resolve, and nothing here writes to a
 project.
+
+---
+
+# The same nineteen, re-derived against the plan the fixed pipeline produced
+
+Everything above this line describes **the reels that exist** - the nineteen
+the captain approved and the pipeline built. None of it is rewritten here,
+because a verdict on a shipped reel has to stay readable after the thing that
+replaced it is measured.
+
+This section answers a different question: **the fixed pipeline was run for
+real on 2026-09-05 and wrote a plan of its own. Does that plan cover the same
+material with the weaknesses gone?**
+
+## The complication, stated first
+
+**The new plan holds twenty-seven moments, not nineteen.** It is not a
+like-for-like replacement of the captain's approved set and must not be read as
+one. The brief asks for 25-30, so the count is obedience rather than drift, but
+it means "reel 5 became reel 6" is a claim about material, not about numbering.
+
+Sorted by what happened to each of the nineteen approved spans:
+
+| what happened | count | approved reels |
+|---|---|---|
+| **span reappears identically** | 9 | 1, 4, 8, 11, 12, 13, 14, 16, 18 |
+| **span re-drawn** | 8 | 2, 5, 6, 9, 10, 15, 17, 19 |
+| **not proposed at all** | 2 | 3, 7 |
+| new territory the nineteen never touched | - | 10 further moments |
+
+Reel 3 - the one the section above says should not ship - **is not proposed**.
+The 301.2-341.3 stretch with its three takes and two calls to action appears
+nowhere in the twenty-seven. That is the clearest single result here.
+
+Reel 7's material is not lost: the resume-and-references line moved to a
+different, earlier span (see below).
+
+The measuring instrument is the same one used for the nineteen, and it
+reproduces every published number in the section above exactly - reel 8 at
+64.5s and Craig 20%, reel 17 at 108.1s, reel 2's 9.9s gap, reel 5's 10.3s. A
+comparison run on an instrument that could not reproduce the baseline would not
+be a comparison.
+
+## 1. The eleven weak reels, one by one
+
+The only question that answers "did the fix make the scripts good" is whether
+the named weakness is **gone**, **unchanged**, or **replaced by a different
+one**. Nothing else counts.
+
+| approved | new | the named weakness | verdict |
+|---|---|---|---|
+| 1 seo-ranks-geo-understands | 1, identical span | throat-clearing hook | **unchanged** |
+| 2 seo-that-hurts-your-ai-ranking | 2, +11.7s at the end | two-word hook, 9.9s gap, Craig 13% | **partly gone** |
+| 4 consistency-beats-size | 4, identical span | "earlier" back-reference, contradictory takes | **unchanged** |
+| 5 the-audit-that-was-eye-opening | 6, end pulled in 59.3s | the finding told twice, 10.3s gap | **gone, new one arrives** |
+| 6 where-ai-is-reading-you | 7, start moved back 15s | stumbled hook, Craig 10% | **hook gone, balance worse** |
+| 7 website-is-resume | 8, a different span entirely | "Absolutely" hook, stumble, line said twice | **gone, balance worse** |
+| 9 first-step-is-understanding | 12, +4.9s at the end | it is an advertisement | **softened, not gone** |
+| 10 the-seven-modules | 13, end pulled in 18.5s | ends mid-clause, Craig 10% | **gone** |
+| 15 why-youtube-outranks-other-video | 20, +19.5s at the end | 6.4s hole, sentence dangling | **unchanged, balance worse** |
+| 17 four-slots-and-nothing-else | 25, start moved in 30.7s | back-reference, 108s, ends on "Yeah." | **mostly gone** |
+| 18 your-google-business-profile | 26, identical span | ends mid-thought, near-repeats | **unchanged** |
+
+**Three unchanged, and they are unchanged because the model chose the same
+seconds.** Reels 1, 4 and 18 come out of the fixed pipeline with spans
+identical to the approved ones - 0.181-44.745, 415.0-461.2, 2391.3-2469.8.
+Reel 1 still opens "okay so i'm hearing just from a lot of different marketing
+directors"; reel 4 still opens "earlier it doesn't even matter". Only their
+closers moved. Whatever the fixes changed, they did not change these.
+
+**Reel 10 -> 13 is the cleanest repair.** The approved reel's body ended on
+"and also checks", cut mid-clause. The new span ends 18.5s earlier, on "people
+have cited you and written you down in sources" - a finished sentence. Craig's
+share moves 10% -> 14%, which is still a monologue. Two of the three untimed
+transcript artifacts (1474.5, 1474.6) are still inside it; 1504.0 now falls
+outside.
+
+**Reel 17 -> 25 is the largest single improvement.** The start moves 30.7s in,
+past "Let's take that example. You are able to find that nail salon" - the
+sentence that made it unwatchable without reel 16 - and opens instead on "I'm
+telling a lot of folks, too, it's now more important than ever to". 108.1s
+becomes 81.5s. The nail-salon continuation at 2287.1-2318.9 is now in **no**
+reel. What does not change: the body still ends on Akshita's "Yeah." at 2390.6,
+so the dangler survives.
+
+**Reel 5 -> 6 removes the duplicate and buys a length problem.** The approved
+reel told one finding twice, at 559.4-567.2 and again at 588.3-597.5. The new
+span stops at 571.4 and keeps only the first telling; the largest gap falls
+from 10.3s to 1.1s. But the body is **24.4s** against a 45-90s guidance, and
+with a 20.2s borrowed closer attached the closer is **45% of the reel**. That
+is a different weakness, not an absence of one.
+
+**Reel 7 -> 8 fixes three things and loses the one thing it was good at.** The
+approved reel opened on "Absolutely" answering a question the viewer never
+heard, stumbled on "a hiring manner, hiring manager", and said "AI checks both"
+twice. The new span 726.1-775.5 reaches the same line - "your website is your
+resume and everything else are your references. AI checks both." - through a
+49s setup, the audit story of a client whose website, LinkedIn, Crunchbase and
+2021 press release all said something different. It ends on "AI checks both",
+which is a better button than the approved reel had. But Craig's share goes
+**49% -> 12%**: the approved reel had the best speaker balance in the set, and
+that is what was traded away.
+
+**Reel 6 -> 7 is the same trade in the other direction.** The stumbled hook
+"so what do they so what else do they need to be aware of" is replaced by "But
+if you spent a lot of money on redesigning your website," - a real opening.
+Craig's share goes **10% -> 7%**. It is more of a monologue than the reel whose
+monologue was the complaint.
+
+**Reel 2 -> 2: the hook is untouched, the ending is fixed.** Still opens on
+"Yeah. So", still carries the same gap. But the span now runs to 191.2 so it
+**closes on its own words** rather than borrowing, and Craig's share goes
+13% -> 31%.
+
+**Reel 9 -> 12 ends on a principle instead of a product.** The approved reel's
+last words were "See how AI understands you". The new span runs 4.9s further
+and ends "then you can start thinking about a strategy and how to fix it. But
+first, understand." It carries no borrowed closer at all. The body is still
+half a Lucy pitch - "run your company on our Lucy visibility system", the seven
+modules - so the substance of the observation stands. It is better packaged,
+not different.
+
+**Reel 15 -> 20 gets worse.** The span runs 19.5s further, which does nothing
+for the 6.4s hole at 2055.7 (see the correction below), and Craig's share falls
+22% -> 16%.
+
+**Score: two gone outright (10, 17 in the main), three where the named weakness
+goes and a different one arrives (5, 6, 7), three unchanged (1, 4, 18), two
+partly improved (2, 9), one worse (15).** A fix that repaired eleven weak reels
+would be a remarkable fix. This one repaired some, traded some, and left three
+exactly as they were.
+
+## 2. The FIX 4 opening measurement, run over the new plan
+
+The section above closes on an honest limit: the opening measurement was in
+neither replay-bench prompt, so the before/after could say nothing about
+openings. This closes that gap - by **running the measurement**, which is a
+different and weaker claim than showing the fix caused an improvement.
+
+`reel_opening.for_moment` over both plans, on the ranges that actually play:
+
+| | approved 19 | new 27 |
+|---|---|---|
+| openings the measurement reports on | **4** (21%) | **2** (7.4%) |
+| back-reference | 2 (reels 4, 17) | 1 (reel 4) |
+| answer with no question | 2 (reels 2, 7) | 1 (reel 2) |
+
+The two that still fire are the **same two spans**: 117.8 opening "Yeah. So",
+and 415.0 opening "earlier it doesn't even matter". The two that stopped firing
+did so because the model re-drew those spans - reel 17's start moved past the
+nail salon, reel 7's material moved to an earlier window that does not begin on
+"Absolutely".
+
+**And the fix cannot be credited with either.** The live run's own request file
+was probed rather than assumed: `pipeline_output/llm_requests/select_reels.json`
+contains **zero** occurrences of every string `reel_opening.observations`
+emits - "which points at something said outside this reel", "the opening is a
+reply", "opening_observations" - while carrying the handoff's prose rule
+("throat-clearing", three times). So FIX 4 was not in this prompt either. The
+improvement is a real property of the new plan and an unattributed one. The
+first run whose prompt carries the observations is the one that can speak to
+this, and it has not happened yet.
+
+## 3. A correction to the verdicts above: the silences are not silences
+
+This is the largest thing this pass found, and it is a correction to my own
+published work rather than to anybody else's.
+
+Four of the eleven weaknesses above are named as pacing defects - "a 6.1s
+silence inside the body", "ten seconds of silence inside it", "a **6.4s hole**
+at 2054-2062 with the sentence 'Make sure there's a very strong, concise,' left
+dangling and never finished". **None of them is silence.** Each is a stretch
+where the timeline transcript carries no *anchored* row. The audio plays; the
+caption pass, which reads the anchored layer, emits nothing.
+
+Reel 15's dangling sentence **does finish**. At 2057.8-2062.0 Akshita says "but
+that there's a very concise description of what exactly your video is about" -
+unanchored, so uncaptioned, so invisible to every measurement that reads the
+anchored layer, including mine. The same holds at 117.9-127.9 (reel 2),
+606.3-614.9 (reel 5) and 426.6-432.7 (reel 4).
+
+Measured properly - played body seconds minus seconds covered by an anchored
+row:
+
+| | body seconds | uncaptioned | share | worst reel |
+|---|---|---|---|---|
+| approved 19 | 1128.6 | **170.1s** | 15.1% | 5, at 21.9s |
+| new 27 | 1531.3 | **217.9s** | 14.2% | 10, at 21.8s |
+
+**Roughly one second in seven of every reel body plays with no caption card,
+and the new plan does not fix it** - the rate is unchanged because the cause is
+the transcript, not the selection. The section above calls the 61 unanchored
+rows "a display defect, not a build defect". That was wrong in an important
+way: it is not a display defect. It is uncaptioned played speech, which is
+exactly what `render_qa.subtitle_gaps` exists to measure, and on a vertical reel
+watched muted it is the difference between a line landing and not existing.
+
+The published pacing verdicts on reels 2, 4, 5 and 15 should be read as
+**captioning** findings. The reels are less badly paced than stated and more
+badly captioned.
+
+### Does anything measure it? One read, three possibilities, and the answer is the third
+
+The paragraph above says this is "exactly what `render_qa.subtitle_gaps` exists
+to measure". So does it fire on these nineteen?
+
+**No, and it is the `enforce_min_duration` shape.** `subtitle_qa
+.verify_subtitle_timing`, the function that raises `subtitle_gaps`, is imported
+in exactly one place - `library/steps/step_6_02_validate_output/bridge.py:31`.
+Step 6.02 validates the **master video**. Nothing on the reel path calls it.
+The metric is defined, documented in AGENTS.md 10.4, and not called where this
+defect lives.
+
+**The reel path has its own equivalent, and it is not vacuous by construction -
+it is under-reporting by 83%.** `reel_conformance_verifier.check_caption_coverage`
+is F5, "measure seconds of real speech with no caption over it", and its own
+docstring names straddling segments as the thing it counts. It is handed **all**
+875 transcript segments, anchored and not (`run_verification`, line 2408). Run
+against the plan-derived caption cards - no Resolve needed, the same route that
+derived 832 cards across the nineteen:
+
+| | |
+|---|---|
+| reels F5 fires on | **2 of 19** (reels 5 and 15) |
+| seconds F5 reports | **29.2s** |
+| seconds actually uncaptioned | **170.1s** |
+
+The cause is one line. F5 maps each segment through `reel_time(seg_start)` and
+`reel_time(seg_end)` and `continue`s when either is `None` - so **any row that
+straddles the reel boundary is skipped whole**, and a straddling row is
+precisely what it is named for. Counted: of the transcript rows overlapping a
+reel body, **389 are considered and 51 are skipped**, and those 51 carry
+**364.7s** of in-reel overlap.
+
+**Fixed here**, and only the instrument. F5 now intersects each row with each
+keep range and maps the pieces separately, so a row that begins before the reel
+or ends after it is CLIPPED rather than dropped. Same measurement, same route,
+after:
+
+| | before | after |
+|---|---|---|
+| reels F5 fires on | 2 of 19 | **12 of 19** |
+| seconds F5 reports | 29.2s | **97.6s** |
+
+The number getting worse is the point. Mapping the two raw endpoints was wrong
+even when it returned numbers: a row an interior cut runs through mapped to one
+contiguous reel interval spanning the removed take, so seconds the builder had
+cut out counted as speech needing a caption. `reel_time` remains the sole owner
+of the arithmetic; the clip reads a piece's start inclusively and its end with
+`at_end=True`. Three tests in `tests/test_reel_conformance_verifier.py` pin the
+boundary row, the interior cut, and the row the reel does not play at all.
+
+**What is NOT changed is what gets captioned.** Whether caption cards may be
+derived from unanchored rows changes what a viewer sees, and it is the
+captain's. The section below establishes the fact that question turns on.
+
+### And `subtitle_gaps` should NOT be wired into the reel path
+
+One line, because this repo has a one-owner rule and two checks doing the same
+job badly is worse than one doing it well: **F5 already covers what
+`subtitle_gaps` would, and covers it better.** `subtitle_gaps` finds stretches
+between consecutive cards longer than 2s and measures them against spine speech
+blocks; F5 measures every transcript row against every card in reel seconds,
+splits straddling from frame-quantisation residue, and now clips. Wiring
+`verify_subtitle_timing` into the reel path would add a second, coarser opinion
+on the same defect. Leave it owning the master video.
+
+## 3b. And a second correction: 170.1 seconds is four times too many
+
+The figure above is wall-clock seconds inside a reel body with no anchored
+**row**. That is the wrong unit for "speech playing with nothing on screen",
+because a row's span is not all speech.
+
+All 61 unanchored rows carry word timings. Counting only **words** that play
+inside a reel and have no anchored row over them:
+
+| | |
+|---|---|
+| wall-clock seconds with no anchored row (the figure above) | 170.1s |
+| unanchored **word** seconds that play inside a reel | 110.7s |
+| of those, seconds with **no anchored row over them** | **42.8s** |
+
+Roughly **2.3 uncaptioned seconds of real speech per reel**, not nine. The gap
+is silence: WhisperX bridges a quiet stretch into the row beside it, so
+657.4-695.9 is 38.5s carrying nineteen words and 606.3-614.4 is 8.1s carrying
+the single word "Yeah".
+
+### But the words themselves are unique speech, not the second microphone
+
+Both readings were plausible and they point opposite ways. If the unanchored
+rows were **bleed** - the other mic hearing words an anchored row already
+carries - captioning them would double the captions and the build would be
+right to ignore them. If they are **unique**, speech is playing with nothing on
+screen.
+
+Measured with this repository's own machinery rather than a new comparison:
+`reel_proposal._content_words` and its `TAKE_SIMILARITY` of 0.65, each
+unanchored row against the anchored rows that overlap it **in time** - because
+bleed is simultaneous by definition, and a wider window inflates the overlap by
+pooling the vocabulary of everything nearby.
+
+| band | rows | uncaptioned spoken seconds |
+|---|---|---|
+| bleed (similarity >= 0.65) | **3** | 1.5s |
+| ambiguous (0.30-0.65) | 12 | 11.3s |
+| **unique (<= 0.30)** | **46** | **30.0s** |
+
+**Forty-six of sixty-one are unique.** Verbatim, three of them:
+
+- 2057.8-2062.0, Akshita, similarity **0.00** - "but that there's a very
+  concise description of what exactly your video is about." This is the
+  sentence reel 15's verdict says is left dangling. It finishes here, and
+  nothing captions it.
+- 781.8-804.1, Craig, similarity **0.11** - "else is broken and that's why we
+  were pretty intentional on building this lucy visibility system".
+- 609.4-615.3, Craig, similarity **0.12** - "a mine exploding i could kind of
+  see it in their faces like what is going on here".
+
+So the honest statement to put in front of the captain is neither of the two
+headlines this document has already produced. It is: **about 43 seconds across
+nineteen reels, roughly two seconds each, of genuine unique speech that plays
+with no caption over it.** A real defect, a small one, and not the same defect
+twice.
+
+### 3c. Captioning them was authorised, built, and places nothing
+
+On that measurement the caption change was authorised: exclude the three
+measured bleed rows, include the twelve ambiguous and name them, and make the
+whole thing reversible and visible. All three are built -
+`reel_spine.CAPTION_UNANCHORED_ROWS`, a `from_unanchored_row` /
+`unanchored_band` pair on every block, and `unanchored_blocks`,
+`unanchored_seconds`, `unanchored_unique`, `unanchored_ambiguous` and
+`unanchored_bleed_dropped` in the spine's own output.
+
+**Turned on, it adds nothing to the captain's nineteen, and why is the finding.**
+
+| | anchored rows only | unanchored rows too |
+|---|---|---|
+| F5 coverage gap | 97.3s | **97.3s** |
+| caption cards | 1049 | **1049** |
+| blocks added from unanchored rows | 0 | **0** |
+
+`_place_unanchored` refuses every row, and the refusal is measured rather than
+categorical. Of the 42.8 uncaptioned word seconds, **0.0 fall on a clip of
+their own speaker.** All 42.8 sit where that speaker has no clip on the
+timeline; allowing three seconds of slop on the inferred clip reach still
+leaves 23.1s outside.
+
+The rows are unique as **text** - that measurement stands and is not withdrawn.
+But a row that straddles a cut carries WhisperX bridging its own silence. The
+model's own `undetermined` on the live run named it before anyone looked: *"a
+timeline_end that runs across the following speaker's whole turn - 731.69 to
+769.10 is one"*. The words in a bridged middle carry timings belonging to the
+clips at the row's two **ends**, so captioning them would put text on screen at
+seconds the speech is not at. That is a worse defect than the missing card and
+a far louder one.
+
+So the mechanism stays on and stays refusing. Refusing on a measured absence is
+a different thing from dropping on a category, and a row whose played words
+really do sit on one clip gets captioned the moment one exists. Two tests pin
+both directions.
+
+**The repair is in `timeline_transcript`, not the caption pass**: the row
+timings are what is wrong. That is a separate piece of work and this document
+does not start it.
+
+## 3d. The two movements, and neither one alone is the story
+
+| | before | after |
+|---|---|---|
+| F5 reports (instrument fixed) | 29.2s | **97.3s** |
+| unique speech left uncaptioned (caption change) | 30.0s | **30.0s** |
+
+The first number rising is correct - the check stopped declining to look at its
+own subject. The second not falling is correct too, and it is the honest
+result: the caption path cannot fix this, because the seconds it would have to
+caption are not on a clip.
+
+## 4. What the new plan does that the nineteen did not
+
+**The CTA collapse does not recur on the live run either.** The replay-bench
+arm was one piece of evidence; this is the real runner, on the real project:
+
+| | approved 19 | new 27 |
+|---|---|---|
+| closes on its own invitation | 4 | 2 |
+| distinct closer passages | **4** | **10** |
+| most reels on one passage | **7** | **3** |
+| distinct `cta.note` strings | **4** | **25** |
+
+Twenty-five borrowed closers and twenty-five distinct justifications: nothing
+is pasted. The 814.69 sentence that seven approved reels share is used **once**.
+
+**And a new defect arrives with the new territory.** Moment 10,
+`niche-beats-a-hundred-locations` (1186.9-1251.2), is not one of the nineteen
+and is the worst-captioned reel in the new plan at 21.8 uncaptioned seconds. It
+also says its own sentence twice, 15.6s apart - "and your content is built
+around that niche, AI is going to pull you over nail salons that have..." at
+1221.7 and "...AI could definitely pull you over salons that have lots of
+locations" at 1237.3. `duplicate_takes` flagged it, band `repeat`, similarity
+**1.0**, and the model kept both **on purpose**, saying so:
+
+> "Her answer is recorded twice back to back inside this window and only the
+> second take finishes the sentence, so both play; the second delivery is what
+> carries the reel to its ending"
+
+That is an informed decision rather than a miss, and it is exactly the class of
+call [`REEL_INTRA_TURN_REPETITION.md`](REEL_INTRA_TURN_REPETITION.md) says no
+cut rule may take. It is also, in one reader's judgement, the wrong call: a
+viewer hears the same sentence twice inside a 59-second reel.
+
+## 5. The recommendation on the nineteen the captain has today
+
+Seven of the eleven are worth re-cutting; four are not, and two of those four
+are not fixable by re-cutting at all.
+
+**Worth re-cutting through the fixed pipeline** - the new plan reaches the same
+material with the weakness gone, and in four cases the whole repair is one
+moved timecode:
+
+| approved reel | the edit | what it buys |
+|---|---|---|
+| **17** four-slots | start 2288.2 -> **2318.9** | the back-reference goes, 108s -> 81.5s |
+| **10** seven-modules | end 1520.8 -> **1502.4** | ends on a finished sentence |
+| **9** first-step | end 1445.5 -> **1450.4**, drop the borrowed closer | ends on a principle, not the product |
+| **2** seo-that-hurts | end 179.5 -> **191.2**, drop the borrowed closer | closes on its own words, Craig 13% -> 31% |
+| **5** the-audit | end 630.7 -> **571.4** | the finding stops being told twice |
+| **7** website-is-resume | replace with **726.1-775.5** | hook, stumble and repeat all go |
+| **6** where-ai-is-reading | start 653.4 -> **638.4** | a real opening replaces the stumble |
+
+Reels 5, 7 and 6 are the ones to weigh rather than apply: each trades its named
+weakness for a different one (a 24.4s body, Craig at 12%, Craig at 7%). Reels
+17, 10, 9 and 2 are trades in one direction only and I would apply them.
+
+**Fine as they are, in the sense that re-cutting will not help:**
+
+- **1** seo-ranks-geo-understands, **4** consistency-beats-size and **18**
+  your-google-business-profile come out of the fixed pipeline with **identical
+  spans**. Re-running produces the same reel. Their weaknesses need a hand on
+  the timecode, and reel 1's is a five-second trim off the front.
+- **15** why-youtube-outranks comes out **longer and less balanced**, and its
+  named defect is a captioning defect that no selection fixes. Leave it and fix
+  the caption.
+
+**And one that is already settled: reel 3 should not be rebuilt.** The fixed
+pipeline does not propose that stretch. Dropping it needs no decision from
+anybody.
+
+## Reproducing this section
+
+    # the plan the fixed pipeline wrote
+    <project>/pipeline_output/steps/3_04_select_reels/output.json  ->  reel_selection.moments
+    # the approved nineteen
+    <project>/pipeline_output/review/reel_proposals_v2.json
+
+Per reel: `reel_proposal.enrich` for the measured fields,
+`reel_build.reel_ranges` for what plays, `reel_opening.opening_words` and
+`reel_opening.observations` for the opening, and played-body seconds minus
+anchored coverage for the uncaptioned figure. Nothing needs Resolve and nothing
+writes to a project.
