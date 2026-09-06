@@ -57,10 +57,20 @@ class EnvironmentCondition:
     makes the condition false - which is the whole point: a skip that
     cannot name an environment that runs the test is not a skip, it is a
     deletion nobody performed.
+
+    `capability`, when set, names the environment capability whose absence
+    causes this skip.  A skip matching a condition WITH a capability means
+    the run is NARROWER than a full environment would produce - the gate
+    must not report an unqualified PASS.  Conditions without a capability
+    are complementary pairs (one side always fires) or are not narrowing.
+
+    `install_hint` tells the reader how to obtain the missing capability.
     """
 
     pattern: str
     false_when: str
+    capability: str = ""
+    install_hint: str = ""
     _regex: re.Pattern = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
@@ -78,6 +88,7 @@ class EnvironmentCondition:
 # `tests/test_no_unfailable_tests.py` asserts both directions - that the
 # suite's real skips are covered, and that an undeclared one fails.
 ENVIRONMENT_CONDITIONS = (
+    # ── Complementary pairs: one side always fires, so neither narrows ──
     EnvironmentCondition(
         pattern=r"parselmouth is present, so measurement succeeds",
         false_when="praat-parselmouth is NOT installed - the run then "
@@ -89,52 +100,75 @@ ENVIRONMENT_CONDITIONS = (
                    "asks for - the .venv this pipeline runs in has it",
     ),
     EnvironmentCondition(
+        pattern=r"tiktoken is installed here; the absent path is elsewhere",
+        false_when="tiktoken is NOT installed - the replay bench then "
+                   "reports an absent token count rather than estimating",
+    ),
+    # ── Capabilities: a skip here means the run is narrower ────────────
+    EnvironmentCondition(
         pattern=r"ffmpeg(/ffprobe)? (is )?not (available|installed|on this machine)",
         false_when="ffmpeg and ffprobe are on PATH (AGENTS.md 9 requires "
                    "them for a real run)",
+        capability="ffmpeg",
+        install_hint="brew install ffmpeg",
     ),
     EnvironmentCondition(
         pattern=r"face sampling is an ffmpeg pipeline",
         false_when="ffmpeg and ffprobe are on PATH",
+        capability="ffmpeg",
+        install_hint="brew install ffmpeg",
     ),
     EnvironmentCondition(
         pattern=r"ffmpeg cannot encode a fixture here",
         false_when="the local ffmpeg build carries the encoder the "
                    "fixture needs",
+        capability="ffmpeg_encoder",
+        install_hint="brew install ffmpeg  (with the encoder the fixture needs)",
     ),
     EnvironmentCondition(
         pattern=r"this ffmpeg cannot write display-rotation side data",
         false_when="the local ffmpeg build supports `-display_rotation`",
+        capability="ffmpeg_rotation",
+        install_hint="upgrade ffmpeg to a build that supports -display_rotation",
     ),
     EnvironmentCondition(
         pattern=r"needs remotion-subtitles/node_modules, npx and ffmpeg",
         false_when="`npm install` has been run in remotion-subtitles/ and "
                    "npx and ffmpeg are on PATH",
+        capability="remotion",
+        install_hint="cd remotion-subtitles && npm install",
     ),
     EnvironmentCondition(
-        pattern=r"could not import ['\"](cv2|yaml|tiktoken)['\"]",
+        pattern=r"could not import ['\"](?:cv2|yaml|tiktoken)['\"]",
         false_when="the package is installed - all three are in "
                    "`requirements.txt` and present in the pipeline .venv",
+        capability="python_packages",
+        install_hint="pip install -r requirements.txt",
     ),
     EnvironmentCondition(
         pattern=r"PyYAML not installed",
         false_when="PyYAML is installed, as `requirements.txt` asks",
-    ),
-    EnvironmentCondition(
-        pattern=r"tiktoken is installed here; the absent path is elsewhere",
-        false_when="tiktoken is NOT installed - the replay bench then "
-                   "reports an absent token count rather than estimating",
+        capability="python_packages",
+        install_hint="pip install -r requirements.txt",
     ),
     EnvironmentCondition(
         pattern=r"the SFX library is not resolvable here",
-        false_when="PIPELINE_SFX_LIBRARY points at a real library "
-                   "(AGENTS.md 9)",
+        false_when="the bridge subprocess has a project_folder to write "
+                   "the SFX catalogue into - the test harness does not "
+                   "provide one, so this always skips in the suite",
+        # No capability: these tests skip because the bridge has no
+        # project_folder in the test harness, not because
+        # PIPELINE_SFX_LIBRARY is absent.  The skip fires in EVERY
+        # test run regardless of environment, so it is the baseline,
+        # not a narrowing gap.
     ),
     EnvironmentCondition(
         pattern=r"(Templates\.drfx not found"
                 r"|Could not extract setting from drfx)",
         false_when="DaVinci Resolve is installed, so its own "
                    "Templates.drfx is on disk to parse",
+        capability="resolve_installed",
+        install_hint="install DaVinci Resolve",
     ),
     EnvironmentCondition(
         pattern=r"DaVinci Resolve is not running with a project whose media "
@@ -143,6 +177,9 @@ ENVIRONMENT_CONDITIONS = (
                    "media pool holds a video clip long enough to trim - the "
                    "state AGENTS.md 5 requires for any Resolve-dependent "
                    "step, and the state the captain reviews a timeline in",
+        capability="resolve_running",
+        install_hint="open DaVinci Resolve with a project whose media pool "
+                     "has a video clip",
     ),
     EnvironmentCondition(
         pattern=r"node is not on PATH, so the plugin's JavaScript cannot "
@@ -151,6 +188,8 @@ ENVIRONMENT_CONDITIONS = (
                    "runtime remotion-subtitles already needs, and what the "
                    "Workflow Integration's own JavaScript is checked "
                    "against `clip_context` with",
+        capability="node",
+        install_hint="brew install node",
     ),
     EnvironmentCondition(
         pattern=r"DaVinci Resolve Studio's bundled Electron and Workflow "
@@ -158,16 +197,22 @@ ENVIRONMENT_CONDITIONS = (
         false_when="DaVinci Resolve Studio is installed - it ships both, "
                    "and Workflow Integrations are a Studio-only feature, "
                    "so a machine that can load the plugin can run this",
+        capability="resolve_studio",
+        install_hint="install DaVinci Resolve Studio",
     ),
     EnvironmentCondition(
         pattern=r"PIPELINE_PROJECTS_ROOT was unset before pytest started",
         false_when="PIPELINE_PROJECTS_ROOT is configured, which it is on "
                    "any machine that has run the pipeline",
+        capability="projects_root",
+        install_hint="export PIPELINE_PROJECTS_ROOT=/path/to/projects",
     ),
     EnvironmentCondition(
         pattern=r'could not import "mlx_vlm"',
         false_when="mlx and mlx_vlm are installed - they are macOS-only "
                    "Apple Silicon dependencies and unavailable on Linux CI",
+        capability="mlx_vlm",
+        install_hint="pip install mlx mlx_vlm  (Apple Silicon only)",
     ),
 )
 
@@ -178,6 +223,62 @@ def declared_condition(reason: str) -> EnvironmentCondition | None:
         if condition.matches(reason):
             return condition
     return None
+
+
+@dataclass(frozen=True)
+class MissingCapability:
+    """A capability the environment does not have, with how to get it."""
+
+    name: str
+    install_hint: str
+    skip_count: int
+
+
+def missing_capabilities_from_reasons(
+    reasons: list[str],
+) -> list[MissingCapability]:
+    """Which capabilities were absent, given a list of skip reasons.
+
+    Groups by capability name and deduplicates install hints.  Only
+    conditions with a non-empty `capability` are reported - complementary
+    pairs are not narrowing.
+    """
+    caps: dict[str, dict] = {}
+    for reason in reasons:
+        cond = declared_condition(reason)
+        if cond is None or not cond.capability:
+            continue
+        entry = caps.setdefault(
+            cond.capability, {"hint": cond.install_hint, "count": 0})
+        entry["count"] += 1
+    return sorted(
+        (MissingCapability(name=k, install_hint=v["hint"],
+                           skip_count=v["count"])
+         for k, v in caps.items()),
+        key=lambda mc: mc.name,
+    )
+
+
+def missing_capabilities_from_junit(xml_path: str) -> list[MissingCapability]:
+    """Extract missing capabilities from a JUnit XML file pytest wrote.
+
+    Reads the `<skipped message="...">` elements and returns the
+    capabilities whose absence caused skips.  Used by the gate script to
+    detect when a run is narrower than a full environment would produce.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(xml_path)
+    except Exception:
+        return []
+
+    reasons: list[str] = []
+    for skipped in tree.iter("skipped"):
+        msg = skipped.get("message", "")
+        if msg:
+            reasons.append(msg)
+    return missing_capabilities_from_reasons(reasons)
 
 
 UNDECLARED_SKIP_ADVICE = (

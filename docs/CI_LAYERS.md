@@ -36,8 +36,23 @@ It prints one verdict line, last, beginning `FULL-SUITE GATE:`. It is **fail-clo
 the verdict starts at `DID NOT RUN` and `PASS` additionally requires a JUnit report that
 pytest itself wrote, with a positive executed-test count and zero failures and zero
 errors. An interpreter that is not there, a collection error, an empty selection and an
-interrupted run all read `DID NOT RUN`, never `PASS`. Whatever it declined to measure is
-named in the verdict line itself.
+interrupted run all read `DID NOT RUN`, never `PASS`.
+
+The verdict has **four states**, not two:
+
+| Verdict | Meaning | Exit code |
+|---|---|---|
+| `PASS` | Every test passed and no environment capability was absent | 0 |
+| `NARROWED PASS` | Every test that ran passed, but some were skipped because an environment capability was missing - the run measured less than a full environment | 1 |
+| `FAIL` | At least one test failed | 1 |
+| `DID NOT RUN` | pytest did not produce a readable result | 1 |
+
+When the verdict is `NARROWED PASS`, the gate prints a `MISSING CAPABILITIES` block
+naming each absent capability, how many tests it cost, and how to install it. The
+capabilities are derived from `tests/skip_audit.py`'s `ENVIRONMENT_CONDITIONS` - the
+same declarations that validate skip reasons at runtime. Only conditions with a
+`capability` field narrow the run; complementary pairs (where one side always fires)
+do not.
 
 Two test files are excluded by name because they drive the **running** DaVinci Resolve
 and switch the current timeline out from under whoever is using the app. CI has no
@@ -46,9 +61,9 @@ Resolve, so they skip there and the exclusion costs no coverage.
 The `heavy_ml` selection needs an interpreter carrying the ML stack **at the versions
 `requirements.txt` declares** - importable is not enough, and a wrong version reports
 success while measuring nothing. Building that interpreter, verifying it, and pointing
-`FULL_SUITE_GATE_PYTHON` at it are in [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md). Without
-the variable set the heavy tier is named as not measured rather than passing quietly,
-but a verdict that names an omission still has the omission in it.
+`FULL_SUITE_GATE_PYTHON` at it are in [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md). When the
+heavy tier cannot run, it is reported through the **same capability mechanism** as every
+other environment gap rather than as a special case.
 
 ### Why layer 2 cannot be replaced by layer 1
 

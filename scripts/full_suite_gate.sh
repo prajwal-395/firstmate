@@ -22,13 +22,17 @@
 #     interpreter that is missing, a collection error, an empty selection
 #     and an interrupted run all leave that report absent or empty, and
 #     all of them therefore read DID NOT RUN rather than PASS;
-#   - anything this gate declined to measure is NAMED in the verdict
-#     line itself, so a pass can never read as wider than it is.
+#   - PASS means the FULL environment was present and every test either
+#     passed or was part of a complementary pair.  When a capability is
+#     missing and tests were skipped because of it, the verdict is
+#     NARROWED PASS - never an unqualified PASS - and every missing
+#     capability is named with what it costs and how to install it.
 #
 # The `heavy_ml` selection is deliberately part of the LOCAL layer: those
 # tests exercise the real Apple-Silicon dependencies, which is why the
 # GitHub `heavy-ml-suite` job is demoted to a deliberate label.  If the
-# interpreter here cannot run them, the verdict says so out loud.
+# interpreter here cannot run them, the verdict says so out loud, through
+# the SAME capability mechanism as every other environment gap.
 
 set -uo pipefail
 
@@ -93,6 +97,25 @@ else:
 PY
 }
 
+# Extracts missing capabilities from a JUnit XML and prints one line per
+# missing capability: `<name> <skip_count> <install_hint>`.
+# Prints nothing when the environment is complete.
+missing_caps() {
+  local xml="$1"
+  "${PYTHON}" - "$xml" <<'PY' 2>/dev/null
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[1]))))
+# The XML is in a tmpdir; we need the repo root for the import.
+repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) if '__file__' in dir() else None
+# When run via heredoc, __file__ is not set.  Use REPO_ROOT from env.
+repo = os.environ.get("REPO_ROOT", os.getcwd())
+sys.path.insert(0, repo)
+from tests.skip_audit import missing_capabilities_from_junit
+for mc in missing_capabilities_from_junit(sys.argv[1]):
+    print(f"{mc.name}\t{mc.skip_count}\t{mc.install_hint}")
+PY
+}
+
 # ---- phase 1: the CI-equivalent selection ------------------------------
 MAIN_XML="${REPORT_DIR}/main.xml"
 echo "=== full-suite gate: pytest -m 'not heavy_ml' (${PYTHON}) ==="
@@ -115,8 +138,8 @@ MAIN_DETAIL="${MAIN_RESULT#* }"
 # permanently red gate is one everybody learns to ignore.
 #
 # So the tier is refused rather than mis-reported, and the verdict line
-# NAMES the module that is missing.  This is the only precondition; if
-# the dependencies import and a test then fails, that is a real FAIL.
+# NAMES the module that is missing.  This reports through the SAME
+# capability mechanism as every other environment gap.
 HEAVY_DEPS="parselmouth whisperx"
 heavy_ml_is_runnable() {
   local missing=""
@@ -147,6 +170,38 @@ fi
 HEAVY_STATE="${HEAVY_RESULT%% *}"
 HEAVY_DETAIL="${HEAVY_RESULT#* }"
 
+# ---- capability audit: what this run skipped ---------------------------
+# Collect missing capabilities from both JUnit reports, plus the heavy_ml
+# preflight.  A capability that is absent means the run is NARROWER than
+# a full environment, and the verdict must say so.
+NARROWED_CAPS=""
+NARROWED_COUNT=0
+
+# From main JUnit XML
+if [ -f "${MAIN_XML}" ]; then
+  while IFS=$'\t' read -r cap_name cap_count cap_hint; do
+    [ -z "${cap_name}" ] && continue
+    NARROWED_CAPS="${NARROWED_CAPS}  ${cap_name} (${cap_count} tests skipped) - install: ${cap_hint}"$'\n'
+    NARROWED_COUNT=$((NARROWED_COUNT + 1))
+  done < <(REPO_ROOT="${REPO_ROOT}" missing_caps "${MAIN_XML}")
+fi
+
+# From heavy JUnit XML
+if [ "${RUN_HEAVY_ML}" -eq 1 ] && [ -f "${HEAVY_XML:-}" ]; then
+  while IFS=$'\t' read -r cap_name cap_count cap_hint; do
+    [ -z "${cap_name}" ] && continue
+    NARROWED_CAPS="${NARROWED_CAPS}  ${cap_name} (${cap_count} tests skipped) - install: ${cap_hint}"$'\n'
+    NARROWED_COUNT=$((NARROWED_COUNT + 1))
+  done < <(REPO_ROOT="${REPO_ROOT}" missing_caps "${HEAVY_XML}")
+fi
+
+# The heavy_ml interpreter check is the SAME defect - a missing capability
+# that narrows the run.  Report it through the same mechanism.
+if [ "${RUN_HEAVY_ML}" -eq 0 ]; then
+  NARROWED_CAPS="${NARROWED_CAPS}  heavy_ml (entire tier skipped) - install: ${HEAVY_SKIP_REASON:-set FULL_SUITE_GATE_PYTHON to an interpreter with the ML stack}"$'\n'
+  NARROWED_COUNT=$((NARROWED_COUNT + 1))
+fi
+
 # ---- the verdict -------------------------------------------------------
 # Fail-closed: DID NOT RUN unless phase 1 demonstrably measured something.
 case "${MAIN_STATE}" in
@@ -161,6 +216,11 @@ case "${HEAVY_STATE}" in
   *)   HEAVY_NOTE="heavy_ml NOT MEASURED - ${HEAVY_DETAIL}" ;;
 esac
 
+# A PASS with missing capabilities is a NARROWED PASS, not PASS.
+if [ "${VERDICT}" = "PASS" ] && [ "${NARROWED_COUNT}" -gt 0 ]; then
+  VERDICT="NARROWED PASS"
+fi
+
 echo
 echo "--------------------------------------------------------------------"
 echo "not measured by this gate, deliberately:"
@@ -168,6 +228,19 @@ for f in "${RESOLVE_DRIVING[@]}"; do
   echo "  ${f}  (drives the running DaVinci Resolve)"
 done
 echo "--------------------------------------------------------------------"
+
+if [ "${NARROWED_COUNT}" -gt 0 ]; then
+  echo
+  echo "--------------------------------------------------------------------"
+  echo "MISSING CAPABILITIES (${NARROWED_COUNT}):"
+  echo "The following environment capabilities were absent.  Tests that"
+  echo "depend on them were skipped, so this run measured LESS than a"
+  echo "full environment.  The verdict is NARROWED PASS, not PASS."
+  echo ""
+  printf '%s' "${NARROWED_CAPS}"
+  echo "--------------------------------------------------------------------"
+fi
+
 echo "FULL-SUITE GATE: ${VERDICT}  |  main: ${MAIN_DETAIL}  |  ${HEAVY_NOTE}"
 
 [ "${VERDICT}" = "PASS" ] && exit 0
