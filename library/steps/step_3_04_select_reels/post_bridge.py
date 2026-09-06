@@ -166,6 +166,18 @@ def resolve(llm_output: dict, data: dict) -> dict:
         or []
     )
 
+    # WAS one project's absolute path, hardcoded: every project this
+    # step ever ran for was told its transcript lived in
+    # `lucie/geo-podcast`. The engine serves a daily channel and client
+    # work (AGENTS.md 14), so a project's own path is not the engine's to
+    # state - and the module that WRITES the file already knows where it
+    # goes.
+    from library.tools.timeline_transcript import transcript_path
+
+    project_folder = data.get("project_folder") or ""
+    where = (f" The FULL transcript these were chosen from is at: "
+             f"{transcript_path(project_folder)}." if project_folder else "")
+
     return {
         "reel_selection": {
             "moments": [m.as_dict() for m in moments],
@@ -174,9 +186,8 @@ def resolve(llm_output: dict, data: dict) -> dict:
             "dropped": dropped,
             "approval": (
                 "every moment is PROPOSED. Nothing is built until the "
-                "captain approves it - see reel_proposal.assert_approved. "
-                "The FULL absolute transcript is available at: "
-                "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/pipeline_output/scratch/timeline_transcript/transcript.json"
+                "captain approves it - see reel_proposal.assert_approved."
+                + where
             ),
         }
     }

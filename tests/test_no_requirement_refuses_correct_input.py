@@ -67,6 +67,31 @@ def test_a_correct_state_is_not_refused(req):
         f"{verdict.reason}")
 
 
+def _full_default_run() -> frozenset:
+    """The steps a plain full run really schedules.
+
+    NOT "every node in the DAG", which is what this said until a
+    requirement existed for a step the pipeline does not schedule on its
+    own. `run_scope.DESELECTED_BY_DEFAULT` is the pipeline's own answer
+    to "what does a default run leave out", and `select_reels` is in it
+    for exactly the reason its requirement refuses:
+
+        "Requires a timeline_transcript produced outside the pipeline
+         (needs Resolve open and WhisperX). Running it by default would
+         crash on the missing transcript."
+
+    Asking a deselected step's requirement of a run that never includes
+    it is the scope dimension of vacuous strictness -
+    `test_a_requirement_is_only_asked_of_a_step_that_is_running` below
+    is the same point for the machine side. The requirement's own
+    refusal, on a run that DOES select the step, is asserted in
+    `tests/test_operations.py`.
+    """
+    dag = run_scope.load_dag()
+    return frozenset(n["id"] for n in dag["nodes"]
+                     if n["id"] not in run_scope.DESELECTED_BY_DEFAULT)
+
+
 def test_a_full_default_run_is_not_refused_for_state():
     """A plain full run must not be refused by ANY state-side requirement.
 
@@ -88,13 +113,12 @@ def test_a_full_default_run_is_not_refused_for_state():
     unrestricted so the hole cannot reopen. Only environment requirements
     are excluded, because no step produces a machine.
     """
-    dag = run_scope.load_dag()
-    every_producer = frozenset(n["id"] for n in dag["nodes"])
-    context = R.Context(run_set=every_producer)
+    run_set = _full_default_run()
+    context = R.Context(run_set=run_set)
 
     state_side = [r for r in R.all_requirements()
                   if r.kind != R.KIND_ENVIRONMENT]
-    unmet = R.check(every_producer, context, state_side)
+    unmet = R.check(run_set, context, state_side)
 
     assert unmet == [], (
         "these requirements refuse a run in which every producer "
@@ -278,9 +302,8 @@ def test_a_fresh_checkout_can_still_run_the_pipeline(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("PIPELINE_SFX_LIBRARY", str(tmp_path))
 
-    dag = run_scope.load_dag()
-    every_producer = frozenset(n["id"] for n in dag["nodes"])
-    unmet = R.check(every_producer, R.Context(run_set=every_producer),
+    run_set = _full_default_run()
+    unmet = R.check(run_set, R.Context(run_set=run_set),
                     [r for r in R.all_requirements()
                      if r.kind != R.KIND_ENVIRONMENT])
 

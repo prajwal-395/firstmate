@@ -58,7 +58,35 @@ def test_every_derived_requirement_is_a_state_key():
 
 def test_all_requirements_is_derived_plus_hand_written():
     every = R.all_requirements()
-    assert len(every) == len(R.derive_state_keys()) + len(R.HAND_WRITTEN)
+    assert len(every) == (len(R.derive_state_keys())
+                          + len(R.derive_runner_injected_keys())
+                          + len(R.HAND_WRITTEN))
+
+
+def test_the_runner_injected_half_is_derived_and_is_a_state_key():
+    """`derive_state_keys` reads EDGES; one hard input has none.
+
+    `select_reels.timeline_transcript` is declared `required: true` and
+    is written by a CLI tool, so no edge can carry it and
+    `run_scope.prerequisites` cannot see it. Until this derivation
+    existed `select_reels` had ZERO requirements while being the one
+    step that cannot run without a file no step writes - and the runner
+    raised for it mid-run instead, which is the crash this module exists
+    to move earlier.
+
+    DERIVED, not listed: the consumers come off the manifests.
+    `tests/test_operations.py` re-measures that exactly one input is in
+    this shape.
+    """
+    injected = R.derive_runner_injected_keys()
+    assert [r.name for r in injected] == ["timeline_transcript.on_file"]
+    only = injected[0]
+    assert only.kind == R.KIND_STATE_KEY
+    assert only.consumers == ("select_reels",)
+    # Empty and load-bearing: `_producer_will_make_it` never defers a
+    # requirement with no producer, and `describe_refusal` prints no
+    # "run the producers" line for one. There is no step to run.
+    assert only.produced_by == ()
 
 
 def test_the_four_kinds_are_all_present():

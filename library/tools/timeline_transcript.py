@@ -481,6 +481,28 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
     }
 
 
+# ── Where it lands ───────────────────────────────────────────────────
+
+TRANSCRIPT_FILENAME = "transcript.json"
+SCRATCH_SUBDIR = "timeline_transcript"
+
+
+def transcript_path(project_folder) -> Path:
+    """Where this module's output lands, spelled ONCE.
+
+    The same shape as `reel_proposal.PROPOSAL_FILENAME`, and for the same
+    reason: the writer below, `run_pipeline.gather_step_inputs`,
+    `reel_proposal.write_from_step_output`, `reel_build` twice and the
+    requirement that refuses when it is absent all name one file, and
+    five of the six composed the path themselves.  A reader who wants to
+    know where the transcript lives should find one answer.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return Path(ProjectLayout(str(project_folder)).read_path(
+        Area.SCRATCH, SCRATCH_SUBDIR, TRANSCRIPT_FILENAME))
+
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 def build_and_transcribe(project_folder: str, snapshot,
@@ -490,7 +512,7 @@ def build_and_transcribe(project_folder: str, snapshot,
     from library.tools.project_layout import Area, ProjectLayout
 
     layout = ProjectLayout(project_folder)
-    scratch = Path(layout.write_dir(Area.SCRATCH)) / "timeline_transcript"
+    scratch = Path(layout.write_dir(Area.SCRATCH)) / SCRATCH_SUBDIR
     cache_dir = scratch / "spans"
     scratch.mkdir(parents=True, exist_ok=True)
 
@@ -525,7 +547,6 @@ def build_and_transcribe(project_folder: str, snapshot,
 def main(argv=None) -> int:
     import argparse
     from library.tools import timeline_ingest
-    from library.tools.project_layout import Area, ProjectLayout
 
     parser = argparse.ArgumentParser(
         description="Transcribe what a Resolve timeline says, per speaker.")
@@ -546,9 +567,8 @@ def main(argv=None) -> int:
                                     model_size=args.model,
                                     only_speakers=args.speaker or None)
 
-    out = Path(args.out) if args.out else (
-        Path(ProjectLayout(args.project_folder).write_dir(Area.SCRATCH))
-        / "timeline_transcript" / "transcript.json")
+    out = (Path(args.out) if args.out
+           else transcript_path(args.project_folder))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(document, indent=2), encoding="utf-8")
     print(f"\nwrote {document['segment_count']} segments -> {out}",

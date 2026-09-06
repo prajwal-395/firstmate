@@ -72,10 +72,18 @@ Steps 4, 5 and 6 are written as operations, not as script invocations:
     python3 -m library.tools.operations --list
     python3 -m library.tools.operations <op> --scope ...
 
-`--list` today reports twelve operations and **none of them is a reel
-operation**; `subtitles.render` and `subtitles.render_segment` carry
-`project,region` scopes and the rest are `project` only. That is the gap this
-run is waiting on.
+**UPDATED 2026-09-06.** `--list` reported twelve operations when this was
+written and **none of them was a reel operation**. It now reports seventeen,
+two of which are: `reel.candidates` and `reel.select`, both owned by
+`select_reels`, and their contract REFUSES a project with no timeline
+transcript, naming the command that writes one. Step 3 above is that.
+
+Steps 4 and 5 - the timeline BUILD and the per-reel caption/graphics pass - are
+still not operations, and that is a finding rather than a gap left open:
+`docs/REEL_BUILD_HAS_NO_OWNING_NODE.md` says which node was checked and why
+registering the build under it would produce a contract that refuses for a
+reason that is not true. `subtitles.render` and `subtitles.render_segment`
+carry `project,region` scopes and the rest are `project` only.
 
 ## Evidence the run must produce, and what falsifies each
 
@@ -205,6 +213,18 @@ through named operations, but an operation still RESOLVES its entry point
 rather than gathering its own inputs. This run therefore went through the
 DAG RUNNER. "Built through the pipeline rather than a standalone script"
 is proven; "driven by naming an operation" is not yet.
+
+**2026-09-06, on that last sentence.** An operation now gathers its own inputs
+and checks its own contract - `Operation.execute` - and `select_reels` is
+addressable as `reel.candidates` / `reel.select`. What "driven by naming an
+operation" still does NOT cover for a reel is the two stages after selection,
+for the reason in `docs/REEL_BUILD_HAS_NO_OWNING_NODE.md`. A second limit,
+measured: an operation whose step body takes the whole input as one `data`
+parameter - four already did, and both reel operations join them - cannot be
+driven through `execute` at all, because `Operation.gather` returns the step's
+inputs and a post-bridge's `data` is those PLUS the pre-bridge output PLUS the
+model's answer. Those are reached through `.run(...)`, as
+`reel_build.reel_subtitle_segments` already reaches `subtitles.plan`.
 
 ## Proving the fixes rather than assuming them
 

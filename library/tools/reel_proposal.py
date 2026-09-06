@@ -1037,7 +1037,7 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
     `force` is set. An approval is their answer and losing it silently
     would put a rejected moment back in front of the builder.
     """
-    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.project_layout import ProjectLayout
 
     layout = ProjectLayout(str(project_folder))
     step_output = layout.step_dir("select_reels", "output.json")
@@ -1049,8 +1049,8 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
                  .get("reel_selection") or {})
     moments = [ReelMoment.from_dict(m) for m in (selection.get("moments") or [])]
 
-    transcript_file = layout.read_path(
-        Area.SCRATCH, "timeline_transcript", "transcript.json")
+    from library.tools.timeline_transcript import transcript_path
+    transcript_file = transcript_path(project_folder)
     transcript = json.loads(transcript_file.read_text())
 
     path = proposal_path(project_folder)

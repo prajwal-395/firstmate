@@ -381,6 +381,129 @@ def _state_key_requirement(need) -> Requirement:
         satisfying_context=satisfying)
 
 
+# ── state_key: the one hard input no EDGE can carry ──────────────────
+#
+# `derive_state_keys` above reads EDGES, which is the whole of what
+# lineage can express.  `gather_step_inputs` raises on one thing an edge
+# cannot describe: an input the manifest declares REQUIRED whose producer
+# is not a step at all.
+#
+# Measured over the tree on 2026-09-06, exactly two required manifest
+# inputs have no producing edge:
+#
+#     scan.project_folder             a whitelisted global, never absent
+#     select_reels.timeline_transcript  READ OFF DISK, and absent by default
+#
+# The second is the real one, and until now nothing derived a requirement
+# for it - so `select_reels` had ZERO requirements while being the one
+# step in the pipeline that cannot run without a file no step writes.
+# The runner raised for it mid-run instead, which is exactly the crash
+# this module exists to move to before the run starts.
+# `tests/test_operations.py` re-measures the enumeration, so a third
+# input of this shape cannot appear unnoticed.
+
+TIMELINE_TRANSCRIPT_INPUT = "timeline_transcript"
+"""The input name, which must agree with
+`run_pipeline.TIMELINE_TRANSCRIPT_INPUT` - the runner is what injects it,
+and two spellings would give a requirement about a key nothing supplies.
+`tests/test_operations.py` pins the agreement."""
+
+
+_TRANSCRIPT_WITNESS: List[str] = []
+
+
+def _timeline_transcript_on_file(ctx: Context) -> Satisfaction:
+    """Is the transcript on disk for this project?
+
+    PRESENCE, not content, and deliberately: the runner reads the file
+    and json-loads it without judging what is in it, so a content check
+    here would refuse a run the runner accepts - vacuously strict, which
+    is no more coverage than a gate that cannot fail (AGENTS.md 10.4).
+    """
+    from library.tools.timeline_transcript import transcript_path
+
+    folder = ctx.project_folder
+    if folder and transcript_path(folder).is_file():
+        return SATISFIED(SUPPLIED)
+    where = str(transcript_path(folder)) if folder else "the project"
+    return UNSATISFIED(
+        f"there is no timeline transcript at {where}, and NO STEP MAKES "
+        f"ONE - it is written by `python3 -m library.tools."
+        f"timeline_transcript <project> --write`, which needs Resolve "
+        f"open on the project's own timeline. Nothing in this run will "
+        f"produce it while it waits.",
+        missing=TIMELINE_TRANSCRIPT_INPUT)
+
+
+def _project_without_a_transcript() -> Context:
+    """A real, readable directory that carries no transcript."""
+    return Context(project_folder=str(_REPO_ROOT))
+
+
+def _project_with_a_transcript() -> Context:
+    """A project directory that really carries one.
+
+    Built rather than faked, because the check reads the DISK: a witness
+    that passed through some other route would prove a door nobody can
+    open.  Created once, on first call, and only a witness calls it -
+    `python3 -m library.tools.requirements` never does.
+    """
+    if not _TRANSCRIPT_WITNESS:
+        import tempfile
+
+        from library.tools.timeline_transcript import transcript_path
+
+        folder = Path(tempfile.mkdtemp(prefix="requirement-witness-"))
+        path = transcript_path(folder)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"segments": []}), encoding="utf-8")
+        _TRANSCRIPT_WITNESS.append(str(folder))
+    return Context(project_folder=_TRANSCRIPT_WITNESS[0])
+
+
+def derive_runner_injected_keys(dag: Optional[dict] = None,
+                                manifests: Optional[Mapping[str, dict]] = None
+                                ) -> List[Requirement]:
+    """The hard inputs the RUNNER supplies from outside the DAG.
+
+    Derived, like `derive_state_keys`: the consumers are read off the
+    manifests rather than listed here, so a step that starts or stops
+    declaring the transcript required reaches this with nothing to
+    update.  What is NAMED here is the input, because which routes the
+    runner injects is the runner's own enumeration and there is one.
+
+    `produced_by` is EMPTY and stays empty.  That is the truth - no step
+    writes this file - and it is load-bearing twice over:
+    `_producer_will_make_it` never defers a requirement with no producer,
+    so this is asked on every run that schedules a consumer; and
+    `describe_refusal` prints no "run the producers" line for it, because
+    there is no step to run.  The remedy is in the reason instead.
+    """
+    from library.tools import run_scope
+
+    dag = dag if dag is not None else run_scope.load_dag()
+    manifests = (manifests if manifests is not None
+                 else run_scope.load_manifests(dag))
+
+    consumers = tuple(
+        node_id for node_id, manifest in sorted(manifests.items())
+        if any(inp.get("name") == TIMELINE_TRANSCRIPT_INPUT
+               and inp.get("required", True)
+               for inp in (((manifest or {}).get("interface") or {})
+                           .get("inputs") or []))
+    )
+    if not consumers:
+        return []
+    return [Requirement(
+        name="timeline_transcript.on_file", kind=KIND_STATE_KEY,
+        describe=("the project has a timeline transcript on file, which "
+                  "no step produces"),
+        produced_by=(), consumers=consumers,
+        check=_timeline_transcript_on_file,
+        refuting_context=_project_without_a_transcript,
+        satisfying_context=_project_with_a_transcript)]
+
+
 # ── environment: the machine can do the work ─────────────────────────
 #
 # No expression before this module, which is the structural reason these
@@ -839,8 +962,14 @@ HAND_WRITTEN: Tuple[Requirement, ...] = ENVIRONMENT + PREDICATES + COVERAGE
 def all_requirements(dag: Optional[dict] = None,
                      manifests: Optional[Mapping[str, dict]] = None
                      ) -> List[Requirement]:
-    """Auto-derived `state_key` requirements plus the hand-written ones."""
-    return list(derive_state_keys(dag, manifests)) + list(HAND_WRITTEN)
+    """Auto-derived `state_key` requirements plus the hand-written ones.
+
+    Two derivations, both auto: the EDGES (`derive_state_keys`) and the
+    one hard input no edge can carry (`derive_runner_injected_keys`).
+    """
+    return (list(derive_state_keys(dag, manifests))
+            + list(derive_runner_injected_keys(dag, manifests))
+            + list(HAND_WRITTEN))
 
 
 def registry() -> Tuple[Requirement, ...]:

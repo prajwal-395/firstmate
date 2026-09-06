@@ -980,9 +980,12 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         if TIMELINE_TRANSCRIPT_INPUT not in inputs:
             project_folder = state.get("project_folder", "")
             if project_folder:
-                transcript_path = (
-                    Path(project_folder) / "pipeline_output" / "scratch"
-                    / "timeline_transcript" / "transcript.json")
+                # One spelling of where it lands, owned by the module
+                # that writes it - `timeline_transcript.transcript_path`.
+                from library.tools.timeline_transcript import (
+                    transcript_path as _transcript_path,
+                )
+                transcript_path = _transcript_path(project_folder)
                 if transcript_path.is_file():
                     import json as _json
                     inputs[TIMELINE_TRANSCRIPT_INPUT] = _json.loads(

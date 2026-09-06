@@ -544,6 +544,30 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_dir="step_2_05_mesh_spine", body="bridge.py",
         attr="build_duration_zone",
     ),
+    # ── Reels ────────────────────────────────────────────────────────
+    #
+    # PROPOSING a reel is `select_reels`' own decision, and both halves
+    # of that step are here.  BUILDING one onto a Resolve timeline is
+    # NOT here, and that is a finding rather than an omission:
+    # docs/REEL_BUILD_HAS_NO_OWNING_NODE.md says which node was checked,
+    # what its derived contract would have asked for, and why registering
+    # the build under it would produce a contract that refuses for a
+    # reason that is not true and passes on a project with no approved
+    # reel in it.
+    Operation(
+        name="reel.candidates",
+        summary="Measure every contiguous exchange in the cut, ranked and filtered by nothing",
+        owning_node="select_reels",
+        owning_dir="step_3_04_select_reels", body="bridge.py",
+        attr="build_context",
+    ),
+    Operation(
+        name="reel.select",
+        summary="Check the model's chosen moments against the cut and publish them PROPOSED",
+        owning_node="select_reels",
+        owning_dir="step_3_04_select_reels", body="post_bridge.py",
+        attr="resolve",
+    ),
     Operation(
         name="music.analyse",
         summary="Analyse the selected track for beat grid, BPM, key and structure",

@@ -51,6 +51,11 @@ from library.tools import requirements as R
 
 HAND_WRITTEN = list(R.registry())
 DERIVED = list(R.derive_state_keys())
+INJECTED = list(R.derive_runner_injected_keys())
+"""The other derived half: the hard inputs no EDGE can carry. Walked in
+full rather than sampled - there is one, its witnesses are AUTHORED
+rather than generated from the DAG, and it is the only requirement in the
+tree with no producer to fall back on."""
 
 
 def _ids(reqs):
@@ -64,6 +69,10 @@ def test_the_registry_is_not_empty():
         "passes over nothing - which is the exact shape of the defect "
         "this file exists to catch")
     assert DERIVED, "no state_key requirements were derived from the DAG"
+    assert INJECTED, (
+        "nothing was derived for the hard inputs the runner supplies from "
+        "outside the DAG, so `select_reels` is back to a contract that "
+        "cannot refuse for any reason")
 
 
 @pytest.mark.parametrize("req", HAND_WRITTEN, ids=_ids(HAND_WRITTEN))
@@ -135,6 +144,28 @@ def test_derived_state_keys_can_refuse(req):
     """
     assert req.check(req.refuting_context()).is_unsatisfied
     assert req.check(req.satisfying_context()).is_satisfied
+
+
+@pytest.mark.parametrize("req", INJECTED, ids=_ids(INJECTED))
+def test_runner_injected_keys_can_refuse_and_say_what_to_do(req):
+    """Both witnesses, plus the remedy - because there is no producer.
+
+    Every other refusal in the tree can end with "run that step first".
+    This one cannot: the transcript is written by a CLI tool that needs
+    Resolve open, so the refusal has to carry the command itself or the
+    operator is told what is wrong and nothing about what to do.
+    """
+    refusal = req.check(req.refuting_context())
+    assert refusal.is_unsatisfied
+    assert not refusal.produced_by, (
+        f"{req.name} names a producer; no step writes this")
+    assert len(refusal.reason) > len(req.describe), (
+        f"{req.name} refuses by restating itself and names no producer, "
+        f"so the operator has nowhere to go: {refusal.reason!r}")
+
+    passed = req.check(req.satisfying_context())
+    assert passed.is_satisfied, passed.reason
+    assert passed.source in R.SOURCES
 
 
 def test_no_requirement_is_registered_without_witnesses():
