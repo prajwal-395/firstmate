@@ -92,26 +92,139 @@ PROVENANCE_FILENAME = "plan_provenance.json"
 """Written by the builder next to conformance_report.json."""
 
 
+def caption_content_hash(cards) -> str:
+    """A stable digest of the caption cards a build actually placed.
+
+    The MOMENT plan is a file on disk and hashes itself. The caption
+    plan is derived at build time and was never written down, so
+    `check_plan_matches_provenance` could report a clean match while the
+    card grouping underneath had changed completely - measured on the
+    captain's nineteen, the moment hash matched and today's planner
+    produced 39 cards where the build had placed 28.
+
+    Hashed from what a comparison actually needs: each card's start, its
+    length and its text, in play order. Styling is deliberately out -
+    a caption's look belongs to the project (AGENTS.md 14) and no
+    duration check reads it, so a restyle must not read as a different
+    plan.
+    """
+    digest = hashlib.sha256()
+    for card in cards:
+        start = getattr(card, "start_seconds", None)
+        if start is None and isinstance(card, dict):
+            start = card.get("reel_start", card.get("start_seconds"))
+        frames = getattr(card, "frames", None)
+        if frames is None and isinstance(card, dict):
+            frames = card.get("frames")
+        text = getattr(card, "text", None)
+        if text is None and isinstance(card, dict):
+            text = card.get("text", "")
+        digest.update(
+            f"{float(start or 0.0):.3f}|{int(frames or 0)}|{text}\n"
+            .encode("utf-8"))
+    return digest.hexdigest()
+
+
 def write_provenance(
     review_dir: str,
     plan_path: str,
     reel_names: list[str],
+    caption_hashes: Optional[dict] = None,
 ) -> str:
     """Record which plan the builder used and which reels it built.
+
+    **A PARTIAL rebuild MERGES; it never replaces the whole record.**
+    This wrote `built_reels: sorted(reel_names)` unconditionally, so
+    rebuilding one reel replaced a nineteen-reel record with a one-reel
+    record and the other eighteen lost their provenance - after which
+    `check_reels_in_provenance` reports them missing and every check
+    that depends on it is grading against a baseline that was silently
+    deleted. Data loss wearing the shape of a write.
+
+    So an existing record is read first and this build's reels are
+    UNIONED into it. `caption_hashes` is per reel, so a rebuilt reel
+    updates only its own entry and its neighbours keep theirs.
+
+    **A different plan is the one case that does NOT merge.** If the
+    stored `plan_content_hash` differs, the old entries describe reels
+    built from a plan this one is not, and carrying them forward would
+    assert a provenance that never existed. Those are dropped and the
+    record says so in `superseded_plan_hash`.
 
     Returns the path to the provenance file.
     """
     content_hash = plan_content_hash(plan_path)
+    existing = read_provenance(review_dir) or {}
+    superseded = None
+    built = set(reel_names)
+    captions = dict(caption_hashes or {})
+
+    if existing:
+        if existing.get("plan_content_hash") == content_hash:
+            built |= set(existing.get("built_reels") or [])
+            merged = dict(existing.get("caption_hashes") or {})
+            merged.update(captions)
+            captions = merged
+        else:
+            superseded = existing.get("plan_content_hash")
+
     doc = {
         "plan_path": os.path.abspath(plan_path),
         "plan_content_hash": content_hash,
         "built_at": datetime.now(timezone.utc).isoformat(),
-        "built_reels": sorted(reel_names),
+        "built_reels": sorted(built),
+        # Per reel, because a partial rebuild must not speak for its
+        # neighbours. A reel with no entry has no recorded caption plan,
+        # which is a REFUSAL to grade rather than a pass.
+        "caption_hashes": captions,
     }
+    if superseded:
+        doc["superseded_plan_hash"] = superseded
     out = Path(review_dir) / PROVENANCE_FILENAME
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     return str(out)
+
+
+def check_captions_match_provenance(
+    reel_name: str,
+    cards,
+    provenance: Optional[dict],
+) -> tuple[bool, str]:
+    """May caption durations be graded on this reel, and why not.
+
+    REFUSES on absence. A check that grades against an unknown baseline
+    is the defect this whole file exists to stop: F2 produced 701
+    findings against a caption plan nobody had recorded, and every one
+    of them read like a placement defect.
+
+    Returns `(may_grade, reason)`. `False` is never "the captions are
+    wrong" - it is "nothing here can say", and the caller must report
+    the refusal rather than skip quietly.
+    """
+    if not provenance:
+        return False, (
+            f"{reel_name}: no provenance record exists, so nothing "
+            f"states which caption cards this timeline was built from. "
+            f"Caption durations are NOT graded - a baseline that is "
+            f"re-derived from today's code is not the one the build "
+            f"used.")
+    recorded = (provenance.get("caption_hashes") or {}).get(reel_name)
+    if not recorded:
+        return False, (
+            f"{reel_name}: provenance records the moment plan but no "
+            f"caption plan for this reel, so the card grouping the "
+            f"build placed is unknown. Caption durations are NOT "
+            f"graded. Rebuild it, or accept that F2 and F14 cannot "
+            f"speak to this timeline.")
+    actual = caption_content_hash(cards)
+    if actual == recorded:
+        return True, f"{reel_name}: caption plan matches provenance"
+    return False, (
+        f"{reel_name}: the caption plan derived now ({actual[:16]}...) "
+        f"is not the one this timeline was built from "
+        f"({recorded[:16]}...) - the card grouping has changed since "
+        f"the build. Caption durations are NOT graded.")
 
 
 def read_provenance(review_dir: str) -> Optional[dict]:

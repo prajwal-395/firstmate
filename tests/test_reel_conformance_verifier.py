@@ -290,6 +290,70 @@ class TestF2CaptionDuration:
         assert len(findings) == 0
 
 
+    def test_pairs_on_start_frame_not_list_position(self):
+        """The regression this exists to prevent, and it is the whole bug.
+
+        `check_caption_duration` used to read `actual_captions[i]` under a
+        comment saying it matched on start frame. That only agrees with
+        itself while both lists are the same length. Measured on the
+        captain's nineteen reels, 832 cards were planned and 763 placed,
+        so after each reel's first unplaced card every remaining pair
+        compared one card's plan against a DIFFERENT card's item - 701
+        findings and r(planned, placed) = 0.027, which reads as a
+        placement defect and is not one.
+
+        Here card 2 is planned and never placed. Index pairing would
+        compare card 2's 24 frames against card 3's item and card 3
+        against nothing, inventing a delta on a card that is correct.
+        """
+        planned = (
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="first", speaker="Akshita", frames=24),
+            PlannedCaption(start_seconds=2.0, end_seconds=3.0,
+                           text="never placed", speaker="Akshita", frames=24),
+            PlannedCaption(start_seconds=3.0, end_seconds=4.5,
+                           text="third", speaker="Craig", frames=36),
+        )
+        actual = (
+            _item("video", 2, 24, 48, name="a"),    # 24f at frame 24
+            _item("video", 2, 72, 108, name="c"),   # 36f at frame 72
+        )
+        findings = check_caption_duration("Reel 01", planned, actual, FPS)
+
+        f2 = [f for f in findings if f.finding_class == FindingClass.F2]
+        f14 = [f for f in findings if f.finding_class == FindingClass.F14]
+        assert f2 == [], (
+            "cards 1 and 3 are placed at exactly their planned length; "
+            "index pairing invents a delta on card 3")
+        assert len(f14) == 1, "the unplaced card is the finding"
+        assert f14[0].detail["text"] == "never placed"
+
+    def test_unplaced_card_is_not_absorbed_into_a_shift(self):
+        """A plan longer than the timeline reports every missing card."""
+        planned = tuple(
+            PlannedCaption(start_seconds=float(n), end_seconds=n + 1.0,
+                           text=f"card {n}", speaker="Akshita", frames=24)
+            for n in range(5))
+        actual = (_item("video", 2, 0, 24, name="a"),)
+        findings = check_caption_duration("Reel 01", planned, actual, FPS)
+        f14 = [f for f in findings if f.finding_class == FindingClass.F14]
+        assert len(f14) == 4, "four planned cards have no item"
+        assert [f.detail["caption_index"] for f in f14] == [1, 2, 3, 4]
+
+    def test_an_item_is_claimed_once(self):
+        """Two cards cannot both pair with the same placed item."""
+        planned = (
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="one", speaker="Akshita", frames=24),
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="two", speaker="Akshita", frames=24),
+        )
+        actual = (_item("video", 2, 24, 48, name="a"),)
+        findings = check_caption_duration("Reel 01", planned, actual, FPS)
+        f14 = [f for f in findings if f.finding_class == FindingClass.F14]
+        assert len(f14) == 1
+
+
 # ── F3: Master-inherited holes ──────────────────────────────────────
 
 class TestF3MasterHoles:

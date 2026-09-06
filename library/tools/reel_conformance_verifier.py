@@ -82,6 +82,16 @@ class FindingClass:
     F7 = "F7"  # PLANNING: short caption cards (<0.5s)
     F8 = "F8"  # PLANNING: boundary cuts through unseen speech
 
+    # 2026-09-06.  F2 paired planned cards to placed items BY LIST INDEX
+    # while its own comment said it matched on start frame.  With 832
+    # cards planned and 763 placed, every pair after a reel's first
+    # unplaced card compared one card's plan against a DIFFERENT card's
+    # item - 701 findings, r(planned, placed) = 0.027, which reads as a
+    # placement defect and is not one.  Pairing by start frame makes the
+    # length difference visible as what it is instead of absorbing it
+    # into a shift, and this is that finding.
+    F14 = "F14"  # PLANNING: caption planned and never placed
+
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # reel outside 45-90s guidance
     PQ_SPEAKERS = "PQ-SPEAKERS"   # not both speakers with real turns
@@ -518,15 +528,58 @@ def check_caption_duration(reel_name: str,
 
     The audit found 567 of 575 cards placed one frame shorter than their
     rendered .mov - the same off-by-one as F1.
+
+    **Cards are paired on START FRAME, never on list position.** This
+    used to read `actual = actual_captions[i]` under a comment saying it
+    matched by start frame - the comment described the right check and
+    the code did a different one. It only agrees with itself while the
+    two lists are the same length, and they are not: measured on the
+    captain's nineteen, 832 cards were planned and 763 placed. After a
+    reel's first unplaced card every remaining pair compared one card's
+    plan against a DIFFERENT card's item, which produced 701 findings
+    and a correlation between planned and placed duration of 0.027 -
+    reading exactly like a placement defect. It was not one: placement
+    is faithful, measured item by item against the rendered files on
+    reel 01 and equal on 27 of 28.
+
+    `PAIRING_TOLERANCE_FRAMES` is a MECHANICAL identity tolerance, not a
+    quality threshold - it decides which item IS this card, not whether
+    the card is good. It is two frames because the audit found 566 of
+    575 on exactly the planned frame and the rest one frame off, and
+    because `start_seconds` is rounded into frames on both sides.
+
+    A planned card with no item near its start frame is no longer
+    absorbed into a shift; it is reported as F14.
     """
     findings: List[Finding] = []
 
-    # Match planned to actual by position (start frame) - the audit
-    # confirmed 566 of 575 sit on exactly the planned frame.
+    unclaimed = list(enumerate(actual_captions))
     for i, cap in enumerate(planned_captions):
-        if i >= len(actual_captions):
-            break
-        actual = actual_captions[i]
+        want = cap.start_seconds * fps
+        best = None
+        for position, (_, item) in enumerate(unclaimed):
+            gap = abs(item.start_frame - want)
+            if gap <= PAIRING_TOLERANCE_FRAMES and (
+                    best is None or gap < best[0]):
+                best = (gap, position)
+        if best is None:
+            findings.append(Finding(
+                finding_class=FindingClass.F14,
+                reel=reel_name,
+                message=(
+                    f"caption {i+1} '{cap.text[:30]}' was planned at "
+                    f"{cap.start_seconds:.2f}s ({want:.0f}f) and no item "
+                    f"is placed within {PAIRING_TOLERANCE_FRAMES} frames "
+                    f"of it - it was planned and never placed"),
+                severity="error",
+                detail={"caption_index": i,
+                        "planned_start_seconds": round(cap.start_seconds, 3),
+                        "planned_start_frame": round(want),
+                        "planned_frames": cap.frames,
+                        "text": cap.text[:60]},
+            ))
+            continue
+        _, (_, actual) = best[0], unclaimed.pop(best[1])
         delta = actual.duration_frames - cap.frames
         if delta != 0:
             findings.append(Finding(
@@ -1726,6 +1779,7 @@ def verify_reel(plan: ReelPlan,
                 caption_cards: Optional[Sequence[dict]] = None,
                 master_holes: Optional[Sequence[dict]] = None,
                 master_fps: float = 0.0,
+                caption_provenance: Optional[dict] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result."""
     fps = timeline.fps or _fps()
@@ -1775,8 +1829,30 @@ def verify_reel(plan: ReelPlan,
     # a guess would be the vacuity, one layer down.
     have_reference = not plan.captions_unavailable
 
-    # F2: Caption card duration
-    if have_reference and plan.captions and timeline.caption_items:
+    # F2: Caption card duration - GRADED ONLY against a recorded baseline.
+    #
+    # F2 and F14 compare a plan to a placement, and the plan they compare
+    # is RE-DERIVED here from today's code. That is only the build's plan
+    # while nothing has changed in between, and on the captain's nineteen
+    # something had: the moment hash matched, and today's planner produced
+    # 39 cards where the build placed 28. Grading that produced 701
+    # findings that read as a placement defect and were not one.
+    #
+    # So absence REFUSES rather than passing quietly - the same rule the
+    # NO_REFERENCE class already applies to an empty caption plan.
+    gradeable = bool(have_reference and plan.captions
+                     and timeline.caption_items)
+    may_grade, why = check_captions_match_provenance(
+        plan.reel_name, plan.captions, caption_provenance)
+    if gradeable and not may_grade:
+        findings.append(Finding(
+            finding_class=FindingClass.NO_REFERENCE,
+            reel=plan.reel_name,
+            message=why,
+            severity="error",
+            detail={"check": "F2/F14", "graded": False},
+        ))
+    if gradeable and may_grade:
         findings.extend(check_caption_duration(
             plan.reel_name, plan.captions, timeline.caption_items, fps))
 
@@ -2065,6 +2141,17 @@ REEL_SPINE_PRODUCER = ("library.tools.reel_spine", "spine_for_reel")
 #: wraps it, so this is 4.01's code and not a copy of it - which is the
 #: whole reason the registry exists.
 SUBTITLE_PLAN_OPERATION = "subtitles.plan"
+
+
+from library.tools.plan_provenance import check_captions_match_provenance
+
+PAIRING_TOLERANCE_FRAMES = 2
+"""How near a placed item must start to be THIS planned card.
+
+Mechanical identity, not quality (AGENTS.md 10.5): it answers "which item
+is this card", never "is this card right". Two frames because the audit
+measured 566 of 575 cards on exactly the planned frame with the rest one
+frame off, and because both sides round seconds into frames."""
 
 
 class CaptionsUnavailable(Exception):
@@ -2382,6 +2469,14 @@ def run_verification(
         print(f"FATAL: {exc}", file=err)
         return 2
 
+    # The build's own record of what it placed. Read ONCE, and its
+    # absence is a refusal per reel rather than a silent pass.
+    from library.tools.plan_provenance import read_provenance
+    caption_provenance = None
+    if plan_path:
+        caption_provenance = read_provenance(
+            review_dir or os.path.dirname(os.path.abspath(plan_path)))
+
     # ── Find all timelines ───────────────────────────────────────────
     timeline_count = project.GetTimelineCount() or 0
     if timeline_count == 0:
@@ -2573,7 +2668,8 @@ def run_verification(
                 plan, reel_tl,
                 transcript_segments=(transcript or {}).get("segments"),
                 master_holes=master_holes,
-                master_fps=master_snapshot.fps)
+                master_fps=master_snapshot.fps,
+                caption_provenance=caption_provenance)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

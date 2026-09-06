@@ -703,6 +703,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
         pool.DeleteTimelines(timelines_to_delete)
 
     built_reel_names = []
+    caption_hashes = {}
     for moment in moments:
         if moment.approval != "approved":
             continue
@@ -716,6 +717,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
         subtitle_segments = None if skip_captions else reel_subtitle_segments(
             moment, transcript, ranges, project_folder,
             fps=24000 / 1001, width=1080, height=1920)
+
+        # RECORD what was placed. Derived at build time and previously
+        # written down nowhere, which is why the verifier could re-derive
+        # a different grouping a day later and grade against it.
+        if subtitle_segments:
+            from library.tools.plan_provenance import caption_content_hash
+            caption_hashes[moment.timeline_name] = caption_content_hash(
+                subtitle_segments)
 
         build_reel_timeline(
             project=project,
@@ -733,7 +742,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     # if the plan changes before verification runs.
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     from library.tools.plan_provenance import write_provenance
-    write_provenance(review_dir, proposal_path, built_reel_names)
+    # MERGES into any existing record: a partial rebuild must not
+    # delete the provenance of the reels it did not touch.
+    write_provenance(review_dir, proposal_path, built_reel_names,
+                     caption_hashes=caption_hashes)
 
     verify_built_reels(
         project_folder=project_folder,

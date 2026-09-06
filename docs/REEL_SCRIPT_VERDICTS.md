@@ -778,3 +778,278 @@ Per reel: `reel_proposal.enrich` for the measured fields,
 `reel_opening.observations` for the opening, and played-body seconds minus
 anchored coverage for the uncaptioned figure. Nothing needs Resolve and nothing
 writes to a project.
+
+---
+
+# F2: 701 findings are one defect, and it is that placed caption durations do not track the plan
+
+The timeline-side verifier, read-only against the captain's already-open
+`Podcast (field test)` on 2026-09-06, returned `FAILED: 739 error(s), 21
+warning(s) across 19 reels` with its own `Read-only proof: ALL 20 timelines
+identical before/after`. **F2 is 701 of those 739** - every one a caption whose
+placed frame count differs from the planned one. This section characterises it.
+It does not fix it: the placement path is untouched by this refactor and
+changing it at the end of four batches, on the largest number on the board,
+would be the wrong move.
+
+## It is not a rounding bug
+
+| | |
+|---|---|
+| findings | 701 of **763 placed cards** - 91.9% |
+| delta mean / median | **+6.09** / +5 frames |
+| standard deviation | **22.70** frames |
+| range | **-54 to +330** |
+| sign | 428 positive, 273 negative |
+
+A frame-rounding or timebase bug sits at plus or minus one frame and is
+one-signed. This is neither. The histogram has no mode: every value from -21 to
++27 carries between 5 and 23 cards, and the tails run to a 13.8-second outlier.
+
+## The one correlation, and it is the answer
+
+Not reel index - per-reel mean delta runs +0.9 to +10.3 with no pattern. Not
+position - the deciles of caption index run +4.8 to +10.3 and only the last
+turns negative. **Card length**, and it is not a correlation so much as an
+absence of one:
+
+| planned card | n | mean planned | mean **placed** |
+|---|---|---|---|
+| under 0.5s | 33 | 7.0 fr | **33.1 fr** |
+| 0.5-1.0s | 190 | 18.6 fr | **34.8 fr** |
+| 1.0-1.5s | 296 | 28.9 fr | **34.0 fr** |
+| 1.5-2.0s | 143 | 40.0 fr | **36.1 fr** |
+| over 2.0s | 39 | 53.6 fr | **37.7 fr** |
+
+Placed duration is roughly 34-38 frames whatever the plan asked for. A card
+planned at 7 frames and a card planned at 54 come out the same length.
+
+    Pearson r(planned, placed) = 0.027
+
+**So this is one defect, not seven hundred: the placement is not reading the
+planned duration.** Short cards come out long, long cards come out short, and
+the placed durations have their own distribution - mean 34.8 frames, sd 20.1 -
+unrelated to the plan's mean 28.7, sd 11.1.
+
+One honest limit on that number: F2 reports only MISMATCHES, so the 62 cards
+that matched exactly are excluded and `r` is biased downward. They are 8% of
+the placed cards, so including them would move it, and not to anything that
+reads as a relationship.
+
+## Does it matter to a viewer
+
+The histogram, so the captain can judge rather than be handed a threshold. At
+23.976 fps a third of a second is 8.0 frames.
+
+| delta | seconds | findings | share of the 763 placed cards |
+|---|---|---|---|
+| 1 frame | 0.042s | 31 | 4.1% |
+| 2-3 | 0.083-0.125s | 66 | 8.7% |
+| 4-7 | 0.167-0.292s | 122 | 16.0% |
+| **8-15** | **0.334-0.626s** | **224** | **29.4%** |
+| **16-31** | **0.667-1.293s** | **194** | **25.4%** |
+| 32-63 | 1.335-2.628s | 62 | 8.1% |
+| 64+ | 2.669-13.800s | 2 | 0.3% |
+
+- over **1/3 second**: 482 cards, **63.2%** of everything placed
+- over **half a second**: 380, **49.8%**
+- over **a full second**: 125, **16.4%**
+- over **two seconds**: 13, **1.7%**
+
+Two frames is invisible; that band is 4% of the cards. Half the placed cards
+are off by more than half a second, and a sixth by more than a second. A card
+that overruns by a second sits over the next sentence.
+
+## CORRECTION, same day: F2 is an instrument defect, not a placement one
+
+The section above concluded "the placement is not reading the planned
+duration". **That conclusion is withdrawn.** Two direct reads, neither needing
+an inference:
+
+**1. The placement is faithful.** Read back off `Reel 01 -
+seo-ranks-geo-understands`, item by item: `GetDuration()` against the frame
+count of the `.mov` the item's media-pool entry points at, counted with
+`ffprobe -count_frames`. **They are equal on 27 of the 28 items.** The one
+exception has `GetSourceStartFrame() == 1`, so it is placed one frame in. The
+placed durations are not flat either - they run 10 to 69 frames on that one
+reel. Whatever else is true, the build places exactly what was rendered.
+
+**2. F2 pairs the two lists by INDEX.** `check_caption_duration`:
+
+    for i, cap in enumerate(planned_captions):
+        if i >= len(actual_captions):
+            break
+        actual = actual_captions[i]
+
+Nothing checks that `planned_captions[i]` and `actual_captions[i]` are the same
+card. Its own comment says "Match planned to actual by position (start frame)"
+and the code matches by list position, not by start frame - the comment
+describes a check that is not there.
+
+**And the lists are not the same length.** 832 planned against 763 placed
+overall; 32 against 28 on reel 01. From the first plan card that has no item,
+every remaining pair on that reel compares one card's plan against a different
+card's item. That produces exactly the signature measured above: a scatter with
+`r = 0.027`, both signs, no mode, and a mean placed duration that looks flat
+because it is the mean of a list being read against the wrong keys.
+
+So F2 is a **thirteenth instrument defect**, the same family as F5's dropped
+straddling rows - and this time the instrument's own comment names the fix.
+
+**What is NOT established here**, said plainly because the number has now had
+three readings. Realigning the two lists by TEXT rather than index matched only
+18 of the plan's cards to exactly one rendered file, with large positive
+deltas, so **this document does not claim that a corrected F2 would report
+zero.** It claims the 701 figure is not evidence about placement. The real
+per-card error is unmeasured, and measuring it needs F2 pairing by identity
+first.
+
+Two facts that fall out and are worth recording. The rendered files are **per
+card, not per block** - `right_6694ac5d.mov` is 12 frames and
+`sees-you_610fcb73.mov` is 10, and the item count equals the caption count on
+the reel, so no item spans several cards. And no item carries the 0.5s render
+handles: `GetSourceStartFrame()`/`GetSourceEndFrame()` cover the whole file,
+and a 10-frame file cannot contain a second of padding.
+
+## The fix, the collapse, and a third thing the collapse exposed
+
+F2 now pairs on **start frame**, within a mechanical two-frame identity
+tolerance, and claims each item once. A planned card with no item near its
+start is reported as **F14 - planned and never placed** rather than absorbed
+into an index shift. Three tests fail if the pairing reverts to list position.
+
+Re-run read-only against the same nineteen timelines, `Read-only proof: ALL 20
+timelines identical before/after`:
+
+| class | before | after |
+|---|---|---|
+| **F2** | **701** | **167** |
+| **F14** | 0 | **546** |
+| F5 | 12 | 12 |
+| F7 / F8 / F4 / PQ-LENGTH | 15 / 16 / 10 / 6 | unchanged |
+
+**It did not go to zero, and that is the right shape.** A check that suddenly
+finds nothing is what this repository has spent the day removing.
+
+**But 167 is not the per-card error either, and the 546 says why.** Reel 01:
+today's planner derives 39 cards; the timeline carries 28 items. Their start
+frames agree at 0 and diverge immediately -
+
+| | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| planned start (frames) | 0 | 34 | 59 | 87 | 122 | 158 |
+| placed start (frames) | 0 | 43 | 82 | 151 | 180 | 224 |
+
+Of 39 planned cards, 9 land on a placed item exactly, 13 within 5 frames, and
+16 are more than 12 frames from the nearest item. **These are two different
+groupings of the same speech, not the same cards in the wrong order.**
+
+**And a correction, because my first explanation was wrong.** These were not
+built weeks ago from a lost plan. `pipeline_output/review/plan_provenance.json`
+records the build at **2026-09-05T18:46:47Z**, names all nineteen, and carries
+a `plan_content_hash` that still matches the plan on disk - which is why
+`check_plan_provenance` correctly did NOT fire. The moment plan is provably the
+same one.
+
+What changed is the CAPTION grouping, in the day between the build and this
+verification, and `enforce_min_duration` landing on main is the obvious
+candidate. So the real statement is narrower and worse:
+
+**Provenance hashes the MOMENT plan. Nothing records or hashes the caption
+plan, so the card grouping can change under the verifier between build and
+verification and no check notices.** The build derives cards, places them and
+keeps no record of what it placed; the verifier re-derives from today's code
+and grades yesterday's timeline against it. `check_plan_provenance` was added
+after the verifier was caught grading sixteen reels against a plan describing
+fourteen different moments - this is that same defect one layer down, on the
+half nobody guarded.
+
+What would make the comparison sound is not a change to F2. It is the build
+recording the caption cards it placed, the way the moment plan is already
+published, so a verifier can be handed the plan a timeline was actually built
+from. Until then F2, F14 and the 701 are all measurements of drift between two
+plans, and none of them is evidence about placement - which, measured directly
+item by item against the rendered files, is faithful on 27 of 28.
+
+## And a second number beside it
+
+**832 caption cards planned, 763 placed.** Sixty-nine cards were derived by the
+pipeline and are not on any timeline. F2 says nothing about those - it can only
+compare cards that exist - and this document does not establish where they
+went.
+
+
+---
+
+# The two bugs the refused rebuild found, and what they do to the numbers
+
+Declining to build one reel required reading the build path, and the reading
+turned up two defects. Both are fixed here. Neither is a taste change: one is
+data loss, the other is a check grading against a baseline that does not exist.
+
+## Bug 1: a partial rebuild deleted the provenance of the reels it did not build
+
+`rebuild_reels_in_project` ended with
+
+    write_provenance(review_dir, proposal_path, built_reel_names)
+
+unconditionally, and `write_provenance` wrote `built_reels:
+sorted(reel_names)`. **Rebuilding one reel replaced a nineteen-reel record with
+a one-reel record.** After that `check_reels_in_provenance` reports the other
+eighteen missing and everything that depends on it is grading against a
+baseline that was silently deleted. Data loss wearing the shape of a write, and
+the only reason it was found is that the build was read before it was run.
+
+`write_provenance` now **merges**: an existing record is read, this build's
+reels are unioned into it, and per-reel caption hashes are updated only for the
+reels rebuilt. The one case that does not merge is a *different* plan - the old
+entries then describe reels built from a plan this one is not, so they are
+dropped and the record says `superseded_plan_hash`.
+
+`tests/test_plan_provenance.py` writes nineteen, rebuilds one, and asserts the
+other eighteen survive with their hashes unchanged.
+
+## Bug 2: nothing recorded the caption plan, so F2 graded against a guess
+
+Provenance hashed the moment plan. The caption cards are derived at build time
+and were written down nowhere, so `check_plan_matches_provenance` could report
+a clean match while the grouping underneath had changed completely - which is
+exactly what happened between 2026-09-05T18:46 and the next morning.
+
+Two halves:
+
+- the build records a **`caption_content_hash`** per reel - each card's start,
+  length and text in play order. Styling is deliberately excluded: a caption's
+  look belongs to the project (AGENTS.md 14) and no duration check reads it, so
+  a restyle must not read as a different plan.
+- `check_captions_match_provenance` **REFUSES** to grade when the record is
+  absent or does not match. Refusing is the point. A check that grades against
+  an unknown baseline is the defect this whole day removed, and it is precisely
+  how F2 produced 701 findings that meant nothing.
+
+## What it does to the numbers, read-only against the same nineteen
+
+`Read-only proof: ALL 20 timelines identical before/after.`
+
+| class | index pairing | start-frame pairing | + refusal |
+|---|---|---|---|
+| F2 | **701** | 167 | **0** |
+| F14 | 0 | 546 | **0** |
+| NO-REFERENCE | 0 | 0 | **19** |
+| F5 / F8 / F7 / F4 / PQ-LENGTH | 12 / 16 / 15 / 10 / 6 | unchanged | unchanged |
+| **total errors** | **739** | 751 | **57** |
+
+> Reel 01: provenance records the moment plan but no caption plan for this
+> reel, so the card grouping the build placed is unknown. Caption durations are
+> NOT graded. Rebuild it, or accept that F2 and F14 cannot speak to this
+> timeline.
+
+**The 739 becomes 57, and none of the difference was a defect in the reels.**
+It was one instrument pairing by list index and another grading against a
+baseline nobody had written down. Nineteen honest refusals replace 701
+confident numbers.
+
+The refusal is not a pass. Every one of the nineteen now says, on the record,
+that its caption durations are unverified and names what would verify them - a
+rebuild, which now records its own caption plan and no longer destroys anybody
+else's.

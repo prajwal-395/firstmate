@@ -335,3 +335,110 @@ class TestVerificationReportProvenance:
         assert "provenance_findings" in d
         assert len(d["provenance_findings"]) == 1
         assert d["summary"]["passed"] is False
+
+
+# ── A partial rebuild must not delete the record it did not write ────
+
+def test_partial_rebuild_merges_and_leaves_the_others_intact(tmp_path):
+    """Rebuilding one reel must not destroy provenance for eighteen.
+
+    `write_provenance` wrote `built_reels: sorted(reel_names)`
+    unconditionally, so a one-reel rebuild replaced a nineteen-reel
+    record with a one-reel record. After that
+    `check_reels_in_provenance` reports the other eighteen missing and
+    every check depending on it grades against a baseline that was
+    silently deleted - data loss wearing the shape of a write.
+    """
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = tmp_path / "reel_proposals_v2.json"
+    plan.write_text('{"moments": []}', encoding="utf-8")
+
+    nineteen = [f"Reel {n:02d} - slug-{n}" for n in range(1, 20)]
+    pp.write_provenance(str(review), str(plan), nineteen,
+                        caption_hashes={n: f"hash-{n}" for n in nineteen})
+    before = pp.read_provenance(str(review))
+    assert len(before["built_reels"]) == 19
+
+    # Rebuild ONE, with a new caption plan for it alone.
+    pp.write_provenance(str(review), str(plan), ["Reel 07 - slug-7"],
+                        caption_hashes={"Reel 07 - slug-7": "rebuilt"})
+    after = pp.read_provenance(str(review))
+
+    assert after["built_reels"] == before["built_reels"], (
+        "the eighteen reels this rebuild did not touch must survive")
+    assert after["caption_hashes"]["Reel 07 - slug-7"] == "rebuilt"
+    for n in nineteen:
+        if n != "Reel 07 - slug-7":
+            assert after["caption_hashes"][n] == f"hash-{n}", (
+                f"{n} lost its recorded caption plan to a rebuild of "
+                f"another reel")
+    assert after["plan_content_hash"] == before["plan_content_hash"]
+
+
+def test_a_different_plan_supersedes_rather_than_merging(tmp_path):
+    """Old entries describe reels a NEW plan did not build."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = tmp_path / "plan.json"
+    plan.write_text('{"moments": [1]}', encoding="utf-8")
+    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"])
+    first = pp.read_provenance(str(review))["plan_content_hash"]
+
+    plan.write_text('{"moments": [2]}', encoding="utf-8")
+    pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
+    after = pp.read_provenance(str(review))
+
+    assert after["built_reels"] == ["Reel 02 - b"], (
+        "carrying the old reels forward would assert a provenance that "
+        "never existed")
+    assert after["superseded_plan_hash"] == first
+
+
+# ── Captions may not be graded against an unknown baseline ───────────
+
+class _Card:
+    def __init__(self, start, frames, text):
+        self.start_seconds, self.frames, self.text = start, frames, text
+
+
+def test_caption_grading_refuses_without_a_recorded_plan():
+    from library.tools import plan_provenance as pp
+
+    cards = [_Card(0.0, 24, "one"), _Card(1.0, 24, "two")]
+    ok, why = pp.check_captions_match_provenance("Reel 01", cards, None)
+    assert ok is False and "no provenance record" in why
+
+    ok, why = pp.check_captions_match_provenance(
+        "Reel 01", cards, {"plan_content_hash": "x"})
+    assert ok is False and "no caption plan" in why
+
+
+def test_caption_grading_refuses_when_the_grouping_changed():
+    """The captain's nineteen, in miniature: same moments, new cards."""
+    from library.tools import plan_provenance as pp
+
+    built = [_Card(0.0, 24, "one two"), _Card(1.0, 24, "three four")]
+    regrouped = [_Card(0.0, 12, "one"), _Card(0.5, 12, "two"),
+                 _Card(1.0, 24, "three four")]
+    record = {"caption_hashes": {"Reel 01": pp.caption_content_hash(built)}}
+
+    ok, _ = pp.check_captions_match_provenance("Reel 01", built, record)
+    assert ok is True
+
+    ok, why = pp.check_captions_match_provenance("Reel 01", regrouped, record)
+    assert ok is False and "card grouping has changed" in why
+
+
+def test_caption_hash_ignores_styling():
+    """A restyle is not a different caption plan (AGENTS.md 14)."""
+    from library.tools import plan_provenance as pp
+
+    a = _Card(0.0, 24, "hello")
+    b = _Card(0.0, 24, "hello")
+    b.speaker, b.font_size = "Craig", 99
+    assert pp.caption_content_hash([a]) == pp.caption_content_hash([b])
