@@ -107,22 +107,71 @@ def caption_content_hash(cards) -> str:
     a caption's look belongs to the project (AGENTS.md 14) and no
     duration check reads it, so a restyle must not read as a different
     plan.
+
+    Accepts both ``PlannedCaption`` objects (``start_seconds``,
+    ``frames``, ``text``) and subtitle-entry dicts from step 4.01
+    (``timeline_start``, ``timeline_end``, ``text``).  Frames are
+    computed from the entry's own ``timeline_start``/``timeline_end``
+    at 24000/1001 fps when the entry carries no ``frames`` field.
+
+    **Raises ``ValueError`` when every card is contentless** - no text,
+    no meaningful start and no frames.  That is what happened when the
+    call site passed rendered segments instead of caption cards: fourteen
+    empty dicts hashed identically to fourteen real cards, and the
+    duration checks believed they had a baseline when they had none.
     """
+    fps = 24000 / 1001
     digest = hashlib.sha256()
+    any_content = False
     for card in cards:
+        # -- start ------------------------------------------------
         start = getattr(card, "start_seconds", None)
         if start is None and isinstance(card, dict):
-            start = card.get("reel_start", card.get("start_seconds"))
+            start = card.get("timeline_start",
+                             card.get("reel_start",
+                                      card.get("start_seconds")))
+        # -- frames (duration in frames) --------------------------
         frames = getattr(card, "frames", None)
         if frames is None and isinstance(card, dict):
             frames = card.get("frames")
+        # Compute from timeline_start/timeline_end when no explicit
+        # frames field exists (subtitle-entry dicts from step 4.01).
+        if frames is None and isinstance(card, dict):
+            tl_start = card.get("timeline_start")
+            tl_end = card.get("timeline_end")
+            if tl_start is not None and tl_end is not None:
+                frames = max(int(round(
+                    (float(tl_end) - float(tl_start)) * fps)), 1)
+        # -- text -------------------------------------------------
         text = getattr(card, "text", None)
         if text is None and isinstance(card, dict):
             text = card.get("text", "")
+        # Track whether at least one card carries real content.
+        if text or (start is not None and start != 0.0) or (
+                frames is not None and frames != 0):
+            any_content = True
         digest.update(
             f"{float(start or 0.0):.3f}|{int(frames or 0)}|{text}\n"
             .encode("utf-8"))
-    return digest.hexdigest()
+    if cards and not any_content:
+        raise ValueError(
+            f"caption_content_hash was given {len(cards)} card(s) but "
+            f"none carried text, a non-zero start or a non-zero frame "
+            f"count. This means the caller passed rendered segments or "
+            f"empty dicts instead of caption cards - the hash would be "
+            f"hollow and indistinguishable from any other set of the "
+            f"same size.")
+    # Prefixed so hollow v0 hashes (bare hex, pre-fix) are trivially
+    # distinguishable.  _is_v1_hash checks this prefix.
+    return f"v1:{digest.hexdigest()}"
+
+
+_V1_PREFIX = "v1:"
+
+
+def _is_v1_hash(h: str) -> bool:
+    """True when ``h`` was produced by the fixed caption_content_hash."""
+    return isinstance(h, str) and h.startswith(_V1_PREFIX)
 
 
 def write_provenance(
@@ -217,6 +266,20 @@ def check_captions_match_provenance(
             f"build placed is unknown. Caption durations are NOT "
             f"graded. Rebuild it, or accept that F2 and F14 cannot "
             f"speak to this timeline.")
+    # A v0 hash (pre-fix) was computed from rendered segments that
+    # carried no card content, so it is effectively the hash of the
+    # segment COUNT and nothing else.  Detect it: a v1 hash always
+    # starts from a version-tagged state, so it can never equal a v0
+    # hash even if the content coincides.  Treat the hollow record as
+    # absent so the duration checks refuse rather than falsely pass.
+    if not _is_v1_hash(recorded):
+        return False, (
+            f"{reel_name}: the recorded caption hash is a hollow v0 "
+            f"digest that was computed from rendered segments rather "
+            f"than caption cards. It carries no card text, start or "
+            f"length and would match any set of the same count. "
+            f"Treated as absent - caption durations are NOT graded. "
+            f"Rebuild to record a genuine baseline.")
     actual = caption_content_hash(cards)
     if actual == recorded:
         return True, f"{reel_name}: caption plan matches provenance"

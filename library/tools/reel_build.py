@@ -495,6 +495,22 @@ def placements(ranges: Sequence[Tuple[float, float]],
     return out
 
 
+class _SegmentsWithEntries(list):
+    """A list of rendered segments that also carries the plan's entries.
+
+    ``reel_subtitle_segments`` returns rendered segments (overlay paths)
+    for timeline building, but the provenance hash must digest the plan's
+    CAPTION ENTRIES (text, start, length).  This subclass is a plain
+    list everywhere an iterable or list is expected, so
+    ``build_reel_timeline`` and test mocks are unaffected, while the
+    build loop can read ``.caption_entries`` for the hash.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.caption_entries = []
+
+
 def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
                            fps: float, width: int, height: int,
                            timeline_name: str = "") -> list:
@@ -563,16 +579,21 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
 
     plan = operations.get("subtitles.plan").run(
         spine, brand_effect={}, brand_style={}, project_folder=project_folder)
+    plan_entries = (plan.get("subtitle_plan") or {}).get(
+        "subtitle_entries") or []
     props_list = generate_subtitle_props_per_block(
         plan["subtitle_plan"], fps=int(round(fps)), width=width, height=height,
         audio_spine=spine)
     if not props_list:
-        return []
+        result = _SegmentsWithEntries()
+        result.caption_entries = plan_entries
+        return result
 
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
     render = operations.get("subtitles.render_segment")
-    segments = []
+    segments = _SegmentsWithEntries()
+    segments.caption_entries = plan_entries
     for index, props in enumerate(props_list, 1):
         rendered = render.run(props, out_dir, name,
                               progress=f"[{index}/{len(props_list)}]")
@@ -941,9 +962,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # RECORD what was placed. Derived at build time and previously
         # written down nowhere, which is why the verifier could re-derive
         # a different grouping a day later and grade against it.
+        #
+        # Hashed from the PLAN's subtitle entries (text, start, length),
+        # not from the rendered segments (overlay paths). The rendered
+        # segments carry no card content, so hashing them produced a
+        # hollow digest that matched any set of the same count.
         if subtitle_segments:
-            from library.tools.plan_provenance import caption_content_hash
-            caption_hashes[name] = caption_content_hash(subtitle_segments)
+            entries = getattr(subtitle_segments, "caption_entries", None)
+            if entries:
+                from library.tools.plan_provenance import caption_content_hash
+                caption_hashes[name] = caption_content_hash(entries)
 
         build_reel_timeline(
             project=project,

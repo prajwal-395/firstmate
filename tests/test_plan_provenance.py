@@ -442,3 +442,131 @@ def test_caption_hash_ignores_styling():
     b = _Card(0.0, 24, "hello")
     b.speaker, b.font_size = "Craig", 99
     assert pp.caption_content_hash([a]) == pp.caption_content_hash([b])
+
+
+# ── Property tests: the hash cannot be hollow again ──────────────────
+
+def test_text_change_produces_different_hash():
+    """Two card sets differing ONLY in one card's text hash differently."""
+    from library.tools import plan_provenance as pp
+
+    cards_a = [_Card(0.0, 24, "hello world"), _Card(1.0, 48, "foo bar")]
+    cards_b = [_Card(0.0, 24, "hello world"), _Card(1.0, 48, "foo baz")]
+    assert pp.caption_content_hash(cards_a) != pp.caption_content_hash(cards_b)
+
+
+def test_length_change_produces_different_hash():
+    """Two card sets differing ONLY in one card's length hash differently."""
+    from library.tools import plan_provenance as pp
+
+    cards_a = [_Card(0.0, 24, "hello"), _Card(1.0, 48, "world")]
+    cards_b = [_Card(0.0, 24, "hello"), _Card(1.0, 49, "world")]
+    assert pp.caption_content_hash(cards_a) != pp.caption_content_hash(cards_b)
+
+
+def test_styling_change_produces_same_hash():
+    """Two card sets differing ONLY in styling hash the SAME."""
+    from library.tools import plan_provenance as pp
+
+    a = _Card(5.0, 120, "example text")
+    b = _Card(5.0, 120, "example text")
+    b.speaker = "Alice"
+    b.font_size = 72
+    b.color = "#FF0000"
+    b.font_family = "Comic Sans"
+    assert pp.caption_content_hash([a]) == pp.caption_content_hash([b])
+
+
+def test_contentless_entries_cannot_collide_with_real_cards():
+    """A set of empty or contentless entries must NOT produce the same
+    digest as real cards with the same count.
+
+    This reproduces the fourteen-empty-dicts case from the end-to-end
+    build: hashing rendered segments (which have overlay_path and
+    segment_id but no text, start_seconds or frames) produced a hash
+    that was indistinguishable from real cards.
+    """
+    from library.tools import plan_provenance as pp
+
+    # Fourteen rendered segments (the exact shape the old bug hashed).
+    fourteen_rendered_segments = [
+        {"overlay_path": f"/tmp/seg_{i}.mov", "segment_id": f"seg_{i}",
+         "timeline_start": i * 2.0, "timeline_end": i * 2.0 + 1.5,
+         "block_position": str(i), "provenance": "rendered"}
+        for i in range(14)
+    ]
+
+    # Fourteen real caption cards.
+    fourteen_real_cards = [
+        _Card(i * 2.0, 36, f"caption text for card {i}")
+        for i in range(14)
+    ]
+    real_hash = pp.caption_content_hash(fourteen_real_cards)
+
+    # The fourteen EMPTY dicts that the old code effectively produced
+    # (all fields resolved to 0.0/0/"").
+    fourteen_empty_dicts = [{} for _ in range(14)]
+
+    # Empty dicts must raise ValueError because they are contentless.
+    with pytest.raises(ValueError, match="none carried text"):
+        pp.caption_content_hash(fourteen_empty_dicts)
+
+    # Rendered segments have timeline_start/timeline_end so they carry
+    # some content and won't raise - but they hash differently from
+    # real cards because they don't have text or frame counts matching.
+    segment_hash = pp.caption_content_hash(fourteen_rendered_segments)
+    assert segment_hash != real_hash, (
+        "rendered segments must not hash the same as real caption cards")
+
+
+def test_hollow_v0_hash_treated_as_absent():
+    """An existing v0 hash (produced by the old buggy code) must be
+    treated as absent so the duration checks refuse rather than falsely
+    pass.  The v0 hash is a bare hex string; the v1 hash starts with
+    'v1:'.
+    """
+    from library.tools import plan_provenance as pp
+
+    cards = [_Card(0.0, 24, "hello"), _Card(1.0, 48, "world")]
+    # Simulate a v0 hash: a bare SHA-256 hex digest (64 hex chars).
+    v0_hash = "a" * 64
+    record = {"caption_hashes": {"Reel 01": v0_hash}}
+
+    ok, why = pp.check_captions_match_provenance("Reel 01", cards, record)
+    assert ok is False, "a v0 hash must not allow grading"
+    assert "hollow" in why or "v0" in why, (
+        f"expected 'hollow' or 'v0' in refusal, got: {why}")
+
+
+def test_v1_hash_has_version_prefix():
+    """The v1 hash starts with 'v1:' so it is distinguishable from v0."""
+    from library.tools import plan_provenance as pp
+
+    cards = [_Card(0.0, 24, "hello")]
+    h = pp.caption_content_hash(cards)
+    assert h.startswith("v1:"), f"expected v1: prefix, got {h[:10]}..."
+
+
+def test_subtitle_entry_dicts_hash_correctly():
+    """Subtitle entries from step 4.01 (timeline_start/timeline_end/text)
+    produce a meaningful hash, not a hollow one.
+    """
+    from library.tools import plan_provenance as pp
+
+    entries = [
+        {"timeline_start": 0.0, "timeline_end": 1.0, "text": "hello",
+         "speaker": "Alice", "word_count": 1},
+        {"timeline_start": 1.5, "timeline_end": 3.0, "text": "world",
+         "speaker": "Bob", "word_count": 1},
+    ]
+    h = pp.caption_content_hash(entries)
+    assert h.startswith("v1:")
+
+    # Changing text must change the hash.
+    entries_b = [
+        {"timeline_start": 0.0, "timeline_end": 1.0, "text": "goodbye",
+         "speaker": "Alice", "word_count": 1},
+        {"timeline_start": 1.5, "timeline_end": 3.0, "text": "world",
+         "speaker": "Bob", "word_count": 1},
+    ]
+    assert pp.caption_content_hash(entries_b) != h
