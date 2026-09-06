@@ -6099,3 +6099,96 @@ same path rather than forking it.
 survivors by name off a media pool that really deletes, and fires the
 guard in both directions: permitted on a legitimate replace, refused on
 an over-collecting selection driven through the real build path.
+
+## the-take-that-was-two-thirds-cut
+
+The pipeline rebuilt reel 03 of the captain's approved nineteen and made
+it WORSE AT THE OPEN, while removing exactly the repetition it was asked
+to remove.  Both halves of that are true and the second does not excuse
+the first.
+
+The span, master 301.241-341.270s: Akshita says one sentence three times
+inside forty seconds.  WhisperX segments the first take as four
+consecutive lines.
+
+| # | line | seconds |
+|---|---|---|
+| 1 | "Yeah, so search didn't change." | 301.241-302.566 (1.325s) |
+| 2 | "The question changed." | 302.626-303.449 (0.823s) |
+| 3 | "And whoever AI best understands, gets the answer." | 303.549-306.400 (2.851s) |
+| 4 | "yeah" | 306.400-306.527 (0.127s) |
+
+Lines 1 and 2 paired with the second take at containment 1.000 and
+Jaccard 1.000 and were CUT.  Line 3 paired with the second take's own
+third line - "and whoever AI understands best, gets the answer",
+309.320-309.920 - at containment 1.000 and Jaccard 1.000 too, and was
+refused, because 2.851s against 0.600s is a duration ratio of 4.75 and
+`DURATION_RATIO` is 2.0.  Line 4 was refused at 2.13 the same way.
+
+So two thirds of a take were removed and its tail was left standing.
+The keep ranges came out `[(302.566, 302.626), (303.449, 309.920),
+(310.120, 341.270)]` - 2.348s really gone, 904 frames against the
+approved 959 - and the reel's first line became **"And whoever AI best
+understands, gets the answer."**  The answer, before the question has
+been asked.  The model's own written hook, "Yeah, so search didn't
+change", did not arrive until 3.41 seconds in, which on a reel is most
+of the decision.
+
+**A partial cut is worse than no cut.**  The reel was better in the
+middle and worse at the open, and the open is the part that has to earn
+the next five seconds (`library/tools/reel_opening.py`).
+
+The duration guard was not wrong.  It answers a MECHANICAL question -
+are these two utterances the same sentence, safely enough to drop one -
+and 2.851s against 0.600s is the shape it exists to refuse: without it,
+reel 06 drops a 4.3s line to keep a 0.5s fragment of the same sentence
+(`test_a_fragment_is_never_kept_over_a_full_line`).  What it must not do
+is decide, alone, that two thirds of a take may go.  Whether what is
+left READS is a judgement, and an invented constant chosen to make
+pair-matching safe had come to decide the shape of an opening.
+
+So the unit of a cut is the RUN, and the rule carries no number:
+
+> **A repeated run is removed WHOLE or not at all.**
+
+A run is a maximal chain of segments that are consecutive in the span's
+own segment list, carry one speaker, and are every one of them a
+repeated take - one the scan either cut or blocked.  "Nothing else was
+said in between" and "one person said it" are facts about the
+transcript, not thresholds.  A run with a member the pairing test could
+not accept is left entirely alone and REPORTED: `refused_take_groups`
+reaches the model through `reel_proposal.enrich`, where the span can
+still be redrawn, and the operator through `rebuild_reels_in_project`.
+
+Why this cannot strand a fragment at the head of a reel: a reel opens on
+the first second its keep ranges retain, a cut only ever removes
+segments, and after `assert_takes_are_whole` every run a cut touches is
+removed entirely.  So the leading segment is either the span's own first
+segment, untouched, or the first segment after a wholly removed run -
+the start of another speaker's turn, or of speech that is not a
+repetition at all.  A partly removed run is what leaves a tail where its
+own opening used to be, and a partly removed run is not expressible once
+that guard passes.
+
+**Measured across all nineteen approved reels**, on the plan and without
+building anything: five have a pair the ratio refuses, and TWO of those
+had a cut withdrawn by this rule.
+
+| reel | before | after |
+|---|---|---|
+| 03 | 3 cuts, 2.348s, opens "And whoever AI best understands..." | 1 cut, 0.200s, opens "Yeah, so search didn't change." |
+| 16 | 2 cuts, 1.788s, "but they work for AI." cut and "Those queries don't work for Google," left hanging | 1 cut, 1.014s |
+| 07, 17, 18 | a lone refused pair, no cut in the run | unchanged |
+| the other fourteen | - | byte-identical cut lists and keep ranges |
+
+Reel 16 is the same defect away from the head of a reel, which is why
+the rule is about the CUT and not about the position.  Reel 03's
+repetition is now STILL IN the reel and says so, which is the honest
+outcome: the reel matches what the captain approved, minus a 0.200s
+duplicate, and the report names the take, the ratio that stopped it and
+that redrawing the span is the way out.
+
+`tests/test_reel_partial_take_cuts.py` carries reel 03's and reel 16's
+real segments as data and fires the guard in both directions - the
+coherent cut list passes, the cut list the rebuild actually used is
+REFUSED by name.

@@ -32,6 +32,18 @@ the captain reviews in Resolve through
 already looking.  A wrong cut is content they have to notice is missing;
 a marker is one keystroke to act on.
 
+A TAKE IS REMOVED WHOLE OR NOT AT ALL
+-------------------------------------
+The unit of a cut is a RUN of repeated lines, not a pair.  A run with a
+line the pairing test could not accept is left entirely alone and
+REPORTED (`redundant_runs`, `refused_take_groups`), because removing
+part of a take strands the rest where its own opening used to be - and
+at the head of a span that fragment becomes the reel's first line.  The
+rule has no number in it, and `assert_takes_are_whole` refuses a cut
+list that breaks it whatever produced that list.
+`docs/RULE_EVIDENCE.md#the-take-that-was-two-thirds-cut` has the
+measurement, and what it does and does not change across the nineteen.
+
 **The LATER take is kept.** A retake exists because the first attempt was
 flubbed - reel 02's first is "stuffed all their keywords with H1 tags",
 which is backwards, and its retake says it correctly. That is a
@@ -117,6 +129,16 @@ threshold this pipeline does not have (AGENTS.md 10.5)."""
 
 SUSPECT_CONTAINMENT = 0.60
 """Below the cut bar and above this, a marker is written instead."""
+
+MIN_RANGE_SECONDS = 0.04
+"""The shortest range `keep_ranges` will emit, and the same bound
+`_is_removed` reads.
+
+MECHANICAL, not taste: a frame at this project's 24000/1001 fps is
+0.0417s, so a range under this places no picture at all. It was already
+here as the bare literal `b - a > 0.04` in `keep_ranges`; naming it is
+the whole change, so that "this segment leaves nothing placeable" and
+"this range places nothing" ask one question rather than two."""
 
 def required_tracks(clips) -> dict:
     """How many video AND AUDIO tracks a reel needs.
@@ -220,6 +242,51 @@ class Cut:
         }
 
 
+@dataclass(frozen=True)
+class Blocked:
+    """A repeated take the scan could not pair SAFELY.
+
+    Same speaker, inside the same window, over the containment and
+    Jaccard bars - and refused because the two readings differ in
+    length by more than `DURATION_RATIO`.  That refusal is right on its
+    own terms: it is what stops a 4.3s line being dropped to keep a
+    0.5s fragment of it.
+
+    It is recorded rather than discarded because the refusal is only
+    safe in ISOLATION.  A blocked segment sitting in the middle of a run
+    of repeated lines is not a pair the cutter declined to judge - it is
+    a piece of a take the cutter is otherwise removing, and leaving it
+    behind strands it (see `redundant_runs`)."""
+
+    start: float
+    end: float
+    text: str
+    matched_start: float
+    matched_end: float
+    matched_text: str
+    speaker: Optional[str]
+    containment: float
+    jaccard: float
+    duration_ratio: float
+
+    def as_dict(self) -> dict:
+        return {
+            "start": round(self.start, 2),
+            "end": round(self.end, 2),
+            "text": self.text,
+            "matched_start": round(self.matched_start, 2),
+            "matched_end": round(self.matched_end, 2),
+            "matched_text": self.matched_text,
+            "speaker": self.speaker,
+            "containment": round(self.containment, 3),
+            "jaccard": round(self.jaccard, 3),
+            "duration_ratio": round(self.duration_ratio, 2),
+            "refused_by": (f"the two readings differ in length by "
+                           f"{self.duration_ratio:.2f}x, over "
+                           f"DURATION_RATIO={DURATION_RATIO}"),
+        }
+
+
 def _pair_scores(a: dict, b: dict) -> Tuple[float, float]:
     from library.tools.reel_proposal import _content_words
 
@@ -241,12 +308,27 @@ def _segments_in(start: float, end: float, transcript: dict) -> List[dict]:
 
 def _scan(start: float, end: float, transcript: dict,
           containment_floor: float, jaccard_floor: float,
-          enforce_shape: bool) -> List[Cut]:
+          enforce_shape: bool) -> Tuple[List[Cut], List[Blocked]]:
+    """Every pair the text bars accept, split by what the SHAPE test did.
+
+    The two returns are the same scan seen twice: `cuts` are the pairs
+    that passed every condition, `blocked` are the ones that read as the
+    same sentence by the same speaker inside the same window and were
+    refused ONLY because their durations disagree by more than
+    `DURATION_RATIO`.
+
+    A blocked pair used to be a `continue` and nothing else, which is
+    how a run of three repeated lines came to have two of them cut and
+    the third left standing (see `redundant_runs`).  Scoring now happens
+    BEFORE the shape test so that a refusal can say what it refused;
+    which pairs are CUT is unchanged, because a cut still needs both.
+    """
     inside = _segments_in(start, end, transcript)
-    used, found = set(), []
+    used, found, blocked = set(), [], []
     for index, first in enumerate(inside):
         if id(first) in used:
             continue
+        held: Optional[Blocked] = None
         for second in inside[index + 1:]:
             if id(second) in used or first.get("speaker") != second.get("speaker"):
                 continue
@@ -254,34 +336,289 @@ def _scan(start: float, end: float, transcript: dict,
                 break
             da = first["timeline_end"] - first["timeline_start"]
             db = second["timeline_end"] - second["timeline_start"]
-            if enforce_shape:
-                if da <= 0 or db <= 0:
-                    continue
-                ratio = max(da, db) / min(da, db)
-                if ratio > DURATION_RATIO:
-                    continue
+            if da <= 0 or db <= 0:
+                continue
             containment, jaccard = _pair_scores(first, second)
-            if containment >= containment_floor and jaccard >= jaccard_floor:
-                used.add(id(first))
-                used.add(id(second))
-                found.append(Cut(
-                    dropped_start=float(first["timeline_start"]),
-                    dropped_end=float(first["timeline_end"]),
-                    dropped_text=(first.get("text") or "").strip(),
-                    kept_start=float(second["timeline_start"]),
-                    kept_end=float(second["timeline_end"]),
-                    kept_text=(second.get("text") or "").strip(),
-                    speaker=first.get("speaker"),
-                    containment=containment, jaccard=jaccard))
-                break
-    return found
+            if containment < containment_floor or jaccard < jaccard_floor:
+                continue
+            ratio = max(da, db) / min(da, db)
+            if enforce_shape and ratio > DURATION_RATIO:
+                if held is None:
+                    held = Blocked(
+                        start=float(first["timeline_start"]),
+                        end=float(first["timeline_end"]),
+                        text=(first.get("text") or "").strip(),
+                        matched_start=float(second["timeline_start"]),
+                        matched_end=float(second["timeline_end"]),
+                        matched_text=(second.get("text") or "").strip(),
+                        speaker=first.get("speaker"),
+                        containment=containment, jaccard=jaccard,
+                        duration_ratio=ratio)
+                continue
+            used.add(id(first))
+            used.add(id(second))
+            found.append(Cut(
+                dropped_start=float(first["timeline_start"]),
+                dropped_end=float(first["timeline_end"]),
+                dropped_text=(first.get("text") or "").strip(),
+                kept_start=float(second["timeline_start"]),
+                kept_end=float(second["timeline_end"]),
+                kept_text=(second.get("text") or "").strip(),
+                speaker=first.get("speaker"),
+                containment=containment, jaccard=jaccard))
+            held = None
+            break
+        if held is not None:
+            blocked.append(held)
+    return found, blocked
+
+
+@dataclass(frozen=True)
+class RedundantRun:
+    """One uninterrupted run of repeated speech, and whether it can go.
+
+    A run is a maximal chain of segments that are CONSECUTIVE in the
+    span's own segment list, carry ONE speaker, and are every one of them
+    a repeated take - one the scan either cut or blocked.  The chain
+    breaks at the first segment that is neither, and at a change of
+    speaker.  There is no time threshold in that definition and there
+    must not be one: "nothing else was said in between" is a fact about
+    the transcript, not a number somebody chose.
+
+    `whole` is False when any member is `Blocked`, which is the only way
+    a run can be partly removable.
+    """
+
+    segments: Tuple[dict, ...]
+    cuts: Tuple[Cut, ...]
+    blocked: Tuple[Blocked, ...]
+
+    @property
+    def whole(self) -> bool:
+        return not self.blocked
+
+    @property
+    def withdrawn(self) -> bool:
+        """Did holding this run whole actually take a cut away?
+
+        A run with a blocked member and NO cut in it is the duration
+        guard doing its ordinary job on a lone pair - nothing was going
+        to be removed there and nothing is being withheld.  Only a run
+        that has both is a cut this rule withdrew, and only those are
+        reported, so the report accounts for exactly the difference the
+        rule makes."""
+        return bool(self.cuts) and bool(self.blocked)
+
+    @property
+    def start(self) -> float:
+        return float(self.segments[0]["timeline_start"])
+
+    @property
+    def end(self) -> float:
+        return float(max(s["timeline_end"] for s in self.segments))
+
+    @property
+    def speaker(self) -> Optional[str]:
+        return self.segments[0].get("speaker")
+
+    def as_dict(self) -> dict:
+        return {
+            "start": round(self.start, 2),
+            "end": round(self.end, 2),
+            "speaker": self.speaker,
+            "lines": [(segment.get("text") or "").strip()
+                      for segment in self.segments],
+            "would_have_cut": [cut.as_dict() for cut in self.cuts],
+            "could_not_cut": [block.as_dict() for block in self.blocked],
+            "why_nothing_was_cut": (
+                f"{len(self.cuts)} of {len(self.segments)} lines in this "
+                f"repeated run could be paired safely and "
+                f"{len(self.blocked)} could not, so cutting it would have "
+                f"removed part of a take and left the rest standing where "
+                f"its own opening used to be. A take is removed WHOLE or "
+                f"not at all, so this repetition is still in the reel."),
+            "the_fix": (
+                "decide which take to keep and redraw the span past the "
+                "other, or leave the repetition in - the choice of take "
+                "is a judgement and this is not the place that makes it"),
+        }
+
+
+def redundant_runs(start: float, end: float,
+                   transcript: dict) -> List[RedundantRun]:
+    """Every run of repeated speech inside a span, WHOLE or not.
+
+    Why a run rather than a pair
+    ---------------------------
+    Measured on reel 03 of the captain's approved nineteen, span
+    301.24-341.27s: Akshita says one sentence three times, and the
+    transcript segments the first take as three consecutive lines -
+
+        301.24-302.57  "Yeah, so search didn't change."
+        302.63-303.45  "The question changed."
+        303.55-306.40  "And whoever AI best understands, gets the answer."
+
+    The first two paired with the second take at containment 1.000 and
+    Jaccard 1.000 and were CUT.  The third paired with the second take's
+    own third line at containment 1.000 and Jaccard 1.000 too, and was
+    refused because 2.851s against 0.600s is a ratio of 4.75, over
+    `DURATION_RATIO`.  So two thirds of a take were removed and its tail
+    was left - and because the take was at the head of the span, that
+    orphaned tail became the reel's FIRST LINE.  The reel opened on
+    "And whoever AI best understands, gets the answer", the answer
+    before the question, and the model's own written hook did not arrive
+    until 3.41 seconds in.
+
+    The guard was not wrong.  It answers a MECHANICAL question - are
+    these two utterances the same sentence, safely enough to drop one -
+    and 2.851s against 0.600s is exactly the shape it exists to refuse
+    (`test_a_fragment_is_never_kept_over_a_full_line`).  What it must not
+    do is decide, on its own, that two thirds of a take may go: whether
+    what is left reads is a judgement, and this module does not hold it.
+
+    So the unit of a cut is the RUN, and the rule has no number in it:
+
+        **A repeated run is removed WHOLE or not at all.**
+
+    A run with a blocked member is removed not at all, and is REPORTED
+    instead - `refused_take_groups`, carried per moment by
+    `reel_proposal.enrich` so the model that chose the span sees it while
+    it can still redraw the span, and printed by
+    `rebuild_reels_in_project` so an operator sees it at build time.
+    """
+    inside = _segments_in(start, end, transcript)
+    cuts, blocked = _scan(start, end, transcript,
+                          CUT_CONTAINMENT, CUT_JACCARD, True)
+    cut_at = {round(c.dropped_start, 4): c for c in cuts}
+    blocked_at = {round(b.start, 4): b for b in blocked}
+
+    runs: List[RedundantRun] = []
+    chain: List[dict] = []
+
+    def close() -> None:
+        if not chain:
+            return
+        runs.append(RedundantRun(
+            segments=tuple(chain),
+            cuts=tuple(cut_at[key] for key in
+                       (round(float(s["timeline_start"]), 4) for s in chain)
+                       if key in cut_at),
+            blocked=tuple(blocked_at[key] for key in
+                          (round(float(s["timeline_start"]), 4) for s in chain)
+                          if key in blocked_at)))
+        chain.clear()
+
+    for segment in inside:
+        key = round(float(segment["timeline_start"]), 4)
+        if key not in cut_at and key not in blocked_at:
+            close()
+            continue
+        if chain and chain[-1].get("speaker") != segment.get("speaker"):
+            close()
+        chain.append(segment)
+    close()
+    return runs
+
+
+def refused_take_groups(start: float, end: float,
+                        transcript: dict) -> List[dict]:
+    """The repeated runs this span will NOT cut, and why.
+
+    An empty list is a complete answer: every repetition the scan was
+    going to cut, it could cut whole.  A non-empty one names a
+    repetition that is STILL IN THE REEL, what part of it could have
+    gone, what stopped the rest, and that redrawing the span is the way
+    out.  Nothing here scores or rejects the moment - it reports
+    (AGENTS.md 10.5).
+
+    Only runs where a cut was actually WITHDRAWN appear.  A lone pair
+    the duration guard refused is not a withheld cut and is not listed
+    here; it is a near miss, and `suspected_takes` is where those live.
+    """
+    return [run.as_dict() for run in redundant_runs(start, end, transcript)
+            if run.withdrawn]
+
+
+def _overlaps(a_start: float, a_end: float,
+              b_start: float, b_end: float) -> float:
+    return max(0.0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def _is_removed(segment: dict, cuts: Sequence[Cut]) -> bool:
+    """Does `cuts` leave nothing placeable of this segment?
+
+    "Placeable" is `MIN_RANGE_SECONDS`, the bound `keep_ranges` already
+    applies to every range it emits, so this asks the same question the
+    range arithmetic answers rather than a second one of its own.
+    """
+    left = (float(segment["timeline_end"]) - float(segment["timeline_start"])
+            - sum(_overlaps(float(segment["timeline_start"]),
+                            float(segment["timeline_end"]),
+                            cut.dropped_start, cut.dropped_end)
+                  for cut in cuts))
+    return left < MIN_RANGE_SECONDS
+
+
+def assert_takes_are_whole(cuts: Sequence[Cut], start: float, end: float,
+                           transcript: dict) -> None:
+    """REFUSE a cut list that would remove part of a repeated run.
+
+    Asked of the LIST ABOUT TO BE APPLIED, whatever produced it - the
+    same reason `assert_deletion_scope` is not folded into
+    `timelines_to_replace`.  A guard that is the selection restated
+    cannot catch the selection being wrong, and `redundant_takes` has
+    TWO producers: the pair scan, and the word-stream detector whose
+    findings are appended after it.  This one re-derives the runs from
+    the transcript and checks the cut list against them.
+
+    **Why this rule cannot strand a fragment at the head of a reel.**  A
+    reel opens on the first second its keep ranges retain.  A cut only
+    ever removes segments, and after this guard every run a cut touches
+    is removed entirely - so the segment that leads the reel is either
+    the span's own first segment, untouched, or the first segment of
+    whatever follows a wholly removed run: the start of another
+    speaker's turn or of speech that is not a repetition at all.  A
+    partly removed run is what leaves a tail with its own opening gone,
+    and a partly removed run is not expressible once this passes.
+    """
+    for run in redundant_runs(start, end, transcript):
+        touched = [segment for segment in run.segments
+                   if any(_overlaps(float(segment["timeline_start"]),
+                                    float(segment["timeline_end"]),
+                                    cut.dropped_start, cut.dropped_end) > 0
+                          for cut in cuts)]
+        if not touched:
+            continue
+        left = [segment for segment in run.segments
+                if not _is_removed(segment, cuts)]
+        if left:
+            raise ReelBuildError(
+                f"REFUSING to cut: {len(touched)} line(s) of a "
+                f"{len(run.segments)}-line repeated run "
+                f"({run.start:.2f}-{run.end:.2f}s, {run.speaker}) would be "
+                f"removed and {len(left)} would be left standing - "
+                f"{[(segment.get('text') or '').strip()[:50] for segment in left]}. "
+                f"A take is removed WHOLE or not at all: removing part of "
+                f"one strands what is left where its own opening used to "
+                f"be, which is how reel 03 came to open on the answer "
+                f"before the question was asked. Either the whole run "
+                f"goes, or none of it does and "
+                f"`refused_take_groups` reports it.")
 
 
 def redundant_takes(start: float, end: float, transcript: dict) -> List[Cut]:
-    """Takes confident enough to REMOVE."""
+    """Takes confident enough to REMOVE, and WHOLE enough to be coherent.
+
+    Two producers, one rule.  The pair scan finds retakes the transcript
+    segmented into separate lines; `reel_proposal.duplicate_takes` finds
+    the ones it did not, off the word stream.  Both are then held to
+    `redundant_runs`: a cut inside a run that cannot be removed whole is
+    withdrawn, and `refused_take_groups` says so.
+    """
     from library.tools.reel_proposal import duplicate_takes
-    cuts = _scan(start, end, transcript, CUT_CONTAINMENT, CUT_JACCARD, True)
-    
+    cuts, _blocked = _scan(start, end, transcript,
+                           CUT_CONTAINMENT, CUT_JACCARD, True)
+
     for dt in duplicate_takes(start, end, transcript):
         seg1 = _segments_in(dt["first_start"], dt["first_end"], transcript)
         seg2 = _segments_in(dt["second_start"], dt["second_end"], transcript)
@@ -298,16 +635,21 @@ def redundant_takes(start: float, end: float, transcript: dict) -> List[Cut]:
                 containment=dt.get("similarity", 0.0),
                 jaccard=dt.get("similarity", 0.0)
             ))
-    
-    return sorted(cuts, key=lambda c: c.dropped_start)
 
+    refused = [run for run in redundant_runs(start, end, transcript)
+               if not run.whole]
+    kept = [cut for cut in cuts
+            if not any(_overlaps(cut.dropped_start, cut.dropped_end,
+                                 run.start, run.end) > 0 for run in refused)]
+    return sorted(kept, key=lambda c: c.dropped_start)
 
 
 def suspected_takes(start: float, end: float, transcript: dict) -> List[Cut]:
     """Near misses. These become MARKERS, never edits."""
     confident = {(c.dropped_start, c.kept_start)
                  for c in redundant_takes(start, end, transcript)}
-    loose = _scan(start, end, transcript, SUSPECT_CONTAINMENT, 0.0, False)
+    loose, _blocked = _scan(start, end, transcript,
+                            SUSPECT_CONTAINMENT, 0.0, False)
     return [c for c in loose if (c.dropped_start, c.kept_start) not in confident]
 
 
@@ -330,7 +672,7 @@ def keep_ranges(start: float, end: float,
             if cut.dropped_end < b:
                 out.append((cut.dropped_end, b))
         ranges = out
-    return [(a, b) for a, b in ranges if b - a > 0.04]
+    return [(a, b) for a, b in ranges if b - a > MIN_RANGE_SECONDS]
 
 
 def cta_range(moment) -> Optional[Tuple[float, float]]:
@@ -371,10 +713,14 @@ def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
     the caption pass and the conformance verifier all call it, so a reel
     cannot be built to one order and checked against another.
     """
-    ranges = keep_ranges(
-        moment.timeline_start, moment.timeline_end,
-        redundant_takes(moment.timeline_start, moment.timeline_end,
-                        transcript))
+    cuts = redundant_takes(moment.timeline_start, moment.timeline_end,
+                           transcript)
+    # The cut list is checked against the transcript's own runs before it
+    # becomes the reel's shape, so a producer that bypassed
+    # `redundant_takes` cannot strand a fragment silently.
+    assert_takes_are_whole(cuts, moment.timeline_start, moment.timeline_end,
+                           transcript)
+    ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
     closer = cta_range(moment)
     if closer is None:
         return ranges
@@ -951,6 +1297,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         name = built_name(moment, name_suffix)
         print(f"Building {name}", flush=True)
         built_reel_names.append(name)
+        # A repetition this build is LEAVING IN, and why, said where the
+        # operator is already looking. Silence here is what let reel 03
+        # be rebuilt worse at the open than the timeline it replaced.
+        for group in refused_take_groups(moment.timeline_start,
+                                         moment.timeline_end, transcript):
+            print(f"  repetition kept at {group['start']:.2f}-"
+                  f"{group['end']:.2f}s ({group['speaker']}): "
+                  f"{group['why_nothing_was_cut']}", flush=True)
         ranges = reel_ranges(moment, transcript)
         # Was: computed by the standalone captioner and then passed as
         # None, so every reel built since #524 carried no subtitles at

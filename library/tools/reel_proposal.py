@@ -220,6 +220,16 @@ class ReelMoment:
     `{source_file, source_start, source_end}` - the ground truth, carried
     so a reel can be traced back without re-reading the timeline."""
 
+    refused_take_groups: tuple = ()
+    """Repetitions inside this moment that the builder will NOT cut,
+    because cutting them would remove part of a take and leave the rest.
+
+    Measured on the same span the builder reads, so the model that chose
+    the span sees, while it can still redraw it, that the repetition it
+    was told would be removed is staying in. Reel 03 is why: two of the
+    three lines of one take were cut and the third was refused, so the
+    orphaned tail led the reel. See `reel_build.redundant_runs`."""
+
     opening_observations: tuple = ()
     """What this reel's FIRST SECONDS point at that the reel does not
     contain, measured on the ranges the builder will actually play.
@@ -273,6 +283,8 @@ class ReelMoment:
         body["speakers"] = list(self.speakers)
         body["source_spans"] = [dict(s) for s in self.source_spans]
         body["duplicate_takes"] = [dict(d) for d in self.duplicate_takes]
+        body["refused_take_groups"] = [dict(g) for g
+                                       in self.refused_take_groups]
         body["straddling_within"] = [dict(x) for x in self.straddling_within]
         body["opening_observations"] = [dict(o) for o
                                         in self.opening_observations]
@@ -299,6 +311,8 @@ class ReelMoment:
             source_spans=tuple(dict(s) for s in (data.get("source_spans") or ())),
             duplicate_takes=tuple(dict(d) for d in
                                   (data.get("duplicate_takes") or ())),
+            refused_take_groups=tuple(
+                dict(g) for g in (data.get("refused_take_groups") or ())),
             opening_observations=tuple(
                 dict(o) for o in (data.get("opening_observations") or ())),
             straddling_within=tuple(dict(x) for x in
@@ -935,7 +949,23 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
                        opening_for(moment, transcript, preview)),
                    duplicate_takes=tuple(duplicate_takes(
                        moment.timeline_start, moment.timeline_end,
-                       transcript)))
+                       transcript)),
+                   refused_take_groups=tuple(refused_for(moment, transcript)))
+
+
+def refused_for(moment, transcript: dict) -> list:
+    """Repetitions the builder will leave in this moment, and why.
+
+    Measured here for the same reason `opening_observations` is: what a
+    viewer hears is the span plus every bad take the builder removes,
+    and a take it will NOT remove is as much a fact about the reel as
+    one it will.  The model is reached at SELECTION time and not at
+    build time, so this is where a "the repetition is staying in unless
+    you move the boundary" can still be acted on.
+    """
+    from library.tools.reel_build import refused_take_groups
+    return refused_take_groups(moment.timeline_start, moment.timeline_end,
+                               transcript)
 
 
 def opening_for(moment, transcript: dict, preview: str) -> list:
