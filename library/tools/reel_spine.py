@@ -171,6 +171,26 @@ below, and they are the SAME comparison the measurement used - not a
 re-derivation with a different threshold, which would let a row be bleed
 to one half of the codebase and unique to the other."""
 
+SENTENCE_ENDS = ".?!\u2026"
+"""What the transcriber writes at the end of a sentence.
+
+Read, never guessed at: this is the punctuation already in the
+transcript's own `text`, and it is the ONLY thing that says which side
+of a row boundary a fragment's sentence lies on.  See
+`_merge_fragment_blocks`."""
+
+CONTIGUITY_TOLERANCE_SECONDS = 1e-6
+"""How far a timeline gap may differ from its source gap and still mean
+"no cut between these two blocks".
+
+MECHANICAL, and measured rather than chosen.  Across the captain's 23
+built reels there are 403 neighbouring block pairs on one clip with one
+speaker: **397 agree to within 9.1e-13 seconds** - float noise, the two
+gaps being the same number computed twice - and the six that disagree
+do so by **0.100s at the very least**, which is a removed take.  A
+microsecond sits six orders above the noise and five below the smallest
+real cut, so no choice inside that range changes an answer."""
+
 ALIGNMENT_METHOD = "timeline_transcript"
 """How a reel block's words were aligned.
 
@@ -535,6 +555,11 @@ def spine_for_reel(moment, transcript: dict,
     for position, block in enumerate(blocks):
         block["position"] = position
     blocks, cross_speaker = _cut_cross_speaker_edges(blocks)
+    # LAST of the three block-shape passes, and it has to be: the bleed
+    # drop removes blocks and the cross-speaker cut shortens them, so a
+    # block's final length - which is what decides whether it can carry
+    # a card - is only known once both have run.
+    blocks, fragments = _merge_fragment_blocks(blocks)
 
     if not blocks:
         raise ReelSpineError(
@@ -563,6 +588,12 @@ def spine_for_reel(moment, transcript: dict,
             "cross_speaker_words_cut": cross_speaker["words"],
             "cross_speaker_blocks_emptied": cross_speaker["blocks_emptied"],
             "cross_speaker_middle_runs": cross_speaker["middle_runs"],
+            # How many mid-sentence transcript rows were given back to
+            # their sentence, and the text of every one that could not
+            # be - a fragment left short is a card that will flash, and
+            # it is named rather than counted.
+            "fragment_blocks_merged": fragments["merged"],
+            "fragment_blocks_unmerged": fragments["unmerged"],
             # Visible on one line, so the captain can judge the change by
             # looking at a number rather than at a diff.
             "unanchored_blocks": (unanchored_bands["unique"]
@@ -578,6 +609,197 @@ def spine_for_reel(moment, transcript: dict,
             "unbindable_seconds": round(
                 sum(u["seconds"] for u in unbindable), 2),
             "unbindable_spans": unbindable}
+
+
+def _block_seconds(block: dict) -> float:
+    """How long this block is on the reel's clock."""
+    return float(block["timeline_end"]) - float(block["timeline_start"])
+
+
+def _is_fragment(block: dict) -> bool:
+    """Is this block too short to carry a legible card AT ANY GROUPING?
+
+    Step 4.01 clamps every card to its own block's range, so a block's
+    length is the ceiling on the length of every card in it.  A block
+    under the caption floor therefore cannot produce a card at or above
+    the floor however its words are partitioned - `enforce_min_duration`
+    extends the card and the clamp immediately pulls it back to the
+    block's end.
+
+    The floor is `manifest_validator.MIN_CAPTION_DISPLAY_SECONDS`,
+    imported rather than restated so the rule that REMOVES a flashing
+    card and the gate that FAILS one can never drift apart.
+    """
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+    return _block_seconds(block) < MIN_CAPTION_DISPLAY_SECONDS
+
+
+def _plays_straight_on(earlier: dict, later: dict) -> bool:
+    """Do these two blocks play back to back off ONE piece of source?
+
+    True only when the same speaker is on the same clip and the reel
+    advances by exactly as much as the source does - which is to say
+    NOTHING WAS REMOVED between them.  A cut shows up as a source gap
+    wider than the timeline gap by the length of what it took out; the
+    smallest one measured on this episode is 0.100s, four orders wider
+    than `CONTIGUITY_TOLERANCE_SECONDS`.
+    """
+    if earlier is None or later is None:
+        return False
+    if earlier.get("speaker") != later.get("speaker"):
+        return False
+    if not earlier.get("clip_id") or earlier["clip_id"] != later.get("clip_id"):
+        return False
+    timeline_gap = float(later["timeline_start"]) - float(earlier["timeline_end"])
+    source_gap = float(later["source_start"]) - float(earlier["source_end"])
+    if timeline_gap < -CONTIGUITY_TOLERANCE_SECONDS:
+        return False
+    if source_gap < -CONTIGUITY_TOLERANCE_SECONDS:
+        return False
+    return abs(timeline_gap - source_gap) <= CONTIGUITY_TOLERANCE_SECONDS
+
+
+def _text_of(block: dict) -> str:
+    return str((block.get("content") or {}).get("text", "")).strip()
+
+
+def _ends_a_sentence(block: dict) -> bool:
+    """Did the transcriber close a sentence at the end of this block?"""
+    text = _text_of(block)
+    return not text or text[-1] in SENTENCE_ENDS
+
+
+def _absorb(host: dict, fragment: dict, fragment_leads: bool) -> dict:
+    """One block carrying both blocks' words, in spoken order.
+
+    Every window is re-read off the words that are now in it, the same
+    way `_apply_cut` re-reads a block it shortened: a block whose
+    declared span does not match the words it carries is a block 4.01
+    will filter against a range that is not true.
+    """
+    words = (fragment["word_timestamps"] + host["word_timestamps"]
+             if fragment_leads
+             else host["word_timestamps"] + fragment["word_timestamps"])
+    texts = ([_text_of(fragment), _text_of(host)] if fragment_leads
+             else [_text_of(host), _text_of(fragment)])
+    merged = dict(host)
+    merged["word_timestamps"] = words
+    merged["source_start"] = min(float(host["source_start"]),
+                                 float(fragment["source_start"]))
+    merged["source_end"] = max(float(host["source_end"]),
+                               float(fragment["source_end"]))
+    merged["timeline_start"] = min(float(host["timeline_start"]),
+                                   float(fragment["timeline_start"]))
+    merged["timeline_end"] = max(float(host["timeline_end"]),
+                                 float(fragment["timeline_end"]))
+    merged["content"] = dict(host.get("content") or {},
+                             text=" ".join(t for t in texts if t))
+    # An unanchored word does not become anchored by being merged. The
+    # flag is kept where EITHER side carried it, so a reader asking
+    # where a card came from still gets an answer (`from_unanchored_row`
+    # above).
+    merged["from_unanchored_row"] = bool(host.get("from_unanchored_row")
+                                         or fragment.get("from_unanchored_row"))
+    merged["unanchored_band"] = (host.get("unanchored_band")
+                                 or fragment.get("unanchored_band"))
+    cut = (host.get("cross_speaker_words_cut") or 0) + \
+          (fragment.get("cross_speaker_words_cut") or 0)
+    if cut:
+        merged["cross_speaker_words_cut"] = cut
+    return merged
+
+
+def _merge_fragment_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
+    """Give a mid-sentence FRAGMENT back to the sentence it came from.
+
+    The defect, measured on Reel 23 of the field test: three caption
+    cards under half a second - `them.` 0.181s, `comes in.` 0.422s and
+    `that's` 0.140s.  None is a grouping fault and no grouping can
+    reach any of them.  Each is a whole spine block, because the spine
+    makes one block per transcript row, and each of those rows is the
+    tail or the head of a sentence WhisperX split in two:
+
+        135.616-136.460  "It was definitely going to help"
+        136.540-136.721  "them."
+
+    Same speaker, same clip, an 80ms pause between them and nothing
+    removed - one sentence written down as two rows.  Step 4.01 groups
+    WITHIN a block and clamps every card to it, so the second row's
+    block is 0.181s and its only card is 0.181s whatever the partition
+    does.  The block is the card's ceiling, so the block is where this
+    has to be fixed.
+
+    So a block too short to carry a legible card is not treated as an
+    utterance.  It is a fragment, and it is given back to the block
+    holding the rest of its sentence.  **The transcriber's own
+    punctuation says which side that is** - a signal already in the
+    data, not a rule invented here: if the preceding block ends a
+    sentence the fragment opens the next one, otherwise it closes the
+    previous one.  On the 50 episode-wide fragments where both
+    neighbours are contiguous, that reading puts `them.` and `comes
+    in.` back onto the sentences they end, and `For` and `Why?` onto
+    the sentences they begin - which merging always-backwards gets
+    wrong, and gets wrong in the way that leaves the card short anyway,
+    at the tail of the block it was appended to.
+
+    NOTHING IS PADDED, MOVED OR INVENTED.  A merged block spans exactly
+    the union of two real spans of one continuous take, and every word
+    keeps its own measured timing; what changes is only how many blocks
+    those words are divided into.  A fragment with no contiguous
+    neighbour on the side its sentence lies is LEFT ALONE and named in
+    the return value, because a fragment quietly reassigned to the
+    wrong sentence is worse than a short card.
+
+    Returns the surviving blocks and the counts, so a run can say what
+    it did rather than doing it invisibly.
+    """
+    merged = 0
+    unmerged: list[str] = []
+    result: list[dict] = []
+    pending: list[dict] = []
+
+    for index, block in enumerate(blocks):
+        if pending:
+            # Fragments waiting to head this block, oldest first.
+            if _plays_straight_on(pending[0], block):
+                for fragment in reversed(pending):
+                    block = _absorb(block, fragment, fragment_leads=True)
+                    merged += 1
+            else:
+                for fragment in pending:
+                    unmerged.append(_text_of(fragment))
+                result.extend(pending)
+            pending = []
+
+        if not _is_fragment(block):
+            result.append(block)
+            continue
+
+        previous = result[-1] if result else None
+        following = blocks[index + 1] if index + 1 < len(blocks) else None
+        opens_a_sentence = previous is None or _ends_a_sentence(previous)
+
+        if not opens_a_sentence and _plays_straight_on(previous, block):
+            result[-1] = _absorb(previous, block, fragment_leads=False)
+            merged += 1
+            continue
+        if opens_a_sentence and _plays_straight_on(block, following):
+            pending.append(block)
+            continue
+
+        # Its sentence continues onto a side nothing connects it to -
+        # a different speaker, a different clip, or a cut in between.
+        # It stays, and it is SAID.
+        unmerged.append(_text_of(block))
+        result.append(block)
+
+    for fragment in pending:
+        unmerged.append(_text_of(fragment))
+    result.extend(pending)
+
+    for position, block in enumerate(result):
+        block["position"] = position
+    return result, {"merged": merged, "unmerged": unmerged}
 
 
 def _words_of(block: dict) -> set:

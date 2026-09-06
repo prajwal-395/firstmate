@@ -86,6 +86,17 @@ NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 # frame, so no partition of those five words, at any width, makes that
 # card longer.
 #
+# A BLOCK too short to carry a card is a different thing, and it is not
+# exempt - it is repaired.  A reel spine makes one block per transcript
+# row, so a row the transcriber split mid-sentence becomes a block whose
+# whole length is one card; on the field test's Reel 23 that was `them.`
+# at 0.181s.  Such a card passes both clauses trivially (it is the last
+# card of its block because it is the only one), so the exemption used
+# to swallow it while saying nothing could lengthen it - which was
+# false.  `reel_spine._merge_fragment_blocks` gives the row back to its
+# sentence before the grouping runs, and the exemption is left for what
+# it was written for.
+#
 # So a card that ends WITH ITS BLOCK is counted and named, and does not
 # fail the build; everything else still does. The exemption is deliberately
 # the narrowest one that is provable from the manifest - it needs the card

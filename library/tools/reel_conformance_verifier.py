@@ -1118,6 +1118,22 @@ def check_short_captions(reel_name: str,
     fix.  Reporting them as 38 defects was the count being wrong, not the
     reels.
 
+    **The exemption held cards that WERE reachable, and it said the
+    opposite about them.**  Re-measured 2026-09-06 across 23 built
+    reels: 45 of 984 cards sat under the floor and **44 of the 45 were
+    the ONLY card of their block** - which is to say they satisfied both
+    clauses trivially, being last because they were alone.  Nearly all
+    of those blocks were a transcript row the transcriber split
+    mid-sentence, so the message's "no grouping can lengthen it" was
+    true of the grouping and false of the card: rejoining the row to
+    its own sentence lengthens it, and that is what
+    `reel_spine._merge_fragment_blocks` now does before 4.01 ever sees
+    the spine.  **36 of the 45 go**, leaving 9 - six blocks the reel
+    genuinely holds alone with nothing contiguous beside them (`yeah.`
+    between two turns of the other speaker) and three that are now the
+    last of SEVERAL cards, which is the case this exemption was written
+    for.
+
     **Held cards are COUNTED AND NAMED**, in a warning of their own.  A
     check that drops its exemptions silently reports a clean reel and
     tells nobody what it declined to look at, which is the vacuous gate

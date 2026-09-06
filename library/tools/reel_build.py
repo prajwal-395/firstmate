@@ -912,6 +912,20 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         print(f"  {name}: dropped "
               f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
               file=sys.stderr)
+    # A row the transcriber split mid-sentence is too short to carry a
+    # legible card and is given back to its sentence upstream of the
+    # grouping.  Both halves are SAID: how many were rejoined, and the
+    # text of every one that could not be - the latter is a card that
+    # will flash, and it is named rather than left to a warning three
+    # steps later.
+    if spine.get("fragment_blocks_merged"):
+        print(f"  {name}: rejoined "
+              f"{spine['fragment_blocks_merged']} mid-sentence row(s) "
+              f"to their own sentence", file=sys.stderr)
+    for text in spine.get("fragment_blocks_unmerged") or []:
+        print(f"  {name}: SHORT BLOCK {text!r} - under the caption floor "
+              f"and nothing contiguous on the side its sentence runs, so "
+              f"its card will be short", file=sys.stderr)
     # Speech this reel PLAYS that no block carries, in reel seconds. The
     # honest outcome for a row nothing can bind is that the build SAYS
     # which seconds go uncaptioned, rather than something guessing a
