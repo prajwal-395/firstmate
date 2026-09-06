@@ -304,6 +304,231 @@ def test_the_same_word_far_apart_is_not_a_bleed():
     assert spine["bleed_blocks_dropped"] == 0
 
 
+# ── A row that carries two speakers ─────────────────────────────────
+#
+# The captain looked at reel 05 and the captions were wrong. Two of the
+# three things they saw come from ONE cause, and it is not the grouper:
+# a transcript row on Craig's mic carries his sentence AND, at its tail,
+# the first words of Akshita's, picked up as bleed. `_drop_bleed` cannot
+# see it - the rows are not duplicates of each other, one just ends
+# inside the other. So the block carries two speakers, and step 4.01,
+# which groups WITHIN a block, groups across the change.
+#
+# The numbers below are reel 05's own, read off
+# `pipeline_output/scratch/timeline_transcript/transcript.json` rows
+# 204 and 205 of the field test. Craig's row is given a clip binding
+# here because `timeline_transcript` leaves it unbound and
+# `spine_for_reel` drops unbound rows - a separate defect, named in
+# CAPTION_UNANCHORED_ROWS, that is not what these tests are about.
+
+
+def _reel_05_frame_1616_rows():
+    """Reel 05's real rows either side of the card the captain saw.
+
+    Craig says "...what is going on here", Akshita starts "So ranking
+    tells Google," while his mic is still open, and his row's last two
+    words are her first two - the same words, at the same instant.
+    """
+    craig_words = [
+        word("what", 612.731, 612.932), word("is", 613.052, 613.153),
+        word("going", 613.193, 613.454), word("on", 613.574, 613.654),
+        word("here", 613.715, 613.875), word("yeah", 614.818, 615.059),
+        word("so", 615.079, 615.139), word("ranking", 615.159, 615.34),
+    ]
+    akshita_words = [
+        word("So", 614.949, 615.129), word("ranking", 615.169, 615.449),
+        word("tells", 615.489, 615.75), word("Google,", 615.89, 616.25),
+    ]
+    return [
+        segment("Craig", "what is going on here yeah so ranking",
+                609.380, 615.340, "craig.mov", 1290.0, craig_words),
+        segment("Akshita", "So ranking tells Google,",
+                614.949, 616.250, "akshita.mov", 1293.918, akshita_words),
+    ]
+
+
+def test_a_row_carrying_two_speakers_is_cut_at_the_speaker_change():
+    """Reel 05's frame-1616 card. It read "here yeah so ranking" - the end
+    of Craig's sentence and the start of Akshita's on one card.
+
+    Two people cannot say one word at one instant, so "so ranking" on
+    Craig's mic at 615.079 is Akshita's, heard 0.13s after her own mic
+    took it. It is cut from HIS block, which is where the card boundary
+    is decided: 4.01 never groups across a block.
+    """
+    spine = spine_for_reel(Moment(609.0, 619.0),
+                           {"segments": _reel_05_frame_1616_rows()})
+    assert spine["cross_speaker_words_cut"] == 2
+    craig = [b for b in spine["structure"] if b["speaker"] == "Craig"]
+    assert len(craig) == 1
+    text = craig[0]["content"]["text"]
+    assert text == "what is going on here yeah", text
+    assert [w["word"] for w in craig[0]["word_timestamps"]][-1] == "yeah"
+
+
+def test_the_card_the_captain_saw_no_longer_carries_two_speakers():
+    """The same rows, through step 4.01, as cards.
+
+    Before the cut the last Craig card read "here yeah so ranking" and
+    the next Akshita card read "so ranking tells google," - the same
+    phrase twice, back to back, under two different speakers' styling.
+    That is what the captain saw at frames 1616 and 1628.
+    """
+    spine = spine_for_reel(Moment(609.0, 619.0),
+                           {"segments": _reel_05_frame_1616_rows()})
+    plan = operations.get("subtitles.plan").run(
+        spine, caption_case="lowercase", brand_effect={}, brand_style={},
+        project_folder="")
+    entries = sorted(plan["subtitle_plan"]["subtitle_entries"],
+                     key=lambda e: e["timeline_start"])
+
+    craig_cards = [e["text"] for e in entries if e["speaker"] == "Craig"]
+    assert not any("ranking" in t for t in craig_cards), craig_cards
+    assert craig_cards[-1] == "here yeah", craig_cards
+
+    akshita = " ".join(e["text"] for e in entries
+                       if e["speaker"] == "Akshita")
+    assert akshita == "so ranking tells google,"
+
+
+def test_no_speech_is_lost_by_the_cut():
+    """The words removed from Craig's block are still captioned, by the
+    speaker who said them. A cut that deletes speech is worse than the
+    card it fixes, and the whole rule rests on this being true."""
+    spine = spine_for_reel(Moment(609.0, 619.0),
+                           {"segments": _reel_05_frame_1616_rows()})
+    said = set()
+    for block in spine["structure"]:
+        said |= {w["word"].lower().strip(",.") for w in block["word_timestamps"]}
+    assert {"so", "ranking", "tells", "google"} <= said
+
+
+def test_a_cut_that_would_orphan_a_word_is_CANCELLED():
+    """The one thing the whole rule rests on, made to fail.
+
+    Four rows, each overlapping the next on one word. Two of them are
+    NOTHING but the other mic's words - the host's "yeah exactly" (its
+    "yeah" is the guest's, its "exactly" the next guest row's) and the
+    guest's "exactly right" (its "right" is the next host row's). Taken
+    on their own both cuts are correct, and together they delete
+    "exactly" from the reel: no other block carries it.
+
+    So the host's cut is given up ENTIRELY, which is the conservative
+    direction - a block that may still carry a foreign word, never a word
+    that no block carries. The guest row, whose own words survive
+    elsewhere, is still emptied.
+    """
+    rows = [
+        segment("guest", "yeah okay", 10.5, 11.6, "cam_b.mov", 200.0,
+                [word("yeah", 10.5, 11.2), word("okay", 11.25, 11.6)]),
+        segment("host", "yeah exactly", 11.0, 12.4, "cam_a.mov", 100.0,
+                [word("yeah", 11.0, 11.4), word("exactly", 12.0, 12.4)]),
+        segment("guest", "exactly right", 12.1, 13.0, "cam_b.mov", 210.0,
+                [word("exactly", 12.1, 12.5), word("right", 12.6, 13.0)]),
+        segment("host", "right then", 12.7, 13.6, "cam_a.mov", 110.0,
+                [word("right", 12.7, 13.1), word("then", 13.2, 13.6)]),
+    ]
+    spine = spine_for_reel(Moment(10.0, 14.0), {"segments": rows})
+
+    said = [w["word"] for b in spine["structure"]
+            for w in b["word_timestamps"]]
+    assert "exactly" in said, said
+    assert spine["cross_speaker_blocks_emptied"] == 1
+    host_blocks = [b["content"]["text"] for b in spine["structure"]
+                   if b["speaker"] == "host"]
+    assert host_blocks == ["yeah exactly", "right then"], host_blocks
+
+
+def test_an_interruption_INSIDE_a_row_is_reported_and_not_cut():
+    """A foreign run bracketed by the row's own speaker on both sides is
+    two people talking over each other, not a bleed tail. Cutting it
+    would leave the block with a hole in it, joining two passages that
+    were never adjacent - so it is counted and left alone."""
+    host = segment("host", "i think exactly right and then we move on",
+                   10.0, 13.6, "cam_a.mov", 100.0,
+                   [word("i", 10.0, 10.4), word("think", 10.4, 10.8),
+                    word("exactly", 10.8, 11.2), word("right", 11.2, 11.6),
+                    word("and", 11.6, 12.0), word("then", 12.0, 12.4),
+                    word("we", 12.4, 12.8), word("move", 12.8, 13.2),
+                    word("on", 13.2, 13.6)])
+    guest = segment("guest", "exactly right no way", 10.79, 12.39,
+                    "cam_b.mov", 200.0,
+                    [word("exactly", 10.79, 11.19), word("right", 11.19, 11.59),
+                     word("no", 11.6, 12.0), word("way", 12.0, 12.39)])
+    spine = spine_for_reel(Moment(10.0, 14.0), {"segments": [host, guest]})
+    host_block = [b for b in spine["structure"] if b["speaker"] == "host"]
+    assert len(host_block) == 1
+    assert host_block[0]["content"]["text"] == \
+        "i think exactly right and then we move on"
+    assert spine["cross_speaker_words_cut"] == 0
+    assert spine["cross_speaker_middle_runs"] == 1
+
+
+def test_the_same_word_at_a_different_second_is_not_a_bleed_tail():
+    """Two people saying "exactly" seconds apart are two people. The cut
+    reads the word AND the instant, so a shared vocabulary is not
+    evidence of anything."""
+    spine = spine_for_reel(Moment(10.0, 20.0), {"segments": [
+        spoken("host", "so what i think exactly", 10.0, "cam_a.mov", 100.0),
+        spoken("guest", "exactly what i meant", 15.0, "cam_b.mov", 200.0),
+    ]})
+    assert spine["cross_speaker_words_cut"] == 0
+    assert len(spine["structure"]) == 2
+
+
+def test_a_block_that_is_NOTHING_but_bleed_is_dropped_and_counted():
+    """A row whose every word another mic carries at the same instant has
+    nothing of its own left after the cut, so it goes rather than being
+    kept as an empty block the spine contract would reject."""
+    spine = spine_for_reel(Moment(10.0, 14.0), {"segments": [
+        segment("host", "the whole point", 10.0, 11.2, "cam_a.mov", 100.0,
+                [word("the", 10.0, 10.4), word("whole", 10.4, 10.8),
+                 word("point", 10.8, 11.2)]),
+        segment("guest", "point of", 10.9, 11.7, "cam_b.mov", 200.0,
+                [word("point", 10.9, 11.3), word("of", 11.35, 11.7)]),
+        segment("host", "of it entirely", 11.4, 12.6, "cam_a.mov", 110.0,
+                [word("of", 11.4, 11.8), word("it", 11.8, 12.1),
+                 word("entirely", 12.1, 12.6)]),
+    ]})
+    assert spine["cross_speaker_blocks_emptied"] == 1
+    assert [b["speaker"] for b in spine["structure"]] == ["host", "host"]
+
+
+def test_no_card_from_a_reel_spine_ever_splits_a_word(transcript, moment):
+    """A card's words are a contiguous SLICE of its block's words.
+
+    The exact invariant, with no threshold in it: `split_into_groups`
+    partitions by index, so it cannot cut a word in half or put one word
+    on two cards, and this pins that end to end rather than by reading
+    it. The fragment `goo` the captain was shown was never on a card -
+    it was `reel_build`'s own filename, which slugged the card text and
+    truncated it at thirty characters (`slug(cap["text"], "notext")[:30]`,
+    deleted with `reel_subtitles.py` in #559).
+    """
+    spine = spine_for_reel(moment, transcript)
+    plan = operations.get("subtitles.plan").run(
+        spine, caption_case="lowercase", brand_effect={}, brand_style={},
+        project_folder="")
+    entries = plan["subtitle_plan"]["subtitle_entries"]
+    by_block: dict = {}
+    for entry in sorted(entries, key=lambda e: e["timeline_start"]):
+        by_block.setdefault(entry["spine_block_position"], []).append(entry)
+
+    for block in spine["structure"]:
+        cards = by_block.get(block["position"], [])
+        if not cards:
+            continue
+        carried = [w["word"].lower() for card in cards
+                   for w in card["words"]]
+        spoken_words = [w["word"].lower()
+                        for w in block["word_timestamps"]]
+        assert carried == spoken_words, (
+            f"block {block['position']}'s cards are not a partition of its "
+            f"words: {carried} vs {spoken_words}")
+        for card in cards:
+            assert card["text"].split() == [w["word"] for w in card["words"]]
+
+
 def test_positions_are_renumbered_after_a_bleed_drop():
     """`position` is block identity. A gap in it after a drop would make
     two spines of the same reel disagree about which block is which."""

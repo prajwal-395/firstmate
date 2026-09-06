@@ -70,6 +70,32 @@ deliberate.  Each half resolves what it alone can detect.
 The earlier card wins: the primary mic hears the words first and the
 bleed arrives delayed.
 
+**A row is not always bleed WHOLE.**  A speaker's turn ends and the
+other's begins while the first mic is still recording, so a row often
+carries its own speaker's sentence and then, at its TAIL (or at its
+HEAD), a few words of the other person picked up as bleed.  Measured on
+the captain's field test, 31 of 875 transcript rows carry another
+speaker's words at the same instant, 20 of them on rows bound to a clip
+and therefore reaching a block today.  `_drop_bleed` cannot see those:
+it compares whole blocks, and a long row with a four-word bleed tail is
+neither a subset of the short row nor half its vocabulary.
+
+So the tail is CUT, and it is cut HERE - at the block boundary, which
+is where a card's boundary is decided.  Step 4.01 groups WITHIN a block
+and cannot see across one, so a block carrying two speakers is the only
+way a card carrying two speakers can exist.  `_cut_cross_speaker_edges`
+is that cut, and the rule it applies is exact rather than a threshold:
+**two people cannot utter the same word at the same instant**, so a word
+that a different speaker's block carries with the same text at an
+overlapping reel second is one mic hearing the other.
+
+Nothing is lost by the cut, and that is a property rather than a hope:
+a word is only ever removed from a block while another surviving block
+carries it at that same instant, `_cut_would_orphan` checks exactly
+that, and a cut that would leave a word carried by nobody is CANCELLED.
+The cost of picking the wrong side is which speaker's style the words
+are drawn in, never the words.
+
 What a reel cannot supply, said rather than invented
 ----------------------------------------------------
 A reel has no `hook` block, no bookends and no music behaviour; it is
@@ -81,6 +107,7 @@ fabricated block (AGENTS.md 10.5).
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from library.tools import region as region_mod
@@ -414,6 +441,14 @@ def spine_for_reel(moment, transcript: dict,
     # compares neighbours, so it needs this too.
     blocks.sort(key=lambda b: (b["timeline_start"], b["timeline_end"]))
     blocks, bled = _drop_bleed(blocks)
+    # WHOLE-block bleed first, then the partial. The other order mangles
+    # a near-duplicate pair: both rows carry the same sentence, so both
+    # get an edge cut, and what `_drop_bleed` would have removed whole
+    # survives as the few words in the middle that the two mics
+    # transcribed differently.
+    for position, block in enumerate(blocks):
+        block["position"] = position
+    blocks, cross_speaker = _cut_cross_speaker_edges(blocks)
 
     if not blocks:
         raise ReelSpineError(
@@ -425,9 +460,21 @@ def spine_for_reel(moment, transcript: dict,
 
     # Fails here, with the reel in hand, rather than three steps later.
     validate_spine_blocks(blocks)
+    for position, block in enumerate(blocks):
+        block["position"] = position
+
     return {"structure": blocks,
             "dropped_segments": dropped_no_binding,
             "bleed_blocks_dropped": bled,
+            # A card carrying two speakers is what the captain saw on
+            # reel 05, and these are the three numbers that say whether
+            # this reel had any: how many bled words were cut off a
+            # block's edges, how many blocks were nothing BUT bleed, and
+            # how many blocks carry a foreign run in the MIDDLE - a real
+            # interruption, which is left alone rather than cut.
+            "cross_speaker_words_cut": cross_speaker["words"],
+            "cross_speaker_blocks_emptied": cross_speaker["blocks_emptied"],
+            "cross_speaker_middle_runs": cross_speaker["middle_runs"],
             # Visible on one line, so the captain can judge the change by
             # looking at a number rather than at a diff.
             "unanchored_blocks": (unanchored_bands["unique"]
@@ -440,9 +487,7 @@ def spine_for_reel(moment, transcript: dict,
 
 def _words_of(block: dict) -> set:
     """The block's spoken words, lowercased and stripped of punctuation."""
-    import re
-    return {re.sub(r"[^a-z0-9']", "", w["word"].lower())
-            for w in block["word_timestamps"]} - {""}
+    return {_normalise(w["word"]) for w in block["word_timestamps"]} - {""}
 
 
 def _is_bleed(earlier: dict, later: dict) -> bool:
@@ -458,6 +503,259 @@ def _is_bleed(earlier: dict, later: dict) -> bool:
         return False
     return a.issubset(b) or b.issubset(a) or (
         len(a & b) / max(1, len(a | b)) > BLEED_WORD_OVERLAP)
+
+
+def _normalise(text: str) -> str:
+    """One word, lowercased and stripped of punctuation.
+
+    The SAME normalisation `_words_of` uses, so a word that reads as a
+    duplicate to the whole-block sweep reads as one here too. Two
+    spellings of one rule is how a word becomes bleed to one half of a
+    module and speech to the other.
+    """
+    return re.sub(r"[^a-z0-9']", "", text.lower())
+
+
+def _word_reel_spans(block: dict) -> list[tuple[str, float, float]]:
+    """This block's words as `(normalised, reel_start, reel_end)`.
+
+    A block's `word_timestamps` are SOURCE seconds and SOURCE seconds are
+    per CLIP, so two blocks' words cannot be compared in them - the same
+    number means a different instant on a different clip. They are put
+    into REEL seconds here with the block's own offset, which is exactly
+    the arithmetic step 4.01 uses to place a card (`offset = seg_tl_start
+    - v1_src_in`). Comparing in the clock the cards are planned in is
+    what makes a collision found here a collision the viewer would see.
+    """
+    offset = block["timeline_start"] - block["source_start"]
+    return [(_normalise(str(word["word"])),
+             float(word["source_start"]) + offset,
+             float(word["source_end"]) + offset)
+            for word in block["word_timestamps"]]
+
+
+def _owner_key(block: dict, index: int, spans: list, wholly_bleed: bool
+               ) -> tuple:
+    """Which copy of one word OWNS it, as a total order.
+
+    Two things decide it, in this order.
+
+    **A block that is nothing BUT another speaker's words owns none of
+    them.**  A mic that caught a phrase and nothing else caught only
+    bleed, and a block that carries its own speaker either side of the
+    phrase did not.  This has to outrank the timing, because ASR word
+    starts on two mics differ by hundredths of a second in either
+    direction - measured on reel 05, Akshita's "so" beat Craig's by
+    0.130s while his "ranking" beat hers by 0.010s.  Without it a
+    wholly-bled block wins a word off a real one on a coin flip.
+
+    Then `_drop_bleed`'s own rule, applied to a word rather than a whole
+    block: the primary mic hears the words first and the bleed arrives
+    delayed.  The block's start and its position follow so that two
+    copies landing on one hundredth of a second still order - without a
+    TOTAL order both sides of a collision can cut and the word is lost by
+    both.
+    """
+    return (wholly_bleed, round(spans[index][1], 3),
+            round(block["timeline_start"], 3), block["position"])
+
+
+def _foreign_at(blocks: list[dict], spans: list, index: int) -> list:
+    """For each word of block `index`, the copies a DIFFERENT speaker holds.
+
+    A copy is the same normalised word at an OVERLAPPING reel second. Two
+    people cannot utter one word at one instant, so a copy is one mic
+    hearing the other - there is no threshold in that and none is wanted.
+    Returns one list of `(block_index, word_index)` per word, empty where
+    the word is the speaker's own.
+    """
+    block = blocks[index]
+    out: list[list] = [[] for _ in spans[index]]
+    for other_index, other in enumerate(blocks):
+        if other_index == index or other.get("speaker") == block.get("speaker"):
+            continue
+        for word_index, (text, start, end) in enumerate(spans[index]):
+            if not text:
+                # A token that normalises to nothing - punctuation alone -
+                # matches every other one, so it is evidence of nothing.
+                continue
+            for other_word, (other_text, other_start, other_end) in \
+                    enumerate(spans[other_index]):
+                if other_text != text:
+                    continue
+                if min(end, other_end) - max(start, other_start) > 0.0:
+                    out[word_index].append((other_index, other_word))
+                    break
+    return out
+
+
+def _edge_run(foreign: list) -> tuple[int, int]:
+    """How many words at this block's HEAD and TAIL are another speaker's.
+
+    HEAD and TAIL only. A run in the MIDDLE is speech the block's own
+    speaker bracketed on both sides - two people talking over each other,
+    which `_drop_bleed` already refuses to resolve and which cutting
+    would turn into a block with a hole in it, joining two passages that
+    were never adjacent. So the middle is left alone and reported.
+    """
+    total = len(foreign)
+    head = 0
+    while head < total and foreign[head]:
+        head += 1
+    if head == total:
+        return total, 0
+    tail = 0
+    while tail < total - head and foreign[total - 1 - tail]:
+        tail += 1
+    return head, tail
+
+
+def _loses_run(blocks: list, spans: list, foreign: list, wholly: list,
+               index: int, head: int, tail: int) -> bool:
+    """Does THIS block lose the edge run, or does it own it?
+
+    The run is one utterance, so it is decided ONCE, on its FIRST word.
+    Deciding word by word is what splits a phrase across two mics: on
+    reel 05 a per-word rule would have handed "so" to Akshita and
+    "ranking" to Craig, which is neither speaker's sentence.
+    """
+    total = len(spans[index])
+    if head:
+        first = 0
+    elif tail:
+        first = total - tail
+    else:
+        return False
+    mine = _owner_key(blocks[index], first, spans[index], wholly[index])
+    theirs = min(
+        (_owner_key(blocks[other], word, spans[other], wholly[other])
+         for other, word in foreign[index][first]),
+        default=None)
+    return theirs is not None and theirs < mine
+
+
+def _cut_would_orphan(blocks: list, spans: list, cuts: dict,
+                      index: int) -> bool:
+    """Would this block's cut leave one of its words carried by nobody?
+
+    The whole safety of the cut rests on the words surviving somewhere -
+    they are removed because ANOTHER block carries them at that instant,
+    so if that other block is losing them in the same pass the speech is
+    gone.  Asked per block and answered against the cuts as a set, which
+    is why the caller iterates to a fixed point rather than deciding each
+    block on its own.
+    """
+    head, tail = cuts[index]
+    total = len(spans[index])
+    for word_index in list(range(head)) + list(range(total - tail, total)):
+        text, start, end = spans[index][word_index]
+        for other_index, other in enumerate(blocks):
+            if other_index == index or \
+                    other.get("speaker") == blocks[index].get("speaker"):
+                continue
+            other_head, other_tail = cuts.get(other_index, (0, 0))
+            other_total = len(spans[other_index])
+            for other_word in range(other_head, other_total - other_tail):
+                other_text, other_start, other_end = spans[other_index][other_word]
+                if other_text == text and \
+                        min(end, other_end) - max(start, other_start) > 0.0:
+                    break
+            else:
+                continue
+            break
+        else:
+            return True
+    return False
+
+
+def _apply_cut(block: dict, head: int, tail: int) -> dict:
+    """The block with its bled edges removed, re-timed to what is left.
+
+    Every window the block declares is re-read off the SURVIVING words -
+    its source span, its reel span and its text - because a block whose
+    declared window still covers words it no longer carries is a block
+    step 4.01 will filter against a range that is no longer true.
+    """
+    words = block["word_timestamps"][head:len(block["word_timestamps"]) - tail]
+    offset = block["timeline_start"] - block["source_start"]
+    kept = dict(block)
+    kept["word_timestamps"] = words
+    kept["source_start"] = float(words[0]["source_start"])
+    kept["source_end"] = float(words[-1]["source_end"])
+    kept["timeline_start"] = round(kept["source_start"] + offset, 6)
+    kept["timeline_end"] = round(kept["source_end"] + offset, 6)
+    kept["content"] = dict(block.get("content") or {},
+                           text=" ".join(str(w["word"]) for w in words).strip())
+    kept["cross_speaker_words_cut"] = head + tail
+    return kept
+
+
+def _cut_cross_speaker_edges(blocks: list[dict]) -> tuple[list[dict], dict]:
+    """Cut, from each block's edges, the words another speaker was saying.
+
+    This is where a CARD's boundary is decided: 4.01 groups within a
+    block and never across one, so a block carrying one speaker is what
+    makes a card carrying one speaker structurally true rather than
+    usually true.
+
+    Returns the surviving blocks and the counts, which the caller reports
+    on the run - a cut nobody can see is a cut nobody can judge.
+    """
+    if len(blocks) < 2:
+        return blocks, {"words": 0, "blocks_emptied": 0, "middle_runs": 0}
+
+    spans = [_word_reel_spans(block) for block in blocks]
+    foreign = [_foreign_at(blocks, spans, index)
+               for index in range(len(blocks))]
+
+    wholly = [bool(marks) and all(marks) for marks in foreign]
+
+    middle_runs = 0
+    cuts: dict = {}
+    for index in range(len(blocks)):
+        head, tail = _edge_run(foreign[index])
+        if any(foreign[index][i]
+               for i in range(head, len(foreign[index]) - tail)):
+            middle_runs += 1
+        head = head if _loses_run(blocks, spans, foreign, wholly,
+                                  index, head, 0) else 0
+        tail = tail if _loses_run(blocks, spans, foreign, wholly,
+                                  index, 0, tail) else 0
+        if head or tail:
+            cuts[index] = (head, tail)
+
+    # A block whose cut would orphan a word gives its cut up ENTIRELY,
+    # and giving one up can make another's safe, so this settles rather
+    # than deciding each block once. Cuts only ever shrink, so it ends.
+    changed = True
+    while changed:
+        changed = False
+        for index in list(cuts):
+            if _cut_would_orphan(blocks, spans, cuts, index):
+                del cuts[index]
+                changed = True
+
+    if not cuts:
+        return blocks, {"words": 0, "blocks_emptied": 0,
+                        "middle_runs": middle_runs}
+
+    words_cut = 0
+    emptied = 0
+    kept_blocks: list[dict] = []
+    for index, block in enumerate(blocks):
+        head, tail = cuts.get(index, (0, 0))
+        if not head and not tail:
+            kept_blocks.append(block)
+            continue
+        words_cut += head + tail
+        if head + tail >= len(block["word_timestamps"]):
+            emptied += 1
+            continue
+        kept_blocks.append(_apply_cut(block, head, tail))
+
+    kept_blocks.sort(key=lambda b: (b["timeline_start"], b["timeline_end"]))
+    return kept_blocks, {"words": words_cut, "blocks_emptied": emptied,
+                         "middle_runs": middle_runs}
 
 
 def _drop_bleed(blocks: list[dict]) -> tuple[list[dict], int]:
