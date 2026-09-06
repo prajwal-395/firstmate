@@ -141,6 +141,15 @@ class SpokenSegment:
     folded in silently: a reader asking why a row's timings are not the
     ones Whisper emitted gets the answer on the row."""
 
+    avg_logprob: Optional[float] = None
+    """The TRANSCRIBER's own confidence in the words on this row, exactly
+    as `faster_whisper` emitted it and `whisperx.align` carried it.
+
+    `None` on a transcript written before it was kept, and on a row the
+    aligner produced without one. Never derived, never defaulted:
+    `library/tools/transcript_confidence.py` holds the account of what
+    the absence cost and why no stand-in is computed for it."""
+
     def as_dict(self) -> dict:
         body = asdict(self)
         body["words"] = list(self.words)
@@ -387,13 +396,31 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     import whisperx
     from faster_whisper import WhisperModel
 
+    # Lazy, like every other `library.*` import in this module: it is
+    # also a command-line entry point, and a top-level import puts the
+    # repository root on the critical path of `--help`.
+    from library.tools.transcript_confidence import AVG_LOGPROB
+
     print(f"  transcribing with faster-whisper ({model_size}, int8, cpu)...",
           file=sys.stderr)
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
     raw_segments, info = model.transcribe(
         str(audio_path), beam_size=beam_size, vad_filter=True,
         word_timestamps=False)
-    segments = [{"start": s.start, "end": s.end, "text": s.text}
+    # `avg_logprob` is the transcriber's own confidence in the words it
+    # just wrote, and it was being thrown away HERE - rebuilt out of
+    # three keys and handed to the aligner without it. It cost a reel 15
+    # seconds: a selector run hit a line that reads as Hangul in the
+    # middle of an English sentence, could not tell a garbled READING
+    # from garbled AUDIO, and ended the reel early to keep the damaged
+    # line outside the span. `library/tools/transcript_confidence.py`
+    # holds that account and why this is the one number carried.
+    #
+    # `whisperx.align` copies it onto every aligned segment and through
+    # the groupby that merges subsegments, so it survives to
+    # `segments_for_speaker` with nothing re-attaching it.
+    segments = [{"start": s.start, "end": s.end, "text": s.text,
+                 AVG_LOGPROB: s.avg_logprob}
                 for s in raw_segments]
     print(f"  {len(segments)} segments, language {info.language}",
           file=sys.stderr)
@@ -450,7 +477,7 @@ def interpolate_untimed_words(words: List[dict]) -> List[dict]:
 
 
 def _bound(speaker, text, clip, start, end, words,
-           read_from_words=False) -> SpokenSegment:
+           read_from_words=False, avg_logprob=None) -> SpokenSegment:
     return SpokenSegment(
         speaker=speaker,
         text=text,
@@ -462,6 +489,7 @@ def _bound(speaker, text, clip, start, end, words,
         resolve_item_id=clip.resolve_item_id if clip else None,
         words=tuple(words),
         read_from_words=read_from_words,
+        avg_logprob=avg_logprob,
     )
 
 
@@ -513,6 +541,8 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
     means the question is already answered; only the None needs asking
     again.
     """
+    from library.tools.transcript_confidence import line_confidence
+
     out: List[SpokenSegment] = []
     for segment in aligned.get("segments", []):
         text = (segment.get("text") or "").strip()
@@ -521,24 +551,32 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
         start = float(segment["start"])
         end = float(segment["end"])
         words = interpolate_untimed_words(segment.get("words") or [])
+        confidence = line_confidence(segment)
 
         clip = attribute_to_clip(start, end, clips)
         if clip is not None or not words:
-            out.append(_bound(speaker, text, clip, start, end, words))
+            out.append(_bound(speaker, text, clip, start, end, words,
+                              avg_logprob=confidence))
             continue
 
-        out.extend(read_from_words(speaker, text, words, clips))
+        out.extend(read_from_words(speaker, text, words, clips,
+                                   avg_logprob=confidence))
     return out
 
 
 def read_from_words(speaker, text: str, words: Sequence[dict],
-                    clips: Sequence) -> List[SpokenSegment]:
+                    clips: Sequence, avg_logprob=None) -> List[SpokenSegment]:
     """One unbound row, split at its own word boundaries.
 
     Factored out of `segments_for_speaker` so `rebind_document` can apply
     the SAME rule to a transcript already on disk rather than a second
     implementation of it.  There is one re-read in this module and both
     callers reach it.
+
+    Every piece keeps the parent row's `avg_logprob`, because it is the
+    transcriber's confidence in the DECODE that produced these words and
+    the split does not re-hear any of them.  A reader who wants to know
+    the row was cut up is told by `read_from_words` on the same row.
     """
     out: list[SpokenSegment] = []
     for run_clip, run_words in clip_runs(words, clips):
@@ -556,7 +594,8 @@ def read_from_words(speaker, text: str, words: Sequence[dict],
             float(run_words[0]["start"]),
             float(run_words[-1]["end"]),
             run_words,
-            read_from_words=True))
+            read_from_words=True,
+            avg_logprob=avg_logprob))
     return out
 
 
@@ -604,7 +643,8 @@ def rebind_document(document: dict, snapshot) -> dict:
             continue
         per_speaker.setdefault(segment.speaker, []).extend(
             read_from_words(segment.speaker, segment.text,
-                            list(segment.words), clips))
+                            list(segment.words), clips,
+                            avg_logprob=segment.avg_logprob))
 
     rebound = transcript_document(snapshot, merge_speakers(per_speaker))
     # A rebound transcript SAYS it is one.  The words came from the run
@@ -635,6 +675,7 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
     read_from_words = sum(1 for s in merged if s.read_from_words)
     rebound = sum(1 for s in merged
                   if s.read_from_words and s.resolve_item_id is not None)
+    with_confidence = sum(1 for s in merged if s.avg_logprob is not None)
     # The speakers who ACTUALLY SPEAK, from the segments themselves -
     # not `snapshot.speakers()`, which is the TRACK ROSTER and lists
     # `Akshita CH1` and `Craig CH1` beside the two real people. Four keys
@@ -685,6 +726,11 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
         # Without them the repair is invisible in its own output.
         "segments_read_from_words": read_from_words,
         "segments_rebound_from_words": rebound,
+        # How many rows carry the TRANSCRIBER's own confidence in their
+        # words. Said on the document rather than left to be counted,
+        # because zero and "nobody looked" read the same from outside -
+        # and zero is what every transcript written before #587 holds.
+        "segments_with_asr_confidence": with_confidence,
         "segments": [s.as_dict() for s in merged],
     }
 

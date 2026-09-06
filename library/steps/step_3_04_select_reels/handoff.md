@@ -82,7 +82,7 @@ say where each one starts and ends.
 
 | Table | What it holds |
 |-------|---------------|
-| `spoken_lines` | The whole conversation, in order, one row per line of speech: who says it, the exact second it starts, the exact second it ends, and what it says. **These are the seconds a reel may start and stop at** - a boundary you name is moved out to the nearest of these edges, so a line here is a cut you can actually make. `not_a_boundary` names the stretches of speech that could not be bound to one clip: they are not rows and no boundary is placed on one |
+| `spoken_lines` | The whole conversation, in order, one row per line of speech: who says it, the exact second it starts, the exact second it ends, and what it says. **These are the seconds a reel may start and stop at** - a boundary you name is moved out to the nearest of these edges, so a line here is a cut you can actually make. `not_a_boundary` names the stretches of speech that could not be bound to one clip: they are not rows and no boundary is placed on one. `transcription_confidence` says what the transcriber recorded about its own reading, and `script_mismatch` names any line written in letters the rest of the conversation is not written in |
 | `turns` | The same conversation grouped into speaker turns: who spoke and between which two seconds. A turn is one speaker's uninterrupted run of the lines above; this is the coarse structure `reel_candidates` counts, not a second copy of the words |
 | `reel_candidates` | Every contiguous stretch the measurements found, with what was measured about it |
 

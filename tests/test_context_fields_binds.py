@@ -348,7 +348,12 @@ def test_select_reels_does_not_carry_the_transcript_document():
         "the transcript document is back in select_reels' prompt: "
         "817,317 characters, 8,509 per-word timings"
     )
-    assert "words" not in json.dumps(projected)
+    # The per-word array is forbidden by its KEY, not by the letters
+    # `words` appearing anywhere in the blob. The view's own prose says
+    # what the transcriber recorded about the WORDS on a line, and a
+    # transcript line may contain the English word too - matching those
+    # is the test firing on its own explanation.
+    assert '"words"' not in json.dumps(projected)
 
     bridge = (step_dir("select_reels") / "bridge.py").read_text(
         encoding="utf-8")

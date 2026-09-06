@@ -48,7 +48,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 **Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
 `library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 - `view:transcript` is what step 2.01 reads. **Step 2.02 does NOT declare it** - its pre-bridge builds `transcripts_toon` instead. [why](docs/RULE_EVIDENCE.md#the-transcript-shipped-twice) `view:transcript` is what step 2.01 reads instead of `temporal_index.*.speech_regions`: what was said, in which clip, between which two seconds.
-- `view:spoken_lines` is what step 3.04 reads instead of the `timeline_transcript` document: every line of the cut's speech, with the speaker and the two seconds it sits between, and NOTHING else. It is the SUB-TURN boundary - the pre-bridge's `turns` table collapses 929 bound segments into 136 turns, and the step's own post-bridge snaps every chosen boundary out to a bound-segment edge, so without it the model is asked to draw a line at a granularity it cannot see. **The `turns` table stops carrying the text this view carries**: a turn's text is its segments' texts joined by a space, to the byte, so publishing both is the summary and its own source. A segment that straddles a cut is not a row and is REPORTED in one line, because a reel boundary is never placed on one.
+- `view:spoken_lines` is what step 3.04 reads instead of the `timeline_transcript` document: every line of the cut's speech, with the speaker and the two seconds it sits between, and NOTHING else. It is the SUB-TURN boundary - the pre-bridge's `turns` table collapses 929 bound segments into 136 turns, and the step's own post-bridge snaps every chosen boundary out to a bound-segment edge, so without it the model is asked to draw a line at a granularity it cannot see. **The `turns` table stops carrying the text this view carries**: a turn's text is its segments' texts joined by a space, to the byte, so publishing both is the summary and its own source. A segment that straddles a cut is not a row and is REPORTED in one line, because a reel boundary is never placed on one. **A row also carries the TRANSCRIBER's own confidence in its words** - `avg_logprob`, verbatim, and the column appears only when the transcript records one; a transcript that records none says so in one line rather than carrying a derived stand-in. `script_mismatch` names any line whose letters fall outside the transcript's own dominant script, which is a transcription failure signature and not a speech one. No threshold fires on either: `library/tools/transcript_confidence.py`.
 - `view:picture` is what a step reads to see a clip past its opening, and **every step that decides from what a shot looks like declares it** - 2.01, 2.02, 3.02, 4.02, 4.03 and 4.04. [why](docs/RULE_EVIDENCE.md#the-director-saw-the-first-nineteen-seconds)
   - **It is NOT a substitute for `scene[]` and must not be swapped in for it.** The view goes BESIDE `analysis.scene` (different axes).
   - **Its rows are keyed by the CATALOG clip id wherever a routed input makes that join possible.** It joins against `clip_catalog`, `a_roll_assignments` and `b_roll_assignments`; unjoinable documents are reported in `not_in_the_clip_list`.
@@ -379,29 +379,78 @@ def _spoken_lines(data: dict) -> dict:
     Akshita row lying across the Craig turn a reel borrowed as its
     closer, and the step that drew that boundary could not see it while
     the step that graded it could.
+
+    **A row says how sure the TRANSCRIBER was of its own words, and the
+    view says when the transcript records nothing.**  `avg_logprob` is
+    the ASR's own per-line number, verbatim, and the column appears only
+    when the transcript carries it; a transcript that does not gets one
+    line saying so instead of a fabricated stand-in.  Beside it,
+    `script_mismatch` names any line whose letters fall outside the
+    script the rest of the transcript is written in - exact, no
+    threshold, no model call, and on the field test 1 line of 940, which
+    is the one the model asked about.  Both come from
+    `library/tools/transcript_confidence.py`, which holds the account of
+    the 15 seconds of reel the absence cost.
     """
     from library.tools.reel_proposal import bound_segments, straddling_segments
+    from library.tools.transcript_confidence import (
+        CONFIDENCE_ABSENT,
+        CONFIDENCE_LEGEND,
+        any_line_carries_confidence,
+        line_confidence,
+        mismatch_report,
+    )
 
     document = data.get("timeline_transcript")
     if not isinstance(document, dict):
         return {}
 
+    rows = sorted(bound_segments(document),
+                  key=lambda s: float(s.get("timeline_start") or 0.0))
+    # The column is added for the whole table or for none of it. A
+    # per-row key that appears on some rows and not others makes the
+    # TOON table sparse, which costs an empty cell on every row that
+    # does not have one and tells a reader nothing about why.
+    carries_confidence = any_line_carries_confidence(rows)
+
     lines = []
-    for segment in sorted(bound_segments(document),
-                          key=lambda s: float(s.get("timeline_start") or 0.0)):
+    for segment in rows:
         text = (segment.get("text") or "").strip()
         if not text:
             continue
-        lines.append({
+        row = {
             "speaker": segment.get("speaker"),
             "start": round(float(segment.get("timeline_start") or 0.0), 2),
             "end": round(float(segment.get("timeline_end") or 0.0), 2),
             "text": text,
-        })
+        }
+        if carries_confidence:
+            confidence = line_confidence(segment)
+            row["avg_logprob"] = (None if confidence is None
+                                  else round(confidence, 3))
+        lines.append(row)
     if not lines:
         return {}
 
     view = {"lines": lines}
+
+    # ── What the TRANSCRIBER said about its own reading ──────────────
+    #
+    # The model that chose reel 22 named this as the one thing it needed
+    # and did not have, and put the cost in its own `could_not_determine`:
+    # it ended a reel 15 seconds early because it could not tell a
+    # garbled READING from garbled AUDIO.  Both halves of the answer are
+    # here and they are different questions - see
+    # `library/tools/transcript_confidence.py`.
+    #
+    # No threshold fires on either.  The number is published and the
+    # model judges it, which is the captain's standing ruling
+    # (AGENTS.md 10.5).
+    view["transcription_confidence"] = (
+        CONFIDENCE_LEGEND if carries_confidence else CONFIDENCE_ABSENT)
+    mismatches = mismatch_report(document)
+    if mismatches:
+        view["script_mismatch"] = mismatches
 
     unbindable = sorted(straddling_segments(document),
                         key=lambda s: float(s.get("timeline_start") or 0.0))
