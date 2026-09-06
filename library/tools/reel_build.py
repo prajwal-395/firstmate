@@ -496,7 +496,8 @@ def placements(ranges: Sequence[Tuple[float, float]],
 
 
 def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
-                           fps: float, width: int, height: int) -> list:
+                           fps: float, width: int, height: int,
+                           timeline_name: str = "") -> list:
     """Caption one reel THROUGH THE PIPELINE'S OWN STEPS.
 
     The captain's ruling of 2026-09-04: `reel_subtitles.py` should never
@@ -526,6 +527,14 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     from library.tools.project_layout import Area, ProjectLayout
     from library.tools.reel_spine import spine_for_reel
 
+    # What Resolve will CALL this reel.  It is the segment name's
+    # `timeline` component (library/tools/subtitle_segment_id.py), and
+    # that component is what stops one reel's overlay overwriting
+    # another's - so a build into a different container must caption
+    # into different files, or it silently rewrites the overlays the
+    # timeline it is NOT touching is still pointing at.
+    name = timeline_name or moment.timeline_name
+
     # A reel that cannot be spined is REPORTED and built without
     # captions, not allowed to abort the other eighteen. The reason is
     # printed rather than swallowed: a reel silently shipping with no
@@ -534,11 +543,11 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     try:
         spine = spine_for_reel(moment, transcript, ranges)
     except ReelSpineError as why:
-        print(f"  {moment.timeline_name}: NO CAPTIONS - {why}",
+        print(f"  {name}: NO CAPTIONS - {why}",
               file=sys.stderr)
         return []
     if spine.get("bleed_blocks_dropped"):
-        print(f"  {moment.timeline_name}: dropped "
+        print(f"  {name}: dropped "
               f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
               file=sys.stderr)
     # Speech this reel PLAYS that no block carries, in reel seconds. The
@@ -546,7 +555,7 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     # which seconds go uncaptioned, rather than something guessing a
     # clip for it.
     for span in spine.get("unbindable_spans") or []:
-        print(f"  {moment.timeline_name}: NO CAPTION over reel "
+        print(f"  {name}: NO CAPTION over reel "
               f"{span['reel_start']:.2f}-{span['reel_end']:.2f}s "
               f"({span['seconds']:.2f}s of {span['speaker']}'s words, "
               f"master {span['master_start']:.1f}-{span['master_end']:.1f}) "
@@ -565,19 +574,27 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     render = operations.get("subtitles.render_segment")
     segments = []
     for index, props in enumerate(props_list, 1):
-        rendered = render.run(props, out_dir, moment.timeline_name,
+        rendered = render.run(props, out_dir, name,
                               progress=f"[{index}/{len(props_list)}]")
         if rendered is not None:
             segments.append(rendered)
     return segments
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = ""):
+    """Place one reel.  `timeline_name` is what Resolve will CALL it.
+
+    Defaults to `moment.timeline_name`, which is the plan's own name and
+    what every build did before `built_name` existed.  A caller that
+    passes something else is building the same reel into a different
+    container - see `built_name`.
+    """
     import sys, os
+    name = timeline_name or moment.timeline_name
     pool = project.GetMediaPool()
-    timeline = pool.CreateEmptyTimeline(moment.timeline_name)
+    timeline = pool.CreateEmptyTimeline(name)
     if not timeline:
-        raise ValueError(f"Failed to create timeline {moment.timeline_name}")
+        raise ValueError(f"Failed to create timeline {name}")
         
     project.SetCurrentTimeline(timeline)
     
@@ -653,9 +670,136 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         }])
 
 
+def timelines_to_replace(project, target_names) -> list:
+    """The existing timelines THIS build will replace, by exact name.
+
+    Exact, never a prefix.  The loop this replaces collected every
+    timeline whose name began `"Reel "`, which on the field-test project
+    is nineteen approved timelines - so building one reel deleted the
+    other eighteen and deleted any reel the current plan no longer
+    contains, with nothing backing them up and nothing saying so.
+
+    A near match lands elsewhere is already the rule for addressing a
+    Resolve PROJECT (AGENTS.md 5).  It is the same rule for a timeline,
+    and this is the call site where getting it wrong destroys work
+    rather than reading the wrong thing.
+    """
+    found = []
+    for index in range(1, project.GetTimelineCount() + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline and timeline.GetName() in target_names:
+            found.append(timeline)
+    return found
+
+
+def assert_deletion_scope(timelines, target_names) -> None:
+    """REFUSE to delete a timeline this build did not plan to place.
+
+    The captain's ruling of 2026-09-06, on finding the unconditional
+    delete on main: *"a refusal is cheap and a deleted timeline is
+    not"*.
+
+    This is deliberately NOT the same computation as
+    `timelines_to_replace`, and it is deliberately not folded into it.
+    A guard that is the selection restated cannot catch the selection
+    being wrong; this one is asked of the LIST ABOUT TO BE DELETED,
+    whatever produced it, immediately before `DeleteTimelines`.  So a
+    later change to how the delete set is chosen fires this rather than
+    quietly widening the blast radius, which is exactly how the loop it
+    replaces came to take nineteen timelines to build one.
+
+    `tests/test_reel_build_touches_only_its_own_timelines.py` calls this
+    directly with both a permitted and a refused list, and drives a
+    build with an over-collecting selection to prove it fires where it
+    is actually wired.
+    """
+    unplanned = sorted(
+        timeline.GetName() for timeline in timelines
+        if timeline.GetName() not in target_names)
+    if unplanned:
+        raise ReelBuildError(
+            f"REFUSING to build: it would delete {len(unplanned)} "
+            f"timeline(s) this build never planned to place - "
+            f"{unplanned}. This build places "
+            f"{sorted(target_names)}. A timeline that is not being "
+            f"rebuilt must be left alone: deleting it destroys approved "
+            f"work that nothing here backs up, and a build that quietly "
+            f"widened its own delete set is how nineteen approved reels "
+            f"came to be deleted in order to write one.")
+
+
+def reel_numbers(only) -> Optional[set]:
+    """`only`, normalised to a set of reel numbers, or `None` for all.
+
+    Here rather than in `step_7_01_build_reels`, because this is the
+    module that READS the value: what a malformed one means is the
+    reader's to say, and a guard in the step body would make that step
+    refuse without an input its own manifest declares OPTIONAL - the
+    disagreement `tests/test_input_declarations_are_true.py` exists to
+    catch (AGENTS.md 3).
+
+    A string is accepted because an operation's overrides can arrive
+    from a shell or from JSON on stdin, where `--only-reel 3` and
+    `"3 5"` are the same request.  Anything that is not a number
+    REFUSES: a build cannot guess which moment a name refers to, and
+    guessing wrong places the wrong reel onto a timeline.
+    """
+    if only is None:
+        return None
+    if isinstance(only, str):
+        only = [part for part in only.replace(",", " ").split() if part]
+    try:
+        return {int(entry) for entry in only}
+    except (TypeError, ValueError) as bad:
+        raise ReelBuildError(
+            f"only must be reel NUMBERS, got {only!r} ({bad}). A build "
+            f"cannot guess which moment a name refers to, and guessing "
+            f"wrong places the wrong reel onto a timeline.") from bad
+
+
+def built_name(moment, name_suffix: str = "") -> str:
+    """What Resolve will CALL this reel when THIS build places it.
+
+    The plan owns the reel's name (`ReelMoment.timeline_name`); a build
+    owns the container it puts it in.  They are the same string by
+    default and must be allowed to differ, because a build that can only
+    write the plan's name can only ever REPLACE what is already there.
+
+    Spelled once, here, so the timeline Resolve creates, the name the
+    build records, the key `caption_hashes` is filed under and the
+    `timeline` component of every caption filename cannot drift apart -
+    and a caption filename that drifted would overwrite the overlays a
+    timeline this build is not touching still points at.
+    """
+    return f"{moment.timeline_name}{name_suffix}"
+
+
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
-                             verify: bool = True) -> dict:
+                             verify: bool = True, only=None,
+                             name_suffix: str = "") -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
+
+    A BUILD MAY ONLY DELETE WHAT IT IS ABOUT TO PLACE.  This used to
+    delete every timeline whose name began `"Reel "` and then build the
+    approved moments, which is a different and much larger act: on the
+    field-test project it destroys nineteen approved timelines in order
+    to write nineteen, and it destroys any reel the current plan no
+    longer contains without saying so.  The names this call will place
+    are computed first and only those are deleted, so a rebuild replaces
+    exactly its own output and a build of one reel touches one timeline.
+    `write_provenance` has merged rather than replaced since #568 for
+    the same reason - *"a partial rebuild must not delete the provenance
+    of the reels it did not touch"* - and the delete loop was the half
+    that made a partial rebuild impossible in the first place.
+
+    `only` selects WHICH approved moments to build, by reel number.
+    `None` is every approved moment, which is what every caller had.
+
+    `name_suffix` is appended to the name each reel is built INTO.  `""`
+    is the plan's own name, which is what every caller had.  A non-empty
+    suffix builds the same plan into a different container, which is the
+    only way to compare a rebuild against an approved timeline instead
+    of overwriting it.  It reaches the captions too (`built_name`).
 
     `verify` defaults to True, so nothing that called this before gets a
     weaker gate than it had: a direct caller still has the conformance
@@ -745,38 +889,61 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     master_clips = snapshot.clips
     
     pool = project.GetMediaPool()
-    timelines_to_delete = []
-    for i in range(1, project.GetTimelineCount() + 1):
-        t = project.GetTimelineByIndex(i)
-        if t.GetName().startswith("Reel "):
-            timelines_to_delete.append(t)
-            
+
+    # WHICH moments this call builds, decided before anything is touched.
+    # `only` is reel numbers; an approved moment not named by it is left
+    # exactly as it is, timeline and all.
+    wanted = reel_numbers(only)
+    building = [m for m in moments
+                if str(getattr(m.approval, "value", m.approval)) == "approved"
+                and (wanted is None or int(m.number) in wanted)]
+    if wanted is not None:
+        missing = wanted - {int(m.number) for m in building}
+        if missing:
+            raise ReelBuildError(
+                f"asked to build reel(s) {sorted(missing)}, and the plan "
+                f"{proposal_path} has no APPROVED moment with those "
+                f"numbers. Approved: "
+                f"{sorted(int(m.number) for m in building)}. A build that "
+                f"quietly skipped them would report success having placed "
+                f"nothing.")
+
+    # DELETE ONLY WHAT THIS CALL IS ABOUT TO PLACE, and REFUSE rather
+    # than delete anything else. See `timelines_to_replace` and
+    # `assert_deletion_scope`.
+    target_names = {built_name(m, name_suffix) for m in building}
+    timelines_to_delete = timelines_to_replace(project, target_names)
+    assert_deletion_scope(timelines_to_delete, target_names)
+
     if timelines_to_delete:
+        print(f"Replacing {len(timelines_to_delete)} existing timeline(s): "
+              f"{sorted(t.GetName() for t in timelines_to_delete)}",
+              flush=True)
         pool.DeleteTimelines(timelines_to_delete)
+    else:
+        print(f"Deleting nothing: none of "
+              f"{sorted(target_names)} exists yet.", flush=True)
 
     built_reel_names = []
     caption_hashes = {}
-    for moment in moments:
-        if moment.approval != "approved":
-            continue
-            
-        print(f"Building {moment.timeline_name}", flush=True)
-        built_reel_names.append(moment.timeline_name)
+    for moment in building:
+        name = built_name(moment, name_suffix)
+        print(f"Building {name}", flush=True)
+        built_reel_names.append(name)
         ranges = reel_ranges(moment, transcript)
         # Was: computed by the standalone captioner and then passed as
         # None, so every reel built since #524 carried no subtitles at
         # all while the work was done and discarded.
         subtitle_segments = None if skip_captions else reel_subtitle_segments(
             moment, transcript, ranges, project_folder,
-            fps=24000 / 1001, width=1080, height=1920)
+            fps=24000 / 1001, width=1080, height=1920, timeline_name=name)
 
         # RECORD what was placed. Derived at build time and previously
         # written down nowhere, which is why the verifier could re-derive
         # a different grouping a day later and grade against it.
         if subtitle_segments:
             from library.tools.plan_provenance import caption_content_hash
-            caption_hashes[moment.timeline_name] = caption_content_hash(
-                subtitle_segments)
+            caption_hashes[name] = caption_content_hash(subtitle_segments)
 
         build_reel_timeline(
             project=project,
@@ -787,7 +954,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             width=1080,
             height=1920,
             project_folder=project_folder,
-            transcript=transcript
+            transcript=transcript,
+            timeline_name=name,
         )
 
     # Record which plan we built from, so the verifier can detect
@@ -816,6 +984,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "master_timeline_name": master_timeline_name,
         "captions_rendered": not skip_captions,
         "verified_in_place": bool(verify),
+        # What this build was ASKED for, so the record can say that it
+        # built one reel into a new container rather than reading like a
+        # full rebuild that placed one timeline.
+        "reels_requested": None if wanted is None else sorted(wanted),
+        "name_suffix": name_suffix,
     }
 
 

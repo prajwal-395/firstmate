@@ -93,13 +93,28 @@ def build_reels(data: dict) -> dict:
             f"master timeline, and a near match lands on another project "
             f"(AGENTS.md 5).")
 
+    # WHICH reels, and INTO WHAT. Both are optional and both default to
+    # what every build did before: every approved moment, into the plan's
+    # own timeline name. They exist because a build that can only write
+    # the plan's name can only ever REPLACE what is already in Resolve,
+    # and a first build against a project carrying nineteen approved
+    # timelines has to be able to place one without touching them.
+    #
+    # FORWARDED, not interpreted. What a malformed `only_reels` means is
+    # `reel_build.reel_numbers`' to say - it is the module that reads
+    # the value - and a guard here would make this step refuse without
+    # an input its own manifest declares OPTIONAL
+    # (`tests/test_input_declarations_are_true.py`, AGENTS.md 3).
+
     # `verify=False`: this process has a `verify_reels` node, and running
     # the conformance verifier twice would report the same findings twice
     # under two different step ids.
     record = rebuild_reels_in_project(
         project_folder,
         skip_captions=bool((data or {}).get("skip_captions")),
-        verify=False)
+        verify=False,
+        only=(data or {}).get("only_reels"),
+        name_suffix=str((data or {}).get("timeline_name_suffix") or ""))
 
     return {"reel_build": record}
 

@@ -23,19 +23,32 @@
         "type": "boolean",
         "required": false,
         "description": "Build the timelines without rendering subtitle overlays. The `--skip-captions` flag of `manage_project.py build-reels`, which exists because the Remotion render is the expensive half and a structural check does not need it."
+      },
+      {
+        "name": "only_reels",
+        "type": "array",
+        "required": false,
+        "description": "Reel NUMBERS to build. Absent means every approved moment, which is what every build did before. The `--only-reel` flag of `manage_project.py build-reels`. It exists because the delete step now removes only the names this call will place, so building one reel is a real operation rather than a full rebuild that happens to place one timeline."
+      },
+      {
+        "name": "timeline_name_suffix",
+        "type": "string",
+        "required": false,
+        "description": "Appended to the Resolve timeline name each reel is built INTO, and to the `timeline` component of every caption filename so the overlays cannot overwrite another timeline's. Absent means the plan's own name, which REPLACES the existing timeline of that name. The `--name-suffix` flag of `manage_project.py build-reels`."
       }
     ],
     "outputs": [
       {
         "name": "reel_build",
         "type": "object",
-        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote.",
+        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote. Also carries what the build was ASKED for - `reels_requested` and `name_suffix` - so a record of one reel built into a new container does not read as a full rebuild that placed one timeline.",
         "expected_schema": {
           "timelines_built": "list",
           "plan_path": "str",
           "caption_hashes": "dict",
           "resolve_project_name": "str",
-          "master_timeline_name": "str"
+          "master_timeline_name": "str",
+          "name_suffix": "str"
         }
       }
     ],

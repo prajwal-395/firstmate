@@ -6026,3 +6026,76 @@ each is recorded in `WITHOUT_A_DECLARED_ROLE` with what it is addressed as
 today. That is a gap made visible rather than closed: writing a role for a
 discipline nobody has studied would be the engine inventing an expertise,
 which is the defect one level up.
+
+## the-build-that-deleted-nineteen-timelines-to-write-one
+
+`library/tools/reel_build.py` on `main`, 2026-09-06, immediately before
+placing anything:
+
+```python
+timelines_to_delete = []
+for i in range(1, project.GetTimelineCount() + 1):
+    t = project.GetTimelineByIndex(i)
+    if t.GetName().startswith("Reel "):
+        timelines_to_delete.append(t)
+
+if timelines_to_delete:
+    pool.DeleteTimelines(timelines_to_delete)
+```
+
+It landed in #507 inside a batch of eight unrelated reel fixes and was
+never the subject of a ruling.  It is the convenience a standalone
+rebuild script has and a pipeline operation must not: `reel.build` was
+registered as an operation in #571 with derived requirements that refuse,
+and on the field-test project every one of those requirements was
+SATISFIED - so the operation would have run, and running it deletes
+`Podcast (field test)`'s nineteen approved reel timelines.
+
+Measured with the placer, the verifier and Resolve faked, against a
+project carrying the master, nineteen approved reels and one orphan reel
+the current plan no longer contains:
+
+| build | on `main` | after |
+|---|---|---|
+| full rebuild | 20 of 21 timelines deleted, orphan gone | 19 deleted, orphan survives |
+| build ONE reel | not expressible; the only build is all of them | 1 deleted, 18 approved survive |
+| build ONE reel into a new name | not expressible | 0 deleted |
+
+Three things were wrong and they are different failures:
+
+- **Prefix, not name.** `startswith("Reel ")` is the hazard AGENTS.md 5
+  already names for addressing a Resolve PROJECT - *a near match lands
+  elsewhere* - at the one call site where getting it wrong destroys work
+  rather than reading the wrong thing.
+- **Unconditional.** The delete ran before the build, over everything,
+  whatever the plan contained.  A reel the plan no longer describes was
+  deleted with nothing saying so and nothing backing it up.
+- **All-or-nothing.** There was no way to build one reel, so the only
+  available act was "delete nineteen, write nineteen".
+
+The half of the pair that was already right is `plan_provenance`, which
+has MERGED rather than replaced since #568 for exactly this reason - *"a
+partial rebuild must not delete the provenance of the reels it did not
+touch"*.  A partial rebuild could not happen, because the delete loop ran
+first and took everything.
+
+The captain's ruling, 2026-09-06, on being shown it:
+
+> Do not add a separate non-destructive path beside the destructive one;
+> that leaves the loaded gun on the table. [...] Consider whether it
+> should refuse outright rather than delete when a timeline it did not
+> plan to touch would be removed; a refusal is cheap and a deleted
+> timeline is not.
+
+So there is ONE path.  `timelines_to_replace` matches the names this
+build will place, exactly and never by prefix.  `assert_deletion_scope`
+is then asked of the list about to be deleted - deliberately not a
+restatement of the selection, because a guard that recomputes the
+selection cannot catch the selection being wrong - and REFUSES rather
+than deleting anything unplanned.  `only` and `name_suffix` scope the
+same path rather than forking it.
+
+`tests/test_reel_build_touches_only_its_own_timelines.py` asserts the
+survivors by name off a media pool that really deletes, and fires the
+guard in both directions: permitted on a legitimate replace, refused on
+an over-collecting selection driven through the real build path.

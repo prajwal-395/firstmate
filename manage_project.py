@@ -809,8 +809,11 @@ def cmd_build_reels(args):
 
     for node_id in processes.execution_order(processes.REELS):
         for op in operations.by_node(node_id):
-            result = op.execute(project_folder,
-                                skip_captions=args.skip_captions)
+            result = op.execute(
+                project_folder,
+                skip_captions=args.skip_captions,
+                only_reels=args.only_reel or None,
+                timeline_name_suffix=args.name_suffix)
             if result.refused:
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
@@ -913,6 +916,16 @@ def main():
         "project", help="The project to rebuild reels for")
     build_reels_parser.add_argument(
         "--skip-captions", action="store_true", help="Skip rendering subtitles (saves CPU)")
+    build_reels_parser.add_argument(
+        "--only-reel", type=int, action="append", default=[], metavar="N",
+        help="Build only this reel number; repeatable. Default: every "
+             "approved moment. The build deletes only the timelines it is "
+             "about to place, so this touches one timeline.")
+    build_reels_parser.add_argument(
+        "--name-suffix", default="", metavar="TEXT",
+        help="Append this to the Resolve timeline name each reel is built "
+             "into, and to its caption filenames. Default: the plan's own "
+             "name, which REPLACES the timeline already called that.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     p_status = sub.add_parser("status", help="Show project status")
