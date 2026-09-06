@@ -220,6 +220,18 @@ class ReelMoment:
     `{source_file, source_start, source_end}` - the ground truth, carried
     so a reel can be traced back without re-reading the timeline."""
 
+    opening_observations: tuple = ()
+    """What this reel's FIRST SECONDS point at that the reel does not
+    contain, measured on the ranges the builder will actually play.
+
+    The handoff states the hook rule and, until 2026-09-05, nothing
+    measured whether a proposal obeyed it - so four of the captain's
+    nineteen approved reels opened on a back-reference, a stumble or an
+    answer to a question the viewer never heard. There is no score and
+    nothing is rejected: this reports two facts a machine can see, and
+    re-drawing the start is the model's decision.
+    See library/tools/reel_opening.py."""
+
     straddling_within: tuple = ()
     """Speech inside this moment's span that `transcript_preview` does
     NOT contain, because it straddles a cut and has no single source.
@@ -262,6 +274,8 @@ class ReelMoment:
         body["source_spans"] = [dict(s) for s in self.source_spans]
         body["duplicate_takes"] = [dict(d) for d in self.duplicate_takes]
         body["straddling_within"] = [dict(x) for x in self.straddling_within]
+        body["opening_observations"] = [dict(o) for o
+                                        in self.opening_observations]
         body["has_duplicate_take"] = bool(self.duplicate_takes)
         body["timeline_name"] = self.timeline_name
         body["duration_seconds"] = round(self.duration, 3)
@@ -285,6 +299,8 @@ class ReelMoment:
             source_spans=tuple(dict(s) for s in (data.get("source_spans") or ())),
             duplicate_takes=tuple(dict(d) for d in
                                   (data.get("duplicate_takes") or ())),
+            opening_observations=tuple(
+                dict(o) for o in (data.get("opening_observations") or ())),
             straddling_within=tuple(dict(x) for x in
                                     (data.get("straddling_within") or ())),
             call_to_action=(CallToAction.from_dict(data["call_to_action"])
@@ -915,9 +931,24 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
                        transcript)),
                    call_to_action=enrich_call_to_action(
                        moment.call_to_action, transcript),
+                   opening_observations=tuple(
+                       opening_for(moment, transcript, preview)),
                    duplicate_takes=tuple(duplicate_takes(
                        moment.timeline_start, moment.timeline_end,
                        transcript)))
+
+
+def opening_for(moment, transcript: dict, preview: str) -> list:
+    """What this moment's opening points at, on the ranges that PLAY.
+
+    Measured here rather than asked of the model, for the same reason
+    `transcript_preview` and the CTA's own words are: the model named a
+    span, and what a viewer hears in its first seconds is a consequence
+    of that span plus every bad take the builder removes - which is how
+    a moment whose setup is cut ends up opening on two words.
+    """
+    from library.tools.reel_opening import for_moment
+    return for_moment(moment, transcript, preview)
 
 
 def enrich_call_to_action(cta: Optional[CallToAction],

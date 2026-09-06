@@ -1157,6 +1157,123 @@ async def get_timeline():
     )
 
 
+# ── What can be done to a region ──────────────────────────────────
+
+@app.get("/api/operations")
+async def operations_for_region(region: str = ""):
+    """The operations addressable at a span, and WHY the rest are not.
+
+    The captain selects a span in the timeline view and is offered what
+    can act on it. The refusals are the half that makes this a control
+    surface rather than a menu: a picker that silently hides what it
+    cannot do teaches nothing, while one that names the missing input and
+    what produces it is a thing you can act on.
+
+    THREE HONESTIES, because each has a way of quietly becoming a lie.
+
+    Refusals are read from `requirements.check`, NOT from
+    `Operation.requires`. The registry's own `requires` tuple is empty for
+    all twelve operations today - increment 3's requirements landed as
+    their own registry and nothing has bound them to operations yet - so
+    sourcing refusals from it would produce a picker that never refuses
+    anything. That is the vacuous-gate shape (AGENTS.md 10.4) wearing a
+    UI, and it would teach the captain that everything is runnable.
+
+    An operation that does not take a REGION at all is REPORTED, not
+    hidden. Ten of the twelve are project-scoped; a captain who selected
+    a span deserves to know that is why `color_grade.resolve` is not on
+    offer, rather than wondering where it went.
+
+    And `executable` is FALSE. The operations layer resolves and does not
+    yet execute - the gather wiring is a later increment - so this
+    endpoint answers "what could act on this span, and what stops it",
+    never "press here to run it". Saying so in the payload is what stops
+    the UI implying a button that does not exist.
+    """
+    project_dir = _get_project_dir()
+    state = _load_pipeline_state(project_dir)
+
+    from library.tools import operations as operations_mod
+    from library.tools import requirements as requirements_mod
+    from library.tools import run_scope, scope as scope_mod
+
+    try:
+        span = scope_mod.region(region)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"region {region!r}: {exc}")
+
+    offers, refusals, out_of_scope = [], [], []
+    for operation in operations_mod.all():
+        entry = {
+            "name": operation.name,
+            "summary": operation.summary,
+            "owning_node": operation.owning_node,
+            # The NAME and the REGION, as separate fields. Not a joined
+            # "<operation>@<region>" address string: that spelling has
+            # exactly one owner (`operations.parse_address`, landing
+            # separately) and writing it here too would be the second
+            # spelling this design keeps refusing to have. The view says
+            # it as prose; the CLI form comes from the one parser.
+            "region": str(span.region_span),
+        }
+        if not operation.supports(span):
+            out_of_scope.append({
+                **entry,
+                "region": "",
+                "reason": f"{operation.name} runs at "
+                          f"{', '.join(operation.scopes)} scope, not at a "
+                          f"region.",
+            })
+            continue
+
+        # `run_set` is the ONE step that would execute. That is what makes
+        # the predicate and coverage requirements ask their real question:
+        # `_producer_will_make_it` skips a requirement whose producers are
+        # all in the run set, and a scoped re-entry is precisely the case
+        # where they are not - the value has to be on file already.
+        run_set = {operation.owning_node}
+        unmet = requirements_mod.check(
+            run_set,
+            requirements_mod.Context(
+                project_folder=str(project_dir),
+                state=state,
+                run_set=frozenset(run_set),
+                recorded=run_scope.recorded_outputs(state),
+                # The dashboard verifies no external state; claiming it
+                # had would be asserting a check it never ran.
+                external={},
+            ),
+        )
+        if not unmet:
+            offers.append(entry)
+            continue
+        refusals.append({
+            **entry,
+            "reasons": [{
+                "requirement": u.requirement.name,
+                "describe": u.requirement.describe,
+                "why": u.satisfaction.reason,
+                "missing": u.satisfaction.missing,
+                # What would satisfy it. This is why a refusal is
+                # actionable rather than only informative.
+                "produced_by": list(u.requirement.produced_by),
+            } for u in unmet],
+        })
+
+    return {
+        "region": str(span.region_span),
+        "offers": offers,
+        "refusals": refusals,
+        "out_of_scope": out_of_scope,
+        "executable": False,
+        "executable_note": (
+            "The operations layer resolves an address and does not yet "
+            "run one. This says what could act on the span and what "
+            "stops it; running it is a later increment."
+        ),
+    }
+
+
 # ── Pipeline Control ──────────────────────────────────────────────
 #
 # Four controls, and each one has to be true rather than merely present:

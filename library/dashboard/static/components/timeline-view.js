@@ -73,6 +73,11 @@ async function renderTimelineView() {
             tracks[track].push(block);
         }
 
+        // Everything from here is inside one positioned wrapper, so the
+        // selection band can span every track the way an NLE's does
+        // rather than living inside one of them.
+        html += `<div id="timeline-tracks">`;
+
         // Render tracks in the built timeline's own order.
         const trackOrder = ['V1', 'V2', 'V3', 'A1', 'A2'];
         for (const trackName of trackOrder) {
@@ -106,9 +111,13 @@ async function renderTimelineView() {
             html += `</div>`;
         }
 
+        html += `</div>`;                       // #timeline-tracks
+        html += `<div id="timeline-region-panel"></div>`;
+
         container.innerHTML = html;
         // Measured after layout, never guessed before it.
         dropLabelsThatDoNotFit(container);
+        armRegionSelection(totalDur);
 
     } catch (err) {
         container.innerHTML = `
@@ -168,4 +177,178 @@ function showBlockDetail(blockId) {
 
         openInspector(`${block.track}: ${block.clip_name || block.id}`, content);
     });
+}
+
+// ── Selecting a region, and what can act on it ──────────────────────
+//
+// The captain drags a span in the timeline they already have and is told
+// what can act on it - AND, which is the half that makes this a control
+// surface rather than a menu, what CANNOT and why. A picker that
+// silently hides what it cannot do teaches nothing.
+//
+// This extends the existing view rather than opening a new page
+// (AGENTS.md section 4).
+
+/** The selected span, in timeline seconds, or null. */
+let selectedRegion = null;
+
+/** Seconds under a page x, measured off the track the browser laid out.
+ *
+ *  The inverse of the `left` computation each block already uses. Taken
+ *  from the element's own rect rather than a stored width, because the
+ *  panel and the sidebar both resize it. */
+function secondsAt(clientX, track, totalDur) {
+    const rect = track.getBoundingClientRect();
+    const ratio = (clientX - rect.left) / rect.width;
+    return Math.max(0, Math.min(totalDur, ratio * totalDur));
+}
+
+function armRegionSelection(totalDur) {
+    const wrapper = document.getElementById('timeline-tracks');
+    if (!wrapper) return;
+    const firstTrack = wrapper.querySelector('.timeline-track-blocks');
+    if (!firstTrack) return;
+
+    let anchorSeconds = null;
+
+    const band = document.createElement('div');
+    band.className = 'timeline-region';
+    band.id = 'timeline-region';          // stable: an anchor selector
+    band.hidden = true;
+    wrapper.appendChild(band);
+
+    const paint = (from, to) => {
+        const lo = Math.min(from, to), hi = Math.max(from, to);
+        band.hidden = false;
+        band.style.left = `${(lo / totalDur * 100).toFixed(3)}%`;
+        band.style.width = `${Math.max(0.2, (hi - lo) / totalDur * 100).toFixed(3)}%`;
+        band.setAttribute('data-region', `${lo.toFixed(3)}-${hi.toFixed(3)}`);
+        return [lo, hi];
+    };
+
+    wrapper.addEventListener('mousedown', (event) => {
+        const track = event.target.closest('.timeline-track-blocks');
+        if (!track) return;
+        // A click on a block still opens it; a DRAG selects. The
+        // distinction is made on mouseup by how far the pointer moved,
+        // so neither gesture has to be learned.
+        anchorSeconds = secondsAt(event.clientX, track, totalDur);
+        paint(anchorSeconds, anchorSeconds);
+        event.preventDefault();
+    });
+
+    wrapper.addEventListener('mousemove', (event) => {
+        if (anchorSeconds === null) return;
+        paint(anchorSeconds, secondsAt(event.clientX, firstTrack, totalDur));
+    });
+
+    const finish = (event) => {
+        if (anchorSeconds === null) return;
+        const [lo, hi] = paint(
+            anchorSeconds, secondsAt(event.clientX, firstTrack, totalDur));
+        anchorSeconds = null;
+        if (hi - lo < 0.05) {              // a click, not a drag
+            band.hidden = true;
+            selectedRegion = null;
+            document.getElementById('timeline-region-panel').innerHTML = '';
+            return;
+        }
+        selectedRegion = [lo, hi];
+        loadRegionOperations(lo, hi);
+    };
+    wrapper.addEventListener('mouseup', finish);
+    wrapper.addEventListener('mouseleave', finish);
+
+    // A re-render rebuilds the tracks, so the band is a new element and
+    // the selection would vanish while `selectedRegion` still held one -
+    // the view and the state disagreeing about what is selected. Redrawn
+    // from the state, which is what makes the id a usable anchor: the
+    // element is found again after a re-render (the property
+    // `review-channel.js:resolveAnchor` depends on).
+    if (selectedRegion) {
+        paint(selectedRegion[0], selectedRegion[1]);
+        loadRegionOperations(selectedRegion[0], selectedRegion[1]);
+    }
+}
+
+async function loadRegionOperations(start, end) {
+    const panel = document.getElementById('timeline-region-panel');
+    const span = `${start.toFixed(3)}-${end.toFixed(3)}`;
+    panel.innerHTML = `<div class="text-sm muted">Resolving ${span}s...</div>`;
+    let data;
+    try {
+        data = await api(`/operations?region=${encodeURIComponent(span)}`);
+    } catch (err) {
+        panel.innerHTML =
+            `<div class="text-sm muted">Could not resolve ${escapeHtml(span)}s: `
+            + `${escapeHtml(err.message)}</div>`;
+        return;
+    }
+
+    let html = `<div class="region-panel-head">`;
+    html += `<h3>${escapeHtml(data.region)} selected</h3>`;
+    html += `<button class="btn btn-ghost" onclick="clearRegionSelection()">Clear</button>`;
+    html += `</div>`;
+
+    // The offers.
+    html += `<div class="region-group"><div class="region-group-title">`
+          + `Can act on this span (${data.offers.length})</div>`;
+    if (!data.offers.length) {
+        html += `<div class="region-empty">Nothing can act on this span right `
+              + `now. The refusals below say why.</div>`;
+    }
+    for (const op of data.offers) {
+        html += `<div class="region-op offer">`
+              + `<div class="region-op-name">${escapeHtml(op.name)}`
+              + `<span class="region-op-node">${escapeHtml(op.owning_node)}</span></div>`
+              + `<div class="region-op-summary">${escapeHtml(op.summary)}</div>`
+              + `</div>`;
+    }
+    html += `</div>`;
+
+    // The refusals - the half that makes this a control surface.
+    html += `<div class="region-group"><div class="region-group-title">`
+          + `Cannot, and why (${data.refusals.length})</div>`;
+    for (const op of data.refusals) {
+        html += `<div class="region-op refusal">`
+              + `<div class="region-op-name">${escapeHtml(op.name)}`
+              + `<span class="region-op-node">${escapeHtml(op.owning_node)}</span></div>`;
+        for (const why of op.reasons) {
+            html += `<div class="region-reason">`
+                  + `<span class="region-reason-name">${escapeHtml(why.requirement)}</span> `
+                  + escapeHtml(why.why);
+            if (why.produced_by && why.produced_by.length) {
+                html += `<div class="region-reason-fix">produced by `
+                      + `${escapeHtml(why.produced_by.join(', '))}</div>`;
+            }
+            html += `</div>`;
+        }
+        html += `</div>`;
+    }
+    html += `</div>`;
+
+    // Said, not hidden: ten of the twelve operations are project-scoped,
+    // and a captain who selected a span deserves to know that is why.
+    if (data.out_of_scope.length) {
+        html += `<div class="region-group"><div class="region-group-title">`
+              + `Not addressable by a span (${data.out_of_scope.length})</div>`
+              + `<div class="region-empty">`
+              + escapeHtml(data.out_of_scope.map(o => o.name).join(', '))
+              + ` run against the whole project, not a region.</div></div>`;
+    }
+
+    // The execute path does not exist yet, and the UI says so rather
+    // than implying a button.
+    if (!data.executable) {
+        html += `<div class="region-note">${escapeHtml(data.executable_note)}</div>`;
+    }
+    panel.innerHTML = html;
+}
+
+function clearRegionSelection() {
+    selectedRegion = null;
+    const band = document.getElementById('timeline-region');
+    if (band) band.hidden = true;
+    const panel = document.getElementById('timeline-region-panel');
+    if (panel) panel.innerHTML = '';
 }

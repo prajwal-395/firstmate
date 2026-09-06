@@ -55,13 +55,28 @@ objects themselves, not strings, so `refusal_reason()` can say what is
 missing AND which step makes it.  A refusal that only says "missing" is
 the prose prerequisite in a new costume.
 
-What this module does NOT do yet
---------------------------------
-`Operation.requires` is declared and empty.  Executable requirements are
-`library/tools/requirements.py` (increment 3), and this file must not
-grow a second requirement vocabulary while waiting for it - a prose
-prerequisite here would be the exact defect the refactor removes.  When
-that module lands, populate `requires`; do not invent a checker here.
+What an operation REQUIRES, and why it is derived
+-------------------------------------------------
+`Operation.requires` is DERIVED, never hand-written: it is every
+requirement in `library/tools/requirements.py` whose `consumers` include
+this operation's `owning_node`.  Increment 3 already derives those from
+`inputs[].required` and the DAG's `data_mapping`, so an operation
+inherits exactly the prerequisites its step has - no more, no less, and
+nothing to keep in sync.
+
+Hand-writing them here would put a second requirement vocabulary beside
+the one that exists, and the hand-written half would be prose in a
+costume.  That is the defect this refactor removes, so `requires` is a
+property with no setter and `_REGISTRY` carries no requirement literals.
+
+Executing
+---------
+`Operation.execute` gathers the step's inputs the way the RUNNER does -
+`gather_step_inputs`, not a copy of it - checks the requirements, and
+either runs the step's own function or REFUSES naming what is missing
+and which step produces it.  The refusal is the point as much as the
+success: an operation that cannot say why it will not run is a resolver,
+not an executor.
 
 Reachability
 ------------
@@ -78,12 +93,13 @@ import argparse
 import importlib.util
 import json
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple
+from typing import Any
 
 from library.tools import scope as scope_mod
-from library.tools.scope import CLIP, PROJECT, REGION, Scope
+from library.tools.scope import PROJECT, REGION, Scope
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEPS_ROOT = REPO_ROOT / "library" / "steps"
@@ -128,9 +144,9 @@ class OperationResult:
     scope: Scope
     status: str
     payload: Any = None
-    unsatisfied: Tuple[Any, ...] = field(default_factory=tuple)
-    hollow: Tuple[str, ...] = field(default_factory=tuple)
-    artifacts: Tuple[str, ...] = field(default_factory=tuple)
+    unsatisfied: tuple[Any, ...] = field(default_factory=tuple)
+    hollow: tuple[str, ...] = field(default_factory=tuple)
+    artifacts: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
 
     def __post_init__(self):
@@ -169,10 +185,17 @@ class OperationResult:
         parts = []
         for req in self.unsatisfied:
             name = getattr(req, "name", None) or repr(req)
-            producer = getattr(req, "produced_by", None)
-            parts.append(f"{name} (produced by {producer})" if producer
-                         else f"{name} (nothing declares a producer)")
-        if self.error:
+            producers = getattr(req, "produced_by", None)
+            if producers:
+                who = ", ".join(producers) if not isinstance(producers, str) \
+                    else producers
+                parts.append(f"{name} (produced by {who})")
+            else:
+                parts.append(f"{name} (nothing declares a producer)")
+        # `error` carries the FULL operator-facing refusal and repeats
+        # these lines, so it is used only when there is nothing else -
+        # an environment refusal has no unsatisfied requirement to name.
+        if not parts and self.error:
             parts.append(self.error)
         return f"{self.operation} refused: " + "; ".join(parts)
 
@@ -204,7 +227,7 @@ class OperationResult:
 # `@dataclass` inside a body loaded by path fails without it - it looks
 # its own module up by name to resolve annotations, and gets None.
 
-_LOADED: Dict[str, Any] = {}
+_LOADED: dict[str, Any] = {}
 
 
 def load_step_module(step_dir: str, filename: str = "step.py"):
@@ -241,10 +264,25 @@ class Operation:
     owning_dir: str             # its directory under library/steps/
     body: str                   # step.py | bridge.py | post_bridge.py
     attr: str                   # the function's name in that body
-    scopes: Tuple[str, ...] = (PROJECT,)
-    # Executable prerequisites land here in increment 3
-    # (library/tools/requirements.py).  Empty is honest; prose is not.
-    requires: Tuple = field(default_factory=tuple)
+    scopes: tuple[str, ...] = (PROJECT,)
+
+    @property
+    def requires(self) -> tuple:
+        """Every requirement this operation's OWNING NODE has.
+
+        Derived from `library/tools/requirements.py`, never listed here.
+        Increment 3 already builds these from `inputs[].required` and the
+        DAG's `data_mapping`, so an operation asks exactly what its step
+        asks - and a manifest change reaches the operation with nothing
+        to update.
+
+        A requirement is keyed by its `consumers`, which are DAG node
+        ids; `owning_node` is what makes an operation addressable in that
+        vocabulary, which is the second reason it is not decoration.
+        """
+        from library.tools import requirements
+        return tuple(r for r in requirements.all_requirements()
+                     if self.owning_node in r.consumers)
 
     @property
     def run(self) -> Callable:
@@ -267,6 +305,174 @@ class Operation:
         """
         return getattr(load_step_module(self.owning_dir, self.body),
                        self.attr)
+
+    # ── Executing ───────────────────────────────────────────────────
+
+    def context(self, project_folder: str):
+        """What the requirement checks are allowed to read, for this project.
+
+        Built from the project's own state, the same three routes
+        `gather_step_inputs` uses: produced in this run, recorded by a
+        previous one, or supplied from outside the pipeline.
+        """
+        from library.tools import requirements
+        from library.tools.project_layout import ProjectLayout
+
+        state = {}
+        path = ProjectLayout(project_folder).pipeline_data_path
+        if Path(path).is_file():
+            state = json.loads(Path(path).read_text(encoding="utf-8"))
+        recorded = state.get("step_outputs") or {}
+        return requirements.Context(
+            project_folder=project_folder, state=state,
+            # `run_set` here is NOT what decides deferral - measured, not
+            # assumed: `requirements.check` REBUILDS the context with its
+            # own first argument whenever the two disagree, so whatever is
+            # set here is discarded.  The lever is `unmet` below, which
+            # passes ONLY this operation's node.  Left empty because that
+            # is the truthful value for a context with no run behind it.
+            run_set=frozenset(), recorded=recorded, external={})
+
+    def unmet(self, project_folder: str) -> list:
+        """Which of this operation's requirements are not satisfied.
+
+        THE RUN SET IS THIS NODE ALONE, and that single argument is what
+        makes an operation strict.  `requirements._producer_will_make_it`
+        defers any requirement whose producer is in the run set - correct
+        inside a DAG, where the producer really is scheduled ahead.  An
+        operation runs ALONE: there is no ahead.  Passing the producers
+        here would defer on a promise nobody made, which looks like
+        tolerance and behaves like blindness.
+
+        `tests/test_operations_execute.py` pins the distinction with one
+        requirement and one state checked under both run sets, and that
+        test fails if this argument grows.
+        """
+        from library.tools import requirements
+        return requirements.check([self.owning_node],
+                                  self.context(project_folder),
+                                  self.requires)
+
+    def gather(self, project_folder: str) -> dict:
+        """The step's inputs, assembled the way the RUNNER assembles them.
+
+        `gather_step_inputs` is called, never copied: it owns the
+        `data_mapping` edges, the process-level whitelist, the external
+        inputs and the raise on a missing required key.  A second
+        implementation here would drift from the runner within a month,
+        and the drift would be invisible because both would "work".
+        """
+        import sys as _sys
+
+        from library.tools import run_scope
+        from library.tools.project_layout import ProjectLayout
+
+        process_dir = REPO_ROOT / "library" / "processes" / "edit_video"
+        if str(process_dir) not in _sys.path:
+            _sys.path.insert(0, str(process_dir))
+        import run_pipeline
+
+        dag = run_scope.load_dag()
+        manifests = run_scope.load_manifests(dag)
+        state = {}
+        path = ProjectLayout(project_folder).pipeline_data_path
+        if Path(path).is_file():
+            state = json.loads(Path(path).read_text(encoding="utf-8"))
+        state.setdefault("project_folder", project_folder)
+        return run_pipeline.gather_step_inputs(
+            self.owning_node, dag, state,
+            manifests.get(self.owning_node), step_type="operation")
+
+    def execute(self, project_folder: str, scope: Scope = None,
+                **overrides) -> OperationResult:
+        """Run this operation, or REFUSE naming what is missing.
+
+        The refusal matters as much as the success. An operation whose
+        prerequisites are absent says which input is missing and which
+        step produces it - the shape the runner already refuses in, and
+        the reason `unsatisfied` carries Requirement objects rather than
+        strings.
+        """
+        where = scope or scope_mod.project()
+        self.check_scope(where)
+
+        missing = self.unmet(project_folder)
+        if missing:
+            return OperationResult(
+                operation=self.name, owning_node=self.owning_node,
+                scope=where, status=REFUSED,
+                unsatisfied=tuple(entry.requirement for entry in missing),
+                error=self._teach(missing))
+
+        inputs = self.gather(project_folder)
+        inputs.update(overrides)
+        payload = self.run(**self._arguments(inputs))
+        return OperationResult(
+            operation=self.name, owning_node=self.owning_node,
+            scope=where, status=COMPLETED, payload=payload)
+
+    def _teach(self, missing: list) -> str:
+        """The refusal, written so the reader can work out their next move.
+
+        An operation runs ALONE, so a requirement whose producer would
+        have run first inside a DAG is refused here rather than deferred
+        (see `context`).  That is correct - deferring on a promise nobody
+        made is a check that cannot fail - but it makes the refusal
+        SURPRISING, because the same state runs fine as part of a run.
+
+        So the message says which producer, and says that running it
+        first or running the DAG is what satisfies this.  "REFUSED:
+        missing audio_spine" is a wall; naming the producer and the two
+        ways out is a control surface, which is the point of granular
+        operations at all.
+        """
+        from library.tools import requirements
+
+        lines = requirements.describe_refusal(missing)
+
+        # Grouped by requirement, because one requirement with three
+        # possible producers is one thing to fix, not three.
+        deferrable = []
+        for entry in missing:
+            producers = tuple(entry.requirement.produced_by or ())
+            if producers:
+                deferrable.append((entry.requirement.name, producers))
+
+        if deferrable:
+            lines += ["",
+                      ("This operation runs ALONE, so nothing will produce "
+                       "these while it waits - inside a DAG run they would "
+                       "be satisfied by a producer scheduled ahead of it."),
+                      "To satisfy them:"]
+            for name, producers in deferrable:
+                # The STEP is named, never an operation.  An operation
+                # owned by the producing node is not necessarily the
+                # operation that produces this key - `duration_zone.build`
+                # is owned by `mesh_spine` but is its BRIDGE half and
+                # emits no spine.  Suggesting it would be confidently
+                # wrong, which is worse than suggesting nothing, and
+                # guessing the mapping is the defect this whole refactor
+                # is about.
+                who = " or ".join(f"`{p}`" for p in producers)
+                lines.append(f"  - {name}: produced by {who} - run "
+                             f"{'that step' if len(producers) == 1 else 'one of those steps'} "
+                             f"first, or run the DAG.")
+        return "\n".join(lines)
+
+    def _arguments(self, inputs: dict) -> dict:
+        """Only the arguments the step's own function actually names.
+
+        The gathered dict is the STEP's whole input; a function that takes
+        four of those keys must not be handed forty. Reading the real
+        signature rather than a declaration keeps this true when the
+        function changes.
+        """
+        import inspect
+        parameters = inspect.signature(self.run).parameters
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD
+               for p in parameters.values()):
+            return dict(inputs)
+        return {name: inputs[name] for name in parameters if name in inputs}
 
     def supports(self, scope: Scope) -> bool:
         return scope.kind in self.scopes
@@ -302,7 +508,7 @@ class Operation:
 # want has no function behind it, split the body first - that is what
 # increment 4a did for ten of them.
 
-_REGISTRY: Tuple[Operation, ...] = (
+_REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="sfx_library.validate",
         summary="Check the SFX library can actually serve a run",
@@ -444,12 +650,12 @@ _REGISTRY: Tuple[Operation, ...] = (
 )
 
 
-def all() -> Tuple[Operation, ...]:
+def all() -> tuple[Operation, ...]:
     """Every registered operation, in registry order."""
     return _REGISTRY
 
 
-def names() -> Tuple[str, ...]:
+def names() -> tuple[str, ...]:
     return tuple(op.name for op in _REGISTRY)
 
 
@@ -494,7 +700,7 @@ class Address:
         return self.region is not None
 
 
-def parse_address(text: str, known: Optional[Iterable[str]] = None) -> Address:
+def parse_address(text: str, known: Iterable[str] | None = None) -> Address:
     """`subtitles.render@45.0-72.0`, or a bare `subtitles.render`.
 
     The SPAN half is delegated to `region.parse` rather than re-parsed
@@ -547,7 +753,7 @@ def looks_like_an_address(text: str) -> bool:
     return ADDRESS_SEPARATOR in raw or raw in names()
 
 
-def by_node(node_id: str) -> Tuple[Operation, ...]:
+def by_node(node_id: str) -> tuple[Operation, ...]:
     """Everything owned by one DAG node."""
     return tuple(op for op in _REGISTRY if op.owning_node == node_id)
 
@@ -603,8 +809,8 @@ def emit_skill() -> str:
     out += ["", "## Calling one", "",
             "```",
             "python3 -m library.tools.operations --list",
-            "python3 -m library.tools.operations <name> --project <path> "
-            "[--region 45.0-72.0 | --clip clip_007]",
+            ("python3 -m library.tools.operations <name> --project <path> "
+             "[--region 45.0-72.0 | --clip clip_007]"),
             "```", ""]
     return "\n".join(out)
 
@@ -643,25 +849,28 @@ def main(argv=None) -> int:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
 
-    # Running an operation needs its inputs, and where those come from
-    # is increment 3's `requirements.py` and increment 5's state splice.
-    # Resolving them here would be this module growing the logic Ruling 1
-    # forbids, so it reports what it WOULD run and stops.
-    print(f"{op.name}: {op.summary}", file=sys.stderr)
-    print(f"  owning node : {op.owning_node}", file=sys.stderr)
-    print(f"  scope       : {where}", file=sys.stderr)
-    print(f"  entry point : library/steps/{op.owning_dir}/{op.body}"
-          f"::{op.attr}", file=sys.stderr)
-    print("  REFUSED: an operation cannot gather its own inputs yet - "
-          "that is requirements.py (increment 3). The entry point above "
-          "is resolvable and callable in-process today.", file=sys.stderr)
+    if not args.project:
+        print("REFUSED: --project is required to run an operation; it is "
+              "where the inputs come from and where the result lands.",
+              file=sys.stderr)
+        return 2
+
+    result = op.execute(args.project, scope=where)
+
+    if result.refused:
+        print(f"REFUSED: {op.name}", file=sys.stderr)
+        print(result.error, file=sys.stderr)
+        if args.json:
+            print(json.dumps(result.as_record(), indent=2))
+        return 1
+
+    print(f"{op.name}: completed at {where}", file=sys.stderr)
     if args.json:
-        print(json.dumps({
-            "operation": op.name, "owning_node": op.owning_node,
-            "scope": str(where),
-            "entry_point": f"library/steps/{op.owning_dir}/{op.body}::{op.attr}",
-        }, indent=2))
-    return 3
+        print(json.dumps(result.as_record(), indent=2))
+    else:
+        json.dump(result.payload, sys.stdout, indent=2)
+        print()
+    return 0
 
 
 if __name__ == "__main__":

@@ -813,6 +813,122 @@ body {
     color: var(--text-primary);
 }
 
+/* ── Region selection ──────────────────────────────────────────── */
+
+#timeline-tracks {
+    position: relative;
+}
+
+/* The selection band spans every track, the way an NLE's does, rather
+   than living inside one of them. `pointer-events: none` so a drag that
+   crosses it keeps reaching the track underneath. */
+.timeline-region {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(88, 166, 255, 0.14);
+    border-left: 2px solid var(--accent-blue);
+    border-right: 2px solid var(--accent-blue);
+    pointer-events: none;
+    z-index: 2;
+}
+
+#timeline-region-panel:not(:empty) {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-primary);
+}
+
+.region-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.region-panel-head h3 {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.region-group {
+    margin-bottom: 14px;
+}
+
+.region-group-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.region-empty {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.region-op {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--border-primary);
+}
+
+.region-op.offer   { border-left-color: var(--color-completed); }
+.region-op.refusal { border-left-color: var(--color-gate-pending); }
+
+.region-op-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.region-op-node {
+    margin-left: 8px;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.region-op-summary {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.region-reason {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.region-reason-name {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-gate-pending);
+}
+
+/* What would satisfy it. This line is why a refusal is actionable
+   rather than only informative. */
+.region-reason-fix {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.region-note {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: var(--bg-surface);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 .timeline-empty {
     text-align: center;
     padding: 40px;

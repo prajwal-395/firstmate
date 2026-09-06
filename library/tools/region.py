@@ -79,7 +79,6 @@ computable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 from library.tools.spine_contract import (
     blocks_overlapping,
@@ -146,20 +145,20 @@ class RegionAddress:
     made.
     """
 
-    region: "Region"
-    blocks: Tuple[dict, ...]
-    source_spans: Tuple[SourceSpan, ...]
-    owners: Tuple[Tuple[str, str], ...]
+    region: Region
+    blocks: tuple[dict, ...]
+    source_spans: tuple[SourceSpan, ...]
+    owners: tuple[tuple[str, str], ...]
     """`(track, node_id)` for every track that carries something here,
     from `timeline_decisions.TRACK_DECISIONS` - the enumeration that
     already answers "which step decided what plays on this track"."""
 
     @property
-    def positions(self) -> List[object]:
+    def positions(self) -> list[object]:
         return [b["position"] for b in self.blocks]
 
     @property
-    def clip_ids(self) -> List[str]:
+    def clip_ids(self) -> list[str]:
         seen = []
         for span in self.source_spans:
             if span.clip_id not in seen:
@@ -189,7 +188,7 @@ class TimelineMismatch(ValueError):
     """Two regions from different timelines were used together."""
 
 
-def assert_same_timeline(a: "Region", b, where: str) -> None:
+def assert_same_timeline(a: Region, b, where: str) -> None:
     """Refuse a master-timeline region where a reel one is expected, or back.
 
     `b` is a `Region` or a bare timeline identifier.
@@ -263,7 +262,7 @@ class Region:
     def duration(self) -> float:
         return self.end - self.start
 
-    def blocks(self, structure: list) -> List[dict]:
+    def blocks(self, structure: list) -> list[dict]:
         """The spine blocks this region touches, in spine order."""
         return blocks_overlapping(structure, self.start, self.end)
 
@@ -272,7 +271,7 @@ class Region:
             return timeline_time == self.start
         return self.start <= timeline_time < self.end
 
-    def clipped_to(self, block: dict) -> "Region":
+    def clipped_to(self, block: dict) -> Region:
         """This region narrowed to one block's own timeline span."""
         return Region(self.timeline,
                       max(self.start, block["timeline_start"]),
@@ -363,7 +362,7 @@ def resolve(region: Region, structure: list, timeline=MASTER) -> RegionAddress:
                          source_spans=tuple(spans), owners=owners)
 
 
-def owner_of_track(track: str) -> Optional[str]:
+def owner_of_track(track: str) -> str | None:
     """The DAG node whose decision fills a track, or None if unlisted."""
     from library.tools.timeline_decisions import BY_TRACK
 
@@ -373,7 +372,7 @@ def owner_of_track(track: str) -> Optional[str]:
 
 # ── The domain guard ─────────────────────────────────────────────────
 
-def domain_of(words: list) -> Optional[str]:
+def domain_of(words: list) -> str | None:
     """Which domain a word list NAMES, or None when it names none.
 
     None is the answer for 1.04's and 4.01's entries alike - they use
@@ -423,7 +422,7 @@ def assert_domain(words: list, expected: str, where: str) -> None:
         )
 
 
-def read_words(words: list, domain: str) -> List[dict]:
+def read_words(words: list, domain: str) -> list[dict]:
     """Take a bare `start`/`end` word list and NAME its domain.
 
     The single boundary where an undeclared word list becomes a declared
@@ -458,7 +457,7 @@ def read_words(words: list, domain: str) -> List[dict]:
     return out
 
 
-def to_timeline_words(words: list, block: dict) -> List[dict]:
+def to_timeline_words(words: list, block: dict) -> list[dict]:
     """Convert SOURCE-domain word entries into TIMELINE-domain ones.
 
     Needs the block and cannot be called without one, which is the point:
@@ -476,7 +475,7 @@ def to_timeline_words(words: list, block: dict) -> List[dict]:
     return out
 
 
-def to_source_words(words: list, block: dict) -> List[dict]:
+def to_source_words(words: list, block: dict) -> list[dict]:
     """Convert TIMELINE-domain word entries into SOURCE-domain ones."""
     assert_domain(words, TIMELINE, "to_source_words")
     lo, hi = DOMAIN_WORD_KEYS[SOURCE]

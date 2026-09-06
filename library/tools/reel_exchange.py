@@ -257,6 +257,20 @@ def _concerns_for(exchange: Exchange, lead: str, answerer: str) -> List[str]:
             f"a monologue with a prompt attached rather than an exchange")
     if not exchange.question_turns:
         out.append("nobody asks anything - no question opens it")
+    # What the opening POINTS AT, which the share and alternation numbers
+    # cannot see. The handoff states the hook rule - "not throat-clearing,
+    # not a speaker settling into a sentence" - and until 2026-09-05
+    # nothing measured whether a window obeyed it, so four of nineteen
+    # approved reels opened on exactly what it forbids. Reported here
+    # beside the other concerns because that is what a concern IS: what a
+    # reader should look at, never a verdict and never a filter.
+    # See library/tools/reel_opening.py.
+    from library.tools.reel_opening import concern_lines, observations
+    first = exchange.turns[0] if exchange.turns else None
+    if first is not None:
+        out.extend(concern_lines(observations(
+            [{"word": w} for w in str(first.text).split()[:24]],
+            " ".join(str(t.text) for t in exchange.turns))))
     if answerer not in exchange.speakers:
         out.append(f"{answerer} never speaks")
     return out

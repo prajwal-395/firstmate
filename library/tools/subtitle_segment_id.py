@@ -152,11 +152,96 @@ def binding_digest(binding: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_DIGEST_CHARS]
 
 
+class SegmentNameCollision(ValueError):
+    """Two segments would be written to one filename."""
+
+
+class UnnamedReelTimeline(ValueError):
+    """A reel segment was named without saying which reel it belongs to."""
+
+
+def assert_named_timeline(binding: dict, where: str = "") -> None:
+    """Refuse a binding whose timeline is empty, where one is REQUIRED.
+
+    The master timeline may legitimately be unnamed - a project with one
+    timeline needs no discriminator, and `slug` renders it `notimeline`.
+    A REEL may not.  The captain's format closes every reel on a spoken
+    call to action taken from anywhere in the episode, so several reels
+    legitimately carry the SAME `source_clip_id` and the same source
+    span for their closer; measured on the field test, seven of nineteen
+    close on one identical sentence and five more on another.  With no
+    timeline in the name those twelve segments are one filename.
+
+    The failure is silent rather than loud.  Reel 09 re-renders over reel
+    03's file, reel 03's manifest still points at that path, and
+    `compile_manifest._assert_subtitle_overlay_matches_plan` passes -
+    it compares block position and time span and reads no content.  The
+    captain would see the wrong words on screen and every check green.
+
+    An empty discriminator silently disabling uniqueness is the same
+    shape as an empty expected-side making a comparison vacuous, so it
+    is refused rather than measured.
+    """
+    if not slug(binding.get("timeline"), "").strip():
+        raise UnnamedReelTimeline(
+            f"{where or 'segment'}: a reel segment must name its timeline. "
+            f"Its binding is "
+            f"{ {k: binding.get(k) for k in SEGMENT_BINDING_KEYS} }, and "
+            f"with an empty timeline every reel sharing this source span "
+            f"writes to one filename - which on the captain's format is "
+            f"most of them, because every reel closes on a call to action "
+            f"taken from anywhere in the episode. Pass the reel's name "
+            f"through `timeline_scope`."
+        )
+
+
+def assert_unique_segment_names(bindings) -> None:
+    """Refuse a SET of bindings in which two produce one filename.
+
+    The general guard, and the one that does not depend on knowing which
+    segments are reels.  A collision is a collision whatever caused it -
+    a shared closer, two speakers resolving to the same slug, a block
+    position repeated across timelines - and this refuses all of them
+    before a single file is written.
+
+    Names the two bindings and what differs, because "duplicate segment
+    name" sends a reader to the wrong place: the name is a symptom and
+    the binding is the cause.
+    """
+    seen = {}
+    for binding in bindings:
+        name = segment_identifier(binding)
+        if name in seen:
+            first = seen[name]
+            differing = sorted(
+                k for k in SEGMENT_BINDING_KEYS
+                if binding.get(k) != first.get(k))
+            raise SegmentNameCollision(
+                f"two subtitle segments would be written to "
+                f"{name!r}.\n"
+                f"  first:  { {k: first.get(k) for k in SEGMENT_BINDING_KEYS} }\n"
+                f"  second: { {k: binding.get(k) for k in SEGMENT_BINDING_KEYS} }\n"
+                f"  binding keys that differ: {differing or 'NONE - the two '
+                'bindings are identical, so one of them is addressed wrong'}\n"
+                f"The second render would overwrite the first, and nothing "
+                f"downstream compares content: "
+                f"_assert_subtitle_overlay_matches_plan checks block "
+                f"position and time span only."
+            )
+        seen[name] = binding
+
+
 def segment_identifier(binding: dict) -> str:
     """The name a rendered subtitle segment is written under.
 
     Shape: `sub_<timeline>_<speaker>_<block>_<span_ms>_<digest>`.
     Readable left to right, unique on the right.
+
+    Unique WITHIN ONE TIMELINE.  Across timelines the discriminator is
+    the timeline component, and an empty one collapses them - see
+    `assert_named_timeline` and `assert_unique_segment_names`, which are
+    the two guards that make that unrepresentable rather than merely
+    documented.
     """
     missing = [k for k in SEGMENT_BINDING_KEYS if k not in binding]
     if missing:

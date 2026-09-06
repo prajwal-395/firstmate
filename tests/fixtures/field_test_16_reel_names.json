@@ -1,0 +1,21 @@
+{
+  "source": "baseline-16-reels-withplan.json, the report the field test 'podcast from an existing timeline' wrote on the captain's machine. Copied in verbatim on 2026-09-05 because reading it from firstmate's private data directory made the test skip on every machine but one - see the header of tests/test_reel_segment_collision.py.",
+  "reel_names": [
+    "Reel 01 - geo-is-not-seo-2-0",
+    "Reel 02 - prove-it-the-h1-audit",
+    "Reel 03 - why-your-pipeline-dried-up",
+    "Reel 04 - the-lucy-audit-walkthrough",
+    "Reel 05 - top-three-on-google-invisible-on-ai",
+    "Reel 06 - how-ai-invents-your-business",
+    "Reel 07 - only-twenty-percent-had-checked",
+    "Reel 08 - the-healthcare-company-that-wasnt",
+    "Reel 09 - ai-favours-the-small-firm",
+    "Reel 10 - citations-are-the-new-pr",
+    "Reel 11 - hallucinating-is-not-ai-being-wrong",
+    "Reel 12 - not-a-content-problem",
+    "Reel 13 - what-small-business-owners-assume",
+    "Reel 14 - what-content-actually-works",
+    "Reel 15 - your-google-business-profile",
+    "Reel 16 - blogs-but-not-how-you-think"
+  ]
+}

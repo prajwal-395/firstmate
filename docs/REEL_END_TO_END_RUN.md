@@ -126,6 +126,86 @@ So the answering agent must be a fresh one, given the prompt and a shell and
 nothing else. That is how the before-and-after comparison in
 `docs/REEL_SCRIPT_VERDICTS.md` was run, and it is how this one must be.
 
+## What the runs-now half actually produced, 2026-09-05
+
+Executed before Resolve was available, against an isolated 1.8 MB copy of
+the project in scratch - `pipeline_data.json`, `project.yaml`,
+`creative_brief.md`, the cached transcript and the approved plan, with
+`project_folder` repointed. Nothing was written to the captain's state.
+
+    PYTHONPATH=<repo root> python3 library/processes/edit_video/run_pipeline.py \
+        --project <copy> --step select_reels --rerun select_reels \
+        --full-auto agy --llm-timeout 3600
+
+The `PYTHONPATH` is not optional: `run_pipeline.py` does
+`from library.tools...` at module scope and dies with `ModuleNotFoundError`
+without it. And `--step X --rerun X` reported "scan: re-runs (step code
+changed), catalog: re-runs (step code changed)" and invalidated their
+cached preflight output even though only `select_reels` was selected -
+worth knowing before this is pointed at a real project.
+
+The agy request was answered by a FRESH agent, given the request file and
+a shell and nothing else. It completed in 909.8s.
+
+### What the run proved, and what it honestly did not
+
+The step's own input line settles two questions at once:
+
+    Inputs: ['project_folder', 'creative_brief', 'timeline_transcript']
+
+`timeline_transcript` is satisfied from the disk cache by the runner - no
+Resolve was opened at any point - and `creative_brief` is there, which on
+the pre-batch-2 tree it was not.
+
+**The summary reported `PARTIAL`, not `SUCCESS`**, with `Ledgers:
+preflight 0/6, edit 2/22` and 25 steps never completed. That is the rule
+working: `SUCCESS` is reserved for a complete DAG with an empty
+`failed_steps` in the project ledger, and a single-step invocation cannot
+earn it. **Do not read a green step beside a PARTIAL summary as an
+end-to-end run.**
+
+It also recorded, in the summary itself:
+
+    What the steps could not determine:
+      select_reels: Exactly where Craig's audio ends inside the 61
+      transcript rows that straddle a cut.
+    Where a step's measurements contradicted the direction:
+      measured nothing that contradicted: select_reels
+
+An honestly empty contradiction rather than a silent one.
+
+### The plan-side conformance checks
+
+Run against the approved nineteen with the expected caption cards derived
+THROUGH THE PIPELINE - `reel_ranges` to `reel_spine.spine_for_reel` to
+`operations.get("subtitles.plan")`:
+
+| | |
+|---|---|
+| caption cards derived | **832** |
+| reels refused for want of a reference | **0** |
+| F6 overlapping caption cards | **1** |
+| F7 caption cards under 0.5s | **39** |
+
+Every one of those numbers was unreachable this morning. The plan side
+was `()`, so F2, F5, F6 and F7 were disabled and the verifier reported
+"captions expected 0, actual 762" beside a pass. The 39 short cards are
+real findings on reels the captain has already approved.
+
+### Where it genuinely stops
+
+Everything above needs no Resolve. What remains is the timeline BUILD
+(`reel_build.py`, 5 Resolve call sites) and the timeline-side half of the
+verifier (3 sites) - reading the built reels back. Those wait on the
+captain's session.
+
+One further limit, stated because it would be easy to overclaim: the
+registry now carries fifteen operations and the reel path is reachable
+through named operations, but an operation still RESOLVES its entry point
+rather than gathering its own inputs. This run therefore went through the
+DAG RUNNER. "Built through the pipeline rather than a standalone script"
+is proven; "driven by naming an operation" is not yet.
+
 ## Proving the fixes rather than assuming them
 
 Three defects were fixed on 2026-09-05 and each has a specific re-measurement:

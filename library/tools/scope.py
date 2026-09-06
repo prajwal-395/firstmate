@@ -41,9 +41,10 @@ carries the address and refuses an incoherent one - nothing else.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from itertools import pairwise
 
-from library.tools.region import Region, parse as parse_region
+from library.tools.region import Region
+from library.tools.region import parse as parse_region
 
 PROJECT = "project"
 CLIP = "clip"
@@ -83,9 +84,9 @@ class Scope:
     """
 
     kind: str
-    region_span: Optional[Region] = None
-    clip_id: Optional[str] = None
-    reel_ranges: Optional[tuple] = None
+    region_span: Region | None = None
+    clip_id: str | None = None
+    reel_ranges: tuple | None = None
     """A REEL's keep ranges, in PLAY ORDER, all on the reel's own
     timeline.
 
@@ -152,7 +153,7 @@ class Scope:
         # that would bite.  Order is NOT checked: play order is the point,
         # and a CTA range legitimately precedes the body in time.
         ordered = sorted(ranges, key=lambda r: (r.start, r.end))
-        for earlier, later in zip(ordered, ordered[1:]):
+        for earlier, later in pairwise(ordered):
             if later.start < earlier.end:
                 raise ScopeError(
                     f"a REEL's ranges must not overlap: {earlier} and "

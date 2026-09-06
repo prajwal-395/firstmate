@@ -64,7 +64,8 @@ from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.subtitle_segment_id import (
-    segment_binding, segment_identifier, timeline_scope,
+    assert_named_timeline, assert_unique_segment_names, segment_binding,
+    segment_identifier, timeline_scope,
 )
 
 # Where the Remotion project lives, repo-relative.  A module constant so
@@ -395,7 +396,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              remotion_dir: str = None,
                              reuse: bool = False,
                              scope=None,
-                             renderer=None) -> dict:
+                             renderer=None,
+                             require_named_timeline: bool = False) -> dict:
     """Render one ProRes 4444 overlay per captioned spine block.
 
     Returns the `subtitle_overlay` payload.  Raises
@@ -499,6 +501,39 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     timeline_label = timeline_scope(audio_spine, project_config=None)
     print(f"Naming segments under timeline "
           f"{timeline_label or '<unnamed>'}", file=sys.stderr)
+
+    # ── No two segments may share a filename, checked BEFORE anything
+    #    is written ──
+    #
+    # `SEGMENT_BINDING_KEYS` carries no caption content, so uniqueness
+    # rests entirely on the binding - and across reels the only thing
+    # separating two reels' closers is the TIMELINE component. The
+    # captain's format closes every reel on a call to action taken from
+    # anywhere in the episode, so a shared closer is normal rather than
+    # exceptional: measured on the field test, seven of nineteen reels
+    # close on one identical sentence and five more on another, so a
+    # 19-reel pass collides on twelve of them.
+    #
+    # Over the whole set and before the loop, because a collision found
+    # after rendering is a file already overwritten and nothing
+    # downstream reads content to notice:
+    # `_assert_subtitle_overlay_matches_plan` compares block position and
+    # time span only, so it passes while the wrong words are on screen.
+    bindings = [
+        segment_binding(
+            timeline=timeline_label,
+            speaker=props.get("_speaker"),
+            block_position=props.get("_block_position"),
+            source_clip_id=props.get("_source_clip_id"),
+            source_start=props.get("_source_start"),
+            source_end=props.get("_source_end"),
+        )
+        for props in props_list
+    ]
+    if require_named_timeline:
+        for binding in bindings:
+            assert_named_timeline(binding, where="render_subtitle_overlays")
+    assert_unique_segment_names(bindings)
 
     # ONE renderer for the whole pass, so a replacement holding a bundle
     # or a browser builds it once rather than per card.  See

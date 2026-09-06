@@ -64,6 +64,10 @@ import sys
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+# The ONE exemption on the caption floor, shared with the manifest's own
+# P6 check so a reel and a master cannot be held to different rules.
+from library.tools.manifest_validator import ends_with_its_block
+
 
 # ── Finding classes ──────────────────────────────────────────────────
 
@@ -175,6 +179,10 @@ class PlannedCaption:
     text: str
     speaker: Optional[str]
     frames: int
+    block_position: Optional[str] = None
+    """The spine block this card was planned from, as a string."""
+    block_end_seconds: Optional[float] = None
+    """Where that block ends, in REEL seconds - what F7's exemption needs."""
 
 
 @dataclass(frozen=True)
@@ -735,6 +743,10 @@ def check_caption_overlaps(reel_name: str,
     return findings
 
 
+def _card_end(card) -> float:
+    return card.get("reel_end", card.get("end_seconds", 0))
+
+
 def check_short_captions(reel_name: str,
                          caption_cards: Sequence[dict],
                          fps: float,
@@ -745,13 +757,51 @@ def check_short_captions(reel_name: str,
     AGENTS.md 10.4 requires no caption card under 0.5s, but the reel
     caption path has no minimum-duration rule and nothing checks for one.
     The audit found 29 cards under 0.5s, 7 of them under 3 frames.
+
+    A card that ends WITH its spine block is HELD, not failed - the same
+    exemption `manifest_validator` applies to a manifest, through the same
+    predicate, because a reel checked against a different rule from the
+    master is checked against a different rule.  A card is on screen until
+    the next card's first word and the last card of a block has no next
+    word, so no grouping and no extension can lengthen one.
+
+    Measured on the nineteen approved reels of `lucie/geo-podcast`: 38 of
+    832 derived cards sit under the floor and ALL 38 satisfy both clauses,
+    which is the same 4.6% the master timeline shows after the grouping
+    fix.  Reporting them as 38 defects was the count being wrong, not the
+    reels.
+
+    **Held cards are COUNTED AND NAMED**, in a warning of their own.  A
+    check that drops its exemptions silently reports a clean reel and
+    tells nobody what it declined to look at, which is the vacuous gate
+    this file exists to remove.
     """
     findings: List[Finding] = []
+
+    # The end each block's last card reaches - one clause of the
+    # exemption, and the only part of it that needs the other cards.
+    last_end_in_block: dict = {}
+    for card in caption_cards:
+        position = card.get("block_position")
+        if position is None:
+            continue
+        end = _card_end(card)
+        if end > last_end_in_block.get(position, float("-inf")):
+            last_end_in_block[position] = end
+
+    held = []
     for i, card in enumerate(caption_cards):
-        duration = card.get("reel_end", card.get("end_seconds", 0)) - \
+        duration = _card_end(card) - \
                    card.get("reel_start", card.get("start_seconds", 0))
         frames = card.get("frames", int(round(duration * fps)))
         if duration < min_duration_seconds:
+            position = card.get("block_position")
+            if position is not None and ends_with_its_block(
+                    _card_end(card), last_end_in_block.get(position),
+                    card.get("block_end")):
+                held.append((i, card.get("text", "")[:30],
+                             round(duration, 3), frames))
+                continue
             findings.append(Finding(
                 finding_class=FindingClass.F7,
                 reel=reel_name,
@@ -768,6 +818,31 @@ def check_short_captions(reel_name: str,
                     "minimum_seconds": min_duration_seconds,
                 },
             ))
+
+    if held:
+        listed = ", ".join(f"card {i+1} {t!r} {d:.3f}s"
+                           for i, t, d, _ in held[:5])
+        if len(held) > 5:
+            listed += f", +{len(held) - 5} more"
+        findings.append(Finding(
+            finding_class=FindingClass.F7,
+            reel=reel_name,
+            message=(
+                f"{len(held)} of {len(caption_cards)} caption cards are "
+                f"under {min_duration_seconds}s and HELD, not failed: each "
+                f"is the last card of its spine block and ends where that "
+                f"block ends, so no grouping can lengthen it. Held: "
+                f"{listed}"),
+            severity="warning",
+            detail={
+                "held_by_block": len(held),
+                "cards_checked": len(caption_cards),
+                "minimum_seconds": min_duration_seconds,
+                "held": [{"caption_index": i, "text": t,
+                          "duration_seconds": d, "duration_frames": f}
+                         for i, t, d, f in held],
+            },
+        ))
     return findings
 
 
@@ -1638,7 +1713,9 @@ def verify_reel(plan: ReelPlan,
     # before the plan side was empty.
     cards = caption_cards if caption_cards is not None else [
         {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
-         "text": c.text, "speaker": c.speaker, "frames": c.frames}
+         "text": c.text, "speaker": c.speaker, "frames": c.frames,
+         "block_position": c.block_position,
+         "block_end": c.block_end_seconds}
         for c in plan.captions]
 
     # F5: Caption coverage
@@ -1693,7 +1770,8 @@ def verify_reel(plan: ReelPlan,
         if f.finding_class in (FindingClass.F1, FindingClass.F3)
         and f.detail and f.detail.get("gap_frames", 0) > 2]
     short_caps = sum(1 for f in findings
-                     if f.finding_class == FindingClass.F7)
+                     if f.finding_class == FindingClass.F7
+                     and f.severity == "error")
     edge_cuts = sum(1 for f in findings
                     if f.finding_class == FindingClass.F8)
 
@@ -2011,18 +2089,31 @@ def _derive_planned_captions(
                        brand_style={}, project_folder=project_folder) or {}
     entries = (plan.get("subtitle_plan") or {}).get("subtitle_entries") or []
 
+    # Where each spine block ends, in the same REEL seconds the cards are
+    # in. F7's exemption needs it: a card that ends with its block is one
+    # nothing can lengthen, and the block end is the only way to know.
+    block_end = {
+        str(block.get("position")): block.get("timeline_end")
+        for block in (spine.get("structure") or [])
+        if block.get("timeline_end") is not None
+    }
+
     cards = []
     for entry in entries:
         # REEL seconds. Never compared against a master time.
         start, end = entry.get("timeline_start"), entry.get("timeline_end")
         if start is None or end is None:
             continue
+        position = entry.get("spine_block_position")
+        position = None if position is None else str(position)
         cards.append(PlannedCaption(
             start_seconds=float(start),
             end_seconds=float(end),
             text=str(entry.get("text", "")),
             speaker=entry.get("speaker"),
             frames=max(int(round((float(end) - float(start)) * fps)), 1),
+            block_position=position,
+            block_end_seconds=block_end.get(position),
         ))
     return tuple(cards)
 

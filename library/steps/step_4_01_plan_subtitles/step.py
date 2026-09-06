@@ -300,6 +300,16 @@ def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
 
     This prevents subtitle flicker where a 2-word group appears for
     only 0.2s — unreadable at normal playback speed.
+
+    **The shift is bounded by the HARD floor.**  A group is pushed
+    forward only as far as leaves it `MIN_CAPTION_FLASH_SECONDS` of its
+    own, and where there is no such room the earlier group's end is
+    pulled back to meet it instead - the overlap is always removed, but
+    never by pushing another card below the length at which it flashes
+    rather than reads.  Measured on the nineteen approved reels of
+    `lucie/geo-podcast`: an unbounded cascade fixed one flashing card and
+    manufactured four more at the block boundaries the caller clamps to,
+    which is moving a flash rather than removing one.
     """
     if not groups:
         return groups
@@ -313,7 +323,12 @@ def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
         if i + 1 < len(groups):
             next_g = groups[i + 1]
             if next_g["start"] < g["end"]:
-                next_g["start"] = round(g["end"], 3)
+                hard_floor = min(min_dur, MIN_CAPTION_FLASH_SECONDS)
+                latest = round(next_g["end"] - hard_floor, 3)
+                pushed = min(round(g["end"], 3),
+                             max(next_g["start"], latest))
+                next_g["start"] = pushed
+                g["end"] = round(min(g["end"], pushed), 3)
                 # Ensure next group still has positive duration
                 if next_g["end"] <= next_g["start"]:
                     next_g["end"] = round(next_g["start"] + min_dur, 3)
@@ -864,14 +879,23 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 pos, (float("-inf"), float("inf"))
             )
 
-            for i in range(len(group)):
-                curr = group[i]
-                nxt = group[i + 1] if i + 1 < len(group) else None
-                max_end = nxt["timeline_start"] if nxt else block_end
-                dur = curr["timeline_end"] - curr["timeline_start"]
-                if dur < MIN_DISPLAY_DURATION:
-                    desired_end = curr["timeline_start"] + MIN_DISPLAY_DURATION
-                    curr["timeline_end"] = round(min(desired_end, max_end), 3)
+            # `enforce_min_duration` is the rule, CALLED - it used to be
+            # hand-inlined here, extending a short card only as far as the
+            # next card's first word, which leaves the card exactly as
+            # short as it started. The function cascades instead: the card
+            # reaches the floor and the next card's start is pushed to
+            # meet it. The same clause is what closes an overlap the ASR's
+            # own word timings opened. It reads `start`/`end`, so the
+            # entries are projected onto those keys and written back.
+            spans = [
+                {"start": entry["timeline_start"],
+                 "end": entry["timeline_end"]}
+                for entry in group
+            ]
+            enforce_min_duration(spans)
+            for entry, span in zip(group, spans):
+                entry["timeline_start"] = span["start"]
+                entry["timeline_end"] = span["end"]
 
             # Clamp EVERY subtitle in the block to the block's range.
             # The min-duration cascade above can push more than one

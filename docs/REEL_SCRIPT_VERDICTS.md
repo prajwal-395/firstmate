@@ -210,6 +210,105 @@ handoff already states the hook rule and nothing measured whether it was
 obeyed, and the handoff explicitly told the model closers were interchangeable
 and said nothing about the reels being watched together.
 
+## The before-and-after, on the captain's own episode
+
+The four fixes change what the model is TOLD. Whether they change what it
+DECIDES is a separate question, and it was answered by measurement rather
+than by reading the diff.
+
+**Method, because it decides what the result is worth.** There is no LLM
+API key on this machine, so `--full-auto api` is unavailable and the only
+backend is `agy` - which is answered by an agent. An agent that wrote the
+prompt and knows which defect it is hunting is not evidence about the
+pipeline; it is the agent agreeing with itself, and it is the
+worker-supplying-taste failure this project was already bitten by when
+sixteen reels were chosen by a crewmate with hand-written reasons and no
+model was ever reached.
+
+So: **two fresh agents, one per arm**, each given a prompt file and a
+shell and nothing else. Neither knew the CTA collapse existed, that reel
+03 was a problem, or what anybody hoped to see. Same snapshot, same
+episode, same source material, same schema. **The only variable is the
+prompt** - `origin/main`'s (862,318 bytes) against this branch's
+(867,887 bytes), both produced by `replay_bench replay` off one frozen
+snapshot.
+
+### 1. The CTA collapse does not recur, and the control arm reproduced it
+
+|  | arm MAIN (`origin/main` prompt) | arm FIXED (this branch) |
+|---|---|---|
+| reels proposed | 19 | 27 |
+| closing on their own invitation | 1 | 4 |
+| borrowed closers | 18 | 23 |
+| **distinct closer passages** | **4** | **7** |
+| **most reels on one passage** | **10** | **3** |
+| distinct `cta.note` strings | **4** | **23** |
+| reels sharing a note | **16** | **0** |
+
+The control arm did not merely fail to improve. It **reproduced the
+defect and made it worse** - ten reels on one sentence against the live
+plan's seven - and it reproduced the signature that exposed it, one
+justification pasted across ten reels. That kills the alternative
+hypothesis that the collapse was luck or a property of the material.
+
+Arm FIXED spread across seven passages at three or four uses each, and
+used the closer at 1006.2 four times - the clean, self-contained
+invitation that was measured as sitting **entirely unused** in the live
+plan.
+
+### 2. Reel 03 comes out re-spanned, by the model
+
+Arm MAIN does not propose that stretch at all. Arm FIXED proposes
+**313.7-341.3** in place of 301.2-341.3, closes on Akshita's own CTA so
+the two-calls-to-action problem is gone, and records why in
+`takes_dropped`:
+
+> 300.0-312.04 - "the take immediately before this one says the same
+> three sentences four times over and the transcript carries non-English
+> fragments through it; it is unusable and this clean take plays instead."
+
+That is the plan-level repair, made as a judgement. No cut rule could
+have made it: the remaining repeats sit eighteen seconds apart with
+another speaker's turn between them.
+
+### 3. The reasoning is different, and it accounts for the set
+
+Arm FIXED's own notes:
+
+> "The other 23 borrow one of seven distinct spoken closers, used three
+> or four times each: 186.45 (3), 319.36 (3), 333.80 (3), 626.75 (3),
+> 814.69 (3), 1006.23 (4), 1168.34 (4). **The 814.69 sentence is the one
+> the previous batch of nineteen used seven times; it is used three times
+> here.**"
+
+Arm MAIN's output contains no accounting of that kind anywhere. Its
+`undetermined` is about microphone bleed alone and never mentions a
+count - which is what a briefless selector produces, because the count
+lives only in the brief. Arm FIXED opens with *"The brief asks for 25 to
+30 and asks me not to curate"*.
+
+And it found a defect nobody had told it about:
+
+> "Whether a repeated sentence inside a single speaker turn is still in
+> the captain's cut or is an artefact of the transcription. `retake_of`
+> and `retake_band` compare whole candidate stretches and say nothing
+> about repetition inside one turn, and this cut has a lot of it."
+
+That is reel 03's class, derived from first principles, naming the exact
+measurement hole. It is filed as
+[`REEL_INTRA_TURN_REPETITION.md`](REEL_INTRA_TURN_REPETITION.md).
+
+### The limit, and it is not a small one
+
+**The opening measurement is in neither prompt.** Both were captured
+before it existed, so **this experiment says nothing whatever about
+whether openings improve** - not that they did not, that it was not
+measured. Four of the nineteen approved reels open on a back-reference or
+an answer to an unheard question, and nothing here bears on that.
+
+Nor does it say anything about what a BUILD does with either plan. It
+compares two selections, and a selection is not a reel.
+
 ## Reproducing this
 
     python3 -m library.tools.replay_bench capture <project> --id reels

@@ -98,6 +98,30 @@ SOFT_CAPTION_DISPLAY_SECONDS = 0.7
 # with it. One frame at 30fps, rounded up: the plan rounds to 3dp.
 BLOCK_END_TOLERANCE_SECONDS = 0.034
 
+def ends_with_its_block(card_end, block_last_card_end,
+                        block_end) -> bool:
+    """BOTH clauses of the exemption on `MIN_CAPTION_DISPLAY_SECONDS`.
+
+    A short caption card is held rather than failed when it is the LAST
+    card of its spine block AND it ends AT that block's end.  Both, never
+    one: the last card of a block that still has room to extend into is
+    an ordinary short card, and a card ending on the block's end that has
+    a card after it is not the one nothing can lengthen.  "A floor that
+    exempts the general case is a gate that cannot fail."
+
+    This is the ONE place the predicate lives.  `_check_no_flash_captions`
+    holds the manifest to it and `reel_conformance_verifier`'s F7 holds a
+    reel to it; a second copy is how the two would drift.
+    """
+    if card_end is None or block_last_card_end is None or block_end is None:
+        return False
+    # Last in its block: no card of the block ends later.
+    if abs(card_end - block_last_card_end) > 1e-6:
+        return False
+    # And it ends where the block does.
+    return abs(card_end - block_end) <= BLOCK_END_TOLERANCE_SECONDS
+
+
 # ── P7: no discretionary effect applied to everything ──
 #
 # An effect on 100% of eligible items with almost no parameter variation
@@ -531,11 +555,10 @@ def _check_no_flash_captions(manifest: dict) -> list[str]:
     def _ends_with_its_block(sub) -> bool:
         position = str(sub.get("spine_block_position"))
         end = sub.get("timeline_end")
-        if end is None or position not in block_end:
+        if position not in block_end:
             return False
-        if abs(end - last_end_in_block.get(position, end)) > 1e-6:
-            return False
-        return abs(end - block_end[position]) <= BLOCK_END_TOLERANCE_SECONDS
+        return ends_with_its_block(
+            end, last_end_in_block.get(position), block_end[position])
 
     flashes = []
     held_by_block = []
