@@ -82,7 +82,8 @@ say where each one starts and ends.
 
 | Table | What it holds |
 |-------|---------------|
-| `turns` | The whole conversation, in order, one row per speaker turn: who spoke, when, and what they said |
+| `spoken_lines` | The whole conversation, in order, one row per line of speech: who says it, the exact second it starts, the exact second it ends, and what it says. **These are the seconds a reel may start and stop at** - a boundary you name is moved out to the nearest of these edges, so a line here is a cut you can actually make. `not_a_boundary` names the stretches of speech that could not be bound to one clip: they are not rows and no boundary is placed on one |
+| `turns` | The same conversation grouped into speaker turns: who spoke and between which two seconds. A turn is one speaker's uninterrupted run of the lines above; this is the coarse structure `reel_candidates` counts, not a second copy of the words |
 | `reel_candidates` | Every contiguous stretch the measurements found, with what was measured about it |
 
 Every candidate carries:
@@ -228,8 +229,8 @@ rather than adding it:
   must never be named as a `cta` by any reel however well the seconds
   line up.
 
-`turns` is where you find them: read the conversation and pick the
-passages where somebody actually invites the viewer to go and do
+`spoken_lines` is where you find them: read the conversation and pick
+the passages where somebody actually invites the viewer to go and do
 something. Nothing has been shortlisted or scored for you, and nothing
 counts them for you either - so read the whole conversation for closers
 before you assign the first one, rather than finding one that works and

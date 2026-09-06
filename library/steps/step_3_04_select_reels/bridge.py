@@ -2,10 +2,19 @@
 """Step 3.4 pre-bridge: the tables the handoff tells the model to read.
 
 Two tables, because they describe different things. `turns` is the
-CONVERSATION - who spoke, when, what they said - and is what a reader
-needs to judge whether a stretch says something whole. `reel_candidates`
-is one row per contiguous stretch the measurements found, and is what
-tells them the SHAPE of it.
+STRUCTURE of the conversation - who spoke and between which two seconds -
+and is what a reader needs to judge whether a stretch is a two-hander.
+`reel_candidates` is one row per contiguous stretch the measurements
+found, and is what tells them the SHAPE of it.
+
+A third table is beside them and is not built here: `spoken_lines`, the
+conversation itself, one row per line of speech with the seconds it may
+be cut at. It is a declared VIEW of `timeline_transcript` rather than a
+pre-bridge table (`library/tools/context_views._spoken_lines`), because
+what it exists to leave behind - 8,509 per-word timings, 940 absolute
+source paths, 940 Resolve item ids - is left behind by the PROJECTION,
+which is the mechanism a step declares what may reach its prompt with.
+`turns` no longer carries the words, because that view does.
 
 Nothing here is ranked, scored or filtered, and that is the point of the
 file rather than a nicety about it. Reel selection existed for two
@@ -149,11 +158,19 @@ def build_context(data: dict) -> dict:
             candidate["repetition_inside"] = inside
 
     return {
+        # The turn STRUCTURE, and no longer the words.  A turn's text is
+        # exactly its segments' texts joined by a space - on the field
+        # test, 47,975 characters against the segments' 47,182 plus the
+        # 793 joining spaces, to the byte - so publishing it beside
+        # `view:spoken_lines` would be the summary and the structure it
+        # was rendered from, which AGENTS.md 10.1 forbids.  What is left
+        # is the other axis: how the conversation divides into turns,
+        # which is what `reel_candidates`' own `turns` and `alternations`
+        # columns count.  See library/tools/context_views._spoken_lines.
         "turns": [{
             "speaker": t.speaker,
             "start": round(t.start, 2),
             "end": round(t.end, 2),
-            "text": t.text,
         } for t in turns],
         "reel_candidates": candidates,
         "length_guidance_seconds": list(LENGTH_GUIDANCE),

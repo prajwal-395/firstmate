@@ -48,6 +48,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 **Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
 `library/tools/context_views.py` is the enumeration: a manifest may put `view:<name>` in `context_fields` and get a READING of a routed input rather than a path into it. An unknown name raises, and a view's NAME is the key it writes - which is what makes a second projection a no-op, and an `llm_only` step is projected twice on every run. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 - `view:transcript` is what step 2.01 reads. **Step 2.02 does NOT declare it** - its pre-bridge builds `transcripts_toon` instead. [why](docs/RULE_EVIDENCE.md#the-transcript-shipped-twice) `view:transcript` is what step 2.01 reads instead of `temporal_index.*.speech_regions`: what was said, in which clip, between which two seconds.
+- `view:spoken_lines` is what step 3.04 reads instead of the `timeline_transcript` document: every line of the cut's speech, with the speaker and the two seconds it sits between, and NOTHING else. It is the SUB-TURN boundary - the pre-bridge's `turns` table collapses 929 bound segments into 136 turns, and the step's own post-bridge snaps every chosen boundary out to a bound-segment edge, so without it the model is asked to draw a line at a granularity it cannot see. **The `turns` table stops carrying the text this view carries**: a turn's text is its segments' texts joined by a space, to the byte, so publishing both is the summary and its own source. A segment that straddles a cut is not a row and is REPORTED in one line, because a reel boundary is never placed on one.
 - `view:picture` is what a step reads to see a clip past its opening, and **every step that decides from what a shot looks like declares it** - 2.01, 2.02, 3.02, 4.02, 4.03 and 4.04. [why](docs/RULE_EVIDENCE.md#the-director-saw-the-first-nineteen-seconds)
   - **It is NOT a substitute for `scene[]` and must not be swapped in for it.** The view goes BESIDE `analysis.scene` (different axes).
   - **Its rows are keyed by the CATALOG clip id wherever a routed input makes that join possible.** It joins against `clip_catalog`, `a_roll_assignments` and `b_roll_assignments`; unjoinable documents are reported in `not_in_the_clip_list`.
@@ -59,7 +60,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
-- `tests/test_transcript_view.py`, `tests/test_prosody_view.py`.
+- `tests/test_transcript_view.py`, `tests/test_prosody_view.py`, `tests/test_spoken_lines_view.py`.
 """
 
 VIEW_PREFIX = "view:"
@@ -319,6 +320,117 @@ def _picture(data: dict) -> dict:
     return {"picture": view}
 
 
+MAX_UNBINDABLE_LISTED = 20
+"""How many unbindable stretches `_spoken_lines` names one by one.
+
+Past this the line says how many it did not name.  An unbounded list of
+them would be the raw-value-list defect (AGENTS.md 10.1) wearing the
+clothes of a report.
+"""
+
+
+def _spoken_lines(data: dict) -> dict:
+    """Every LINE of the cut's speech, and the seconds it may be cut at.
+
+    Built from the `timeline_transcript` input.  One row per bound
+    segment: who says it, the second it starts, the second it ends, and
+    what it says.  Nothing else - no per-word timings, no absolute
+    source path, no Resolve item id.  Nothing asks a model a question a
+    word boundary answers.
+
+    **This is the SUB-TURN boundary, and it is a capability rather than
+    a convenience.**  Step 3.04's pre-bridge collapses these segments
+    into speaker `turns` (`reel_exchange.turns_from_transcript`), and a
+    turn is the coarser unit: on the field-test episode 929 bound
+    segments collapse into 136 turns, so 793 of the places a reel may
+    start or stop disappear in the collapse.  The step's own post-bridge
+    then snaps every chosen boundary OUT to a bound-segment edge
+    (`reel_proposal.snap_to_speech`), which means the two halves of one
+    step disagreed about what a boundary is: the model was asked to draw
+    a line at a granularity it could not see.
+
+    It showed.  The run of 2026-09-06 that still carried the raw
+    document timed a reel's closer to `Akshita 337.59-341.27`, a
+    boundary that exists only in `segments` - her turn is
+    328.61-341.27.  The run after the document was projected away said,
+    unprompted, that *"every boundary I can name is a TURN boundary,
+    because `turns` is the only speech table I was given"*, and opened
+    its reel on "well this has been fun recently" because the line that
+    should have opened it sits inside a turn.
+
+    The document was right to go: 817,316 characters of it, 8,509
+    per-word timing records, 940 absolute source paths and 940 Resolve
+    item ids, to say 47,182 characters of English.  This carries the
+    English and the two numbers that make it cuttable.
+
+    **The turn table stops carrying the text this one carries.**  A
+    turn's text is exactly its segments' texts joined by a space - the
+    same 47,975 bytes, to the character - so publishing both is the
+    summary and its own source (AGENTS.md 10.1).  The pre-bridge's
+    `turns` keeps the grouping and the spans, which are a different
+    axis and are what `reel_candidates` counts.
+
+    **A segment that straddles a cut is not a row.**  `bound_segments`
+    states the rule this obeys - "a reel boundary is never placed using
+    one" - and `snap_to_speech` and `enrich` read the same list, so a
+    row here that nothing downstream will snap to would be an offer the
+    step cannot keep.  They are REPORTED in one line rather than hidden:
+    on the field test 11 of them span 254.06 seconds, one is a 12.07s
+    Akshita row lying across the Craig turn a reel borrowed as its
+    closer, and the step that drew that boundary could not see it while
+    the step that graded it could.
+    """
+    from library.tools.reel_proposal import bound_segments, straddling_segments
+
+    document = data.get("timeline_transcript")
+    if not isinstance(document, dict):
+        return {}
+
+    lines = []
+    for segment in sorted(bound_segments(document),
+                          key=lambda s: float(s.get("timeline_start") or 0.0)):
+        text = (segment.get("text") or "").strip()
+        if not text:
+            continue
+        lines.append({
+            "speaker": segment.get("speaker"),
+            "start": round(float(segment.get("timeline_start") or 0.0), 2),
+            "end": round(float(segment.get("timeline_end") or 0.0), 2),
+            "text": text,
+        })
+    if not lines:
+        return {}
+
+    view = {"lines": lines}
+
+    unbindable = sorted(straddling_segments(document),
+                        key=lambda s: float(s.get("timeline_start") or 0.0))
+    if unbindable:
+        spans = []
+        for segment in unbindable[:MAX_UNBINDABLE_LISTED]:
+            spans.append(
+                f"{float(segment.get('timeline_start') or 0.0):.2f}-"
+                f"{float(segment.get('timeline_end') or 0.0):.2f} "
+                f"{segment.get('speaker') or 'unattributed'}: "
+                f"{(segment.get('text') or '').strip()}")
+        held_back = len(unbindable) - len(spans)
+        total = sum(float(s.get("timeline_end") or 0.0)
+                    - float(s.get("timeline_start") or 0.0)
+                    for s in unbindable)
+        view["not_a_boundary"] = (
+            f"{len(unbindable)} stretch(es) of speech, spanning "
+            f"{total:.0f}s of the cut, could not be bound to one clip and "
+            f"are NOT rows above, because a reel boundary is never placed "
+            f"on one. They are usually the transcriber bridging a silent "
+            f"gap, so the words are not necessarily spoken across the "
+            f"whole span - but a reel whose edge falls inside one cuts "
+            f"through it: "
+            + "; ".join(spans)
+            + (f"; and {held_back} more" if held_back else ""))
+
+    return {"spoken_lines": view}
+
+
 def _alignment(data: dict) -> dict:
     """What the aligner measured about each passage's INSIDES.
 
@@ -448,6 +560,7 @@ def _seconds(value):
 # pass sees a tree the first one already stripped the source out of.
 CONTEXT_VIEWS = {
     "transcript": _transcript,
+    "spoken_lines": _spoken_lines,
     "prosody": _prosody,
     "picture": _picture,
     "stability": _stability,

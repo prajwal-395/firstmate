@@ -63,6 +63,7 @@
   },
   "context_fields": [
     "timeline_transcript.measurement",
+    "view:spoken_lines",
     "reel_candidates",
     "creative_brief",
     "creative_direction",
