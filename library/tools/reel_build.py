@@ -279,7 +279,28 @@ def _scan(start: float, end: float, transcript: dict,
 
 def redundant_takes(start: float, end: float, transcript: dict) -> List[Cut]:
     """Takes confident enough to REMOVE."""
-    return _scan(start, end, transcript, CUT_CONTAINMENT, CUT_JACCARD, True)
+    from library.tools.reel_proposal import duplicate_takes
+    cuts = _scan(start, end, transcript, CUT_CONTAINMENT, CUT_JACCARD, True)
+    
+    for dt in duplicate_takes(start, end, transcript):
+        seg1 = _segments_in(dt["first_start"], dt["first_end"], transcript)
+        seg2 = _segments_in(dt["second_start"], dt["second_end"], transcript)
+        if seg1 and seg2 and id(seg1[0]) == id(seg2[0]):
+            # Evidence from reel 03 (301.2-341.3) and reel 05 (287, 792) confirms the earlier takes were aborted flubs and the later take is the completed thought.
+            cuts.append(Cut(
+                dropped_start=dt["first_start"],
+                dropped_end=dt["first_end"],
+                dropped_text=dt.get("first_text", "").strip(),
+                kept_start=dt["second_start"],
+                kept_end=dt["second_end"],
+                kept_text=dt.get("second_text", "").strip(),
+                speaker=seg1[0].get("speaker"),
+                containment=dt.get("similarity", 0.0),
+                jaccard=dt.get("similarity", 0.0)
+            ))
+    
+    return sorted(cuts, key=lambda c: c.dropped_start)
+
 
 
 def suspected_takes(start: float, end: float, transcript: dict) -> List[Cut]:

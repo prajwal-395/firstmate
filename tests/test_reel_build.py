@@ -675,3 +675,33 @@ def test_a_short_pair_of_different_lines_is_still_left_alone():
              _seg("Craig", "and where does the score come from", 11.0, 11.9,
                   "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
+
+
+
+def test_intra_turn_repetition_is_cut():
+    """Reel 03's span 301.2-341.3 with its three takes.
+    
+    The uncovered case is a single speaker turn that contains its own repetition,
+    where the transcriber did not split it into two segments and no second window exists.
+    """
+    line = "search didn't change the question changed whoever AI understands best gets the answer"
+    # Three takes inside a single segment
+    seg = _seg("Akshita", f"{line} {line} {line}", 301.2, 341.3)
+    
+    words_list = line.split()
+    words = []
+    t = 301.2
+    for _ in range(3):
+        for w in words_list:
+            words.append({"word": w, "start": t, "end": t + 0.5})
+            t += 0.5
+        t += 5.0  # gap
+    seg["words"] = words
+    
+    tx = _tx(seg)
+    cuts = redundant_takes(300.0, 350.0, tx)
+    
+    # It should cut at least something, meaning the intra-turn repetition is found
+    assert len(cuts) > 0
+    assert cuts[0].dropped_start == 301.2
+
