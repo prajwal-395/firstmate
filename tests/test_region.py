@@ -346,3 +346,17 @@ def test_on_same_timeline_as_reads_both_forms():
     assert r.on_same_timeline_as(Region("reel_03", 9.0, 9.5))
     assert r.on_same_timeline_as("reel_03")
     assert not r.on_same_timeline_as(MASTER)
+
+
+def test_an_address_parses_back_to_the_region():
+    """`__str__` is for a human and ends in `s`; `parse` refuses that
+    trailing letter because `float("48s")` is not a number. So the form
+    that goes into a command a reader is meant to copy is `as_address`,
+    and it has to round-trip - a refusal printing a command that then
+    refuses is a worse control surface than no command at all."""
+    for original in (Region(MASTER, 32.0, 48.0),
+                     Region("reel_03", 1.5, 2.25)):
+        assert parse(original.as_address()) == original
+
+    with pytest.raises(ValueError):
+        parse(str(Region(MASTER, 32.0, 48.0)))

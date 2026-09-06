@@ -722,7 +722,7 @@ def _music_track_path(ctx: Context) -> Satisfaction:
         return UNSATISFIED(
             "music_selection recorded no selection object",
             missing="music_selection", produced_by=("music_selection",))
-    path = _resolve_track_path(selection)
+    path = resolve_track_path(selection)
     if not path:
         return UNSATISFIED(
             "music_selection names no track path under any of "
@@ -740,7 +740,15 @@ TRACK_PATH_KEYS: Tuple[str, ...] = (
 """The order `step_2_06_music_analysis/step.py` reads them in."""
 
 
-def _resolve_track_path(selection: Mapping) -> str:
+def resolve_track_path(selection: Mapping) -> str:
+    """The track a `music_selection` names, by the order 2.06 reads.
+
+    PUBLIC because `external_inputs._check_music_selection` needs the
+    same reading: a hand-placed music spine has to be checked against the
+    file the step will really open, and two readings of "which key names
+    the track" is the key-name mismatch class (AGENTS.md 10.1) with a
+    silent failure at the end of it.
+    """
     for key in TRACK_PATH_KEYS:
         value = selection.get(key)
         if value:

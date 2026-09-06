@@ -414,6 +414,80 @@ def test_the_region_rerun_form_parses_and_validates_its_span():
             parse_rerun_target(bad, known)
 
 
+def _runner():
+    """The runner module, imported the way `operations.Operation` does."""
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    process_dir = (_Path(__file__).resolve().parents[1] / "library"
+                   / "processes" / "edit_video")
+    if str(process_dir) not in _sys.path:
+        _sys.path.insert(0, str(process_dir))
+    import run_pipeline
+    return run_pipeline
+
+
+def test_the_runner_refuses_a_region_rerun_rather_than_redoing_everything():
+    """`--rerun <step>@<span>` PARSES, and the runner cannot honour it.
+
+    What it used to do: forget the step's ledger entry and print "the
+    region scope decides what is recomputed". That sentence was not
+    true - steps run as subprocesses over JSON stdin and no step's
+    `main()` reads an address, so the step re-ran at PROJECT scope and
+    redid the whole video. For `--rerun plan_transitions@32.0-48.0` that
+    is a model re-deciding every transition in the piece, which is the
+    opposite of "leave the rest alone".
+
+    A flag that does the wrong thing while printing that it did the
+    right one is worse than one that refuses.
+    """
+    from library.tools.step_ledger import LedgerError
+
+    runner = _runner()
+    state = {}
+    with pytest.raises(LedgerError) as exc:
+        runner.apply_rerun_requests(
+            "/nonexistent", state, ["plan_subtitles@32.0-48.0"],
+            {"plan_subtitles": "edit"}, {})
+
+    message = str(exc.value)
+    assert "cannot re-run part of a step" in message
+    # And it names what really does honour a region, DERIVED from the
+    # operations registry rather than written out here.
+    assert "operations subtitles.plan" in message
+    assert "--region 32.0-48.0" in message
+    # Nothing was half-done on the way to refusing.
+    assert state == {}
+
+
+def test_the_refusal_says_so_plainly_when_no_operation_takes_a_region():
+    """`plan_transitions` has no region-scoped operation, so there is no
+    partial re-run of it to offer. Naming a route that does not exist is
+    worse than saying there is none."""
+    from library.tools.step_ledger import LedgerError
+
+    runner = _runner()
+    with pytest.raises(LedgerError) as exc:
+        runner.apply_rerun_requests(
+            "/nonexistent", {}, ["plan_transitions@32.0-48.0"],
+            {"plan_transitions": "edit"}, {})
+    message = str(exc.value)
+    assert "No operation on plan_transitions runs at a region" in message
+    assert "--rerun plan_transitions" in message
+
+
+def test_the_other_four_rerun_forms_still_apply():
+    """The mirror: the refusal above fires on the region form ALONE."""
+    runner = _runner()
+    state = {"edit_completed": {"plan_subtitles": {"at": "now"}},
+             "step_outputs": {"plan_subtitles": {"subtitle_plan": {}}}}
+    applied = runner.apply_rerun_requests(
+        "/nonexistent", state, ["plan_subtitles"],
+        {"plan_subtitles": "edit"}, {})
+    assert applied and "ledger cleared" in applied[0]
+    assert "plan_subtitles" not in state["step_outputs"]
+
+
 def test_the_span_is_validated_when_the_flag_is_READ():
     """Not forty minutes into a run.
 

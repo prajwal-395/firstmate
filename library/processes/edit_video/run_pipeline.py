@@ -596,8 +596,56 @@ def _rerun_invalidates(targets, stage_by_node: dict) -> set:
         elif kind == "clip":
             invalidated.add(value.split(":", 1)[0])
         elif kind == "region":
-            invalidated.add(value.split("@", 1)[0])
+            # Nothing. `apply_rerun_requests` REFUSES a region target
+            # (see `_region_rerun_refusal`), so no recorded output is
+            # about to be discarded and marking one invalidated would
+            # strand a consumer for a re-run that never happens.
+            continue
     return invalidated
+
+
+def _region_rerun_refusal(step_id: str, span: str) -> str:
+    """Why `--rerun <step>@<span>` refuses, and what does honour a region.
+
+    Derived from the operations registry rather than written out: an
+    operation that gains REGION scope is offered here with no edit, and
+    one that loses it stops being offered. Naming a route that does not
+    exist is the failure mode this whole layer keeps refusing to have.
+    """
+    from library.tools import operations, scope as scope_mod
+
+    at_region = [op for op in operations.by_node(step_id)
+                 if scope_mod.REGION in op.scopes]
+    lines = [
+        f"--rerun {step_id}@{span}: the runner cannot re-run part of a "
+        f"step.",
+        "",
+        f"A step runs as a subprocess over JSON stdin and no step's "
+        f"main() reads an address, so clearing {step_id}'s ledger entry "
+        f"here would re-run it over the WHOLE timeline - not the "
+        f"{span} you asked for, and not leaving the rest alone.",
+    ]
+    if at_region:
+        lines += [
+            "",
+            f"What DOES run at a region is the operations registry, "
+            f"which hands the step's own function the address:",
+        ]
+        for op in at_region:
+            lines.append(
+                f"  python3 -m library.tools.operations {op.name} "
+                f"--project <project> --region {span}")
+            lines.append(f"      {op.summary}")
+    else:
+        lines += [
+            "",
+            f"No operation on {step_id} runs at a region today "
+            f"(library/tools/operations.py), so there is no partial "
+            f"re-run of it to ask for. `--rerun {step_id}` re-runs the "
+            f"whole step, and that is the only thing this step can be "
+            f"asked to redo.",
+        ]
+    return "\n".join(lines)
 
 
 def apply_rerun_requests(project_dir: str, state: dict, targets: list,
@@ -647,25 +695,29 @@ def apply_rerun_requests(project_dir: str, state: dict, targets: list,
 
         if kind == "region":
             # A region target names a step and an interval of the
-            # TIMELINE. Unlike a clip target there are no per-clip
-            # artifacts to delete: what a region invalidates is decided
-            # from the region itself by the operation that runs it
-            # (library/tools/operations.py, subtitles.plan and
-            # subtitles.render at REGION scope), which is where the
-            # spine that maps the interval to blocks is in hand.
+            # TIMELINE, and THE RUNNER CANNOT HONOUR ONE. It is refused
+            # rather than half-done.
             #
-            # So the runner does what it can honestly do here - forget
-            # the step's ledger entry so it runs again - and refuses to
-            # guess at artifacts. Deleting "everything for the step"
-            # would be the whole-step re-run the operator explicitly did
-            # not ask for.
+            # What it used to do: forget the step's ledger entry and
+            # print "the region scope decides what is recomputed". That
+            # sentence was not true. Nothing threads a `Scope` into a
+            # step here - steps run as subprocesses over JSON stdin
+            # (`run_deterministic_step`) and no step's `main()` reads an
+            # address - so the step re-ran at PROJECT scope and redid the
+            # WHOLE video. For `--rerun plan_transitions@32.0-48.0` that
+            # is a model re-deciding every transition in the piece, which
+            # is the opposite of "leave the rest alone".
+            #
+            # A flag that does the wrong thing while printing that it did
+            # the right one is worse than one that refuses, so this
+            # refuses and names what really does honour a region: the
+            # operations registry, which passes the `Scope` to the step's
+            # own function (`operations.SCOPE_PARAMETER`). Which
+            # operations those are is DERIVED from the registry, never
+            # listed here, so a step that gains a region-scoped operation
+            # is offered without anybody editing this message.
             step_id, _, span = value.partition("@")
-            step_ledger.forget(state, step_id)
-            _clear_step_failure(state, step_id)
-            applied.append(
-                f"region {span} of {step_id}: ledger cleared; the region "
-                f"scope decides what is recomputed")
-            continue
+            raise step_ledger.LedgerError(_region_rerun_refusal(step_id, span))
 
         step_id, _, clip_id = value.partition(":")
         manifest = manifests.get(step_id, {})
@@ -2540,6 +2592,12 @@ def run_pipeline(
                 k: list(v) for k, v in scope.from_cache.items()},
             "satisfied_from_outside": {
                 k: list(v) for k, v in scope.from_external.items()},
+            # The steps this run does not perform because the captain
+            # handed in what they would have made. Separate from
+            # `skipped`: those are steps this run declined, these are
+            # steps whose work is already done.
+            "not_run_because_supplied": {
+                k: list(v) for k, v in scope.supplied.items()},
             "estimated_seconds": estimate,
         }
         json.dump(summary, sys.stdout, indent=2)
@@ -3318,6 +3376,8 @@ def run_pipeline(
         "run_mode": run_mode,
         "skipped": list(scope.skipped),
         "skip_reasons": dict(scope.reasons),
+        "not_run_because_supplied": {
+            k: list(v) for k, v in scope.supplied.items()},
         "state_file": str(ProjectLayout(project_dir).pipeline_data_path),
     }
     # The run's own account of how it ended.  `held` is not overwritten:

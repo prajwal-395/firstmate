@@ -73,7 +73,9 @@ and points here.
 One enumeration, `library/tools/external_inputs.py`.
 - The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
 - **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
-- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
+- **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.
+- **A SUPPLIED value is a request; a recorded one is history.** A step every one of whose routed outputs is supplied does not run, on any run shape - `run_scope.supplied_producers` derives which, and naming such a step on the command line is REFUSED rather than silently overwriting what was handed in.
+- **An empty value is refused unless the key is in `EMPTY_IS_A_STATEMENT`**, which is `b_roll_interjections` alone: leaving a file out and supplying nothing are different requests, and only the second can stop `select_broll` inventing cutaways.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
 - `tests/test_external_inputs.py`.
 """
 
@@ -402,6 +404,243 @@ def _check_speech_sequence(value, context: Context) -> str:
             f"{said}")
 
 
+# ── The rough cut, and the music spine, made somewhere else ──────────
+#
+# Three entry points the pipeline had no way in for, and each is a set of
+# STATE KEYS rather than a mode:
+#
+#   the rough cut is already an input   audio_spine + timed_spine +
+#                                       speech_sequence +
+#                                       a_roll_assignments +
+#                                       b_roll_assignments +
+#                                       b_roll_interjections
+#   the music spine is already placed   music_selection
+#
+# The third - re-editing a named section - is an ADDRESS rather than
+# state, and lives in `library/tools/operations.py`.  What each of the
+# three did before any of this, and what each still needs, is measured
+# in `docs/ENTRY_POINTS_MEASURED.md`.
+#
+# There is no "rough cut mode" and there must not be one: the run shape
+# falls out of `run_scope.supplied_producers`, which leaves out exactly
+# the steps whose whole output is on file.  A mode would be a second
+# selection mechanism beside the one that already derives this.
+
+
+def _check_timed_spine(value, context: Context) -> str:
+    """The cut's structure, under the OTHER name mesh_spine records it as.
+
+    `step_2_05_mesh_spine/post_bridge.py:313` is literally
+    `result["timed_spine"] = result["audio_spine"]` - they are the same
+    object today - and four steps read `timed_spine` while three read
+    `audio_spine`.
+
+    Supplying one does NOT supply the other, and that is deliberate
+    rather than an oversight worth a convenience alias.  They are two
+    state keys with two sets of readers; the day they stop being the same
+    object, an alias would have quietly handed four steps the wrong one.
+    Two files, both checked, and this docstring names the line that makes
+    them identical so a captain can copy rather than author twice.
+    """
+    return _check_audio_spine(value, context)
+
+
+def _check_v2_placements(value, context: Context, label: str) -> str:
+    """Cutaways somebody chose elsewhere: which clip covers what, when.
+
+    The same standard `_check_a_roll_assignments` meets - every claim is
+    about a file on disk and a range inside it - plus the one invariant
+    that is specific to the layer: V2 SHOWS ONE CLIP AT A TIME.  Step
+    3.02 enforces it when it places its own cutaways
+    (`_place_without_overlap`), and a supplied set that overlaps itself
+    would reach `compile_manifest`, where overlap resolution deletes one
+    of the two silently.  So it is refused here, naming both entries.
+
+    Whether an EMPTY list may be supplied is not decided here.  `verify`
+    owns that question for every key at once, and `EMPTY_IS_A_STATEMENT`
+    is the one place a key says `[]` means something.  Two owners for one
+    question is how the two come to disagree.
+    """
+    if not isinstance(value, list):
+        raise ExternalStateError(f"{label} must be a list")
+    durations = _catalog_durations(context)
+    spans = []
+    checked_against_catalog = 0
+    for index, entry in enumerate(value):
+        where = f"{label}[{index}]"
+        if not isinstance(entry, dict):
+            raise ExternalStateError(f"{where} is not an object")
+        source = _existing_file(entry.get("source_file"),
+                               f"{where}.source_file")
+        video_in = _number(entry.get("video_in"), f"{where}.video_in")
+        video_out = _number(entry.get("video_out"), f"{where}.video_out")
+        start = _number(entry.get("timeline_start"),
+                        f"{where}.timeline_start")
+        end = _number(entry.get("timeline_end"), f"{where}.timeline_end")
+        if video_out <= video_in:
+            raise ExternalStateError(
+                f"{where} plays {source.name} from {video_in} to "
+                f"{video_out}, which is not a range")
+        if end <= start:
+            raise ExternalStateError(
+                f"{where} occupies {start} to {end} on the timeline, "
+                f"which is not a range")
+        clip_id = entry.get("clip_id") or entry.get("source_clip_id")
+        if clip_id in durations:
+            checked_against_catalog += 1
+            if video_out > durations[clip_id] + 0.001:
+                raise ExternalStateError(
+                    f"{where} plays {clip_id} to {video_out}s and the "
+                    f"catalog measured that clip at {durations[clip_id]}s")
+        spans.append((start, end, index))
+
+    spans.sort()
+    for (start, end, index), (next_start, _, next_index) in zip(spans,
+                                                                spans[1:]):
+        if next_start < end - 0.001:
+            raise ExternalStateError(
+                f"{label}[{index}] runs to {end}s and {label}"
+                f"[{next_index}] starts at {next_start}s. V2 shows one "
+                f"clip at a time, so two overlapping placements are two "
+                f"descriptions of the same seconds - compile_manifest "
+                f"would delete one of them without saying which.")
+
+    against = (f", {checked_against_catalog} of them against the catalog's "
+               f"measured durations" if checked_against_catalog else "")
+    return (f"{len(value)} placements, none overlapping on V2, every "
+            f"source file present on disk and every range non-empty"
+            f"{against}")
+
+
+def _check_b_roll_assignments(value, context: Context) -> str:
+    return _check_v2_placements(value, context, "b_roll_assignments")
+
+
+def _check_b_roll_interjections(value, context: Context) -> str:
+    return _check_v2_placements(value, context, "b_roll_interjections")
+
+
+def _check_music_selection(value, context: Context) -> str:
+    """A bed the captain chose themselves, checked against the audio file.
+
+    The captain's second entry point: *"the song/music spine being put in
+    already"*.  Checkable by the same standard as `a_roll_assignments` -
+    every claim is about a file on disk and a range inside it - and by
+    nothing more.  WHY this track suits the piece is taste and is not
+    asserted here; `direction_justification` is carried through
+    unexamined, exactly as a step's own output would be.
+
+    Which key names the track is `requirements.resolve_track_path`, the
+    same reading step 2.06 does, so this and the step it feeds cannot
+    disagree about which file is the bed.
+
+    The section is where the silent failure lives.  `section.source_in`
+    is the second of the TRACK the bed starts at, and a value past the
+    end of the file yields a bed of silence that nothing downstream
+    notices - `music_bed` splices from it, `otio_mix` places it, and the
+    render is quiet where the music was meant to be.  ffprobe measures
+    the real length, so that is EXACT rather than a threshold.
+    """
+    from library.tools.requirements import TRACK_PATH_KEYS, resolve_track_path
+
+    if not isinstance(value, dict):
+        raise ExternalStateError("music_selection must be an object")
+    path_text = resolve_track_path(value)
+    if not path_text:
+        raise ExternalStateError(
+            f"music_selection names no track under any of "
+            f"{', '.join(TRACK_PATH_KEYS)} or tracks[0]. A selection with "
+            f"no file is the absence of a choice, not a choice made "
+            f"elsewhere.")
+    path = _existing_file(path_text, "music_selection track path")
+    streams = _probe_streams(path)
+    if streams is None:
+        raise ExternalStateError(
+            f"ffprobe could not read {path.name}. A file that is not "
+            f"decodable is not a music bed.")
+    if "audio" not in streams:
+        raise ExternalStateError(
+            f"ffprobe found no audio stream in {path.name} "
+            f"(streams: {', '.join(sorted(streams)) or 'none'})")
+    measured = _probe_duration(path)
+    if measured is None:
+        raise ExternalStateError(
+            f"ffprobe read {path.name} but reported no duration, so "
+            f"nothing here can say whether the sections named below are "
+            f"inside it.")
+
+    extra = 0
+    for index, track in enumerate(value.get("tracks") or []):
+        if not isinstance(track, dict):
+            raise ExternalStateError(f"music_selection.tracks[{index}] "
+                                     f"is not an object")
+        other = resolve_track_path(track)
+        if not other:
+            raise ExternalStateError(
+                f"music_selection.tracks[{index}] names no audio_path; "
+                f"the bed is a SEQUENCE and every track it may splice "
+                f"from has to be a file this run can open.")
+        _existing_file(other, f"music_selection.tracks[{index}]")
+        extra += 1
+
+    checked_spans = 0
+    section = value.get("section")
+    if isinstance(section, dict) and section.get("source_in") is not None:
+        start = _number(section.get("source_in"),
+                        "music_selection.section.source_in")
+        if start < 0 or start >= measured:
+            raise ExternalStateError(
+                f"music_selection.section.source_in is {start}s and "
+                f"{path.name} is {measured:.3f}s long. The bed would "
+                f"start past the end of the track and play silence.")
+        checked_spans += 1
+
+    for index, splice in enumerate(value.get("splices") or []):
+        if not isinstance(splice, dict):
+            raise ExternalStateError(
+                f"music_selection.splices[{index}] is not an object")
+        # A splice may name ANOTHER track (music_bed's sequence), and
+        # this check only measured the primary. Its own file was checked
+        # above; the span is checked against the file it really names.
+        against = measured if not splice.get("track") else None
+        span_in = _number(splice.get("source_in"),
+                          f"music_selection.splices[{index}].source_in")
+        span_out = _number(splice.get("source_out"),
+                           f"music_selection.splices[{index}].source_out")
+        if span_out <= span_in:
+            raise ExternalStateError(
+                f"music_selection.splices[{index}] runs {span_in} to "
+                f"{span_out}, which is not a range")
+        if against is not None:
+            if span_out > against + 0.001:
+                raise ExternalStateError(
+                    f"music_selection.splices[{index}] plays to "
+                    f"{span_out}s and {path.name} is {against:.3f}s long")
+            checked_spans += 1
+
+    others = f", {extra} further track(s) present on disk" if extra else ""
+    spans = (f", {checked_spans} named span(s) inside it" if checked_spans
+             else ", naming no span so the bed plays from the head")
+    return (f"{path.name}, {measured:.3f}s, ffprobe reports "
+            f"{'+'.join(sorted(streams))}{others}{spans}")
+
+
+def _probe_duration(path: Path) -> Optional[float]:
+    """The file's real length in seconds, or None if ffprobe cannot say."""
+    try:
+        proc = subprocess.run(
+            ["ffprobe", "-v", "error", "-print_format", "json",
+             "-show_format", str(path)],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60, check=False)
+        if proc.returncode != 0:
+            return None
+        duration = json.loads(proc.stdout).get("format", {}).get("duration")
+        return float(duration) if duration is not None else None
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return None
+
+
 def _probe_streams(path: Path) -> Optional[set]:
     try:
         proc = subprocess.run(
@@ -423,10 +662,37 @@ Check = Callable[[object, Context], str]
 CHECKS: Dict[str, Check] = {
     "a_roll_assignments": _check_a_roll_assignments,
     "audio_spine": _check_audio_spine,
+    "timed_spine": _check_timed_spine,
+    "b_roll_assignments": _check_b_roll_assignments,
+    "b_roll_interjections": _check_b_roll_interjections,
     "assembly_manifest": _check_assembly_manifest,
+    "music_selection": _check_music_selection,
     "render_output": _check_render_output,
     "speech_sequence": _check_speech_sequence,
 }
+
+
+EMPTY_IS_A_STATEMENT: frozenset = frozenset({"b_roll_interjections"})
+"""Keys where an EMPTY value is a decision, not the absence of one.
+
+The default is the other way and stays that way: "nothing is not a
+value; leave the file out instead" is right for a rough cut, a manifest
+or a render, where an empty file is somebody who meant to write one and
+did not.
+
+`b_roll_interjections` is the exception because LEAVING IT OUT AND
+SUPPLYING NOTHING ARE DIFFERENT REQUESTS.  `select_broll` emits both it
+and `b_roll_assignments`, and `run_scope.supplied_producers` needs ALL
+of a producer's routed keys before the step stops running - so a hand
+cut with cutaways over its speech but no standalone ones has no way to
+say so, and the step runs and invents some.  `[]` here is AGENTS.md
+10.5's line exactly: the absence of decoration, not the absence of a
+decision.
+
+An entry is added here for a key where that argument can be made, never
+because a check was inconvenient.  Everything in this set is still
+CHECKED - `CHECKS[key]` runs on the empty value like any other.
+"""
 
 
 # ── What cannot be asserted ──────────────────────────────────────────
@@ -477,7 +743,15 @@ WITHDRAWN: Dict[str, str] = {
         "one. A sequence a MODEL proposes is still taste and is still "
         "not suppliable; nothing here can tell the two apart except that "
         "the measured one carries a self-consistent chain over stable "
-        "Resolve item ids that agree with files on disk.",
+        "Resolve item ids that agree with files on disk. NARROWED AGAIN "
+        "2026-09-06 for `music_selection`, on the captain's third entry "
+        "point - 'the song/music spine being put in already'. A track "
+        "the captain CHOSE is a fact about a file on disk and the "
+        "seconds of it that play, and `_check_music_selection` refuses a "
+        "well-shaped one whose file is missing, carries no audio, or "
+        "names a section past the end of the track. WHY it suits the "
+        "piece is still taste: `direction_justification` is carried "
+        "through unexamined and nothing here grades it.",
 }
 
 
@@ -552,10 +826,14 @@ def verify(path: Path, context: Context) -> Supplied:
         raise ExternalStateError(f"{path.name} carries no 'value'")
     value = document["value"]
     if value is None or (isinstance(value, (list, dict, str))
-                         and len(value) == 0):
+                         and len(value) == 0
+                         and key not in EMPTY_IS_A_STATEMENT):
         raise ExternalStateError(
             f"{path.name} supplies an empty {type(value).__name__}. "
-            f"Nothing is not a value; leave the file out instead.")
+            f"Nothing is not a value; leave the file out instead."
+            + (f"\n  ({key!r} is not one of the keys where empty means "
+               f"something: {', '.join(sorted(EMPTY_IS_A_STATEMENT))})"
+               if EMPTY_IS_A_STATEMENT else ""))
 
     checked = CHECKS[key](value, context)
     return Supplied(key=key, value=value, source=source.strip(), path=path,

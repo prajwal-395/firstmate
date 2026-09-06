@@ -282,6 +282,24 @@ class Region:
                     else normalise_timeline(other))
         return self.timeline == other_tl
 
+    def as_address(self) -> str:
+        """This region written the way `parse` reads it back.
+
+        `__str__` is for a HUMAN - it ends in `s` so a reader knows the
+        numbers are seconds - and `parse` refuses that trailing letter,
+        because `float("48s")` is not a number and guessing would be the
+        silent mis-read this module exists to stop.
+
+        So the two forms are different on purpose, and this is the one
+        that goes into a command a reader is meant to copy. A refusal
+        that prints a command which then refuses is a worse control
+        surface than no command at all.
+        `tests/test_region.py::test_an_address_parses_back_to_the_region`
+        pins the round trip.
+        """
+        span = f"{self.start:g}-{self.end:g}"
+        return span if self.timeline is MASTER else f"{self.timeline}@{span}"
+
     def __str__(self) -> str:
         span = f"{self.start:g}-{self.end:g}s"
         return span if self.timeline is MASTER else f"{self.timeline}@{span}"

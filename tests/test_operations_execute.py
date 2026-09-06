@@ -422,3 +422,238 @@ def _any_step_declares(name: str) -> bool:
             if declared.get("name") == name:
                 return True
     return name in ("project_folder", "project_config")
+
+
+# ── The address, which used to reach no step at all ──────────────────
+#
+# The captain's third entry point, 2026-09-06: "a user asking for
+# certain specific sections of the video to be re-edited".
+#
+# Six operations declare REGION scope and NOT ONE of them honoured it
+# through the registry.  Measured before the fix:
+#
+#   subtitles.plan, subtitles.render            ran at PROJECT scope and
+#                                               returned a whole-project
+#                                               answer looking like a
+#                                               region's
+#   subtitles.splice, subtitles.render_segment,
+#   transcript.reindex, transcript.splice       raised TypeError
+#
+# The first pair is the worse half.  `subtitles.plan` at a region was a
+# whole-plan overwrite wearing a region's clothes, which is the one thing
+# `subtitles.splice` exists to prevent.
+
+
+def _three_block_spine():
+    """Three blocks, so a region can cover exactly one of them."""
+    def block(position, timeline_start, source_start, words):
+        stamped = [{"word": w,
+                    "source_start": source_start + i * 0.4,
+                    "source_end": source_start + (i + 1) * 0.4}
+                   for i, w in enumerate(words)]
+        span = len(words) * 0.4
+        return {"position": position, "block_type": "speech",
+                "clip_id": "clip_001", "speaker": "host",
+                "source_start": source_start,
+                "source_end": source_start + span,
+                "timeline_start": timeline_start,
+                "timeline_end": timeline_start + span,
+                # A real mesh_spine block carries this
+                # (step_2_05/post_bridge.py:147) and `subtitle_splice`
+                # refuses a splice that cannot show the timing unchanged
+                # without it.
+                "duration_seconds": round(span, 3),
+                "word_timestamps": stamped, "alignment_method": "whisperx",
+                "content": {"text": " ".join(words)}}
+    return {"structure": [
+        block(0, 0.0, 10.0, ["one", "two", "three", "four", "five"]),
+        block(1, 2.0, 40.0, ["six", "seven", "eight", "nine", "ten"]),
+        block(2, 4.0, 70.0, ["eleven", "twelve", "thirteen", "fourteen"]),
+    ]}
+
+
+@pytest.fixture
+def three_block_project(tmp_path):
+    spine = _three_block_spine()
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {
+            "mesh_spine": {"audio_spine": spine, "timed_spine": spine},
+            "review_rough_cut": {"rough_cut_review": {"passed": True}},
+            "temporal_index": {"index_dir": str(tmp_path)},
+            "speech_sequence": {"speech_sequence": {}},
+        }}), encoding="utf-8")
+    return str(tmp_path), spine
+
+
+def _block_one(spine):
+    from library.tools import region as region_mod
+    from library.tools import scope as scope_mod
+
+    block = spine["structure"][1]
+    return scope_mod.region(region_mod.Region(
+        None, block["timeline_start"], block["timeline_end"]))
+
+
+def test_an_operation_at_a_region_plans_only_that_region(three_block_project):
+    """The gate FIRES on the defect: a region-scoped plan must not be a
+    whole-project plan. Measured before the fix - PROJECT 4 cards, REGION
+    4 cards, the step called directly with the same scope 1 card."""
+    project, spine = three_block_project
+    plan = operations.get("subtitles.plan")
+
+    whole = plan.execute(project)
+    part = plan.execute(project, scope=_block_one(spine))
+
+    def cards(result):
+        return result.payload["subtitle_plan"]["subtitle_entries"]
+
+    assert whole.completed and part.completed
+    assert len(cards(part)) < len(cards(whole)), (
+        "the region planned as much as the whole project, so the address "
+        "did not reach the step")
+
+
+def test_the_region_the_registry_passes_is_the_one_the_step_would_get(
+        three_block_project):
+    """Not just fewer - THE SAME. The step is the authority on what a
+    region means, so the registry's answer has to equal the answer the
+    step gives when it is handed the scope directly."""
+    project, spine = three_block_project
+    plan = operations.get("subtitles.plan")
+    where = _block_one(spine)
+
+    through_registry = plan.execute(project, scope=where)
+    direct = plan.run(audio_spine=spine, scope=where)
+
+    assert (through_registry.payload["subtitle_plan"]["subtitle_entries"]
+            == direct["subtitle_plan"]["subtitle_entries"])
+
+
+def test_the_scope_does_not_leak_into_a_step_that_never_asked_for_one():
+    """The other direction. `scope` is bound only where the step's own
+    signature names it, so a body that never asked for an address is
+    handed exactly what it was handed before."""
+    import inspect
+
+    from library.tools import scope as scope_mod
+
+    where = scope_mod.project()
+    checked = 0
+    for operation in operations.all():
+        parameters = inspect.signature(operation.run).parameters
+        if operations.SCOPE_PARAMETER in parameters:
+            continue
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD
+               for p in parameters.values()):
+            continue  # takes everything by definition
+        bound = operation._arguments({"raw_footage_files": []}, where)
+        assert operations.SCOPE_PARAMETER not in bound, (
+            f"{operation.name} was handed a scope its body does not name")
+        checked += 1
+    assert checked, "no operation was checked; this test proved nothing"
+
+
+def test_a_gathered_key_called_scope_still_wins():
+    """The same precedence `MERGED_INPUT_PARAMETERS` has: a REAL gathered
+    key of that name is not overwritten by the address."""
+    from library.tools import scope as scope_mod
+
+    plan = operations.get("subtitles.plan")
+    bound = plan._arguments({"audio_spine": {}, "scope": "the real one"},
+                            scope_mod.project())
+    assert bound["scope"] == "the real one"
+
+
+# ── An operation that cannot be called REFUSES, it does not crash ────
+
+
+def test_an_operation_whose_caller_owes_it_an_argument_refuses_by_name(
+        three_block_project):
+    """`subtitles.splice` needs the plan it is splicing INTO, and nothing
+    the DAG routes to `plan_subtitles` carries it. Before this it raised
+
+        TypeError: splice_region_plan() missing 2 required positional
+        arguments: 'stored_plan' and 'scope'
+
+    which is a crash, not a refusal."""
+    project, spine = three_block_project
+    result = operations.get("subtitles.splice").execute(
+        project, scope=_block_one(spine))
+
+    assert result.refused
+    assert "stored_plan" in result.error
+    assert "--set stored_plan=@stored_plan.json" in result.error
+
+
+def test_supplying_the_argument_the_refusal_named_makes_it_run(
+        three_block_project):
+    """The mirror, and the half that makes the refusal a control surface
+    rather than a wall: doing what it says works."""
+    project, spine = three_block_project
+    where = _block_one(spine)
+    stored = operations.get("subtitles.plan").execute(project).payload
+
+    result = operations.get("subtitles.splice").execute(
+        project, scope=where, stored_plan=stored["subtitle_plan"])
+
+    assert result.completed, result.error
+    assert result.payload["splice"]
+
+
+def test_every_registered_operation_can_say_what_it_is_owed():
+    """No operation may reach the splat with an unfillable signature and
+    find out there. Asked of the REGISTRY, so a new entry in the shape
+    the four region ones were in is caught at once."""
+    for operation in operations.all():
+        unbound = operation.unbound_parameters({})
+        if not unbound:
+            continue
+        message = operation._teach_unbound(unbound)
+        for name in unbound:
+            assert name in message, (
+                f"{operation.name} would be unfillable and its refusal "
+                f"does not name {name}")
+        assert "--set" in message
+
+
+def test_the_refusal_never_fires_on_an_operation_that_can_run(
+        satisfied_project):
+    """A gate that fails correct output is no more coverage than one that
+    cannot fail (AGENTS.md 10.4)."""
+    plan = operations.get("subtitles.plan")
+    arguments = plan._arguments(plan.gather(satisfied_project))
+    assert plan.unbound_parameters(arguments) == ()
+
+
+# ── --set: the way out the refusal names ─────────────────────────────
+
+
+def test_set_reads_json_and_a_json_file(tmp_path):
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps({"subtitle_entries": []}), encoding="utf-8")
+    parsed = operations.parse_overrides(
+        ['count=3', 'names=["a","b"]', f"stored_plan=@{path}"])
+    assert parsed == {"count": 3, "names": ["a", "b"],
+                      "stored_plan": {"subtitle_entries": []}}
+
+
+def test_set_refuses_a_bare_word_rather_than_guessing_it_is_a_string():
+    """A value here is a structure. Falling back to "it must be a string"
+    would hand a step the text `[1, 2]` and let it fail further in."""
+    with pytest.raises(operations.OperationError) as exc:
+        operations.parse_overrides(["stored_plan=not json"])
+    assert "not valid JSON" in str(exc.value)
+
+
+def test_set_refuses_a_pair_with_no_name():
+    with pytest.raises(operations.OperationError) as exc:
+        operations.parse_overrides(["=3"])
+    assert "NAME=" in str(exc.value)
+
+
+def test_set_refuses_a_file_that_is_not_there(tmp_path):
+    with pytest.raises(operations.OperationError) as exc:
+        operations.parse_overrides([f"stored_plan=@{tmp_path / 'gone.json'}"])
+    assert "gone.json" in str(exc.value)

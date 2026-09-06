@@ -82,10 +82,17 @@ Reachability
 ------------
     python3 -m library.tools.operations --list
     python3 -m library.tools.operations subtitles.render --project <p> --region 45.0-72.0
+    python3 -m library.tools.operations subtitles.splice --project <p> \
+        --region 45.0-72.0 --set stored_plan=@subtitle_plan.json
     python3 -m library.tools.operations --emit-skill
 
 Same registry, same scope vocabulary, same refusal, whether it is called
 from a shell, from Python, or by the runner.
+
+Running one at a REGION is the captain's third entry point - "a user
+asking for certain specific sections of the video to be re-edited" - and
+`docs/ENTRY_POINTS_MEASURED.md` measures which operations reach it,
+which do not, and what the ones that do not would need.
 """
 from __future__ import annotations
 
@@ -126,6 +133,37 @@ POST_BRIDGE = "post_bridge.py"
 pre-bridge's output, plus the model's answer (`run_pipeline.merge_data`).
 An operation gathers only the first of those three, which is why
 `Operation.missing_model_answer` exists."""
+
+SCOPE_PARAMETER = "scope"
+"""The parameter name a step body uses for THE ADDRESS IT RUNS AT.
+
+An operation declares `scopes`, `Operation.execute` takes a `Scope`, and
+until this constant existed neither reached the step: `_arguments` binds
+only from the GATHERED INPUTS, and a scope is not a gathered input. So a
+REGION-scoped operation ran at PROJECT scope and returned a whole-project
+answer that looked like a region's.
+
+MEASURED before it was fixed, on a three-block spine with the region
+covering block 1 alone:
+
+    subtitles.plan at PROJECT scope      -> 4 caption cards
+    subtitles.plan at REGION 2.0-4.0     -> 4 caption cards
+    generate_subtitles(scope=that region) -> 1 caption card
+
+The step had honoured the region all along - `generate_subtitles` and
+`render_subtitle_overlays` both take `scope` and both narrow on it - and
+the registry was dropping it on the floor. That is worse than an
+operation that cannot run: `subtitles.render` at a region would have
+re-rendered every segment of the video, and `subtitles.plan` at a region
+was a whole-plan overwrite wearing a region's clothes, which is the ONE
+thing `subtitles.splice` exists to prevent.
+
+ONE spelling, and a step that wants the address spells it this way. Not
+an enumeration like `MERGED_INPUT_PARAMETERS` because there is nothing
+to enumerate: `library/tools/scope.Scope` is a type this repository owns,
+and a body taking it under another name is a rename to make rather than a
+spelling to accept.
+"""
 
 MERGED_INPUT_PARAMETERS: tuple = ("data", "inputs", "llm_output")
 """The parameter names a step body uses for THE WHOLE INPUT DICT.
@@ -453,6 +491,11 @@ class Operation:
         inputs = self.gather(project_folder)
         inputs.update(overrides)
 
+        # The step's own function, its own signature. Bound here so the
+        # unbindable case below is asked of the SAME dict that would have
+        # been splatted into the call.
+        arguments = self._arguments(inputs, where)
+
         # A post-bridge resolves the MODEL's answer against the step's
         # own measurements. Run as an operation it is handed the
         # measurements alone, so it would resolve a plan nobody wrote and
@@ -478,7 +521,14 @@ class Operation:
                     f"them would produce a confident answer to a question "
                     f"nobody was asked."))
 
-        payload = self.run(**self._arguments(inputs))
+        unbound = self.unbound_parameters(arguments)
+        if unbound:
+            return OperationResult(
+                operation=self.name, owning_node=self.owning_node,
+                scope=where, status=REFUSED,
+                error=self._teach_unbound(unbound, where))
+
+        payload = self.run(**arguments)
         return OperationResult(
             operation=self.name, owning_node=self.owning_node,
             scope=where, status=COMPLETED, payload=payload)
@@ -531,7 +581,75 @@ class Operation:
                              f"first, or run the DAG.")
         return "\n".join(lines)
 
-    def _arguments(self, inputs: dict) -> dict:
+    def unbound_parameters(self, arguments: dict) -> tuple:
+        """The step's own required parameters nothing could fill.
+
+        Called before the splat, so the failure is a REFUSAL naming the
+        arguments rather than a `TypeError` naming the first one Python
+        happened to notice.
+
+        MEASURED before this existed - four of the six operations that
+        declare REGION scope could not be called at all through the
+        registry, and each died the same way:
+
+            TypeError: splice_region_plan() missing 2 required
+            positional arguments: 'stored_plan' and 'scope'
+
+        `subtitles.splice`, `subtitles.render_segment`,
+        `transcript.reindex` and `transcript.splice` were catalogue
+        entries: registered, listed, `--emit-skill`-ed, addressable as
+        `subtitles.splice@45.0-72.0`, and unable to run. An entry point
+        that cannot refuse when its inputs are absent is not an entry
+        point, and one that raises `TypeError` instead has not refused -
+        it has crashed.
+
+        `*args`/`**kwargs` are not required parameters and are not
+        reported; a body with `**kwargs` takes the whole dict anyway
+        (`_arguments`).
+        """
+        import inspect
+        return tuple(
+            name for name, parameter in
+            inspect.signature(self.run).parameters.items()
+            if parameter.default is inspect.Parameter.empty
+            and parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                   inspect.Parameter.KEYWORD_ONLY)
+            and name not in arguments)
+
+    def _teach_unbound(self, unbound: tuple, where: Scope = None) -> str:
+        """The refusal, written so the reader can supply what is missing.
+
+        Names each argument, says the gathered inputs do not carry it,
+        and gives the two ways to hand it over. It does NOT guess what
+        the value should be: `stored_plan` is the step's own previous
+        answer and `props` is one segment of it, and a registry that
+        filled either from a plausible-looking place would produce the
+        confidently-wrong result this whole layer exists to stop.
+        """
+        named = ", ".join(unbound)
+        first = unbound[0]
+        # The address goes back into the suggested command. A copyable
+        # line that then refuses because it lost the region is a worse
+        # control surface than no line at all, and `subtitles.splice`
+        # runs at REGION scope ONLY.
+        at = (f" --region {where.region_span.as_address()}"
+              if where is not None and where.kind == REGION else "")
+        return (
+            f"{self.name} runs {self.owning_dir}/{self.body}:{self.attr}, "
+            f"whose signature requires {named} - and nothing the DAG "
+            f"routes to {self.owning_node} carries "
+            f"{'them' if len(unbound) > 1 else 'it'}.\n"
+            f"\nThese are arguments a CALLER decides, not state a "
+            f"previous step recorded, so there is nothing to run first: "
+            f"supply them.\n"
+            f"\n  python3 -m library.tools.operations {self.name} "
+            f"--project <p>{at} --set {first}=@{first}.json\n"
+            f"  operations.get({self.name!r}).execute(project, "
+            f"{first}=...)\n"
+            f"\nRefused rather than called, because a step handed a "
+            f"guessed argument answers a question nobody asked.")
+
+    def _arguments(self, inputs: dict, scope: Scope = None) -> dict:
         """Only the arguments the step's own function actually names.
 
         The gathered dict is the STEP's whole input; a function that takes
@@ -555,6 +673,11 @@ class Operation:
         unable to run. An operation that cannot execute is exactly what
         this refactor set out to stop being.
         `tests/test_operations_execute.py` now EXECUTES one of them.
+
+        THE SCOPE, which used to reach no step at all. `scope` is not a
+        gathered key - it is the address the operation was called at - so
+        binding by name alone left every REGION-scoped operation running
+        at PROJECT scope. See `SCOPE_PARAMETER` for the measurement.
         """
         import inspect
         parameters = inspect.signature(self.run).parameters
@@ -568,6 +691,14 @@ class Operation:
             # nothing else could satisfy.
             if name in MERGED_INPUT_PARAMETERS and name not in bound:
                 bound[name] = dict(inputs)
+        # THE ADDRESS. Bound last and only when the step asks for it, so
+        # a step with no `scope` parameter is unaffected and a gathered
+        # key called `scope` still wins. PROJECT scope is passed too:
+        # `scope_mod.project()` is what the step's own default means, and
+        # passing it is what makes the region case the same code path
+        # rather than a special one.
+        if SCOPE_PARAMETER in parameters and SCOPE_PARAMETER not in bound:
+            bound[SCOPE_PARAMETER] = scope or scope_mod.project()
         return bound
 
     def missing_model_answer(self, merged: dict) -> tuple:
@@ -1002,9 +1133,44 @@ def emit_skill() -> str:
             "```",
             "python3 -m library.tools.operations --list",
             ("python3 -m library.tools.operations <name> --project <path> "
-             "[--region 45.0-72.0 | --clip clip_007]"),
+             "[--region 45.0-72.0 | --clip clip_007] "
+             "[--set name=<json>|@file.json]"),
             "```", ""]
     return "\n".join(out)
+
+
+def parse_overrides(pairs: Iterable[str]) -> dict:
+    """`--set name=<json>` and `--set name=@file.json`, into a dict.
+
+    JSON rather than a bare string, because every argument this reaches
+    is a structure - a subtitle plan, a segment's props, a list of
+    re-measured speech regions. A parser that fell back to "it must be a
+    string" would hand a step the text `[1, 2]` and let it fail somewhere
+    further in, which is the confidently-wrong shape `Operation.execute`
+    refuses everywhere else.
+    """
+    out: dict = {}
+    for raw in pairs or ():
+        name, sep, text = (raw or "").partition("=")
+        name = name.strip()
+        if not sep or not name:
+            raise OperationError(
+                f"--set {raw!r}: expected NAME=<json> or "
+                f"NAME=@<file.json>, e.g. --set stored_plan=@plan.json")
+        if text.startswith("@"):
+            path = Path(text[1:]).expanduser()
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise OperationError(
+                    f"--set {name}=@{path}: {exc}") from None
+        try:
+            out[name] = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise OperationError(
+                f"--set {name}=...: not valid JSON ({exc}). A value here "
+                f"is a structure; quote a string as '\"text\"'.") from None
+    return out
 
 
 def main(argv=None) -> int:
@@ -1024,6 +1190,15 @@ def main(argv=None) -> int:
     parser.add_argument("--clip", default="", help="a clip id, e.g. clip_007")
     parser.add_argument("--json", action="store_true",
                         help="print the operation's result as JSON")
+    parser.add_argument(
+        "--set", action="append", metavar="NAME=VALUE", default=[],
+        dest="overrides",
+        help="Supply one argument the DAG does not route to this step: "
+             "NAME=<json> or NAME=@<file.json>. Repeatable. This is what "
+             "the refusal names when a step's signature asks for "
+             "something a caller decides - a stored plan to splice into, "
+             "one segment's props - rather than something a previous "
+             "step recorded.")
     args = parser.parse_args(argv)
 
     if args.emit_skill:
@@ -1047,7 +1222,13 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
 
-    result = op.execute(args.project, scope=where)
+    try:
+        overrides = parse_overrides(args.overrides)
+    except OperationError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+
+    result = op.execute(args.project, scope=where, **overrides)
 
     if result.refused:
         print(f"REFUSED: {op.name}", file=sys.stderr)

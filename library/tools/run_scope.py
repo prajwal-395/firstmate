@@ -90,6 +90,40 @@ this run re-computes it.  Both halves are required - a ledger entry with
 no output is not an artifact.  Staleness is the ledger's business
 (source fingerprints, `--rerun`), not this module's.
 
+What the captain already has, and does not want made again
+----------------------------------------------------------
+A value under `<project>/external/` is a REQUEST, not a record: the
+captain who cut the rough on the timeline by hand, or chose the music
+track themselves, put it there so the pipeline would not do it again.
+So a step every one of whose routed outputs has been SUPPLIED does not
+run, on any run shape - `supplied_producers` names them and `resolve`
+takes them out of the universe the way `DESELECTED_BY_DEFAULT` is taken
+out.
+
+Two properties this has to have, and both were measured absent before it
+was written.  MEASURED on the DAG as it stands, supplying `audio_spine`,
+`speech_sequence` and `a_roll_assignments` and resolving a plain full
+run: 26 steps selected, `from_external` empty - `mesh_spine` and
+`assign_aroll` both ran and their output shadowed what was supplied,
+because `gather_step_inputs` reads `step_outputs` before it reads
+`external`.  A hand-made cut was silently rebuilt, which is the exact
+thing the rule below says does not happen.
+
+* ALL of a producer's routed keys, never some of them.  `mesh_spine`
+  hands out `audio_spine` AND `timed_spine`; leaving it out with only
+  the first supplied would drop the second in silence.  A producer with
+  an edge carrying NO `data_mapping` merges its whole output and so
+  names no keys at all - it can never be fully supplied, and that is
+  correctly conservative rather than a gap.
+* NAMING the step outranks nothing here.  `--only`, `--with` and
+  `--step` re-select a step that is off by default, because a default is
+  weaker than a request - but a supplied value is ALSO a request, and
+  the two contradict.  Running the step would overwrite what the captain
+  handed in, so the pair is REFUSED by name, like `--skip X --only X`.
+
+The three entry points this serves, and what each still needs, are
+measured in `docs/ENTRY_POINTS_MEASURED.md`.
+
 Steps that are off by default
 -----------------------------
 `DESELECTED_BY_DEFAULT` is the one place a step is declared wired but not
@@ -322,6 +356,70 @@ def hard_requirements(dag: dict,
     return out
 
 
+def routed_state_keys(dag: dict) -> Dict[str, Set[str]]:
+    """`{producer: every state key it hands to another node}`.
+
+    Read off the SAME `data_mapping` edges `prerequisites` reads, so the
+    two cannot disagree about what a step gives the rest of the pipeline.
+
+    Deliberately NOT filtered to hard edges.  `prerequisites` drops a key
+    the consumer declared optional, and a producer left out because its
+    hard keys were supplied would take its optional ones with it,
+    silently.  `select_broll` is the live case: `b_roll_assignments` is
+    hard and `b_roll_interjections` is optional at every consumer, and a
+    cut whose cutaways quietly vanished would look like a cut nobody
+    asked for.  Both keys or neither.
+
+    A producer with an edge that carries no `data_mapping` at all merges
+    its WHOLE output into the consumer, so there is no set of keys that
+    covers it.  `unmappable_producers` names those.
+    """
+    routed: Dict[str, Set[str]] = {}
+    for edge in dag.get("edges", []):
+        for source_key in (edge.get("data_mapping") or {}):
+            routed.setdefault(edge["from"], set()).add(source_key)
+    return routed
+
+
+def unmappable_producers(dag: dict) -> Set[str]:
+    """Nodes with an outgoing edge that names no keys at all.
+
+    Such a node cannot be stood in for by supplying state, because the
+    consumer is handed its whole output and nothing enumerates what that
+    is.  Named rather than silently missing: "this one can never be
+    supplied" is a real answer.
+    """
+    return {edge["from"] for edge in dag.get("edges", [])
+            if not (edge.get("data_mapping") or {})}
+
+
+def supplied_producers(dag: dict,
+                       external: Mapping[str, object]
+                       ) -> Dict[str, Tuple[str, ...]]:
+    """`{node: the keys}` for every node whose ENTIRE output was supplied.
+
+    The captain put those values under `external/` so the pipeline would
+    not make them again (see the module docstring), and the check that
+    they are real has already run - `external` only ever holds values
+    `external_inputs.verify` accepted.
+
+    A node emitting nothing onto an edge is never here: there is no set
+    of keys to satisfy, so "all of them are supplied" would be vacuously
+    true and the step would disappear from every run that happened to
+    have an `external/` directory.  That is the empty-side-passes shape
+    (AGENTS.md 10.4), and it is refused by construction rather than
+    tested for.
+    """
+    unmappable = unmappable_producers(dag)
+    out: Dict[str, Tuple[str, ...]] = {}
+    for node_id, keys in routed_state_keys(dag).items():
+        if node_id in unmappable or not keys:
+            continue
+        if keys <= set(external):
+            out[node_id] = tuple(sorted(keys))
+    return out
+
+
 def topological_order(dag: dict) -> List[str]:
     """The DAG in run order - the same Kahn walk the runner does."""
     nodes = [n["id"] for n in dag.get("nodes", [])]
@@ -455,6 +553,17 @@ class ResolvedScope:
     a step that exists and silently never runs is the trap AGENTS.md
     section 3 exists to stop."""
 
+    supplied: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+    """`{node: the state keys of its that were SUPPLIED}` - the steps
+    this run does not perform because the captain handed in what they
+    would have made.
+
+    Out of `universe` for the same reason `default_off` is: the work is
+    done, so a step that correctly did not run must not hold the run at
+    PARTIAL. Reported on every run for the same reason too - a step that
+    silently never runs is the trap, and "you gave me this, so I did not
+    make it" is the single most surprising thing this resolver does."""
+
     selection: Selection = field(default_factory=Selection)
 
     @property
@@ -521,7 +630,15 @@ def resolve(selection: Selection,
     off_by_default = {node_id for node_id in DESELECTED_BY_DEFAULT
                       if node_id in known and node_id not in re_selected}
 
-    universe = [node_id for node_id in order if node_id not in off_by_default]
+    # A step whose every routed output the captain SUPPLIED. Not a
+    # default this run may outrank: naming it and supplying it are two
+    # contradictory requests, so the pair is refused rather than one of
+    # them silently winning.
+    supplied = supplied_producers(dag, external)
+    _reject_supplied_and_selected(supplied, re_selected, selection)
+
+    universe = [node_id for node_id in order
+                if node_id not in off_by_default and node_id not in supplied]
 
     # 1. The goals.
     if selection.target:
@@ -561,6 +678,11 @@ def resolve(selection: Selection,
         if node_id in wanted:
             continue
         wanted.add(node_id)
+        # Everything this node would have produced is already on file, so
+        # nothing it needs matters: the walk stops rather than dragging
+        # in a whole preflight to feed a step that will not run.
+        if node_id in supplied:
+            continue
         for producer, producer_needs in needs_by_consumer.get(
                 node_id, {}).items():
             if all(need.names_a_key and need.state_key in external
@@ -570,8 +692,13 @@ def resolve(selection: Selection,
                 queue.append(producer)
 
     # 3. Subtract what this run declines.
-    excluded = set(selection.skip) | off_by_default
-    stranded_goals = sorted(goals & excluded, key=lambda n: rank[n])
+    excluded = set(selection.skip) | off_by_default | set(supplied)
+    # A goal whose output was SUPPLIED is REACHED, not stranded - the
+    # thing the target names as its destination is already on file. Only
+    # a goal this run declines, or one that is off by default, strands
+    # the target.
+    stranded_goals = sorted(goals & (set(selection.skip) | off_by_default),
+                            key=lambda n: rank[n])
     if stranded_goals and selection.target:
         raise ScopeError(
             f"target {selection.target!r} cannot be reached: it needs "
@@ -638,6 +765,8 @@ def resolve(selection: Selection,
                        for key, consumers in from_external.items()},
         default_off=tuple(node_id for node_id in order
                           if node_id in off_by_default),
+        supplied={node_id: supplied[node_id] for node_id in order
+                  if node_id in supplied},
         selection=selection,
     )
 
@@ -743,6 +872,49 @@ def _assert_dependencies_met(run_set: Set[str],
     raise ScopeError("\n".join(lines))
 
 
+def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
+                                  re_selected: Set[str],
+                                  selection: Selection) -> None:
+    """Refuse naming a step whose output this project already supplies.
+
+    The two are contradictory REQUESTS, not a request and a default.
+    `--with ocr_extraction` outranks `DESELECTED_BY_DEFAULT` because a
+    default is what happens when nobody said anything; a file under
+    `external/` is somebody saying something.  Letting the flag win would
+    run the step, write `step_outputs[node]`, and shadow the supplied
+    value for every later reader - `gather_step_inputs` reads the step's
+    own output before it reads `external` - so the captain's hand-made
+    work would be silently discarded by a run they asked for.
+
+    Refused rather than resolved either way, and the message says both
+    ways out, because guessing which one they meant is the whole class of
+    defect this resolver exists to remove.
+    """
+    clash = sorted(set(supplied) & set(re_selected))
+    if not clash:
+        return
+    lines = ["This selection cannot run. Refusing before the run starts.", ""]
+    for node_id in clash:
+        keys = ", ".join(supplied[node_id])
+        lines.append(
+            f"  {node_id} was named on the command line, and this project "
+            f"supplies its whole output from outside the pipeline "
+            f"({keys}). Running it would overwrite what you supplied: a "
+            f"step's own output is read before external state, so the "
+            f"file under external/ would still be on disk and nothing "
+            f"would read it again.")
+    lines += [
+        "",
+        "Either:",
+        f"  - drop the flag naming "
+        f"{', '.join(clash)}, and the supplied value stands;",
+        f"  - or remove "
+        f"{', '.join(f'external/{key}.json' for node in clash for key in supplied[node])}"
+        f" and let the pipeline make it.",
+    ]
+    raise ScopeError("\n".join(lines))
+
+
 def _checkable_keys() -> Set[str]:
     """State keys that CAN be supplied from outside. Read off the check
     table, so the refusal never advertises a route that does not exist."""
@@ -766,6 +938,11 @@ def describe(scope: ResolvedScope) -> List[str]:
     for node_id in scope.default_off:
         lines.append(f"  Off by default: {node_id} - "
                      f"{DESELECTED_BY_DEFAULT[node_id]}")
+    for node_id, keys in scope.supplied.items():
+        lines.append(f"  Not run, its output was supplied: {node_id} - "
+                     f"{', '.join(keys)} came from <project>/external/ "
+                     f"and was verified, so this step is not asked to "
+                     f"make it again")
     if scope.skipped:
         lines.append(f"  Skipped:  {len(scope.skipped)} steps")
         for node_id in scope.skipped:

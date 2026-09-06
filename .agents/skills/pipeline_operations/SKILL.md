@@ -46,6 +46,6 @@ run at a declared scope. It owns no logic of its own.
 
 ```
 python3 -m library.tools.operations --list
-python3 -m library.tools.operations <name> --project <path> [--region 45.0-72.0 | --clip clip_007]
+python3 -m library.tools.operations <name> --project <path> [--region 45.0-72.0 | --clip clip_007] [--set name=<json>|@file.json]
 ```
 
