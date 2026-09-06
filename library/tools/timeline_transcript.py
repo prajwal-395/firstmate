@@ -527,23 +527,96 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
             out.append(_bound(speaker, text, clip, start, end, words))
             continue
 
-        for run_clip, run_words in clip_runs(words, clips):
-            # Every timing on a re-read row comes from the words, because
-            # the row's own envelope is the thing that was wrong.  A run
-            # that is the whole row keeps the row's text verbatim; a run
-            # that is part of one is named by the words it carries, which
-            # reproduces the row text on 860 of the 862 rows that have
-            # words at all.
-            whole = len(run_words) == len(words)
-            out.append(_bound(
-                speaker,
-                text if whole else " ".join(w["word"] for w in run_words).strip(),
-                run_clip,
-                float(run_words[0]["start"]),
-                float(run_words[-1]["end"]),
-                run_words,
-                read_from_words=True))
+        out.extend(read_from_words(speaker, text, words, clips))
     return out
+
+
+def read_from_words(speaker, text: str, words: Sequence[dict],
+                    clips: Sequence) -> List[SpokenSegment]:
+    """One unbound row, split at its own word boundaries.
+
+    Factored out of `segments_for_speaker` so `rebind_document` can apply
+    the SAME rule to a transcript already on disk rather than a second
+    implementation of it.  There is one re-read in this module and both
+    callers reach it.
+    """
+    out: list[SpokenSegment] = []
+    for run_clip, run_words in clip_runs(words, clips):
+        # Every timing on a re-read row comes from the words, because
+        # the row's own envelope is the thing that was wrong.  A run
+        # that is the whole row keeps the row's text verbatim; a run
+        # that is part of one is named by the words it carries, which
+        # reproduces the row text on 860 of the 862 rows that have
+        # words at all.
+        whole = len(run_words) == len(words)
+        out.append(_bound(
+            speaker,
+            text if whole else " ".join(w["word"] for w in run_words).strip(),
+            run_clip,
+            float(run_words[0]["start"]),
+            float(run_words[-1]["end"]),
+            run_words,
+            read_from_words=True))
+    return out
+
+
+def rebind_document(document: dict, snapshot) -> dict:
+    """Re-ask the clip question of a transcript ALREADY ON DISK.
+
+    The words are not re-heard.  Every word timing in the returned
+    document is the one WhisperX produced, byte for byte; the only thing
+    that changes is which clip a row is bound to, and a row that already
+    binds is not touched at all.
+
+    Why this exists, measured 2026-09-06
+    ------------------------------------
+    The word-level re-read landed in `segments_for_speaker`, which runs
+    when a transcript is PRODUCED.  The field test's transcript was
+    written 29.6 hours earlier, and `reel_build` reads that file rather
+    than re-transcribing, so reel 03 was built with the old binding and
+    played 1.5 seconds of Craig - "search didn't change" and "the links
+    in the bio" - with nothing written over them.  A file on disk is not
+    a measurement (AGENTS.md 10.3), and a fix that only reaches new
+    transcripts does not reach any project that already has one.
+
+    Re-transcribing would reach it and costs a WhisperX pass over every
+    speaker, and it would move words on rows the captain has already
+    approved captions for.  Nothing about the repair needs new words:
+    the 977 words of the 61 unbound rows are already in the file, and
+    `clip_of_word` is a containment test against the timeline's own clip
+    list.  So this re-runs the binding and nothing else.
+
+    The rule is `segments_for_speaker`'s, unchanged and not restated: a
+    row with a `resolve_item_id` is left ALONE, a row with no words is
+    left alone, and anything else goes through `read_from_words`.
+    """
+    by_speaker: dict[Optional[str], list] = {}
+    for clip in snapshot.picture_clips():
+        by_speaker.setdefault(clip.speaker, []).append(clip)
+
+    per_speaker: dict[Optional[str], list[SpokenSegment]] = {}
+    for row in document.get("segments", []):
+        segment = SpokenSegment(**{**row, "words": tuple(row.get("words") or ())})
+        clips = by_speaker.get(segment.speaker)
+        if (segment.resolve_item_id is not None or not segment.words
+                or not clips):
+            per_speaker.setdefault(segment.speaker, []).append(segment)
+            continue
+        per_speaker.setdefault(segment.speaker, []).extend(
+            read_from_words(segment.speaker, segment.text,
+                            list(segment.words), clips))
+
+    rebound = transcript_document(snapshot, merge_speakers(per_speaker))
+    # A rebound transcript SAYS it is one.  The words came from the run
+    # named here; the binding came from this machine's clip list, and a
+    # reader comparing two transcripts of one timeline needs to know
+    # which half of each was produced when.
+    rebound["measurement"] = (
+        document.get("measurement", "") + " Clip binding RE-DERIVED from "
+        "the timeline's own clip list without re-hearing the audio "
+        "(`timeline_transcript.rebind_document`); every word timing is "
+        "the one the transcribe pass produced.")
+    return rebound
 
 
 def merge_speakers(per_speaker: Dict[Optional[str], List[SpokenSegment]]
@@ -651,7 +724,7 @@ def build_and_transcribe(project_folder: str, snapshot,
     cache_dir = scratch / "spans"
     scratch.mkdir(parents=True, exist_ok=True)
 
-    by_speaker: Dict[Optional[str], List] = {}
+    by_speaker: dict[Optional[str], list] = {}
     for clip in snapshot.picture_clips():
         by_speaker.setdefault(clip.speaker, []).append(clip)
 
@@ -691,6 +764,12 @@ def main(argv=None) -> int:
                         help="only this speaker; repeatable")
     parser.add_argument("--out", default="",
                         help="where to write; default is the project's scratch")
+    parser.add_argument(
+        "--rebind", action="store_true",
+        help="do not transcribe: re-derive the CLIP BINDING of the "
+             "transcript already on disk, keeping every word timing it "
+             "carries. For a project transcribed before the word-level "
+             "re-read landed - see `rebind_document`")
     args = parser.parse_args(argv)
 
     project_name, timeline_name = timeline_ingest.resolve_binding(args.project_folder)
@@ -698,9 +777,24 @@ def main(argv=None) -> int:
     print(f"{snapshot.timeline_name!r}: {len(snapshot.picture_clips())} "
           f"picture clips, speakers {snapshot.speakers()}", file=sys.stderr)
 
-    document = build_and_transcribe(args.project_folder, snapshot,
-                                    model_size=args.model,
-                                    only_speakers=args.speaker or None)
+    if args.rebind:
+        existing = transcript_path(args.project_folder)
+        if not existing.is_file():
+            print(f"--rebind needs a transcript to re-bind and {existing} "
+                  f"does not exist. Run without --rebind first.",
+                  file=sys.stderr)
+            return 1
+        before = json.loads(existing.read_text(encoding="utf-8"))
+        print(f"re-binding {before.get('segment_count')} segments from "
+              f"{existing} - no audio is read", file=sys.stderr)
+        document = rebind_document(before, snapshot)
+        print(f"  straddling a cut: "
+              f"{before.get('segments_straddling_a_cut')} -> "
+              f"{document['segments_straddling_a_cut']}", file=sys.stderr)
+    else:
+        document = build_and_transcribe(args.project_folder, snapshot,
+                                        model_size=args.model,
+                                        only_speakers=args.speaker or None)
 
     out = (Path(args.out) if args.out
            else transcript_path(args.project_folder))

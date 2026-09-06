@@ -63,6 +63,58 @@ def _speakers(transcript: dict) -> tuple:
     return lead, answerer, turns, why
 
 
+def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
+    """The repeated runs INSIDE one candidate window, and whether a build
+    will remove them.
+
+    `retake_of` already tells this step when a whole stretch is another
+    stretch recorded again.  It says nothing about a stretch that
+    contains a repetition of its OWN, and that is the case that decides
+    where a reel starts.
+
+    Measured on reel 03 of the field test, 2026-09-06.  Akshita says one
+    sentence twice inside 301.24-341.27, and the build cannot separate
+    the takes: `redundant_runs` holds a run WHOLE when any member of it
+    is refused by the duration guard, so the repetition stays in the
+    reel and `refused_take_groups` reports it.  That report is produced
+    by the BUILD, after the span is fixed, and reaches nothing that can
+    move a boundary.  The step that CAN move one is this one, and its
+    handoff already promised the facts - *"Both whole exchanges and
+    single lines are repeated, and both are reported with the timecodes
+    of each take"* - while the candidate table carried only the first
+    half of that.  A handoff that names a table the context does not
+    deliver is the contract defect AGENTS.md 10.1 is about.
+
+    So the same measurement is offered where the boundary is still open.
+    It is a MEASUREMENT and not a verdict: whether a repetition is worth
+    redrawing a span for, and which take to keep, stays the model's call
+    (AGENTS.md 10.5).  Nothing here filters a candidate out for having
+    one.
+    """
+    from library.tools.reel_build import redundant_runs
+
+    out: list[dict] = []
+    for run in redundant_runs(float(start), float(end), transcript):
+        out.append({
+            "start": round(run.start, 2),
+            "end": round(run.end, 2),
+            "speaker": run.speaker,
+            "lines": [(segment.get("text") or "").strip()
+                      for segment in run.segments],
+            "build_removes_it": run.whole,
+            "why": (
+                "every line of this run pairs with a later one, so the "
+                "build removes the run whole and the reel does not play it"
+                if run.whole else
+                f"{len(run.cuts)} of {len(run.segments)} lines pair safely "
+                f"and {len(run.blocked)} do not, so the build leaves the "
+                f"run ENTIRE - a take is removed whole or not at all. "
+                f"These seconds WILL play twice unless the span is drawn "
+                f"clear of one of the takes."),
+        })
+    return out
+
+
 def build_context(data: dict) -> dict:
     from library.tools.reel_exchange import (
         LENGTH_GUIDANCE, collapse_overlapping, collapse_retakes,
@@ -90,6 +142,11 @@ def build_context(data: dict) -> dict:
         for exchange in group:
             candidates.append(exchange.measurements(lead=lead))
     candidates.sort(key=lambda c: c["start"])
+    for candidate in candidates:
+        inside = repetition_inside(candidate["start"], candidate["end"],
+                                   transcript)
+        if inside:
+            candidate["repetition_inside"] = inside
 
     return {
         "turns": [{

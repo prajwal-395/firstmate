@@ -97,6 +97,7 @@ Every candidate carries:
 | `within_length_guidance` | Whether it falls inside the series' length guidance |
 | `concerns` | Observations a reader should look at — never verdicts |
 | `retake_of`, `retake_band` | When this stretch is the same conversation recorded again |
+| `repetition_inside` | When this stretch contains a repeated run of its OWN, and whether a build removes it |
 
 **These are measurements, not scores, and nothing has been ranked or
 filtered for you.** Every stretch found is in the table, including ones
@@ -240,6 +241,24 @@ The hosts re-record. Both whole exchanges and single lines are repeated,
 and both are reported with the timecodes of each take. Which take plays,
 and whether a conversation recorded twice is worth one short or two, is
 an editorial question rather than a measurement.
+
+A whole stretch recorded twice is `retake_of`. A stretch that repeats
+inside ITSELF is `repetition_inside`, and it carries the one thing you
+cannot work out from the turns: **whether the build will remove it.**
+
+The build removes a repeated run WHOLE or not at all. It pairs each
+repeated line with its later reading, and where one line of a run cannot
+be paired safely the whole run is kept - because removing part of a take
+strands the rest where its own opening used to be. So a run with
+`build_removes_it: false` is speech the reel WILL play twice, whatever
+you write in `takes_dropped`. `why` says which lines paired and which
+did not.
+
+The boundary is the only thing that changes that, and this step is the
+only place it can be moved. Drawing a span clear of one take is an
+editorial choice with a cost - it shortens the reel, and it may take the
+hook with it - and it is yours to make or decline. Nothing filters a
+candidate out for carrying a repetition.
 
 ### What to emit
 

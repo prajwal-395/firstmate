@@ -373,3 +373,98 @@ def test_the_document_says_how_much_was_re_read():
     assert doc["segments_read_from_words"] == 2
     assert doc["segments_rebound_from_words"] == 2
     assert doc["segments_straddling_a_cut"] == 0
+
+
+# ── Re-binding a transcript that is already on disk ──────────────────
+#
+# The word-level re-read runs when a transcript is PRODUCED, and
+# `reel_build` reads the file rather than re-transcribing. So a project
+# transcribed before the re-read landed keeps the old binding forever
+# and the reel plays speech nothing writes. `rebind_document` re-asks
+# only the clip question. These pin that it re-asks it the SAME way, and
+# that it changes nothing else.
+
+
+class _Snap:
+    """A snapshot carrying Craig's three clips and nothing else."""
+
+    project_name, timeline_name = "P", "T"
+    fps, duration = FPS, 700.0
+
+    def __init__(self):
+        self.clips = tuple(_craig_clips())
+
+    def picture_clips(self):
+        return self.clips
+
+    def speakers(self):
+        return ["Craig"]
+
+
+def _straddling_document():
+    """What a pre-fix transcribe pass wrote: row 204 with NO binding."""
+    unbound = tt.SpokenSegment(
+        speaker="Craig", text=ROW_204["text"],
+        timeline_start=ROW_204["start"], timeline_end=ROW_204["end"],
+        source_file=None, source_start=None, source_end=None,
+        resolve_item_id=None, words=tuple(ROW_204["words"]))
+    return tt.transcript_document(_Snap(), [unbound])
+
+
+def test_rebinding_splits_a_row_the_old_pass_left_unbound():
+    """The claim the whole path exists for: 1 straddling row in, 0 out,
+    and the two runs bound to the clips their own words sit on."""
+    before = _straddling_document()
+    assert before["segments_straddling_a_cut"] == 1
+
+    after = tt.rebind_document(before, _Snap())
+
+    assert after["segments_straddling_a_cut"] == 0
+    assert [s["resolve_item_id"] for s in after["segments"]] == ["A", "B"]
+    assert [s["text"] for s in after["segments"]] == ["on here", "yeah so ranking"]
+    assert after["segments_rebound_from_words"] == 2
+
+
+def test_rebinding_re_hears_nothing():
+    """Every word timing out is a word timing in. The repair is a
+    binding, so a word that moved would mean something else ran."""
+    after = tt.rebind_document(_straddling_document(), _Snap())
+    words = [w for s in after["segments"] for w in s["words"]]
+    assert words == ROW_204["words"]
+
+
+def test_rebinding_leaves_a_bound_row_exactly_as_it_was():
+    """`segments_for_speaker`'s own rule - a row that already binds is
+    left ALONE - and re-reading the bound ones was measured to move 4 of
+    875 by 0.05-0.12s for no gain. A rebind must not do it either."""
+    bound = tt.SpokenSegment(
+        speaker="Craig", text="on here yeah",
+        timeline_start=613.574, timeline_end=613.875,
+        source_file="/m/LCATL0013.MXF", source_start=1288.0,
+        source_end=1288.3, resolve_item_id="A",
+        words=tuple(ROW_204["words"][:2]))
+    before = tt.transcript_document(_Snap(), [bound])
+    after = tt.rebind_document(before, _Snap())
+    assert after["segments"] == before["segments"]
+
+
+def test_rebinding_leaves_a_row_with_no_words_alone():
+    """A row with no per-word timing cannot be asked the word question.
+    It stays as it is rather than being dropped - dropping it would lose
+    a row the transcript really carries."""
+    wordless = tt.SpokenSegment(
+        speaker="Craig", text="mm", timeline_start=609.0, timeline_end=609.4,
+        source_file=None, source_start=None, source_end=None,
+        resolve_item_id=None, words=())
+    before = tt.transcript_document(_Snap(), [wordless])
+    after = tt.rebind_document(before, _Snap())
+    assert after["segments"] == before["segments"]
+    assert after["segments_straddling_a_cut"] == 1
+
+
+def test_a_rebound_transcript_says_it_was_rebound():
+    """Two transcripts of one timeline differ in when each HALF of them
+    was produced, and a reader cannot tell from the rows."""
+    after = tt.rebind_document(_straddling_document(), _Snap())
+    assert "RE-DERIVED" in after["measurement"]
+    assert "WhisperX" in after["measurement"]

@@ -235,3 +235,34 @@ def test_a_flagged_window_is_reported_not_deleted():
     report = funnel(turns, "Craig", "Akshita")
     assert report["flagged"], "a dropped window must still be reported"
     assert report["flagged"][0].concerns
+
+
+def test_overlap_groups_do_not_chain():
+    """A overlaps B and B overlaps C does NOT put C in A's group. The
+    head is the only window that reaches the candidate table, so a chain
+    deletes everything it swallowed: measured on the field test, five
+    windows spanning 248s collapsed to one 50s representative and the
+    candidate covering the captain's approved reel 03 left the table."""
+    a = Exchange(0.0, 50.0, (_turn("Craig", 0.0, 20.0),
+                             _turn("Akshita", 21.0, 50.0)))
+    b = Exchange(40.0, 90.0, (_turn("Craig", 40.0, 60.0),
+                              _turn("Akshita", 61.0, 90.0)))
+    c = Exchange(80.0, 130.0, (_turn("Craig", 80.0, 100.0),
+                               _turn("Akshita", 101.0, 130.0)))
+    groups = collapse_overlapping([a, b, c])
+    assert [(g[0].start, g[0].end) for g in groups] == [(0.0, 50.0), (80.0, 130.0)]
+
+
+def test_two_overlapping_heads_are_not_a_conversation_recorded_twice():
+    """Heads may now overlap each other, and identical wording across an
+    overlap is one conversation seen twice rather than said twice.
+    `collapse_retakes` skips a candidate overlapping the head, so the
+    change cannot inflate the retake count - the error the collapse
+    order exists to prevent."""
+    words = "seo convinces an algorithm to rank pages geo makes ai comprehend"
+    a = Exchange(0.0, 50.0, (_turn("Craig", 0.0, 20.0, words),
+                             _turn("Akshita", 21.0, 50.0, words)))
+    b = Exchange(30.0, 80.0, (_turn("Craig", 30.0, 50.0, words),
+                              _turn("Akshita", 51.0, 80.0, words)))
+    assert containment(a, b) == 1.0
+    assert len(collapse_retakes([a, b])) == 2

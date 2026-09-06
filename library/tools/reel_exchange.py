@@ -359,11 +359,42 @@ def collapse_overlapping(exchanges: Sequence[Exchange]) -> List[List[Exchange]]:
 
     The FIRST of each group is the earliest opener; the rest are
     alternative framings of one conversation.
+
+    Membership is tested against the GROUP'S HEAD, never against any
+    member, and the difference is not a detail
+    -------------------------------------------------------------------
+    Testing against any member CHAINS: A overlaps B, B overlaps C, so C
+    joins A's group even where A and C share no second at all.  The head
+    is the only window that survives into the candidate table, so
+    everything the chain swallowed leaves the table with it.
+
+    Measured on the field test 2026-09-06, after the transcript was
+    re-bound (`timeline_transcript.rebind_document`).  Chaining put
+    248.83-299.41, 267.36-328.23, 290.73-341.27, 312.75-362.78 and
+    342.04-413.85 in ONE group represented by the first: a group
+    spanning 248 seconds standing in for a 50-second window, which is
+    not "the same stretch of timeline" by any reading.  The candidate
+    covering the captain's approved reel 03 - 312.75-362.78 - vanished
+    from the table entirely, and 68 raw windows reduced to 25 candidates
+    where the head test gives 37.
+
+    It got WORSE as the transcript got better: re-binding the straddling
+    rows added real turns, denser turns produce more overlapping
+    windows, and more overlap chains further.  So the failure mode is
+    that improving a measurement upstream shrinks what the model is
+    shown - the opposite of what the captain's "aim wide, do not curate"
+    asks for.
+
+    Heads may now overlap each other, which is correct and is what
+    `collapse_retakes` already assumes: it SKIPS a candidate that
+    overlaps the head rather than calling it a second take, so two
+    framings of one conversation still cannot be counted as recorded
+    twice.
     """
     groups: List[List[Exchange]] = []
     for candidate in sorted(exchanges, key=lambda e: e.start):
         for group in groups:
-            if any(overlaps(member, candidate) for member in group):
+            if overlaps(group[0], candidate):
                 group.append(candidate)
                 break
         else:
