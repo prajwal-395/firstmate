@@ -242,15 +242,22 @@ def test_the_replacement_field_is_declared_where_it_is_needed():
     import json
     from pathlib import Path
 
+    from library.tools import processes
+
     steps = Path(__file__).resolve().parents[1] / "library" / "steps"
-    dag = run_scope.load_dag()
-    dir_of = {n["id"]: n["step_ref"].split("/")[-1] for n in dag["nodes"]}
+    # Every process, so a requirement consumed by a node of the reel
+    # process is checked against ITS manifest rather than skipped for
+    # not being in edit_video's graph - which would have made the
+    # declaration optional exactly where it is new.
+    dir_of = processes.step_dirnames()
 
     missing = []
+    unknown_consumers = []
     for req in HAND_WRITTEN:
         for consumer in req.consumers:
             step_dir = dir_of.get(consumer)
             if not step_dir:
+                unknown_consumers.append(f"{req.name} -> {consumer}")
                 continue
             manifest = json.loads(
                 (steps / step_dir / "manifest.json").read_text(
@@ -259,6 +266,9 @@ def test_the_replacement_field_is_declared_where_it_is_needed():
             if req.name not in declared:
                 missing.append(f"{step_dir} does not declare {req.name}")
     assert missing == [], "\n  ".join(missing)
+    assert unknown_consumers == [], (
+        "these requirements name a consumer no process declares, so they "
+        "can never be asked:\n  " + "\n  ".join(unknown_consumers))
 
 
 def test_no_manifest_declares_a_requirement_that_does_not_exist():

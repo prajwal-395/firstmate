@@ -783,8 +783,87 @@ def cmd_propose_reels(args):
 
 
 def cmd_build_reels(args):
-    from library.tools.reel_build import rebuild_reels_in_project
-    rebuild_reels_in_project(args.project, skip_captions=args.skip_captions)
+    """Run the `reels` PROCESS, node by node, in its own DAG's order.
+
+    This used to call `reel_build.rebuild_reels_in_project` directly, and
+    that was the only way reels could be made: you had to know which
+    subcommand to run, and nothing checked a single prerequisite before
+    connecting to Resolve and deleting the existing reel timelines.  The
+    captain's stop condition was that reels be created *"using the
+    pipeline and not any standalone scripts"*, and a command that reaches
+    past the pipeline into a tool is that gap however thin it is.
+
+    So it is now a caller of `library/processes/reels`: the node ORDER
+    comes off that process's own dag.json rather than being spelled here,
+    and each node runs through the operation registry, which checks the
+    node's DERIVED requirements first and REFUSES naming what is missing.
+    No build path lives here - the operation resolves to the step's own
+    body, and the step's body calls `reel_build`. One implementation.
+    """
+    import json as _json
+
+    from library.tools import operations, processes
+    from library.tools.project_layout import ProjectLayout
+
+    project_folder = _reel_project_folder(args.project)
+
+    for node_id in processes.execution_order(processes.REELS):
+        for op in operations.by_node(node_id):
+            result = op.execute(project_folder,
+                                skip_captions=args.skip_captions)
+            if result.refused:
+                print(f"REFUSED: {op.name}", file=sys.stderr)
+                print(result.error, file=sys.stderr)
+                sys.exit(1)
+
+            # RECORD the node's output the way a run records one, so the
+            # edge to the next node can carry it and so the build is
+            # readable afterwards by everything that reads
+            # `step_outputs` - the traceback, the dashboard, `status`.
+            # `save_pipeline_state` is the runner's own writer, called
+            # rather than copied, because it owns the backup rule
+            # (AGENTS.md 8).
+            path = ProjectLayout(project_folder).pipeline_data_path
+            state = (_json.loads(Path(path).read_text(encoding="utf-8"))
+                     if Path(path).is_file() else {})
+            state["project_folder"] = project_folder
+            state.setdefault("step_outputs", {})[node_id] = result.payload
+            _edit_video_runner().save_pipeline_state(project_folder, state)
+            print(f"{op.name}: {result.status}", file=sys.stderr)
+
+
+def _reel_project_folder(project: str) -> str:
+    """A slug or a path, resolved to the project's own directory.
+
+    `build-reels` has always taken either - `rebuild_reels_in_project`
+    did this resolution itself - and an operation takes a FOLDER, because
+    that is where its inputs and its requirement checks read from.
+    """
+    if os.path.isabs(project) and os.path.isdir(project):
+        return project
+    from library.tools.project_registry import get_project
+    try:
+        return str(get_project(project).project_root)
+    except FileNotFoundError as unknown:
+        print(f"Error: {unknown}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _edit_video_runner():
+    """The runner module, imported the way `operations.Operation` does.
+
+    There is no runner for the `reels` process and there must not be a
+    second one: what `cmd_build_reels` borrows from this module is state
+    persistence, which is not process-specific.
+    """
+    process_dir = PILOT_ROOT / "library" / "processes" / "edit_video"
+    for entry in (str(PILOT_ROOT), str(PILOT_ROOT / "library"),
+                  str(process_dir)):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+    import run_pipeline
+    return run_pipeline
+
 
 def main():
     parser = argparse.ArgumentParser(

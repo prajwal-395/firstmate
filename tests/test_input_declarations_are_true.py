@@ -36,7 +36,16 @@ from library.tools.input_contract import (
 
 @pytest.fixture(scope="module")
 def dag():
-    return run_scope.load_dag()
+    """EVERY process's graph, merged for surveying.
+
+    "A declaration must be true" is a rule about the repository, not
+    about one pipeline, so it is asked of every step that has a node -
+    which since `library/processes/reels` landed is more than
+    edit_video's. A survey scoped to one graph would leave the newest
+    manifests, the ones most likely to be wrong, unmeasured.
+    """
+    from library.tools import processes
+    return processes.merged_dag()
 
 
 @pytest.fixture(scope="module")

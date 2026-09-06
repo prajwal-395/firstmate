@@ -26,11 +26,22 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from library.processes.edit_video.run_pipeline import present_llm_step
+from library.tools import processes
 from library.tools.project_layout import STEP_BY_ID, node_id_for
 from library.tools.template_loader import BRAND_CONSTRAINT_STEPS, TemplateLoader
 
 DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 DAG_NODE_IDS = {n["id"] for n in DAG["nodes"]}
+
+ALL_NODE_IDS = set(processes.node_owners())
+"""Every process's nodes, not just edit_video's.
+
+`BRAND_CONSTRAINT_STEPS` is checked against `DAG_NODE_IDS` below, and
+that stays edit_video's: `present_llm_step` is edit_video's runner and
+brand constraints reach an LLM step of that pipeline. But `STEP_BY_ID`
+is the WHOLE repository's step table, so "wired" there means some
+process declares a node - `build_reels` and `verify_reels` are wired
+into `library/processes/reels`."""
 TEMPLATES = REPO / "library" / "templates"
 
 
@@ -91,7 +102,9 @@ def test_node_id_for_translates_only_what_the_step_table_knows():
     # Untranslatable, and passed through rather than guessed at: stripping
     # the number would give "scan_project", which names no step.
     assert node_id_for("step_9_99_invented") == "step_9_99_invented"
-    assert all(nid in DAG_NODE_IDS or not STEP_BY_ID[nid].wired
+    # Against EVERY process: `STEP_BY_ID` is the repository's table, and
+    # a step wired into another process is not an untranslatable name.
+    assert all(nid in ALL_NODE_IDS or not STEP_BY_ID[nid].wired
                for nid in STEP_BY_ID)
 
 

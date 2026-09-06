@@ -331,14 +331,42 @@ def derive_state_keys(dag: Optional[dict] = None,
     """
     from library.tools import run_scope
 
-    dag = dag if dag is not None else run_scope.load_dag()
-    manifests = (manifests if manifests is not None
-                 else run_scope.load_manifests(dag))
+    dag, manifests = _graph(dag, manifests)
 
     out: List[Requirement] = []
     for need in run_scope.prerequisites(dag, manifests):
         out.append(_state_key_requirement(need))
     return out
+
+
+def _graph(dag: Optional[dict],
+           manifests: Optional[Mapping[str, dict]]
+           ) -> Tuple[dict, Mapping[str, dict]]:
+    """The graph a derivation reads, and the default is THE WHOLE TREE.
+
+    A caller that passes a dag is asking about that dag - the runner does
+    exactly this so a reduced graph is judged against itself, and
+    `tests/test_requirements.py::test_requirements_come_from_the_run_s_own_dag`
+    pins it.
+
+    A caller that passes NOTHING is asking about the repository, and the
+    repository has more than one process since
+    `library/processes/reels/` landed.  Defaulting to edit_video's graph
+    alone would give every node of the reel process ZERO requirements -
+    the exact shape `select_reels` was in before
+    `derive_runner_injected_keys`, where an operation could not refuse
+    for any reason at all (AGENTS.md 10.4, a gate that cannot fail).
+    `library/tools/processes.py` owns the merge and refuses two processes
+    that share a node id, because a shared id would give two steps one
+    requirement name.
+    """
+    from library.tools import processes, run_scope
+
+    if dag is None:
+        dag = processes.merged_dag()
+    if manifests is None:
+        manifests = run_scope.load_manifests(dag)
+    return dag, manifests
 
 
 def _state_key_requirement(need) -> Requirement:
@@ -479,11 +507,7 @@ def derive_runner_injected_keys(dag: Optional[dict] = None,
     `describe_refusal` prints no "run the producers" line for it, because
     there is no step to run.  The remedy is in the reason instead.
     """
-    from library.tools import run_scope
-
-    dag = dag if dag is not None else run_scope.load_dag()
-    manifests = (manifests if manifests is not None
-                 else run_scope.load_manifests(dag))
+    dag, manifests = _graph(dag, manifests)
 
     consumers = tuple(
         node_id for node_id, manifest in sorted(manifests.items())
@@ -573,6 +597,40 @@ it, and `tests/test_requirements.py` pins that nothing in
 
 _SUBTITLE_RENDERERS = ("render_subtitles", "render_motion_graphics")
 
+_REEL_NODES = ("build_reels", "verify_reels")
+"""Both nodes of `library/processes/reels`. What they SHARE is the
+machine: each drives a live Resolve project, so `env.resolve_scripting`
+names them together.
+
+What they do not share is either half of the state. The approved plan is
+the BUILD's, because verify grades what was placed rather than what was
+planned; and the Resolve binding is the build's too, because verify takes
+the project and timeline names off the build's own record - a
+project.yaml edited between the two nodes must not send the verifier
+somewhere else."""
+
+
+def _resolve_scripting_importable() -> bool:
+    """Can this machine reach DaVinci Resolve's scripting module at all?
+
+    PRESENCE OF THE MODULE, never a connection: connecting opens a
+    conversation with the captain's running application, and a
+    prerequisite check must not do that to answer a question about the
+    machine.  A closed Resolve is refused later, by the step, with a
+    message about Resolve rather than about the installation - which is
+    the right division, because they are different problems with
+    different fixes.
+
+    Two routes, because both are how the module is really found here:
+    already importable, or sitting under the `Modules` directory
+    `RESOLVE_SCRIPT_API` names (AGENTS.md 9).
+    """
+    if _importable("DaVinciResolveScript"):
+        return True
+    api = os.environ.get("RESOLVE_SCRIPT_API", "")
+    return bool(api) and (
+        Path(api) / "Modules" / "DaVinciResolveScript.py").is_file()
+
 
 ENVIRONMENT: Tuple[Requirement, ...] = (
     _env_requirement(
@@ -605,6 +663,16 @@ ENVIRONMENT: Tuple[Requirement, ...] = (
         lambda: _sfx_library_present(),
         "set PIPELINE_SFX_LIBRARY to the library's absolute path",
         "sfx_library"),
+    _env_requirement(
+        "env.resolve_scripting",
+        "DaVinci Resolve's scripting module can be found",
+        _REEL_NODES,
+        _resolve_scripting_importable,
+        "set RESOLVE_SCRIPT_API to the installation's "
+        "Developer/Scripting directory and RESOLVE_SCRIPT_LIB to its "
+        "libfusionscript.dylib (AGENTS.md 9). Both reel nodes drive a "
+        "LIVE Resolve project and neither can start without it",
+        "resolve_scripting"),
 )
 
 
@@ -792,6 +860,205 @@ PREDICATES: Tuple[Requirement, ...] = (
 )
 
 
+# ── state_key, hand written: what the project brought with it ────────
+#
+# `derive_state_keys` reads EDGES and `derive_runner_injected_keys` reads
+# the ONE input the runner injects from outside the DAG.  Neither can see
+# a condition that is about the PROJECT rather than about lineage: a file
+# the captain ruled on, a binding the project.yaml declares.
+#
+# Both requirements below are `state_key` with an EMPTY `produced_by`,
+# the same shape as `timeline_transcript.on_file`, and the emptiness is
+# load-bearing for the same two reasons: `_producer_will_make_it` never
+# defers a requirement with no producer, so each is asked on every run
+# that schedules a consumer; and neither `describe_refusal` nor
+# `Operation._teach` prints a "run the producer first" line, because
+# there is no step to run.  The remedy is in the reason instead.
+#
+# They are NOT predicates.  A predicate must name a producer
+# (`Requirement.__post_init__`) so that a run scheduling it can defer -
+# and naming one here would be a confident wrong answer.  `select_reels`
+# writes a plan PROPOSED; the APPROVAL is the captain's act and no step
+# in any process makes one.  Nothing writes a project.yaml either.
+
+def _reel_plan_approved(ctx: Context) -> Satisfaction:
+    """Is there a reel plan on file with at least one APPROVED moment?
+
+    The captain's rule, already mechanical in
+    `library/tools/reel_proposal.py`: *the pipeline proposes and the
+    captain approves; nothing is built before that*.  A build against a
+    plan where every moment is still `proposed` would overrule them, and
+    `reel_proposal.for_building` refuses each moment individually - but
+    only once the build has already connected to Resolve, deleted the
+    existing reel timelines and started work.  This moves the same
+    refusal to before the run.
+
+    BOTH halves are refused separately, because they have different
+    remedies: no plan at all means run the selector and publish, while a
+    plan nobody has ruled on means go and rule on it.
+    """
+    from library.tools.reel_proposal import (
+        Approval, ProposalError, proposal_path, read_proposal,
+    )
+
+    folder = ctx.project_folder
+    if not folder:
+        return UNSATISFIED(
+            "no project folder was given, so there is nowhere to read a "
+            "reel plan from",
+            missing="reel_proposals_v2.json")
+
+    path = proposal_path(folder)
+    if not path.is_file():
+        return UNSATISFIED(
+            f"there is no reel plan at {path}. Run step 3.04 "
+            f"(`--with select_reels`, which needs a timeline transcript), "
+            f"then publish its chosen moments for review with "
+            f"`python3 manage_project.py propose-reels <project>`.",
+            missing="reel_proposals_v2.json")
+
+    try:
+        moments = read_proposal(str(path))
+    except (ProposalError, ValueError, OSError) as broken:
+        return UNSATISFIED(
+            f"the reel plan at {path} cannot be read: {broken}",
+            missing="reel_proposals_v2.json")
+
+    approved = [m for m in moments if m.approval is Approval.APPROVED]
+    if not approved:
+        ruled = sum(1 for m in moments if m.approval is Approval.REJECTED)
+        return UNSATISFIED(
+            f"the reel plan at {path} holds {len(moments)} moment(s), "
+            f"{ruled} rejected and NOT ONE APPROVED. Approval is the "
+            f"captain's act and no step makes one: review the moments on "
+            f"the dashboard, or set a moment's \"approval\" to "
+            f"\"approved\" in that file. Building a proposed moment would "
+            f"overrule them.",
+            missing="reel_proposals_v2.json:approval")
+    return SATISFIED(SUPPLIED)
+
+
+_APPROVED_PLAN_WITNESS: List[str] = []
+
+
+def _project_without_an_approved_reel() -> Context:
+    """A real, readable directory carrying no reel plan at all."""
+    return Context(project_folder=str(_REPO_ROOT))
+
+
+def _project_with_an_approved_reel() -> Context:
+    """A project directory that really carries an approved plan.
+
+    BUILT rather than faked, for the same reason
+    `_project_with_a_transcript` is: the check reads the DISK through
+    `reel_proposal`'s own reader, so a witness that passed through some
+    other route would prove a door nobody can open.  Created once, on
+    first call, and only a witness calls it.
+    """
+    if not _APPROVED_PLAN_WITNESS:
+        import tempfile
+
+        from library.tools.reel_proposal import (
+            Approval, ReelMoment, proposal_path, write_proposal,
+        )
+
+        folder = Path(tempfile.mkdtemp(prefix="requirement-witness-reel-"))
+        moment = ReelMoment(
+            number=1, slug="a-witness", reason="a moment the captain ruled on",
+            timeline_start=10.0, timeline_end=40.0,
+            approval=Approval.APPROVED)
+        write_proposal(proposal_path(folder), [moment],
+                       {"derived_from": {"duration_seconds": 60.0}})
+        _APPROVED_PLAN_WITNESS.append(str(folder))
+    return Context(project_folder=_APPROVED_PLAN_WITNESS[0])
+
+
+def _resolve_timeline_binding(ctx: Context) -> Satisfaction:
+    """Does the project name the Resolve project AND its master timeline?
+
+    A reel is cut FROM a master timeline that already exists, and a
+    Resolve project is addressed by its EXACT listed name - a near match
+    lands on another project (AGENTS.md 5).  Read through
+    `timeline_ingest.resolve_binding`, which is the one reader of that
+    declaration, so a refusal here and the address the build uses cannot
+    disagree.
+    """
+    from library.tools.timeline_ingest import resolve_binding
+
+    folder = ctx.project_folder
+    if not folder:
+        return UNSATISFIED(
+            "no project folder was given, so no project.yaml can be read "
+            "for a Resolve binding",
+            missing="resolve.project_name")
+
+    project_name, timeline_name = resolve_binding(folder)
+    missing = [name for name, value in
+               (("project_name", project_name),
+                ("timeline_name", timeline_name)) if not value]
+    if missing:
+        return UNSATISFIED(
+            f"{folder}/project.yaml declares no {' and no '.join(missing)} "
+            f"under `resolve:`, so there is no master timeline to cut a "
+            f"reel out of. Add the EXACT name Resolve lists - a prefix or "
+            f"substring lands on a different project.",
+            missing=f"resolve.{missing[0]}")
+    return SATISFIED(SUPPLIED)
+
+
+_BINDING_WITNESS: List[str] = []
+
+
+def _project_without_a_resolve_binding() -> Context:
+    """A real directory whose project.yaml names no binding.
+
+    The repository root has no project.yaml at all, which is the same
+    answer for the same reason - see `resolve_binding`.
+    """
+    return Context(project_folder=str(_REPO_ROOT))
+
+
+def _project_with_a_resolve_binding() -> Context:
+    """A project.yaml that really declares both names."""
+    if not _BINDING_WITNESS:
+        import tempfile
+
+        folder = Path(tempfile.mkdtemp(prefix="requirement-witness-bind-"))
+        (folder / "project.yaml").write_text(
+            "name: witness\n"
+            "resolve:\n"
+            "  project_name: Witness Project\n"
+            "  timeline_name: Witness Timeline\n",
+            encoding="utf-8")
+        _BINDING_WITNESS.append(str(folder))
+    return Context(project_folder=_BINDING_WITNESS[0])
+
+
+EXTERNAL_STATE: Tuple[Requirement, ...] = (
+    Requirement(
+        name="reel_plan.approved", kind=KIND_STATE_KEY,
+        describe=("the project carries a reel plan with at least one "
+                  "moment the captain APPROVED"),
+        produced_by=(), consumers=("build_reels",),
+        check=_reel_plan_approved,
+        refuting_context=_project_without_an_approved_reel,
+        satisfying_context=_project_with_an_approved_reel),
+    Requirement(
+        name="resolve.timeline_binding", kind=KIND_STATE_KEY,
+        describe=("the project.yaml names the Resolve project and the "
+                  "master timeline a reel is cut out of"),
+        # BUILD only. `verify_reels` takes the project and timeline
+        # names off the build's own record instead - the build wrote into
+        # a named project and that is what must be graded, so a
+        # project.yaml edited between the two nodes must not send the
+        # verifier somewhere else.
+        produced_by=(), consumers=("build_reels",),
+        check=_resolve_timeline_binding,
+        refuting_context=_project_without_a_resolve_binding,
+        satisfying_context=_project_with_a_resolve_binding),
+)
+
+
 # ── coverage: the data spans what was asked for ──────────────────────
 
 def _spine_word_timings(ctx: Context) -> Satisfaction:
@@ -956,7 +1223,8 @@ DELETED: Dict[str, str] = {
 
 # ── The registry ─────────────────────────────────────────────────────
 
-HAND_WRITTEN: Tuple[Requirement, ...] = ENVIRONMENT + PREDICATES + COVERAGE
+HAND_WRITTEN: Tuple[Requirement, ...] = (
+    ENVIRONMENT + PREDICATES + EXTERNAL_STATE + COVERAGE)
 
 
 def all_requirements(dag: Optional[dict] = None,

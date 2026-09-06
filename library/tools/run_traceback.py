@@ -82,7 +82,7 @@ def load_dag(path=None) -> dict:
 
 
 def unwired_step_ids(dag=None) -> set:
-    """Steps the layout gives a directory that no DAG node runs.
+    """Steps the layout gives a directory that NO PROCESS runs.
 
     One does: `object_segmentation` (1.06) is implemented and unwired
     (AGENTS.md section 3). It still gets a directory, because it still
@@ -93,10 +93,22 @@ def unwired_step_ids(dag=None) -> set:
     deselected by default, which is a property of a RUN and not of the
     pipeline. `library/tools/run_scope.DESELECTED_BY_DEFAULT` carries
     that, and the run summary reports it on every run.
+
+    NEITHER are `build_reels` and `verify_reels`, and that is why this
+    reads every process rather than one graph. They are wired - into
+    `library/processes/reels/dag.json` - and an edit_video traceback
+    that judged them against edit_video's graph alone would report two
+    wired steps as unwired, which is the same confident wrong answer the
+    unwired declaration exists to prevent. `dag` is still honoured and
+    still ADDS: a caller passing a reduced graph is asking about that
+    graph as well as the tree, never instead of it.
     """
-    dag = dag or load_dag()
-    return ({s.node_id for s in STEPS}
-            - {n["id"] for n in dag.get("nodes", [])})
+    from library.tools import processes
+
+    declared = set(processes.node_owners())
+    graph = dag if dag is not None else load_dag()
+    declared |= {n["id"] for n in graph.get("nodes", [])}
+    return {s.node_id for s in STEPS} - declared
 
 
 def implemented_step_ids(dag=None) -> set:

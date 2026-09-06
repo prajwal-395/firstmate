@@ -129,12 +129,61 @@ def test_every_operation_resolves_to_a_real_callable(op):
 def test_every_owning_node_is_a_real_dag_node():
     """Sixteen of the runner's eighteen per-step services are keyed by the
     node id, so an operation with an unreal owning node loses its place in
-    the ledgers, the run status, the gates and the collectors."""
-    nodes = {n["id"] for n in json.loads(DAG.read_text())["nodes"]}
+    the ledgers, the run status, the gates and the collectors.
+
+    Read across EVERY process, not just edit_video. `reel.build` and
+    `reel.verify` are owned by nodes of `library/processes/reels`, and a
+    check that knew only one graph would refuse two operations whose
+    nodes are real - the same confidently-wrong answer in the opposite
+    direction from the one this test exists to catch.
+    """
+    from library.tools import processes
+
+    nodes = set(processes.node_owners())
+    assert nodes >= {n["id"] for n in json.loads(DAG.read_text())["nodes"]}, (
+        "the process registry no longer sees edit_video's own nodes")
     for op in operations.all():
         assert op.owning_node in nodes, (
             f"{op.name} claims owning_node {op.owning_node!r}, "
-            f"which is not a DAG node")
+            f"which is not a DAG node of any process")
+
+
+def test_no_two_processes_share_a_node_id():
+    """An operation names a node, and a node must mean one thing.
+
+    Node ids key the two ledgers, the run status, the review gate, the
+    marker routing, the step export and `step_outputs` in
+    `pipeline_data.json`, and a derived requirement is NAMED after one
+    (`state.<consumer>.<key>`). Two processes sharing an id would give
+    two different steps one slot in all of them.
+    """
+    from library.tools import processes
+
+    processes.assert_node_ids_are_unique()          # must not raise
+
+    seen = {}
+    for pid in processes.process_ids():
+        for node in processes.load_dag(pid)["nodes"]:
+            assert node["id"] not in seen, (
+                f"{node['id']!r} is declared by {seen[node['id']]!r} and "
+                f"{pid!r}")
+            seen[node["id"]] = pid
+
+
+def test_the_uniqueness_gate_can_fail(monkeypatch):
+    """AGENTS.md 10.4 applied to the gate above.
+
+    Planted rather than trusted: a check that only ever runs against a
+    tree which happens to be unique is a check nobody has seen refuse.
+    """
+    from library.tools import processes
+
+    monkeypatch.setattr(processes, "load_dag", lambda pid: {
+        "nodes": [{"id": "shared", "name": "x", "step_ref": "steps/x"}]})
+    with pytest.raises(processes.ProcessError, match="unique"):
+        processes.assert_node_ids_are_unique()
+    monkeypatch.undo()
+    processes.assert_node_ids_are_unique()          # restored, still clean
 
 
 def test_operation_names_are_unique():

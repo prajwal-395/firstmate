@@ -17,7 +17,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 ## 2. Repo layout
 
 - `library/`: core pipeline implementation and shared Python modules.
-- `library/processes/`: complete pipelines such as `edit_video`, with its `dag.json` and `manifest.json`.
+- `library/processes/`: `edit_video` and `reels` (§3), each with its own `dag.json` and `manifest.json`.
 - `library/steps/`: individual pipeline steps, named by phase (e.g. `step_1_01_scan_project`).
 - `library/tools/`: shared utilities for Resolve scripting, vision analysis and file management.
 - `library/schemas/`: Pydantic schemas for pipeline state and project configuration.
@@ -46,8 +46,11 @@ measured score floor that lets it answer "not in this footage", and the 66x redu
 
 The pipeline is a Directed Acyclic Graph (DAG) in `library/processes/edit_video/dag.json`, ordered by topological sort.
 
+**There is MORE THAN ONE PROCESS, and `library/steps/` belongs to the repository, not to one.** `reels` is the second; node ids are unique across both.
+One enumeration, `library/tools/processes.py`. [why](docs/REEL_BUILD_HAS_NO_OWNING_NODE.md)
 
-- Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`.  **ONE exists and is not wired into the DAG:** `object_segmentation` (1.06) - nothing consumes masks ([`docs/SUBJECT_MASKING_MEASURED.md`](docs/SUBJECT_MASKING_MEASURED.md)). It carries a documented `unwired_reason` in `project_layout.STEPS`, `StepDir.__post_init__` rejects `wired=False` without one, and `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration. **Unwiring says nothing consumes it, not that the capability is gone.** `prosody_analysis` (1.05) was re-wired on 2026-09-01: its deterministic measurements (pitch, pace, voice quality, intensity) are unbiased signal the model lacked. Its output routes to 2.01 and 2.02 via `view:prosody`. See [`docs/PROSODY_MEASURED.md`](docs/PROSODY_MEASURED.md) for the original measurement that led to unwiring, now overruled.
+
+- Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`.  **ONE exists and is not wired into the DAG:** `object_segmentation` (1.06) - nothing consumes masks ([`docs/SUBJECT_MASKING_MEASURED.md`](docs/SUBJECT_MASKING_MEASURED.md)). It carries a documented `unwired_reason` in `project_layout.STEPS`, `StepDir.__post_init__` rejects `wired=False` without one, and `tests/test_step_dag_coverage.py` fails if a step directory exists with no DAG node and no unwired declaration. **Unwiring says nothing consumes it, not that the capability is gone.** `prosody_analysis` (1.05) was re-wired on 2026-09-01 - its deterministic measurements are unbiased signal the model lacked - and routes to 2.01 and 2.02 via `view:prosody`. [the measurement that unwired it, now overruled](docs/PROSODY_MEASURED.md)
 - **UNWIRED and DESELECTED are different things, and only one is a property of the pipeline.** Unwired means no DAG node exists (1.06).  The two lists are `project_layout.STEPS` and `run_scope.DESELECTED_BY_DEFAULT`; a step is in one or the other, never both.
 - `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**; a recorded claim that it "provably cannot" read text was wrong.
 - Step 1.07 `ocr_extraction` is WIRED and DESELECTED BY DEFAULT: `--with ocr_extraction` turns it on.
@@ -513,7 +516,6 @@ Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#subject-
 Detail: `library/tools/subject_framing.py`.
 
 `SUBJECT_HEADROOM` is how much clear space the subject needs on each side. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
-Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
 
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
 Detail: `library/steps/step_1_04_temporal_index/step.py`. [why - the numbers, and what the fix does not fix](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
@@ -752,7 +754,6 @@ Fifteen elements across seven functions. [why](docs/RULE_EVIDENCE.md#the-roster-
 - **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
 - `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route, the same shape `music_measurement.MEASUREMENT_LEGEND` takes. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column rather than listed twice (§10.2).
 - `tests/test_motion_graphics_vocabulary.py`.
-- The whole roster ships - nothing is shortlisted (§10.5).
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

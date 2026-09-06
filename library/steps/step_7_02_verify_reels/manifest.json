@@ -1,0 +1,75 @@
+{
+  "id": "step_7_02_verify_reels",
+  "name": "Verify Built Reels",
+  "version": "1.0.0",
+  "description": "Runs the reel conformance verifier over the timelines build_reels placed, grading them against the plan they were built from, and fails the run on any error finding.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": true,
+        "description": "Absolute path to the project. Whitelisted global injected by gather_step_inputs. The conformance report is written under its pipeline_output/review/."
+      },
+      {
+        "name": "reel_build",
+        "type": "object",
+        "required": true,
+        "description": "The build's own record of what was placed, carried by the edge from build_reels: which timelines, which plan, and into which Resolve project and master timeline. Read rather than re-derived - a verifier that recomputes the plan or the binding can grade against a different answer than the one the build wrote, which is how a caption grouping was re-derived a day later and graded against."
+      },
+      {
+        "name": "timeline_transcript",
+        "type": "object",
+        "required": true,
+        "description": "The master timeline's speech. The verifier grades placed speech against it, so it is as hard an input here as it is for the build. NO STEP PRODUCES IT; see step_7_01_build_reels."
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reel_verification",
+        "type": "object",
+        "description": "The record of a PASS: which plan was graded, which timelines, and into which Resolve project. A failure raises rather than returning, so this key existing means the reels conformed.",
+        "expected_schema": {
+          "passed": "bool",
+          "plan_path": "str",
+          "timelines_verified": "list"
+        }
+      }
+    ],
+    "requirements": [
+      "env.resolve_scripting"
+    ]
+  },
+  "classification": {
+    "stage": "edit",
+    "determinism": "nondeterministic",
+    "archetype": "validation",
+    "idempotent": true
+  },
+  "dependencies": [
+    "step_7_01_build_reels"
+  ],
+  "tags": [
+    "reels",
+    "davinci-resolve",
+    "validation",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-09-06",
+    "last_modified": "2026-09-06",
+    "source_process": "reels",
+    "notes": "Belongs to library/processes/reels, not to edit_video."
+  }
+}

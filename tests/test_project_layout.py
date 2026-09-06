@@ -249,24 +249,41 @@ def test_every_step_directory_is_in_the_table():
 
 
 def test_the_table_is_in_dag_order_and_names_the_dag_nodes():
-    from library.tools.project_layout import STEPS
-    from library.tools.run_traceback import load_dag
+    """One table, EVERY process, each process's nodes in its own order.
 
-    dag_ids = [n["id"] for n in load_dag()["nodes"]]
+    `library/steps/` is one tree and belongs to the repository rather
+    than to a process, so STEPS lists them all - and the order it lists
+    them in is what the generated README renders from. Processes follow
+    `processes.process_ids()`, which is sorted, so the concatenation is
+    stable rather than incidental.
+    """
+    from library.tools import processes
+    from library.tools.project_layout import STEPS
+
+    dag_ids = [node["id"]
+               for pid in processes.process_ids()
+               for node in processes.load_dag(pid)["nodes"]]
     wired = [s.node_id for s in STEPS if s.wired]
     assert wired == dag_ids, (
-        "STEPS must list the wired steps in the order the DAG runs them - "
-        "the generated README renders from it")
+        "STEPS must list the wired steps in the order their process runs "
+        "them, processes in processes.process_ids() order - the generated "
+        "README renders from it")
 
 
 def test_the_unwired_steps_are_marked_unwired():
-    from library.tools.project_layout import STEPS
-    from library.tools.run_traceback import load_dag
+    """Unwired means NO process declares a node.
 
-    dag_ids = {n["id"] for n in load_dag()["nodes"]}
+    `build_reels` and `verify_reels` are wired into
+    `library/processes/reels`; judging them against edit_video's graph
+    alone would mark two real nodes unwired.
+    """
+    from library.tools import processes
+    from library.tools.project_layout import STEPS
+
+    dag_ids = set(processes.node_owners())
     for step in STEPS:
         assert step.wired == (step.node_id in dag_ids), (
-            f"{step.node_id}: wired={step.wired} disagrees with the DAG")
+            f"{step.node_id}: wired={step.wired} disagrees with every DAG")
 
 
 def test_every_step_owned_area_lives_under_its_step(tmp_path):

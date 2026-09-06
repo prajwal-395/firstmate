@@ -15,8 +15,17 @@ This test is the part that stops it recurring.  It checks:
     why it is not wired.  Adding ``wired=False`` without a reason is a
     ``ValueError`` at import time (``StepDir.__post_init__``).
 
-3.  The filesystem, the STEPS table, and the DAG are consistent: no step
+3.  The filesystem, the STEPS table, and the DAGs are consistent: no step
     directory can slip through without an explicit decision recorded in code.
+
+EVERY PROCESS, not one.  ``library/steps/`` is one tree and belongs to the
+repository rather than to a process, so "wired" means *some* process
+declares a node for it.  Judging the tree against ``edit_video``'s graph
+alone would report ``build_reels`` and ``verify_reels`` - both real nodes
+of ``library/processes/reels`` - as orphans, which is the same class of
+confidently-wrong answer this file exists to prevent, only inverted.
+``library/tools/processes.py`` owns the enumeration and refuses two
+processes that share a node id.
 
 The test also reports what it finds, so the done-check can paste real output.
 """
@@ -31,18 +40,19 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STEPS_DIR = REPO_ROOT / "library" / "steps"
-DAG_PATH = REPO_ROOT / "library" / "processes" / "edit_video" / "dag.json"
+PROCESSES_DIR = REPO_ROOT / "library" / "processes"
 
 
 def _load_dag_node_step_refs() -> dict[str, str]:
-    """Return ``{node_id: step_ref_dirname}`` from the DAG."""
-    dag = json.loads(DAG_PATH.read_text(encoding="utf-8"))
+    """Return ``{node_id: step_ref_dirname}`` across EVERY process."""
     out = {}
-    for node in dag["nodes"]:
-        ref = node["step_ref"]
-        # step_ref looks like "steps/step_1_01_scan_project"; strip prefix
-        dirname = ref.split("/", 1)[-1] if "/" in ref else ref
-        out[node["id"]] = dirname
+    for dag_path in sorted(PROCESSES_DIR.glob("*/dag.json")):
+        dag = json.loads(dag_path.read_text(encoding="utf-8"))
+        for node in dag["nodes"]:
+            ref = node["step_ref"]
+            # step_ref is "steps/step_1_01_scan_project"; strip the prefix
+            dirname = ref.split("/", 1)[-1] if "/" in ref else ref
+            out[node["id"]] = dirname
     return out
 
 
@@ -97,9 +107,13 @@ def test_every_step_directory_has_a_dag_edge_or_is_declared_unwired():
                 unwired_without_reason.append(dirname)
 
     # Report - this output is pasted into the done-check
+    from library.tools import processes
+
     print("\n--- Step directory vs DAG edge check ---")
+    print(f"Processes:                 "
+          f"{', '.join(processes.process_ids())}")
     print(f"Step directories on disk:  {len(on_disk)}")
-    print(f"DAG nodes:                 {len(dag_refs)}")
+    print(f"DAG nodes (all processes): {len(dag_refs)}")
     print(f"STEPS table entries:       {len(table)}")
 
     wired_steps = [s for s in STEPS if s.wired]
@@ -126,9 +140,9 @@ def test_every_step_directory_has_a_dag_edge_or_is_declared_unwired():
         f"or as wired=False with an unwired_reason."
     )
     assert not orphans, (
-        f"Step directories declared wired=True but with no DAG node: {orphans}. "
-        f"Either add a node to dag.json or set wired=False with an "
-        f"unwired_reason in project_layout.STEPS."
+        f"Step directories declared wired=True but with no DAG node in ANY "
+        f"process: {orphans}. Either add a node to some process's dag.json "
+        f"or set wired=False with an unwired_reason in project_layout.STEPS."
     )
     assert not unwired_without_reason, (
         f"Unwired steps without a reason: {unwired_without_reason}. "

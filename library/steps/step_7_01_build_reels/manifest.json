@@ -1,0 +1,81 @@
+{
+  "id": "step_7_01_build_reels",
+  "name": "Build Approved Reels",
+  "version": "1.0.0",
+  "description": "Cuts every APPROVED moment in the reel plan onto its own Resolve timeline, bad takes removed, captions rendered through steps 4.01 and 4.05.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": true,
+        "description": "Absolute path to the project. Whitelisted global injected by gather_step_inputs. The plan, the transcript and the Resolve binding are all read relative to it."
+      },
+      {
+        "name": "timeline_transcript",
+        "type": "object",
+        "required": true,
+        "description": "The master timeline's speech, REBUILT from source by `python3 -m library.tools.timeline_transcript <project> --write`. NO STEP PRODUCES IT - it needs Resolve open and WhisperX loaded - so it has no producing edge and reaches this step because the manifest declares it. Declaring it required is what derives requirements.timeline_transcript.on_file for this node."
+      },
+      {
+        "name": "skip_captions",
+        "type": "boolean",
+        "required": false,
+        "description": "Build the timelines without rendering subtitle overlays. The `--skip-captions` flag of `manage_project.py build-reels`, which exists because the Remotion render is the expensive half and a structural check does not need it."
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reel_build",
+        "type": "object",
+        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote.",
+        "expected_schema": {
+          "timelines_built": "list",
+          "plan_path": "str",
+          "caption_hashes": "dict",
+          "resolve_project_name": "str",
+          "master_timeline_name": "str"
+        }
+      }
+    ],
+    "requirements": [
+      "reel_plan.approved",
+      "resolve.timeline_binding",
+      "env.resolve_scripting"
+    ]
+  },
+  "classification": {
+    "stage": "edit",
+    "determinism": "nondeterministic",
+    "archetype": "direct_action",
+    "idempotent": true
+  },
+  "dependencies": [
+    "step_3_04_select_reels",
+    "step_4_01_plan_subtitles",
+    "step_4_05_render_subtitles"
+  ],
+  "tags": [
+    "reels",
+    "davinci-resolve",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-09-06",
+    "last_modified": "2026-09-06",
+    "source_process": "reels",
+    "notes": "Belongs to library/processes/reels, not to edit_video. See docs/REEL_BUILD_HAS_NO_OWNING_NODE.md for the measurement that says why a reel build cannot be a node of the edit_video DAG."
+  }
+}

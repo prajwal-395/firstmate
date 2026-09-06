@@ -222,6 +222,14 @@ STEPS: tuple = (
     StepDir("creative_cohesion", "5_03_creative_cohesion"),
     StepDir("render", "6_01_render"),
     StepDir("validate", "6_02_validate_output"),
+    # Phase 7 belongs to the OTHER process. `library/steps/` is one tree
+    # and belongs to the repository rather than to a process, so these
+    # two sit here beside the rest; their DAG nodes are in
+    # `library/processes/reels/dag.json`, not in edit_video's, and a
+    # plain `run` never schedules them.  `library/tools/processes.py` is
+    # what knows which graph declares which node.
+    StepDir("build_reels", "7_01_build_reels"),
+    StepDir("verify_reels", "7_02_verify_reels"),
 )
 
 STEP_BY_ID: dict = {s.node_id: s for s in STEPS}

@@ -622,7 +622,28 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         }])
 
 
-def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
+def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
+                             verify: bool = True) -> dict:
+    """Build every approved reel, and RETURN the record of what was placed.
+
+    `verify` defaults to True, so nothing that called this before gets a
+    weaker gate than it had: a direct caller still has the conformance
+    verifier run at the end and still gets a raise on a defective build.
+
+    The one caller that passes False is the `build_reels` node of
+    `library/processes/reels`, whose process has `verify_reels` as its
+    own node.  A build that was placed and a build that conformed are two
+    facts that fail for different reasons, and a ledger keyed by node id
+    can only tell them apart if two nodes recorded them.  Running the
+    verifier in both places would report one set of findings twice under
+    two step ids.
+
+    The RETURN VALUE is what the edge to `verify_reels` carries.  Every
+    field of it was already computed here and then dropped on the floor -
+    `built_reel_names` and `caption_hashes` went into provenance and
+    nowhere else - which is how a verifier could re-derive a different
+    grouping a day later and grade against it.
+    """
     import os
     import sys
     import json
@@ -747,13 +768,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False):
     write_provenance(review_dir, proposal_path, built_reel_names,
                      caption_hashes=caption_hashes)
 
-    verify_built_reels(
-        project_folder=project_folder,
-        resolve_project_name=resolve_name,
-        master_timeline_name=master_timeline_name,
-        plan_path=proposal_path,
-        transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")
-    )
+    if verify:
+        verify_built_reels(
+            project_folder=project_folder,
+            resolve_project_name=resolve_name,
+            master_timeline_name=master_timeline_name,
+            plan_path=proposal_path,
+            transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")
+        )
+
+    return {
+        "timelines_built": built_reel_names,
+        "caption_hashes": caption_hashes,
+        "plan_path": proposal_path,
+        "resolve_project_name": resolve_name,
+        "master_timeline_name": master_timeline_name,
+        "captions_rendered": not skip_captions,
+        "verified_in_place": bool(verify),
+    }
 
 
 

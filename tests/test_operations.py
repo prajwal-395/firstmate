@@ -44,6 +44,17 @@ REPO = Path(__file__).resolve().parents[1]
 REEL_OPERATIONS = tuple(op for op in operations.all()
                         if op.name.startswith("reel."))
 
+SELECTION_OPERATIONS = tuple(op for op in REEL_OPERATIONS
+                             if op.owning_node == "select_reels")
+"""PROPOSING a reel: step 3.04's two halves, inside `edit_video`."""
+
+PROCESS_OPERATIONS = tuple(op for op in REEL_OPERATIONS
+                           if op.owning_node != "select_reels")
+"""BUILDING and VERIFYING one: the two nodes of `library/processes/reels`,
+which is the second process the finding asked for and the captain
+authorised.  They are separated from the pair above because they have
+different contracts, not because they are a different kind of thing."""
+
 
 def _project(tmp_path, with_transcript: bool) -> str:
     """A project under tmp_path, never a real one (AGENTS.md 8)."""
@@ -71,17 +82,86 @@ def test_the_registry_carries_reel_operations():
         "no operation names the reel path, so reels are reachable only "
         "by running a script directly - which is the defect the "
         "operation registry exists to remove")
-    assert {op.name for op in REEL_OPERATIONS} == {"reel.candidates",
-                                                   "reel.select"}
+    assert {op.name for op in REEL_OPERATIONS} == {
+        "reel.candidates", "reel.select", "reel.build", "reel.verify"}
 
 
-@pytest.mark.parametrize("op", REEL_OPERATIONS, ids=lambda o: o.name)
+def test_building_a_reel_is_addressable_and_not_only_a_subcommand():
+    """The gap the SECOND process closes.
+
+    When `docs/REEL_BUILD_HAS_NO_OWNING_NODE.md` was written, the only
+    way to build a reel was to know that `manage_project.py build-reels`
+    existed - the captain's stop condition was that reels be made *"using
+    the pipeline and not any standalone scripts"*, and a subcommand
+    reaching past the registry into `reel_build` is that gap however thin.
+
+    Now both halves are named, owned by nodes of `library/processes/reels`,
+    and `manage_project.cmd_build_reels` runs that process rather than
+    holding a second copy of the path.
+    """
+    build = operations.get("reel.build")
+    verify = operations.get("reel.verify")
+    assert build.owning_node == "build_reels"
+    assert verify.owning_node == "verify_reels"
+
+    from library.tools import processes
+    assert processes.process_of("build_reels") == processes.REELS
+    assert processes.process_of("verify_reels") == processes.REELS
+    # The order comes off the process's own graph, never from a list.
+    assert processes.execution_order(processes.REELS) == [
+        "build_reels", "verify_reels"]
+
+
+def test_the_build_command_holds_no_second_copy_of_the_build_path():
+    """`build-reels` is a CALLER of the process, not a second route.
+
+    Read off the source rather than described: the subcommand must not
+    reach into `reel_build` directly any more, because two entry points
+    into one build is exactly the shape Ruling 1 forbids.
+    """
+    import ast
+
+    tree = ast.parse((REPO / "manage_project.py").read_text(encoding="utf-8"))
+    body = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef)
+                and n.name == "cmd_build_reels")
+    # The AST, not the text: the docstring NAMES the old route in order
+    # to say it is gone, and a substring check would read that as the
+    # route still being there.
+    names = {ast.unparse(n) for n in ast.walk(body)
+             if isinstance(n, (ast.Call, ast.Attribute, ast.Name))}
+    imported = {alias.name for n in ast.walk(body)
+                if isinstance(n, ast.ImportFrom) for alias in n.names}
+    assert "rebuild_reels_in_project" not in (names | imported), (
+        "manage_project.cmd_build_reels calls reel_build directly again, "
+        "so there are two routes into the build and only one of them "
+        "checks a requirement")
+    assert any("execution_order" in n for n in names), (
+        "cmd_build_reels no longer takes its node order off the reel "
+        "process's own graph")
+    assert any("op.execute" in n for n in names), (
+        "cmd_build_reels no longer runs the reel process's nodes through "
+        "the operation registry, so nothing checks their requirements")
+
+
+@pytest.mark.parametrize("op", SELECTION_OPERATIONS, ids=lambda o: o.name)
 def test_a_reel_operation_is_owned_by_the_node_whose_decision_it_is(op):
     """`owning_node` is what derives `requires`, so a wrong owner is a
     wrong contract - not a cosmetic mislabel."""
     assert op.owning_node == "select_reels"
     assert op.owning_dir == "step_3_04_select_reels"
     assert op.body in ("bridge.py", "post_bridge.py")
+
+
+@pytest.mark.parametrize("op", PROCESS_OPERATIONS, ids=lambda o: o.name)
+def test_a_process_reel_operation_is_owned_by_its_own_processs_node(op):
+    """Same rule, the other process. The node has to be REAL, in a graph
+    that really declares it, or `requires` derives from nothing."""
+    from library.tools import processes
+
+    assert processes.process_of(op.owning_node) == processes.REELS
+    assert op.owning_dir in ("step_7_01_build_reels", "step_7_02_verify_reels")
+    assert op.body == "step.py"
 
 
 def test_no_reel_operation_claims_a_node_that_does_not_own_it():
@@ -118,14 +198,19 @@ def test_a_reel_operation_asks_for_something(op):
 
 @pytest.mark.parametrize("op", REEL_OPERATIONS, ids=lambda o: o.name)
 def test_a_reel_operation_refuses_without_the_transcript(op, tmp_path):
-    """The captain's ask, made mechanical."""
+    """The captain's ask, made mechanical - and for the BUILD too.
+
+    The transcript reaches all four operations by one route and it is
+    DERIVED: `derive_runner_injected_keys` reads which manifests declare
+    `timeline_transcript` required, so the two new nodes inherited this
+    requirement by declaring the input, with nothing hand-listed.
+    """
     result = op.execute(_project(tmp_path, with_transcript=False))
 
     assert result.refused, (
         f"{op.name} agreed to run against a project with no timeline "
-        f"transcript - the one input reel selection cannot work without")
-    assert [r.name for r in result.unsatisfied] == [
-        "timeline_transcript.on_file"]
+        f"transcript - the one input the whole reel path is cut from")
+    assert "timeline_transcript.on_file" in [r.name for r in result.unsatisfied]
     assert "timeline_transcript" in result.error
     # The remedy, because no step produces this and "run the producer"
     # is not an answer that exists.
@@ -133,7 +218,16 @@ def test_a_reel_operation_refuses_without_the_transcript(op, tmp_path):
     assert "NO STEP MAKES ONE" in result.error
 
 
-@pytest.mark.parametrize("op", REEL_OPERATIONS, ids=lambda o: o.name)
+@pytest.mark.parametrize("op", SELECTION_OPERATIONS, ids=lambda o: o.name)
+def test_the_transcript_is_all_selection_asks_for(op, tmp_path):
+    """3.04's contract is exactly one requirement, and it stays exactly
+    one: a widened contract here would refuse a run that is fine."""
+    result = op.execute(_project(tmp_path, with_transcript=False))
+    assert [r.name for r in result.unsatisfied] == [
+        "timeline_transcript.on_file"]
+
+
+@pytest.mark.parametrize("op", SELECTION_OPERATIONS, ids=lambda o: o.name)
 def test_the_same_operation_passes_its_contract_with_the_transcript(
         op, tmp_path):
     """The other direction, on the same fixture.
@@ -143,6 +237,129 @@ def test_the_same_operation_passes_its_contract_with_the_transcript(
     passing if the check collapsed to `return UNSATISFIED(...)`.
     """
     assert op.unmet(_project(tmp_path, with_transcript=True)) == []
+
+
+# ── The BUILD's contract, requirement by requirement ────────────────
+
+
+def _reel_project(tmp_path, *, transcript=True, approved=True, binding=True,
+                  resolve_present=True, built=False) -> str:
+    """A project under tmp_path carrying whichever half is being tested.
+
+    Never a real project (AGENTS.md 8), and every half is BUILT rather
+    than mocked, because each check reads the disk through the same
+    module the build itself reads it through - a fixture that satisfied
+    the check by some other route would prove a door nobody can open.
+    """
+    from library.tools import requirements as _R
+    from library.tools.reel_proposal import (
+        Approval, ReelMoment, proposal_path, write_proposal)
+
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    state = {"project_folder": str(tmp_path), "step_outputs": {}}
+    if built:
+        state["step_outputs"]["build_reels"] = {"reel_build": {
+            "timelines_built": ["Reel 01 - a-witness"],
+            "plan_path": str(proposal_path(tmp_path))}}
+    # The environment probe seam. `env.resolve_scripting` reads the
+    # MACHINE, and a machine with no Resolve on it is the normal case in
+    # CI - so the witness drives the probe rather than the test
+    # installing an NLE. Nothing in library/processes or library/steps
+    # ever writes this key; tests/test_requirements.py pins that.
+    state[_R._FORCE] = {"resolve_scripting": bool(resolve_present)}
+    (tmp_path / "pipeline_data.json").write_text(json.dumps(state),
+                                                 encoding="utf-8")
+
+    if transcript:
+        path = transcript_path(tmp_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "segments": [], "segment_count": 0,
+            "derived_from": {"duration_seconds": 0.0}}), encoding="utf-8")
+
+    if approved is not None:
+        moment = ReelMoment(
+            number=1, slug="a-witness", reason="a moment to build",
+            timeline_start=10.0, timeline_end=40.0,
+            approval=Approval.APPROVED if approved else Approval.PROPOSED)
+        write_proposal(proposal_path(tmp_path), [moment],
+                       {"derived_from": {"duration_seconds": 60.0}})
+
+    if binding:
+        (tmp_path / "project.yaml").write_text(
+            "name: fixture\nresolve:\n"
+            "  project_name: Fixture Project\n"
+            "  timeline_name: Fixture Timeline\n", encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_the_build_passes_a_project_that_has_everything(tmp_path):
+    """The satisfying direction. A contract that refuses a correct
+    project is no more coverage than one that cannot fail."""
+    build = operations.get("reel.build")
+    assert build.unmet(_reel_project(tmp_path)) == [], (
+        "reel.build refused a project with an approved plan, a transcript, "
+        "a Resolve binding and a machine that can reach Resolve")
+
+
+@pytest.mark.parametrize("absent,expected", [
+    ("approved", "reel_plan.approved"),
+    ("binding", "resolve.timeline_binding"),
+    ("resolve_present", "env.resolve_scripting"),
+    ("transcript", "timeline_transcript.on_file"),
+])
+def test_each_half_of_the_builds_contract_can_refuse_on_its_own(
+        tmp_path, absent, expected):
+    """Every input the finding's table named must be able to REFUSE.
+
+    One at a time, from the project that otherwise passes, so a refusal
+    is attributable to the half that was removed rather than to whatever
+    else the fixture happens to lack.
+    """
+    folder = _reel_project(tmp_path, **{absent: False})
+    unmet = [u.requirement.name
+             for u in operations.get("reel.build").unmet(folder)]
+    assert unmet == [expected], (
+        f"removing {absent!r} should refuse exactly {expected}; got {unmet}")
+
+
+def test_a_plan_nobody_approved_refuses_and_says_whose_act_that_is(tmp_path):
+    """The captain's rule, made mechanical BEFORE Resolve is touched.
+
+    `reel_proposal.for_building` already refuses a proposed moment - but
+    only after the build has connected, deleted the existing reel
+    timelines and started work. This is the same refusal, before the run.
+    """
+    folder = _reel_project(tmp_path, approved=False)
+    result = operations.get("reel.build").execute(folder)
+    assert result.refused
+    assert [r.name for r in result.unsatisfied] == ["reel_plan.approved"]
+    assert "NOT ONE APPROVED" in result.error
+    assert "captain" in result.error
+    # No producer is named, because no step makes an approval.
+    assert "run that step first" not in result.error
+
+
+def test_the_verify_node_refuses_when_nothing_was_built(tmp_path):
+    """The edge between the two nodes is a real requirement.
+
+    `state.verify_reels.reel_build` is DERIVED from the edge in
+    `library/processes/reels/dag.json`, so verify cannot grade timelines
+    that were never placed - and the refusal names `build_reels` as the
+    producer, because here there really is one.
+    """
+    folder = _reel_project(tmp_path, built=False)
+    result = operations.get("reel.verify").execute(folder)
+    assert result.refused
+    assert "state.verify_reels.reel_build" in [
+        r.name for r in result.unsatisfied]
+    assert "build_reels" in result.error
+
+
+def test_the_verify_node_passes_once_the_build_recorded_one(tmp_path):
+    """The other direction on the same fixture."""
+    folder = _reel_project(tmp_path, built=True)
+    assert operations.get("reel.verify").unmet(folder) == []
 
 
 def test_the_refusal_names_no_producer_because_there_is_none():
@@ -163,12 +380,18 @@ def test_the_transcript_is_the_only_required_input_no_edge_carries():
     measurement that says naming one is enough.
 
     `derive_state_keys` reads edges; a required manifest input with no
-    producing edge is invisible to it.  Measured 2026-09-06 there are
-    exactly two, and only one of them can be absent.  If a third appears,
-    this fails rather than the pipeline quietly gaining a hard input
-    nothing refuses on.
+    producing edge is invisible to it.  If a new one appears, this fails
+    rather than the tree quietly gaining a hard input nothing refuses on.
+
+    Measured across EVERY PROCESS, which is the reading that matters
+    since `library/processes/reels` landed - a measurement scoped to
+    edit_video would have reported the reel process's own unrouted
+    inputs as "none" while they were the reason the whole enumeration
+    mattered.
     """
-    dag = run_scope.load_dag()
+    from library.tools import processes
+
+    dag = processes.merged_dag()
     manifests = run_scope.load_manifests(dag)
     supplied = {}
     for edge in dag.get("edges", []):
@@ -186,8 +409,14 @@ def test_the_transcript_is_the_only_required_input_no_edge_carries():
         # A whitelisted global - `gather_step_inputs` puts it on every
         # step, so it is never absent and there is nothing to refuse.
         ("scan", "project_folder"),
-        # The real one.
+        ("build_reels", "project_folder"),
+        ("verify_reels", "project_folder"),
+        # The REAL ones: a file no step in any process writes. All three
+        # get `timeline_transcript.on_file`, derived off these very
+        # declarations by `requirements.derive_runner_injected_keys`.
         ("select_reels", "timeline_transcript"),
+        ("build_reels", "timeline_transcript"),
+        ("verify_reels", "timeline_transcript"),
     }, f"a required input with no producing edge appeared: {sorted(unrouted)}"
 
 

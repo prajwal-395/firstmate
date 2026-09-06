@@ -1378,6 +1378,35 @@ def project_step_context(inputs: dict, manifest: dict = None,
     return inputs
 
 
+def llm_output_declarations(manifest: dict, already_have: set = None) -> list:
+    """What the MODEL is asked to write for this step, as declarations.
+
+    A hybrid step's OUTPUTS are what the STEP emits; they are not what
+    the LLM writes.  `mesh_spine`'s post-bridge computes `audio_spine`
+    and `timed_spine` from a creative `structure` - asking the LLM for
+    the computed keys made it fail QA every run and fall through to
+    "proceeding with best attempt".  `interface.llm_outputs` declares the
+    LLM's actual contribution, and where it is absent the rule is the
+    step's outputs minus whatever is already in hand (AGENTS.md 10.1).
+
+    Named as a function because there are now TWO readers of that rule.
+    `present_llm_step` below builds the schema it asks the model for;
+    `operations.Operation` asks the same question in reverse - a
+    post-bridge run as an operation is handed the step's inputs and NOT
+    the model's answer, so it must be able to say which keys are absent
+    and refuse instead of resolving a plan nobody wrote.  Two spellings
+    of this rule would let those two disagree about what the model owes.
+    """
+    interface = (manifest or {}).get("interface", {}) or {}
+    if "llm_outputs" in interface:
+        return list(interface["llm_outputs"])
+    # Never ask for a key the step already has: pre-bridge outputs are
+    # merged back in by run_hybrid_step.
+    have = set(already_have or ())
+    return [o for o in interface.get("outputs", [])
+            if o.get("name") not in have]
+
+
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None, retry_feedback: str = "") -> dict:
     """Present an LLM step and execute it using LLMClient or AGY backend.
@@ -1510,24 +1539,9 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     expected_schema_str = ""
     llm_manifest = None
     if manifest:
-        interface = manifest.get("interface", {})
-        # A hybrid step's OUTPUTS are what the step emits; they are not
-        # what the LLM writes. mesh_spine's post-bridge computes
-        # audio_spine and timed_spine from a creative `structure` - asking
-        # the LLM for the computed keys made it fail QA every run and fall
-        # through to "proceeding with best attempt".
-        # `interface.llm_outputs` declares the LLM's actual contribution.
-        if "llm_outputs" in interface:
-            llm_outputs = list(interface["llm_outputs"])
-        else:
-            outputs = interface.get("outputs", [])
-            # Never ask for a key the step already has: pre-bridge outputs
-            # are merged back in by run_hybrid_step.
-            already_have = set(inputs) | set(bridge_supplied or ())
-            llm_outputs = [
-                o for o in outputs if o.get("name") not in already_have
-            ]
-            
+        llm_outputs = llm_output_declarations(
+            manifest, set(inputs) | set(bridge_supplied or ()))
+
         if inputs.get("timeline_notes") and llm_outputs:
             llm_outputs.append({
                 "name": "note_acknowledgements",

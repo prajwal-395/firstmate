@@ -1,0 +1,74 @@
+{
+  "$schema": "../../schema/manifest.schema.json",
+  "id": "reels",
+  "name": "Reels — Build and Verify",
+  "version": "1.0.0",
+  "description": "Cuts the captain's APPROVED reel moments out of an existing master timeline onto their own Resolve timelines, and grades what was built against the plan it was built from. A SECOND product beside edit_video, not a phase of it.",
+  "level": "process",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": true,
+        "description": "Absolute path to the project. It must carry an approved reel plan, a timeline transcript, and a project.yaml naming the Resolve project and its master timeline."
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reel_build",
+        "type": "object",
+        "description": "What was placed: the timelines built, the plan they came from, and the caption content hashes recorded at build time."
+      },
+      {
+        "name": "reel_verification",
+        "type": "object",
+        "description": "The conformance verdict over what was built. A failure raises; this key existing means the reels conformed."
+      }
+    ]
+  },
+  "classification": {
+    "determinism": "nondeterministic",
+    "archetype": "composite",
+    "idempotent": true
+  },
+  "dependencies": [],
+  "tags": [
+    "reels",
+    "shortform",
+    "davinci-resolve",
+    "video-editing"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "dag.json"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "composition": {
+    "type": "dag",
+    "definition_file": "dag.json",
+    "components": [
+      {
+        "step_ref": "steps/step_7_01_build_reels",
+        "version_constraint": ">=1.0.0",
+        "role": "Cut every approved moment onto its own timeline"
+      },
+      {
+        "step_ref": "steps/step_7_02_verify_reels",
+        "version_constraint": ">=1.0.0",
+        "role": "Grade the built timelines against the plan"
+      }
+    ]
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-09-06",
+    "last_modified": "2026-09-06",
+    "source_process": "reels",
+    "notes": "Why this is a second process rather than nodes of edit_video is measured in docs/REEL_BUILD_HAS_NO_OWNING_NODE.md. It REUSES steps 4.01 and 4.05 through the operation registry (reel_build.reel_subtitle_segments) rather than growing a parallel caption path; library/steps/ is one tree and belongs to the repository, not to a process. There is no runner here: the two nodes are driven through library/tools/operations.py, which is what `manage_project.py build-reels` now does, because two of the five stages that make a reel are outside any DAG by construction - the transcript needs Resolve open and WhisperX loaded, and the approval is the captain's act."
+  }
+}

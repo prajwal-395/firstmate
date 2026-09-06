@@ -2,6 +2,17 @@
 
 Measured on `834a29b` (origin/main), 2026-09-06.
 
+> **ACTED ON, 2026-09-06.** The captain authorised the second process this
+> document asked for. `library/processes/reels/` now exists with `build_reels`
+> and `verify_reels` nodes, `reel.build` and `reel.verify` are in the operation
+> registry with DERIVED contracts, and `manage_project.py build-reels` runs that
+> process rather than reaching past it into `reel_build`.
+>
+> Everything below is the measurement that led there and is kept unchanged,
+> because the three refusals are still the reasons those nodes are not in
+> `edit_video`'s graph. Two paragraphs at the end - "Until that exists" and the
+> `data`-binding deferral - have been superseded and say so where they stand.
+
 Proposing reels is now addressable - `reel.candidates` and `reel.select` are in
 `library/tools/operations.py`, owned by `select_reels`, and their contract
 refuses. **Building** an approved reel onto a Resolve timeline is not, and this
@@ -55,13 +66,19 @@ choice**. A node cannot require its own output, so the approval gate cannot be
 derived here either. The step's decision is which conversations are worth a
 short; the build's decision is none - it is execution.
 
-### A new node - REFUSED
+### A new node IN EDIT_VIDEO'S GRAPH - REFUSED
 
 Inventing one to make the registration typecheck is the move this document
 exists instead of. A node that no run schedules, with no producer and no
 consumer, would be a fourth thing in `project_layout.STEPS` /
 `run_scope.DESELECTED_BY_DEFAULT` whose only purpose is to give an operation a
 name to point at.
+
+This is NOT the refusal that `build_reels` and `verify_reels` later overturned.
+They are nodes of a DIFFERENT graph, they have a producer and a consumer between
+them, and something schedules them: `manage_project.py build-reels` walks
+`library/processes/reels/dag.json`. What stays refused is a reel node inside a
+pipeline that produces one video from footage.
 
 ## Why no node fits, stated plainly
 
@@ -79,8 +96,13 @@ reusing the same steps 4.01/4.05 the caption path already reaches through the
 registry. That is a design decision with a cost, and it belongs to the captain,
 not to a registration that has to typecheck today.
 
-Until that exists, the build stays where it is: `manage_project.py build-reels`
--> `reel_build.rebuild_reels_in_project`. Nothing about that changed here, and no
+~~Until that exists, the build stays where it is: `manage_project.py build-reels`
+-> `reel_build.rebuild_reels_in_project`.~~ **SUPERSEDED.** It exists.
+`manage_project.cmd_build_reels` takes its node order off
+`library/processes/reels/dag.json` and runs each node through the operation
+registry, so the requirements below are checked BEFORE anything connects to
+Resolve. `reel_build` is still the only implementation of the build - the
+operation resolves to `step_7_01_build_reels/step.py`, which calls it - and no
 copy of it was made.
 
 ## Two things measured on the way that are worth keeping
@@ -100,16 +122,25 @@ mid-run crash `requirements.py` exists to move to before the run starts. And
 *"Running it by default would crash on the missing transcript."*
 
 `requirements.derive_runner_injected_keys` expresses it, still DERIVED - the
-consumers are read off the manifests. Measured over the whole tree, exactly two
-required inputs have no producing edge, and only one of them can be absent:
+consumers are read off the manifests. Measured over the whole tree, these are the
+required inputs with no producing edge, and only one KIND of them can be absent:
 
 | node | input | can it be absent? |
 |---|---|---|
 | `scan` | `project_folder` | no - a whitelisted global |
+| `build_reels` | `project_folder` | no - the same global |
+| `verify_reels` | `project_folder` | no - the same global |
 | `select_reels` | `timeline_transcript` | **yes, and it is by default** |
+| `build_reels` | `timeline_transcript` | **yes** |
+| `verify_reels` | `timeline_transcript` | **yes** |
+
+The three transcript rows are ONE requirement with three consumers, and the two
+new ones were not added anywhere: `derive_runner_injected_keys` reads which
+manifests declare the input required, so the reel process inherited the whole
+contract by declaring the input. That is what "derived, never hand-listed" buys.
 
 `tests/test_operations.py::test_the_transcript_is_the_only_required_input_no_edge_carries`
-re-measures that, so a third cannot appear unnoticed.
+re-measures this ACROSS EVERY PROCESS, so a new one cannot appear unnoticed.
 
 **2. An operation whose step body takes the whole input as `data` cannot
 `execute`, and this is pre-existing.**
@@ -121,15 +152,35 @@ raises `TypeError`. Five operations were already in that shape before this chang
 - `duration_zone.build`, `motion_graphics.render`, `color_grade.resolve`,
 `validation.resolve` - and `reel.candidates` / `reel.select` join them.
 
-It is **not** fixed here, deliberately. The runner builds a post-bridge's `data`
-as *step inputs + pre-bridge output + the model's answer*
-(`run_pipeline.py`, `merge_data`); `Operation.gather` returns the step inputs
-alone. Binding `data=gathered` would hand a post-bridge a dict missing the
-model's answer and let it produce a confidently wrong result instead of raising.
-A `TypeError` is honest; a silently incomplete `data` is not. Both reel
-operations are reachable through `.run(...)` today, which is how
-`reel_build.reel_subtitle_segments` already drives `subtitles.plan` and
-`subtitles.render_segment`.
+~~It is **not** fixed here, deliberately.~~ **FIXED, 2026-09-06**, and the
+deferral's reasoning is what shaped the fix rather than being discarded by it.
+
+The reasoning was: the runner builds a post-bridge's `data` as *step inputs +
+pre-bridge output + the model's answer* (`run_pipeline.py`, `merge_data`);
+`Operation.gather` returns the step inputs alone. Binding `data=gathered` would
+hand a post-bridge a dict missing the model's answer and let it produce a
+confidently wrong result instead of raising. A `TypeError` is honest; a silently
+incomplete `data` is not.
+
+Both halves of that are true, and the resolution is neither binding blindly nor
+raising `TypeError`:
+
+- **A PRE-bridge's `data` IS the step's inputs**, so the gathered dict is
+  complete and the call is not merely non-crashing, it is the same call the
+  runner makes. `duration_zone.build` now executes;
+  `tests/test_operations_execute.py::test_an_operation_whose_body_takes_the_merged_dict_executes`
+  runs it and reads the project's own declared duration back out of the result.
+- **A POST-bridge REFUSES**, naming the keys the model owes it and the two ways
+  to supply them. The keys come from `run_pipeline.llm_output_declarations` -
+  the same function `present_llm_step` asks the model with - so the guard and
+  the schema cannot disagree about what the model owes.
+
+The count was seven, not five: `sfx_library.validate` takes the whole dict under
+the name `inputs`, and `select_reels`' post-bridge takes it twice as
+`resolve(llm_output, data)` because its own `main()` calls `resolve(data, data)`.
+`operations.MERGED_INPUT_PARAMETERS` is those three spellings, asserted complete
+against the tree by
+`test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know`.
 
 **3. Step 3.04 told every project its transcript was in `lucie/geo-podcast`.**
 

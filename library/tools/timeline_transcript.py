@@ -558,7 +558,7 @@ def main(argv=None) -> int:
                         help="where to write; default is the project's scratch")
     args = parser.parse_args(argv)
 
-    project_name, timeline_name = timeline_ingest._names_from(args.project_folder)
+    project_name, timeline_name = timeline_ingest.resolve_binding(args.project_folder)
     snapshot, _p, _t = timeline_ingest.connect(project_name, timeline_name)
     print(f"{snapshot.timeline_name!r}: {len(snapshot.picture_clips())} "
           f"picture clips, speakers {snapshot.speakers()}", file=sys.stderr)

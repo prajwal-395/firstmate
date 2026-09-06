@@ -121,6 +121,30 @@ COMPLETED = "completed"
 REFUSED = "refused"
 STATUSES = (COMPLETED, REFUSED)
 
+POST_BRIDGE = "post_bridge.py"
+"""The body whose input the runner MERGES - step inputs, plus the
+pre-bridge's output, plus the model's answer (`run_pipeline.merge_data`).
+An operation gathers only the first of those three, which is why
+`Operation.missing_model_answer` exists."""
+
+MERGED_INPUT_PARAMETERS: tuple = ("data", "inputs", "llm_output")
+"""The parameter names a step body uses for THE WHOLE INPUT DICT.
+
+Not a guess and not a heuristic: these are the three spellings measured
+in this tree, and each is a body that never destructures. `data` is the
+bridge/post-bridge convention, `inputs` is
+`step_0_01_validate_sfx_library.validate_sfx_library(inputs)`, and
+`llm_output` is `step_3_04_select_reels.post_bridge.resolve`, whose own
+`main()` calls `resolve(data, data)` - the same merged dict twice.
+
+An ENUMERATION rather than inference, for the reason the finding gave:
+binding the merged dict to a parameter that wanted something else would
+produce a confidently wrong result, which is worse than a `TypeError`.
+So a fourth spelling must be added here deliberately, and
+`tests/test_operations_execute.py::test_no_operation_takes_a_merged_dict_
+under_a_name_this_module_does_not_know` fails the moment one appears
+without being."""
+
 
 @dataclass(frozen=True)
 class OperationResult:
@@ -353,6 +377,23 @@ class Operation:
                                   self.context(project_folder),
                                   self.requires)
 
+    def _dag(self) -> dict:
+        """The graph that DECLARES this operation's owning node.
+
+        The one lookup a second process needed.  Before
+        `library/processes/reels/` there was one graph, so this read
+        `edit_video/dag.json` and was right by accident; a node of the
+        reel process gathered against edit_video's edges would find none
+        of its own and silently hand the step an empty dict.
+
+        `library/tools/processes.py` owns the mapping, so a third process
+        needs no change here - and node ids are globally unique, which is
+        what makes "which graph declares this node" a question with one
+        answer.
+        """
+        from library.tools import processes
+        return processes.dag_declaring(self.owning_node)
+
     def gather(self, project_folder: str) -> dict:
         """The step's inputs, assembled the way the RUNNER assembles them.
 
@@ -361,6 +402,11 @@ class Operation:
         inputs and the raise on a missing required key.  A second
         implementation here would drift from the runner within a month,
         and the drift would be invisible because both would "work".
+
+        It is process-AGNOSTIC - it takes a dag, a state and a manifest -
+        so the reel process reuses the runner's assembler rather than
+        growing one, which is the same reuse the caption path already
+        makes of steps 4.01 and 4.05.
         """
         import sys as _sys
 
@@ -372,7 +418,7 @@ class Operation:
             _sys.path.insert(0, str(process_dir))
         import run_pipeline
 
-        dag = run_scope.load_dag()
+        dag = self._dag()
         manifests = run_scope.load_manifests(dag)
         state = {}
         path = ProjectLayout(project_folder).pipeline_data_path
@@ -406,6 +452,32 @@ class Operation:
 
         inputs = self.gather(project_folder)
         inputs.update(overrides)
+
+        # A post-bridge resolves the MODEL's answer against the step's
+        # own measurements. Run as an operation it is handed the
+        # measurements alone, so it would resolve a plan nobody wrote and
+        # return it looking like a result. Refused by name instead, and
+        # the way out is stated: pass the model's keys as overrides, or
+        # run the step so the runner asks the model for them.
+        owed = self.missing_model_answer(inputs)
+        if owed:
+            return OperationResult(
+                operation=self.name, owning_node=self.owning_node,
+                scope=where, status=REFUSED,
+                error=(
+                    f"{self.name} is the POST-BRIDGE of {self.owning_node}: "
+                    f"the dict it takes is the step's inputs PLUS its "
+                    f"pre-bridge's output PLUS the model's answer, and an "
+                    f"operation gathers only the first of those three.\n"
+                    f"\nMissing what the model owes this step: "
+                    f"{', '.join(owed)}.\n"
+                    f"\nEither supply them - "
+                    f"`operations.get({self.name!r}).execute(project, "
+                    f"{owed[0]}=...)` - or run {self.owning_node} so the "
+                    f"runner asks the model for them. Resolving without "
+                    f"them would produce a confident answer to a question "
+                    f"nobody was asked."))
+
         payload = self.run(**self._arguments(inputs))
         return OperationResult(
             operation=self.name, owning_node=self.owning_node,
@@ -466,13 +538,82 @@ class Operation:
         four of those keys must not be handed forty. Reading the real
         signature rather than a declaration keeps this true when the
         function changes.
+
+        THE MERGED-DICT CASE, which used to make an operation
+        unexecutable. Seven of the step bodies in this tree do not
+        destructure their input at all - they take the WHOLE dict under
+        one parameter, because that is what the runner writes to their
+        stdin. Binding by name gave those `{}` and the call raised
+
+            TypeError: build_duration_zone() missing 1 required
+            positional argument: 'data'
+
+        so `sfx_library.validate`, `duration_zone.build`,
+        `motion_graphics.render`, `color_grade.resolve`,
+        `validation.resolve`, `reel.candidates` and `reel.select` were
+        catalogue entries: registered, listed, `--emit-skill`-ed, and
+        unable to run. An operation that cannot execute is exactly what
+        this refactor set out to stop being.
+        `tests/test_operations_execute.py` now EXECUTES one of them.
         """
         import inspect
         parameters = inspect.signature(self.run).parameters
         if any(p.kind is inspect.Parameter.VAR_KEYWORD
                for p in parameters.values()):
             return dict(inputs)
-        return {name: inputs[name] for name in parameters if name in inputs}
+        bound = {name: inputs[name] for name in parameters if name in inputs}
+        for name in parameters:
+            # A REAL gathered key of that name always wins - the loop
+            # above ran first - so this only ever fills a parameter
+            # nothing else could satisfy.
+            if name in MERGED_INPUT_PARAMETERS and name not in bound:
+                bound[name] = dict(inputs)
+        return bound
+
+    def missing_model_answer(self, merged: dict) -> tuple:
+        """Which keys the MODEL owes this body that the merged dict lacks.
+
+        Empty for everything that is not a post-bridge, and that is the
+        whole distinction the finding
+        (`docs/REEL_BUILD_HAS_NO_OWNING_NODE.md`) said had to be made
+        before `data` could be bound at all:
+
+            The runner builds a post-bridge's `data` as *step inputs +
+            pre-bridge output + the model's answer* (`merge_data`);
+            `Operation.gather` returns the step inputs alone. Binding
+            `data=gathered` would hand a post-bridge a dict missing the
+            model's answer and let it produce a confidently wrong result
+            instead of raising. A `TypeError` is honest; a silently
+            incomplete `data` is not.
+
+        Both halves of that are true, and the resolution is neither
+        binding blindly nor raising `TypeError`: it is a REFUSAL that
+        names the missing keys and the way to supply them. A pre-bridge
+        is unaffected - its `data` IS the step's inputs, so the gathered
+        dict is complete and the call is correct.
+
+        The declarations come from the runner's own
+        `llm_output_declarations`, never from a second reading here, so
+        this and the schema the model is really asked for cannot
+        disagree.
+        """
+        if self.body != POST_BRIDGE:
+            return ()
+        import sys as _sys
+
+        from library.tools import run_scope
+
+        process_dir = REPO_ROOT / "library" / "processes" / "edit_video"
+        if str(process_dir) not in _sys.path:
+            _sys.path.insert(0, str(process_dir))
+        import run_pipeline
+
+        manifest = run_scope.load_manifests(
+            self._dag()).get(self.owning_node) or {}
+        declared = run_pipeline.llm_output_declarations(manifest,
+                                                        set(merged))
+        return tuple(o.get("name") for o in declared
+                     if o.get("name") and o.get("name") not in merged)
 
     def supports(self, scope: Scope) -> bool:
         return scope.kind in self.scopes
@@ -547,13 +688,26 @@ _REGISTRY: tuple[Operation, ...] = (
     # ── Reels ────────────────────────────────────────────────────────
     #
     # PROPOSING a reel is `select_reels`' own decision, and both halves
-    # of that step are here.  BUILDING one onto a Resolve timeline is
-    # NOT here, and that is a finding rather than an omission:
-    # docs/REEL_BUILD_HAS_NO_OWNING_NODE.md says which node was checked,
-    # what its derived contract would have asked for, and why registering
-    # the build under it would produce a contract that refuses for a
-    # reason that is not true and passes on a project with no approved
-    # reel in it.
+    # of that step are here.  BUILDING and VERIFYING one belong to the
+    # OTHER PROCESS - `library/processes/reels` - and that is the whole
+    # of what changed since docs/REEL_BUILD_HAS_NO_OWNING_NODE.md.
+    #
+    # That finding checked three homes for the build inside edit_video
+    # and refused all three: `render`, whose one derived requirement is
+    # an `assembly_manifest` the build never reads, so it would refuse
+    # for a reason that is not true AND pass on a project with no
+    # approved reel in it; `select_reels`, which cannot require the
+    # captain's approval of its own output; and a new node in a graph no
+    # run schedules.  Its conclusion was that the honest structure is a
+    # SECOND PROCESS, and the captain authorised one.
+    #
+    # So `build_reels` and `verify_reels` are real nodes of a real graph
+    # with real edges, and their contracts are DERIVED exactly like every
+    # other: `timeline_transcript.on_file` comes off their manifests,
+    # `state.verify_reels.reel_build` comes off the edge between them.
+    # What no derivation could see - a plan the captain ruled on, a
+    # project.yaml naming a master timeline - is hand written in
+    # `requirements.EXTERNAL_STATE` and NAMED by both manifests.
     Operation(
         name="reel.candidates",
         summary="Measure every contiguous exchange in the cut, ranked and filtered by nothing",
@@ -567,6 +721,20 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="post_bridge.py",
         attr="resolve",
+    ),
+    Operation(
+        name="reel.build",
+        summary="Cut every APPROVED moment onto its own Resolve timeline, bad takes removed",
+        owning_node="build_reels",
+        owning_dir="step_7_01_build_reels", body="step.py",
+        attr="build_reels",
+    ),
+    Operation(
+        name="reel.verify",
+        summary="Grade the built reel timelines against the plan they were built from",
+        owning_node="verify_reels",
+        owning_dir="step_7_02_verify_reels", body="step.py",
+        attr="verify_reels",
     ),
     Operation(
         name="music.analyse",

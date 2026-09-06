@@ -734,10 +734,51 @@ def connect(project_name: str = "", timeline_name: str = ""):
     return snapshot_timeline(timeline, project.GetName()), project, timeline
 
 
-def _names_from(project_folder: str):
-    from library.schemas.project_config import load_project_config
-    config = load_project_config(os.path.join(project_folder, "project.yaml"))
-    return config.resolve.project_name, config.resolve.timeline_name
+def resolve_binding(project_folder: str):
+    """`(resolve project name, master timeline name)` a project DECLARES.
+
+    ONE reader, because a project's Resolve binding is addressed by its
+    EXACT listed name and a near match lands on another project
+    (AGENTS.md 5) - so a second spelling of "which project" is a second
+    chance to open the wrong one.  This module is where that rule lives,
+    which is why the reader is here.
+
+    Never invents: a project.yaml that names neither comes back as two
+    empty strings, and the CALLER decides what an empty binding means.
+    An unreadable or absent project.yaml is the same answer for the same
+    reason - the file not being there is not a different kind of "this
+    project declares no binding", and raising would make every caller
+    write the same try/except.
+
+    Read as RAW YAML rather than through `load_project_config`, and that
+    is not laziness.  The validator demands a whole valid `ProjectConfig`
+    - a `slug`, a source block - and raises `ValueError` for a project
+    that is missing any of them.  `reel_build.rebuild_reels_in_project`
+    has always read this block with a plain `yaml.safe_load`, so a
+    reader that went through the validator would refuse projects the
+    build itself builds happily: a gate that FAILS correct input, which
+    is no more coverage than one that cannot fail (AGENTS.md 10.4).  The
+    question here is narrow - does the project DECLARE these two names -
+    and it must be answerable without the rest of the file being well
+    formed.
+    """
+    try:
+        import yaml
+    except ImportError:                                   # pragma: no cover
+        return "", ""
+    path = os.path.join(project_folder or "", "project.yaml")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            declared = yaml.safe_load(handle) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return "", ""
+    if not isinstance(declared, dict):
+        return "", ""
+    binding = declared.get("resolve") or {}
+    if not isinstance(binding, dict):
+        return "", ""
+    return (str(binding.get("project_name") or ""),
+            str(binding.get("timeline_name") or ""))
 
 
 def main(argv=None) -> int:
@@ -753,7 +794,7 @@ def main(argv=None) -> int:
                         help="write the supplied values into <project>/external/")
     args = parser.parse_args(argv)
 
-    project_name, timeline_name = _names_from(args.project_folder)
+    project_name, timeline_name = resolve_binding(args.project_folder)
     snapshot, _project, _timeline = connect(args.project or project_name,
                                             args.timeline or timeline_name)
 

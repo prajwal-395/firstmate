@@ -74,15 +74,22 @@ def test_the_runner_injected_half_is_derived_and_is_a_state_key():
     raised for it mid-run instead, which is the crash this module exists
     to move earlier.
 
-    DERIVED, not listed: the consumers come off the manifests.
-    `tests/test_operations.py` re-measures that exactly one input is in
-    this shape.
+    DERIVED, not listed: the consumers come off the manifests, which is
+    what let a SECOND PROCESS inherit this requirement with nothing
+    added here. `build_reels` and `verify_reels` declare
+    `timeline_transcript` required in their own manifests and appear
+    below because of that alone - the reel path is cut from the same
+    transcript, and if a manifest stops declaring it, it leaves this
+    list the same way.
+
+    `tests/test_operations.py` re-measures which inputs are in this
+    shape across every process.
     """
     injected = R.derive_runner_injected_keys()
     assert [r.name for r in injected] == ["timeline_transcript.on_file"]
     only = injected[0]
     assert only.kind == R.KIND_STATE_KEY
-    assert only.consumers == ("select_reels",)
+    assert only.consumers == ("build_reels", "select_reels", "verify_reels")
     # Empty and load-bearing: `_producer_will_make_it` never defers a
     # requirement with no producer, and `describe_refusal` prints no
     # "run the producers" line for one. There is no step to run.

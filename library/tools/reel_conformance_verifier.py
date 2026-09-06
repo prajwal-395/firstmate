@@ -3089,10 +3089,12 @@ def main(argv=None) -> int:
              "from master if absent)")
     parser.add_argument(
         "--transcript", default="",
-        help="Path to the timeline transcript "
-             "(pipeline_output/scratch/timeline_transcript/transcript.json). "
-             "F5, F8 and the bad-take cuts cannot be measured without it; "
-             "omitted, the run SAYS they did not run")
+        help="Path to the timeline transcript, written by `python3 -m "
+             "library.tools.timeline_transcript <project> --write` - that "
+             "module owns where it lands, so this names the producer "
+             "rather than restating the path. F5, F8 and the bad-take "
+             "cuts cannot be measured without it; omitted, the run SAYS "
+             "they did not run")
     parser.add_argument(
         "--json", default="",
         help="Path to write machine-readable JSON output")

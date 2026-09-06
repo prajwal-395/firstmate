@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schema/dag.schema.json",
+  "id": "reels",
+  "nodes": [
+    {
+      "id": "build_reels",
+      "name": "Build Approved Reels",
+      "step_ref": "steps/step_7_01_build_reels",
+      "type": "step",
+      "estimated_duration_seconds": 900
+    },
+    {
+      "id": "verify_reels",
+      "name": "Verify Built Reels",
+      "step_ref": "steps/step_7_02_verify_reels",
+      "type": "step",
+      "estimated_duration_seconds": 120
+    }
+  ],
+  "edges": [
+    {
+      "from": "build_reels",
+      "to": "verify_reels",
+      "data_mapping": {
+        "reel_build": "reel_build"
+      }
+    }
+  ],
+  "entry_nodes": ["build_reels"],
+  "exit_nodes": ["verify_reels"]
+}
