@@ -170,6 +170,35 @@ $ gh api /rate_limit --jq '.resources.core.remaining'
 4966
 ```
 
+## The comment payload carries no fleet mark
+
+Measured on 2026-09-07 against github.com with `gh` 2.92.0, on the same `prajwal-395` account the fleet and the captain share, reading back the two comments that woke firstmate that week: the stale-PR close comment on `prajwal-395/video_editing_pilot#578` (posted with `gh pr close --comment`) and the crewmate's rebase-confirmation note on `prajwal-395/video_editing_pilot#609` (posted with a bare comment call).
+
+```sh
+$ gh api "/repos/prajwal-395/video_editing_pilot/issues/609/comments?per_page=30" \
+    --jq '.[] | {id, user: .user.login, assoc: .author_association, app: .performed_via_github_app}'
+{"id":5573827699,"user":"prajwal-395","assoc":"OWNER","app":null}
+```
+
+The full object carries `user.type: User`, `user.id: 83850611`, and the same login, association and null app attribution a captain's answer posted from the same account carries.
+Thirty-comment surveys of both `video_editing_pilot` and `firstmate` show a single login, `prajwal-395`, behind every recent comment.
+An author or identity filter would therefore discard the captain's answers along with the fleet's notes, which is the channel's entire purpose, so no such filter exists.
+The discriminator stays what was written, recorded by id: `fm-tracker.sh comment` and every answer and outcome it posts record the id GitHub returns, the poll skips exactly those ids, and anything unrecorded wakes firstmate whoever authored it.
+
+A comment written outside that write path - `gh pr close --comment`, `gh issue comment`, a bare `gh api ... /comments` call - is registered after the fact instead:
+
+```sh
+$ bin/fm-tracker.sh record-comment 5561955455 5573827699
+recorded 2 comment id(s)
+
+$ bin/fm-tracker-notify.sh --task live      # silent: the fleet wrote both
+$ echo $?
+0
+```
+
+To close with a comment and stay on the recording path, close first and comment second: `gh pr close <n>` leaves no comment, then `fm-tracker.sh comment <owner/repo> <n> --body ...` posts the explanation and records it.
+`tests/fm-tracker.test.sh` replays both incidents with their real ids and author fields, proving each direction: each registered id is silent, and an unregistered id under the identical login still wakes.
+
 ## Watcher cadence versus the server's cadence
 
 `bin/fm-watch.sh` sweeps checks every `FM_CHECK_INTERVAL` seconds, default 300, and allows `FM_CHECK_TIMEOUT` seconds per check, default 30.

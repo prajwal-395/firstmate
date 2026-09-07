@@ -55,10 +55,17 @@
 #   5. The wake firing on the fleet's own writing. Every comment the fleet
 #      writes is recorded by id as it is written, and the poll skips exactly
 #      those ids. The author cannot serve as the discriminator - the fleet
-#      authenticates as the captain's own account - so THIS SCRIPT IS THE ONLY
-#      WAY THE FLEET MAY COMMENT: a bare `gh api ... /comments` call leaves no
-#      record and wakes firstmate on what firstmate just wrote. Use
-#      `fm-tracker.sh comment`.
+#      authenticates as the captain's own account, so ignoring that login would
+#      discard the captain's answers - the one thing the wake exists to deliver.
+#      It is the same trap the assignment rule documents, with the same root.
+#      The comment feed carries no other fleet mark: user, author association
+#      and app attribution are identical for a crewmate's note and a captain's
+#      answer, measured live in docs/verification/github-tracker-wake.md. So
+#      THIS SCRIPT IS THE ONLY WAY THE FLEET MAY COMMENT: a bare `gh api ...
+#      /comments` call, `gh pr close --comment` and `gh issue comment` leave no
+#      record and wake firstmate on what firstmate just wrote. Use
+#      `fm-tracker.sh comment`, or register an already-posted comment with
+#      `fm-tracker.sh record-comment` before the next poll sees it.
 #
 #   5b. A row that must not be published being published anyway. `sync` runs on
 #      every dispatch, so a row kept off a board by hand is filed by the next
@@ -115,6 +122,16 @@
 #   fm-tracker.sh comment <owner/repo> <n> --body <text>|--body-file <path>
 #     The fleet's only issue-comment write path, so the wake can tell a comment
 #     firstmate wrote from one the captain wrote on the same account.
+#     A comment written any other way - `gh pr close --comment`, `gh issue
+#     comment`, a bare `gh api ... /comments` call - leaves no record and wakes
+#     firstmate on what firstmate just wrote. To close with a comment, close
+#     first and comment second: `gh pr close <n>` leaves no comment, then
+#     `comment` above posts the explanation and records it. When another tool
+#     already posted the comment, `record-comment` below registers its id
+#     afterwards instead.
+#   fm-tracker.sh record-comment <comment-id>...
+#     Register comment ids the fleet wrote outside `comment` above, so the wake
+#     skips them. Pass each id GitHub returned; non-numeric ids are refused.
 #   fm-tracker.sh validate <owner/repo>
 #   fm-tracker.sh task-open <owner/repo> --task <task-id> --title <title>
 #                     [--kind <ship|scout>] [--project <name>] [--hold <text>]
@@ -555,6 +572,27 @@ cmd_comment() {
     || die "could not comment on #$num"
   record_self_comment "$comment_id"
   printf 'commented on #%s\n' "$num"
+}
+
+# Register comment ids the fleet wrote outside cmd_comment above - a
+# `gh pr close --comment`, a `gh issue comment`, a bare `gh api` call - so
+# the wake recognises them as its own writing. Recording is what suppresses,
+# not authorship: an id absent from the record always wakes, whoever wrote it.
+# A failure here is fatal, unlike the write paths' best-effort record: there
+# is no comment already posted by this command whose cost is only one wake,
+# so refusing loudly beats pretending an unrecorded id was kept.
+cmd_record_comment() {
+  local id recorded=0
+  [ "$#" -gt 0 ] || usage_die "record-comment requires at least one <comment-id>"
+  for id in "$@"; do
+    case "$id" in
+      ''|*[!0-9]*) usage_die "record-comment requires numeric comment ids, got '$id'" ;;
+    esac
+    fm_tracker_self_comment_record "$STATE" "$id" \
+      || die "could not record comment id $id in $FM_TRACKER_SELF_FILE"
+    recorded=$((recorded + 1))
+  done
+  printf 'recorded %s comment id(s)\n' "$recorded"
 }
 
 # ---------------------------------------------------------------------------
@@ -1280,7 +1318,7 @@ case $CMD in
   release) cmd_release "$@" ;;
   answer) cmd_answer "$@" ;;
   comment) cmd_comment "$@" ;;
-  validate) cmd_validate "$@" ;;
+  record-comment) cmd_record_comment "$@" ;;  validate) cmd_validate "$@" ;;
   hold) cmd_hold "$@" ;;
   unhold) cmd_unhold "$@" ;;
   withhold) cmd_withhold "$@" ;;

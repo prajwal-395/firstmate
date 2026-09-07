@@ -23,9 +23,15 @@
 # not be woken by its own writing. The filter is the record of comment ids the
 # fleet wrote (bin/fm-tracker-lib.sh owns it), never the author: the fleet
 # authenticates as the captain's own account, so an author filter would discard
-# the captain's answers. The record is passed to the parser for the comment
-# source only - the inbox structurally cannot deliver an account its own
-# actions, so nothing there needs suppressing.
+# the captain's answers, and the feed carries no other fleet mark - user,
+# author association and app attribution are identical either way, measured in
+# docs/verification/github-tracker-wake.md. The record covers `fm-tracker.sh
+# comment` and every answer and outcome it posts; a comment written any other
+# way (`gh pr close --comment`, `gh issue comment`, a bare `gh api` call) must
+# be registered with `fm-tracker.sh record-comment` before the next poll, or it
+# wakes firstmate as a stranger's would. The record is passed to the parser for
+# the comment source only - the inbox structurally cannot deliver an account
+# its own actions, so nothing there needs suppressing.
 #
 # Measured against github.com on 2026-08-25; docs/verification/github-tracker-wake.md
 # owns the exact commands and output behind both claims.
