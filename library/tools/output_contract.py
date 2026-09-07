@@ -233,9 +233,9 @@ REPORTED_NOT_CONSUMED = {
         "from the other side.",
 
     ("temporal_index", "total_indexed"):
-        "A count. DECISION: it stays unread - it is `len(full_indices)`, "
-        "and the measurements themselves travel as `full_indices` on ten "
-        "edges. 17 and 17 on 001.",
+        "A count. DECISION: it stays unread - it is "
+        "`len(temporal_event_indices)`, and the measurements themselves "
+        "travel as `temporal_event_indices` on ten edges. 17 and 17 on 001.",
     ("temporal_index", "total_reused"):
         "A count - how much of the index came off cache. DECISION: it "
         "stays unread; the step prints it to stderr and nothing decides "

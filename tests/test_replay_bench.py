@@ -65,7 +65,7 @@ def _write_project(root: Path) -> Path:
             ]},
             "semantic_analysis": {"semantic_analysis_documents": docs,
                                   "total_clips_analyzed": 2},
-            "temporal_index": {"full_indices": [
+            "temporal_index": {"temporal_event_indices": [
                 {"clip_id": "clip_001",
                  "speech_regions": [{"start": 0.5, "end": 3.0, "text": "hello"}],
                  "scene_boundaries": [{"time": 0.0, "type": "start"}]},

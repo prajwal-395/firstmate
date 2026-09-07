@@ -481,7 +481,7 @@ def test_zero_reused_clips_is_not_reported_as_empty():
     manifest = json.loads(
         (REPO / "library" / "steps" / "step_1_04_temporal_index" /
          "manifest.json").read_text(encoding="utf-8"))
-    good = {"full_indices": [{"clip_id": "clip_001"}], "index_dir": "/i",
+    good = {"index_dir": "/i",
             "source": "fresh", "temporal_event_indices": [{"clip_id": "c"}],
             "total_failed": 0, "total_indexed": 1, "total_reused": 0}
     assert validate_step_output("temporal_index", good, manifest) == []

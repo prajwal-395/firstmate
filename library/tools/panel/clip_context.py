@@ -274,12 +274,12 @@ def _join_transcript(facts: ClipFacts, outputs: dict,
                      context: ResolveContext) -> None:
     """What was said in this clip, in the seconds the timeline plays.
 
-    Read off step 1.04's `full_indices`, which is a LIST of per-clip
+    Read off step 1.04's `temporal_event_indices`, which is a LIST of per-clip
     dicts and not a mapping (AGENTS.md 10.3) - the shape a `.get` on it
     silently misses.
     """
     index = outputs.get("temporal_index") or {}
-    per_clip = index.get("full_indices")
+    per_clip = index.get("temporal_event_indices")
     if not isinstance(per_clip, list) or not per_clip:
         facts.absences.append(
             "Step 1.04 has recorded no temporal index in this project, so "

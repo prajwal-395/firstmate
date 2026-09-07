@@ -155,7 +155,7 @@ class TestSubjectCentersByClip:
         assert subject_centers_by_clip(None) == {}
 
     def test_reads_the_shape_step_1_04_actually_emits(self):
-        """`full_indices` is a LIST, and it is the only shape a real run
+        """`temporal_event_indices` is a LIST, and it is the only shape a real run
         produces (library/steps/step_1_04_temporal_index/step.py).
 
         Every test above this one feeds an invented mapping, so this
@@ -167,7 +167,7 @@ class TestSubjectCentersByClip:
             "temporal_event_indices": [
                 {"clip_id": "clip_011", "index_path": "/tmp/clip_011.json"},
             ],
-            "full_indices": [
+            "temporal_event_indices": [
                 {"clip_id": "clip_011",
                  "source_file": "/footage/IMG_1816.MOV",
                  "face_presence": face_track([0.3] * 10)},
@@ -184,7 +184,7 @@ class TestSubjectCentersByClip:
         assert subject_center_x(got["clip_011"], 0.0, 2.0) == pytest.approx(0.3)
 
     def test_list_entries_without_face_presence_are_skipped(self):
-        idx = {"full_indices": [{"clip_id": "clip_001"}, "not a dict"]}
+        idx = {"temporal_event_indices": [{"clip_id": "clip_001"}, "not a dict"]}
         assert subject_centers_by_clip(idx) == {}
 
 

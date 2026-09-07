@@ -165,7 +165,8 @@ def test_a_speech_block_carries_its_line_and_a_slot_carries_its_note():
 # ── The transient column ──────────────────────────────────────────────
 
 
-def test_the_transient_column_is_measured_not_a_constant():
+def test_the_transient_column_is_measured_not_a_constant(monkeypatch):
+    monkeypatch.setattr('library.steps.step_4_04_plan_sfx.bridge._temporal_lookup', lambda data: {t['clip_id']: t for t in data.get('temporal_event_indices', [])})
     """It was the literal string "No" on every row it built.
 
     Now it counts the energy peaks step 1.04 measured inside the
@@ -223,7 +224,8 @@ def test_transient_count_is_none_without_an_index_for_the_clip():
     assert transient_count(block, {}) is None
 
 
-def test_one_transient_is_singular():
+def test_one_transient_is_singular(monkeypatch):
+    monkeypatch.setattr('library.steps.step_4_04_plan_sfx.bridge._temporal_lookup', lambda data: {t['clip_id']: t for t in data.get('temporal_event_indices', [])})
     block = dict(_spine()["structure"][2], source_start=9.7, source_end=10.0)
     lookup = {t["clip_id"]: t for t in _temporal()}
     assert transient_count(block, lookup) == 1

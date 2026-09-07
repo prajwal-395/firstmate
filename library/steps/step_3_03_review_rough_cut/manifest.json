@@ -58,7 +58,7 @@
         "name": "temporal_index",
         "type": "array",
         "required": false,
-        "description": "State input: temporal_index - the word-level index step 1.04 wrote, mapped from its `full_indices`. It is the only input this step is routed that is a MEASUREMENT rather than an upstream decision, and it is what Check 5 - which this handoff calls the most important step of Part 2 - reconstructs the actual script from. It reaches the prompt through `view:transcript`, which leaves the per-word timings behind (AGENTS.md 10.1); step.py still receives the whole thing unprojected."
+        "description": "State input: temporal_index - the word-level index step 1.04 wrote, mapped from its `temporal_event_indices`. It is the only input this step is routed that is a MEASUREMENT rather than an upstream decision, and it is what Check 5 - which this handoff calls the most important step of Part 2 - reconstructs the actual script from. It reaches the prompt through `view:transcript`, which leaves the per-word timings behind (AGENTS.md 10.1); step.py still receives the whole thing unprojected."
       },
       {
         "name": "timeline_notes",

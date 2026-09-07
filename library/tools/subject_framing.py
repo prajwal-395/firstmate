@@ -72,9 +72,11 @@ and points here.
 - `tests/test_subject_survives_the_conform.py`.
 """
 
+import json
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # A clip needs a few detections before its median means anything. At 5Hz
 # this is 0.8s of face. Below it, one false positive would swing the crop.
@@ -217,6 +219,58 @@ def subject_center_x(
         return None
 
     return round(cx, 4)
+
+
+def load_face_tracks_from_files(project_dir: str) -> Dict[str, dict]:
+    """Per-clip face_presence blocks, loaded from the per-clip index FILES.
+
+    This reads ``pipeline_output/steps/1_04_temporal_index/index/clip_*.json``
+    directly - the same files ``vision_pipeline_v3.load_temporal_index`` reads
+    and every other temporal-index consumer already takes.  It replaces the
+    in-state ``full_indices`` path that ``subject_centers_by_clip`` used to
+    walk, so the 2.35 MB state copy is no longer needed for subject framing.
+
+    Returns a dict mapping both ``clip_id`` and the source-file stem to the
+    clip's ``face_presence`` block, matching the shape
+    ``subject_centers_by_clip`` returns.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    out: Dict[str, dict] = {}
+    try:
+        layout = ProjectLayout(project_dir)
+        index_dir = layout.read_dir(Area.TEMPORAL_INDEX)
+    except Exception:
+        return out
+
+    if not index_dir.is_dir():
+        return out
+
+    for path in sorted(index_dir.glob("clip_*.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                entry = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        face = entry.get("face_presence")
+        if not isinstance(face, dict):
+            continue
+
+        clip_id = entry.get("clip_id")
+        if clip_id:
+            out[clip_id] = face
+
+        # Also key by source-file stem, the same way
+        # subject_centers_by_clip does for the in-state path.
+        src = entry.get("source_file") or entry.get("path")
+        if src:
+            stem = os.path.splitext(os.path.basename(src))[0]
+            if stem:
+                out[stem] = face
+
+    return out
 
 
 def subject_centers_by_clip(

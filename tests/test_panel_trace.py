@@ -95,7 +95,7 @@ def test_a_stranded_failure_is_named(tmp_path):
 
 # ── Reading a level costs a level ────────────────────────────────────
 
-BIG = {"full_indices": [{"clip_id": "clip_%03d" % i,
+BIG = {"temporal_event_indices": [{"clip_id": "clip_%03d" % i,
                          "speech_regions": [{"text": "x" * 400}] * 40}
                         for i in range(17)],
        "total_indexed": 17,
@@ -108,7 +108,7 @@ def test_the_top_level_of_a_large_output_is_four_lines(tmp_path):
                "temporal_index")
     result = trace.trace_step(project, row, trace.FROM_STATE, ())
     assert result.error == ""
-    assert [e.key for e in result.entries] == ["full_indices",
+    assert [e.key for e in result.entries] == ["temporal_event_indices",
                                                "total_indexed", "source"]
     assert result.leaf is None, "a level is not a leaf"
 
@@ -117,7 +117,7 @@ def test_a_preview_never_serialises_the_subtree():
     """A dict previews as its KEY NAMES and a list as the shape of its
     first item. Rendering the subtree here is what makes a 'summary' view
     cost the same as a dump."""
-    preview = trace.preview(BIG["full_indices"])
+    preview = trace.preview(BIG["temporal_event_indices"])
     assert preview.startswith("[17 x {")
     assert "clip_id" in preview
     assert "x" * 100 not in preview
@@ -129,20 +129,20 @@ def test_descending_reaches_the_value_and_nothing_above_it(tmp_path):
     row = next(r for r in trace.step_rows(project) if r.node_id ==
                "temporal_index")
     result = trace.trace_step(project, row, trace.FROM_STATE,
-                              ("full_indices", 3))
+                              ("temporal_event_indices", 3))
     assert result.error == ""
     assert {e.key for e in result.entries} == {"clip_id", "speech_regions"}
 
 
 def test_a_leaf_is_bounded_and_says_what_did_not_fit():
     """A truncation that reads as an end is worse than no view at all."""
-    leaf = trace.render_leaf("y" * 40000, ("full_indices", 0, "text"),
+    leaf = trace.render_leaf("y" * 40000, ("temporal_event_indices", 0, "text"),
                              budget=1000)
     assert len(leaf.text) == 1000
     assert leaf.truncated
     assert leaf.withheld_bytes == 39000
     assert "39,000 more bytes" in leaf.note()
-    assert "full_indices/0/text" in leaf.note()
+    assert "temporal_event_indices/0/text" in leaf.note()
 
 
 def test_a_leaf_that_fits_says_nothing():
@@ -164,9 +164,9 @@ def test_a_missing_key_names_the_path_and_what_is_there():
     produced nothing, which is the confusion this surface exists to
     remove."""
     with pytest.raises(PathError) as exc:
-        trace.walk({"full_indices": []}, ("full_indicies",))
-    assert "full_indicies" in str(exc.value)
-    assert "full_indices" in str(exc.value), "it says what IS there"
+        trace.walk({"temporal_event_indices": []}, ("temporal_event_indicies",))
+    assert "temporal_event_indicies" in str(exc.value)
+    assert "temporal_event_indices" in str(exc.value), "it says what IS there"
 
 
 def test_an_index_outside_a_list_is_refused():

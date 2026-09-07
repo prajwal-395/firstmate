@@ -1884,7 +1884,6 @@ def build_temporal_index(
     index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX, step="temporal_index"))
 
     results = []
-    full_indices = []
     reused = 0
     total = len(raw_footage_files)
 
@@ -1923,8 +1922,6 @@ def build_temporal_index(
                 with open(index_path, "w", encoding="utf-8") as f:
                     json.dump(index, f, indent=2)
 
-            # Keep full index for downstream steps that need speech_regions
-            full_indices.append(index)
 
             results.append({
                 "clip_id": clip_id,
@@ -1959,7 +1956,6 @@ def build_temporal_index(
 
     return {
         "temporal_event_indices": results,
-        "full_indices": full_indices,
         "total_indexed": sum(1 for r in results if "error" not in r),
         "total_failed": sum(1 for r in results if "error" in r),
         "total_reused": reused,

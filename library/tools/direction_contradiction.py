@@ -177,7 +177,6 @@ DECLINED_OUTPUTS = {
     "total_files": "1.01 - a count of a listing",
     "total_clips": "1.02 - a count of a listing",
     "total_clips_analyzed": "1.03 - a count of a listing",
-    "full_indices": "1.04 - full_indices is routed as bare clip IDs, so the measurements do not reach the prompt",
     "index_dir": "1.04 - a path",
     "source": "1.04 - which route produced the index",
     "total_failed": "1.04 - a count",

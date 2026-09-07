@@ -70,7 +70,7 @@ def _transcript(data: dict) -> dict:
     """What was said, in which clip, between which two seconds.
 
     Built from the `temporal_index` input, which the DAG maps from step
-    1.04's `full_indices` - a LIST of per-clip dicts (AGENTS.md 10.3).
+    1.04's `temporal_event_indices` - a LIST of per-clip dicts (AGENTS.md 10.3).
     The per-word `words` array under each region is what this view exists
     to leave behind.
     """

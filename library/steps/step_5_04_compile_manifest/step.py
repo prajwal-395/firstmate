@@ -106,7 +106,8 @@ from tools.spine_contract import (
 )
 from tools.semantic_index import build_semantic_lookup
 from tools.subject_framing import (
-    SUBJECT_HEADROOM, subject_box, subject_center_x, subject_centers_by_clip,
+    SUBJECT_HEADROOM, load_face_tracks_from_files, subject_box,
+    subject_center_x,
 )
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
@@ -1410,9 +1411,11 @@ def compile_manifest(out_dir: str) -> dict:
     # a spine block. The default framing is unchanged: a clip with no
     # framing_intent still runs the legacy letterbox heuristic and never
     # reaches the branch that reads this.
-    temporal_data = (load(out_dir, "temporal_index.json")
-                     or load(out_dir, "step_1_04.json") or {})
-    _subject_faces = subject_centers_by_clip(temporal_data)
+    #
+    # Reads the per-clip index FILES directly rather than the in-state
+    # full_indices, so the heavy 2.35 MB state copy is not needed.
+    _project_dir = os.path.dirname(os.path.abspath(out_dir))
+    _subject_faces = load_face_tracks_from_files(_project_dir)
 
     def _face_track(clip_id):
         """This clip's `face_presence` block, or None."""

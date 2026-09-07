@@ -40,7 +40,7 @@ VISION = {"semantic_analysis_documents": [
                     "usable_ranges_method": "deterministic_v1"}},
 ]}
 
-TEMPORAL = {"full_indices": [
+TEMPORAL = {"temporal_event_indices": [
     {"clip_id": "clip_011", "speech_coverage": 0.61,
      "speech_coverage_method": "temporal_index",
      "speech_regions": [

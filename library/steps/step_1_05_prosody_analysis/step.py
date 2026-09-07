@@ -86,10 +86,10 @@ def analyse_prosody(raw_footage_files: list, project_folder: str = "",
                 except (json.JSONDecodeError, IOError):
                     pass
 
-        # Fallback: extract from full_indices in the pipeline state when
+        # Fallback: extract from temporal_event_indices in the pipeline state when
         # index_dir is unavailable or produced no results
         if not speech_boundaries:
-            for idx in temporal_index.get("full_indices", []):
+            for idx in temporal_index.get("temporal_event_indices", []):
                 clip_id = idx.get("clip_id", "")
                 regions = idx.get("speech_regions", [])
                 if clip_id and regions:

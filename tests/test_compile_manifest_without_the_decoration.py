@@ -128,7 +128,7 @@ def _step_outputs(a_roll: str, b_roll: str, music: str, sfx: str,
         "render_motion_graphics": {
             "motion_graphics_overlay": {"segments": []},
             "timed_text_overlay": {"segments": []}},
-        "temporal_index": {"full_indices": [
+        "temporal_index": {"temporal_event_indices": [
             {"clip_id": "clip_1", "face_presence": []}]},
     }
 

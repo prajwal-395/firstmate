@@ -15,11 +15,6 @@
     ],
     "outputs": [
       {
-        "name": "full_indices",
-        "type": "array",
-        "description": "State output: full_indices"
-      },
-      {
         "name": "index_dir",
         "type": "string",
         "description": "State output: index_dir"

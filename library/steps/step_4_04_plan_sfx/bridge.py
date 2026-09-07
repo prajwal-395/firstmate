@@ -129,18 +129,36 @@ def _temporal_lookup(data: dict) -> dict:
     """Per-clip temporal indices, keyed by `clip_id`.
 
     Step 1.04 keys these by catalog id - the same vocabulary the spine
-    speaks - so this join needs no stem translation. The DAG routes
-    `full_indices` here under the name `temporal_event_indices`; the
-    dict-wrapped shape is accepted because step 1.04's own output holds
-    both lists under one key.
+    speaks - so this join needs no stem translation. The state copy of
+    `full_indices` is being removed; this now reads the authoritative
+    per-clip FILES directly, the same way step 1.05 and vision tools do.
     """
-    raw = data.get("temporal_event_indices", [])
-    if isinstance(raw, dict):
-        raw = raw.get("temporal_event_indices", raw.get("full_indices", []))
-    if not isinstance(raw, list):
-        return {}
-    return {ti["clip_id"]: ti for ti in raw
-            if isinstance(ti, dict) and ti.get("clip_id")}
+    import json
+    from library.tools.project_layout import ProjectLayout, Area
+    
+    out = {}
+    project_folder = data.get("project_folder")
+    if not project_folder:
+        return out
+        
+    try:
+        layout = ProjectLayout(project_folder)
+        index_dir = layout.read_dir(Area.TEMPORAL_INDEX)
+        if not index_dir.is_dir():
+            return out
+            
+        for path in index_dir.glob("clip_*.json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    entry = json.load(f)
+                if isinstance(entry, dict) and entry.get("clip_id"):
+                    out[entry["clip_id"]] = entry
+            except (json.JSONDecodeError, IOError):
+                continue
+    except Exception:
+        pass
+        
+    return out
 
 
 def _summary_text(block: dict) -> str:

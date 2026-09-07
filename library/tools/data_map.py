@@ -1581,7 +1581,7 @@ ANCHORS: Dict[str, str] = {
     "OUT@semantic_analysis#semantic_analysis_documents[].analysis.scene":
         "Declared by four steps' `context_fields` AND read by "
         "`step_5_01_color_grade/grade.py`. Both routes at once.",
-    "OUT@temporal_index#full_indices[].speech_regions[].text":
+    "OUT@temporal_index#temporal_event_indices[].speech_regions[].text":
         "Reaches two prompts through `view:transcript` and NOTHING "
         "else. If the view route regresses, the whole prompt side of "
         "the map goes quiet.",
@@ -1611,24 +1611,7 @@ NOT_READ_ANCHORS: Dict[str, str] = {
 }
 
 
-KNOWN_MISSED_READS: Dict[str, str] = {
-    "OUT@temporal_index#full_indices[].face_presence.face_center_x":
-        "READ, and this map cannot see it. "
-        "`compile_manifest` calls `subject_framing.subject_centers_by_"
-        "clip(temporal_data)`, which walks `full_indices` in a NESTED "
-        "function `_record` that writes into the enclosing `out` - and "
-        "`out` is what the function returns. `field_flow` binds "
-        "parameters and returns, not names closed over by an inner "
-        "function, so the chain breaks there and `subject_center_x` "
-        "reads a value the map lost. Verified by hand 2026-09-07: "
-        "`subject_framing.py:172` and `:341`. Closure support was tried "
-        "and REVERTED - sharing free names took the analysis from 7s to "
-        "86s and multiplied the accesses 44-fold, which is imprecision "
-        "rather than reach.",
-    "OUT@temporal_index#full_indices[].face_presence.face_width":
-        "The same call, the same closure: `subject_framing.py:344`. "
-        "AGENTS.md 10.3 - `SUBJECT_HEADROOM` is measured off it.",
-}
+KNOWN_MISSED_READS: Dict[str, str] = {}
 """Fields this map reports as unread that a HAND CHECK found a reader for.
 
 The map errs in one direction and this is what that direction looks
@@ -1717,7 +1700,7 @@ UNREAD_BUDGET: Dict[str, int] = {
     "DOC@render_batch_jobs": 0,
     "DOC@resolve_placements": 12,
     "DOC@subtitle_props": 0,
-    "DOC@temporal_index_clip": 46,
+    "DOC@temporal_index_clip": 44,
     "DOC@timeline_decisions": 9,
     # 8 -> 7 on 2026-09-07: `segments[].words[].timed` gained its first
     # reader. The animated explainer anchors each stage to the WORD its
@@ -1755,7 +1738,7 @@ UNREAD_BUDGET: Dict[str, int] = {
     "OUT@select_reels": 66,
     "OUT@semantic_analysis": 19,
     "OUT@speech_sequence": 10,
-    "OUT@temporal_index": 57,
+    "OUT@temporal_index": 18,
     "OUT@validate_sfx_library": 8,
 }
 """Observed fields with no reader, per origin. MAY ONLY MOVE DOWN.
@@ -1978,7 +1961,7 @@ def main(argv=None) -> int:
         for source in payload["sources"]:
             print(f"{source['project']:<20} {source['origins']:>3} origins  "
                   f"{source['paths']:>5} field paths  "
-                  f"{source['unclaimed_count']} unclaimed file(s)")
+                  f"{source['unclaimed_files']} unclaimed file(s)")
         print(f"\nwrote {OBSERVED_FILE}")
         return 0
 

@@ -692,12 +692,12 @@ def _prosody_speech_regions(ctx: Context) -> Satisfaction:
     """1.05's manifest said `'temporal_index' exists in state WITH SPEECH
     REGIONS`.  The existence half was already enforced by the edge; the
     trailing clause was a content requirement nothing read."""
-    indices = ctx.value_for("temporal_index", "full_indices")
+    indices = ctx.value_for("temporal_index", "temporal_event_indices")
     if indices is None:
         return UNSATISFIED(
-            "temporal_index has recorded no full_indices, so there are no "
+            "temporal_index has recorded no temporal_event_indices, so there are no "
             "speech regions to measure prosody over",
-            missing="full_indices", produced_by=("temporal_index",))
+            missing="temporal_event_indices", produced_by=("temporal_index",))
     entries = indices.values() if isinstance(indices, dict) else indices
     for entry in entries or []:
         if isinstance(entry, dict) and entry.get("speech_regions"):
@@ -845,10 +845,10 @@ PREDICATES: Tuple[Requirement, ...] = (
         check=_prosody_speech_regions,
         refuting_context=lambda: Context(
             state={"step_outputs": {"temporal_index": {
-                "full_indices": {"clip_001": {"speech_regions": []}}}}}),
+                "temporal_event_indices": {"clip_001": {"speech_regions": []}}}}}),
         satisfying_context=lambda: Context(
             state={"step_outputs": {"temporal_index": {
-                "full_indices": {"clip_001": {
+                "temporal_event_indices": {"clip_001": {
                     "speech_regions": [{"start": 0.0, "end": 1.0}]}}}}}),
     ),
     Requirement(

@@ -157,11 +157,6 @@
           }
         }
       ],
-      "full_indices": [
-        {"clip_id": "IMG_1001"},
-        {"clip_id": "IMG_1002"},
-        {"clip_id": "IMG_1003"}
-      ],
       "total_indexed": 3,
       "total_failed": 0
     },

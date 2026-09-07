@@ -151,25 +151,6 @@ def test_the_gate_fails_when_a_recorded_hole_in_the_map_has_closed(
                for problem in problems), problems
 
 
-def test_a_recorded_miss_is_not_counted_as_carried_and_unused(rows):
-    """A hole in the instrument is not data the pipeline wastes. The
-    ranking has to leave it out, or the leanness answer is wrong by
-    however big the hole is."""
-    assert data_map.KNOWN_MISSED_READS, (
-        "an empty table would mean no hand check had ever been done")
-    ranked = {origin for origin, _, _ in data_map.unread_cost(rows)}
-    by_tag = {row.tag: row for row in rows}
-    for tag in data_map.KNOWN_MISSED_READS:
-        row = by_tag[tag]
-        assert row.unread, f"{tag} is no longer unread; the entry is stale"
-        origin_rows = [r for r in rows if r.origin == row.origin
-                       and r.observed and r.unread
-                       and r.tag not in data_map.KNOWN_MISSED_READS]
-        if not origin_rows:
-            assert row.origin not in ranked, (
-                f"{row.origin} is ranked and its only unread fields are "
-                f"recorded misses")
-
 
 # ── The map still finds reads that are known to exist ────────────────
 
