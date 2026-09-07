@@ -11,9 +11,11 @@
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #        fm-brief.sh <task-id> --check
 #   --check reports whether an already-scaffolded brief is ready to dispatch: it
-#   refuses while any required scope field below is still empty, and names every
-#   empty one. bin/fm-spawn.sh runs the identical check before launching a ship
-#   or scout task, so a brief this reports ready is a brief the spawn accepts.
+#   refuses while any scaffold placeholder below is still unfilled, and while any
+#   required scope field below is still empty, naming every unfilled one.
+#   bin/fm-spawn.sh runs the identical gates before launching a ship or scout
+#   task, so a brief this reports ready is a brief the spawn accepts.
+#   bin/fm-brief-lib.sh owns both gates and their wording.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -53,10 +55,13 @@
 #   ## Known unknowns                  what we do not know that could change the answer
 #   ## Blocked on                      a decision, credential, or prior task, named,
 #                                      or the literal word `nothing`
-# Empty is the ONLY refusal: no field's content is judged, because a required field
+# Empty or still-carrying-the-scaffold's-own-placeholder is the ONLY refusal: no
+# field's content is judged, because a required field
 # that cannot be answered honestly gets filled with noise, and noise in a required
 # field is worse than no field. Every field must be answerable for a one-line fix as
 # readily as for a month of programme work, which is why `nothing` completes Blocked on.
+# An unfilled placeholder anywhere in the brief is refused first, through the same
+# bin/fm-brief-lib.sh gate bin/fm-spawn.sh uses.
 # A secondmate charter deliberately carries NONE of the four: a persistent home has no
 # finish line and no blocker at creation, its unknowns belong to the tasks routed to it,
 # and its exclusions are the complement of the Routing scope it already records. Forcing
@@ -178,7 +183,9 @@ done
 
 # --check inspects a brief that already exists, so it takes neither a delivery
 # mode nor a scaffold kind. bin/fm-brief-lib.sh owns the verdict and its wording;
-# this branch only resolves the path and reports the ready case.
+# this branch only resolves the path and reports the ready case. The two gates
+# run in the same order as bin/fm-spawn.sh: unfilled placeholders first, then
+# the scope contract.
 if [ "$CHECK" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
   [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
@@ -187,6 +194,7 @@ if [ "$CHECK" -eq 1 ]; then
   [ "${#POS[@]}" -eq 1 ] || { echo "error: --check takes exactly one task id" >&2; exit 1; }
   CHECK_BRIEF="$DATA/${POS[0]}/brief.md"
   [ -f "$CHECK_BRIEF" ] || { echo "error: no brief at $CHECK_BRIEF" >&2; exit 1; }
+  fm_brief_placeholder_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
   echo "ready: $CHECK_BRIEF (every required scope field is answered)"
   exit 0

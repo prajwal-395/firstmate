@@ -24,9 +24,10 @@
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
-#   A ship or scout spawn also refuses a brief that leaves any of its four required
-#   scope fields empty, on the same read-the-brief pattern; bin/fm-brief-lib.sh owns
-#   those field names and the emptiness test, only emptiness refuses, and a brief
+#   A ship or scout spawn also refuses a brief that still carries unfilled
+#   scaffold placeholders or that leaves any of its four required scope fields
+#   empty, on the same read-the-brief pattern; bin/fm-brief-lib.sh owns the
+#   placeholder pattern, those field names, and both tests, and a brief
 #   scaffolded before the fields existed warns once and launches.
 #   A ship or scout spawn also files that task's GitHub tracker ticket, because
 #   this is the one path a dispatch cannot route around and a ticket firstmate has
@@ -1867,27 +1868,19 @@ delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task
   esac
 }
 
-# An unfilled scaffold placeholder means the brief was never completed. A worker
-# launched on one is told to do something the text never says - "run the check
-# above" where the check is the literal word {DONE_CHECK}. Firstmate fills these in
-# by habit, so a placeholder ADDED to the scaffold later is exactly the one that
-# gets missed: the habit covers the placeholder that already existed. Refuse rather
-# than rely on remembering, and name every unfilled one so a second is not
-# discovered on the next attempt.
-UNFILLED=$(grep -oE '\{[A-Z_]+\}' "$BRIEF" 2>/dev/null | sort -u | tr '\n' ' ')
-if [ -n "$UNFILLED" ]; then
-  echo "error: $BRIEF still contains unfilled scaffold placeholder(s): ${UNFILLED% }" >&2
-  echo "       fill every placeholder before dispatch - a worker cannot act on one, and the" >&2
-  echo "       instruction referring to it becomes a sentence about nothing" >&2
-  exit 1
-fi
+# An unfilled scaffold placeholder means the brief was never completed - see
+# bin/fm-brief-lib.sh, the single owner of the placeholder pattern and this
+# refusal. The same gate runs in bin/fm-brief.sh --check, so the two never hold
+# separate opinions about what a filled brief is.
+fm_brief_placeholder_check "$BRIEF" "this spawn" || exit 1
 
 # Required scope contract, checked in the same place and the same manner as the
 # placeholder guard above and the delivery agreement below: the brief records what
 # the spawn must agree with, and a brief that cannot answer its own scope is not
 # something to hand a worker. bin/fm-brief-lib.sh is the single owner of the four
-# field names, the emptiness test, and the wording. Only emptiness refuses - no
-# field's content is judged here. A secondmate charter carries none of the fields,
+# field names, the emptiness test, and the wording. A placeholder-only field body
+# is the scaffold's own prose, not an answer, so it is refused as empty; no other
+# content is judged here. A secondmate charter carries none of the fields,
 # so a secondmate spawn is not gated on them.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   fm_brief_scope_check "$BRIEF" "this spawn" || exit 1
