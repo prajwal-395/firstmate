@@ -230,14 +230,14 @@ def _catalog_entry(catalog: Sequence[dict], source_file: str
     target = os.path.realpath(source_file)
     base = os.path.basename(source_file)
     for entry in catalog:
-        for key in ("path", "source_file", "file_path"):
+        for key in ("path", "source_file"):
             value = entry.get(key)
             if value and os.path.realpath(str(value)) == target:
                 return entry
     for entry in catalog:
         if str(entry.get("filename") or "") == base:
             return entry
-        for key in ("path", "source_file", "file_path"):
+        for key in ("path", "source_file"):
             value = entry.get(key)
             if value and os.path.basename(str(value)) == base:
                 return entry

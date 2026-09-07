@@ -78,7 +78,7 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
                     t_data = json.load(f)
                     if 'scene_boundaries' in t_data:
                         scene_boundaries = [
-                            sb.get('timestamp', sb.get('time', 0.0))
+                            sb.get('time', 0.0)
                             for sb in t_data['scene_boundaries']
                         ]
             except Exception as e:

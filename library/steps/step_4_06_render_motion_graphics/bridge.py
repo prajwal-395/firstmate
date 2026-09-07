@@ -67,7 +67,7 @@ def _block_text(block: dict) -> str:
         text = content.get("text") or ""
     elif isinstance(content, str):
         text = content
-    text = _cell(text or block.get("text") or "")
+    text = _cell(text)
     if len(text) > TEXT_SUMMARY_CHARS:
         text = text[:TEXT_SUMMARY_CHARS - 1] + "…"
     return text

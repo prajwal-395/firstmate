@@ -59,11 +59,9 @@ def test_a_high_energy_edit_is_reported_and_not_judged():
     """
     inputs = {
         "creative_direction": {"target_energy": "high"},
-        "transition_spec": {
-            "transitions": [
-                {"transition_type": "defocus", "duration_frames": 30}
-            ]
-        },
+        "transition_spec": [
+            {"transition_type": "defocus", "duration_frames": 30}
+        ],
         "sfx_spec": [],  # sparse
         "project_config": {"target_duration_seconds": 60},
         "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},
@@ -138,13 +136,11 @@ def test_001s_real_transition_spec_is_counted_and_left_alone():
 def test_an_aligned_edit_reports_only_what_it_could_not_measure():
     inputs = {
         "creative_direction": {"target_energy": "calm"},
-        "transition_spec": {
-            "transitions": [
-                {"transition_type": "fade_to_black", "duration_frames": 45},
-                {"transition_type": "defocus", "duration_frames": 45},
-                {"transition_type": "hard_cut", "duration_frames": 0},
-            ]
-        },
+        "transition_spec": [
+            {"transition_type": "fade_to_black", "duration_frames": 45},
+            {"transition_type": "defocus", "duration_frames": 45},
+            {"transition_type": "hard_cut", "duration_frames": 0},
+        ],
         "sfx_spec": [{"sfx_type": "swell"} for _ in range(5)],
         "project_config": {"target_duration_seconds": 60},
         "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},

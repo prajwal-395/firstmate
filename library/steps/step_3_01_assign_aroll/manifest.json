@@ -35,11 +35,6 @@
         "name": "hook_assignment",
         "type": "any",
         "description": "State output: hook_assignment"
-      },
-      {
-        "name": "total_a_roll_segments",
-        "type": "int",
-        "description": "State output: total_a_roll_segments"
       }
     ]
   },

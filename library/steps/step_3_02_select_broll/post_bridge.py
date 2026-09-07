@@ -45,8 +45,8 @@ def check_needs_conform(clip: dict, target_width: int, target_height: int) -> bo
     Check if a clip needs conforming to target output specs.
     True if resolution or rotation differs from target.
     """
-    w = clip.get("width", clip.get("resolution_width", 0))
-    h = clip.get("height", clip.get("resolution_height", 0))
+    w = clip.get("width", 0)
+    h = clip.get("height", 0)
     rotation = clip.get("rotation", 0)
 
     # Account for rotation: a 1920x1080 clip with -90 rotation IS portrait
@@ -259,7 +259,7 @@ def resolve_broll(
             "spine_block_position": spine_pos,
             "block_type": spine_block.get("block_type", "transition_slot"),
             "clip_id": clip_id,
-            "source_file": clip.get("source_file", clip.get("path", clip.get("file_path"))),
+            "source_file": clip.get("source_file") or clip.get("path"),
             "video_in": video_in,
             "video_out": video_out,
             "duration_seconds": round(video_out - video_in, 3),
@@ -384,7 +384,7 @@ def resolve_broll(
             "purpose": purpose,
             "assigned_clip": {
                 "clip_id": clip_id,
-                "source_file": clip.get("source_file", clip.get("path", clip.get("file_path"))),
+                "source_file": clip.get("source_file") or clip.get("path"),
                 "video_in": video_in,
                 "video_out": video_out,
                 "duration_seconds": round(video_out - video_in, 3),

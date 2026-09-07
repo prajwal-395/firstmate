@@ -1775,8 +1775,8 @@ def measure_speech_above_bed(
                                   "warning",
                                   "No music automation window was long enough to fit")
 
-        non_silent = [w["music_in_mix_db"] for w in windows
-                      if w["music_behavior"] != "silent"]
+        non_silent = [win["music_in_mix_db"] for win in windows
+                      if win["music_behavior"] != "silent"]
         silent_reference = (statistics.median(non_silent) if non_silent
                             else None)
 
@@ -1789,47 +1789,47 @@ def measure_speech_above_bed(
         # speech.  The basis is recorded per window either way, so nobody
         # reads a clip gain as a margin somebody chose.  See
         # `library/tools/music_behavior.UNDECLARED_SEPARATION`.
-        for w in windows:
-            if w["music_behavior"] == "silent":
-                w["required_margin_db"] = None
-                w["required_margin_basis"] = None
+        for win in windows:
+            if win["music_behavior"] == "silent":
+                win["required_margin_db"] = None
+                win["required_margin_basis"] = None
                 continue
-            declared = w.get("separation_target_db")
+            declared = win.get("separation_target_db")
             if isinstance(declared, (int, float)):
-                w["required_margin_db"] = abs(float(declared))
-                w["required_margin_basis"] = "declared_separation_target"
+                win["required_margin_db"] = abs(float(declared))
+                win["required_margin_basis"] = "declared_separation_target"
                 continue
-            target = w.get("target_level_db")
-            w["required_margin_db"] = abs(float(target)) if target is not None \
+            target = win.get("target_level_db")
+            win["required_margin_db"] = abs(float(target)) if target is not None \
                 else None
-            w["required_margin_basis"] = (
+            win["required_margin_basis"] = (
                 "clip_gain_read_as_separation" if target is not None else None)
 
         judged, failures = [], []
-        for w in windows:
-            if w.get("block_type") not in SPEECH_BEARING_BLOCK_TYPES:
-                w["judged"] = False
+        for win in windows:
+            if win.get("block_type") not in SPEECH_BEARING_BLOCK_TYPES:
+                win["judged"] = False
                 continue
-            w["judged"] = True
-            if w["music_behavior"] == "silent":
+            win["judged"] = True
+            if win["music_behavior"] == "silent":
                 if silent_reference is None:
-                    w["judged"] = False
+                    win["judged"] = False
                     continue
-                ok = w["music_in_mix_db"] <= silent_reference - silent_margin_db
+                ok = win["music_in_mix_db"] <= silent_reference - silent_margin_db
             else:
-                need = w["required_margin_db"]
+                need = win["required_margin_db"]
                 if need is None:
-                    w["judged"] = False
+                    win["judged"] = False
                     continue
-                ok = w["margin_db"] >= need
-            w["meets_plan"] = ok
-            judged.append(w)
+                ok = win["margin_db"] >= need
+            win["meets_plan"] = ok
+            judged.append(win)
             if not ok:
-                failures.append(w)
+                failures.append(win)
 
         meets = not failures
-        bases = {w.get("required_margin_basis") for w in judged
-                 if w.get("required_margin_basis")}
+        bases = {win.get("required_margin_basis") for win in judged
+                 if win.get("required_margin_basis")}
         on_clip_gain = "clip_gain_read_as_separation" in bases
         detail = (f"{len(judged) - len(failures)} of {len(judged)} "
                   f"speech-bearing windows meet the margin they were "
@@ -1840,7 +1840,7 @@ def measure_speech_above_bed(
                        "(music_behavior.SEPARATION_TARGETS_DB is empty)")
         if failures:
             worst = min(failures,
-                        key=lambda w: (w["margin_db"] - (w["required_margin_db"] or 0)))
+                        key=lambda win: (win["margin_db"] - (win["required_margin_db"] or 0)))
             detail += (f"; worst {worst['timeline_start']:.2f}-"
                        f"{worst['timeline_end']:.2f}s planned "
                        f"{worst['music_behavior']}, speech is "

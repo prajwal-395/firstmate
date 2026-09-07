@@ -144,7 +144,7 @@ def _clip_rates(project_dir) -> dict:
     for clip in load_catalog(project_dir) or []:
         if not isinstance(clip, dict):
             continue
-        fps = clip.get("frame_rate", clip.get("fps"))
+        fps = clip.get("frame_rate")
         try:
             fps = float(fps)
         except (TypeError, ValueError):

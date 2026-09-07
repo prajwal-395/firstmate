@@ -294,37 +294,37 @@ def collect_entries(input_data: dict) -> list:
             for seg_idx, seg in enumerate(vsegs):
                 entries.append({
                     "track": "V1",
-                    "clip_id": seg.get("clip_id", assignment.get("source_clip_id", "")),
+                    "clip_id": seg.get("clip_id", ""),
                     "entry_id": seg.get("segment_id", seg.get("clip_id", f"{assignment.get('spine_block_position')}_seg{seg_idx}")),
-                    "source_file": seg.get("source_file", assignment.get("source_file", "")),
+                    "source_file": seg.get("source_file", ""),
                     "timeline_start": start,
                 })
         else:
             entries.append({
                 "track": "V1",
-                "clip_id": assignment.get("source_clip_id", assignment.get("clip_id", "")),
-                "entry_id": assignment.get("assignment_id", ""),
+                "clip_id": assignment.get("clip_id", ""),
+                "entry_id": assignment.get("clip_id", str(assignment.get("spine_block_position", 0))),
                 "source_file": assignment.get("source_file", ""),
                 "timeline_start": start,
             })
 
     for broll in input_data.get("b_roll_assignments", []):
-        assigned = broll.get("assigned_clip", broll)
+        assigned = broll
         entries.append({
             "track": "V2",
-            "clip_id": assigned.get("clip_id", assigned.get("source_clip_id", "")),
-            "entry_id": broll.get("assignment_id", ""),
-            "source_file": assigned.get("source_file", broll.get("source_file", "")),
+            "clip_id": broll.get("clip_id", ""),
+            "entry_id": broll.get("clip_id", ""),
+            "source_file": broll.get("source_file", ""),
             "timeline_start": broll.get("timeline_start"),
         })
 
     for interj in input_data.get("b_roll_interjections", []):
-        clip = interj.get("assigned_clip", interj)
+        assigned = interj.get("assigned_clip") or {}
         entries.append({
             "track": "V2",
-            "clip_id": clip.get("clip_id", clip.get("source_clip_id", "")),
-            "entry_id": interj.get("assignment_id", ""),
-            "source_file": clip.get("source_file", interj.get("source_file", "")),
+            "clip_id": assigned.get("clip_id", ""),
+            "entry_id": assigned.get("clip_id", ""),
+            "source_file": assigned.get("source_file", ""),
             "timeline_start": interj.get("timeline_start"),
         })
 

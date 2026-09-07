@@ -264,9 +264,6 @@ REPORTED_NOT_CONSUMED = {
         "`step_2_04_music_selection/post_bridge.py` all read a different "
         "dict.",
 
-    ("assign_aroll", "total_a_roll_segments"):
-        "A count of what `a_roll_assignments` already carries. DECISION: "
-        "it stays unread - 8 and 8 on 001's run of record.",
 }
 
 

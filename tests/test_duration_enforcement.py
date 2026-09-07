@@ -208,7 +208,7 @@ class TestCohesionDurationWarning:
     def test_duration_over_target_warns(self):
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
-            "transition_spec": {"transitions": []},
+            "transition_spec": [],
             "sfx_spec": [],
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 120}]
@@ -225,7 +225,7 @@ class TestCohesionDurationWarning:
     def test_duration_under_target_warns(self):
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
-            "transition_spec": {"transitions": []},
+            "transition_spec": [],
             "sfx_spec": [],
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 20}]
@@ -242,7 +242,7 @@ class TestCohesionDurationWarning:
     def test_duration_within_range_no_warning(self):
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
-            "transition_spec": {"transitions": []},
+            "transition_spec": [],
             "sfx_spec": [],
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 60}]
@@ -260,7 +260,7 @@ class TestCohesionDurationWarning:
         """It used to fall back to a 54-66s zone nobody declared."""
         inputs = {
             "creative_direction": {"target_energy": "moderate"},
-            "transition_spec": {"transitions": []},
+            "transition_spec": [],
             "sfx_spec": [],
             "speech_sequence": {
                 "body_sequence": [{"start_time": 0, "end_time": 120}]

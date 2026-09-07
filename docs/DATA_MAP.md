@@ -300,11 +300,11 @@ instants (`library/tools/explainer_plan.py`, `docs/ANIMATED_EXPLAINER.md`).
 A cheap field is not the same as a small one, and this is the case where the
 ranking by BYTES found the reader rather than the deletion.
 
-## Reads of a key that cannot exist - 127 of them
+## Reads of a key that cannot exist - 80 of them
 
 The other direction, and a defect class rather than a cost: `--phantom` lists
 every read that lands on a key **no artefact carries**, where the parent path
-WAS observed. Three groups, all verified by hand:
+WAS observed. Verified by hand and reduced from 127:
 
 **A documented absence** - the map found it and the code already explains it:
 
@@ -314,35 +314,33 @@ OUT@mesh_spine#audio_spine.structure[].speaker   step_4_01_plan_subtitles/step.p
 > *"Absent on a spine the pipeline built itself; present on one measured off a
 > real timeline, where each speaker has their own track."*
 
-**A dead alternative in a fallback chain** - the code tries three names and
-only one exists:
+**Dead alternatives in fallback chains** - FIXED: `clip_catalog[].file_path`,
+`.fps`, `.filepath`, `.duration_s`, `.resolution`, `.resolution_width`,
+`.resolution_height` in the dashboard and in 3.02's post-bridge. Also fixed:
+`music_analysis_doc.source_file` (should be `file`), `temporal_index_clip.duration_s`
+(should be `duration`), `scene_boundaries[].timestamp` (should be `time`),
+dead `tracks` fallback in `resolve_track_path`, dead `transitions`/`sfx_plan`/
+`sfx_events` names in `creative_cohesion`, and dead `segments` fallback in
+`step_exporter`.
 
-```
-OUT@catalog#clip_catalog[].file_path        step_3_01_assign_aroll/step.py:97
-```
-The catalog carries `path` and `source_file`. `file_path` is the first name
-tried and it has never existed. `clip_catalog[].fps`, `.filepath`,
-`.duration_s`, `.resolution`, `.resolution_width` and `.resolution_height` are
-the same shape, in the dashboard and in 3.02's post-bridge.
+**The dashboard no longer shows unmeasured values as measurements** - FIXED:
+`mood`, `energy`, `overall_mood`, `overall_energy`, `summary`,
+`interest_score`, `detected_objects` on `semantic_analysis_documents` were all
+defaults rendered as findings. The dashboard now shows nothing for these fields.
+The design question (start measuring vs. stop claiming) is in
+`docs/DESIGN_QUESTION_MOOD_ENERGY.md`.
 
-**A reader of a key the producer is not asked for** - the class
-`tests/test_asked_fields_have_readers.py` enforces on `creative_direction`,
-now visible everywhere else. Seven are in the dashboard:
+**Two genuine defects found and fixed** during this sweep:
+- `music_analysis/step.py:92` checked `existing.get("source_file")` but
+  `music_pipeline.py:628` writes `"file"`. Cache validation always failed,
+  re-running the full analysis on every run.
+- `vision_pipeline_v3.py:747` read `"duration_s"` but `temporal_index/step.py:2018`
+  produces `"duration"`. Proportion-based transcript fallback defaulted to 1 second.
 
-```
-OUT@semantic_analysis#semantic_analysis_documents[].mood             dashboard/server.py:912
-OUT@semantic_analysis#semantic_analysis_documents[].energy           dashboard/server.py:915
-OUT@semantic_analysis#semantic_analysis_documents[].overall_mood     dashboard/server.py:912
-OUT@semantic_analysis#semantic_analysis_documents[].overall_energy   dashboard/server.py:915
-OUT@semantic_analysis#semantic_analysis_documents[].summary          dashboard/server.py:170
-OUT@semantic_analysis#semantic_analysis_documents[].interest_score   dashboard/server.py:181
-OUT@semantic_analysis#semantic_analysis_documents[].detected_objects dashboard/server.py:920
-```
-
-AGENTS.md 7 says in as many words that semantic analysis *"measures no mood or
-energy"*. Every one returns its default, and the dashboard renders the default
-as though it were a measurement. **Not fixed here** - the dashboard is another
-lane's, and this is a map rather than a fix list.
+The remaining 80 are a mix of bare container reads (`outputs.get("render", {})`),
+conditional presence (fields populated only in specific run modes like failures,
+interactive mode, or timeline ingest), and static analysis imprecisions (tuple
+unpacking, flow-insensitive variable unions, unregistered document types).
 
 ## Being sceptical of these numbers
 

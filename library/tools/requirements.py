@@ -725,9 +725,8 @@ def _music_track_path(ctx: Context) -> Satisfaction:
     path = resolve_track_path(selection)
     if not path:
         return UNSATISFIED(
-            "music_selection names no track path under any of "
-            "track_path, audio_path, file_path, path or tracks[0]",
-            missing="track_path", produced_by=("music_selection",))
+            "music_selection names no track path under audio_path",
+            missing="audio_path", produced_by=("music_selection",))
     if not os.path.exists(path):
         return UNSATISFIED(
             f"music_selection names {path}, which is not on disk",
@@ -736,7 +735,7 @@ def _music_track_path(ctx: Context) -> Satisfaction:
 
 
 TRACK_PATH_KEYS: Tuple[str, ...] = (
-    "track_path", "audio_path", "file_path", "path")
+    "audio_path",)
 """The order `step_2_06_music_analysis/step.py` reads them in."""
 
 
@@ -753,10 +752,6 @@ def resolve_track_path(selection: Mapping) -> str:
         value = selection.get(key)
         if value:
             return str(value)
-    tracks = selection.get("tracks")
-    if isinstance(tracks, list) and tracks and isinstance(tracks[0], dict):
-        first = tracks[0]
-        return str(first.get("audio_path") or first.get("track_path") or "")
     return ""
 
 
@@ -858,11 +853,11 @@ PREDICATES: Tuple[Requirement, ...] = (
         check=_music_track_path,
         refuting_context=lambda: Context(
             state={"step_outputs": {"music_selection": {
-                "music_selection": {"track_path":
+                "music_selection": {"audio_path":
                                     "/nonexistent/no-such-track.wav"}}}}),
         satisfying_context=lambda: Context(
             state={"step_outputs": {"music_selection": {
-                "music_selection": {"track_path": str(
+                "music_selection": {"audio_path": str(
                     Path(__file__).resolve())}}}}),
     ),
 )

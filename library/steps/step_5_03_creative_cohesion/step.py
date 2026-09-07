@@ -39,13 +39,13 @@ def review_creative_cohesion(inputs: dict) -> dict:
     creative_direction = inputs.get("creative_direction", {})
     transition_spec_raw = inputs.get("transition_spec", [])
     if isinstance(transition_spec_raw, dict):
-        transitions = transition_spec_raw.get("transitions", transition_spec_raw.get("transition_spec", []))
+        transitions = transition_spec_raw.get("transition_spec", [])
     else:
         transitions = transition_spec_raw if isinstance(transition_spec_raw, list) else []
 
     sfx_spec_raw = inputs.get("sfx_spec", [])
     if isinstance(sfx_spec_raw, dict):
-        sfx = sfx_spec_raw.get("sfx_list", sfx_spec_raw.get("sfx_plan", sfx_spec_raw.get("sfx_events", sfx_spec_raw.get("sfx_spec", []))))
+        sfx = sfx_spec_raw.get("sfx_list", [])
     else:
         sfx = sfx_spec_raw if isinstance(sfx_spec_raw, list) else []
 
@@ -286,7 +286,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # say what the plan came to.
     drawn = [t for t in transitions
              if isinstance(t, dict) and not is_cut(
-                 t.get("transition_type", t.get("type", "")))]
+                 t.get("transition_type", ""))]
     measurements = {
         # The word the direction actually wrote, reported beside the
         # counts and judged against nothing.  A reader can see what was

@@ -2,10 +2,10 @@
  * footage-library.js - Clip browser with thumbnails and metadata.
  *
  * Displays all clips from the catalog as visual cards with thumbnails,
- * duration, mood tags, and interest scores. Supports annotation tagging.
+ * duration, and detected objects. Supports annotation tagging.
  */
 
-let footageFilters = { search: '', mood: '', object: '' };
+let footageFilters = { search: '', object: '' };
 let currentClips = [];
 
 async function renderFootageLibrary() {
@@ -27,23 +27,16 @@ async function renderFootageLibrary() {
             return;
         }
 
-        const moods = new Set();
         const objects = new Set();
         for (const c of currentClips) {
-            (c.mood_tags || []).forEach(m => moods.add(m));
             (c.detected_objects || []).forEach(o => objects.add(o));
         }
 
-        const moodOpts = Array.from(moods).sort().map(m => `<option value="${escapeHtml(m)}" ${footageFilters.mood === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('');
         const objOpts = Array.from(objects).sort().map(o => `<option value="${escapeHtml(o)}" ${footageFilters.object === o ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
 
         let html = `
             <div style="margin-bottom: 16px; display: flex; gap: 8px;">
                 <input type="text" id="footage-search" placeholder="Search clips (ID, tags, transcript)..." style="flex: 1; padding: 6px 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); color: var(--text-primary);" value="${escapeHtml(footageFilters.search)}" oninput="footageFilters.search = this.value; filterFootage()">
-                <select id="footage-mood" class="btn" style="background: var(--bg-tertiary);" onchange="footageFilters.mood = this.value; filterFootage()">
-                    <option value="">All Moods</option>
-                    ${moodOpts}
-                </select>
                 <select id="footage-object" class="btn" style="background: var(--bg-tertiary);" onchange="footageFilters.object = this.value; filterFootage()">
                     <option value="">All Objects</option>
                     ${objOpts}
@@ -69,20 +62,18 @@ function filterFootage() {
     if (!container) return;
 
     const s = footageFilters.search.toLowerCase();
-    const m = footageFilters.mood;
     const o = footageFilters.object;
 
     const filtered = currentClips.filter(c => {
-        if (m && !(c.mood_tags || []).includes(m)) return false;
         if (o && !(c.detected_objects || []).includes(o)) return false;
         if (s) {
-            const text = `${c.clip_id} ${(c.mood_tags || []).join(' ')} ${(c.detected_objects || []).join(' ')} ${c.transcript_excerpt || ''}`.toLowerCase();
+            const text = `${c.clip_id} ${(c.detected_objects || []).join(' ')} ${c.transcript_excerpt || ''}`.toLowerCase();
             if (!text.includes(s)) return false;
         }
         return true;
     });
 
-    const sorted = [...filtered].sort((a, b) => (b.interest_score || 0) - (a.interest_score || 0));
+    const sorted = [...filtered];
     
     if (!sorted.length) {
         container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">No clips match the filters.</div>';
@@ -151,7 +142,8 @@ function showClipDetail(clipId) {
         content += field('Duration', `${clip.duration_s?.toFixed(1) || '?'}s`);
         content += field('Resolution', clip.resolution);
         content += field('FPS', clip.fps);
-        content += field('Interest Score', clip.interest_score?.toFixed(2));
+        // Interest score is NOT measured (AGENTS.md 7, DESIGN_QUESTION_MOOD_ENERGY.md).
+        // Omitted to avoid presenting a default as a finding.
         content += `</div>`;
 
         // Mood

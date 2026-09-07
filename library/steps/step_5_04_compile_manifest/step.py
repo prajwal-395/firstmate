@@ -1529,8 +1529,8 @@ def compile_manifest(out_dir: str) -> dict:
             elif assignment:
                 clip = {
                     "source_file": resolve_source(assignment),
-                    "source_in": assignment.get("video_in", block.get("source_start", 0.0)),
-                    "source_out": assignment.get("video_out", block.get("source_end", 0.0)),
+                    "source_in": block.get("source_start", 0.0),
+                    "source_out": block.get("source_end", 0.0),
                     "timeline_in": block.get("timeline_start", 0.0),
                     "timeline_out": block.get("timeline_end", 0.0),
                     "timeline_in_frame": block.get("timeline_start_frame"),

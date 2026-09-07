@@ -160,8 +160,7 @@ def _segments(entry: dict) -> list:
     if isinstance(segments, list) and segments:
         return [(s.get("source_file"), s.get("video_in"), s.get("video_out"))
                 for s in segments if isinstance(s, dict)]
-    return [(entry.get("source_file"), entry.get("video_in"),
-             entry.get("video_out"))]
+    return []
 
 
 def measure_speech_blocks(a_roll_assignments) -> dict:

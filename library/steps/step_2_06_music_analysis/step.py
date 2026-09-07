@@ -48,16 +48,7 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
     continues without it.
     """
     # Extract track path from music selection
-    track_path = music_selection.get("track_path", "")
-    if not track_path:
-        for key in ("audio_path", "file_path", "path"):
-            track_path = music_selection.get(key, "")
-            if track_path:
-                break
-    
-    if not track_path and "tracks" in music_selection and isinstance(music_selection["tracks"], list) and len(music_selection["tracks"]) > 0:
-        first_track = music_selection["tracks"][0]
-        track_path = first_track.get("audio_path", first_track.get("track_path", ""))
+    track_path = music_selection.get("audio_path", "")
 
     if not track_path or not os.path.exists(track_path):
         print(f"ERROR: Music track not found: {track_path}", file=sys.stderr)
@@ -97,8 +88,8 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
         try:
             with open(analysis_path) as f:
                 existing = json.load(f)
-            # Verify it's for the same track
-            if existing.get("source_file") == track_path:
+            # Verify it's for the same track (music_pipeline.py emits "file")
+            if existing.get("file") == track_path:
                 print(f"Music analysis already exists for {os.path.basename(track_path)}, "
                       f"reusing cached result", file=sys.stderr)
                 existing["available"] = True

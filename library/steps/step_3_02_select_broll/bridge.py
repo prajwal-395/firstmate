@@ -89,7 +89,7 @@ def _slot_aroll_clip(slot: dict) -> str:
     vsegs = slot.get("video_segments") or []
     if vsegs and vsegs[0].get("clip_id"):
         return vsegs[0]["clip_id"]
-    return slot.get("source_clip_id") or slot.get("clip_id") or ""
+    return slot.get("clip_id") or ""
 
 
 def write_footage_reference(project_folder: str, documents,
@@ -121,8 +121,7 @@ def cutaway_slot_seconds(timed_spine: dict) -> list:
     cutaway covers a non-speech block, which is the coverage requirement
     `compile_manifest._assert_timeline_fully_covered` enforces.
     """
-    blocks = timed_spine.get("structure") or (
-        timed_spine.get("audio_spine") or {}).get("structure") or []
+    blocks = timed_spine.get("structure") or []
     seconds = set()
     for block in blocks:
         if block.get("block_type") in ("speech", "hook"):
@@ -166,8 +165,7 @@ def build_window_frames(data: dict, catalog_entries: list,
     rows, missing, drawn = [], [], 0
     for clip in catalog_entries:
         clip_id = clip.get("clip_id")
-        source_file = clip.get("source_file") or clip.get("path") or \
-            clip.get("file_path")
+        source_file = clip.get("source_file") or clip.get("path")
         duration = clip.get("duration_seconds") or 0.0
         if not clip_id or not source_file or not os.path.exists(source_file):
             continue
@@ -231,8 +229,7 @@ def main():
         data.get("semantic_analysis_documents", {}), catalog_entries
     )
 
-    slots = aroll if isinstance(aroll, list) else aroll.get(
-        "a_roll_assignments", aroll.get("timeline_segments", []))
+    slots = aroll if isinstance(aroll, list) else aroll.get("a_roll_assignments", [])
 
     # Clips used anywhere as A-roll: usable as B-roll elsewhere, but they
     # are the least interesting choice, so rank them last.

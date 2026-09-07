@@ -69,7 +69,7 @@ def analyse_prosody(raw_footage_files: list, project_folder: str = "",
                 ]
     elif isinstance(temporal_index, dict):
         # Primary path: read from per-clip JSON files on disk
-        index_dir = temporal_index.get("index_dir", "") or index_dir
+        index_dir = "" or index_dir
         if index_dir and os.path.isdir(index_dir):
             for ti_file in glob.glob(os.path.join(index_dir, "*.json")):
                 clip_id = os.path.splitext(os.path.basename(ti_file))[0]

@@ -79,9 +79,7 @@ def _build_clip_id_to_stem(data: dict) -> dict:
     mapping = {}
     aroll_raw = data.get("a_roll_assignments", [])
     if isinstance(aroll_raw, dict):
-        aroll_raw = (aroll_raw.get("a_roll_assignments")
-                     or aroll_raw.get("timeline_segments")
-                     or [])
+        aroll_raw = aroll_raw.get("a_roll_assignments") or []
     for entry in aroll_raw or []:
         if not isinstance(entry, dict):
             continue
@@ -108,16 +106,10 @@ def _build_semantic_lookup(data: dict, clip_id_to_stem: dict) -> dict:
     one missed.
     """
     catalog = data.get("clip_catalog")
-    if isinstance(catalog, dict):
-        catalog = catalog.get("clip_catalog") or []
     lookup = dict(build_semantic_lookup(
         data.get("semantic_analysis_documents"), catalog or []))
 
     docs_raw = data.get("semantic_analysis_documents", [])
-    if isinstance(docs_raw, dict):
-        docs_raw = (docs_raw.get("semantic_analysis_documents")
-                    or docs_raw.get("semantic_analysis")
-                    or [])
     if not isinstance(docs_raw, list):
         return lookup
 
@@ -130,9 +122,8 @@ def _build_semantic_lookup(data: dict, clip_id_to_stem: dict) -> dict:
         doc_id = doc.get("clip_id", "")
         if doc_id:
             by_doc_id[str(doc_id).lower()] = doc
-        for key in ("file_path", "path", "source_file"):
-            if doc.get(key):
-                by_stem[_stem(doc[key])] = doc
+        if doc.get("file_path"):
+            by_stem[_stem(doc["file_path"])] = doc
 
     # Resolve each catalog clip_id the canonical join did not reach.
     for cid, stem in clip_id_to_stem.items():

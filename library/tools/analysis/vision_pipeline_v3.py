@@ -744,7 +744,7 @@ def get_window_transcript(temporal_index, window_start, window_end, full_transcr
 
     # Fallback: proportion-based
     if full_transcript:
-        duration = max(1, temporal_index.get("duration_s", 1)) if temporal_index else 1
+        duration = max(1, temporal_index.get("duration", 1)) if temporal_index else 1
         chars_per_sec = len(full_transcript) / duration
         excerpt = full_transcript[
             int(window_start * chars_per_sec):int(window_end * chars_per_sec)

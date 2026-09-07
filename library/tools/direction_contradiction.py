@@ -184,7 +184,6 @@ DECLINED_OUTPUTS = {
     "total_reused": "1.04 - a count",
     "a_roll_assignments": "3.01 places what 2.02 already chose; a placement is not a measurement",
     "hook_assignment": "3.01 - the same placement, for the hook",
-    "total_a_roll_segments": "3.01 - a count",
     "subtitle_plan": "4.01 renders decisions already taken into caption cards",
     "subtitle_overlay": "4.05 - a rendered artifact",
     # 4.06 became hybrid on 2026-09-02 and its outputs are therefore no

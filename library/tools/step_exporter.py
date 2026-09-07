@@ -228,7 +228,7 @@ def _summary_temporal(name: str, out: dict) -> str:
     lines = [f"# {name}", "", f"Transcribed **{len(clips)} clips** with word-level alignment:", ""]
     for clip in clips[:10]:
         cid = clip.get("clip_id", "?")
-        regions = clip.get("speech_regions", clip.get("segments", []))
+        regions = clip.get("speech_regions", [])
         word_count = sum(len(r.get("words", [])) for r in regions) if regions else 0
         text = " ".join(
             r.get("text", "") for r in (regions[:3] if regions else [])

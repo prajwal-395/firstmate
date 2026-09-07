@@ -176,11 +176,11 @@ def test_no_module_carries_its_own_word_list():
 def _building_inputs():
     return {
         "creative_direction": {"target_energy": "building"},
-        "transition_spec": {"transitions": [
+        "transition_spec": [
             {"transition_type": "defocus", "duration_frames": 15},
             {"transition_type": "defocus", "duration_frames": 15},
             {"transition_type": "defocus", "duration_frames": 15},
-        ]},
+        ],
         "sfx_spec": [],
         "color_grade_spec": {},
         "audio_spine": {"structure": [

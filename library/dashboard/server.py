@@ -154,34 +154,39 @@ def _format_resolution(clip: dict) -> str:
     h = clip.get("height")
     if w and h:
         return f"{w}x{h}"
-    return clip.get("resolution", "")
+    return ""
 
 
 def _extract_summary(sem: dict) -> str:
-    """Extract a summary string from a semantic analysis document.
+    """Extract a description from a semantic analysis document.
 
-    v3 puts it under ``assessment.summary``; legacy had it at the top level.
+    Semantic analysis produces ``transcript`` (speech text from Whisper)
+    and ``analysis.scene`` (visual scene description derived by the
+    vision schema adapter).  Neither ``assessment.summary`` nor a
+    top-level ``summary`` has ever been produced.
     """
-    assessment = sem.get("assessment", {})
-    if isinstance(assessment, dict):
-        s = assessment.get("summary", "")
-        if s:
-            return str(s)
-    s = sem.get("summary", "")
-    return str(s) if s else ""
+    # Prefer the speech transcript - this populates ``transcript_excerpt``.
+    t = sem.get("transcript", "")
+    if t:
+        return str(t)
+    # Fall back to the visual scene prose.
+    analysis = sem.get("analysis", {})
+    if isinstance(analysis, dict):
+        scene = analysis.get("scene", "")
+        if scene:
+            return str(scene)
+    return ""
 
 
-def _extract_interest_score(sem: dict) -> float:
-    """Extract interest_score from a semantic analysis document.
+def _extract_interest_score(sem: dict) -> float:  # noqa: ARG001
+    """Interest score is not measured by semantic analysis.
 
-    v3 nests it under ``assessment.interest_score``.
+    Neither ``assessment.interest_score`` nor a top-level
+    ``interest_score`` has ever been produced - the v3 vision pipeline
+    deliberately does not invent it (see vision_schema_adapter.py).
+    Returns 0.0 unconditionally; the frontend no longer displays it.
     """
-    assessment = sem.get("assessment", {})
-    if isinstance(assessment, dict):
-        score = assessment.get("interest_score")
-        if score is not None:
-            return float(score)
-    return float(sem.get("interest_score", 0))
+    return 0.0
 
 
 # ── Pipeline State Helpers ──────────────────────────────────────────
@@ -828,9 +833,6 @@ async def get_transcript():
     # Get temporal index (has transcripts).
     # The temporal_index step emits under "temporal_event_indices" (not "temporal_index").
     temporal = outputs.get("temporal_index", {}).get("temporal_event_indices", [])
-    if not temporal:
-        # Legacy fallback: some older runs may use "temporal_index" as the inner key.
-        temporal = outputs.get("temporal_index", {}).get("temporal_index", {})
 
     regions = []
     total_duration = 0.0
@@ -846,7 +848,7 @@ async def get_transcript():
         if not isinstance(clip, dict):
             continue
         clip_id = clip.get("clip_id", "")
-        speech_regions = clip.get("speech_regions", clip.get("segments", []))
+        speech_regions = clip.get("speech_regions", [])
 
         for region in speech_regions:
             if not isinstance(region, dict):
@@ -907,17 +909,14 @@ async def get_clips():
         # Get thumbnail URL
         thumb_url = get_thumbnail_url(project_dir, clip_id)
 
-        # Extract mood/energy tags from semantic analysis
-        mood_tags = []
-        mood = sem.get("mood", sem.get("overall_mood", ""))
-        if mood:
-            mood_tags.append(mood)
-        energy = sem.get("energy", sem.get("overall_energy", ""))
-        if energy:
-            mood_tags.append(energy)
+        # Mood and energy are NOT measured by semantic analysis (AGENTS.md 7,
+        # vision_schema_adapter.py).  Displaying a default as though it were
+        # a finding misled the captain.  The field stays on ClipInfo for API
+        # stability but is always empty until a measurement is added.
+        mood_tags: list[str] = []
 
-        # Detected objects - handle both v3 list-of-dicts and legacy flat-dict
-        objects = sem.get("detected_objects", sem.get("objects", []))
+        # Objects: v3 uses ``objects``, not the retired ``detected_objects``.
+        objects = sem.get("objects", [])
         if isinstance(objects, dict):
             objects = list(objects.keys())
         elif isinstance(objects, list) and objects and isinstance(objects[0], dict):
@@ -926,10 +925,10 @@ async def get_clips():
         clips.append(ClipInfo(
             clip_id=clip_id,
             filename=clip.get("filename", clip_id),
-            filepath=clip.get("filepath", clip.get("path", "")),
-            duration_s=float(clip.get("duration_seconds", clip.get("duration_s", 0))),
+            filepath=clip.get("path", ""),
+            duration_s=float(clip.get("duration_seconds", 0)),
             resolution=_format_resolution(clip),
-            fps=float(clip.get("frame_rate", clip.get("fps", 0))),
+            fps=float(clip.get("frame_rate", 0)),
             thumbnail_url=thumb_url,
             transcript_excerpt=_extract_summary(sem)[:200],
             mood_tags=mood_tags,
