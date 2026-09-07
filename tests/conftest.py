@@ -6,6 +6,39 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+# ── ONNX Runtime telemetry: disabled to prevent SIGSEGV on teardown ─────
+#
+# onnxruntime ships a Microsoft Applications Events telemetry subsystem
+# that spawns a native background thread (WorkerThread::threadFunc) on
+# first import.  That thread accesses std::map nodes owned by
+# ILogConfiguration after Python has torn them down, producing a
+# KERN_INVALID_ADDRESS / SIGSEGV on thread 3.  The crash is intermittent
+# because it races the interpreter's atexit / module-cleanup sequence:
+# if the thread happens to be idle when the process exits, no fault.
+#
+# Two mechanisms, belt-and-suspenders:
+#   1. The pytest_configure hook calls ort.disable_telemetry_events()
+#      the moment onnxruntime becomes importable.  This is the reliable
+#      path - it is the official Python API and it stops event collection,
+#      which starves the background thread of work to do during teardown.
+#   2. As a fallback, the hook also sets the session env so any child
+#      process that imports onnxruntime inherits the setting.
+#
+# Evidence: ~/Library/Logs/DiagnosticReports/python3.12-2026-09-07-*.ips
+# both show the identical stack:
+#   onnxruntime_pybind11_state.so  WorkerThread::threadFunc
+#     -> uploadAsync -> handleRetrieveEvents -> GetMaximumUploadSizeBytes
+#     -> ILogConfiguration::operator[] -> __emplace_unique_key_args (SEGV)
+
+
+def pytest_configure(config):
+    """Disable ONNX Runtime telemetry before any test imports it."""
+    try:
+        import onnxruntime
+        onnxruntime.disable_telemetry_events()
+    except ImportError:
+        pass  # onnxruntime not installed - nothing to disable
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)

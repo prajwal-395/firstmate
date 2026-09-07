@@ -87,7 +87,7 @@ trap _keep_report_on_failure EXIT
 summarise() {
   local xml="$1" exit_code="$2"
   "${PYTHON}" - "$xml" "$exit_code" <<'PY' 2>/dev/null || echo "ran-nothing no readable JUnit report (the run produced no machine-readable result)"
-import sys, xml.etree.ElementTree as ET
+import sys, xml.etree.ElementTree as ET, signal as _signal
 path, exit_code = sys.argv[1], int(sys.argv[2])
 try:
     root = ET.parse(path).getroot()
@@ -110,7 +110,23 @@ elif executed == 0:
 elif fail or err:
     print(f"bad {executed} executed, {fail} failed, {err} errored")
 elif exit_code != 0:
-    print(f"bad {executed} executed with no recorded failure but pytest exited {exit_code}")
+    # Exit codes >= 128 mean killed by a signal (exit = 128 + signum).
+    # Distinguish this from a normal non-zero exit so the verdict names
+    # the actual cause rather than a bare number.  The gate still fails -
+    # a native crash is not acceptable - but the operator can now see
+    # that the TESTS passed and the PROCESS died, and where to look.
+    if exit_code > 128:
+        signum = exit_code - 128
+        try:
+            signame = _signal.Signals(signum).name
+        except (ValueError, AttributeError):
+            signame = f"signal {signum}"
+        print(
+            f"crashed {executed} passed then NATIVE CRASH ({signame}) "
+            f"- check ~/Library/Logs/DiagnosticReports/ for the faulting library"
+        )
+    else:
+        print(f"bad {executed} executed with no recorded failure but pytest exited {exit_code}")
 else:
     print(f"ok {executed} passed, {skip} skipped")
 PY
@@ -225,12 +241,14 @@ fi
 # Fail-closed: DID NOT RUN unless phase 1 demonstrably measured something.
 case "${MAIN_STATE}" in
   ok)  VERDICT="PASS" ;;
+  crashed) VERDICT="FAIL" ;;
   bad) VERDICT="FAIL" ;;
   *)   VERDICT="DID NOT RUN" ;;
 esac
 
 case "${HEAVY_STATE}" in
   ok)  HEAVY_NOTE="heavy_ml ${HEAVY_DETAIL}" ;;
+  crashed) HEAVY_NOTE="heavy_ml CRASHED - ${HEAVY_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
   bad) HEAVY_NOTE="heavy_ml FAILED - ${HEAVY_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
   *)   HEAVY_NOTE="heavy_ml NOT MEASURED - ${HEAVY_DETAIL}" ;;
 esac
