@@ -39,6 +39,11 @@
     ],
     "outputs": [
       {
+        "name": "reel_candidates",
+        "type": "array",
+        "description": "State output: reel_candidates. Built by bridge.py. One row per contiguous exchange stretch the measurements found - the shape of each candidate conversation the model chooses reels from."
+      },
+      {
         "name": "reel_selection",
         "type": "object",
         "description": "State output: reel_selection",

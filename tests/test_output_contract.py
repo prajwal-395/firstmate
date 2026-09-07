@@ -16,8 +16,8 @@ seen from two sides:
   found a reader, so the tables cannot become a way to go quiet.
 * `test_a_bridge_table_is_credited_to_its_own_prompt` and
   `test_an_edge_routed_output_is_credited` - it does NOT fail correct
-  output. Seven outputs reach only their own step's prompt, and a
-  survey blind to that route would report all seven.
+  output. Eight outputs reach only their own step's prompt, and a
+  survey blind to that route would report all eight.
 * `test_the_repository_agrees_with_its_own_tables` - the live ratchet.
 
 The second pass, 2026-09-07
@@ -148,14 +148,15 @@ def test_an_edge_routed_output_is_credited(rows):
     ("plan_sfx", "sfx_candidates_legend"),
     ("speech_sequence", "topics_toon"),
     ("speech_sequence", "transcripts_toon"),
+    ("select_reels", "reel_candidates"),
 ])
 def test_a_bridge_table_is_credited_to_its_own_prompt(rows, node, name):
     """A pre-bridge's one table is consumed by the step's own prompt.
 
     `run_pipeline.project_step_context` restores bridge-supplied keys BY
-    NAME after projection, precisely because these seven are not in any
-    `context_fields`. A survey that only looked at edges would call all
-    seven unread, which is a gate failing correct output.
+    NAME after projection, precisely because a pre-bridge's table cannot
+    be projected away. A survey that only looked at edges would call all
+    eight unread, which is a gate failing correct output.
     """
     by_key = {row.key: row for row in rows}
     row = by_key[(node, name)]

@@ -48,10 +48,11 @@ from the other side.
 * ``own prompt`` - the producing step's OWN `bridge.py` emits it, or its
   `context_fields` names it.  `run_pipeline.project_step_context`
   restores bridge-supplied keys BY NAME after projection, precisely so a
-  pre-bridge's one table cannot be projected away.  Seven outputs travel
+  pre-bridge's one table cannot be projected away.  Eight outputs travel
   only this way (`cuts_toon`, `cuts_legend`, `vfx_candidates_toon`,
   `sfx_candidates_toon`, `sfx_candidates_legend`, `topics_toon`,
-  `transcripts_toon`) and a survey blind to it would report all seven.
+  `transcripts_toon`, `reel_candidates`) and a survey blind to it would
+  report all eight.
 * ``code``       - a module outside the producing step's own directory
   READS the key: `d.get("k")`, `d["k"]`, `"k" in d`, `d.pop("k")`, or
   the key inside a list handed to a call such as `require_keys(data,
