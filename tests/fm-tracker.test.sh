@@ -937,9 +937,14 @@ SELF_RECORD="$HOME_D/state/.tracker-self-comments"
 
 # One comment in the feed, with GitHub's own shape: unedited comments carry
 # created_at == updated_at, which is what lets an edit still wake firstmate.
+# The author fields mirror the live payload byte for byte - user, association
+# and app attribution are identical for a fleet note and a captain answer, so
+# every direction below proves the split is the record and never the identity.
 comment_feed() {  # <id> <created> [updated]
   printf '[{"id":%s,"issue_url":"https://api.github.com/repos/o/r/issues/9",' "$1"
-  printf '"created_at":"%s","updated_at":"%s"}]' "$2" "${3:-$2}"
+  printf '"created_at":"%s","updated_at":"%s",' "$2" "${3:-$2}"
+  printf '"user":{"login":"prajwal-395","type":"User"},'
+  printf '"author_association":"OWNER","performed_via_github_app":null}]'
 }
 
 # Every poll below drives the comment feed, so the inbox is pinned quiet: it
@@ -1017,6 +1022,56 @@ out=$(poll_comment 5555 '2026-08-25T12:08:00Z')
 assert_contains "$out" "o/r#9" "an unrecognised record must suppress nothing"
 mv -f "$SELF_RECORD.aside" "$SELF_RECORD"
 pass "a record the poll cannot recognise suppresses nothing"
+
+# Comments the fleet wrote outside `comment`
+#
+# A `gh pr close --comment` and a crewmate's bare status note leave no record
+# at write time, so both woke firstmate on the fleet's own writing. Replayed
+# here with the real ids: 5561955455 is the stale-PR close comment, 5573827699
+# the rebase-confirmation note. Both carry the fleet's own login, exactly like
+# a captain's answer would - the record is still the only split.
+# ===========================================================================
+
+# Registering an already-posted id is local-only: nothing is created.
+reset_gh
+out=$(run_tracker "$HOME_D" record-comment 5561955455 5573827699 2>&1)
+expect_code_out 0 "$?" "$out" "registering posted ids must succeed"
+assert_contains "$out" "recorded 2 comment id(s)" "the count must name what was kept"
+assert_grep '5561955455' "$SELF_RECORD" "the close comment id must be recorded"
+assert_grep '5573827699' "$SELF_RECORD" "the rebase-note id must be recorded"
+assert_no_grep "POST" "$FAKE_GH_LOG" "registering must write no comment and close nothing"
+pass "record-comment registers ids the fleet wrote outside comment"
+
+# Direction one, replayed: the fleet's own close comment must not wake.
+out=$(poll_comment 5561955455 '2026-09-06T20:27:27Z')
+[ -z "$out" ] || fail "the fleet's own close comment must not wake firstmate, got: $out"
+pass "a close comment the fleet wrote does not wake firstmate"
+
+# Direction one, replayed: the fleet's own rebase note must not wake either.
+out=$(poll_comment 5573827699 '2026-09-07T17:13:38Z')
+[ -z "$out" ] || fail "the fleet's own rebase note must not wake firstmate, got: $out"
+pass "a rebase note the fleet wrote does not wake firstmate"
+
+# Direction two, same login, same feed, same shape: an id nobody registered is
+# a human's and must wake. Identity provably carries no vote here.
+out=$(poll_comment 5599999999 '2026-09-07T18:00:00Z')
+assert_contains "$out" "o/r#9" "an unregistered comment must wake firstmate"
+pass "an unregistered comment wakes firstmate under the identical login"
+
+# Refusals must record nothing: a half-kept id would wake once and read as a
+# human, while a kept garbage id could never match a real comment.
+before=$(cat "$SELF_RECORD")
+out=$(run_tracker "$HOME_D" record-comment 2>&1)
+rc=$?
+expect_code_out 2 "$rc" "$out" "record-comment with no id must be refused"
+[ "$(cat "$SELF_RECORD")" = "$before" ] || fail "a refused record-comment must keep nothing"
+pass "record-comment refuses a call with no id"
+
+out=$(run_tracker "$HOME_D" record-comment not-an-id 2>&1)
+rc=$?
+expect_code_out 2 "$rc" "$out" "record-comment with a non-numeric id must be refused"
+[ "$(cat "$SELF_RECORD")" = "$before" ] || fail "a refused record-comment must keep nothing"
+pass "record-comment refuses a non-numeric id"
 
 # Retention. The record is bounded by age and by count, and a later write is
 # what applies both, so nothing has to be cleaned up on the read path.
