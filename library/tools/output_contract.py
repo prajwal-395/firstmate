@@ -104,6 +104,16 @@ were - is not visible here.  `uncalled_functions` is the one field-level
 half that is mechanical: a function defined and never called is shape 1
 with a name, and it is what `enforce_min_duration` was.
 
+**`library/tools/data_map.py` is the field-level half**, and
+`library/tools/field_flow.py` is what makes it possible: it follows the
+VALUE rather than matching the name, which is the only way to ask this
+question of `start`, `end`, `text` or `clip_id`.  It also covers the
+data that is not a declared step output at all - the 39 documents in
+`data_map.DOCUMENTS`.  `docs/DATA_MAP.md` is the prose half, and
+`tests/test_data_map.py` cross-checks the two surveys against each
+other: every output this one reports as carried by an edge must have at
+least one FIELD with a reader over there.
+
     python3 -m library.tools.output_contract          # the survey
     python3 -m library.tools.output_contract --bad    # disagreements
     python3 -m library.tools.output_contract --uncalled

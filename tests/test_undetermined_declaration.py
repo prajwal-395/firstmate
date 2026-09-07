@@ -218,9 +218,23 @@ def test_a_non_declaring_step_is_not_asked(tmp_path):
 # meaningful: the signal was not lost, it was filled with false silence,
 # in the one mode the pipeline actually runs in.
 
-def _answer_n_times(req: Path, res: Path, payload: dict, seen: list, times: int):
+# What `_agy_request` gives the step per model call.  The answering
+# thread below must outlive `times` of them or the later attempts starve.
+LLM_TIMEOUT = 35
+
+
+def _answer_n_times(req: Path, res: Path, payload: dict, seen: list,
+                    times: int):
     def run():
-        deadline = time.time() + 40
+        # The STEP's whole budget, not a wall-clock guess.  This was a
+        # flat 40 seconds while the step may spend `times * LLM_TIMEOUT`
+        # - so on a loaded machine the answering thread died mid-run and
+        # the remaining attempts timed out, and the test read as though
+        # the step had never retried.  Seen once in a full-suite gate on
+        # 2026-09-07 as `assert 1 == 3`, and reproducible on demand by
+        # lowering the number: at 3 seconds it fails the same way every
+        # time.  The step's own timeout is what bounds a real hang.
+        deadline = time.time() + times * LLM_TIMEOUT + 20
         answered = 0
         while time.time() < deadline and answered < times:
             if req.exists() and not res.exists():
@@ -253,7 +267,7 @@ def _agy_request(tmp_path, step_id, payload, inputs=None, times=1, outputs=None)
             manifest={"interface": {"outputs": outputs or [
                 {"name": "a_verdict", "type": "string", "required": True,
                  "description": "the verdict"}]}},
-            full_auto="agy", llm_timeout=35,
+            full_auto="agy", llm_timeout=LLM_TIMEOUT,
         )
     except Exception:
         # A step whose answer never validates still issued its requests,
