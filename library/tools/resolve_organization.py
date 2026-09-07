@@ -436,6 +436,50 @@ def assert_organized(found: Sequence[dict]) -> None:
             f"{len(found)} finding(s):\n{lines}")
 
 
+def unplaced_report(artefacts: Sequence[Artefact],
+                    project_root: str) -> dict:
+    """What this pipeline has generated that no timeline plays.
+
+    Filing them under `Not placed on any timeline` is housekeeping, not
+    an answer: on the field test that bin holds 1,216 caption renders,
+    and a bin nobody counts grows on every rebuild without ever saying
+    so.  This is the count, said out loud, every time the pool is
+    organised - the same bargain `render_qa` strikes with chroma and the
+    mix (AGENTS.md 10.4): REPORT A NUMBER and pass.
+
+    It reports and it does not judge.  There is no threshold here and
+    there must not be one: how many superseded renders are too many is
+    the captain's call, and deleting them is irreversible.
+
+    `shared_with_placed` is the one figure that changes what a reader may
+    safely DO, so it is separate and named.  Three of the field test's
+    1,216 unplaced items point at a file a PLACED item also uses -
+    `pool.ImportMedia` made a second item for a path already in the pool
+    - so removing the ITEM is safe there and deleting the FILE would take
+    media off a live timeline.  A count that blurred the two would be a
+    number that reads as permission.
+
+    Derived from the same `artefacts` the plan is, so the report and the
+    filing cannot disagree about which items are unplaced.
+    """
+    # An item with no file path cannot be shown to have come from a run,
+    # so it is not counted here - `Akshita` on the field test is exactly
+    # that, and it files as source material.  `count` and `paths` are
+    # therefore the same population, which is why there is no third
+    # number for items that have neither.
+    generated = [a for a in artefacts
+                 if a.kind == "clip" and is_generated(a.file_path, project_root)]
+    unplaced = [a for a in generated if not a.placed_by]
+    placed_paths = {a.file_path for a in generated if a.placed_by}
+    paths = sorted({a.file_path for a in unplaced if a.file_path})
+    return {
+        "count": len(unplaced),
+        "paths": tuple(paths),
+        "shared_with_placed": tuple(p for p in paths if p in placed_paths),
+        "bin": f"{BIN_SUBTITLES}/{BIN_UNPLACED}",
+    }
+
+
 def state_from_keywords(keywords: str) -> str | None:
     """The state a pool item CLAIMS, read back off its own keywords.
 

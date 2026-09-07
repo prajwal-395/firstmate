@@ -45,14 +45,30 @@ What the API will and will not do, measured on 21.0.0b.28
   a `.drp` arrives organised and unstamped, and `resolve-organize`
   re-derives the stamps from the plan records on disk.
 
-**Do not read metadata back out of `Project.db` to check any of this.**
-Two instruments said "it does not persist" and both were wrong:
+**Reading metadata back out of `Project.db` needs THREE instruments to
+be right at once, and every one of them has been wrong here.**
 `SELECT ... WHERE CAST(col AS BLOB) LIKE '%needle%'` silently matches
-nothing in SQLite where `instr(col, x'...')` matches, and the `.drp`
-export omits the table the value passes through (`BtLockableBlob`,
-which is a staging area - the value is there right after `SaveProject`
-and gone from it later, and where it finally rests was not found).  The
-close-and-reopen above is the instrument that answers.
+nothing where `instr(col, x'...')` matches; the `.drp` export omits the
+table entirely; and a sweep over `pragma table_info` with
+`connection.text_factory = bytes` gets BYTES column names, builds
+`b'Name'` into the SQL, raises on every column and - with the usual
+`except sqlite3.Error: continue` - reports zero hits, which reads
+exactly like a sweep that looked.  Search for something you KNOW is
+there first: a reel's own name lands in `Sm2Timeline.Name`,
+`Sm2MpMedia.Name` and `Sm2MpFolder.Name`, and an instrument that cannot
+find those has not looked.
+
+Measured 2026-09-07 on the field test, once the sweep worked: the bin
+tree is plain rows - `Sm2MpFolder` (57) and `Sm2MpFolder_Sm2MpMedia`
+(2,632) - and the STAMPS rest in `BtLockableBlob.FieldsBlob`,
+**zstd-compressed** (frame magic `28 b5 2f fd` at offset 9, which is why
+no plain-bytes search finds them).  Decompressed, that column carries
+all 48 `vep:state=` tags in the exact split the live API reports
+(20 current / 20 earlier / 8 unrecorded), the plan hash, and all 48
+`Comments` sentences.  So `BtLockableBlob` is where they rest and not
+only where they pass through.  The clip COLOUR is not in the file as
+`Green`/`Brown`/`Blue` text and was not located; the close-and-reopen
+above is still the instrument that answers for it.
 - **Smart bins are not scriptable.**  `GetSmartBinList`, `AddSmartBin`,
   `CreateSmartBin` and `GetSmartFolderList` are all absent from
   `MediaPool`, while `Sm2MpSmartFolder` exists in `Project.db` - the
@@ -87,6 +103,7 @@ from library.tools.resolve_organization import (
     Plan,
     plan_organization,
     state_from_keywords,
+    unplaced_report,
 )
 
 JOURNAL_PREFIX = "resolve_placements"
@@ -456,6 +473,83 @@ def journals(project_folder: str) -> list[dict]:
     return out
 
 
+def unplaced_cost(report: dict) -> dict:
+    """`unplaced_report` plus what those items cost on disk, by `stat`.
+
+    The pure half cannot answer this because it does no I/O, and the
+    disk figure is what turns "1,216 items" into a decision the captain
+    can actually take: on the field test 1,085 of the 1,216 files are
+    still there and 131 are already gone, so the pool item is offline
+    and the render it names cannot be recovered by keeping it.
+
+    Sizes only.  This never asks whether a file LOOKS superseded, and it
+    never proposes removing one - AGENTS.md 10.5: where a creative value
+    is absent, report plainly.  A number is reported; nothing acts on it.
+    """
+    on_disk, missing, total, shared_bytes = 0, 0, 0, 0
+    shared = set(report["shared_with_placed"])
+    for path in report["paths"]:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            missing += 1
+            continue
+        on_disk += 1
+        total += size
+        if path in shared:
+            shared_bytes += size
+    return dict(report, on_disk=on_disk, missing=missing,
+                bytes_on_disk=total, bytes_shared=shared_bytes)
+
+
+def render_unplaced(cost: dict) -> str:
+    """The unplaced burden in the sentences an operator has to read.
+
+    Said on every plan, every apply and every check, so that a bin that
+    grows on each rebuild reports its own growth instead of quietly
+    absorbing it.
+    """
+    if not cost["count"]:
+        return ("  Nothing this pipeline generated is unplaced - every "
+                "generated clip in the pool is on a timeline.")
+    gib = cost["bytes_on_disk"] / (1024 ** 3)
+    lines = [
+        f"  {cost['count']} clip(s) this pipeline generated are on NO "
+        f"timeline, filed under {cost['bin']!r}.",
+        f"    {cost['on_disk']} of their files are still on disk "
+        f"({gib:.2f} GiB); {cost['missing']} are already gone, so those "
+        f"pool items are offline.",
+    ]
+    if cost["shared_with_placed"]:
+        shared_mib = cost["bytes_shared"] / (1024 ** 2)
+        lines.append(
+            f"    {len(cost['shared_with_placed'])} of those files a PLACED "
+            f"item ALSO uses ({shared_mib:.1f} MiB) - removing the pool item "
+            f"is safe there and deleting the FILE would take media off a "
+            f"live timeline.")
+    lines.append("    Nothing here is deleted. Whether any of it should be "
+                 "is the captain's call.")
+    return "\n".join(lines)
+
+
+def survey_project(project, project_folder: str,
+                   master_timeline_name: str) -> dict:
+    """One read of the pool, and everything computed off that one read.
+
+    `check_project` and the CLI both want the findings AND the unplaced
+    burden, and reading the pool twice to get them would be two answers
+    that can disagree about the same project.
+    """
+    from library.tools.resolve_organization import findings
+
+    plan, artefacts, duplicates, recorded = plan_for_project(
+        project, project_folder, master_timeline_name)
+    return {
+        "findings": findings(artefacts, plan, duplicates, recorded),
+        "unplaced": unplaced_cost(unplaced_report(artefacts, project_folder)),
+    }
+
+
 def organise_project(project, project_folder: str,
                      master_timeline_name: str,
                      apply: bool = False,
@@ -464,7 +558,11 @@ def organise_project(project, project_folder: str,
     plan, artefacts, duplicates, _recorded = plan_for_project(
         project, project_folder, master_timeline_name)
     result = {"plan": plan.as_dict(), "duplicate_bins": duplicates,
-              "applied": False}
+              "applied": False,
+              # Read from the same pass as the plan, so the filing and
+              # the count of what is unplaced cannot disagree.
+              "unplaced": unplaced_cost(
+                  unplaced_report(artefacts, project_folder))}
     if apply:
         result["journal"] = apply_plan(
             project, plan, artefacts,
@@ -475,12 +573,16 @@ def organise_project(project, project_folder: str,
 
 def check_project(project, project_folder: str,
                   master_timeline_name: str) -> list[dict]:
-    """What is wrong with the project as it stands, as findings."""
-    from library.tools.resolve_organization import findings
+    """What is wrong with the project as it stands, as findings.
 
-    plan, artefacts, duplicates, recorded = plan_for_project(
-        project, project_folder, master_timeline_name)
-    return findings(artefacts, plan, duplicates, recorded)
+    The findings half of `survey_project`.  An unplaced clip is NOT a
+    finding: a render whose reel was rebuilt is filed exactly where its
+    evidence puts it, and failing the check on it would fail correct
+    output, which is the same defect as a gate that cannot fail read
+    from the other side (AGENTS.md 10.4).  It is reported instead.
+    """
+    return survey_project(project, project_folder,
+                          master_timeline_name)["findings"]
 
 
 def open_project(project_folder: str):

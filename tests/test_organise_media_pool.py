@@ -380,3 +380,78 @@ def test_a_project_that_names_no_master_timeline_refuses(project):
         "resolve:\n  project_name: Fake\n", encoding="utf-8")
     with pytest.raises(OrganizationError, match="timeline_name"):
         ex.open_project(folder)
+
+
+# ------------------------------------------ what nothing plays, and its cost
+
+
+def test_the_unplaced_cost_is_measured_from_disk_not_assumed(project,
+                                                             tmp_path):
+    """The orphan's file is real here, so the size is a `stat` and not a
+    guess. AGENTS.md 10.3: a file on disk is not a measurement - but its
+    SIZE is, and it is the figure a removal decision turns on."""
+    orphan = tmp_path / "pipeline_output" / "b.mov"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"x" * 4096)
+    proj, folder = project
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    cost = result["unplaced"]
+    assert cost["count"] == 1
+    assert cost["on_disk"] == 1 and cost["missing"] == 0
+    assert cost["bytes_on_disk"] == 4096
+    assert cost["shared_with_placed"] == ()
+
+
+def test_an_unplaced_item_whose_file_is_gone_is_counted_as_offline(project):
+    """131 of the field test's 1,216 point at a file that no longer
+    exists. Keeping the pool item recovers nothing, and a report that
+    sized it as recoverable disk would be wrong by that much."""
+    proj, folder = project
+    cost = ex.organise_project(proj, folder, MASTER,
+                               apply=True)["unplaced"]
+    assert cost["count"] == 1
+    assert cost["on_disk"] == 0 and cost["missing"] == 1
+    assert cost["bytes_on_disk"] == 0
+
+
+def test_the_check_reports_the_unplaced_burden_and_does_not_fail_on_it(
+        project):
+    """Both halves of AGENTS.md 10.4 in one assertion: the survey finds
+    the burden AND the findings list stays empty once filed, because a
+    superseded render is filed exactly where its evidence puts it."""
+    proj, folder = project
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    survey = ex.survey_project(proj, folder, MASTER)
+    assert survey["findings"] == []
+    assert survey["unplaced"]["count"] == 1
+
+
+def test_the_unplaced_report_reads_as_sentences_and_can_say_none(project,
+                                                                 tmp_path):
+    proj, folder = project
+    (tmp_path / "pipeline_output" / "b.mov").write_bytes(b"y" * 2048)
+    cost = ex.organise_project(proj, folder, MASTER,
+                               apply=True)["unplaced"]
+    text = ex.render_unplaced(cost)
+    assert "on NO timeline" in text and "Not placed on any timeline" in text
+    assert "captain" in text
+    empty = ex.render_unplaced(dict(cost, count=0))
+    assert "Nothing this pipeline generated is unplaced" in empty
+
+
+def test_the_unplaced_report_separates_a_file_a_placed_item_also_uses(
+        project, tmp_path):
+    """`pool.ImportMedia` made a second pool item for a path already in
+    the pool three times on the field test. Removing that ITEM is safe;
+    deleting the FILE takes media off a live timeline."""
+    shared = tmp_path / "pipeline_output" / "a.mov"
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    shared.write_bytes(b"z" * 8192)
+    proj, folder = project
+    root = proj.GetMediaPool().GetRootFolder()
+    root.clips.append(FakeClip("c-dup", "sub_a.mov", path=str(shared)))
+    cost = ex.organise_project(proj, folder, MASTER,
+                               apply=True)["unplaced"]
+    assert cost["shared_with_placed"] == (str(shared),)
+    assert cost["bytes_shared"] == 8192
+    assert "PLACED item ALSO uses" in ex.render_unplaced(cost)

@@ -504,13 +504,13 @@ def cmd_resolve_organize(args):
     See library/tools/resolve_organization.py.
     """
     from library.tools.execution.organise_media_pool import (
-        check_project,
         journals,
         open_project,
         organise_project,
+        render_unplaced,
         revert,
+        survey_project,
     )
-    from library.tools.resolve_organization import render_plan
 
     project_folder = _reel_project_folder(args.project)
     project, master = open_project(project_folder)
@@ -545,11 +545,14 @@ def cmd_resolve_organize(args):
         return
 
     if args.check:
-        found = check_project(project, project_folder, master)
+        survey = survey_project(project, project_folder, master)
+        found = survey["findings"]
         for finding in found:
             print(f"  [{finding['kind']}] {finding['detail']}")
         print(f"\n{len(found)} finding(s) on "
               f"{project.GetName()!r}.")
+        # Reported, never a finding: see check_project's docstring.
+        print(render_unplaced(survey["unplaced"]))
         sys.exit(1 if found else 0)
 
     result = organise_project(project, project_folder, master,
@@ -566,6 +569,8 @@ def cmd_resolve_organize(args):
         print(f"  Undo it with: --revert {journal['journal_path']}")
     else:
         print("\nNothing was changed. Pass --apply to perform this.")
+    print()
+    print(render_unplaced(result["unplaced"]))
 
 
 def render_plan_from_dict(plan: dict) -> str:

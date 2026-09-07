@@ -1396,13 +1396,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     organised = None
     if organise:
         from library.tools.execution.organise_media_pool import (
-            organise_project)
+            organise_project, render_unplaced)
         organised = organise_project(
             project, project_folder, master_timeline_name, apply=True)
         print(f"Filed {len(organised['journal']['moves'])} media-pool "
               f"item(s); undo with "
               f"resolve-organize --revert "
               f"{organised['journal']['journal_path']}", flush=True)
+        # A rebuild renders a NEW caption identity for every passage it
+        # changed and imports it; the previous generation's pool items
+        # stay, and filing them under `Not placed on any timeline` moves
+        # them without ever saying how many there now are.  So the build
+        # that produced them SAYS so, on the run that produced them.
+        # Measured on the field test: 1,216 such items, 5.40 GiB, and no
+        # rebuild had ever mentioned one of them.
+        print(render_unplaced(organised["unplaced"]), flush=True)
 
     if verify:
         verify_built_reels(

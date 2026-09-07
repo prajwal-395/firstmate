@@ -34,6 +34,7 @@ from library.tools.resolve_organization import (
     reel_state,
     render_plan,
     state_from_keywords,
+    unplaced_report,
 )
 
 MASTER = "GEO Podcast - Synced"
@@ -381,3 +382,67 @@ def test_the_plan_renders_something_an_operator_can_read():
     assert MASTER in text
     for state in STATES:
         assert state in text
+
+
+# ------------------------------------------------- what nothing plays
+
+
+def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
+    """Footage from outside the project is not this pipeline's leftover,
+    however long it sits in the pool unused."""
+    report = unplaced_report(a_project(), PROJECT_ROOT)
+    assert report["count"] == 1
+    assert report["paths"] == (
+        f"{PROJECT_ROOT}/pipeline_output/scratch/x/c.mov",)
+    # `flare.mov` is unplaced too, and comes from outside the project.
+    assert not any("flare" in path for path in report["paths"])
+
+
+def test_the_unplaced_report_names_a_file_a_placed_item_also_uses():
+    """Removing that pool item is safe; deleting the FILE would take
+    media off a live timeline. The two must not be one number."""
+    shared = f"{PROJECT_ROOT}/pipeline_output/scratch/x/shared.mov"
+    artefacts = a_project() + [
+        clip("c-dup-placed", "sub_dup.mov", path=shared,
+             placed_by=["Reel 01 - live (harvest)"]),
+        clip("c-dup-orphan", "sub_dup.mov", path=shared),
+    ]
+    report = unplaced_report(artefacts, PROJECT_ROOT)
+    assert report["count"] == 2
+    assert report["shared_with_placed"] == (shared,)
+
+
+def test_the_unplaced_report_can_say_nothing_is_unplaced():
+    """The report must be able to come back empty on a clean project, or
+    it is a number that only ever grows (AGENTS.md 10.4)."""
+    artefacts = [a for a in a_project() if a.item_id != "c-orphan"]
+    report = unplaced_report(artefacts, PROJECT_ROOT)
+    assert report["count"] == 0
+    assert report["paths"] == () and report["shared_with_placed"] == ()
+
+
+def test_a_clip_with_no_file_path_is_not_claimed_as_this_pipelines():
+    """`Akshita` on the field test is unplaced and has no file path, so
+    nothing can show a run wrote it. It is source material, not a
+    leftover, and counting it would inflate a removal recommendation."""
+    artefacts = a_project() + [clip("c-nofile", "Akshita", path="")]
+    report = unplaced_report(artefacts, PROJECT_ROOT)
+    assert report["count"] == 1
+    assert len(report["paths"]) == report["count"], (
+        "count and paths must be the same population, or a caller sizing "
+        "`paths` under-reports `count` with nothing saying so")
+
+
+def test_an_unplaced_clip_is_never_a_finding():
+    """A superseded render is filed exactly where its evidence puts it.
+    Failing the check on it would fail correct output - AGENTS.md 10.4."""
+    first = a_plan()
+    settled = []
+    for a in a_project():
+        match = next((v for v in first.verdicts if v.item_id == a.item_id),
+                     None)
+        settled.append(a if match is None
+                       else Artefact(a.item_id, a.name, a.kind, a.file_path,
+                                     a.placed_by, match.destination))
+    assert findings(settled, a_plan(settled)) == []
+    assert unplaced_report(settled, PROJECT_ROOT)["count"] == 1
