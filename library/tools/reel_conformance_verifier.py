@@ -154,18 +154,42 @@ class FindingClass:
     # says so instead of going green on nothing.
     NO_REFERENCE = "NO-REFERENCE"
 
+    # Transition overlays, 2026-09-07.  `_snapshot_to_reel_timeline`
+    # sorted a timeline's clips into picture (V1-V2), captions (V3) and
+    # audio, and DROPPED everything else on the floor - so a clip on V4
+    # existed on the captain's timeline and in no check.  Not read as a
+    # duplicate placement, not read as a picture hole: not read at all,
+    # which is the worst of the three because it is invisible.
+    #
+    # F18 grades the transition elements against the plan that placed
+    # them.  F19 is the anti-silent-drop half: ANY video item on a track
+    # this verifier does not classify is reported, so the next feature
+    # that adds a track cannot repeat this.
+    F18 = "F18"  # ENCODING: transition element missing, extra or misplaced
+    F19 = "F19"  # ENCODING: a video item on a track nothing grades
+
+    # A fact about the delivered picture rather than a defect: an element
+    # laid over a cut draws over the captions under it.  Whether that is
+    # wanted is the captain's, so this REPORTS and does not fail - but it
+    # is measured, because it was previously neither.
+    F20 = "F20"  # PLANNING: transition element covers a caption (warning)
+
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
-                    FindingClass.F9, FindingClass.F10, FindingClass.F12}
+                    FindingClass.F9, FindingClass.F10, FindingClass.F12,
+                    FindingClass.F18, FindingClass.F19}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
-                    FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17}
+                    FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17,
+                    FindingClass.F20}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
 PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH, FindingClass.NO_REFERENCE}
 
-WARNING_CLASSES = {FindingClass.F3}
+WARNING_CLASSES = {FindingClass.F3, FindingClass.F20}
 """F3 (master-inherited holes) is the plan's fault, not the build's.
-Reported as a warning so it is visible but does not fail the gate."""
+F20 (a transition element over a caption) is what the gesture DOES, not
+a defect - hiding a cut hides what is on it. Both are reported so they
+are visible, and neither fails the gate."""
 
 
 @dataclass(frozen=True)
@@ -296,6 +320,20 @@ class ReelTimeline:
     """All audio track items, in order."""
     caption_items: Tuple[TimelineItem, ...]
     """V3 caption items, in order."""
+    overlay_items: Tuple[TimelineItem, ...] = ()
+    """V4 transition-element items, in order.
+
+    Empty on every reel built before `transition_overlay` existed, and
+    on every reel of a project that declares no element - which is what
+    "declare nothing and get nothing" looks like from here."""
+    unclassified_items: Tuple[TimelineItem, ...] = ()
+    """Video items on a track this verifier grades with nothing.
+
+    NOT dropped. Until 2026-09-07 the bucketing was `<=2 picture, ==3
+    captions, audio` with an implicit else that discarded the item, so a
+    clip on V4 was on the timeline and in no check at all. F19 reports
+    whatever lands here, so the next feature to add a track finds out on
+    the first run instead of never."""
     width: int = 0
     """Timeline resolution width, read from Resolve."""
     height: int = 0
@@ -304,6 +342,12 @@ class ReelTimeline:
 
 
 # ── The actual checks ────────────────────────────────────────────────
+
+# The reel video track a transition element is placed on. Read from the
+# module that places them, so the verifier and the placer cannot disagree
+# about which track it grades.
+from library.tools.transition_overlay import OVERLAY_TRACK  # noqa: E402
+
 
 def _fps() -> float:
     """The exact frame rate Resolve computes with."""
@@ -1500,6 +1544,190 @@ def check_duplicate_placements(reel_name: str,
     return findings
 
 
+# ── F18/F19/F20: transition elements laid over a cut ─────────────────
+
+# One frame of the reel's own rate. A transition element hides a cut, so
+# a placement one frame off exposes the jump it exists to hide AND covers
+# a frame of the wrong shot. The tolerance is the resolution of the
+# medium - mechanical, not editorial (AGENTS.md 10.5).
+OVERLAY_FRAME_TOLERANCE = 0
+
+
+def check_transition_overlays(reel_name: str,
+                              planned: Sequence[dict],
+                              overlay_items: Sequence[TimelineItem],
+                              fps: float,
+                              ) -> List[Finding]:
+    """F18: the transition elements the plan wrote are the ones on V4.
+
+    Graded in BOTH directions, because each one has already happened to
+    something on this path: a planned element that is not on the timeline
+    is a declaration that silently drew nothing (the defect class
+    `bookends`, `timed_text_overlay` and `motion_graphics_plan` were each
+    built to close), and an element on the timeline that no plan wrote is
+    a placement nothing can account for.
+
+    Pairing is by RECORD FRAME, never by list index. F2 was paired by
+    index while its comment claimed start frame, and every pair after the
+    first missing card compared one card's plan to a different card's
+    item - 701 findings that read as a placement defect and were not one.
+    """
+    findings: List[Finding] = []
+
+    by_frame: Dict[int, List[TimelineItem]] = {}
+    for item in overlay_items:
+        by_frame.setdefault(item.start_frame, []).append(item)
+
+    planned_frames = set()
+    for entry in planned:
+        record = int(entry["record_frame"])
+        planned_frames.add(record)
+        duration = int(entry["duration_frames"])
+        matched = by_frame.get(record)
+        if not matched:
+            findings.append(Finding(
+                finding_class=FindingClass.F18,
+                reel=reel_name,
+                message=(
+                    f"the transition element planned for seam "
+                    f"{entry.get('seam_index')} at frame {record} "
+                    f"({record / fps:.2f}s) is not on V"
+                    f"{entry.get('track_index', OVERLAY_TRACK)} at all"),
+                severity="error",
+                detail={"seam_index": entry.get("seam_index"),
+                        "record_frame": record,
+                        "duration_frames": duration,
+                        "placed": False},
+            ))
+            continue
+        if len(matched) > 1:
+            findings.append(Finding(
+                finding_class=FindingClass.F18,
+                reel=reel_name,
+                message=(
+                    f"{len(matched)} transition elements sit at frame "
+                    f"{record} - two clips cannot occupy the same frames "
+                    f"of one track, so Resolve kept one of them"),
+                severity="error",
+                detail={"record_frame": record, "count": len(matched)},
+            ))
+        item = matched[0]
+        delta = item.duration_frames - duration
+        if abs(delta) > OVERLAY_FRAME_TOLERANCE:
+            findings.append(Finding(
+                finding_class=FindingClass.F18,
+                reel=reel_name,
+                message=(
+                    f"the transition element at frame {record} was planned "
+                    f"{duration} frames and is {item.duration_frames} "
+                    f"({delta:+d})"),
+                severity="error",
+                detail={"record_frame": record, "planned_frames": duration,
+                        "actual_frames": item.duration_frames,
+                        "delta_frames": delta},
+            ))
+
+    for frame, items in sorted(by_frame.items()):
+        if frame not in planned_frames:
+            findings.append(Finding(
+                finding_class=FindingClass.F18,
+                reel=reel_name,
+                message=(
+                    f"V{items[0].track_index} carries "
+                    f"{len(items)} element(s) at frame {frame} "
+                    f"({frame / fps:.2f}s) that no plan wrote: "
+                    f"{items[0].name or items[0].source_file}"),
+                severity="error",
+                detail={"record_frame": frame, "planned": False,
+                        "names": [i.name for i in items]},
+            ))
+    return findings
+
+
+def check_unclassified_video(reel_name: str,
+                             unclassified: Sequence[TimelineItem],
+                             fps: float,
+                             ) -> List[Finding]:
+    """F19: a video item on a track this verifier grades with nothing.
+
+    The anti-silent-drop half. Every earlier bucketing sent unknown
+    tracks to an implicit `else: pass`, so a clip could be on the
+    captain's timeline and in no check - which reads as coverage and is
+    the gate-that-cannot-fail shape (AGENTS.md 10.4). Anything that is
+    not picture, caption or transition element is REPORTED, by track.
+    """
+    if not unclassified:
+        return []
+    by_track: Dict[int, List[TimelineItem]] = {}
+    for item in unclassified:
+        by_track.setdefault(item.track_index, []).append(item)
+    return [
+        Finding(
+            finding_class=FindingClass.F19,
+            reel=reel_name,
+            message=(
+                f"V{track} carries {len(items)} video item(s) and this "
+                f"verifier has no check for that track - picture is V1-V2, "
+                f"captions V3, transition elements V"
+                f"{OVERLAY_TRACK}. An item nothing grades is not an item "
+                f"nothing is wrong with."),
+            severity="error",
+            detail={"track": track, "count": len(items),
+                    "names": [i.name for i in items][:10],
+                    "total_seconds": round(
+                        sum(i.duration_frames for i in items) / fps, 3)},
+        )
+        for track, items in sorted(by_track.items())
+    ]
+
+
+def check_overlay_caption_coverage(reel_name: str,
+                                   overlay_items: Sequence[TimelineItem],
+                                   caption_items: Sequence[TimelineItem],
+                                   fps: float,
+                                   ) -> List[Finding]:
+    """F20: which caption cards a transition element draws over.
+
+    A WARNING, and deliberately so. An element that hides a cut hides
+    what is on that frame - that is the gesture, not a defect, and a
+    check that failed it would be the gate-that-fails-correct-output
+    shape this repository also removes (AGENTS.md 10.4). What was
+    previously wrong is that nobody measured it: captions are bound to
+    footage, and a picture event that covers a caption was invisible.
+
+    No threshold. Every overlap is reported, one frame included, because
+    how much cover is too much is a judgement and this is a measurement.
+    """
+    from library.tools.transition_overlay import (
+        OverlayPlacement, captions_covered)
+
+    if not overlay_items or not caption_items:
+        return []
+    placements = [
+        OverlayPlacement(
+            seam_index=index, seam_kind="", record_frame=item.start_frame,
+            duration_frames=item.duration_frames,
+            track_index=item.track_index, element_path=item.source_file,
+            anchor="",
+        )
+        for index, item in enumerate(overlay_items)
+    ]
+    spans = [(c.start_frame, c.end_frame, c.name) for c in caption_items]
+    findings: List[Finding] = []
+    for coverage in captions_covered(placements, spans, fps):
+        findings.append(Finding(
+            finding_class=FindingClass.F20,
+            reel=reel_name,
+            message=(
+                f"a transition element covers {coverage.covered_seconds:.2f}s "
+                f"of the caption at frame {coverage.caption_start_frame} "
+                f"({coverage.caption_name or 'unnamed'})"),
+            severity="warning",
+            detail=coverage.as_dict(),
+        ))
+    return findings
+
+
 # ── F10: Format mismatch ─────────────────────────────────────────────
 
 # The captain's format.  A correct vertical timeline rendering out
@@ -2417,6 +2645,7 @@ def verify_reel(plan: ReelPlan,
                 source_sizes: Optional[dict] = None,
                 declared_intent: Optional[float] = None,
                 declared_crop_factor: float = 1.0,
+                planned_overlays: Optional[Sequence[dict]] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -2447,6 +2676,27 @@ def verify_reel(plan: ReelPlan,
     if not not_this_plan:
         findings.extend(check_item_count(
             plan.reel_name, plan.placements, timeline.video_items, fps))
+
+    # F18/F19/F20: the transition elements over this reel's cuts.
+    #
+    # F18 grades in both directions and runs whenever EITHER side has
+    # something, so "nothing planned, something placed" is a finding
+    # rather than a check that skipped itself. `planned_overlays` of None
+    # and an empty V4 is the only quiet case: a project that declares no
+    # element, which is most of them.
+    if planned_overlays or timeline.overlay_items:
+        findings.extend(check_transition_overlays(
+            plan.reel_name, planned_overlays or (),
+            timeline.overlay_items, fps))
+        findings.extend(check_overlay_caption_coverage(
+            plan.reel_name, timeline.overlay_items,
+            timeline.caption_items, fps))
+
+    # F19 always runs: its whole job is to notice a track nobody thought
+    # about, so guarding it on a track nobody thought about would be
+    # circular.
+    findings.extend(check_unclassified_video(
+        plan.reel_name, timeline.unclassified_items, fps))
 
     # F9: Duplicate placements at same record position
     findings.extend(check_duplicate_placements(
@@ -2691,6 +2941,8 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
     video_items = []
     audio_items = []
     caption_items = []
+    overlay_items = []
+    unclassified_items = []
     for clip in snapshot.clips:
         item = TimelineItem(
             track_type=clip.track_type,
@@ -2710,8 +2962,16 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
             video_items.append(item)
         elif clip.track_type == "video" and clip.track_index == 3:
             caption_items.append(item)
+        elif (clip.track_type == "video"
+              and clip.track_index == OVERLAY_TRACK):
+            overlay_items.append(item)
         elif clip.track_type == "audio":
             audio_items.append(item)
+        elif clip.track_type == "video":
+            # Every video track this verifier has no check for. Kept and
+            # reported by F19 rather than discarded - see
+            # `ReelTimeline.unclassified_items`.
+            unclassified_items.append(item)
 
     return ReelTimeline(
         reel_name=snapshot.timeline_name,
@@ -2723,6 +2983,10 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
                                  key=lambda i: (i.track_index, i.start_frame))),
         caption_items=tuple(sorted(caption_items,
                                    key=lambda i: i.start_frame)),
+        overlay_items=tuple(sorted(overlay_items,
+                                   key=lambda i: i.start_frame)),
+        unclassified_items=tuple(sorted(
+            unclassified_items, key=lambda i: (i.track_index, i.start_frame))),
         width=snapshot.width,
         height=snapshot.height,
     )
@@ -3311,6 +3575,23 @@ def run_verification(
             plan_refused = True
             print(f"PLAN MISMATCH: {prov_errors[0].message}", file=err)
 
+    # ── The transition-element plan the build recorded ───────────────
+    #
+    # READ from what the build wrote, never re-derived. A re-derived plan
+    # is only the build's plan while nothing has changed in between, and
+    # PLAN-MISMATCH exists because that assumption already produced 42
+    # confident meaningless errors on this path. An absent file means the
+    # build placed no element, and F18 then grades whatever is on V4
+    # against nothing - which is the finding, not a skip.
+    overlay_plans: Dict[str, list] = {}
+    if effective_review_dir:
+        overlay_path = os.path.join(effective_review_dir,
+                                    "transition_overlays.json")
+        if os.path.exists(overlay_path):
+            with open(overlay_path, "r", encoding="utf-8") as f:
+                for reel, record in (json.load(f) or {}).items():
+                    overlay_plans[reel] = list(record.get("placements") or [])
+
     # ── Find master picture holes for F3 attribution ─────────────────
     master_holes = _find_master_picture_holes(master_snapshot)
     # The same clips, as dicts, for the plan-quality picture gate. That
@@ -3429,7 +3710,8 @@ def run_verification(
                 master_video_items=master_video_items,
                 source_sizes=source_sizes,
                 declared_intent=declared_intent,
-                declared_crop_factor=declared_crop_factor)
+                declared_crop_factor=declared_crop_factor,
+                planned_overlays=overlay_plans.get(name))
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

@@ -760,6 +760,25 @@ def closer_seam(moment, ranges: Sequence[Tuple[float, float]]
                for range_start, range_end in ranges[:-1])
 
 
+def _closer_seam_frame(moment, ranges: Sequence[Tuple[float, float]],
+                       fps: float) -> Optional[int]:
+    """`closer_seam` in FRAMES, on the same arithmetic the picture used.
+
+    `closer_seam` sums range LENGTHS in seconds, which is the right unit
+    for a caption card. A transition element is placed on a frame, and
+    `placements` accumulates `round(end*fps) - round(start*fps)` per
+    range - so the frame is computed that way here rather than by
+    rounding the seconds, which drifts by a frame on a reel with enough
+    ranges.
+    """
+    if closer_seam(moment, ranges) is None:
+        return None
+    total = 0
+    for range_start, range_end in ranges[:-1]:
+        total += int(round(range_end * fps)) - int(round(range_start * fps))
+    return total
+
+
 def reel_time(master_time: float,
               ranges: Sequence[Tuple[float, float]],
               at_end: bool = False) -> Optional[float]:
@@ -967,13 +986,23 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     return segments
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = ""):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", overlay_placements=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
     what every build did before `built_name` existed.  A caller that
     passes something else is building the same reel into a different
     container - see `built_name`.
+
+    `overlay_placements` are transition elements laid OVER the reel's own
+    cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
+    the picture and the captions below are placed identically whether
+    there are none or ten, because an element hides a cut rather than
+    consuming frames from either side of it - see
+    `transition_overlay.TIMING_IS_ADDITIVE`.  None or an empty list
+    places nothing AND adds no track, so a project that declares no
+    element gets a timeline byte-for-byte identical to the one it got
+    before this parameter existed.
     """
     import sys, os
     name = timeline_name or moment.timeline_name
@@ -988,12 +1017,19 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     timeline.SetSetting("timelineResolutionWidth", "1080")
     timeline.SetSetting("timelineResolutionHeight", "1920")
     
-    while timeline.GetTrackCount("video") < 3:
+    # An overlay track is added ONLY when something will go on it. An
+    # empty V4 on every reel is a change to every timeline the captain
+    # already has, made to serve a feature they did not turn on.
+    from library.tools.transition_overlay import OVERLAY_TRACK
+    video_tracks = OVERLAY_TRACK if overlay_placements else 3
+    while timeline.GetTrackCount("video") < video_tracks:
         timeline.AddTrack("video")
     while timeline.GetTrackCount("audio") < 2:
         timeline.AddTrack("audio")
         
     timeline.SetTrackName("video", 3, "Captions")
+    if overlay_placements:
+        timeline.SetTrackName("video", OVERLAY_TRACK, "Transitions")
     
     ranges = reel_ranges(moment, transcript)
     placements_list = placements(ranges, master_clips, fps)
@@ -1054,6 +1090,80 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "trackIndex": 3,
             "recordFrame": int(round(segment["timeline_start"] * fps)),
         }])
+
+    # Transition elements last, on the track above the captions. Placed
+    # from FRAMES the planner already computed against this reel's own
+    # keep ranges - nothing is recomputed here, because a placer and a
+    # planner that both do the arithmetic are two chances to land one
+    # frame off the cut the element exists to hide.
+    for placement in (overlay_placements or []):
+        items = pool.ImportMedia([placement.element_path])
+        if not items:
+            raise ValueError(
+                f"transition element {placement.element_path} could not be "
+                f"imported into the media pool, so the element the project "
+                f"declared would be silently missing from {name}")
+
+        # `startFrame`/`endFrame` are in the POOL ITEM's OWN frames, not
+        # the timeline's - AGENTS.md 5, the same rule the picture loop
+        # above obeys and the reason it reads `GetClipProperty("FPS")`.
+        # The Lucie bumper is 30fps on a 23.976 timeline: 36 timeline
+        # frames of it is 45 of its own, and passing 36 would have taken
+        # 1.2s of a 1.5s element. `record_frame` and `duration_frames`
+        # stay TIMELINE frames, because that is what the planner
+        # computed the cut's position in.
+        #
+        # This is the same convention the picture and caption placements
+        # use - `endFrame - startFrame` is the duration, not one less -
+        # and it is not a fresh guess: F18 in the conformance verifier
+        # compares the placed length against the planned one, so a wrong
+        # reading of it fails the next verification rather than shipping.
+        element_fps = float(items[0].GetClipProperty("FPS") or fps)
+        source_frames = int(round(placement.element_seconds * element_fps))
+
+        assert_current_timeline(project, timeline)
+        pool.AppendToTimeline([{
+            "mediaPoolItem": items[0],
+            "startFrame": 0,
+            "endFrame": source_frames,
+            "trackIndex": placement.track_index,
+            "recordFrame": placement.record_frame,
+        }])
+
+
+def _write_overlay_records(review_dir: str, built_reel_names,
+                           overlay_records: dict) -> str:
+    """Merge this build's transition-element records into the stored file.
+
+    Every reel THIS build placed is replaced by what it placed - or
+    dropped, when it placed none - and every other reel's record is left
+    exactly as it was. See the call site for why both halves matter.
+    """
+    import json
+    import os
+
+    path = os.path.join(review_dir, "transition_overlays.json")
+    stored = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                stored = json.load(f) or {}
+        except (OSError, ValueError):
+            # A record that will not parse is not a reason to lose the
+            # build. It is replaced by this build's own answer, and F18
+            # then grades whatever is on V4 against that.
+            stored = {}
+    for name in built_reel_names:
+        stored.pop(name, None)
+    stored.update(overlay_records)
+    if not stored:
+        if os.path.exists(path):
+            os.remove(path)
+        return path
+    os.makedirs(review_dir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(stored, f, indent=2)
+    return path
 
 
 def timelines_to_replace(project, target_names) -> list:
@@ -1324,9 +1434,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         print(f"Deleting nothing: none of "
               f"{sorted(target_names)} exists yet.", flush=True)
 
+    # The project's transition-element declaration, resolved ONCE - the
+    # element is measured here rather than per reel, so a declaration
+    # naming a file that does not exist or draws nothing fails before any
+    # timeline is created rather than half way through nineteen.
+    #
+    # The brand half is `{}` and that is not a stub: `EffectSlots` carries
+    # no `transition_overlay` field, so a template CANNOT declare one
+    # today and reading one for the key would be a declaration that does
+    # not bind. A transition element is artwork, and artwork belongs to
+    # the project (AGENTS.md 14) - see `transition_overlay.resolve_declaration`.
+    from library.tools import transition_overlay as overlay_mod
+    overlay_effect = overlay_mod.resolve_declaration({}, project_folder)
+    overlay_declared = overlay_mod.declared_overlay(overlay_effect) is not None
+
     built_reel_names = []
     caption_hashes = {}
     footage_binding_hashes = {}
+    overlay_records = {}
     for moment in building:
         name = built_name(moment, name_suffix)
         print(f"Building {name}", flush=True)
@@ -1370,6 +1495,33 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 except ValueError:
                     pass  # No bindings in spine - skip silently
 
+        # Transition elements over this reel's own cuts. The plan is
+        # made from the SAME `ranges` the picture was placed from, so an
+        # element cannot land on a cut that is not there. An empty plan
+        # says why it is empty and that reason is printed, because a
+        # declaration that quietly draws nothing is the failure this
+        # whole area keeps producing (AGENTS.md 10.2).
+        overlay_plan = None
+        if overlay_declared:
+            overlay_plan = overlay_mod.plan_reel_overlays(
+                overlay_effect, ranges, 24000 / 1001, project_folder,
+                closer_seam_frame=_closer_seam_frame(
+                    moment, ranges, 24000 / 1001))
+            overlay_records[name] = overlay_plan.as_dict()
+            if overlay_plan.placements:
+                # The GESTURE is said on the run that places it. An
+                # element that stamps the cut rather than hiding it is a
+                # legitimate choice and an easy one to make by accident:
+                # both are asked for in the same words, and the
+                # difference is invisible until it is on the timeline.
+                print(f"  {len(overlay_plan.placements)} transition "
+                      f"element(s) on V{overlay_mod.OVERLAY_TRACK}: "
+                      f"seams {[p.seam_index for p in overlay_plan.placements]}"
+                      f" - {overlay_plan.element.gesture}", flush=True)
+            else:
+                print(f"  no transition element placed: "
+                      f"{overlay_plan.reason_empty}", flush=True)
+
         build_reel_timeline(
             project=project,
             moment=moment,
@@ -1381,6 +1533,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             project_folder=project_folder,
             transcript=transcript,
             timeline_name=name,
+            overlay_placements=(overlay_plan.placements
+                                if overlay_plan else None),
         )
 
     # Record which plan we built from, so the verifier can detect
@@ -1392,6 +1546,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     write_provenance(review_dir, proposal_path, built_reel_names,
                      caption_hashes=caption_hashes,
                      footage_binding_hashes=footage_binding_hashes)
+
+    # The plan the verifier grades V4 against, written where the rest of
+    # the build record lives. A placement nothing recorded is a placement
+    # nothing can check.
+    #
+    # MERGED per reel, and the reels this build touched are REPLACED
+    # whole - including being removed when the project no longer declares
+    # an element. Overwriting the file would delete the record of the
+    # eighteen reels a `--only 3` rebuild did not touch, which is the
+    # defect #568 fixed for `write_provenance` and the same one seen from
+    # here; leaving a stale entry would make F18 report an element as
+    # missing from a reel that was correctly rebuilt without one.
+    _write_overlay_records(review_dir, built_reel_names, overlay_records)
 
     organised = None
     if organise:
@@ -1437,6 +1604,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # Where the media pool was filed, and the journal that undoes it.
         # None when the caller declined; never a silent empty record.
         "organised": organised,
+        # The transition elements laid over each reel's cuts, per reel,
+        # INCLUDING the reels where nothing was placed and why. An empty
+        # record here means the project declares no element at all; a
+        # reel present with no placements means it declares one and this
+        # reel had no cut of the kind it asked for.
+        "transition_overlays": overlay_records,
     }
 
 

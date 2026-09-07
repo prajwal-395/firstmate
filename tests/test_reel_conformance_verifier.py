@@ -1916,3 +1916,157 @@ class TestCaptionHangs:
             "Reel 05", cards_correct, segments, keep_ranges, FPS)
         assert len(findings_correct) == 0
 
+
+
+# ── F18/F19/F20: transition elements laid over a cut ─────────────────
+#
+# Added 2026-09-07 with `library/tools/transition_overlay.py`. Until
+# then `_snapshot_to_reel_timeline` bucketed video into V1-V2 picture and
+# V3 captions with an implicit `else: pass`, so an item on V4 was on the
+# captain's timeline and in NO check - not read as a duplicate, not read
+# as a hole, not read at all. Each of these is proved in both directions.
+
+from library.tools.reel_conformance_verifier import (  # noqa: E402
+    OVERLAY_TRACK,
+    check_overlay_caption_coverage,
+    check_transition_overlays,
+    check_unclassified_video,
+)
+
+
+def _overlay_item(start: int, frames: int, name: str = "bumper.mov",
+                  track: int = OVERLAY_TRACK) -> TimelineItem:
+    return _item("video", track, start, start + frames,
+                 source_file="/brand/bumper.mov", speaker=None, name=name)
+
+
+def _planned_overlay(seam: int, record: int, frames: int) -> dict:
+    return {"seam_index": seam, "record_frame": record,
+            "duration_frames": frames, "track_index": OVERLAY_TRACK}
+
+
+def test_f18_passes_when_the_element_placed_is_the_element_planned():
+    findings = check_transition_overlays(
+        "Reel 01", [_planned_overlay(1, 240, 36)],
+        [_overlay_item(240, 36)], FPS)
+    assert findings == []
+
+
+def test_f18_catches_a_planned_element_that_never_reached_the_timeline():
+    """The defect class `bookends`, `timed_text_overlay` and
+    `motion_graphics_plan` were each built to close: a declaration that
+    silently draws nothing is indistinguishable from no declaration."""
+    findings = check_transition_overlays(
+        "Reel 01", [_planned_overlay(1, 240, 36)], [], FPS)
+    assert [f.finding_class for f in findings] == [FindingClass.F18]
+    assert "is not on V" in findings[0].message
+    assert findings[0].severity == "error"
+
+
+def test_f18_catches_an_element_on_the_timeline_that_no_plan_wrote():
+    findings = check_transition_overlays(
+        "Reel 01", [], [_overlay_item(240, 36)], FPS)
+    assert [f.finding_class for f in findings] == [FindingClass.F18]
+    assert "no plan wrote" in findings[0].message
+
+
+def test_f18_catches_an_element_placed_at_the_wrong_length():
+    findings = check_transition_overlays(
+        "Reel 01", [_planned_overlay(1, 240, 36)],
+        [_overlay_item(240, 30)], FPS)
+    assert len(findings) == 1
+    assert findings[0].detail["delta_frames"] == -6
+
+
+def test_f18_pairs_by_record_frame_not_by_list_index():
+    """F2 was paired by list index while its comment claimed start frame,
+    and produced 701 findings that read as a placement defect and were
+    not one. Two planned elements, the FIRST unplaced: the second must
+    still match its own item rather than being compared to the first's.
+    """
+    findings = check_transition_overlays(
+        "Reel 01",
+        [_planned_overlay(1, 100, 36), _planned_overlay(3, 400, 36)],
+        [_overlay_item(400, 36)], FPS)
+    assert len(findings) == 1
+    assert findings[0].detail["record_frame"] == 100
+
+
+def test_f18_catches_two_elements_stacked_at_one_frame():
+    findings = check_transition_overlays(
+        "Reel 01", [_planned_overlay(1, 240, 36)],
+        [_overlay_item(240, 36), _overlay_item(240, 36, name="second")],
+        FPS)
+    assert any("cannot occupy the same frames" in f.message
+               for f in findings)
+
+
+def test_f19_reports_a_video_item_on_a_track_nothing_grades():
+    """The anti-silent-drop half. Before this, an item here was
+    discarded by the bucketing and read as coverage."""
+    findings = check_unclassified_video(
+        "Reel 01", [_item("video", 7, 0, 48, name="mystery")], FPS)
+    assert [f.finding_class for f in findings] == [FindingClass.F19]
+    assert "V7" in findings[0].message
+    assert findings[0].severity == "error"
+
+
+def test_f19_says_nothing_about_a_timeline_with_no_unknown_tracks():
+    assert check_unclassified_video("Reel 01", [], FPS) == []
+
+
+def test_a_v4_item_reaches_the_overlay_bucket_and_not_the_bin():
+    """The bucketing itself, end to end from a snapshot.
+
+    This is the regression that matters: the item must land somewhere a
+    check looks, and V5 must land in `unclassified_items` rather than
+    vanishing."""
+    from library.tools.reel_conformance_verifier import (
+        _snapshot_to_reel_timeline)
+
+    class _Clip:
+        def __init__(self, track_index, track_type="video"):
+            self.track_type = track_type
+            self.track_index = track_index
+            self.timeline_start, self.timeline_end = 0.0, 2.0
+            self.duration = 2.0
+            self.source_in_frame, self.source_out_frame = 0, 48
+            self.source_file, self.speaker = "/x.mov", None
+            self.name, self.resolve_item_id = f"v{track_index}", ""
+
+    class _Snapshot:
+        fps = FPS
+        timeline_name = "Reel 01"
+        start_frame, end_frame = 0, 48
+        width, height = 1080, 1920
+        clips = [_Clip(1), _Clip(3), _Clip(4), _Clip(5)]
+
+    timeline = _snapshot_to_reel_timeline(_Snapshot())
+    assert len(timeline.video_items) == 1
+    assert len(timeline.caption_items) == 1
+    assert len(timeline.overlay_items) == 1
+    assert [i.track_index for i in timeline.unclassified_items] == [5]
+
+
+def test_f20_reports_the_caption_seconds_an_element_covers():
+    findings = check_overlay_caption_coverage(
+        "Reel 01", [_overlay_item(100, 30)],
+        [_item("video", 3, 90, 115, name="card A")], FPS)
+    assert [f.finding_class for f in findings] == [FindingClass.F20]
+    assert findings[0].severity == "warning"
+    assert findings[0].detail["covered_frames"] == 15
+
+
+def test_f20_says_nothing_when_the_element_clears_every_caption():
+    assert check_overlay_caption_coverage(
+        "Reel 01", [_overlay_item(100, 30)],
+        [_item("video", 3, 400, 460, name="card B")], FPS) == []
+
+
+def test_f20_does_not_fail_the_gate():
+    """Hiding a cut hides what is on it - that is the gesture, not a
+    defect. A check that failed correct output is no more coverage than
+    one that cannot fail (AGENTS.md 10.4)."""
+    assert FindingClass.F20 in __import__(
+        "library.tools.reel_conformance_verifier",
+        fromlist=["WARNING_CLASSES"]).WARNING_CLASSES

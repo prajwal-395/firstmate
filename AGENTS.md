@@ -203,7 +203,7 @@ Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 ### Transitions go through Fusion. Both other routes are closed.
 
 **Do not wire FCPXML or DRP project-file surgery back in.**
-Detail: `library/tools/transition_vocabulary.py`.
+Detail: `library/tools/transition_vocabulary.py` - it has TWO routes.
 
 **A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
 Detail: `library/tools/transition_carriers.py`.
