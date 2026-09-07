@@ -1,0 +1,772 @@
+{
+  "reel_selection": {
+    "considered": [
+      {
+        "start": 53.92,
+        "end": 111.84,
+        "why_not": "The re-recorded opening. It says exactly what the first take says - SEO ranks, GEO comprehends - but Craig's setup rambles and Akshita's answer carries its own repeated run. Same point, worse delivery, so it is one reel proposed once, not twice."
+      },
+      {
+        "start": 112.22,
+        "end": 127.31,
+        "why_not": "Three takes of 'give me an example of that difference' with no answer attached to them. It is a question, and 'that difference' points at something outside any reel that could start here."
+      },
+      {
+        "start": 179.83,
+        "end": 225.22,
+        "why_not": "Opens on the call to action rather than closing on it, and Craig holds ninety-one per cent of it. The pipeline-drying material inside it is worth a reel, but he records it twice and no repetition was measured, so both readings would play - I took the second take alone into its own reel instead."
+      },
+      {
+        "start": 193.35,
+        "end": 195.89,
+        "why_not": "'Two years ago, this didn't matter at all. Like, zero.' The best two and a half seconds in the episode and there is nothing around it: what precedes it is a pitch and what follows is a different subject. Nothing here is a reel and I want the captain to see the line, because if anything is ever re-recorded it should be this one with an answer attached."
+      },
+      {
+        "start": 248.83,
+        "end": 266.3,
+        "why_not": "Craig asks the side-by-side question, then asks it again four seconds later. The build removes the middle of Akshita's first answer, which leaves 'we took an exact query' hanging against 'and we saw when we prompted both of them'. The usable second half of this exchange is proposed on its own."
+      },
+      {
+        "start": 281.07,
+        "end": 312.04,
+        "why_not": "'Google is a search engine, ChatGPT is a decision engine' is one of the two best formulations in the episode and it is unreachable. The clean reading at 281.07 is measured as removed by the build because it pairs with the reading at 284.13 - and that one is the line script_mismatch flags as carrying Hangul characters, so what survives is unreadable. What follows it is Akshita restarting 'search didn't change, the question changed' five times."
+      },
+      {
+        "start": 312.75,
+        "end": 341.27,
+        "why_not": "Two calls to action back to back, Craig's then Akshita's, with barely any body between them. As a reel it is all ask and no delivery. It is the batch's best source of closers instead: three of the eight I use come out of it."
+      },
+      {
+        "start": 461.6,
+        "end": 472.43,
+        "why_not": "Craig's lucycontent.com invitation - the only closer in the episode that names a URL and asks for a DM, and the most distinctive one there is. It sits wholly inside the unbindable stretch 461.26-473.34, so no boundary can be placed on either edge and it cannot be used as a body or as a cta. This is a straight loss and worth knowing about."
+      },
+      {
+        "start": 546.62,
+        "end": 585.15,
+        "why_not": "The audit exchange recorded four times in forty seconds. The build removes only two short runs inside it, so the rest would play as visible re-reads. The fourth take carries its own reel."
+      },
+      {
+        "start": 622.68,
+        "end": 630.67,
+        "why_not": "Akshita's 'if you want to check yourself, the Lucy visibility system, the link's in our bio' is a spoken CTA but the sentence in front of it collapses - 'if you're ranking well on Google but you're not sure about AI, your marketing team, and if you want to check yourself'. It is not an atomic closer, so I did not name it as one."
+      },
+      {
+        "start": 956.92,
+        "end": 1023.75,
+        "why_not": "Three takes of Craig's strongest invitation, including 'send us a DM, go check it out for yourself, it's going to show exactly how AI sees your business'. Every second of it is inside the unbindable stretch 956.66-1016.61, so no boundary can be drawn anywhere in it. Along with the lucycontent.com line above, this is why the usable closer pool is eight and not ten."
+      },
+      {
+        "start": 1024.57,
+        "end": 1077.73,
+        "why_not": "Akshita's answer here is strong - 'AI basically asks, do I understand this company' - but the only setup available is Craig's turn with the tail of a previous CTA spliced into a question he asks twice, and the point it makes is the same one the 'more content, less visibility' reel makes with a clean opener. Dropped on the opener, not on the content."
+      },
+      {
+        "start": 1087.96,
+        "end": 1132.22,
+        "why_not": "The blog-posts audit story - keyword optimised, backlinked, surface level, Google loved it. One uninterrupted Akshita turn with Craig saying nothing inside it. A monologue, not a two-hander."
+      },
+      {
+        "start": 1179.2,
+        "end": 1186.5,
+        "why_not": "'the only reason she even found the salon in the first place was because she walked past it at the mall.' A fragment of a story that is not anywhere else in this cut, with both speakers overlapping on it. Nothing can be built from it."
+      },
+      {
+        "start": 1251.64,
+        "end": 1322.21,
+        "why_not": "The consistency monologue - genuinely the fullest statement of the episode's core argument. Craig holds thirteen per cent of it, and more decisively the whole of Akshita's turn lies inside the unbindable stretch 1261.12-1323.75, so no boundary can be placed anywhere in it."
+      },
+      {
+        "start": 1451.35,
+        "end": 1523.64,
+        "why_not": "The seven modules explained. It is product description with two clearly garbled ASR patches inside it ('So if you're running on a lot of modules, that's an answer', 'ones that we can use to test your website. So the first thing that I would say is that you'), and Craig contributes six seconds of the seventy-two. Pitch is allowed to be the ending of a reel; it is not enough to be the whole of one."
+      },
+      {
+        "start": 1636.2,
+        "end": 1667.2,
+        "why_not": "Thirty seconds where the transcript has Craig and Akshita speaking the same words at overlapping timecodes. The measured speaker shares for the candidate covering it sum to more than one, which confirms it. Whatever it is, it cannot be read as a two-hander from what I was given."
+      },
+      {
+        "start": 1865.88,
+        "end": 1926.48,
+        "why_not": "The first attempt at the small-business question: three readings of Craig's setup, two of which the measurements say the build will NOT remove, and an answer that trails off on 'And for small businesses, no,'. The clean version of the same exchange is proposed."
+      },
+      {
+        "start": 2087.21,
+        "end": 2093.91,
+        "why_not": "'That's what my son does. Liam, he goes, yes sir.' An off-topic aside. Trimmed off the front of the content reel that follows it."
+      },
+      {
+        "start": 2288.17,
+        "end": 2315.0,
+        "why_not": "Contains 'if you're not one of the four or five, you simply don't exist' - the sharpest single line anywhere in this episode. Craig re-records the entire question immediately after it, and the build will not remove the repeat, so any span holding that line also holds a complete duplicate question, and a span that stops before the duplicate has no answer in it. Rejected with regret rather than on the merits."
+      },
+      {
+        "start": 2494.61,
+        "end": 2572.12,
+        "why_not": "'With AI, are blogs still that important?' is a good question with a good answer, and the picture hole at 2523.855-2527.984 lands in the middle of the only complete delivery of it. Akshita's sentence runs 'if you write a generic article, it's going to get' - black - 'five tips on how to make your company better'. Boundaries clear of the hole leave either a trailing fragment or an answer with no question and no Craig in it."
+      },
+      {
+        "start": 819.72,
+        "end": 827.54,
+        "why_not": "'It literally said they were a healthcare company, but they actually sell accounting software.' The setup line for the healthcare reel, sitting sixty seconds before it with another reel's material in between. Not reachable from the reel it belongs to."
+      },
+      {
+        "start": 1400.93,
+        "end": 1407.83,
+        "why_not": "Craig's warm-up before the first-steps question - 'this is top of mind for a lot of business owners, I get a lot of questions when I'm on about'. Trimmed off the front of that reel rather than kept as an opening."
+      },
+      {
+        "start": 2265.69,
+        "end": 2287.09,
+        "why_not": "The optimisation advice Akshita appends to the nail salon story. It is sound, but it turns a first-person story into a lecture and blunts the ending, and on its own it is a single speaker with no exchange."
+      }
+    ],
+    "undetermined": [
+      "How many reels the captain actually wants. The creative brief was not carried into this prompt - I was given a path, a section map and four sections inline. The 'How many' section is previewed as 'Aim wide. He asked for 25 to 30 reels from this one episode, and the' and is cut off mid-sentence there. I proposed 31 on the strength of 'aim wide' and what the material supports, but I never read the rest of that sentence.",
+      "The captain's verbatim ruling on repetition inside a reel, dated 2026-09-06, at lines 91-113 of the brief. It is described as his response to watching Reel 03 and it is the single most relevant thing to this episode, because roughly a third of the passages I judged carry a visible re-read that the build will not remove. Not having it, I made my own call each time and wrote the defect down on the reel.",
+      "Whether the overlapping-speaker stretches - 1200.6-1212.5 and 1636.2-1667.2, where both hosts are transcribed on the same words at the same timecodes - are real crosstalk or a speaker-attribution failure. Nothing in the material distinguishes them, and it decides whether the 3D nail art reel is watchable and whether the rejected stretch at 1636 was rejected correctly.",
+      "Whether a repeated run that carries no repetition_inside row is genuinely spoken twice or is a transcription artefact. Several passages I judged - Craig's doubled pipeline line at 211.64, Akshita's restart at 388.9, her false start at 225.58 - have no measurement attached, so I assumed they are real and will play. If they are artefacts, three of my boundary decisions were made to avoid something that is not there.",
+      "Nothing carries transcription confidence: the material states plainly that avg_logprob does not exist for these lines. The script_mismatch check caught exactly one line, and it is narrow by its own description, so a passage that reads oddly in Latin script cannot be checked against anything.",
+      "Whether the two picture holes - 2469.967-2494.409 and 2523.855-2527.984 - are still holes at build time. One of them is the sole reason a reel was rejected."
+    ],
+    "moments": [
+      {
+        "start": 0.18,
+        "end": 44.74,
+        "slug": "geo-is-comprehension-not-position",
+        "reason": "Craig opens on the exact objection the audience is already making - marketing directors calling GEO 'SEO 2.0' - and Akshita answers it in one uninterrupted pass that ends on a definition a viewer can repeat: one is about position, the other is about comprehension. It is one idea developing, it needs nothing from outside itself, and the answer finishes rather than stops.",
+        "value": "A working one-sentence distinction between SEO and GEO - where you show up in a list versus whether AI can understand and describe you - that a viewer can take straight into an argument with their own CMO.",
+        "hook": "'okay so I'm hearing just from a lot of different marketing directors, they're calling GEO basically SEO 2.0' - it names the viewer's own scepticism in the first four seconds and then turns it into a challenge with 'this is a completely different system, right?'. It is a provocation, not a warm-up.",
+        "close": "Akshita's 'the other is about comprehension, whether AI can actually understand and describe you when someone asks' - a clean takeaway, not an invitation, so a spoken closer is played after it. I deliberately stop before Craig's 'so give me an example of that difference' at 45.41: that opens a question this reel does not answer.",
+        "cta": {
+          "start": 333.8,
+          "end": 341.27,
+          "note": "Akshita carries the whole argument of this reel, so closing in her voice keeps it one speaker's thought end to end, and 'if you want to see how your brand appears' is the literal next step after a reel whose subject is how AI describes you."
+        },
+        "takes_dropped": [
+          {
+            "start": 53.92,
+            "end": 111.84,
+            "what": "The whole opening exchange re-recorded. Take 2 is longer, Craig's setup rambles through 'I keep hearing marketing directors say yes it's just seo 2.0', and Akshita's answer there is measured as containing its own repeated run. Take 1 says the same thing in less time and its answer is complete."
+          }
+        ]
+      },
+      {
+        "start": 127.86,
+        "end": 160.71,
+        "slug": "keyword-stuffing-now-costs-you",
+        "reason": "One audit story told end to end with a reversal in the middle: the SEO team stuffed the H1 tags, Google rewarded it, AI read it as thin content, and the work that lifted the ranking is what removed them from AI entirely. Craig closes by naming the practice and its decade, which turns one client's anecdote into a rule the viewer can apply to their own site.",
+        "value": "The concrete mechanism by which classic on-page SEO makes you invisible to AI - stuffed H1s read as thin content - and the realisation that the two systems can now work against each other.",
+        "hook": "'So we ran an audit last week on a client where we saw an SEO team stuff all the H1 tags with keywords' - a real client, a named practice, no preamble. I moved the start past Craig's three takes of 'give me an example of that difference', all of which lean on a comparison made outside this reel.",
+        "close": "Craig: 'late 90s early 2000s in marketing they call it keyword stuffing, they're putting in a bunch of terms, blogs and whatnot, but as you said they are working against each other now.' That is the takeaway, not an invitation, so a closer is played after it.",
+        "cta": {
+          "start": 321.61,
+          "end": 328.23,
+          "note": "This reel ends on Craig delivering the verdict, so the invitation staying in his voice reads as one continuous thought, and 'see how AI sees you' is the exact check a viewer who just learned their H1s might be hurting them would want to run."
+        },
+        "takes_dropped": [
+          {
+            "start": 118.17,
+            "end": 125.37,
+            "what": "The earlier, truncated reading of the same audit story, which stops at 'had stuffed all their keywords with H1 tags' without the reversal. The measurements report the build removes this run whole, and the boundary I drew is past it in any case."
+          },
+          {
+            "start": 112.22,
+            "end": 117.32,
+            "what": "Craig's first two takes of 'give me an example of that difference'. Cut by the boundary rather than by the build - they are throat-clearing and they point outside the reel."
+          }
+        ]
+      },
+      {
+        "start": 213.26,
+        "end": 248.27,
+        "slug": "people-stopped-searching-they-started-asking",
+        "reason": "Craig names the symptom the viewer is actually living with - the pipeline drying up for an attorney, an HVAC company, a plumber - and Akshita supplies the cause in one move with the evidence attached: nobody types 'CRM small business' any more, they ask 'what's the best CRM if I run a 10 person law firm', and Google was never built for that question. Symptom, cause, proof, stop.",
+        "value": "The specific change in user behaviour that explains a drying pipeline, plus a query the viewer can go and type themselves in thirty seconds to see the difference.",
+        "hook": "'you're an attorney, you have a big law firm, maybe you have an HVAC company, plumbing company - it doesn't matter, the pipelines are starting to dry up a little bit' - it addresses the viewer's own business by name and states a loss they can already feel. I started here rather than at 196.32 so Craig's earlier reading of the same line does not play twice.",
+        "close": "'that's a kind of query that Google wasn't built to handle, but AI was specifically' - a hard button on the idea. No invitation of its own, so a closer is played after it.",
+        "cta": {
+          "start": 328.61,
+          "end": 341.27,
+          "note": "This reel ends on what Google cannot do, and this closer opens with Akshita's own 'search didn't change, the question changed' before the invitation - the one closer in the episode that restates this reel's thesis in the other host's voice before asking for the click."
+        },
+        "takes_dropped": [],
+        "known_defect": "Akshita's answer contains a visible false start of its own: she says 'Yeah, people stopped searching. They're now asking. So instead of someone searching on Google...' at 225.58-230.22 and then restarts the same two sentences at 230.64. No repetition_inside was measured for this stretch, so the build will not remove it, and the only boundary that would is one that starts inside her answer and leaves Craig out of the reel entirely. I judged the exchange worth keeping with the stumble; if the captain disagrees, the alternative is Akshita alone from 230.64, which is not a two-hander."
+      },
+      {
+        "start": 267.36,
+        "end": 281.05,
+        "slug": "google-gave-a-list-from-2023",
+        "reason": "The smallest complete thing in the episode: they ran one real customer query through Google and ChatGPT side by side, and the result is a single sentence a viewer cannot argue with - Google returned a list from 2023, ChatGPT returned three recommendations with the reasons why. It is deliberately short because it is whole; every second I could add to it is either a re-recorded question or the garbled take described below.",
+        "value": "A head-to-head result from a real client query that shows the difference between being listed and being recommended, in one comparison the viewer can rerun on their own business.",
+        "hook": "'well this has been fun recently because we've actually been testing this on some of our clients' - a claim that something was tested and there is a result, which is what earns the next five seconds here. It is the weaker half of a strong reel; the payoff arrives four seconds in.",
+        "close": "'For Google search, it gave out a list from 2023, and from ChatGPT, it gave three recommendations with specific reasons why.' The comparison completes and stops. A closer is played after it.",
+        "cta": {
+          "start": 814.69,
+          "end": 819.13,
+          "note": "This is the shortest body in the batch, so it takes the shortest closer in the episode - a 4.4 second invitation keeps the whole reel tight rather than doubling its length with a closer longer than the point it is closing."
+        },
+        "takes_dropped": [
+          {
+            "start": 248.83,
+            "end": 266.3,
+            "what": "Craig's first take of the same question and Akshita's first, fragmentary answer to it. The build removes only the middle of her take (254.86-259.96), which would leave 'we took an exact query' hanging against 'and we saw when we prompted both of them'. I drew the start past the whole of it instead."
+          },
+          {
+            "start": 281.07,
+            "end": 288.06,
+            "what": "The 'Google is a search engine, ChatGPT is a decision engine' line. I am not playing it, and I could not: the measurements say the build removes the clean reading at 281.07-284.07 because it pairs with the later one at 284.13-288.06 - and that later one is the line flagged by script_mismatch as carrying Hangul characters. The surviving take is the unreadable one, so the best sentence in this passage is unusable and the reel ends before it."
+          }
+        ]
+      },
+      {
+        "start": 342.04,
+        "end": 414.05,
+        "slug": "ai-cant-form-a-clear-picture-of-you",
+        "reason": "Craig sets up the moment every founder in the audience has already had - typing your own company into ChatGPT and finding nothing - and Akshita reframes it into something more useful than 'AI doesn't know you': it knows, it just cannot assemble a picture, because your website, LinkedIn, Reddit, press mentions and directories are telling different stories. One idea, developed to its end, with the diagnosis as the payoff.",
+        "value": "The reason a company that clearly exists comes back blank or wrong - contradiction and silence across sources, not absence - and the full list of the places AI is reading.",
+        "hook": "'so what we're hearing a lot from people that we talk to, they get on ChatGPT or Claude and they search their business and they're like, we are not showing up at all' - it names the exact experience, then raises the stakes to 'those are leads basically that are gone, you're missing out on a lot of revenue'.",
+        "close": "'if these sources are saying contradictory things about your company and your brand, or worse, not saying anything at all, that's really going to tell AI that it cannot confidently recommend you or your brand.' A diagnosis that finishes. A closer is played after it.",
+        "cta": {
+          "start": 179.83,
+          "end": 192.39,
+          "note": "This reel ends on the viewer not knowing what their own sources say about them, and this is the one closer that names the visibility SCORE rather than just the system - the thing that answers 'so where do I find out'."
+        },
+        "takes_dropped": [],
+        "known_defect": "Akshita restarts her own answer mid-flow: the first reading trails off at 387.22 on 'AI can't really confidently form a,' and she begins again at 388.9 with 'yeah, it's not that AI doesn't know they exist'. No repetition_inside was measured here - this turn is a single 50-second turn, so it generated no candidate at all - which means the build will not remove it and it will be audible. Ending at 387.22 instead would leave the reel trailing off mid-sentence, which is worse. The end boundary is set at 414.05 rather than 413.85 so that it falls just clear of the unbindable stretch at 412.77-414.03."
+      },
+      {
+        "start": 422.75,
+        "end": 461.24,
+        "slug": "size-doesnt-matter-consistency-does",
+        "reason": "A claim, a counter-example and the mechanism behind it, in under forty seconds: a ten-person agency gets recommended over a company fifty times its size, and the reason is that every source it has tells the same story. It ends on the reframe that makes it useful - it is not about how big you are, it is about how consistent you are.",
+        "value": "Permission for a small company to compete, plus the actual lever - same positioning, same language, same services across every source - rather than more budget.",
+        "hook": "'so in this case size really doesn't matter' - a flat contradiction of what the viewer assumes, and it is the whole premise of what follows. I started here rather than at 414.05 because that opening leans on the word 'earlier', which points at something said outside the reel, and the measurements flagged it.",
+        "close": "'It's not about how big you are. It's about how consistent you are and how well your sources all align with each other.' A reframe that lands as a rule. A closer is played after it.",
+        "cta": {
+          "start": 809.69,
+          "end": 819.13,
+          "note": "This reel argues consistency across every source is what wins, and this closer says the quiet part - 'your website checks out but everything else out there, it's broken' - before the invitation, which is the one thing a small business owner convinced by this reel would actually want checked."
+        },
+        "takes_dropped": [
+          {
+            "start": 426.98,
+            "end": 432.29,
+            "what": "Akshita's first, shorter reading of the ten-person-agency line. The measurements say every line of this run pairs with a later one, so the build removes it whole and the fuller version at 433.05 is the one that plays."
+          },
+          {
+            "start": 414.05,
+            "end": 421.31,
+            "what": "Craig's first take of the size question, cut by the boundary. It says 'a lot of times when I was talking about earlier', which a cold viewer has nothing to attach to."
+          }
+        ],
+        "known_defect": "Craig holds only 2.7 seconds of this reel, well under any of the shares the measurements flagged as monologue. I am proposing it anyway because his line is not filler - it is the proposition the entire answer is built to refute, and without it Akshita's 'No, it doesn't' has nothing to answer. If the captain wants a fuller two-hander here the only route is starting at 414.05 and accepting both the 'earlier' back-reference and Craig saying the same sentence twice."
+      },
+      {
+        "start": 473.36,
+        "end": 546.25,
+        "slug": "number-one-on-google-invisible-to-ai",
+        "reason": "Akshita states the paradox as a bare fact, Craig explains why it hurts the people it hurts - CMOs who spent years buying that top organic slot - and then asks the question the viewer is already forming, and Akshita answers it completely: Google ranks pages, AI does not care about pages, it cares about information, so a number one ranking and total invisibility are compatible. Question posed, question answered, no loose ends.",
+        "value": "Why the asset a marketing team spent years building - the top organic result - can be worth nothing in AI, and what AI wants instead: who you are, what you do, who you serve, what your positioning is.",
+        "hook": "'So ranking number one on Google, but being completely invisible to AI, both at the same time' - a flat contradiction stated as a fact in the first four seconds. It is the strongest cold open in the batch.",
+        "close": "'And if you don't have that, yes, you can be ranked number one on Google... but AI doesn't really care about that because you're not answering core questions about your brand and your company. Hence, you could be completely invisible.' It closes the loop it opened on. A closer is played after it.",
+        "cta": {
+          "start": 1168.34,
+          "end": 1177.58,
+          "note": "This reel is aimed squarely at the marketing department that owns the Google ranking, and it is the one closer in the episode that tells the viewer to send it to that team rather than to click something themselves."
+        },
+        "takes_dropped": [
+          {
+            "start": 461.6,
+            "end": 472.43,
+            "what": "Craig's lucycontent.com invitation, which immediately precedes this reel. I am not playing it and it is also not available as a closer anywhere: it sits wholly inside the unbindable stretch 461.26-473.34, so no boundary can be placed on either of its edges."
+          }
+        ],
+        "known_defect": "The start boundary at 473.36 clears that same unbindable stretch by two hundredths of a second. It is a real edge in the line table, but it is the tightest margin in the batch and worth checking before the build."
+      },
+      {
+        "start": 588.26,
+        "end": 622.38,
+        "slug": "top-three-on-google-hallucinated-by-ai",
+        "reason": "The audit finding stated as a result rather than a theory - top three on Google, invisible or wrong on AI - followed by Craig's genuine reaction to watching people's faces, and then the one-line distinction that makes the whole episode legible: ranking tells Google you exist, GEO tells AI what you actually are. A finding, a human beat, a definition.",
+        "value": "A measured before-and-after from a real audit, and the sentence that separates the two systems in terms a viewer can hold on to.",
+        "hook": "'So when we ran the audit, we saw that their company was ranking on Google in the top three searches, but on AI, they were either invisible or AI got their services wrong' - a concrete result with a reversal inside it, delivered immediately.",
+        "close": "'Ranking tells Google that you exist. GEO tells AI what you actually are, who you actually are, and what your company does.' A definition as the button. A closer is played after it - I stop before Akshita's own invitation at 622.68 because that one is garbled mid-sentence.",
+        "cta": {
+          "start": 333.8,
+          "end": 341.27,
+          "note": "The reel is an audit result told in Akshita's voice, and this closer is her offering the same look at the viewer's own brand - the invitation reads as the natural continuation of the finding rather than a hand-off."
+        },
+        "takes_dropped": [
+          {
+            "start": 546.62,
+            "end": 585.15,
+            "what": "Three earlier takes of this same exchange - Craig asking about the audit and Akshita answering - cut off by the start boundary. The build removes only part of the third (581.2-585.15), which would leave 'Yeah. When we did the audit,' hanging on its own, so drawing the start past all of them was the only clean option."
+          },
+          {
+            "start": 614.95,
+            "end": 616.25,
+            "what": "Akshita's 'So ranking tells Google,' false start. The measurements say the build removes this run whole."
+          }
+        ],
+        "known_defect": "Around 614.8-616.6 Craig and Akshita are transcribed overlapping - 'yeah so ranking' / 'tells google' / 'ranking tells Google that you exist'. Some of that will read as natural crosstalk. I cannot tell from the transcript alone whether it is two people talking over each other or a speaker-attribution failure, and that distinction decides how it sounds."
+      },
+      {
+        "start": 631.12,
+        "end": 694.35,
+        "slug": "your-website-is-only-20-percent",
+        "reason": "Craig puts the assumption on the table - AI just reads your website - Akshita breaks it with a number and a price tag the viewer recognises, and then Craig's second question turns the correction into a complete answer by asking where the other eighty per cent comes from. Two exchanges, one idea, and it finishes on the consequence rather than on the list.",
+        "value": "The number that resizes the whole problem - your website is twenty per cent of what AI sees - and the actual inventory of sources it reads instead: Reddit, LinkedIn, press mentions, directories, business profile, anywhere you have ever been mentioned.",
+        "hook": "'when it comes to AI, people assume this, but it's not just reading your website, right?' - it states the belief the viewer holds and contradicts it in the same breath, and Akshita's reply names the fifty-to-a-hundred-grand redesign within five seconds.",
+        "close": "'most companies don't even know that these sources exist and what they're saying about them, if anything at all... And you have to be aware of what it's saying, or you can be completely misrecommended.' The consequence, stated plainly. A closer is played after it.",
+        "cta": {
+          "start": 321.61,
+          "end": 328.23,
+          "note": "This reel ends on the viewer not knowing what the other eighty per cent is saying about them, and 'see how AI sees you' is the shortest possible answer to that - the closer that resolves the exact worry the reel just created."
+        },
+        "takes_dropped": [],
+        "known_defect": "The end boundary is set at 694.35, the start of Craig's next line, rather than at Akshita's last word at 693.3: every edge between 659.86 and 694.33 falls inside an unbindable stretch of Craig's speech, and 694.35 is the first edge clear of it. That leaves about a second of air after her final word."
+      },
+      {
+        "start": 720.75,
+        "end": 771.0,
+        "slug": "the-website-wasnt-broken-everything-else-was",
+        "reason": "The single most concrete story in the episode: one company whose website said enterprise software, whose LinkedIn said startup consulting, whose Crunchbase listed different services again, and whose 2021 press release said something else entirely - and AI, taking all of it in, started hallucinating. Craig closes it in one sentence that turns the story into a diagnosis the viewer can apply to themselves.",
+        "value": "A worked example of source contradiction and its consequence - AI listing your services wrong and recommending you for something you do not do - and the realisation that the fault is almost never the website.",
+        "hook": "'when I'm talking with people about generative engine optimization, lots of questions obviously... so what's happening, what are you seeing when we're running these audits?' - a question, which the format allows, but it takes about five seconds to get there. This is the weakest opener in the batch and I want to say so rather than dress it up: the first line is Craig settling into a question, and I kept it because the only alternatives are two earlier takes of the same question that are worse and a start inside Akshita's answer that would leave no exchange at all.",
+        "close": "Craig: 'so it wasn't that their website was broken, it was everything else was broken.' That is the best button in the episode - it converts a client story into a rule in fourteen words. A closer is played after it.",
+        "cta": {
+          "start": 1855.84,
+          "end": 1865.28,
+          "note": "This reel leaves the viewer with a mess across four platforms and no idea how to reconcile them, so it takes the one closer that answers 'and who fixes it' - 'let us do the work for you' - rather than sending them to look at another score."
+        },
+        "takes_dropped": [
+          {
+            "start": 694.35,
+            "end": 719.43,
+            "what": "Craig's first two takes of this question, both saying the same thing about the AI ecosystem. Cut by the boundary. The build does not remove them - no repetition was measured on this stretch - so the boundary is the only thing that could."
+          },
+          {
+            "start": 771.09,
+            "end": 775.46,
+            "what": "Akshita's first reading of the resume-and-references line, which the measurements say the build removes anyway. It is not in this reel; the fuller version of it carries its own reel."
+          }
+        ]
+      },
+      {
+        "start": 775.64,
+        "end": 819.13,
+        "slug": "your-website-is-your-resume",
+        "reason": "One metaphor carried from statement to consequence to invitation without leaving it: your website is your resume, everything else on the internet is your references, and a hiring manager checks both. Craig starts the thought, Akshita completes it and gives the instruction, and Craig closes on the product and the ask. It ends on the invitation the format is built around rather than needing one borrowed.",
+        "value": "A metaphor a viewer will remember and repeat, plus the instruction that follows from it - make sure every reference is aligned, because the one thing you control is not the one thing that decides.",
+        "hook": "'so your website can be perfectly fine, but a lot of times everything...' running straight into Akshita's 'Absolutely. Your website is your resume and everything else are your references.' Craig sets the frame and she lands the line inside the first six seconds; the metaphor itself is the hook.",
+        "close": "Craig's own call to action: 'yep your website checks out, but everything else out there, it's broken... so if you are watching this, definitely check it out on our website, also the link's in the bio.' This reel closes on a CTA of its own, so no closer is borrowed.",
+        "takes_dropped": [
+          {
+            "start": 771.09,
+            "end": 774.54,
+            "what": "Akshita's first reading of the resume-and-references line, which the measurements say the build removes whole. It is outside this reel's start boundary in any case."
+          }
+        ],
+        "known_defect": "Two things about this one are honestly imperfect and both are structural. First, Akshita says 'a hiring manager would check both, AI checks both' twice, at 786.6-790.27 and again at 793.87-797.54, and the measurements are explicit that the build will NOT remove the first: nought of one line pairs safely, so the run is left entire. Drawing the span clear of it is impossible - every edge between 781.75 and 800.57 falls inside an unbindable stretch, so the only starts available are before the metaphor or after it. Second, Craig's closing turn has a garbled seam in it around 806 ('that it is looking' / 'thing there's seven modules'). I am proposing it because the metaphor is the most quotable thing in the episode and it closes on a real CTA; the captain should reject it if the doubled line reads as a stumble rather than emphasis."
+      },
+      {
+        "start": 828.53,
+        "end": 889.66,
+        "slug": "ai-isnt-making-things-up",
+        "reason": "Craig opens with a number from a room he was actually in - he asked an audience who had checked what AI says about their company, and only about twenty per cent had - and Akshita converts the discomfort that creates into an argument that reassigns the blame: AI is not inventing, it is doing the best it can with three sources that contradict, two that are vague and five it cannot even reach. One idea, and it lands on what that produces.",
+        "value": "A reframe that changes what the viewer does next - the problem is not that AI is unreliable, it is that you are handing it a bad information ecosystem - plus a live prompt they will almost certainly run on themselves immediately.",
+        "hook": "'I was speaking recently and I asked people to raise their hands: how many of you checked out and asked AI what your company does, to see the answer? At the time only about twenty per cent' - a scene, a number, and an implied dare at the viewer.",
+        "close": "'it's going to pull from there, hallucinate, and try to come up with its own answers... which most likely will be completely different than what your brand and company actually does and what you want AI to actually say about you.' A consequence, cleanly finished. A closer is played after it.",
+        "cta": {
+          "start": 179.83,
+          "end": 192.39,
+          "note": "The reel's whole engine is a viewer who has never asked AI what it thinks of them, and this closer is the only one that offers a score - a specific thing to go and get, which is what someone who just failed the raise-your-hands test wants."
+        },
+        "takes_dropped": []
+      },
+      {
+        "start": 889.92,
+        "end": 956.64,
+        "slug": "the-accounting-firm-ai-called-healthcare",
+        "reason": "A whodunnit with the answer inside it: AI called a company a healthcare company, it actually sells accounting software, and Akshita traces exactly where the three healthcare mentions came from - one case study, one person's LinkedIn bio, one directory listing. Then Craig delivers the verdict and she confirms it: AI connected the dots correctly, the dots were wrong. Setup, investigation, verdict.",
+        "value": "The clearest illustration in the episode of how a hallucination is actually assembled, from three real fragments, and the conclusion the viewer should draw - your information ecosystem is the thing that is broken.",
+        "hook": "'and that's what happened with that company, why they came back as a healthcare company' - answered two seconds later by 'And not an accounting software company, yes.' The absurdity is established before the viewer needs any context, and the reel supplies the only fact it depends on.",
+        "close": "'AI will take that, connect the dots, and that's not its fault. Your information ecosystem is not good.' The sharpest verdict line in the cut. A closer is played after it.",
+        "cta": {
+          "start": 328.61,
+          "end": 341.27,
+          "note": "This reel is about AI describing a company as something it is not, and this closer's own words - 'if you want to see how your brand appears' - are the direct offer to check whether the viewer is that company, with Akshita's takeaway line in front of it to break the fall from a story to an ask."
+        },
+        "takes_dropped": [],
+        "known_defect": "The opening says 'that company', which strictly points outside the reel - the setup line ('It literally said they were a healthcare company, but they actually sell accounting software') is spoken at 819.72, seventy seconds earlier and behind another reel's material. I kept it because the reel restates the necessary fact within its own first four seconds, so 'that company' reads to a cold viewer as 'a company' rather than as a gap. The end boundary clears the long unbindable stretch that starts at 956.66 by two hundredths of a second."
+      },
+      {
+        "start": 1138.68,
+        "end": 1177.58,
+        "slug": "more-content-less-visibility",
+        "reason": "Craig states the paradox in six words - more content, less visibility - and Akshita names it as the single biggest GEO mistake and says what the algorithm rewards instead, then closes on her own call to action. Short, one idea, and it is the only reel in the batch whose body and closer were spoken as one continuous thought.",
+        "value": "The named mistake - optimising for an algorithm that does not reward keyword stuffing or backlinks - and the replacement criterion: understanding, and niche unique content.",
+        "hook": "'in that case, more content, less visibility - that is freaking brutal.' A paradox stated as an exclamation. I started at Craig's second reading of the line rather than his first at 1133.14 precisely so the reel does not say it twice.",
+        "close": "Akshita's own CTA, and the most specific one in the episode: 'If you're running a content-heavy SEO strategy and your AI visibility is still low, send this to your marketing team. That disconnect is exactly what we fixed with the Lucy visibility system.' No closer is borrowed.",
+        "takes_dropped": [
+          {
+            "start": 1158.48,
+            "end": 1167.92,
+            "what": "Akshita's first reading of the closing CTA. The measurements say every line of this run pairs with a later one, so the build removes it whole and the second reading at 1168.34 is the one that plays."
+          },
+          {
+            "start": 1133.14,
+            "end": 1136.9,
+            "what": "Craig's first reading of 'more content, less visibility, that's pretty brutal', and Akshita's 'That is really crazy' reply to it. Cut by the boundary: no repetition was measured here, so the build would have played both."
+          }
+        ],
+        "known_defect": "Once the build removes the duplicate CTA run this reel is about twenty-nine seconds of playing time, not thirty-nine. It is well under the series band. I judged it complete rather than short - it opens on a paradox, names the mistake, states the fix and asks for the share - and padding it means starting inside Akshita's previous answer, which is a different subject."
+      },
+      {
+        "start": 1186.94,
+        "end": 1251.21,
+        "slug": "the-3d-nail-art-salon-beats-the-chains",
+        "reason": "Craig voices the small owner's defeat - I cannot compete with the LA Fitnesses of the world - and Akshita answers it with a mechanism and an example rather than encouragement: Google rewards whoever shows up most, which money can buy; AI rewards whoever matters most, which it cannot. A salon that specialises in 3D nail art gets pulled over chains with hundreds of locations because those chains do everything and nothing.",
+        "value": "The reason specialisation is now an advantage rather than a limitation, with a specific enough example that a viewer can substitute their own niche into it.",
+        "hook": "'if you're a salon owner or you are a gym owner, you have a small gym business, and you're thinking to yourself, there's no way that I can compete with the LA Fitnesses of the world' - it says the viewer's own private thought out loud and then tells them it is wrong.",
+        "close": "'and so AI does reward who matters the most.' The reframe restated as a rule. A closer is played after it.",
+        "cta": {
+          "start": 333.8,
+          "end": 341.27,
+          "note": "This reel is addressed to a small owner who has never thought to check, and this closer's ask is the smallest one available - just see how your brand appears - which is the right size of next step for someone who has just been told they can compete at all."
+        },
+        "takes_dropped": [
+          {
+            "start": 1219.06,
+            "end": 1227.05,
+            "what": "Akshita's first reading of the 3D nail art example. The measurements say every line pairs with a later one, so the build removes this run whole and the second reading at 1231.91 plays."
+          },
+          {
+            "start": 1179.2,
+            "end": 1186.5,
+            "what": "The stray fragment about a woman finding a salon because she walked past it at the mall. Cut by the boundary - it refers to a story that is not anywhere in this cut."
+          }
+        ],
+        "known_defect": "Between 1200.6 and 1212.5 Craig and Akshita are transcribed saying nearly identical words at overlapping timecodes, and the measured speaker shares for this candidate sum to more than one, which confirms the overlap is real in the data. I cannot tell whether that is genuine crosstalk or a speaker-attribution failure, and it decides whether this passage is watchable. It is the main reason to reject this reel and keep only the later, cleaner treatment of the same question."
+      },
+      {
+        "start": 1342.99,
+        "end": 1400.08,
+        "slug": "why-ai-trusts-one-brand-over-another",
+        "reason": "Craig asks what the crawler is actually noticing when it picks one brand over another, and Akshita answers it by analogy to the viewer's own judgement: press mentions, reputation and five stars against 3.5 stars, bad reviews and no coverage - you would pick the former, and AI reasons the same way. It ends on the moment that matters commercially: the moment you become trustworthy to it is the moment it starts recommending you.",
+        "value": "A model of AI trust the viewer already owns - it evaluates you the way you evaluate a supplier - and the specific inputs: high authority sources, citations, review quality.",
+        "hook": "'what is that AI crawler noticing, and why is it suddenly picking that brand over another one?' - the question is the hook, and it is the question the entire episode has been circling.",
+        "close": "'And the moment you become trustworthy to it, that's when it starts recommending you.' A causal button. A closer is played after it.",
+        "cta": {
+          "start": 1168.34,
+          "end": 1177.58,
+          "note": "Everything this reel names as a trust input - press, citations, reviews - is owned by a marketing team rather than by the person watching, so the closer that says send this to your marketing team is the one that actually gets acted on here."
+        },
+        "takes_dropped": [],
+        "known_defect": "Craig's question begins mid-thought: 'Atlanta Business Chronicle, as the crawlers are looking, if it sees that, what is that AI crawler noticing...'. The turn before it, at 1323.77, is garbled and there is a sixteen-second gap in the transcript before this line, so there is no clean earlier edge to start from and the first six words are a fragment. The question itself lands intact, and I judged that enough. If the captain wants a hard rule applied on openers, this is the reel it removes."
+      },
+      {
+        "start": 1407.91,
+        "end": 1450.36,
+        "slug": "the-first-step-is-seeing-how-ai-sees-you",
+        "reason": "The practical reel of the batch, and it is one idea rather than a list: before you build any GEO strategy, find out what AI currently says about you, because everything else is guessing. Craig asks the question directly on behalf of a business that has not started, and Akshita gives one step, not five, and then insists on the ordering - understand first, strategy after.",
+        "value": "A first action a viewer can take this week, and the reason the sequence matters: a strategy written before you know how AI currently reads you is a strategy aimed at nothing.",
+        "hook": "'So for small business, midsize, or even the large ones who have not really even tackled this generative engine optimization... what are some of the first steps these businesses should be doing?' - a direct question that names the viewer's position. I moved the start past Craig's 'this is top of mind for a lot of business owners, I get a lot of questions when I'm on about', which is warm-up.",
+        "close": "'And that would be the first step. See how AI understands you. After that, then you can start thinking about a strategy and how to fix it. But first, understand.' The pitch sits in the middle of this one and the last words are an instruction, not an invitation, so a closer is played after it.",
+        "cta": {
+          "start": 1855.84,
+          "end": 1865.28,
+          "note": "This reel stops at 'understand first' and deliberately leaves the fixing unaddressed, so it takes the closer that picks that up - 'let us do the work for you, so you can focus on running your actual business' - which finishes the sentence the body starts."
+        },
+        "takes_dropped": []
+      },
+      {
+        "start": 1524.57,
+        "end": 1594.87,
+        "slug": "what-hallucinating-actually-means",
+        "reason": "Craig takes a word the audience has heard a thousand times and says it might not mean what they think, then grounds it in something they can picture: an owner tells the audit what their business is, and AI comes back with something else. Akshita's answer is a single chain of causation that ends somewhere genuinely useful - if AI has you in the wrong category, every competitor it names for you is the wrong competitor too.",
+        "value": "A working definition of hallucination that removes the mystery - it is not AI going wild, it is AI reading sources you do not know exist - and a consequence most viewers will not have thought of: wrong category means wrong competitor set, so you are not even being measured against the right people.",
+        "hook": "'When you say hallucinating, like there might be a misconception that AI has just gone wild, it's hallucinating' - it takes a familiar word and puts it in question, which is a provocation rather than a preamble.",
+        "close": "'you're probably going to get different competitors than what your actual competitors are, hence you're not even in the right category to begin with, so there's already an issue there.' A consequence the viewer has not seen coming. A closer is played after it.",
+        "cta": {
+          "start": 179.83,
+          "end": 192.39,
+          "note": "This reel ends on the viewer not knowing which category AI has filed them under, and this closer is the one that offers a look at where you're ranking and how AI sees you - the specific report that would answer it."
+        },
+        "takes_dropped": []
+      },
+      {
+        "start": 1596.36,
+        "end": 1635.69,
+        "slug": "not-a-content-problem-a-visibility-problem",
+        "reason": "Craig makes the diagnosis in the first line and Akshita confirms it and then says what measuring visibility actually consists of - running the prompts, running the scenarios, checking whether the company comes up at all - which is what stops the reel being a slogan. It is aimed at exactly the company that is already publishing hard and cannot understand why it is not working.",
+        "value": "The distinction between producing content and being visible, and the concrete test that separates them: prompts run against your category to see whether you appear.",
+        "hook": "'It's not a content problem, especially for some of these bigger companies that are constantly pushing out content. It's more of this visibility problem, right?' - a diagnosis stated as a contradiction of what the viewer believes, in the first line.",
+        "close": "'even for content it will tell you whether your content on your website has enough statistics, enough citations, enough quotes, and even if other people are citing you online or not.' It finishes on what gets measured rather than on a flourish - the weakest close in the batch, and the reason a borrowed closer earns its place here.",
+        "cta": {
+          "start": 814.69,
+          "end": 819.13,
+          "note": "The body already trails into a list, so this reel takes the shortest closer available - four and a half seconds - to cut the drift and end on an ask rather than on more enumeration."
+        },
+        "takes_dropped": [
+          {
+            "start": 1636.2,
+            "end": 1648.88,
+            "what": "Craig's next question ('what has been the biggest mind-blowing thing') is deliberately left out by the end boundary: it opens a subject this reel does not answer, and that stretch is also where the transcript has both speakers on the same words at the same timecodes."
+          }
+        ]
+      },
+      {
+        "start": 1668.1,
+        "end": 1730.01,
+        "slug": "your-competitor-is-ranking-nine-times-more",
+        "reason": "Craig asks what actually blows people's minds in these meetings and Akshita gives one answer with a number attached: a competitor mentioned every single time the prompts were run against a company mentioned once - nine times more, same services, same type of firm. She also explains why the number is normally invisible, which is what makes the moment land rather than sound like a sales figure.",
+        "value": "A quantity nobody has been able to see before - how many times more your competitor is being surfaced than you - and the reason it is normally hidden: AI will not tell you the count.",
+        "hook": "'since we've been running these audits, what has been like the most mind-blowing thing while you're looking at someone's reaction?' - a question that promises a reaction shot, and the payoff is a number.",
+        "close": "'why is your competitor ranking nine times more than you? And it usually blows their mind, and that's a big problem.' I end at 1730.01 rather than at the end of her turn, because from 1730.55 both speakers begin the same trailing sentence at once and it does not finish. A closer is played after this.",
+        "cta": {
+          "start": 321.61,
+          "end": 328.23,
+          "note": "The reel opens a comparison and closes without resolving it, so it takes the closer that hands the viewer the same instrument - 'see how AI sees you' - which is the only thing that would tell them which side of that nine-to-one they are on."
+        },
+        "takes_dropped": [
+          {
+            "start": 1636.2,
+            "end": 1667.2,
+            "what": "The whole first attempt at this exchange, where the transcript has Craig and Akshita on the same words at overlapping timecodes for thirty seconds. Cut by the start boundary; no repetition was measured on it, so the build would not have removed it."
+          }
+        ]
+      },
+      {
+        "start": 1743.05,
+        "end": 1814.68,
+        "slug": "my-website-is-brand-new-why-isnt-that-enough",
+        "reason": "The objection stated in the owner's own words - the website is brand new, I did everything I was told to do - and answered with the analogy that settles it: you would never hire a person on the strength of their own website, you would search them, find sources, do your background, and AI does exactly that. It ends on the arithmetic that makes it stick: a perfect twenty per cent is outweighed by everything else being vague, negative or absent.",
+        "value": "Why a redesign does not move AI visibility, and the mental model that replaces it - AI does a background check, and the website is the CV, not the reference.",
+        "hook": "'but this website's like brand new. I thought I did everything I needed to do for the website for AI to understand it. Why are the websites not enough?' - Craig quoting a real client's protest, which is the viewer's protest. I moved the start past his framing of who said it so the reel opens on the complaint itself.",
+        "close": "'from everything else, if it's vague, negative, or even zero, it kind of outweighs only the website.' The arithmetic as the button. A closer is played after it.",
+        "cta": {
+          "start": 328.61,
+          "end": 341.27,
+          "note": "The viewer of this reel has just been told their best asset counts for a fifth, so the closer needs to offer the other four fifths - and this one, with Akshita's own takeaway in front of the ask, is about how your brand appears everywhere rather than about your site."
+        },
+        "takes_dropped": [],
+        "known_defect": "This overlaps in subject with the 'your website is only twenty per cent' reel earlier in the episode, and both use the same number. I am proposing both because they deliver different things: the earlier one is the inventory of sources AI reads, this one is the hiring analogy and the arithmetic of why a perfect site loses. If the captain reads them as the same video, this is the one to keep - the analogy is stronger - and the earlier one to drop."
+      },
+      {
+        "start": 1815.99,
+        "end": 1865.28,
+        "slug": "a-score-is-not-a-fix",
+        "reason": "The competitive question asked plainly and answered with one distinction rather than a feature list: other platforms hand you a score and a list of what is wrong, and then you have to choose between running your company and rebuilding your GEO strategy. Akshita's answer turns that into the argument for the service and finishes on the invitation, so the reel closes on a CTA of its own.",
+        "value": "The difference between being told what is broken and having it fixed - and the honest cost the viewer had not priced in, which is their own time.",
+        "hook": "'You have other big platforms, some big companies out there that are giving AI scores. Explain what's different about what they're doing than doing over here at Lucy.' - a direct comparison question, and the answer starts with a concession rather than a boast, which is what earns the next five seconds.",
+        "close": "'Let us do the work for you. Let us show you that we can take you from not being recommended in AI to being recommended without you having to put the grunt work, so that you can focus on running your actual business.' A complete, self-contained invitation, spoken in place. No closer is borrowed.",
+        "takes_dropped": [],
+        "known_defect": "This is the most commercial reel in the batch - the value it delivers is a positioning argument rather than a piece of craft the viewer can apply. I am proposing it because the format explicitly treats the pitch as the ending rather than as noise, and because the concession in it ('yes, you're going to get a score, and yes, you're going to see what's going wrong') is a real observation about a category of tools. If the captain wants the batch to stay instructional, this is the first one to cut."
+      },
+      {
+        "start": 1926.73,
+        "end": 2009.12,
+        "slug": "why-small-business-wins-on-ai",
+        "reason": "The cleanest full exchange in the second half of the episode and one uninterrupted argument: big companies can brute-force Google with money, but AI already holds every generic article that exists and does not need another, so the thing it is short of - human, authentic, niche writing - is the one thing a large marketing department cannot manufacture. It ends on a five-word verdict.",
+        "value": "A structural reason a small business has the advantage rather than a pep talk, and the practical instruction inside it: write the thing only you could write.",
+        "hook": "'For a lot of small business owners out there, they're probably thinking, there's no way that I can compete with the behemoths... I don't think I can compete with the LA Fitnesses of the world. Is that the case?' - the viewer's own defeat spoken back to them and then put in question.",
+        "close": "'Great for Google, not good for AI.' The tightest button in the cut. A closer is played after it.",
+        "cta": {
+          "start": 333.8,
+          "end": 341.27,
+          "note": "This reel tells a small owner they are already positioned to win, and the natural next beat is finding out whether they currently are - this closer asks only that, and asks it in the same voice that just made the argument."
+        },
+        "takes_dropped": [
+          {
+            "start": 1865.88,
+            "end": 1926.48,
+            "what": "The whole earlier attempt at this exchange: three takes of Craig's question, two of which the measurements say the build will NOT remove because their lines do not pair safely, and an answer that trails off on 'And for small businesses, no,'. Cut by the start boundary. This is the clearest case in the episode where moving the boundary is the only way to drop a take."
+          }
+        ],
+        "known_defect": "This shares its thesis with the 3D nail art reel earlier in the cut. They are not the same video - that one gives the concrete example of a specialist salon beating chains, this one gives the reason big companies structurally cannot follow - but they are adjacent, and the captain should see them side by side. If only one survives it should be this one: it is clean, it needs no take dropped inside it, and it has the better ending."
+      },
+      {
+        "start": 2009.53,
+        "end": 2079.92,
+        "slug": "why-ai-trusts-youtube",
+        "reason": "A question with a hard yes-or-no answer - are all video platforms equal in AI's eyes - answered 'No' in the first second and then unpacked into something the viewer can act on this afternoon: YouTube carries more weight because of how long it has existed, and the leverage is in the description, the title and the headers, written so plainly a five-year-old could follow them.",
+        "value": "A platform preference stated as fact and a concrete optimisation the viewer owns entirely - what goes in the description of a video they are already posting.",
+        "hook": "'Why do AI platforms love video content? Let me ask you this: are all sources of video, like YouTubes and whatnot, are they created equally in AI's eyes?' - a question with an implied answer, and Akshita's flat 'No.' immediately after it.",
+        "close": "'you're definitely more likely to be mentioned in AI, just because AI trusts YouTube a lot.' I end here rather than at the end of her turn: the last few seconds after this restate the same point about descriptions and soften the button. A closer is played after it.",
+        "cta": {
+          "start": 1168.34,
+          "end": 1177.58,
+          "note": "Descriptions, titles and headers on a company's video channel belong to whoever runs the content calendar, not to most people watching, so this reel closes on the one CTA that asks the viewer to forward it to that person."
+        },
+        "takes_dropped": [],
+        "known_defect": "There is a short stall in Akshita's answer around 2055-2058 where she restarts a sentence about the description. It is brief, no repetition was measured on it, and it will play."
+      },
+      {
+        "start": 2094.39,
+        "end": 2137.53,
+        "slug": "what-content-ai-actually-rewards",
+        "reason": "A clean question and a clean answer with a contrast at its centre: content that carries niche value, answers questions that matter to your company and tells a story, against generic keyword-optimised writing chased for views and clicks - great for Google, worthless for AI. One criterion set, delivered in one pass, with the differentiator as the closing note.",
+        "value": "A checklist for what to write - niche value, questions specific to your company, a real story, a stated differentiator - and the explicit statement that traffic-optimised content does not qualify.",
+        "hook": "'What is the best type of content for AI to truly understand and recommend?' - a direct question with no preamble at all. I set the start past Craig's aside about his son at 2087.21, which is unrelated to anything in the reel.",
+        "close": "'if you can tell a really nice story with different parts of your company talking about all of that, that's what is best for AI.' A criterion, finished. A closer is played after it.",
+        "cta": {
+          "start": 179.83,
+          "end": 192.39,
+          "note": "This reel is a specification for content the viewer has not written yet, and this closer offers the measurement that tells them whether what they have written so far is working - the before-picture to the work it just asked for."
+        },
+        "takes_dropped": [
+          {
+            "start": 2087.21,
+            "end": 2093.91,
+            "what": "Craig's aside about his son Liam. Cut by the start boundary - it is off-topic and would spend the opening seconds."
+          }
+        ]
+      },
+      {
+        "start": 2138.05,
+        "end": 2171.06,
+        "slug": "write-for-the-question-your-customer-asks",
+        "reason": "The same subject as the previous reel but a different thing delivered: not what good content is, but the method for producing it - picture a customer standing in front of you with a very specific question, and write that. It is a single instruction with a mental image attached, which is what makes it usable rather than aspirational.",
+        "value": "A repeatable way to generate content ideas that AI rewards - take the specific questions real customers actually ask you - instead of a criteria list the viewer has to interpret.",
+        "hook": "'What kind of content works best when it comes to being discovered on AI platforms?' - a plain question, asked cold with nothing in front of it.",
+        "close": "'Make sure that you're coming up with very interesting niche questions about your company and what you can say about it. And AI really likes that.' An instruction, finished. A closer is played after it.",
+        "cta": {
+          "start": 321.61,
+          "end": 328.23,
+          "note": "The reel hands the viewer a writing method and nothing to measure it against, so it takes the short 'see how AI sees you' closer as the baseline check before they start writing."
+        },
+        "takes_dropped": [],
+        "known_defect": "This sits immediately after the reel above and answers a question phrased almost identically. I am proposing both because they deliver different halves - the criteria and the method - and because the captain's rule on overlap is whether two reels say different things rather than how close they sit. But they are the closest pair in the batch and it is entirely reasonable to keep only one. If one goes, keep the criteria reel: this one is shorter and has the weaker ending."
+      },
+      {
+        "start": 2171.27,
+        "end": 2216.55,
+        "slug": "google-reviews-build-ai-trust",
+        "reason": "One asset, one mechanism, one refinement. Reviews build authority, AI reads them the way a person would - deciding whether the company is legitimate - and then the point that lifts it above the obvious: reviews that say something niche about you, something nobody would say about a competitor in the same field, are the ones AI picks up and reuses.",
+        "value": "A reason to care about review content rather than review count, and a specific instruction that follows - the useful review is the one that names what makes you different.",
+        "hook": "'Can you share with our listeners about the importance of user-generated reviews like Google reviews?' - a plain question, and the softest opener of the batch: it reads as a podcast host doing his job rather than as a provocation. The answer's first line does the work.",
+        "close": "'AI is going to pick up on that and take those words and have it being recommended later on.' The mechanism completed - your reviewers' words become AI's words about you. A closer is played after it.",
+        "cta": {
+          "start": 814.69,
+          "end": 819.13,
+          "note": "The body already carries its own instruction, so this reel takes the four-and-a-half-second closer: the shortest ask in the episode, so the reel ends on the reviews point rather than on a second thought."
+        },
+        "takes_dropped": [],
+        "known_defect": "The hook is the weakest in the batch. 'Can you share with our listeners about' is host-to-guest framing rather than viewer-facing, and there is no earlier edge that removes it without removing the question. If a rule is applied hard on openings, this reel and the 'why AI trusts one brand' reel are the two it should take out."
+      },
+      {
+        "start": 2217.71,
+        "end": 2265.14,
+        "slug": "the-nail-salon-query-google-cant-answer",
+        "reason": "The only first-person story in the episode, and it is the whole argument in miniature: Akshita wanted her nails done in Atlanta, typed a query with five-star reviews and a specialisation baked into it, got recommendations and picked the first one. Craig's question makes it a conversation rather than an anecdote, and the story ends on the generalisation - people are typing queries that do not work on Google and do work on AI.",
+        "value": "Proof by behaviour rather than by argument: a real purchase decision made entirely inside an AI answer, with the exact shape of query that produced it.",
+        "hook": "'For you personally, how much more are you using an AI platform like Claude or Gemini more than just putting something into a traditional Google search window?' - a personal question to a guest, which promises an unrehearsed answer, and the answer is a story within eight seconds.",
+        "close": "'they're typing in very specific queries that don't work for Google, but work for AI.' I end here rather than at the end of her turn: what follows is a second block of optimisation advice that turns a story into a lecture and blunts it. A closer is played after this.",
+        "cta": {
+          "start": 809.69,
+          "end": 819.13,
+          "note": "The reel ends on a customer choosing the first company AI named, so the closer that says 'your website checks out but everything else out there is broken' before the ask is the one that makes the viewer wonder whether they would have been named at all."
+        },
+        "takes_dropped": [
+          {
+            "start": 2244.99,
+            "end": 2246.01,
+            "what": "Akshita's 'And I got,' false start. The measurements say the build removes this run whole."
+          }
+        ],
+        "known_defect": "Two short runs inside this span are measured as NOT removable by the build: the stray 'yada,' at 2243.85 and, more visibly, 'Those queries don't work for Google, but they work for AI' at 2247.35, which she says again at 2263.5. The second occurrence is inside my span deliberately - it reads as her landing the point rather than as a stumble - but it is a repeat and the captain should know it is there rather than discover it."
+      },
+      {
+        "start": 2318.87,
+        "end": 2390.68,
+        "slug": "if-youre-not-in-the-four-or-five",
+        "reason": "Craig describes the change in the shape of the results page - the AI overview at the top, the blue links pushed down, four or five recommendations instead of a page of them - and Akshita explains what to do about it: the viewer compares those four or five against each other, so the way to be first is to say explicitly why you are better than the competitor you know you are up against. A structural change and the response to it.",
+        "value": "The reason the number of slots has collapsed, and the one piece of copy that decides which of them you get - an explicit comparison against your named competitor, which mattered nothing for Google and decides everything here.",
+        "hook": "'it's now more important than ever to make sure that you do have those frequently asked questions, because as you're asking and not searching, that's how you're going to get populated' - a claim about urgency followed straight away by the AI overview sitting at the top of the page. It opens on a mild 'I'm telling a lot of folks too', which is the one soft beat in it.",
+        "close": "'now that you're asking about competitors, it's better that you have those.' It finishes the argument, though not sharply. A closer is played after it.",
+        "cta": {
+          "start": 1168.34,
+          "end": 1177.58,
+          "note": "The action this reel asks for - rewriting your positioning copy to name and beat a competitor - is a marketing team's job, and this is the only closer that routes it there instead of asking the viewer to click."
+        },
+        "takes_dropped": [
+          {
+            "start": 2288.17,
+            "end": 2317.45,
+            "what": "Craig's first take of this whole question, cut by the start boundary. The measurements say the build will NOT remove its opening line ('Let's take that example', which points outside the reel anyway), so if it were included the reel would carry two full readings of the same question back to back."
+          }
+        ],
+        "known_defect": "The best line in this region is stranded in the take I dropped: 'if you're not one of the four or five, you simply don't exist' at 2312.95-2315.0. It is the sharpest hook available anywhere in the episode and I could not reach it - Craig re-records the entire question immediately afterwards, so any span containing that line also contains a complete duplicate of the question, and the alternative is a Craig-only reel with no answer in it. This is the single biggest thing the retaking cost this batch."
+      },
+      {
+        "start": 2391.33,
+        "end": 2469.8,
+        "slug": "your-google-business-profile-and-the-map",
+        "reason": "Craig brings a specific, recent observation - ask ChatGPT for the best restaurants near you and it draws a map, and inside the map are Google reviews - and Akshita turns it into the most operational answer in the episode: the business profile is one of the highest authority sources there is, and one mismatched address between it and your website is enough for AI to hallucinate and send a customer to the wrong door. It ends on the commercial consequence, which is losing that customer permanently.",
+        "value": "A checkable list of things that must agree across your profile and your site - address, opening hours, reviews - and the cost of them not agreeing, told as a customer standing outside the wrong building.",
+        "hook": "'Something I've seen recently within the last few months now through ChatGPT is, if you are asking, let's say, nail salon or best restaurants near me, it's actually populating a map too. And then within the map, what do you see? You see those Google reviews.' - a concrete, verifiable observation the viewer can check on their own phone during the reel.",
+        "close": "'AI will take that and will tell your potential customers.' A consequence rather than an invitation, so a closer is played after it.",
+        "cta": {
+          "start": 328.61,
+          "end": 341.27,
+          "note": "This is the most operational reel in the batch and its viewer is about to go and compare two addresses by hand, so it takes the fuller closer with Akshita's takeaway in front - the version that widens 'check this one field' back out to 'see how your brand appears' before the ask."
+        },
+        "takes_dropped": [],
+        "known_defect": "The end boundary at 2469.8 is deliberately hard against the picture hole that begins at 2469.967. There is nothing after this point until 2494.4 that has any picture, so the reel cannot be extended by even a second."
+      },
+      {
+        "start": 2572.83,
+        "end": 2656.55,
+        "slug": "is-there-a-way-to-game-ai",
+        "reason": "The question every marketer actually wants answered, asked directly, and answered with a no that is not a lecture: the old game was money, keywords and backlinks and it is over, and what replaces it is not a trick but influence - say the same true things about yourself everywhere, consistently, until AI has enough to trust you. It ends on two words that summarise the entire episode.",
+        "value": "A straight answer to whether the system can be gamed, and the reframe that replaces the search for a trick with something a company can actually execute: consistency across every source, deliberately.",
+        "hook": "'these big companies that have obviously endless marketing dollars, they have hundreds of blogs over the years. In essence, that was a way to game the search engine optimization whole system. Is there a way right now to game AI?' - it opens by naming the old cheat and closes the sentence on the question the viewer came for.",
+        "close": "'that's not really gaming the system, it's just kind of doing the right things to just help you build a good system. Authority and trust.' Two words as the button, and the last words of the episode. A closer is played after it.",
+        "cta": {
+          "start": 1855.84,
+          "end": 1865.28,
+          "note": "The answer here is that there is no shortcut, only consistent work - which lands the viewer squarely on 'that sounds like a lot of work'. This is the only closer that answers that objection instead of adding to it."
+        },
+        "takes_dropped": [
+          {
+            "start": 2654.71,
+            "end": 2654.81,
+            "what": "A duplicated 'Yeah.' The measurements say the build removes it."
+          }
+        ],
+        "known_defect": "The reel opens on 'Speaking of blogs', which strictly refers back to the previous exchange. I kept it because Craig immediately supplies the context himself - big companies, endless marketing dollars, hundreds of blogs - so nothing the viewer needs is left outside the reel, and there is no earlier edge that removes the connective without removing the setup with it."
+      }
+    ]
+  },
+  "could_not_determine": [
+    {
+      "what": "How many reels this episode is expected to yield.",
+      "why_it_mattered": "It is the one number the handoff says can only come from the brief, and it decides whether 31 is right, generous or short. I read the first sentence of the brief's 'How many' section in the section map - 'Aim wide. He asked for 25 to 30 reels from this one episode, and the' - and it stops there.",
+      "what_would_have_helped": "The body of the 'How many' section of creative_brief.md, lines 15-29, carried inline in the prompt the way four other sections were."
+    },
+    {
+      "what": "How much audible re-recording is acceptable inside a reel.",
+      "why_it_mattered": "This episode is re-taken end to end and the build removes a run only when every line in it pairs safely. Eight of the reels I propose contain a visible re-read that no boundary can remove without taking the exchange with it. I kept them and flagged each one, but I was guessing at the threshold.",
+      "what_would_have_helped": "The 'Repetition inside a reel (2026-09-06)' section of the brief, lines 91-113 - described in the map as the captain's verbatim ruling after watching Reel 03, which is exactly this question already answered."
+    },
+    {
+      "what": "Whether two passages where both speakers are transcribed on identical words at overlapping timecodes are crosstalk or diarisation failure.",
+      "why_it_mattered": "It decides whether the 3D nail art reel plays as a conversation or as a stutter, and it is why I rejected the 1636-1667 stretch outright rather than proposing a reel from it.",
+      "what_would_have_helped": "Per-line speaker confidence, or any measurement that separates 'two voices at once' from 'one voice attributed twice'."
+    },
+    {
+      "what": "Whether a repeated run with no repetition_inside row will play twice.",
+      "why_it_mattered": "repetition_inside is reported per candidate, and some of the repeats I can see in spoken_lines fall in stretches no candidate covers - notably Akshita's fifty-second turn at 363.13-413.85, which generated no candidate at all because it has no alternation in it. For those I had to assume the repeat is real and unremovable, which changed three boundaries.",
+      "what_would_have_helped": "The repetition measurement run over the whole cut rather than per candidate, so an absent row means 'no repeat' rather than 'not measured here'."
+    },
+    {
+      "what": "What constraints the captain's own rough cut places on where I may draw a boundary.",
+      "why_it_mattered": "The brief has a section called 'The cut itself' whose preview says the rough cut is his, made by hand, 'every silence' - and stops. Eleven stretches totalling 254 seconds are already excluded from boundary placement by not_a_boundary, and two of my rejections are entirely due to them; I could not tell whether there are further conventions about cutting into his cut that I was supposed to honour.",
+      "what_would_have_helped": "The body of the brief's 'The cut itself' section, lines 80-90."
+    }
+  ],
+  "contradicts_direction": []
+}

@@ -1,0 +1,925 @@
+{
+  "could_not_determine": [
+    {
+      "what": "Whether a listener actually hears the repeated sentences twice, or whether the transcript recorded one utterance twice. Several reels carry the same words at two timestamps a fraction of a second apart - reel 1 at 11.06 and 11.24, reel 11 at 6.11 and 6.95, reel 15 at 39.63 and 42.66 - and reel 15 has four lines between 13.65 and 28.01 where two speakers' words are interleaved as though both are saying the same sentence at once.",
+      "why_it_mattered": "It changed the ordering directly. I put reel 15 last and reel 5 twenty-fifth largely because a listener hearing them once, in order, would hit the same sentences repeatedly and lose the thread. If those doubled lines are an artefact of how the words were written down rather than what plays, both reels are considerably better than I have ranked them, and reel 15 in particular would sit near reel 23.",
+      "what_would_have_helped": "Anything marking a line as a duplicate record of the same spoken audio rather than a second utterance - or simply the words as one continuous stream with each moment of speech appearing once."
+    },
+    {
+      "what": "Whether reel 14's central sentence is broken as spoken or broken in the writing down. As it stands it says the biggest mistake is optimizing for an algorithm that does not reward keyword stuffing, which is the opposite of the point the next line makes.",
+      "why_it_mattered": "That one sentence is the whole claim of the reel, and reading it as spoken is what put reel 14 thirtieth. If the words a listener hears are not the words I was given, the reel has a working claim and a strong opening line and belongs much higher.",
+      "what_would_have_helped": "A confidence marking on the written-down words, so I could tell a stumble the speaker made from a word that was misheard when it was written down."
+    }
+  ],
+  "readings": [
+    {
+      "reel": 1,
+      "claim_quote": "One is about position, where you show up in a list. The other is about comprehension, whether AI can actually understand and describe you when someone asks.",
+      "claim": "SEO and GEO are not the same job: one decides where you appear in a list, the other decides whether AI can understand and describe what your company does.",
+      "opening_quote": "okay so i'm hearing just from a lot of different marketing directors they're calling geo basically",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your own brand appears.",
+      "takeaway_quote": "Geo is about making AI actually understand what your company does.",
+      "takeaway": "A listener can repeat, or check for themselves, that the question is whether AI understands what their company does rather than where their page ranks.",
+      "assumes_known": [
+        {
+          "what": "That the listener already knows what \"geo\" stands for and that it is a thing being pushed at marketing teams - the word is used eight times before anything is said about it",
+          "quote": "we've got to get into geo geo geo i get it it's something that's going to continually eat into"
+        },
+        {
+          "what": "That there is an ongoing complaint about acronyms arriving constantly, which the reel treats as shared ground rather than something it establishes",
+          "quote": "their budget it's just another acronym these acronyms are constantly like in front of us so"
+        },
+        {
+          "what": "\"the Lucy visibility system\" arrives named, as a thing the listener has heard of; nothing in the reel says what it is or does",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 44.0,
+      "rank": 1,
+      "basis": "It opens on the exact objection a cold listener would already be holding - this is just another acronym - and answers it inside fifty seconds with a contrast short enough to repeat: position versus comprehension."
+    },
+    {
+      "reel": 2,
+      "claim_quote": "And so the thing that you were doing to help your Google rankings is actively hurting your AI recommendations on the spot.",
+      "claim": "The keyword work that lifted a client's Google rankings is the same work that got them read as thin content and kept them out of AI answers entirely.",
+      "opening_quote": "So we ran an audit last week on a client where we saw an SEO team stuff",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to the link in the bio and see how AI sees you.",
+      "takeaway_quote": "But for AI, it flagged it as thin content.",
+      "takeaway": "A listener can go and look at whether their own keyword-stuffed pages are being read as thin content by AI.",
+      "assumes_known": [
+        {
+          "what": "\"an audit\" arrives as an established thing these two run on clients; the reel never says what one is or what it looks at",
+          "quote": "So we ran an audit last week on a client where we saw an SEO team stuff"
+        },
+        {
+          "what": "\"thin content\" is used as a term of art, and it is the hinge of the whole story, but it is never defined",
+          "quote": "But for AI, it flagged it as thin content."
+        },
+        {
+          "what": "\"as you said\" points at an exchange the listener did not hear, in a reel where nobody said the two work against each other in those words",
+          "quote": "bunch of terms blogs and whatnot but as you said they are working against each other now"
+        },
+        {
+          "what": "\"the lucy visibility system\" is named as a thing already known, with no statement of what it is",
+          "quote": "we're calling the lucy visibility system we'd love for you to go check it out see how ai sees you"
+        }
+      ],
+      "stops_developing_at": 32.86,
+      "rank": 3,
+      "basis": "One audit, one specific thing found, and the cost stated plainly - it is the shortest thing in the set that gives a listener something to go and check on their own site."
+    },
+    {
+      "reel": 3,
+      "claim_quote": "Search didn't change, the question changed, and whoever AI understands best will get the answer.",
+      "claim": "People have stopped typing keywords and started asking full situational questions, and the company AI understands best is the one that gets named in the answer.",
+      "opening_quote": "you're an attorney you have a big law firm maybe you have an hvac company plumbing company it",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "So people stopped searching. They've started asking.",
+      "takeaway": "A listener can carry away the line that customers no longer search, they ask - and the worked example of what an asked question looks like.",
+      "assumes_known": [
+        {
+          "what": "Akshita's answer starts mid-word, as the second half of a sentence answering a question the listener never heard",
+          "quote": "searching."
+        },
+        {
+          "what": "\"this is basically what you're saying\" points back at a claim made before this reel starts; the listener has no idea what is being agreed with",
+          "quote": "doesn't matter the pipelines are starting to dry up a little bit and this is basically what you're"
+        },
+        {
+          "what": "That pipelines drying up is a thing already happening to these businesses - offered as established fact, with nothing behind it in the reel",
+          "quote": "doesn't matter the pipelines are starting to dry up a little bit and this is basically what you're"
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as a known thing and never explained",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 37.23,
+      "rank": 2,
+      "basis": "It puts a real question in a listener's mouth - what's the best CRM if I run a 10 person law firm - and that one sentence does more to show the change than any of the explanations elsewhere in the set; only the fragmented opening keeps it off the front."
+    },
+    {
+      "reel": 4,
+      "claim_quote": "For Google search, it gave out a list from 2023, and from chat GPT, It gave three recommendations with specific reasons why.",
+      "claim": "Put the same customer question to Google and to ChatGPT and you get a two-year-old list from one and three reasoned recommendations from the other.",
+      "opening_quote": "well this has been fun recently because we've actually been testing this on some",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "we took the exact query their customers would ask, and we ran it on Google search and chat GPT side by side.",
+      "takeaway": "A listener can do the same thing this afternoon: take the exact question their own customers would ask and run it in both places.",
+      "assumes_known": [
+        {
+          "what": "\"this\" - the thing being tested - is never named anywhere in the reel; the whole eighteen seconds rests on a subject established before it started",
+          "quote": "well this has been fun recently because we've actually been testing this on some"
+        },
+        {
+          "what": "\"their customers\" belongs to a client the listener has not met and is not described",
+          "quote": "Yeah, we took the exact query their customers would ask, and we ran it on Google search and chat GPT side by side."
+        },
+        {
+          "what": "\"check it out\" asks the listener to go and look at something the reel never identifies",
+          "quote": "so if you are watching this definitely check it out on our website also the links in the bio"
+        }
+      ],
+      "stops_developing_at": 13.69,
+      "rank": 6,
+      "basis": "Eighteen seconds, one experiment, two results stated side by side - the tightest thing here, and it only sits this far down because it never says what \"this\" is that they were testing."
+    },
+    {
+      "reel": 5,
+      "claim_quote": "It's not that AI doesn't know that they exist, it's that it can't form the full clear picture.",
+      "claim": "A business missing from AI answers is not unknown to AI - the scattered sources about it are too contradictory or too empty for AI to describe it confidently.",
+      "opening_quote": "so what we're hearing a lot from people that we talk to they get on chat gpt or",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to their website through the link in the bio to see how you are ranking and how AI sees you.",
+      "takeaway_quote": "And if these sources are saying contradictory things about your company and your brand, or worse, not saying anything at all, that's really going to tell AI that it cannot confidently recommend you or your brand.",
+      "takeaway": "A listener can go and look at what their website, LinkedIn, Reddit threads, directories and press mentions each say about them, and whether those agree.",
+      "assumes_known": [
+        {
+          "what": "Craig's setup breaks off pointing back at something he was saying before the reel began, and the sentence is never finished",
+          "quote": "you're missing out on a lot of revenue so what i was talking"
+        },
+        {
+          "what": "\"the lucy visibility score\" and \"the lucy visibility system\" are both named as things the listener has heard of; neither is described",
+          "quote": "why i'm super excited about what we have now the lucy visibility score but overall the lucy"
+        },
+        {
+          "what": "\"how you're ranking\" assumes a ranking exists and that the listener knows what is doing the ranking, in a reel whose whole point was that ranking is the wrong frame",
+          "quote": "visibility system so if you want to see how you're ranking how ai sees you go to our website"
+        }
+      ],
+      "stops_developing_at": 70.59,
+      "rank": 25,
+      "basis": "It says its one thing twice - the whole passage from forty-seven seconds restates what was already said at twenty-one - so a listener sitting through eighty-four seconds hears about thirty seconds of content and then hears it again."
+    },
+    {
+      "reel": 6,
+      "claim_quote": "So it's not about how big you are. It's about how consistent you are and how well your sources all align with each other.",
+      "claim": "Size is not what decides who AI recommends; consistency across everything written about you is.",
+      "opening_quote": "so in this case size really doesn't matter",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "I've seen a 10 person agency get recommended over a company 50 times their size.",
+      "takeaway": "A listener can carry away that a ten-person shop got recommended over a company fifty times its size because everything written about it told the same story.",
+      "assumes_known": [
+        {
+          "what": "\"in this case\" points at a case discussed before this reel starts; the listener never hears which case, and the first words depend on it",
+          "quote": "so in this case size really doesn't matter"
+        },
+        {
+          "what": "\"it's scoring you\" introduces something that scores you, at the very end, with no statement of what that is",
+          "quote": "yep your website checks out but everything else out there it's broken for sure it's scoring you"
+        },
+        {
+          "what": "\"check it out\" asks for a visit to something the reel does not name",
+          "quote": "so if you are watching this definitely check it out on our website also the links in the bio"
+        }
+      ],
+      "stops_developing_at": 33.62,
+      "rank": 23,
+      "basis": "The opening and closing lines are good and the middle contradicts itself - the stretch from sixteen to eighteen seconds says AI will recommend you over a company with lots of sources and then says the opposite - so a listener following it closely gets lost exactly where the reason should be."
+    },
+    {
+      "reel": 7,
+      "claim_quote": "Google only ranks pages. AI doesn't rank pages and doesn't really care about pages.",
+      "claim": "Google ranks pages and AI does not look at pages at all, so a number one position can sit alongside being completely invisible in AI.",
+      "opening_quote": "So ranking number one on Google, but being completely invisible to AI, both at the same time.",
+      "closing_quote": "That disconnect is exactly what we fixed with the Lucy visibility system.",
+      "closing_asks_for": "If you run a content-heavy SEO strategy and your AI visibility is low, send the video to your marketing team.",
+      "takeaway_quote": "But for AI, you really have to tell it who you are, what you do, what you serve, what are your services, what is your brand positioning,",
+      "takeaway": "A listener can go and check whether anything on the web actually states who they are, what they do and who they serve, rather than just carrying a ranking.",
+      "assumes_known": [
+        {
+          "what": "The first words are the tail of an answer to a question the listener never heard, delivered as a fragment with no verb",
+          "quote": "So ranking number one on Google, but being completely invisible to AI,"
+        },
+        {
+          "what": "\"we talked about earlier\" sends the listener to a part of the conversation they were not present for",
+          "quote": "search result on google spent a lot of time with these we talked about earlier the keyword"
+        },
+        {
+          "what": "\"your AI visibility\" is treated as a number the listener can already see, with no statement of where it would come from",
+          "quote": "If you're running a content-heavy SEO strategy and your AI visibility is still low, send this"
+        },
+        {
+          "what": "\"That disconnect\" and \"the Lucy visibility system\" both arrive as known things at the last moment",
+          "quote": "That disconnect is exactly what we fixed with the Lucy visibility system."
+        }
+      ],
+      "stops_developing_at": 58.22,
+      "rank": 24,
+      "basis": "The claim is a good one and it is made at thirty seconds, then made again at thirty-five, at forty-four and at sixty - a listener spends the second half of eighty-two seconds hearing the same sentence in new words."
+    },
+    {
+      "reel": 8,
+      "claim_quote": "their company was ranking on Google in the top three searches, but on AI, they were either invisible or AI got their services wrong.",
+      "claim": "A company sitting in Google's top three was, at the same moment, either absent from AI or being described as doing something it does not do.",
+      "opening_quote": "So when we ran the audit, we saw that their company was ranking on Google in the top three searches, but on AI, they were either invisible or AI got their services wrong.",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "ranking tells Google that you exist. Geo tells AI what you actually are, who you actually are, and what your company does.",
+      "takeaway": "A listener can repeat the line that ranking only tells Google you exist, while GEO is what tells AI who you actually are.",
+      "assumes_known": [
+        {
+          "what": "\"the audit\" opens the reel as a thing already understood - who was audited, and what an audit is, are both outside it",
+          "quote": "audit, we saw that their company was ranking on Google in the top three searches, but on AI,"
+        },
+        {
+          "what": "\"hallucinated\" is used as the worse of two outcomes without ever being explained",
+          "quote": "properly recommended and worse, you're getting hallucinated."
+        },
+        {
+          "what": "\"Geo\" carries the closing contrast and is never expanded",
+          "quote": "Geo tells AI what you actually are, who you actually are,"
+        },
+        {
+          "what": "\"their faces\" belongs to people in a room the listener was not in",
+          "quote": "a mine exploding i could kind of see it in their faces like what is going on here"
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 32.82,
+      "rank": 5,
+      "basis": "It states the whole problem as one measured case in the first six seconds and then lands a line short enough to repeat - ranking tells Google that you exist, geo tells AI what you actually are - inside forty seconds."
+    },
+    {
+      "reel": 9,
+      "claim_quote": "AI is not only reading your website, that's only 20% of what it does.",
+      "claim": "Your website is about a fifth of what AI reads about you; the rest is every other place on the internet that mentions you, and most companies have never looked at those.",
+      "opening_quote": "when it comes to ai people assume this but it's not just reading your website right",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to the link in the bio and see how AI sees you.",
+      "takeaway_quote": "So Reddit, LinkedIn, press mentions, directories, business profile, obviously your website, literally anywhere that you have been mentioned on the internet, it can pull from there.",
+      "takeaway": "A listener leaves with the actual list of places to go and read what is being said about them: Reddit, LinkedIn, press mentions, directories, business profile.",
+      "assumes_known": [
+        {
+          "what": "\"people assume this\" refers to an assumption stated before the reel begins; the first sentence turns on a \"this\" the listener never heard",
+          "quote": "when it comes to ai people assume this but it's not just reading your website right"
+        },
+        {
+          "what": "The 20% figure arrives as an established measurement with nothing in the reel behind it - no audit, no source, no count",
+          "quote": "this because AI is not only reading your website, that's only 20% of what it does."
+        },
+        {
+          "what": "\"the lucy visibility system\" is named as a known thing and never described",
+          "quote": "we're calling the lucy visibility system we'd love for you to go check it out see how ai sees you"
+        }
+      ],
+      "stops_developing_at": 62.18,
+      "rank": 11,
+      "basis": "It hands over one number and one list, and a listener who spent money on a website redesign is told plainly where the other eighty percent lives - but it takes a full minute to say what reel 21 says with a better analogy."
+    },
+    {
+      "reel": 10,
+      "claim_quote": "their website itself was saying enterprise software, but their LinkedIn was saying startup consulting and their crunch base had a different services that were being listed.",
+      "claim": "One company described itself four different ways across its website, LinkedIn, Crunchbase and an old press release, and AI took all four and started inventing.",
+      "opening_quote": "about generative engine optimization lots of questions obviously i i kind of explain it as",
+      "closing_quote": "so that you can focus on running your actual business.",
+      "closing_asks_for": "Hand the work to them instead of doing it yourself, so you can get back to running your business.",
+      "takeaway_quote": "And it's going to start hallucinating because it's confused on what you actually do.",
+      "takeaway": "A listener can go and put their website, LinkedIn, Crunchbase and old press releases side by side and see whether the four agree about what the company does.",
+      "assumes_known": [
+        {
+          "what": "The first words are the middle of a sentence - what is \"about generative engine optimization\" is left behind before the reel starts",
+          "quote": "about generative engine optimization lots of questions obviously i i kind of explain it as"
+        },
+        {
+          "what": "\"what you kind of mentioned\" points at something said outside the reel, and the ecosystem framing rests on it",
+          "quote": "what you kind of mentioned it's this ecosystem this ai ecosystem so what's happening what are"
+        },
+        {
+          "what": "\"these audits\" arrive as a known ongoing practice",
+          "quote": "you seeing when we're running these"
+        },
+        {
+          "what": "\"Let us do the work for you\" names no us - the listener is asked to hand work to a company the reel never identifies",
+          "quote": "Let us do the work for you."
+        }
+      ],
+      "stops_developing_at": 50.25,
+      "rank": 8,
+      "basis": "The four contradicting sources are named one by one, which is the most legible version of the confusion argument in the set; it loses ground because Craig's closing question is answered by a sales line rather than an answer."
+    },
+    {
+      "reel": 11,
+      "claim_quote": "So your website is your resume and everything else are your references.",
+      "claim": "Your website is only the resume; everything else written about you online is the reference check, and AI does the reference check.",
+      "opening_quote": "so your your website can be perfectly fine but a lot of times everything else is broken",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "And just like a hiring manager would definitely check both AI checks both.",
+      "takeaway": "A listener leaves holding a picture they can hand to someone else: the site is the resume, everything else is the references, and both get checked.",
+      "assumes_known": [
+        {
+          "what": "The reel begins mid-sentence, continuing a thought started before it",
+          "quote": "so your"
+        },
+        {
+          "what": "\"this lucy visibility system\" is named as a thing the listener has heard of, in the sentence that pivots the reel to a pitch",
+          "quote": "and that's why we were pretty intentional on building this lucy visibility system"
+        },
+        {
+          "what": "\"seven modules\" are counted for a system whose purpose has not been stated, and the sentence breaks off",
+          "quote": "thing there's seven modules that make up the system so it's like"
+        },
+        {
+          "what": "\"it's scoring you\" introduces a scoring thing at the end with no antecedent",
+          "quote": "yep your website checks out but everything else out there it's broken for sure it's scoring you"
+        }
+      ],
+      "stops_developing_at": 21.92,
+      "rank": 4,
+      "basis": "The resume-and-references line is the single most portable sentence in the whole set - a listener could say it to a colleague an hour later - and it arrives twelve seconds in; the stumbles and the seven-modules tail are what keep it behind the three above it."
+    },
+    {
+      "reel": 12,
+      "claim_quote": "AI isn't making things up. It's doing the best it can with the information it's given, even if that's bad information.",
+      "claim": "AI is not inventing anything - it is working faithfully from whatever contradictory, vague or unreachable information about you already exists.",
+      "opening_quote": "that is what's wild because i was speaking recently and i asked people to raise their hands",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to their website through the link in the bio to see how you are ranking and how AI sees you.",
+      "takeaway_quote": "if you have sources, like three of them are contradicting each other, two of them are vague, and five of them just can't even be accessed, then you're basically giving AI a bad information ecosystem, and it's doing the best it can with that.",
+      "takeaway": "A listener can count their own sources the same way - which contradict, which are vague, which cannot be reached - because that is the whole of what AI has to work with.",
+      "assumes_known": [
+        {
+          "what": "\"that is what's wild\" reacts to something said before the reel began; the first words are a response to nothing the listener heard",
+          "quote": "that is what's wild because i was speaking recently and i asked people to raise their hands"
+        },
+        {
+          "what": "\"only about 20\" is a count with no unit - twenty people, twenty percent, twenty hands - and the anecdote's only number is unreadable",
+          "quote": "only about 20 i'm sure everybody after i asked that question was doing it but it really is"
+        },
+        {
+          "what": "\"hallucinate\" is used as a known term for what AI does",
+          "quote": "hallucinate, and try to come up with its own answers and own things to say, which probably,"
+        },
+        {
+          "what": "\"the lucy visibility score\" and \"the lucy visibility system\" both arrive named",
+          "quote": "why i'm super excited about what we have now the lucy visibility score but overall the lucy"
+        }
+      ],
+      "stops_developing_at": 61.13,
+      "rank": 7,
+      "basis": "It takes the blame off AI and puts it somewhere a listener can act on, and the three-two-five breakdown of sources is the most concrete thing anyone says about what bad information actually looks like."
+    },
+    {
+      "reel": 13,
+      "claim_quote": "even though they're not a healthcare company at all, because healthcare was mentioned a couple of times, but in a very fragmented and wrong way, AI did take that, hallucinate, and spit out the information that it wanted to.",
+      "claim": "A company got described as a healthcare company because three scattered mentions of healthcare - a case study, a personal LinkedIn bio and a directory listing - were the only pattern AI had to connect.",
+      "opening_quote": "and that's what happened with that company why they came back as a healthcare company",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "they had a case study on their case studies page about a healthcare client and someone's LinkedIn bio, so like healthcare startup a couple years ago, and then they had some other directory listing for something healthcare related.",
+      "takeaway": "A listener can go looking for their own stray mentions - an old client case study, an employee's LinkedIn bio, a directory entry - that could be putting them in the wrong industry.",
+      "assumes_known": [
+        {
+          "what": "The reel opens in the middle of a story about a company the listener has never heard of, referred to only as \"that company\"",
+          "quote": "and that's what happened with that company why"
+        },
+        {
+          "what": "What the company actually is arrives as a correction to something never stated, in a fragment with no subject",
+          "quote": "And not an accounting software company, yes."
+        },
+        {
+          "what": "\"hallucinate\" is used as a known term for the failure being described",
+          "quote": "in a very fragmented and wrong way, AI did take that, hallucinate, and spit out the information"
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as a thing already known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 66.72,
+      "rank": 10,
+      "basis": "The healthcare mix-up is the most vivid failure anyone describes and the three sources are named individually, but the listener is dropped into the middle of the story and spends the first ten seconds working out who it is about."
+    },
+    {
+      "reel": 14,
+      "claim_quote": "the biggest geo mistake you can make right now is optimizing for an algorithm that doesn't reward keyword stuffing, backlinks, etc.",
+      "claim": "As spoken, the central sentence says the biggest mistake is optimizing for the algorithm that does not reward keyword stuffing, which is the opposite of what the next line goes on to argue - that what is rewarded is understanding and niche content.",
+      "opening_quote": "in that case more content less visibility that is freaking brutal",
+      "closing_quote": "That disconnect is exactly what we fixed with the Lucy visibility system.",
+      "closing_asks_for": "Send the video to your marketing team if you are running a content-heavy SEO strategy and your AI visibility is low.",
+      "takeaway_quote": "It rewards understanding and niche, unique content.",
+      "takeaway": "A listener can carry away that what is rewarded is understanding and niche, unique content rather than keywords and backlinks - if they can get past the sentence in front of it.",
+      "assumes_known": [
+        {
+          "what": "\"in that case\" is the first thing said, and the case is entirely outside the reel",
+          "quote": "in that case more content"
+        },
+        {
+          "what": "\"geo\" is used as a known term in the sentence that carries the whole claim",
+          "quote": "Yeah, that is really crazy, and the biggest geo mistake you can make right now"
+        },
+        {
+          "what": "\"your AI visibility\" is treated as a figure the listener can already see",
+          "quote": "If you're running a content-heavy SEO strategy and your AI visibility is still low, send this"
+        },
+        {
+          "what": "\"That disconnect\" refers to a disconnect the reel never names",
+          "quote": "That disconnect is exactly what we fixed with the Lucy visibility system."
+        }
+      ],
+      "stops_developing_at": 20.4,
+      "rank": 30,
+      "basis": "The opening line is one of the best in the set and the sentence that has to carry the claim contradicts itself, so the twenty seconds of content leave a listener with a reaction and no readable reason for it."
+    },
+    {
+      "reel": 15,
+      "claim_quote": "AI cares about who matters the most",
+      "claim": "Big companies can buy their way to the top of Google, and AI instead picks whoever is most specifically about something - so a salon doing 3D nail art can be pulled over a chain with hundreds of locations.",
+      "opening_quote": "if you're a salon owner or you are a gym owner you have a small gym business and you're thinking",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "if you're a salon that specializes in 3D nail art and your content is built around that niche, AI could definitely pull you over salons that have lots of locations",
+      "takeaway": "A listener running a small specialised business can carry away that being narrowly about one thing is the advantage, not the handicap.",
+      "assumes_known": [
+        {
+          "what": "The nail salons that carry the entire example arrive mid-sentence with no introduction - the listener meets \"those nail salons\" before hearing of any",
+          "quote": "maybe hundreds of locations because maybe those nail salons do everything but nothing,"
+        },
+        {
+          "what": "That the listener knows how Google ranking works and that showing up the most is what it rewards",
+          "quote": "Google rewards companies who show up the most, and a lot of big companies can brute force their"
+        },
+        {
+          "what": "\"the LA fitnesses of the world\" is used as a shorthand the listener is expected to recognise",
+          "quote": "yourself there's no way that i can compete with the la fitnesses of the world this is something"
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 58.94,
+      "rank": 31,
+      "basis": "Between thirteen and twenty-eight seconds the same three sentences arrive four times over the top of each other, and the salon example is then stated twice in a row; a listener hearing this once, in order, cannot follow the thread through it, and reel 23 says the same thing cleanly."
+    },
+    {
+      "reel": 16,
+      "claim_quote": "And just the same way a human would think about it, an AI thinks about it.",
+      "claim": "AI weighs press citations and five-star reviews the way a person choosing between two companies would, and it only starts recommending you once that adds up to trust.",
+      "opening_quote": "Atlanta Business Chronicle, as the crawlers are looking, if it sees that, what is that AI crawler noticing and why is it suddenly picking that brand over another one?",
+      "closing_quote": "That disconnect is exactly what we fixed with the Lucy visibility system.",
+      "closing_asks_for": "Send the video to your marketing team if you are running a content-heavy SEO strategy and your AI visibility is low.",
+      "takeaway_quote": "sees that you've been in high authority sources, sees that you have good reviews, sees that people like you, and when it sees all of that, it combines all the information and understands that you are a trustworthy company.",
+      "takeaway": "A listener can carry away that press citations and good reviews are what build the trust that has to exist before AI will name them.",
+      "assumes_known": [
+        {
+          "what": "The first words are a proper noun with no sentence around it, and \"if it sees that\" points at a thing named before the reel started",
+          "quote": "Atlanta Business Chronicle, as the crawlers are looking, if it sees that, what is that AI crawler"
+        },
+        {
+          "what": "\"crawlers\" is used as a known term in the question that sets up the whole answer",
+          "quote": "noticing and why is it suddenly picking that brand over another one?"
+        },
+        {
+          "what": "\"your AI visibility\" is treated as something the listener can already read off somewhere",
+          "quote": "If you're running a content-heavy SEO strategy and your AI visibility is still low, send this"
+        },
+        {
+          "what": "\"That disconnect\" names a disconnect this reel never describes - it was about trust, not about a gap between two things",
+          "quote": "That disconnect is exactly what we fixed with the Lucy visibility system."
+        }
+      ],
+      "stops_developing_at": 57.09,
+      "rank": 22,
+      "basis": "The trust argument is sound but the opening is a proper noun dropped into the listener's lap with no sentence attached, and the answer is one comparison stretched over fifty seconds."
+    },
+    {
+      "reel": 17,
+      "claim_quote": "one of the first steps would be to actually understand how AI currently sees you before you take any steps.",
+      "claim": "The first move is to find out how AI currently describes you, and the way to do that is to run your company through their system.",
+      "opening_quote": "So for small business, midsize, or even the large ones who have not really even tackled this generative engine optimization",
+      "closing_quote": "so that you can focus on running your actual business.",
+      "closing_asks_for": "Hand the work over to them rather than doing it yourself, so you can get back to running your business.",
+      "takeaway_quote": "See how AI understands you.",
+      "takeaway": "A listener can carry away the sequencing - find out how AI currently describes you before deciding what to change.",
+      "assumes_known": [
+        {
+          "what": "\"generative engine optimization\" is the subject of the question and is never expanded or explained",
+          "quote": "tackled this generative engine optimization, we talk about it all the time, like what are some of"
+        },
+        {
+          "what": "\"we talk about it all the time\" points at conversations the listener has not heard",
+          "quote": "tackled this generative engine optimization, we talk about it all the time, like what are some of"
+        },
+        {
+          "what": "\"our Lucy visibility system\" is the answer to the question and arrives named, with no statement of what it is",
+          "quote": "that would be to actually run your company on our Lucy visibility system."
+        },
+        {
+          "what": "\"seven different modules\" counts the parts of something the listener has never seen",
+          "quote": "give you seven different modules and help you understand exactly how AI sees you,"
+        }
+      ],
+      "stops_developing_at": 42.45,
+      "rank": 28,
+      "basis": "A listener is asked what the first steps are and told the first step is to buy the product; the one piece of real advice - understand before you fix - takes six seconds and the other forty-five are the pitch."
+    },
+    {
+      "reel": 18,
+      "claim_quote": "the ai is wrong when in reality can't technically be wrong in that sense because it's just taking information that it collects",
+      "claim": "AI is not wrong when it describes a business incorrectly - it has filed the company under a category the sources support, which then produces the wrong competitors too.",
+      "opening_quote": "When you say hallucinating, like there might be a misconception that like AI has just gone wild.",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to their website through the link in the bio to see how you are ranking and how AI sees you.",
+      "takeaway_quote": "it can see one category that it thinks that your company is but in reality you think it's something else",
+      "takeaway": "A listener can carry away that AI may have put them in a category they would not choose, and that everything downstream of it - including who it thinks their competitors are - is then wrong.",
+      "assumes_known": [
+        {
+          "what": "\"When you say hallucinating\" quotes something said before the reel; the term the whole question is about was introduced outside it",
+          "quote": "When you say hallucinating, like there"
+        },
+        {
+          "what": "\"these audits\" arrive as a known practice these two run",
+          "quote": "audits, sometimes we see a business owner might put in what they think their business is,"
+        },
+        {
+          "what": "\"our modules\" is something the listener is described as already using, in a reel that never says what it is",
+          "quote": "think it's something else and you're putting that into our modules but that's not what"
+        },
+        {
+          "what": "\"the lucy visibility score\" and \"the lucy visibility system\" are both named as known",
+          "quote": "why i'm super excited about what we have now the lucy visibility score but overall the lucy"
+        }
+      ],
+      "stops_developing_at": 70.3,
+      "rank": 26,
+      "basis": "The category point at the end is genuinely new and it takes fifty seconds of circling to get there, most of it re-asking whose fault it is; a listener hearing it once will lose the thread before the payoff."
+    },
+    {
+      "reel": 19,
+      "claim_quote": "it's not only about your content at all it's the fact of whether you're actually visible and to AI",
+      "claim": "For companies already publishing constantly, the problem is not how much content they have but whether they show up at all when AI is asked.",
+      "opening_quote": "It's not a content problem, especially for some of these bigger companies that are constantly pushing out content.",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "even for content it will tell you like whether your content on your website has enough statistics enough citations enough quotes and even if other people are citing you online or not",
+      "takeaway": "A listener can go and look at whether their own pages carry statistics, citations and quotes, and whether anybody else cites them.",
+      "assumes_known": [
+        {
+          "what": "\"the report\" is spoken of as a thing the listener has seen; nothing in the reel says what it is or who produces it",
+          "quote": "And that's what the report's"
+        },
+        {
+          "what": "\"we run different prompts\" describes a service the listener has not been told about, in the middle of what reads as an explanation",
+          "quote": "different different scenarios we run different prompts and we do try to see if your company"
+        },
+        {
+          "what": "The first sentence denies a diagnosis nobody in this reel made, so the listener has to supply the position being argued against",
+          "quote": "It's not a"
+        }
+      ],
+      "stops_developing_at": 39.32,
+      "rank": 27,
+      "basis": "It says the problem is visibility rather than content and then spends most of its time describing what a report tells you, so what a listener holds afterwards is a description of a product rather than of the problem."
+    },
+    {
+      "reel": 20,
+      "claim_quote": "they're able to see that their competitors are ranking even nine times more than they are.",
+      "claim": "What shocks business owners is seeing the gap counted - a competitor named in every prompt while they were named once.",
+      "opening_quote": "For you, since we've been running these audits, what has been like the most mind-blowing thing",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to the link in the bio and see how AI sees you.",
+      "takeaway_quote": "they have been mentioned every single time that we ran these prompts and we ran these queries, but you've only been mentioned once.",
+      "takeaway": "A listener can carry away that this is countable at all - that you can run the same queries repeatedly and count how often each company gets named.",
+      "assumes_known": [
+        {
+          "what": "\"these audits\" and \"the report\" are both spoken of in the opening question as things already established",
+          "quote": "For you, since we've been running these audits, what has been like the most mind-blowing thing"
+        },
+        {
+          "what": "\"the report\" that the business owners react to is never described",
+          "quote": "meeting with these business owners when they see the report?"
+        },
+        {
+          "what": "\"our modules\" is where the number comes from, and the listener has no idea what that is",
+          "quote": "But in our modules, it does."
+        },
+        {
+          "what": "\"the lucy visibility system\" is named as known at the close",
+          "quote": "we're calling the lucy visibility system we'd love for you to go check it out see how ai sees you"
+        }
+      ],
+      "stops_developing_at": 61.91,
+      "rank": 9,
+      "basis": "It is the only one that puts a number on the gap between two companies, and the mechanism behind the number - run the prompts repeatedly, count the mentions - is described plainly enough that a listener could do it themselves."
+    },
+    {
+      "reel": 21,
+      "claim_quote": "yes, your website may be spectacular, may have the best UI possible, but it's only 20% of what AI actually sees.",
+      "claim": "However good the website is, it is a fifth of what AI looks at - the rest is a background check across LinkedIn, Crunchbase, the Google business profile, Reddit, Instagram and press mentions.",
+      "opening_quote": "like, but this website's like brand new.",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "you're not going to pick a person you want to hire just based only on their website. You're going to go onto the web, you're going to search them up, you're going to find sources, you're going to do your background.",
+      "takeaway": "A listener leaves with the image of AI running a background check the way they would on somebody they were about to hire, and a list of the places it checks.",
+      "assumes_known": [
+        {
+          "what": "The reel opens mid-objection in somebody else's voice - a client the listener never met, arguing back at something not heard",
+          "quote": "like, but this website's like brand new."
+        },
+        {
+          "what": "\"every time this happens\" describes a recurring situation the listener has no access to",
+          "quote": "I think this is so funny because every time this happens, I tell the same exact thing,"
+        },
+        {
+          "what": "The 20% figure is stated twice as established fact with nothing behind it in the reel",
+          "quote": "but it's only 20% of what AI actually sees."
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 71.63,
+      "rank": 17,
+      "basis": "The hiring analogy is good and the list of places is specific, but it says the same thing reel 9 says in eighty-four seconds instead of sixty, and the sentence at fifty-two seconds breaks down and has to be started again."
+    },
+    {
+      "reel": 22,
+      "claim_quote": "what we do different is that, yes, we give you the score, and yes, we give you very detailed explanations, of what's going wrong, but we're on call with you, and we're going to tell you exactly how we're going to fix this for you.",
+      "claim": "Other companies hand you a score and leave you to act on it; this one says it stays on the call and does the fixing.",
+      "opening_quote": "You have other big platforms, some big companies out there that are giving AI scores.",
+      "closing_quote": "so that you can focus on running your actual business.",
+      "closing_asks_for": "Hand the work over to them rather than doing it yourself, so you can get back to running your business.",
+      "takeaway_quote": "",
+      "takeaway": "",
+      "assumes_known": [
+        {
+          "what": "That there are other big platforms handing out AI scores - the entire comparison rests on a market the listener is assumed to already know",
+          "quote": "You have other big platforms, some"
+        },
+        {
+          "what": "\"Lucy\" is named as a company the listener knows",
+          "quote": "than doing over here at Lucy."
+        },
+        {
+          "what": "\"a score\" is what is being compared and nothing says what it measures",
+          "quote": "So I would say the biggest difference is that, yes, you're going to get a score,"
+        },
+        {
+          "what": "\"your whole geo strategy\" assumes the listener has one and knows what geo is",
+          "quote": "or are you going to spend time fixing your whole geo strategy now?"
+        }
+      ],
+      "stops_developing_at": 39.85,
+      "rank": 29,
+      "basis": "There is nothing in it for a listener who does not already know the two companies being compared - it is forty-nine seconds of one vendor explaining how it differs from vendors the listener has never heard of, and nothing is said about AI, search or their own business."
+    },
+    {
+      "reel": 23,
+      "claim_quote": "the advantage right now with geo is that geo and AI prioritizes niche content.",
+      "claim": "Small businesses have the advantage in AI because the generic content is already everywhere and the narrow, specific, human-written material is what AI is short of.",
+      "opening_quote": "For a lot of small business owners out there, they're probably thinking, there's no way that I can compete with the behemoths.",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "AI already has those generic articles about everything else. It doesn't need more generic content.",
+      "takeaway": "A listener can carry away that another generic blog post is worth nothing and that the narrow thing only they could write is the thing worth making.",
+      "assumes_known": [
+        {
+          "what": "\"geo\" carries the central claim and is used throughout as a term the listener knows",
+          "quote": "I actually think geo is very beneficial for small businesses,"
+        },
+        {
+          "what": "\"the LA Fitnesses of the world\" is a shorthand the listener is expected to recognise",
+          "quote": "can compete with the LA Fitnesses of the world."
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 82.39,
+      "rank": 14,
+      "basis": "It states the small-business objection properly and answers it in order, and it is the clean version of what reel 15 mangles - but it is ninety seconds long for one idea, and the sentence at fifty-eight seconds falls apart into a word that does not belong in it."
+    },
+    {
+      "reel": 24,
+      "claim_quote": "it does have some that it really likes, especially YouTube.",
+      "claim": "Video platforms are not equal in AI's eyes - YouTube is the trusted one, and the description, title and headers on what you post there are what decide whether you get mentioned.",
+      "opening_quote": "Why do AI platforms love video content?",
+      "closing_quote": "That disconnect is exactly what we fixed with the Lucy visibility system.",
+      "closing_asks_for": "Send the video to your marketing team if you are running a content-heavy SEO strategy and your AI visibility is low.",
+      "takeaway_quote": "Make sure that if literally a five-year-old was to read it, they would be able to understand it because that's how you should treat AI.",
+      "takeaway": "A listener can go and rewrite their video descriptions so that a five-year-old could follow them.",
+      "assumes_known": [
+        {
+          "what": "The opening question asserts that AI platforms love video content as an established fact, and the reel never comes back to answer why",
+          "quote": "Why do AI platforms love video"
+        },
+        {
+          "what": "\"geo-optimized\" is used as an instruction the listener is expected to be able to follow, without geo being explained anywhere in the reel",
+          "quote": "that you have the description optimized, geo-optimized."
+        },
+        {
+          "what": "\"your AI visibility\" is treated as a figure the listener already has",
+          "quote": "If you're running a content-heavy SEO strategy and your AI visibility is still low, send this"
+        },
+        {
+          "what": "\"That disconnect\" names a disconnect that appears nowhere in this reel, which was about video platforms",
+          "quote": "That disconnect is exactly what we fixed with the Lucy visibility system."
+        }
+      ],
+      "stops_developing_at": 70.39,
+      "rank": 15,
+      "basis": "It is one of the few that tells a listener to go and change a specific thing - the description under a video - and the five-year-old test is a usable standard; the opening question is never actually answered, which costs it."
+    },
+    {
+      "reel": 25,
+      "claim_quote": "The best type of content for AI is content that produces niche value and answers questions that are actually important to your company and actually tells a story,",
+      "claim": "The content AI responds to is narrow, story-carrying material about what you do and what makes you different, not keyword-optimised writing aimed at views.",
+      "opening_quote": "What is the best type of content for AI to truly understand and recommend?",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to their website through the link in the bio to see how you are ranking and how AI sees you.",
+      "takeaway_quote": "It really just wants to understand what you do as a company, how are you different, what value do you add, what is your differentiator,",
+      "takeaway": "A listener leaves with the four questions their content is supposed to answer: what you do, how you are different, what value you add, what your differentiator is.",
+      "assumes_known": [
+        {
+          "what": "\"keyword optimized\" is used as a known practice and is the thing being argued against",
+          "quote": "instead of just writing generic content, keyword optimized for views and clicks."
+        },
+        {
+          "what": "\"great for Google, not for AI\" leans on a split the reel never establishes - it is stated as a known fact and never argued",
+          "quote": "Those type of content, great for Google, not for AI."
+        },
+        {
+          "what": "\"the lucy visibility score\" and \"the lucy visibility system\" are named as known things",
+          "quote": "why i'm super excited about what we have now the lucy visibility score but overall the lucy"
+        },
+        {
+          "what": "\"how you're ranking\" assumes a ranking exists, in a reel that never mentions one",
+          "quote": "visibility system so if you want to see how you're ranking how ai sees you go to our website"
+        }
+      ],
+      "stops_developing_at": 43.13,
+      "rank": 21,
+      "basis": "It answers a clean question with a list of adjectives - niche, valuable, story-telling, different - and never puts a single example behind any of them, so a listener agrees and has nothing to do about it."
+    },
+    {
+      "reel": 26,
+      "claim_quote": "So the best content is content that answers specific questions.",
+      "claim": "The content that gets discovered on AI platforms is the kind that answers the specific questions a real customer would put to you, not generic blog writing.",
+      "opening_quote": "What kind of content works best when it comes to being discovered on AI platforms?",
+      "closing_quote": "the links in the bio",
+      "closing_asks_for": "Go to the link in the bio and see how AI sees you.",
+      "takeaway_quote": "if imagine you had a customer and your customer comes up to you and maybe has a very specific question, you kind of think about that and you make content based on that.",
+      "takeaway": "A listener can go and write down the specific questions their own customers actually ask them, and make the content out of those.",
+      "assumes_known": [
+        {
+          "what": "\"good for Google, but not for AI\" is stated as settled ground; the reel never says why the two would differ",
+          "quote": "good for Google, but not for AI,"
+        },
+        {
+          "what": "\"the lucy visibility system\" is named as known",
+          "quote": "we're calling the lucy visibility system we'd love for you to go check it out see how ai sees you"
+        }
+      ],
+      "stops_developing_at": 33.01,
+      "rank": 20,
+      "basis": "The instruction to build content from the questions a customer actually asks you is a real one and a listener can act on it, but the reel restates it three times in thirty seconds and adds nothing between the restatements."
+    },
+    {
+      "reel": 27,
+      "claim_quote": "So Google reviews is very, very important just because that just builds a lot of trust and authority.",
+      "claim": "Five-star Google reviews build the trust AI reads, and reviews that say something specific about you are worth more than generic ones because AI takes those words and reuses them.",
+      "opening_quote": "Can you share with our listeners about the importance of user-generated reviews like Google reviews?",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "if those people are saying interesting and more niche stuff about you that they wouldn't say about a different company in the same field, definitely have that because AI is going to pick up on that",
+      "takeaway": "A listener can carry away that a review saying something specific about them - something nobody would write about a competitor - is worth more than another generic five stars.",
+      "assumes_known": [
+        {
+          "what": "\"our listeners\" places the question inside a show the listener is not part of and has not been introduced to",
+          "quote": "with our listeners about the importance of user-generated reviews like Google reviews?"
+        },
+        {
+          "what": "\"check it out\" asks the listener to go and look at something the reel never names",
+          "quote": "so if you are watching this definitely check it out on our website also the links in the bio"
+        }
+      ],
+      "stops_developing_at": 45.28,
+      "rank": 19,
+      "basis": "It is one of the least assumption-heavy things in the set - a listener with no context can follow all of it - and the point about specific wording in reviews is genuinely useful, but the first thirty seconds say only that good reviews build trust."
+    },
+    {
+      "reel": 28,
+      "claim_quote": "they're typing in very specific queries that don't work for Google, but work for AI.",
+      "claim": "She looked for a nail salon by asking AI a long, specific question rather than searching Google, and picked the first company it named.",
+      "opening_quote": "For you, personally, how much more are you using an AI platform like Claude or Gemini more than just putting something into a traditional Google search window?",
+      "closing_quote": "so if you are watching this definitely check it out on our website also the links in the bio",
+      "closing_asks_for": "Go to their website and to the link in the bio.",
+      "takeaway_quote": "I'm going to get companies recommended and I chose the first one I saw.",
+      "takeaway": "A listener is shown what being left out actually costs: the person asking took the first name they were given and never looked further.",
+      "assumes_known": [
+        {
+          "what": "\"our audience\" belongs to a show the listener has not been placed inside",
+          "quote": "And I do think a lot of our audience will be as well."
+        },
+        {
+          "what": "\"it's scoring you\" introduces something that scores you, with no antecedent anywhere in the reel",
+          "quote": "yep your website checks out but everything else out there it's broken for sure it's scoring you"
+        },
+        {
+          "what": "\"check it out\" asks the listener to go and look at something never named",
+          "quote": "so if you are watching this definitely check it out on our website also the links in the bio"
+        }
+      ],
+      "stops_developing_at": 46.42,
+      "rank": 12,
+      "basis": "It is the only one where somebody describes doing the thing themselves rather than describing it happening to a client, and the detail that she chose the first name she saw is the clearest statement in the set of what being absent costs."
+    },
+    {
+      "reel": 29,
+      "claim_quote": "If you think your competitor is X, make sure you say why you're better than X",
+      "claim": "Because people now compare the handful of results AI gives them, saying outright why you beat a named competitor is what gets you put first - something that did not matter on Google.",
+      "opening_quote": "I'm telling a lot of folks, too, it's now more important than ever to make sure that you do have",
+      "closing_quote": "That disconnect is exactly what we fixed with the Lucy visibility system.",
+      "closing_asks_for": "Send the video to your marketing team if you are running a content-heavy SEO strategy and your AI visibility is low.",
+      "takeaway_quote": "the way you want to rank number one is if you really hone in on your content and exactly say what your differentiator is.",
+      "takeaway": "A listener can go and write, in their own copy, why they are better than the competitor they already have in mind.",
+      "assumes_known": [
+        {
+          "what": "\"as you're asking and not searching\" rests on a distinction between asking and searching that is made elsewhere and never made here",
+          "quote": "those frequently asked questions and whatnot, because as you're asking and not searching,"
+        },
+        {
+          "what": "\"an AI overview with Gemini on Google\" is named as a thing the listener has seen",
+          "quote": "because with an AI overview with Gemini on Google, it's right at the top now."
+        },
+        {
+          "what": "\"get populated\" is used as a term for appearing in results, without being explained",
+          "quote": "that's how you're going to get populated."
+        },
+        {
+          "what": "\"your AI visibility\" and \"That disconnect\" both arrive in the closing as known quantities",
+          "quote": "That disconnect is exactly what we fixed with the Lucy visibility system."
+        }
+      ],
+      "stops_developing_at": 71.82,
+      "rank": 16,
+      "basis": "The instruction to name a competitor and say why you beat them is concrete and unusual, but it arrives fifty seconds in after a long stretch describing what happens when somebody reads four results, and the ending trails into agreement."
+    },
+    {
+      "reel": 30,
+      "claim_quote": "I'm having a Google business profile, extremely, extremely important. One of the highest authority sources right now.",
+      "claim": "The Google business profile is one of the strongest sources AI reads, and if the address on it disagrees with the one on your website, AI will send a customer to the wrong place and you will lose them.",
+      "opening_quote": "Something I've seen recently within the last few months now through ChatGPT is if you are asking, let's say, nail salon or best restaurants near me, it's actually populating a map, too.",
+      "closing_quote": "The link's in our bio.",
+      "closing_asks_for": "Go to the link in the bio and look at how your brand appears.",
+      "takeaway_quote": "make sure that your Google reviews are all positive and that's being reflected everywhere else on the broader web.",
+      "takeaway": "A listener can go and check that the address, the opening hours and the reviews on their Google business profile match what is on their website.",
+      "assumes_known": [
+        {
+          "what": "\"hallucinate\" is used as the name for what goes wrong, without explanation",
+          "quote": "but you have a different address on your website as going to hallucinate"
+        },
+        {
+          "what": "\"one of the highest authority sources\" implies a ranking of sources by authority that the listener has never been shown",
+          "quote": "One of the highest authority sources right now."
+        },
+        {
+          "what": "\"the Lucy visibility system\" is named as known",
+          "quote": "And that's why we've been building the Lucy visibility system for months."
+        }
+      ],
+      "stops_developing_at": 77.23,
+      "rank": 13,
+      "basis": "The wrong-address consequence is the most physical thing in the whole set - a customer drives to the wrong place and never comes back - and it is the one piece of advice a listener could act on in ten minutes; ninety seconds for it is what costs it."
+    },
+    {
+      "reel": 31,
+      "claim_quote": "I would say there is no specific way to game the system. The way you want to think about is how you can influence AI in the right direction.",
+      "claim": "The money-and-keywords trick that worked on search engines has no equivalent here; the only route is to put everything you would tell a customer where AI can read it, consistently, in every place.",
+      "opening_quote": "Speaking of blogs, these big companies that have obviously endless marketing dollars, they have hundreds of blogs over the years.",
+      "closing_quote": "so that you can focus on running your actual business.",
+      "closing_asks_for": "Hand the work over to them rather than doing it yourself, so you can get back to running your business.",
+      "takeaway_quote": "all of the information you ever want to provide and that you think is important for your customers to know, it's going to be important for AI to know.",
+      "takeaway": "A listener gets a rule they can apply without any product: anything you would want a customer to know has to exist somewhere AI can read it.",
+      "assumes_known": [
+        {
+          "what": "\"Speaking of blogs\" continues a conversation about blogs that happened before the reel",
+          "quote": "Speaking of blogs, these big companies that have"
+        },
+        {
+          "what": "\"stuffed it with keywords and backlink\" assumes the listener knows both practices and why they used to work",
+          "quote": "So they kind of gamed it because they had lots of money and they stuffed it"
+        },
+        {
+          "what": "\"Let us do the work for you\" asks the listener to hand work to an \"us\" the reel never identifies",
+          "quote": "Let us do the work for you."
+        }
+      ],
+      "stops_developing_at": 83.62,
+      "rank": 18,
+      "basis": "It answers a question a listener would genuinely ask - can this be gamed - and answers it honestly with no, but the answer takes ninety seconds to arrive at a rule that could be stated in one sentence."
+    }
+  ]
+}
