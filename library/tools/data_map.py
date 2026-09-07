@@ -1719,7 +1719,13 @@ UNREAD_BUDGET: Dict[str, int] = {
     "DOC@subtitle_props": 0,
     "DOC@temporal_index_clip": 46,
     "DOC@timeline_decisions": 9,
-    "DOC@timeline_transcript": 8,
+    # 8 -> 7 on 2026-09-07: `segments[].words[].timed` gained its first
+    # reader. The animated explainer anchors each stage to the WORD its
+    # quote begins on (`reel_quality_bar.played_speech(with_words=True)`),
+    # because the six sources reel 21 enumerates sit in TWO transcript
+    # segments - at line precision the whole build collapses onto two
+    # instants. Per-word timings had been written and never read.
+    "DOC@timeline_transcript": 7,
     "DOC@vision_index": 64,
     "DOC@vision_profile": 17,
     "OUT@assign_aroll": 11,

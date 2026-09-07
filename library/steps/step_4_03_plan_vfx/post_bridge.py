@@ -40,7 +40,15 @@ from library.tools.vfx_plan_basis import (
 # against the renderer's own dispatch by
 # tests/test_vfx_reaches_the_manifest.py, and an entry carrying none of
 # its effect's names is DROPPED with the reason rather than passed on to
-# draw nothing.
+# draw nothing - `no_readable_parameters`, which is the drop reason
+# `vfx_plan_basis` records.
+#
+# And the VALUES in a readable name are never checked, clamped or
+# substituted. That is the other half of the captain's ruling and it is
+# stated here because this is the only place that could do any of the
+# three: how far a zoom travels is a magnitude, a magnitude is taste,
+# and an engine that bounded one would be offering the scale the ruling
+# removed (AGENTS.md 10.5).
 TOOLKIT_PARAMETERS = {
     # Ken Burns drift across the clip: fx.zoom's start and end, plus an
     # optional static re-centre. `pan_start` is deliberately ABSENT:

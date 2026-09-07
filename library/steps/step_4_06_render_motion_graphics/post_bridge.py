@@ -35,6 +35,7 @@ import json
 import os
 import subprocess
 import sys
+from typing import Optional
 
 from generate_motion_props import PLAN_KEY, generate_motion_props
 
@@ -106,6 +107,100 @@ class MotionGraphicsRenderRefused(Exception):
         self.payload = payload
         super().__init__(
             payload.get("motion_graphics_overlay", {}).get("error", "refused"))
+
+
+def _remotion_dir() -> str:
+    """The one Remotion project, from this file's own location.
+
+    The same four `dirname` calls `render_motion_graphics` already made
+    inline, so a caller that has no `data` dict can find it too.
+    """
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))),
+        "remotion-subtitles")
+
+
+def render_one_segment(planned: dict, out_dir: str,
+                       segment_name: str = "",
+                       remotion_dir: str = "",
+                       progress: str = "") -> Optional[dict]:
+    """Render ONE motion-graphics segment, and return what was placed.
+
+    Lifted out of :func:`render_motion_graphics`'s loop unchanged - same
+    composition, same codec, same profile, same `--transparent`, same
+    timeout - so there is ONE `npx remotion render MotionGraphics` call
+    in this repository rather than two.
+
+    It exists because the REELS path needs the unit and not the pass:
+    `reel_build` plans a graphic on one reel's own timebase and has no
+    master spine, no bookends and no timed text to render beside it.
+    That is the same reason `subtitles.render_segment` sits beside
+    `subtitles.render`, and it is registered the same way
+    (`library/tools/operations.py`).
+
+    `segment_name` names the file.  The master pass leaves it empty and
+    gets `mg_<index>`, which is what every existing render is called; a
+    reel passes its own prefixed name, because AGENTS.md 5 requires an
+    overlay filename to carry its context and two reels writing
+    `mg_000.mov` into one directory is one reel's graphic on another
+    reel's timeline.
+
+    Returns None where the render failed or timed out - REPORTED on
+    stderr and skipped, never substituted.
+    """
+    import sys
+    props = planned["props"]
+    name = segment_name or f"mg_{planned['index']:03d}"
+    overlay_path = os.path.join(out_dir, f"{name}.mov")
+    props_path = os.path.join(out_dir, f"{name}_props.json")
+    remotion = remotion_dir or _remotion_dir()
+
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, indent=2)
+
+    print(f"  {progress} {name} "
+          f"({', '.join(planned['elements'])}, "
+          f"{planned['total_frames']}f, "
+          f"tl:{planned['timeline_start']:.2f}-"
+          f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
+
+    try:
+        result = subprocess.run(
+            ["npx", "remotion", "render",
+             "MotionGraphics",
+             overlay_path,
+             "--props", props_path,
+             "--codec", "prores",
+             "--prores-profile", "4444",
+             "--image-format", "png",
+             "--transparent",
+             ],
+            cwd=remotion,
+            capture_output=True,
+            text=True, encoding="utf-8", errors="replace",
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            print(f"    WARN: Render failed: {result.stderr[:200]}",
+                  file=sys.stderr)
+            return None
+
+        print(f"    OK: {overlay_path}", file=sys.stderr)
+
+    except subprocess.TimeoutExpired:
+        print(f"    WARN: Render timed out for {name}", file=sys.stderr)
+        return None
+
+    return {
+        "overlay_path": overlay_path,
+        "timeline_start": planned["timeline_start"],
+        "timeline_end": planned["timeline_end"],
+        "total_frames": planned["total_frames"],
+        "element_count": planned["element_count"],
+        "elements": planned["elements"],
+    }
 
 
 def render_motion_graphics(data: dict) -> dict:
@@ -260,58 +355,11 @@ def render_motion_graphics(data: dict) -> dict:
 
     segments = []
     for i, planned in enumerate(segments_plan):
-        props = planned["props"]
-        segment_name = f"mg_{planned['index']:03d}"
-        overlay_path = os.path.join(mg_output_dir, f"{segment_name}.mov")
-        props_path = os.path.join(mg_output_dir, f"{segment_name}_props.json")
-
-        with open(props_path, "w", encoding="utf-8") as f:
-            json.dump(props, f, indent=2)
-
-        print(f"  [{i+1}/{len(segments_plan)}] {segment_name} "
-              f"({', '.join(planned['elements'])}, "
-              f"{planned['total_frames']}f, "
-              f"tl:{planned['timeline_start']:.2f}-"
-              f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
-
-        # Render via Remotion
-        try:
-            result = subprocess.run(
-                ["npx", "remotion", "render",
-                 "MotionGraphics",
-                 overlay_path,
-                 "--props", props_path,
-                 "--codec", "prores",
-                 "--prores-profile", "4444",
-                 "--image-format", "png",
-                 "--transparent",
-                 ],
-                cwd=REMOTION_DIR,
-                capture_output=True,
-                text=True, encoding="utf-8", errors="replace",
-                timeout=120,
-            )
-
-            if result.returncode != 0:
-                print(f"    WARN: Render failed: {result.stderr[:200]}",
-                      file=sys.stderr)
-                continue
-
-            print(f"    OK: {overlay_path}", file=sys.stderr)
-
-        except subprocess.TimeoutExpired:
-            print(f"    WARN: Render timed out for {segment_name}",
-                  file=sys.stderr)
-            continue
-
-        segments.append({
-            "overlay_path": overlay_path,
-            "timeline_start": planned["timeline_start"],
-            "timeline_end": planned["timeline_end"],
-            "total_frames": planned["total_frames"],
-            "element_count": planned["element_count"],
-            "elements": planned["elements"],
-        })
+        rendered = render_one_segment(
+            planned, mg_output_dir, remotion_dir=REMOTION_DIR,
+            progress=f"[{i+1}/{len(segments_plan)}]")
+        if rendered is not None:
+            segments.append(rendered)
 
     print(f"\nRendered {len(segments)}/{len(segments_plan)} motion graphics "
           f"segments", file=sys.stderr)

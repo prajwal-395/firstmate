@@ -299,6 +299,12 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
       manifest declares, which is `validate_sfx_library(inputs)` and
       both reel nodes.
 
+    An operation that declares `caller_supplied` is skipped entirely:
+    the runner never drives it, so there is no merged dict for it to
+    bind. `tests/test_operations_add_no_second_implementation.py` still
+    resolves its `run` back to the owning step's own body, so declaring
+    the flag buys no exemption from Ruling 1.
+
     Deliberately NOT checked: a body with several required parameters
     none of which is a declared input. Those are the region-scoped
     operations - `transcript.splice(index_doc, fresh_regions, ...)` -
@@ -309,6 +315,13 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
 
     unexplained = []
     for op in operations.all():
+        # An operation whose arguments come from a CALLER is not fed the
+        # merged dict at all, and it DECLARES that rather than being
+        # inferred from its arity - inferring it would silently stop
+        # checking the two-argument `resolve(llm_output, data)` shape
+        # every real post-bridge uses.
+        if op.caller_supplied:
+            continue
         parameters = inspect.signature(op.run).parameters
         if any(p.kind is inspect.Parameter.VAR_KEYWORD
                for p in parameters.values()):

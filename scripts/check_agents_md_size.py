@@ -43,7 +43,7 @@ import sys
 # `resolve_build_timeline.py:37` and the `GetProperty()` read-back only at
 # `probe_resolve_capabilities.py:22`, both verbatim. The 78 characters left
 # over went off the ceiling rather than back into the spare.
-CEILING = 53248
+CEILING = 53084
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -76,6 +76,17 @@ CEILING = 53248
 # restated the line directly above them with the same Detail target and the
 # same [why] anchor.  Four index rows were added for the timeline-ingest
 # work and paid for out of those moves, so the ceiling still went DOWN.
+# MOVED 2026-09-07, `## 10` -> `## 16`, 86 characters: `## 16` gained one index
+# row for `library/tools/explainer_plan.py` - an animated explainer is a staged
+# plan over that roster, timed to the words that say each stage. `## 10` paid
+# for it by moving the `INTENSITY_MAP` narrative to
+# `library/steps/step_4_03_plan_vfx/post_bridge.py`, which already held it in
+# fuller form and now also states the half AGENTS.md was carrying alone: that
+# the VALUES in a readable parameter name are never checked, clamped or
+# substituted. Both budgets are set to what their sections now MEASURE, so the
+# 164 characters left over went off the CEILING rather than back into the
+# spare - spare nobody claimed is how the budgets came to be looser than their
+# sections.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
@@ -87,13 +98,13 @@ SECTION_BUDGETS = {
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 6316,
-    "## 10. Cross-cutting rules": 17394,
+    "## 10. Cross-cutting rules": 16967,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 573,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2127,
     "## 15. Notes the captain types onto the timeline": 1800,
-    "## 16. Motion graphics": 2271,
+    "## 16. Motion graphics": 2357,
     "## Maintaining this file": 553,
 }
 

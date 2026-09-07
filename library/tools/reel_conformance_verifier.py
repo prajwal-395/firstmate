@@ -73,6 +73,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 # The ONE exemption on the caption floor, shared with the manifest's own
 # P6 check so a reel and a master cannot be held to different rules.
+from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
 from library.tools.manifest_validator import ends_with_its_block
 from library.tools.reel_exchange import LENGTH_GUIDANCE
 
@@ -101,6 +102,15 @@ class FindingClass:
     F14 = "F14"  # PLANNING: caption planned and never placed
     F15 = "F15"  # PLANNING: caption card hangs past its words
     F17 = "F17"  # PLANNING: caption card mixes speakers (bleed)
+
+    # 2026-09-07: the ANIMATED EXPLAINER, on its own video track.
+    # `_snapshot_to_reel_timeline` classified a clip by
+    # `track <= 2 -> picture`, `== 3 -> captions`, `audio -> audio`, and
+    # an implicit else that DROPPED it. So an explainer segment was not
+    # read as a duplicate placement and not read as a picture hole - it
+    # was not read at all, which is the gate-that-cannot-fail shape
+    # wearing a different hat. F21 is what reads it.
+    F21 = "F21"  # ENCODING: the explainer, against the plan the build wrote
 
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # outside the 45-90s PREFERENCE (warning)
@@ -384,6 +394,12 @@ class ReelTimeline:
     clip on V4 was on the timeline and in no check at all. F19 reports
     whatever lands here, so the next feature to add a track finds out on
     the first run instead of never."""
+    explainer_items: Tuple[TimelineItem, ...] = ()
+    """Items on the explainer track, in order.
+
+    `library/tools/explainer_plan.EXPLAINER_TRACK` is which track that
+    is, named there once so the placement and the check cannot disagree
+    about it."""
     width: int = 0
     """Timeline resolution width, read from Resolve."""
     height: int = 0
@@ -2151,6 +2167,125 @@ def _caption_speaker(item: TimelineItem) -> Optional[str]:
     return None
 
 
+def check_explainer(reel_name: str,
+                    explainer_items: Sequence[TimelineItem],
+                    planned: Optional[dict],
+                    fps: float) -> List[Finding]:
+    """F21: the animated explainer, against the plan THE BUILD WROTE.
+
+    Both directions, and every one of them is reachable from a real
+    build:
+
+    - a reel whose plan says `planned` and whose timeline carries no
+      explainer.  A reel that quietly starts without one is
+      indistinguishable from a project that declared nothing, which is
+      how the 4th Wall end card survived four months;
+    - an item on the explainer track that no plan accounts for - the
+      out-of-band append `bookends.assert_no_invented_bookends` refuses
+      on the master, refused here too;
+    - an explainer at the wrong reel second, or with the wrong number
+      of frames;
+    - two explainer items overlapping, which is one build having run
+      twice into one timeline.
+
+    `planned` is the entry `explainer_plan.read_plans` returns for this
+    reel - **read from what the build recorded, never re-derived**. A
+    re-derived plan is only the build's plan while nothing changed in
+    between, and that assumption already produced 42 confident
+    meaningless errors on this path (PLAN-MISMATCH).
+
+    Given no recorded plan at all this returns NOTHING rather than
+    guessing: a project built before explainers existed has no record,
+    and grading it against an absence would fail every correct reel.
+    """
+    findings: List[Finding] = []
+    items = sorted(explainer_items or [], key=lambda i: i.start_frame)
+    if planned is None:
+        if items:
+            findings.append(Finding(
+                finding_class=FindingClass.F21, reel=reel_name,
+                message=(
+                    f"{len(items)} item(s) on the explainer track (V"
+                    f"{EXPLAINER_TRACK}) and this reel has no recorded "
+                    f"explainer plan at all, so nothing accounts for them"),
+                detail={"items": len(items), "planned": None}))
+        return findings
+
+    expected = list(planned.get("segments") or [])
+    if not expected and planned.get("basis") not in (None, ""):
+        # The plan says why it drew nothing. An item present anyway is
+        # out of band whatever the reason was.
+        if items:
+            findings.append(Finding(
+                finding_class=FindingClass.F21, reel=reel_name,
+                message=(
+                    f"{len(items)} item(s) on V{EXPLAINER_TRACK} but the "
+                    f"build recorded no explainer for this reel "
+                    f"({planned.get('basis')})"),
+                detail={"items": len(items),
+                        "basis": planned.get("basis")}))
+        return findings
+
+    # Paired by RECORD FRAME, never by list index - the mistake that
+    # turned F2 into 701 meaningless findings.
+    by_frame = {item.start_frame: item for item in items}
+    matched = set()
+    for segment in expected:
+        want_start = int(round(float(segment["timeline_start"]) * fps))
+        want_frames = int(segment["total_frames"])
+        item = by_frame.get(want_start)
+        if item is None:
+            near = min((abs(i.start_frame - want_start), i) for i in items) \
+                if items else None
+            findings.append(Finding(
+                finding_class=FindingClass.F21, reel=reel_name,
+                message=(
+                    f"explainer planned at reel frame {want_start} "
+                    f"({float(segment['timeline_start']):.2f}s) and no item "
+                    f"on V{EXPLAINER_TRACK} starts there"
+                    + (f"; nearest is frame {near[1].start_frame}"
+                       if near else "; the track is empty")),
+                detail={"planned_start_frame": want_start,
+                        "planned_frames": want_frames,
+                        "found": [i.start_frame for i in items]}))
+            continue
+        matched.add(item.start_frame)
+        if item.duration_frames != want_frames:
+            findings.append(Finding(
+                finding_class=FindingClass.F21, reel=reel_name,
+                message=(
+                    f"explainer at reel frame {want_start} runs "
+                    f"{item.duration_frames} frames, planned {want_frames}"),
+                detail={"planned_frames": want_frames,
+                        "actual_frames": item.duration_frames,
+                        "start_frame": want_start}))
+
+    for item in items:
+        if item.start_frame in matched:
+            continue
+        findings.append(Finding(
+            finding_class=FindingClass.F21, reel=reel_name,
+            message=(
+                f"an item on V{EXPLAINER_TRACK} at reel frame "
+                f"{item.start_frame} ({item.name or 'unnamed'}) that no "
+                f"recorded explainer accounts for"),
+            detail={"start_frame": item.start_frame,
+                    "name": item.name,
+                    "render_prefix": RENDER_PREFIX}))
+
+    for earlier, later in zip(items, items[1:]):
+        if later.start_frame < earlier.end_frame:
+            findings.append(Finding(
+                finding_class=FindingClass.F21, reel=reel_name,
+                message=(
+                    f"two explainer items overlap on V{EXPLAINER_TRACK}: "
+                    f"[{earlier.start_frame}..{earlier.end_frame}) and "
+                    f"[{later.start_frame}..{later.end_frame})"),
+                detail={"first": [earlier.start_frame, earlier.end_frame],
+                        "second": [later.start_frame, later.end_frame]}))
+    return findings
+
+
 def check_subtitle_styling(reel_name: str,
                            caption_items: Sequence[TimelineItem],
                            video_items: Sequence[TimelineItem],
@@ -2871,6 +3006,7 @@ def verify_reel(plan: ReelPlan,
                 declared_intent: Optional[float] = None,
                 declared_crop_factor: float = 1.0,
                 planned_overlays: Optional[Sequence[dict]] = None,
+                explainer_plan: Optional[dict] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -3115,6 +3251,12 @@ def verify_reel(plan: ReelPlan,
             master_video_items=master_video_items,
             ranges=plan.keep_ranges or heard_spans))
 
+    # F21: the animated explainer, against the plan the build recorded.
+    # Passing None means "no record", which returns nothing rather than
+    # grading a pre-explainer build against an absence.
+    findings.extend(check_explainer(
+        plan.reel_name, timeline.explainer_items, explainer_plan, fps))
+
     # Compute summary numbers
     one_frame_holes = sum(
         1 for f in findings
@@ -3178,6 +3320,7 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
     caption_items = []
     overlay_items = []
     unclassified_items = []
+    explainer_items = []
     for clip in snapshot.clips:
         item = TimelineItem(
             track_type=clip.track_type,
@@ -3200,6 +3343,9 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         elif (clip.track_type == "video"
               and clip.track_index == OVERLAY_TRACK):
             overlay_items.append(item)
+        elif (clip.track_type == "video"
+              and clip.track_index == EXPLAINER_TRACK):
+            explainer_items.append(item)
         elif clip.track_type == "audio":
             audio_items.append(item)
         elif clip.track_type == "video":
@@ -3222,6 +3368,8 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
                                    key=lambda i: i.start_frame)),
         unclassified_items=tuple(sorted(
             unclassified_items, key=lambda i: (i.track_index, i.start_frame))),
+        explainer_items=tuple(sorted(explainer_items,
+                                     key=lambda i: i.start_frame)),
         width=snapshot.width,
         height=snapshot.height,
     )
@@ -3909,6 +4057,15 @@ def run_verification(
     # default nobody declared.
     source_sizes = _catalog_source_sizes(project_folder)
     declared_intent, declared_crop_factor = _declared_framing(project_folder)
+    # What the build recorded about each reel's explainer. Read ONCE and
+    # read from the BUILD's own record; `{}` when no build ever wrote
+    # one, which makes F21 silent rather than confident.
+    from library.tools.explainer_plan import plan_for_reel, read_plans
+    explainer_plans = read_plans(project_folder) if project_folder else {}
+    if (explainer_plans.get("plans") or []):
+        drawn = sum(1 for e in explainer_plans["plans"] if e.get("segments"))
+        print(f"Explainer plans recorded: {len(explainer_plans['plans'])} "
+              f"({drawn} with something drawn)", file=err)
     if declared_intent is not None:
         print(f"Declared framing_intent: {declared_intent} "
               f"(crop factor {declared_crop_factor})", file=err)
@@ -3978,7 +4135,8 @@ def run_verification(
                 source_sizes=source_sizes,
                 declared_intent=declared_intent,
                 declared_crop_factor=declared_crop_factor,
-                planned_overlays=overlay_plans.get(name))
+                planned_overlays=overlay_plans.get(name),
+                explainer_plan=plan_for_reel(explainer_plans, name))
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

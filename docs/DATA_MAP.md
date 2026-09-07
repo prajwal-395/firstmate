@@ -270,7 +270,7 @@ The brief asked for this one complete, and it is:
 
 | origin | fields | code | prompt | none | unread bytes |
 |---|---|---|---|---|---|
-| `DOC@timeline_transcript` | 27 | 19 | 0 | 8 | 8,034 |
+| `DOC@timeline_transcript` | 27 | 20 | 0 | 7 | 1,073 |
 | `OUT@select_reels` | 114 | 23 | 25 | 66 | 228,196 |
 | `OUT@judge_reels` | 42 | 0 | 7 | 35 | 448,994 |
 | `DOC@reel_proposals_v2` | 81 | 23 | 0 | 58 | 86,816 |
@@ -286,6 +286,19 @@ neither**, and 2.33 MB of those 408 are the conformance report alone. One gap
 is stated rather than papered over: **neither snapshot project has run step
 7.02**, so `verify_reels`' output is unmapped. Re-observing a project that has
 is the fix, not a change to the map.
+
+**One row moved on 2026-09-07, and by how much is the point.**
+`DOC@timeline_transcript` went 19 read / 8 unread / 8,034 unread bytes to
+20 / 7 / **1,073**, because `segments[].words[].timed` gained its first reader.
+One field was **6,961 of that document's 8,034 unread bytes - 87%** of
+everything the transcript carried that nothing looked at. It is per-word
+timing, written by every run since the transcript existed, and the animated
+explainer is the first thing to need it: a stage is anchored to the WORD its
+quote begins on, because the six sources reel 21 enumerates sit in TWO
+transcript segments and line precision collapses the whole build onto two
+instants (`library/tools/explainer_plan.py`, `docs/ANIMATED_EXPLAINER.md`).
+A cheap field is not the same as a small one, and this is the case where the
+ranking by BYTES found the reader rather than the deletion.
 
 ## Reads of a key that cannot exist - 127 of them
 

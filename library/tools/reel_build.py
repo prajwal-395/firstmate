@@ -1088,7 +1088,213 @@ def card_render_dir(project_folder: str) -> str:
                         FULL_FRAME_RENDER_DIRNAME)
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None):
+
+def reel_explainer_segments(moment, transcript: dict, ranges,
+                            project_folder: str, fps: float, width: int,
+                            height: int, judgement=None,
+                            brand_effect=None, timeline_name: str = ""):
+    """One reel's animated explainer, THROUGH THE PIPELINE'S OWN STEPS.
+
+    Exactly the shape :func:`reel_subtitle_segments` has, for the same
+    reason and with the same discipline: it adds no graphics logic of
+    its own, it drives named operations, and the modules it calls are
+    the ones the master path already calls.
+
+        reel_quality_bar.played_speech      the reel's lines, in reel time
+        explainer_plan.author_explainer     parts -> stages -> plan entries
+        motion_graphics_plan.resolve_plan   step 4.06's OWN resolver
+        motion_graphics_plan.plan_segments  step 4.06's OWN clusterer
+        motion_graphics.render_segment      step 4.06's OWN renderer
+
+    `played_speech` is the SAME function step 3.05's pre-bridge builds
+    its `lines` table with, called here rather than respelled: the words
+    a stage is anchored against must be the words the judge read, or one
+    field of one reading would ground for one reader and not the other.
+
+    Returns `(segments, plan)`.  `plan` is returned even when nothing is
+    drawn, because a reel with no explainer must be able to say WHICH
+    kind of nothing it has - `explainer_plan.BASES` is the enumeration
+    and `pipeline_output/review/explainer_plans.json` is where the build
+    records it for the verifier to grade against.
+    """
+    import sys
+
+    from library.tools import explainer_plan as ex
+    from library.tools import motion_graphics_plan as mg
+    from library.tools import operations
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_quality_bar import played_speech
+    from library.tools.safe_area import resolve_safe_area
+
+    name = timeline_name or moment.timeline_name
+
+    declaration = ex.resolve_declaration(brand_effect or {}, project_folder)
+    if declaration is None:
+        return [], ex.ExplainerPlan(reel_name=name, declared=False,
+                                    basis=ex.NOT_DECLARED)
+
+    # The reel's own lines and its own length, from its own ranges.
+    # WITH WORDS: a stage is anchored to the word its quote begins on.
+    # Without them six sources enumerated in one breath sit in two
+    # transcript segments, so all six land on two instants and the
+    # build stops being a build. The words never reach a prompt - this
+    # is the build reading them, not the judge (AGENTS.md 10.1).
+    lines = [{"at": line["reel_start"], "speaker": line["speaker"],
+              "says": line["text"], "words": line.get("words") or []}
+             for line in played_speech(moment, transcript, with_words=True)]
+    reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
+
+    bands = _explainer_bands(project_folder, width, height)
+    plan = ex.author_explainer(
+        reel_name=name, reel_number=int(moment.number),
+        reel_seconds=reel_seconds, judgement=judgement,
+        declaration=declaration, lines=lines, bands=bands)
+
+    # Every refusal is SAID, on the run that made it. A stage silently
+    # dropped is a claim the viewer is shown half of.
+    for refusal in ((plan.anchored.refused if plan.anchored else []) or []):
+        print(f"  {name}: EXPLAINER STAGE REFUSED "
+              f"({refusal['reason']}) {refusal['stage']!r} - "
+              f"{refusal['detail']}", file=sys.stderr)
+    if plan.band and not plan.band["available"]:
+        print(f"  {name}: explainer band {plan.band['band']!r} has zero "
+              f"height on this frame - the picture leaves nothing there",
+              file=sys.stderr)
+    if plan.band and plan.band["covers_picture"]:
+        print(f"  {name}: explainer sits OVER the picture "
+              f"({plan.band['picture_covered_fraction']:.1%} of the frame)",
+              file=sys.stderr)
+    if not plan.entries:
+        print(f"  {name}: NO EXPLAINER - {plan.basis}", file=sys.stderr)
+        return [], plan
+
+    resolved = mg.resolve_plan(
+        plan.entries, timeline_duration=reel_seconds, fps=fps,
+        palette_roles={}, asked=True)
+    for dropped in resolved.dropped:
+        print(f"  {name}: explainer entry dropped ({dropped.reason}) "
+              f"{dropped.element}: {dropped.detail}", file=sys.stderr)
+    if not resolved.moments:
+        plan.basis = ex.NOTHING_TO_DRAW
+        return [], plan
+
+    # The box the graphic is POSITIONED in is the declared band, not the
+    # whole safe area. `explainer_plan.band_insets` says why that needs
+    # no new drawing code. Where the bands could not be measured at all
+    # the platform's own safe area is used and the run SAYS so, rather
+    # than a rectangle being guessed.
+    if bands is not None:
+        insets = ex.band_insets(bands, plan.band["band"])
+    else:
+        print(f"  {name}: explainer positioned in the whole safe area - "
+              f"the source size is not in this project's catalog, so the "
+              f"picture bands could not be measured", file=sys.stderr)
+        insets = resolve_safe_area(project_folder=project_folder,
+                                   width=width, height=height).as_props()
+    segments_plan = mg.plan_segments(
+        resolved.moments, fps=fps, width=width, height=height,
+        safe_area=insets)
+
+    out_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
+    render = operations.get("motion_graphics.render_segment")
+    segments = []
+    for index, planned in enumerate(segments_plan):
+        rendered = render.run(
+            planned, out_dir,
+            segment_name=ex.segment_name(name, index),
+            progress=f"[{index + 1}/{len(segments_plan)}]")
+        if rendered is None:
+            continue
+        # LOOK AT WHAT WAS DRAWN. A graphic too big for its band is not
+        # drawn outside the frame, it is drawn CUT OFF, and the file is
+        # a valid picture of the right size that nothing downstream can
+        # tell apart. An error here REFUSES the segment rather than
+        # placing it; a warning is said and placed.
+        try:
+            measured = ex.measure_render(rendered["overlay_path"])
+        except ex.ExplainerError as why:
+            print(f"  {name}: explainer render could not be measured - "
+                  f"{why}", file=sys.stderr)
+            measured = None
+        if measured is not None:
+            rendered["measured"] = measured
+            refused = False
+            for finding in ex.render_findings(
+                    measured, bands, {"band": plan.band["band"]}
+                    if plan.band else {"band": "over"}):
+                print(f"  {name}: EXPLAINER {finding['severity'].upper()} "
+                      f"({finding['code']}) {finding['message']}",
+                      file=sys.stderr)
+                refused = refused or finding["severity"] == "error"
+            if refused:
+                continue
+        segments.append(rendered)
+    # What was RENDERED, not what was intended: F21 grades the timeline
+    # against this, so a segment the renderer refused must not appear
+    # here or the check would look for an item nothing placed.
+    plan.segments = list(segments)
+    if not segments:
+        plan.basis = ex.NOTHING_TO_DRAW
+    return segments, plan
+
+
+def _explainer_bands(project_folder: str, width: int, height: int):
+    """The picture-area enumeration for a reel of this project.
+
+    Built from the two measurements that already exist - the rectangle a
+    reel really delivers (`reel_framing`) and the platform's keep-clear
+    insets (`safe_area`). Returns None where the source size is unknown,
+    which is REPORTED by the caller rather than guessed at: a band
+    computed from an assumed source size would be a confident wrong
+    rectangle.
+    """
+    from library.tools import explainer_plan as ex
+    from library.tools.reel_framing import IDENTITY, delivered_picture
+    from library.tools.safe_area import resolve_safe_area
+
+    source = _reel_source_size(project_folder)
+    if source is None:
+        return None
+    picture = delivered_picture(source[0], source[1], width, height,
+                                dict(IDENTITY))
+    insets = resolve_safe_area(project_folder=project_folder,
+                               width=width, height=height)
+    return ex.picture_bands(picture.rect, width, height, insets)
+
+
+def _reel_source_size(project_folder: str):
+    """The display size of the footage a reel is cut from, or None.
+
+    `reel_conformance_verifier._catalog_source_sizes` is the reader -
+    the same one F12 already grades framing with, imported rather than
+    respelled, so a reel's bands and its framing check can never
+    disagree about what the source is.
+
+    Reels are cut from ONE master shoot, so one size answers for the
+    batch.  A catalog that disagrees with itself returns None rather
+    than picking one: a band computed from an assumed source size is a
+    confident wrong rectangle, and the caller REPORTS the absence.
+    """
+    from library.tools.reel_conformance_verifier import _catalog_source_sizes
+    from library.tools.reel_framing import display_size
+
+    sizes = set()
+    for entry in (_catalog_source_sizes(project_folder) or {}).values():
+        width, height = entry.get("width"), entry.get("height")
+        if not width or not height:
+            continue
+        try:
+            sizes.add(display_size(int(width), int(height),
+                                   int(entry.get("rotation") or 0)))
+        except Exception:
+            continue
+    if len(sizes) != 1:
+        return None
+    return sizes.pop()
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -1142,7 +1348,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     timeline.SetTrackName("video", 3, "Captions")
     if overlay_placements:
         timeline.SetTrackName("video", OVERLAY_TRACK, "Transitions")
-    
+
+    # The explainer track exists only where there is an explainer to put
+    # on it. A reel that declares none gets a timeline byte-for-byte
+    # identical to the one it got before this existed - three video
+    # tracks and no V5 - which is the same "declare nothing and get
+    # nothing" shape every other effect slot has.
+    if explainer_segments:
+        from library.tools.explainer_plan import (
+            EXPLAINER_TRACK, EXPLAINER_TRACK_NAME)
+        while timeline.GetTrackCount("video") < EXPLAINER_TRACK:
+            timeline.AddTrack("video")
+        timeline.SetTrackName("video", EXPLAINER_TRACK,
+                              EXPLAINER_TRACK_NAME)
+
     ranges = reel_ranges(moment, transcript)
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
@@ -1267,7 +1486,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # reading of it fails the next verification rather than shipping.
         element_fps = float(items[0].GetClipProperty("FPS") or fps)
         source_frames = int(round(placement.element_seconds * element_fps))
-
         assert_current_timeline(project, timeline)
         pool.AppendToTimeline([{
             "mediaPoolItem": items[0],
@@ -1276,6 +1494,33 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "trackIndex": placement.track_index,
             "recordFrame": placement.record_frame,
         }])
+
+
+    # The explainer. ADDITIVE, exactly as the captions above are: it is
+    # laid over picture that keeps playing and moves no frame of it, so
+    # no keep range, no caption timing and no footage binding changes
+    # because a reel carries one. Its whole span is placed - unlike a
+    # caption, a graphic renders no handles either side, so
+    # `total_frames` IS the content.
+    for index, segment in enumerate(explainer_segments or []):
+        from library.tools.explainer_plan import EXPLAINER_TRACK
+        items = pool.ImportMedia([segment["overlay_path"]])
+        if not items:
+            print(f"Failed to import {segment['overlay_path']}",
+                  file=sys.stderr)
+            continue
+        assert_current_timeline(project, timeline)
+        pool.AppendToTimeline([{
+            "mediaPoolItem": items[0],
+            "startFrame": 0,
+            # EXCLUSIVE, the same reading every other placement here
+            # uses. An inclusive endFrame leaves a one-frame gap, which
+            # is a black hole F1 reports.
+            "endFrame": segment["total_frames"],
+            "trackIndex": EXPLAINER_TRACK,
+            "recordFrame": int(round(segment["timeline_start"] * fps)),
+        }])
+
 
 
 def _write_overlay_records(review_dir: str, built_reel_names,
@@ -1415,6 +1660,42 @@ def built_name(moment, name_suffix: str = "") -> str:
     timeline this build is not touching still points at.
     """
     return f"{moment.timeline_name}{name_suffix}"
+
+
+def _read_judgement(project_folder: str):
+    """Step 3.05's reading of these reels, or None.
+
+    `reel_quality_bar.read_judgement` is the one reader and it returns
+    `(judgement, source)`; only the reading is wanted here. A project
+    that has never been judged gets None, which every downstream reader
+    treats as "no reel has parts" - which is true, and is not the same
+    as "the claim has no parts".  `explainer_plan.BASES` keeps those
+    apart in what is recorded.
+    """
+    from library.tools.reel_quality_bar import read_judgement
+    try:
+        judgement, _source = read_judgement(project_folder)
+    except Exception:
+        return None
+    return judgement
+
+
+def _brand_effect(project_folder: str) -> dict:
+    """The `effect` slots of whatever brand template this project adopts.
+
+    `{}` where it adopts none, which is most projects (AGENTS.md 10.1:
+    a project that names no brand template gets NOTHING). The PROJECT's
+    own declaration wins over this in every slot that reads it, so an
+    empty template half is not a reduced capability.
+    """
+    from library.tools.brand_registry import (
+        project_template_name, query_slots, resolve_project_template)
+    try:
+        name = project_template_name(project_folder)
+        template = resolve_project_template(name, project_folder)
+        return query_slots(template, "effect") or {}
+    except Exception:
+        return {}
 
 
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
@@ -1602,6 +1883,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # Read ONCE, before the loop: a malformed declaration must stop the
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
+    explainer_plans = []
+    # What the model read of each reel, and what the project declares.
+    # Both are read ONCE for the batch: the judgement is one file and the
+    # declaration is one project, and re-reading either per reel would be
+    # nineteen answers to one question.
+    judgement = _read_judgement(project_folder)
+    brand_effect = _brand_effect(project_folder)
     for moment in building:
         name = built_name(moment, name_suffix)
         print(f"Building {name}", flush=True)
@@ -1641,6 +1929,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             moment, transcript, ranges, project_folder,
             fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
             lead_seconds=lead)
+
+        # The animated explainer. A project that declares none gets
+        # `([], plan)` with the plan saying `not_declared`, and the
+        # timeline it gets is the one it got before this existed.
+        explainer_segments, explainer_plan = reel_explainer_segments(
+            moment, transcript, ranges, project_folder,
+            fps=24000 / 1001, width=1080, height=1920,
+            judgement=judgement, brand_effect=brand_effect,
+            timeline_name=name)
+        explainer_plans.append(explainer_plan)
 
         # RECORD what was placed. Derived at build time and previously
         # written down nowhere, which is why the verifier could re-derive
@@ -1706,6 +2004,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             cards=cards,
             overlay_placements=(overlay_plan.placements
                                 if overlay_plan else None),
+            explainer_segments=explainer_segments,
         )
         for card in cards or ():
             # SAID on the run that placed it, rather than recorded in the
@@ -1717,6 +2016,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             print(f"  placed {card.placement} card {card.render_name} at "
                   f"reel frame {card.reel_start_frame} "
                   f"({card.duration_frames}f)", flush=True)
+
+    # What each reel's explainer really was, INCLUDING the empty ones.
+    # Recorded rather than re-derived, for the reason
+    # docs/CHROMA_KEY_TRANSITIONS_MEASURED.md gives: a re-derived plan is
+    # only the build's plan while nothing changed in between, and that
+    # assumption already produced 42 confident meaningless errors on this
+    # path.
+    from library.tools.explainer_plan import write_plans as _write_explainers
+    _write_explainers(project_folder, explainer_plans)
 
     # Record which plan we built from, so the verifier can detect
     # if the plan changes before verification runs.

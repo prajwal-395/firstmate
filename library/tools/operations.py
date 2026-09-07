@@ -327,6 +327,24 @@ class Operation:
     body: str                   # step.py | bridge.py | post_bridge.py
     attr: str                   # the function's name in that body
     scopes: tuple[str, ...] = (PROJECT,)
+    caller_supplied: bool = False
+    """Its arguments come from a CALLER, not from gathering.
+
+    The runner drives a step's bridge and post-bridge by writing the
+    merged input dict to stdin, so every required parameter of THOSE is
+    the whole dict by construction - which is what
+    `MERGED_INPUT_PARAMETERS` enumerates and what
+    `test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know`
+    checks.
+
+    A file may also export a UNIT the runner never drives:
+    `motion_graphics.render_segment` renders ONE overlay segment and its
+    arguments are the segment and a directory, handed to it by
+    `reel_build`.  Declaring that is the honest way to say so - the
+    alternative is inferring it from how many required parameters the
+    function has, which would silently stop checking the two-argument
+    `resolve(llm_output, data)` shape every real post-bridge uses.
+    """
 
     @property
     def requires(self) -> tuple:
@@ -955,6 +973,26 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_motion_graphics",
         owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
         attr="render_motion_graphics",
+    ),
+    Operation(
+        name="motion_graphics.render_segment",
+        summary="Render ONE motion-graphics overlay segment",
+        owning_node="render_motion_graphics",
+        owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
+        attr="render_one_segment",
+        # Its arguments are a planned segment and a directory, handed to
+        # it by `reel_build` - the runner never drives it. See
+        # `Operation.caller_supplied`.
+        caller_supplied=True,
+        # The unit, beside the pass, for the same reason
+        # `subtitles.render_segment` sits beside `subtitles.render`: the
+        # REELS path needs one segment on one reel's own timebase and has
+        # no master spine, bookends or timed text to render beside it.
+        # REGION is the scope that means anything - a segment is
+        # addressed by its timeline span - and it is idempotent per
+        # segment because the name comes from the reel and the index
+        # rather than from a counter.
+        scopes=(PROJECT, REGION),
     ),
     Operation(
         name="color_grade.resolve",

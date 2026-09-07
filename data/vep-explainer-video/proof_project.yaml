@@ -1,0 +1,69 @@
+# The declaration this lane's evidence was produced from.
+#
+# NOT a change to the captain's project.  It is a copy of
+# `video_projects/lucie/geo-podcast/project.yaml` with ONE slot added -
+# `effect.explainer` - so the render in this directory can be reproduced
+# without the captain's project being edited to make a demonstration
+# work.  Everything above that slot is theirs, verbatim.
+#
+# Reproduce:
+#   see data/vep-explainer-video/README.md
+name: GEO Podcast
+slug: geo-podcast
+client: lucie
+created: '2026-08-08'
+status: in_progress
+source:
+  type: mxf
+  resolution: 3840x2160
+  fps: 23.976
+  footage_root: /Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media
+pipeline:
+  subtitle_typography:
+    font: Montserrat
+    size: 58
+  speaker_subtitle_styles:
+    Akshita:
+      accentColor: '#FFB8D4'
+      fontColor: '#FFFFFF'
+      outlineColor: '#000000'
+      outlineWidth: 4
+      position: bottom
+    Craig:
+      accentColor: '#FBF0B8'
+      fontColor: '#FFFFFF'
+      outlineColor: '#000000'
+      outlineWidth: 4
+      position: bottom
+  creative_brief: creative_brief.md
+  brand_template: cinematic_narrative
+  sfx_library: ''
+  music_library: ''
+effect:
+  # THE WHOLE DECLARATION.  Every value here is a choice, and the engine
+  # supplies none of them: `explainer_plan.normalise_declaration` refuses
+  # a declaration missing any one rather than filling it in.
+  #
+  # `colour` is the project's own Akshita accent, quoted from
+  # `pipeline.speaker_subtitle_styles` above - the reel is hers.  It is
+  # the project's colour, not a colour this lane picked.
+  explainer:
+    element: list_build      # what stages: list_build | comparison_bars | step_counter
+    band: above              # above | over | below the picture the reel delivers
+    anchor: bottom_left      # one of motion_graphics_plan.ANCHORS, inside the band
+    hold_seconds: 3.0        # how long the finished build holds after its last stage
+    colour: '#FFB8D4'
+    type_role: supporting
+    entrance: fade
+    exit: fade
+resolve:
+  project_name: Podcast (field test)
+  database: local
+  folder: Lucie Content/Social Media/Podcast
+  timeline_name: GEO Podcast - Synced
+tags:
+- podcast
+- interview
+- vertical
+- shortform
+description: Geography-focused podcast episode with Craig and Akshita

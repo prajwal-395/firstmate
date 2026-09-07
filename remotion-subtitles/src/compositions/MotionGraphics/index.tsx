@@ -231,6 +231,13 @@ export const typewriterSplit = (
 export const typewriterCursorOn = (progress: number): boolean =>
   Math.floor(progress * 30) % 2 === 0;
 
+/** The line box every run is set on, as a multiple of its font size.
+ *
+ * It was already 1.3 in five places and is named once here so a
+ * marker positioned against it cannot drift from the text it marks.
+ */
+const LINE_HEIGHT = 1.3;
+
 export const elementOpacity = (
   localFrame: number,
   durationFrames: number,
@@ -736,6 +743,68 @@ const DigitRoll: React.FC<{
   );
 };
 
+/**
+ * When each stage of a staged element begins, in frames local to the
+ * element.
+ *
+ * Two answers, and which one applies is a property of the PLAN rather
+ * than of this renderer.
+ *
+ * **`data.stage_offsets`** is seconds from the element's own start, one
+ * per stage, and it is what makes a staged element an EXPLAINER: the
+ * offsets come from `explainer_plan.anchor_stages`, which finds the
+ * reel second where the speech actually says each part. The roster asks
+ * for exactly this and always has - `list_build` needs "a timing per
+ * item, anchored to when each is said" and `comparison_bars` items
+ * appear "in the order they are spoken" - and until there was a
+ * producer for it there was nothing to honour.
+ *
+ * **An equal share of the hold** is the fallback, unchanged, and it is
+ * what every plan that states no offsets still gets. It is a graphic
+ * animating on its own clock, which is a legitimate thing for a graphic
+ * to do and is not an explainer.
+ *
+ * Offsets are clamped into the element's own span and forced
+ * non-decreasing: a stage cannot begin before the one before it, and
+ * `explainer_plan` refuses such a plan on the Python side too - this is
+ * the second half of one rule, not a second rule.
+ */
+export const stageStarts = (
+  element: PlannedElement,
+  count: number,
+  fps: number,
+): { starts: number[]; window: number; anchored: boolean } => {
+  const holdFrames = Math.max(
+    1,
+    element.durationFrames - (RAMP_FRAMES[element.exit] ?? 0),
+  );
+  const raw = (element.data ?? {}).stage_offsets;
+  const offsets: number[] = Array.isArray(raw) ? raw : [];
+
+  if (offsets.length >= count && count > 0) {
+    const starts: number[] = [];
+    let previous = 0;
+    for (let i = 0; i < count; i += 1) {
+      const frame = Math.round(Math.max(0, Number(offsets[i]) || 0) * fps);
+      const clamped = Math.max(previous, Math.min(frame, holdFrames - 1));
+      starts.push(clamped);
+      previous = clamped;
+    }
+    // The reveal takes the element's own entrance ramp, never the gap to
+    // the next stage: real speech leaves uneven gaps, and deriving the
+    // fade from a four-second gap would make one item drift in over two
+    // and a half seconds while its neighbour snaps.
+    const window = Math.max(1, RAMP_FRAMES[element.entrance] ?? RAMP_FRAMES.fade);
+    return { starts, window, anchored: true };
+  }
+
+  const staggerInterval = holdFrames / Math.max(1, count);
+  const starts = Array.from({ length: count }, (_, i) =>
+    Math.round(i * staggerInterval),
+  );
+  return { starts, window: staggerInterval, anchored: false };
+};
+
 const DrawnElement: React.FC<{
   element: PlannedElement;
   frame: number;
@@ -1192,11 +1261,12 @@ const DrawnElement: React.FC<{
   if (element.element === "list_build") {
     const items = element.runs;
     if (!items.length) return null;
-    // Each item gets an equal share of the hold. The entrance happens
-    // at the front of its share, so item N appears after item N-1 has
-    // settled but before the element's own exit begins.
-    const holdFrames = Math.max(1, element.durationFrames - (RAMP_FRAMES[element.exit] ?? 0));
-    const staggerInterval = holdFrames / items.length;
+    // WHEN each item appears is `stageStarts`: the plan's own
+    // per-stage offsets where it has them, an equal share of the hold
+    // where it does not. See the helper for which is which.
+    const { starts, window: revealWindow } = stageStarts(
+      element, items.length, fps,
+    );
 
     return (
       <div
@@ -1210,9 +1280,9 @@ const DrawnElement: React.FC<{
         }}
       >
         {items.map((run, i) => {
-          const itemStart = Math.round(i * staggerInterval);
+          const itemStart = starts[i];
           const itemProgress = Math.max(0, Math.min(1,
-            (localFrame - itemStart) / Math.max(1, staggerInterval * 0.6),
+            (localFrame - itemStart) / Math.max(1, revealWindow * 0.6),
           ));
           // Cubic ease-out for a natural deceleration per item
           const eased = 1 - Math.pow(1 - itemProgress, 3);
@@ -1233,13 +1303,25 @@ const DrawnElement: React.FC<{
                 gap: `${Math.round(12 * scale)}px`,
               }}
             >
+              {/* The marker sits on the item's optical centre, which is
+                  DERIVED from the line box rather than nudged: a fixed
+                  10px top margin put an 8px dot near the cap height of a
+                  46.8px line, where it reads as a stray apostrophe above
+                  the word instead of a bullet beside it. Measured on a
+                  real reel frame at real size, 2026-09-07. */}
               <div
                 style={{
                   width: `${Math.round(8 * scale)}px`,
                   height: `${Math.round(8 * scale)}px`,
                   borderRadius: "50%",
                   backgroundColor: element.color,
-                  marginTop: `${Math.round(10 * scale)}px`,
+                  marginTop: `${Math.round(
+                    ((TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) *
+                      LINE_HEIGHT -
+                      8) *
+                      scale *
+                      0.5,
+                  )}px`,
                   flexShrink: 0,
                 }}
               />
@@ -1273,8 +1355,7 @@ const DrawnElement: React.FC<{
     const count = Math.min(items.length, values.length);
     if (count === 0) return null;
 
-    const holdFrames = Math.max(1, element.durationFrames - (RAMP_FRAMES[element.exit] ?? 0));
-    const staggerInterval = holdFrames / count;
+    const { starts, window: revealWindow } = stageStarts(element, count, fps);
 
     return (
       <div
@@ -1289,9 +1370,9 @@ const DrawnElement: React.FC<{
         }}
       >
         {Array.from({ length: count }).map((_, i) => {
-          const itemStart = Math.round(i * staggerInterval);
+          const itemStart = starts[i];
           const growProgress = Math.max(0, Math.min(1,
-            (localFrame - itemStart) / Math.max(1, staggerInterval * 0.7),
+            (localFrame - itemStart) / Math.max(1, revealWindow * 0.7),
           ));
           const eased = 1 - Math.pow(1 - growProgress, 3);
           const barWidth = (values[i] / maxValue) * 100 * eased;

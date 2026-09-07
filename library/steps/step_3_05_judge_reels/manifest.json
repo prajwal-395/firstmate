@@ -31,7 +31,7 @@
         "name": "readings",
         "type": "list",
         "required": true,
-        "description": "One entry per reel in `reels_to_read`, each: reel (the number), claim_quote, claim, opening_quote, closing_quote, closing_asks_for, takeaway_quote, takeaway, assumes_known ([{what, quote}]), stops_developing_at (seconds from the reel's own start), rank (1 is first), basis. Every quote is checked against what that reel says and an entry whose quotes are not in it is discarded rather than recorded.",
+        "description": "One entry per reel in `reels_to_read`, each: reel (the number), claim_quote, claim, opening_quote, closing_quote, closing_asks_for, takeaway_quote, takeaway, assumes_known ([{what, quote}]), claim_parts ([{part, quote}], optional and usually empty), stops_developing_at (seconds from the reel's own start), rank (1 is first), basis. Every quote is checked against what that reel says and an entry whose quotes are not in it is discarded rather than recorded.",
         "expected_schema": {
           "readings": "list"
         }

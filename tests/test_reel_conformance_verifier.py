@@ -2019,8 +2019,15 @@ def test_a_v4_item_reaches_the_overlay_bucket_and_not_the_bin():
     """The bucketing itself, end to end from a snapshot.
 
     This is the regression that matters: the item must land somewhere a
-    check looks, and V5 must land in `unclassified_items` rather than
-    vanishing."""
+    check looks, and a track nothing grades must land in
+    `unclassified_items` rather than vanishing.
+
+    V5 was that track when this test was written; it is now the
+    explainer's (`explainer_plan.EXPLAINER_TRACK`), so the unknown one
+    here is V6.  The assertion that matters is not which number is
+    unclassified - it is that a classified track reaches its OWN bucket
+    and an unclassified one reaches the bin, so the next capability to
+    claim a track finds out on the first run instead of never."""
     from library.tools.reel_conformance_verifier import (
         _snapshot_to_reel_timeline)
 
@@ -2039,13 +2046,14 @@ def test_a_v4_item_reaches_the_overlay_bucket_and_not_the_bin():
         timeline_name = "Reel 01"
         start_frame, end_frame = 0, 48
         width, height = 1080, 1920
-        clips = [_Clip(1), _Clip(3), _Clip(4), _Clip(5)]
+        clips = [_Clip(1), _Clip(3), _Clip(4), _Clip(5), _Clip(6)]
 
     timeline = _snapshot_to_reel_timeline(_Snapshot())
     assert len(timeline.video_items) == 1
     assert len(timeline.caption_items) == 1
     assert len(timeline.overlay_items) == 1
-    assert [i.track_index for i in timeline.unclassified_items] == [5]
+    assert len(timeline.explainer_items) == 1
+    assert [i.track_index for i in timeline.unclassified_items] == [6]
 
 
 def test_f20_reports_the_caption_seconds_an_element_covers():

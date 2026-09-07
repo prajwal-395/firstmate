@@ -537,6 +537,20 @@ class BarFinding:
 # ── What the reel actually says ──────────────────────────────────────
 
 def _words(text) -> List[str]:
+    """The comparable words of a value, and NONE of an absent one.
+
+    `None` comes back empty rather than as the word "none", which is
+    what `str(None).lower()` gave it.  That difference is a gate that
+    fails correct output (AGENTS.md 10.4): `takeaway_quote` is declared
+    OPTIONAL precisely so that "this reel delivers nothing a listener
+    could use" can be answered - and a judge that answered it by leaving
+    the key OUT rather than sending `""` had its whole reading refused,
+    because "none" is not in what the reel says.  It never fired only
+    because every reading on disk happens to carry the key.
+    `claim_parts` is optional the same way and would have inherited it.
+    """
+    if text is None:
+        return []
     return re.findall(r"[a-z0-9']+", str(text).lower())
 
 
@@ -571,7 +585,8 @@ def playable_ranges(moment, transcript: dict) -> Tuple[list, str]:
         return [], f"{type(broken).__name__}: {broken}"
 
 
-def played_speech(moment, transcript: dict) -> List[dict]:
+def played_speech(moment, transcript: dict,
+                  with_words: bool = False) -> List[dict]:
     """Every line a viewer HEARS, in the order the reel plays it.
 
     Built over `reel_build.reel_ranges`, so it is the body with its bad
@@ -587,6 +602,17 @@ def played_speech(moment, transcript: dict) -> List[dict]:
     and knows nothing about segments, and a judge shown only the bound
     rows would be reading a reel that does not exist.  `bound` says which
     is which for a reader who needs to know.
+
+    `with_words` adds each line's own words, in REEL seconds, and is off
+    for every existing caller.  It is off because **word timings do not
+    reach a prompt** (AGENTS.md 10.1) and the judge's `lines` table is a
+    prompt; it exists because this is the ONE place the master-to-reel
+    offset for a line is computed, so a caller that needs a word's reel
+    second has to get it here or spell the same arithmetic a second
+    time.  `library/tools/explainer_plan.py` is the caller: a stage of
+    an explainer is anchored to the word its quote begins on, and a
+    stage anchored to the START of a twenty-word line can be four
+    seconds early.
     """
     segments = sorted((transcript.get("segments") or []),
                       key=lambda s: float(s.get("timeline_start") or 0.0))
@@ -602,7 +628,7 @@ def played_speech(moment, transcript: dict) -> List[dict]:
             text = (segment.get("text") or "").strip()
             if not text:
                 continue
-            out.append({
+            line = {
                 "speaker": segment.get("speaker"),
                 "reel_start": round(offset + max(start, range_start)
                                     - range_start, 2),
@@ -611,7 +637,22 @@ def played_speech(moment, transcript: dict) -> List[dict]:
                 "text": text,
                 "bound": bool(segment.get("resolve_item_id")),
                 "range": index,
-            })
+            }
+            if with_words:
+                # A word's own reel second, by the SAME shift the line
+                # got. Only words the transcriber really timed are
+                # carried: `timed: false` is an interpolation, and an
+                # anchor computed from one would be a guess wearing a
+                # measurement's clothes.
+                line["words"] = [
+                    {"word": word.get("word") or "",
+                     "at": round(offset + float(word.get("start") or 0.0)
+                                 - range_start, 3)}
+                    for word in (segment.get("words") or [])
+                    if word.get("timed")
+                    and range_start <= float(word.get("start") or 0.0) < range_end
+                ]
+            out.append(line)
         offset += range_end - range_start
     return out
 
@@ -981,6 +1022,12 @@ READING_FIELDS: Tuple[ReadingField, ...] = (
         asks="everything the reel refers to that a listener could not know "
              "from the reel itself, each with the words where it does so"),
     ReadingField(
+        name="claim_parts", grounding="contains", required=False,
+        asks="if the one thing it is saying is made of parts a listener "
+             "has to hold together, those parts in the order the reel "
+             "says them, each with the words where it says it; empty if "
+             "it is one indivisible statement"),
+    ReadingField(
         name="stops_developing_at", grounding="none",
         asks="the second, counted from the reel's own start, after which "
              "nothing further is added"),
@@ -1005,6 +1052,7 @@ READING_SCHEMA: dict = {
             "takeaway_quote": "string",
             "takeaway": "string",
             "assumes_known": [{"what": "string", "quote": "string"}],
+            "claim_parts": [{"part": "string", "quote": "string"}],
             "stops_developing_at": "number - seconds from the reel's start",
             "rank": "int - 1 is strongest",
             "basis": "string",
@@ -1092,6 +1140,14 @@ class Reading:
     takeaway_quote: str = ""
     takeaway: str = ""
     assumes_known: Tuple[dict, ...] = ()
+    claim_parts: Tuple[dict, ...] = ()
+    """The claim's parts in the order the reel says them, each with the
+    words where it says it.  OPTIONAL and usually empty: a claim that is
+    one indivisible statement has no parts, and `()` is the honest
+    answer for most reels.  `library/tools/explainer_plan.py` is the one
+    reader - it anchors each part to a reel second by searching for its
+    quote, which is the only thing that makes a staged explainer
+    expressible."""
     stops_developing_at: Optional[float] = None
     rank: Optional[int] = None
     basis: str = ""
@@ -1122,6 +1178,7 @@ class Reading:
             "takeaway_quote": self.takeaway_quote,
             "takeaway": self.takeaway,
             "assumes_known": [dict(a) for a in self.assumes_known],
+            "claim_parts": [dict(a) for a in self.claim_parts],
             "stops_developing_at": self.stops_developing_at,
             "rank": self.rank,
             "basis": self.basis,
@@ -1165,6 +1222,31 @@ def check_reading(entry: dict, words: str,
                 elif quote not in body:
                     ungrounded.append(
                         f"assumes_known quote {(item or {}).get('quote')!r} "
+                        f"is not in what this reel says")
+            continue
+
+        # `claim_parts` is grounded exactly as `assumes_known` is, and
+        # for a sharper reason: its quote is not evidence for the part,
+        # it is the ONLY thing that puts the part in time.
+        # `explainer_plan.anchor_stages` anchors each part by searching
+        # the reel's own lines for that quote, so an ungrounded part is
+        # a part that cannot be drawn at all rather than one drawn
+        # without support.
+        if f.name == "claim_parts":
+            for item in (entry.get("claim_parts") or []):
+                what = (item or {}).get("part")
+                quote = normalise((item or {}).get("quote"))
+                if not what:
+                    ungrounded.append(
+                        "a claim_parts entry carries no `part`, so there is "
+                        "nothing to hold")
+                elif not quote:
+                    ungrounded.append(
+                        f"claim_parts entry {what!r} carries no quote, so "
+                        f"nothing in the reel says when it is said")
+                elif quote not in body:
+                    ungrounded.append(
+                        f"claim_parts quote {(item or {}).get('quote')!r} "
                         f"is not in what this reel says")
             continue
 
@@ -1228,6 +1310,8 @@ def read_one(entry: dict, words: str,
         takeaway=str(entry.get("takeaway") or ""),
         assumes_known=tuple(dict(a) for a in
                             (entry.get("assumes_known") or [])),
+        claim_parts=tuple(dict(a) for a in
+                          (entry.get("claim_parts") or [])),
         stops_developing_at=stops,
         rank=rank,
         basis=str(entry.get("basis") or ""),

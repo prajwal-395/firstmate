@@ -606,7 +606,7 @@ A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect,
 
 - Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `house_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
-- **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP`, which resolved `subtle|moderate|strong` into fixed zoom and shake values and justified its ceiling by citing this file - a document that step never reads - is REMOVED (captain, 2026-09-02). `plan_vfx.TOOLKIT_PARAMETERS` replaces it and carries NO value, default or bound: it enumerates only the parameter NAMES `build_effect_comp` dispatches on, because a name with no reader draws nothing and says nothing (§10.2). An entry whose `params` name none of them is dropped as `no_readable_parameters`; the values in them are never checked, clamped or substituted.
+- **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP` is REMOVED (captain, 2026-09-02) and `plan_vfx.TOOLKIT_PARAMETERS` replaces it, carrying NO value, default or bound. An entry whose `params` name none of them is dropped as `no_readable_parameters`. Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
 - An alias may RENAME a capability and may not CHOOSE one. `push_in` -> `zoom_emphasis` is a fact; `slow_zoom` -> `slow_zoom_in` answered "which way?" for the planner and is withdrawn.
 - Dead code that states taste is removed, not left.
 
@@ -761,6 +761,7 @@ Detail: `library/tools/marker_payload.py`.
 - **Nothing here is keyed to one identity**, because the engine serves a daily channel and client work (§14). `channel_bug` draws a project-supplied asset; the engine ships no artwork and states none.
 - **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
 - `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route, the same shape `music_measurement.MEASUREMENT_LEGEND` takes. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column rather than listed twice (§10.2).
+- **An ANIMATED EXPLAINER is a staged plan over this roster, timed to the WORDS that say each stage.** `library/tools/explainer_plan.py`. [why](docs/ANIMATED_EXPLAINER.md)
 - `tests/test_motion_graphics_vocabulary.py`.
 ## Maintaining this file
 
