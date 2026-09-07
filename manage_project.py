@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "status",
-    "info", "trace", "organize",
+    "info", "trace", "organize", "resolve-organize",
     "check", "run", "dashboard", "archive", "notes", "relink",
 )
 
@@ -493,6 +493,105 @@ def cmd_organize(args):
         print(f"Readable: {manifest['manifest_markdown_path']}")
     else:
         print("\nNothing was changed. Pass --apply to perform this.")
+
+
+def cmd_resolve_organize(args):
+    """File a Resolve project's media pool the way its evidence says.
+
+    Plans by default and changes nothing, the same bargain `organize`
+    strikes with the project FOLDER. Nothing is ever deleted: a reel the
+    live plan no longer names is moved and relabelled, never removed.
+    See library/tools/resolve_organization.py.
+    """
+    from library.tools.execution.organise_media_pool import (
+        check_project,
+        journals,
+        open_project,
+        organise_project,
+        revert,
+    )
+    from library.tools.resolve_organization import render_plan
+
+    project_folder = _reel_project_folder(args.project)
+    project, master = open_project(project_folder)
+
+    if args.revert is not None:
+        if not args.revert:
+            # No guessing which apply to undo: an operator three days
+            # later is shown what there is and picks one.
+            found = journals(project_folder)
+            if not found:
+                print("  No journal in this project - nothing has been "
+                      "filed here.")
+                return
+            print("  Pass one of these to --revert (newest first):")
+            for entry in found:
+                state = (f"already reverted at {entry['reverted_at']}"
+                         if entry["reverted_at"] else "not yet reverted")
+                print(f"    {entry['path']}\n"
+                      f"      {entry['moves']} move(s), "
+                      f"{entry['stamps']} stamp(s), applied "
+                      f"{entry['organised_at']} - {state}")
+            return
+        undone = revert(project, args.revert)
+        print(f"  Moved back: {len(undone['moved_back'])} item(s)")
+        for name in undone["not_found"]:
+            print(f"  NOT FOUND, left alone: {name}")
+        if undone["bins_left_behind"]:
+            print("  Bins this cannot un-create, because undoing a create "
+                  "means deleting and this tool does not delete:")
+            for bin_path in undone["bins_left_behind"]:
+                print(f"    {bin_path}")
+        return
+
+    if args.check:
+        found = check_project(project, project_folder, master)
+        for finding in found:
+            print(f"  [{finding['kind']}] {finding['detail']}")
+        print(f"\n{len(found)} finding(s) on "
+              f"{project.GetName()!r}.")
+        sys.exit(1 if found else 0)
+
+    result = organise_project(project, project_folder, master,
+                              apply=args.apply)
+    print(render_plan_from_dict(result["plan"]))
+    for duplicate in result["duplicate_bins"]:
+        print(f"  DUPLICATE BIN: {duplicate} - Resolve allows two bins of "
+              f"one name and AddSubFolder makes one on every call")
+    if result["applied"]:
+        journal = result["journal"]
+        print(f"\n  Moved {len(journal['moves'])} item(s), stamped "
+              f"{len(journal['stamps'])} reel timeline(s).")
+        print(f"  Journal: {journal['journal_path']}")
+        print(f"  Undo it with: --revert {journal['journal_path']}")
+    else:
+        print("\nNothing was changed. Pass --apply to perform this.")
+
+
+def render_plan_from_dict(plan: dict) -> str:
+    """The plan as `organise_project` returns it, rendered for reading."""
+    lines = [f"Media pool: {plan['root_bin']}", ""]
+    counts = {}
+    for move in plan["moves"]:
+        counts[move["to"]] = counts.get(move["to"], 0) + 1
+    lines.append(f"{len(plan['folders'])} bin(s) in the layout:")
+    for folder in sorted(plan["folders"]):
+        depth = folder.count("/")
+        leaf = folder.rsplit("/", 1)[-1]
+        lines.append(f"  {'  ' * depth}{leaf}"
+                     f"    ({counts.get(folder, 0)} item(s) moving in)")
+    lines.append("")
+    lines.append(f"{len(plan['moves'])} item(s) would move.")
+    for entry in plan["left_alone"]:
+        lines.append(f"  left alone: {entry['name']} - {entry['why']}")
+    by_state = {}
+    for stamp in plan["stamps"]:
+        by_state[stamp["state"]] = by_state.get(stamp["state"], 0) + 1
+    if by_state:
+        lines.append("")
+        lines.append("Reel timelines by state: " + ", ".join(
+            f"{k}={v}" for k, v in sorted(by_state.items())))
+    return "\n".join(lines)
 
 
 def cmd_check(args):
@@ -954,6 +1053,22 @@ def main():
     p_org.add_argument("--revert", metavar="MANIFEST",
                        help="Undo a reorganisation by reading its manifest")
     p_org.set_defaults(func=cmd_organize)
+
+    # resolve-organize
+    p_rorg = sub.add_parser(
+        "resolve-organize",
+        help="File a Resolve project's media pool: reels by plan state, "
+             "assets under the reel that uses them")
+    p_rorg.add_argument("project", help="Project slug, or an absolute path "
+                                        "to the project directory")
+    p_rorg.add_argument("--apply", action="store_true",
+                        help="Perform the filing (default: plan only)")
+    p_rorg.add_argument("--revert", metavar="JOURNAL", nargs="?", const="",
+                        help="Undo a filing by reading its journal; with no "
+                             "path, list the journals in this project")
+    p_rorg.add_argument("--check", action="store_true",
+                        help="Report what is filed wrong; exit 1 if any")
+    p_rorg.set_defaults(func=cmd_resolve_organize)
 
     # check
     p_check = sub.add_parser("check", help="Run the readiness check for a project")

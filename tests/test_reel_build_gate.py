@@ -6,6 +6,12 @@ import sys
 
 from library.tools.reel_build import rebuild_reels_in_project
 
+# These tests drive the builder against a STAND-IN Resolve project, which
+# has no media pool to file. Organising is exercised where it can be:
+# `tests/test_organise_media_pool.py` against a pool double that answers
+# the way the API was measured to, and on the captain's own project.
+ORGANISE = False
+
 @pytest.fixture(autouse=True)
 def mock_dvr():
     with patch.dict("sys.modules", {"DaVinciResolveScript": MagicMock()}):
@@ -65,7 +71,8 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
     }))
     
     with pytest.raises(RuntimeError, match="Reel build produced a defective timeline") as exc_info:
-        rebuild_reels_in_project(str(mock_project_env))
+        rebuild_reels_in_project(str(mock_project_env),
+                             organise=ORGANISE)
     assert "Hole found" in str(exc_info.value)
     assert "F1" in str(exc_info.value)
 
@@ -102,7 +109,8 @@ def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mo
 
     mock_run_verif.side_effect = side_effect
     
-    rebuild_reels_in_project(str(mock_project_env))
+    rebuild_reels_in_project(str(mock_project_env),
+                             organise=ORGANISE)
     mock_build.assert_called_once()
     mock_run_verif.assert_called_once()
     
@@ -141,7 +149,8 @@ def test_verifier_unavailable_fails(mock_resolve_style, mock_snapshot, mock_read
 
     with patch("builtins.__import__", side_effect=mock_import):
         with pytest.raises(RuntimeError, match="Reel conformance verifier is unavailable"):
-            rebuild_reels_in_project(str(mock_project_env))
+            rebuild_reels_in_project(str(mock_project_env),
+                             organise=ORGANISE)
 
 @patch("library.tools.reel_build.build_reel_timeline")
 @patch("library.tools.resolve_locale.scriptapp_preserving_locale")
@@ -169,7 +178,8 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
     # run_verification returns 0 if there are only warnings
     mock_run_verif.return_value = 0
     
-    rebuild_reels_in_project(str(mock_project_env))
+    rebuild_reels_in_project(str(mock_project_env),
+                             organise=ORGANISE)
     mock_run_verif.assert_called_once()
 
 @patch("library.tools.reel_build.reel_subtitle_segments")
@@ -206,7 +216,9 @@ def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_sn
     
     mock_run_verif.return_value = 0
     
-    rebuild_reels_in_project(str(mock_project_env), skip_captions=True)
+    rebuild_reels_in_project(str(mock_project_env),
+                             skip_captions=True,
+                             organise=ORGANISE)
     
     mock_reel_segments.assert_not_called()
     mock_build.assert_called_once()

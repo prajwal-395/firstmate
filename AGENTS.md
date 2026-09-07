@@ -197,7 +197,7 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. Print what `GetSetting` returns, confirm the timeline shape by reading it back off the PROJECT, and read `TimelineItem.GetProperty()` with no argument before trusting a name. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** The per-property findings are in the module.
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. Print what `GetSetting` returns, read the timeline shape back off the PROJECT, and read `TimelineItem.GetProperty()` with no argument before trusting a name. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.**
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
@@ -212,7 +212,6 @@ Detail: `library/tools/transition_carriers.py`.
 
 **Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it. It changes picture steadiness and nothing else: never structure, timing, framing, grade, captions or sound. For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the in-memory manifest before `build_timeline` and leave the file on disk carrying it.
 Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
-    
 
 ### Fusion .comp files - NEVER
 
@@ -249,7 +248,7 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 ### The mix goes through OTIO, and it goes in at placement time
 
 **in dB**
-Detail: `library/tools/otio_mix.py`. [why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
+Detail: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
 
 
 ### Visual verification
@@ -258,9 +257,14 @@ Detail: `library/tools/otio_mix.py`. [why - the measured renders, and the routes
 
 **Copy the project database before opening it; never open it in place.**
 
+### Organising the pool
+
+**FILED from measurements; nothing deleted. Smart bins are NOT scriptable.**
+Detail: `library/tools/resolve_organization.py`.
+
 ### Markers and timeline items
 
-Use `timeline.AddMarker()` and `timeline.GetItemListInTrack()`, following the patterns in `timeline_item_markers` and related tools.
+`timeline.AddMarker()` and `timeline.GetItemListInTrack()`; patterns in `timeline_item_markers`.
 
 ## 6. The spine contract
 

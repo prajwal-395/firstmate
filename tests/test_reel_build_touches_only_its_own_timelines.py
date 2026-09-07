@@ -135,6 +135,9 @@ def _run(resolve_project, project_dir, **kwargs):
             patch("library.tools.reel_conformance_verifier.run_verification",
                   return_value=0):
         caps.return_value = [{"overlay_path": "x.mov"}]
+        # No media pool on the stand-in project, so filing is
+        # exercised in tests/test_organise_media_pool.py instead.
+        kwargs.setdefault("organise", False)
         record = rebuild_reels_in_project(str(project_dir), **kwargs)
     return record, placed, caps
 

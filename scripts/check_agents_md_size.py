@@ -25,7 +25,17 @@ import sys
 
 # RATCHET: This ceiling may ONLY EVER MOVE DOWN, never up.
 # It exists to force condensation. Do not raise it to make your change fit.
-CEILING = 53343
+# LOWERED 2026-09-06 with `## 5`, from 53,343: `## 5` gained one index row for
+# `library/tools/resolve_organization.py` and paid for it inside its own budget
+# - a whitespace-only line, a per-property sentence the Detail line below it
+# already points at, one over-long `[why]` link text, and a two-line marker
+# paragraph reduced to an index row.  The 9 characters left over went off the
+# ceiling rather than back into the spare, because spare nobody claimed is how
+# the budgets came to be looser than their sections.  What did NOT pay for it
+# was the empty `### Visual verification` heading: removing it failed
+# `check_agents_md_preservation.py`, which is right - a heading is
+# cross-referenced whether or not it currently carries prose.
+CEILING = 53326
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -64,7 +74,7 @@ SECTION_BUDGETS = {
     "## 2. Repo layout": 2144,
     "## 3. Pipeline execution": 5404,
     "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4538,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4529,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,

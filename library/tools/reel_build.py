@@ -1162,7 +1162,8 @@ def built_name(moment, name_suffix: str = "") -> str:
 
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
-                             name_suffix: str = "") -> dict:
+                             name_suffix: str = "",
+                             organise: bool = True) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     A BUILD MAY ONLY DELETE WHAT IT IS ABOUT TO PLACE.  This used to
@@ -1186,6 +1187,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     suffix builds the same plan into a different container, which is the
     only way to compare a rebuild against an approved timeline instead
     of overwriting it.  It reaches the captions too (`built_name`).
+
+    `organise` files the media pool after the build, so a rebuild TIDIES
+    UP rather than accumulating: the reels this call placed land in
+    `Reels/Current plan`, and a reel the live plan no longer names moves
+    to `Reels/Earlier plans` - moved and relabelled, never deleted.
+    Without it, `CreateEmptyTimeline` and `ImportMedia` put what they
+    make into whatever bin was CURRENT, which is wherever the operator
+    last clicked; measured on the field test, that scattered 49
+    timelines and 2,573 renders across three bins with nothing recording
+    why.  It runs AFTER the build and after provenance, because filing
+    is about reels that already exist and a failure to file must not
+    read as a failure to build.  See
+    `library/tools/resolve_organization.py`.
 
     `verify` defaults to True, so nothing that called this before gets a
     weaker gate than it had: a direct caller still has the conformance
@@ -1379,6 +1393,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                      caption_hashes=caption_hashes,
                      footage_binding_hashes=footage_binding_hashes)
 
+    organised = None
+    if organise:
+        from library.tools.execution.organise_media_pool import (
+            organise_project)
+        organised = organise_project(
+            project, project_folder, master_timeline_name, apply=True)
+        print(f"Filed {len(organised['journal']['moves'])} media-pool "
+              f"item(s); undo with "
+              f"resolve-organize --revert "
+              f"{organised['journal']['journal_path']}", flush=True)
+
     if verify:
         verify_built_reels(
             project_folder=project_folder,
@@ -1401,6 +1426,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # full rebuild that placed one timeline.
         "reels_requested": None if wanted is None else sorted(wanted),
         "name_suffix": name_suffix,
+        # Where the media pool was filed, and the journal that undoes it.
+        # None when the caller declined; never a silent empty record.
+        "organised": organised,
     }
 
 

@@ -1,0 +1,382 @@
+"""The executor's own behaviour, against a media pool that is not Resolve.
+
+The fake here answers the way the real API was measured to answer on
+21.0.0b.28 - `AddSubFolder` makes a SECOND folder of a name that already
+exists, `SetMetadata` refuses a key Resolve does not know, `MoveClips`
+returns a bool - so a test failing here is a rule being broken and not
+the double being wrong.  What the API actually does is written down in
+`library/tools/execution/organise_media_pool.py`.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from library.tools.execution import organise_media_pool as ex
+from library.tools.resolve_organization import (
+    BIN_REELS,
+    BIN_SOURCE,
+    BIN_SUBTITLES,
+    CURRENT,
+    STATE_BINS,
+    OrganizationError,
+)
+
+RESOLVE_METADATA_KEYS = {
+    "Comments", "Keywords", "Description", "Scene", "Shot", "Take", "Angle",
+    "Reel Number", "Move", "Day / Night", "Camera #", "Production Name",
+    "Episode Name", "Shot Type", "Environment", "Genre", "People", "Location",
+}
+
+
+class FakeClip:
+    def __init__(self, uid, name, kind="clip", path=""):
+        self.uid, self._name, self.kind, self.path = uid, name, kind, path
+        self.metadata, self.color = {}, ""
+
+    def GetUniqueId(self): return self.uid
+    def GetName(self): return self._name
+
+    def GetClipProperty(self, key):
+        if key == "Type":
+            return "Timeline" if self.kind == "timeline" else "Video + Audio"
+        if key == "File Path":
+            return self.path
+        if key == "Clip Color":
+            return self.color
+        return ""
+
+    def GetMetadata(self, key=None):
+        return dict(self.metadata) if key is None else self.metadata.get(key, "")
+
+    def SetMetadata(self, key, value):
+        if key not in RESOLVE_METADATA_KEYS:
+            return False          # measured: Resolve stores nothing
+        self.metadata[key] = value
+        return True
+
+    def SetClipColor(self, value): self.color = value; return True
+    def ClearClipColor(self): self.color = ""; return True
+
+
+class FakeFolder:
+    def __init__(self, name, uid):
+        self._name, self.uid, self.clips, self.subs = name, uid, [], []
+
+    def GetName(self): return self._name
+    def GetUniqueId(self): return self.uid
+    def GetClipList(self): return list(self.clips)
+    def GetSubFolderList(self): return list(self.subs)
+
+
+class FakePool:
+    def __init__(self, root):
+        self.root, self.current, self._n = root, root, 0
+
+    def GetRootFolder(self): return self.root
+    def GetCurrentFolder(self): return self.current
+    def SetCurrentFolder(self, folder): self.current = folder; return True
+
+    def AddSubFolder(self, parent, name):
+        # Measured: Resolve does NOT check, it makes a second one.
+        self._n += 1
+        folder = FakeFolder(name, f"f{self._n}")
+        parent.subs.append(folder)
+        self.current = folder
+        return folder
+
+    def _home(self, clip):
+        def walk(folder):
+            if clip in folder.clips:
+                return folder
+            for sub in folder.subs:
+                found = walk(sub)
+                if found:
+                    return found
+            return None
+        return walk(self.root)
+
+    def MoveClips(self, clips, folder):
+        for clip in clips:
+            home = self._home(clip)
+            if home is not None:
+                home.clips.remove(clip)
+            folder.clips.append(clip)
+        return True
+
+
+class FakeTimeline:
+    def __init__(self, name, items): self._name, self.items = name, items
+    def GetName(self): return self._name
+    def GetTrackCount(self, kind): return 1 if kind == "video" else 0
+    def GetItemListInTrack(self, kind, index):
+        return self.items if kind == "video" else []
+
+
+class FakeItem:
+    def __init__(self, clip): self.clip = clip
+    def GetMediaPoolItem(self): return self.clip
+
+
+class FakeProject:
+    def __init__(self, name, pool, timelines):
+        self._name, self.pool, self.timelines = name, pool, timelines
+
+    def GetName(self): return self._name
+    def GetMediaPool(self): return self.pool
+    def GetTimelineCount(self): return len(self.timelines)
+    def GetTimelineByIndex(self, i): return self.timelines[i - 1]
+
+
+MASTER = "Main Edit"
+
+
+@pytest.fixture
+def project(tmp_path):
+    """A project directory and a pool shaped like the field test's."""
+    root = FakeFolder("Master", "root")
+    master_tl = FakeClip("t-master", MASTER, "timeline")
+    live_tl = FakeClip("t-live", "Reel 01 - live", "timeline")
+    old_tl = FakeClip("t-old", "Reel 09 - old", "timeline")
+    cap = FakeClip("c-cap", "sub_a.mov",
+                   path=str(tmp_path / "pipeline_output" / "a.mov"))
+    orphan = FakeClip("c-orphan", "sub_b.mov",
+                      path=str(tmp_path / "pipeline_output" / "b.mov"))
+    source = FakeClip("c-src", "cam.mov", path="/elsewhere/cam.mov")
+    root.clips = [master_tl, live_tl, old_tl, cap, orphan, source]
+
+    timelines = [
+        FakeTimeline(MASTER, [FakeItem(source)]),
+        FakeTimeline("Reel 01 - live", [FakeItem(cap), FakeItem(source)]),
+        FakeTimeline("Reel 09 - old", []),
+    ]
+    pool = FakePool(root)
+
+    review = tmp_path / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    (review / "plan_provenance.json").write_text(json.dumps({
+        "plan_path": str(review / "reel_proposals_v2.json"),
+        "plan_content_hash": "a" * 64,
+        "built_at": "2026-09-07T00:00:00+00:00",
+        "built_reels": ["Reel 01 - live"],
+    }), encoding="utf-8")
+    (review / "reel_proposals_v2_20260901T000000Z.json").write_text(
+        json.dumps({"moments": [{"timeline_name": "Reel 09 - old"},
+                                {"timeline_name": "Reel 01 - live"}]}),
+        encoding="utf-8")
+    (tmp_path / "project.yaml").write_text(
+        "resolve:\n  project_name: Fake\n  timeline_name: Main Edit\n",
+        encoding="utf-8")
+    return FakeProject("Fake", pool, timelines), str(tmp_path)
+
+
+def bins_of(folder, path=()):
+    out = {}
+    for clip in folder.GetClipList():
+        out[clip.GetName()] = "/".join(path)
+    for sub in folder.GetSubFolderList():
+        out.update(bins_of(sub, path + (sub.GetName(),)))
+    return out
+
+
+# ------------------------------------------------------------- reading
+
+
+def test_read_pool_measures_which_timeline_places_what(project):
+    proj, _folder = project
+    artefacts, duplicates, _recorded, root_name = ex.read_pool(proj)
+    by_name = {a.name: a for a in artefacts}
+    assert by_name["sub_a.mov"].placed_by == ("Reel 01 - live",)
+    assert by_name["sub_b.mov"].placed_by == ()
+    assert by_name["cam.mov"].placed_by == (MASTER, "Reel 01 - live")
+    assert by_name[MASTER].kind == "timeline"
+    assert duplicates == [] and root_name == "Master"
+
+
+def test_read_pool_reports_a_duplicate_bin(project):
+    proj, _folder = project
+    pool = proj.GetMediaPool()
+    pool.AddSubFolder(pool.GetRootFolder(), "Reels")
+    pool.AddSubFolder(pool.GetRootFolder(), "Reels")
+    _, duplicates, _, _ = ex.read_pool(proj)
+    assert duplicates == ["Reels"]
+
+
+# ------------------------------------------------------------ applying
+
+
+def test_apply_files_everything_where_the_evidence_says(project):
+    proj, folder = project
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    where = bins_of(proj.GetMediaPool().GetRootFolder())
+    assert where["Reel 01 - live"] == f"{BIN_REELS}/{STATE_BINS['current']}"
+    assert where["Reel 09 - old"] == f"{BIN_REELS}/{STATE_BINS['earlier']}"
+    assert where["sub_a.mov"] == f"{BIN_SUBTITLES}/Reel 01 - live"
+    assert where["sub_b.mov"] == f"{BIN_SUBTITLES}/Not placed on any timeline"
+    assert where["cam.mov"] == BIN_SOURCE
+    assert where[MASTER] == ""          # the master is never moved
+    assert result["applied"]
+
+
+def test_apply_stamps_the_reels_with_the_plan_that_built_them(project):
+    proj, folder = project
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    live = next(c for c in _all_clips(proj) if c.GetName() == "Reel 01 - live")
+    assert f"state={CURRENT}" in live.GetMetadata("Keywords")
+    assert "plan=aaaaaaaaaaaa" in live.GetMetadata("Keywords")
+    assert live.GetClipProperty("Clip Color") == "Green"
+    master = next(c for c in _all_clips(proj) if c.GetName() == MASTER)
+    assert master.GetMetadata("Keywords") == ""
+    assert master.GetClipProperty("Clip Color") == ""
+
+
+def _all_clips(proj):
+    def walk(folder):
+        yield from folder.GetClipList()
+        for sub in folder.GetSubFolderList():
+            yield from walk(sub)
+    return list(walk(proj.GetMediaPool().GetRootFolder()))
+
+
+def test_applying_twice_moves_nothing_the_second_time(project):
+    proj, folder = project
+    first = ex.organise_project(proj, folder, MASTER, apply=True)
+    before = bins_of(proj.GetMediaPool().GetRootFolder())
+    second = ex.organise_project(proj, folder, MASTER, apply=True)
+    assert len(first["journal"]["moves"]) > 0
+    assert second["journal"]["moves"] == []
+    assert bins_of(proj.GetMediaPool().GetRootFolder()) == before
+
+
+def test_a_bin_is_never_created_twice(project):
+    """`AddSubFolder` does not check, so `ensure_folder` must."""
+    proj, folder = project
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    _, duplicates, _, _ = ex.read_pool(proj)
+    assert duplicates == []
+
+
+def test_apply_restores_the_current_folder_it_found(project):
+    """`AddSubFolder` sets the current folder, and the current folder is
+    where `CreateEmptyTimeline` puts the next timeline."""
+    proj, folder = project
+    pool = proj.GetMediaPool()
+    before = pool.GetCurrentFolder()
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    assert pool.GetCurrentFolder() is before
+
+
+def test_the_check_passes_once_it_is_organised_and_fails_before(project):
+    proj, folder = project
+    assert ex.check_project(proj, folder, MASTER)          # fails dirty
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    assert ex.check_project(proj, folder, MASTER) == []    # passes clean
+
+
+def test_the_check_fails_a_timeline_moved_to_the_wrong_bin(project):
+    proj, folder = project
+    ex.organise_project(proj, folder, MASTER, apply=True)
+    pool = proj.GetMediaPool()
+    earlier = ex._find_path(pool.GetRootFolder(),
+                            (BIN_REELS, STATE_BINS["earlier"]))
+    live = next(c for c in _all_clips(proj) if c.GetName() == "Reel 01 - live")
+    pool.MoveClips([live], earlier)
+    found = ex.check_project(proj, folder, MASTER)
+    assert [f["kind"] for f in found] == ["misfiled"]
+
+
+# ------------------------------------------------------------ the journal
+
+
+def test_every_apply_writes_its_own_journal_and_overwrites_none(project):
+    proj, folder = project
+    first = ex.organise_project(proj, folder, MASTER, apply=True,
+                                journal_path=ex.journal_path_for(folder, "A"))
+    second = ex.organise_project(proj, folder, MASTER, apply=True,
+                                 journal_path=ex.journal_path_for(folder, "B"))
+    assert first["journal"]["journal_path"] != second["journal"]["journal_path"]
+    listed = ex.journals(folder)
+    assert [entry["moves"] for entry in listed] == [0, len(first["journal"]["moves"])]
+    assert all(entry["reverted_at"] is None for entry in listed)
+
+
+def test_a_second_apply_cannot_destroy_the_first_journals_undo(project):
+    """The defect this closes: with one fixed filename, the second apply
+    moves nothing, writes that over the first record, and the whole
+    organisation becomes irreversible."""
+    proj, folder = project
+    ex.organise_project(proj, folder, MASTER, apply=True,
+                        journal_path=ex.journal_path_for(folder, "A"))
+    ex.organise_project(proj, folder, MASTER, apply=True,
+                        journal_path=ex.journal_path_for(folder, "B"))
+    undone = ex.revert(proj, ex.journal_path_for(folder, "A"))
+    assert len(undone["moved_back"]) > 0
+    assert bins_of(proj.GetMediaPool().GetRootFolder())["Reel 01 - live"] == ""
+
+
+def test_revert_puts_every_item_and_every_stamp_back(project):
+    proj, folder = project
+    before = bins_of(proj.GetMediaPool().GetRootFolder())
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    ex.revert(proj, result["journal"]["journal_path"])
+    assert bins_of(proj.GetMediaPool().GetRootFolder()) == before
+    for clip in _all_clips(proj):
+        assert clip.GetMetadata("Keywords") == ""
+        assert clip.GetClipProperty("Clip Color") == ""
+
+
+def test_revert_reports_the_bins_it_will_not_delete(project):
+    proj, folder = project
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    undone = ex.revert(proj, result["journal"]["journal_path"])
+    assert f"{BIN_REELS}/{STATE_BINS['current']}" in undone["bins_left_behind"]
+    assert BIN_REELS in undone["bins_left_behind"]
+
+
+def test_reverting_the_same_journal_twice_refuses(project):
+    proj, folder = project
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    path = result["journal"]["journal_path"]
+    ex.revert(proj, path)
+    with pytest.raises(OrganizationError, match="already reverted"):
+        ex.revert(proj, path)
+
+
+def test_a_journal_is_written_even_when_the_apply_raises(project, monkeypatch):
+    """A half-applied move nobody recorded is the one outcome with no
+    way back."""
+    proj, folder = project
+    pool = proj.GetMediaPool()
+    calls = {"n": 0}
+    real_move = pool.MoveClips
+
+    def flaky(clips, target):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            return False
+        return real_move(clips, target)
+
+    monkeypatch.setattr(pool, "MoveClips", flaky)
+    path = ex.journal_path_for(folder, "X")
+    with pytest.raises(OrganizationError, match="MoveClips"):
+        ex.organise_project(proj, folder, MASTER, apply=True,
+                            journal_path=path)
+    written = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert written["moves"], "the moves that DID happen were not journalled"
+
+    monkeypatch.setattr(pool, "MoveClips", real_move)
+    ex.revert(proj, path)
+    moved = {m["name"] for m in written["moves"]}
+    where = bins_of(pool.GetRootFolder())
+    assert all(where[name] == "" for name in moved), where
+
+
+def test_a_project_that_names_no_master_timeline_refuses(project):
+    _proj, folder = project
+    Path(folder, "project.yaml").write_text(
+        "resolve:\n  project_name: Fake\n", encoding="utf-8")
+    with pytest.raises(OrganizationError, match="timeline_name"):
+        ex.open_project(folder)

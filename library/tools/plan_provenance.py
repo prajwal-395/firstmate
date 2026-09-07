@@ -441,3 +441,48 @@ def check_reels_in_provenance(
     built = set(provenance.get("built_reels", []))
     missing = [name for name in reel_names if name not in built]
     return len(missing) == 0, missing
+
+
+def archived_timeline_names(review_dir: str, plan_stem: str = "reel_proposals_v2") -> set[str]:
+    """Every timeline name any ARCHIVED plan ever asked for.
+
+    `archive_plan` writes one timestamped copy per selection, so the
+    archive directory is the only surviving account of what earlier plans
+    named.  The live record (`built_reels`) drops those entries the
+    moment the plan hash changes - deliberately, because carrying them
+    forward would assert a provenance that never existed - and this is
+    how a reel built from a replaced plan can still be told apart from
+    one nothing ever planned.
+
+    Read as raw JSON rather than through `reel_proposal.read_proposal`,
+    because an archive is a record of what an OLD selector wrote and a
+    schema the current reader rejects would make the whole archive
+    silently empty.  A file that cannot be parsed is skipped and does
+    not take the rest with it.
+
+    Names ONLY - approval is not read.  A moment the captain rejected
+    still got a name, and a timeline carrying that name was still built
+    from that plan.
+
+    A bare LIST of moments is accepted alongside the `{"moments": [...]}`
+    document, because an archive is whatever an OLD selector wrote and
+    both shapes are on disk.  Anything else in the file is skipped
+    rather than raising: one unreadable archive must not empty the rest.
+    """
+    names: set[str] = set()
+    directory = Path(review_dir)
+    if not directory.is_dir():
+        return names
+    for path in sorted(directory.glob(f"{plan_stem}_*.json")):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        moments = doc if isinstance(doc, list) else (doc.get("moments") or [])
+        for moment in moments:
+            if not isinstance(moment, dict):
+                continue
+            name = moment.get("timeline_name")
+            if name:
+                names.add(str(name))
+    return names
