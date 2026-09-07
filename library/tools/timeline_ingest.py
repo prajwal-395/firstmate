@@ -92,7 +92,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -152,6 +152,21 @@ class TimelineClip:
     """Where it lands on the timeline, in seconds."""
 
     name: str
+
+    transform: Mapping = field(default_factory=dict)
+    """`TimelineItem.GetProperty()` verbatim - Pan, Tilt, ZoomX/Y, the
+    Crop* family and the rest, exactly as Resolve reports them.
+
+    Read because the PICTURE a clip puts on the frame is not in any of
+    the fields above: a 3840x2160 source on a 1080x1920 timeline can
+    deliver a full frame or a 31.6% strip with identical timings, and
+    until this was carried nothing downstream could tell which. The
+    consumer is `library/tools/reel_framing.py`.
+
+    Empty when Resolve declines the call, which is not the same as
+    Resolve reporting an identity transform - `reel_framing.IDENTITY`
+    treats the two alike deliberately, because the renderer's own
+    `_apply_conform` returns without setting anything for a letterbox."""
 
     @property
     def duration(self) -> float:
@@ -308,6 +323,26 @@ def _pool_frames(pool_item) -> Optional[int]:
         return None
 
 
+def _item_transform(item) -> dict:
+    """`GetProperty()` off a timeline item, or `{}` if it does not say.
+
+    Called with NO ARGUMENT, which AGENTS.md section 5 requires before
+    trusting any property name: with an argument Resolve answers for
+    names it does not have, and the whole-dict form is the only reading
+    that says what the item really carries.
+
+    Anything that is not a dict - including `None`, and including the
+    `False` Resolve returns rather than raising - is `{}`. That reads
+    downstream as "Resolve did not say", never as an identity transform
+    somebody measured.
+    """
+    try:
+        props = item.GetProperty()
+    except Exception:            # Resolve raises bare Exceptions here
+        return {}
+    return dict(props) if isinstance(props, dict) else {}
+
+
 def _setting_int(timeline, key: str, label: str) -> int:
     raw = timeline.GetSetting(key)
     try:
@@ -384,6 +419,11 @@ def snapshot_timeline(timeline, project_name: str,
                     timeline_start=item.GetStart() / fps,
                     timeline_end=item.GetEnd() / fps,
                     name=item.GetName() or "",
+                    # Judged by what it RETURNS (AGENTS.md 5): Resolve
+                    # hands back a dict of transform values, and anything
+                    # else - including None - is recorded as "it did not
+                    # say" rather than as an identity transform.
+                    transform=_item_transform(item),
                 ))
 
     # Video first, then audio: a reader of this snapshot is reading the

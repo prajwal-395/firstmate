@@ -34,6 +34,13 @@ What it checks, ported from the audit's findings
   at the master's frame rate.  This project has a documented history of a
   correct vertical timeline rendering out LANDSCAPE while every structural
   check passed.
+- **F12: Delivered framing** - F10 proves the FRAME is 1080x1920; this
+  proves what is IN it.  Every reel item in the field test carries
+  Resolve's identity transform on a `scaleToFit` timeline, so a
+  3840x2160 source is delivered as a 1080x607.5 strip - 31.64% of the
+  frame - and nothing on the reels path had ever opened a video file or
+  read `framing_intent` to find out whether that was wanted.  See
+  `library/tools/reel_framing.py`.
 - **F11: Subtitle styling** - per-speaker styling is the diarization
   signal.  Reads the CARDS ON THE TIMELINE (not the config), verifies
   speaker attribution via overlay filenames, asserts that a two-speaker
@@ -111,6 +118,16 @@ class FindingClass:
     F10 = "F10"  # ENCODING: timeline format mismatch (not 1080x1920 or wrong fps)
     F11 = "F11"  # PLANNING: subtitle styling - speakers not differentiated
 
+    # 2026-09-06.  F10 checks that the FRAME is 1080x1920; nothing checked
+    # what is IN it.  Every video item on all 49 timelines of the field
+    # test carries Resolve's identity transform on a `scaleToFit`
+    # timeline, so a 3840x2160 source is delivered as 1080x607.5 - 31.64%
+    # of the frame, the rest black - and `build_reel_timeline` never read
+    # `framing_intent` to find out whether that was wanted.  The whole
+    # reels path opens no video file, so this was the one picture
+    # property nothing could see.  See library/tools/reel_framing.py.
+    F12 = "F12"  # ENCODING: delivered picture is not the declared framing
+
     # Plan provenance, 2026-09-05: the verifier was caught grading 16
     # reels against a plan describing 14 completely different moments,
     # producing 42 confident, precise, meaningless errors.  This class
@@ -139,7 +156,7 @@ class FindingClass:
 
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
-                    FindingClass.F9, FindingClass.F10}
+                    FindingClass.F9, FindingClass.F10, FindingClass.F12}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
                     FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
@@ -250,6 +267,13 @@ class TimelineItem:
     speaker: Optional[str]
     name: str
     unique_id: str = ""
+
+    transform: dict = field(default_factory=dict)
+    """`TimelineItem.GetProperty()` as `timeline_ingest` read it.
+
+    Empty means Resolve did not say, which F12 treats as unreadable
+    rather than as an identity transform - see
+    `library/tools/reel_framing.py`."""
 
     @property
     def start_seconds(self) -> float:
@@ -1532,6 +1556,117 @@ def check_format(reel_name: str,
     return findings
 
 
+# ── F12: Delivered framing ───────────────────────────────────────────
+
+
+def check_delivered_framing(reel_name: str,
+                            video_items: Sequence[TimelineItem],
+                            width: int, height: int,
+                            source_sizes: Optional[dict] = None,
+                            declared_intent: Optional[float] = None,
+                            declared_crop_factor: float = 1.0,
+                            ) -> List[Finding]:
+    """F12: Verify the picture on the frame is the picture declared.
+
+    F10 above proves the FRAME is 1080x1920.  This proves what is IN it.
+    The two are not the same question and this project has already paid
+    for the difference once: a correct vertical timeline that rendered
+    out landscape passed every structural check there was.  A correct
+    vertical timeline carrying a 31.6% strip of picture in a sea of black
+    passes them all too.
+
+    Nothing is judged here and no number is invented.  The rectangle a
+    clip puts on the frame is arithmetic on its own Resolve transform
+    (`library/tools/reel_framing.py`), the rectangle the project ASKED
+    for is the same arithmetic run forwards from `framing_intent`, and
+    the comparison is between integer pixels.
+
+    Silence is not a pass.  A reel whose source dimensions are not in
+    the catalog, or whose items report no transform, comes back as a
+    WARNING naming what could not be read - never as nothing.  The
+    finding that says "this was not measured" is the one the caption
+    gate lacked when it expected zero cards, found 762 and passed
+    (AGENTS.md 10.4).
+    """
+    from library.tools.reel_framing import (
+        ReelFramingError, declared_picture, delivered_picture, disagreement)
+
+    findings: List[Finding] = []
+    if not width or not height:
+        return findings
+    if declared_intent is None:
+        # Nobody resolved a declaration for this run. Saying so is the
+        # finding; grading against a guess would be the vacuity.
+        return [Finding(
+            finding_class=FindingClass.F12, reel=reel_name,
+            message=("No framing_intent was resolved for this project, so "
+                     "what the reel delivers cannot be compared to what it "
+                     "was meant to deliver. Nothing was graded."),
+            severity="warning", detail={"declared_intent": None})]
+
+    sizes = source_sizes or {}
+    footage = [i for i in video_items if i.track_index in (1, 2)]
+    unreadable: List[str] = []
+    # One finding per distinct disagreement, not per item: 34 clips of one
+    # source all conform the same way, and 34 copies of one sentence is a
+    # report nobody reads.
+    seen: dict = {}
+    for item in footage:
+        meta = sizes.get(item.source_file) or {}
+        if not meta.get("width") or not meta.get("height"):
+            name = item.source_file.rsplit("/", 1)[-1] or item.name
+            if name not in unreadable:
+                unreadable.append(name)
+            continue
+        try:
+            delivered = delivered_picture(
+                meta["width"], meta["height"], width, height,
+                item.transform, meta.get("rotation", 0))
+            declared = declared_picture(
+                meta["width"], meta["height"], width, height,
+                declared_intent, declared_crop_factor,
+                meta.get("rotation", 0))
+        except ReelFramingError as exc:
+            name = item.source_file.rsplit("/", 1)[-1] or item.name
+            if name not in unreadable:
+                unreadable.append(f"{name} ({exc})")
+            continue
+        why = disagreement(delivered, declared)
+        if why is None:
+            continue
+        seen.setdefault(why, {"count": 0, "delivered": delivered,
+                              "declared": declared, "sources": []})
+        seen[why]["count"] += 1
+        source_name = item.source_file.rsplit("/", 1)[-1]
+        if source_name not in seen[why]["sources"]:
+            seen[why]["sources"].append(source_name)
+
+    for why, record in seen.items():
+        findings.append(Finding(
+            finding_class=FindingClass.F12, reel=reel_name,
+            message=f"{record['count']} of {len(footage)} picture items: {why}",
+            severity="error",
+            detail={
+                "items": record["count"],
+                "items_total": len(footage),
+                "sources": record["sources"],
+                "delivered": record["delivered"].as_dict(),
+                "declared": record["declared"].as_dict(),
+            }))
+
+    if unreadable:
+        findings.append(Finding(
+            finding_class=FindingClass.F12, reel=reel_name,
+            message=("Framing could not be read for "
+                     f"{', '.join(unreadable)}: the catalog does not give "
+                     "the source dimensions, so this reel's picture was "
+                     "not graded."),
+            severity="warning",
+            detail={"unreadable_sources": unreadable}))
+
+    return findings
+
+
 # ── F11: Subtitle styling ────────────────────────────────────────────
 
 # The segment naming convention puts the speaker in the filename:
@@ -2194,6 +2329,73 @@ def attach_quality_bar(bar_report, reel_results: Sequence[ReelResult],
     return unattached
 
 
+# ── What the project declares about the picture ──────────────────────
+
+
+def _catalog_source_sizes(project_folder: Optional[str]) -> dict:
+    """`{source path: {width, height, rotation}}` from the CATALOG.
+
+    Step 1.02 already measured every source file; F12 needs the source
+    shape and nothing else, so it reads that rather than re-probing 132GB
+    of MXF.  A project with no catalog comes back empty and F12 reports
+    the absence by name.
+
+    The catalog is read through `pipeline_data.json` rather than the step
+    directory, for the reason `compile_manifest` states: the state file
+    is the one place a step's output is guaranteed to have landed
+    (AGENTS.md 10.1).
+    """
+    if not project_folder:
+        return {}
+    path = os.path.join(project_folder, "pipeline_data.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    catalog = (((state.get("step_outputs") or {}).get("catalog") or {})
+               .get("clip_catalog") or [])
+    sizes = {}
+    for entry in catalog:
+        source = entry.get("source_file") or entry.get("path") or ""
+        if not source:
+            continue
+        sizes[source] = {"width": entry.get("width"),
+                         "height": entry.get("height"),
+                         "rotation": entry.get("rotation", 0)}
+    return sizes
+
+
+def _declared_framing(project_folder: Optional[str]) -> Tuple[Optional[float],
+                                                              float]:
+    """`(framing_intent, crop_factor)` this project declares, or `(None, 1.0)`.
+
+    Through `framing_intent.resolve_framing_intent`, which is the
+    precedence this engine has: spine block, then project.yaml, then
+    brand template, then `DEFAULT_FRAMING_INTENT`.  A reel has no spine
+    block, so the top of that ladder is simply absent here.
+
+    Returning `None` when the project cannot be read is deliberate and is
+    not the same as returning the default: a run that does not know what
+    was asked for must say so, and F12 does.
+    """
+    if not project_folder:
+        return None, 1.0
+    try:
+        from library.tools.brand_registry import (
+            project_template_name, resolve_project_template)
+        from library.tools.framing_intent import (
+            resolve_crop_factor, resolve_framing_intent)
+        template = resolve_project_template(
+            project_template_name(project_folder))
+        return (resolve_framing_intent(project_folder=project_folder,
+                                       template=template),
+                resolve_crop_factor(project_folder=project_folder,
+                                    template=template))
+    except Exception:  # noqa: BLE001 - a project that cannot say
+        return None, 1.0
+
+
 # ── Read-only proof ──────────────────────────────────────────────────
 
 def hash_snapshot_dict(data: dict) -> str:
@@ -2212,6 +2414,9 @@ def verify_reel(plan: ReelPlan,
                 master_fps: float = 0.0,
                 caption_provenance: Optional[dict] = None,
                 master_video_items: Optional[Sequence[dict]] = None,
+                source_sizes: Optional[dict] = None,
+                declared_intent: Optional[float] = None,
+                declared_crop_factor: float = 1.0,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -2252,6 +2457,17 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_format(
             plan.reel_name, timeline.width, timeline.height, fps,
             master_fps or fps))
+
+    # F12: The picture in the frame, not just the shape of the frame.
+    # Runs only where F10 established a frame to measure against; a
+    # timeline with no resolution has nothing to be a fraction OF.
+    if timeline.width and timeline.height:
+        findings.extend(check_delivered_framing(
+            plan.reel_name, timeline.video_items,
+            timeline.width, timeline.height,
+            source_sizes=source_sizes,
+            declared_intent=declared_intent,
+            declared_crop_factor=declared_crop_factor))
 
     # F11: Subtitle styling - reads the OUTPUT cards, not the config
     findings.extend(check_subtitle_styling(
@@ -2488,6 +2704,7 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
             speaker=clip.speaker,
             name=clip.name,
             unique_id=clip.resolve_item_id,
+            transform=dict(getattr(clip, "transform", None) or {}),
         )
         if clip.track_type == "video" and clip.track_index <= 2:
             video_items.append(item)
@@ -3135,6 +3352,19 @@ def run_verification(
             except Exception:  # noqa: BLE001 - not a project root
                 continue
 
+    # ── What the project DECLARED the picture should look like ───────
+    #
+    # Resolved once for the run, from the same enumeration
+    # `compile_manifest` uses, so a reel and a master cannot be held to
+    # different framings.  A project folder that cannot be found leaves
+    # this None, and F12 reports THAT rather than grading against a
+    # default nobody declared.
+    source_sizes = _catalog_source_sizes(project_folder)
+    declared_intent, declared_crop_factor = _declared_framing(project_folder)
+    if declared_intent is not None:
+        print(f"Declared framing_intent: {declared_intent} "
+              f"(crop factor {declared_crop_factor})", file=err)
+
     if plan_refused:
         # The plan does not describe these timelines.  Every F1-F11
         # finding would be noise that looks like signal.  REFUSE.
@@ -3196,7 +3426,10 @@ def run_verification(
                 master_holes=master_holes,
                 master_fps=master_snapshot.fps,
                 caption_provenance=caption_provenance,
-                master_video_items=master_video_items)
+                master_video_items=master_video_items,
+                source_sizes=source_sizes,
+                declared_intent=declared_intent,
+                declared_crop_factor=declared_crop_factor)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "
