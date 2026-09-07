@@ -138,12 +138,36 @@ def test_the_same_plan_draws_with_a_template_and_without_one():
 def test_no_template_flag_can_switch_an_element_off():
     """`motion_accents` and `motion_progress_bar` are no longer read at
     all, so a template setting them false cannot remove a planned
-    element. `brand_effect` is not even a parameter of the resolver."""
+    element.
+
+    This used to assert that `brand_effect` was not a PARAMETER of the
+    resolver, which was a proxy for the real invariant and stopped being
+    a true one: the resolver now takes `brand_effect` to read the caption
+    style's `position`, which is the band this project's captions occupy
+    (library/tools/caption_band.py). The parameter's presence never was
+    the defect - reading the two flags out of it was - so the check is
+    now on the behaviour and on the code, both of which can still fail if
+    the gate returns.
+    """
+    stated = plan(color="#FF8A3D")
+    gating = {"motion_accents": False, "motion_progress_bar": False}
+    with_flags, _ = generate_motion_props(
+        stated, SPINE, fps=30, width=1080, height=1920,
+        brand_style={}, brand_effect=gating, project_folder="")
+    without_flags, _ = segments(stated, {})
+    assert _elements(with_flags), (
+        "a template declaring both motion flags false emptied the layer - "
+        "the gate this file exists to keep out is back")
+    assert len(_elements(with_flags)) == len(_elements(without_flags))
+
+    import ast as _ast
     import inspect
-    signature = inspect.signature(generate_motion_props)
-    assert "brand_effect" not in signature.parameters, (
-        "brand_effect is back in the resolver's signature - the gate "
-        "this file exists to keep out has a route again")
+    resolver_source = inspect.getsource(generate_motion_props)
+    for flag in ("motion_accents", "motion_progress_bar"):
+        assert flag not in resolver_source, (
+            f"{flag} is read by the resolver. A template boolean that "
+            f"removes a planned element is the gate again.")
+    del _ast
 
     # Scoped past the module docstring, which CITES both flags as the
     # evidence for why they are no longer read. Evidence is what a

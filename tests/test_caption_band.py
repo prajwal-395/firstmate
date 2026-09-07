@@ -1,0 +1,173 @@
+"""The caption-collision rule `lower_third` was waiting on.
+
+It must REFUSE a real collision and must PASS everything else - a gate
+that fails correct output is no more coverage than one that cannot fail
+(AGENTS.md 10.4).
+"""
+
+import pytest
+
+from library.tools import caption_band as band
+from library.tools import motion_graphics_vocabulary as vocabulary
+from library.tools.motion_graphics_plan import resolve_plan
+
+SPINE = {"structure": [
+    {"block_type": "speech", "timeline_start": 0.0, "timeline_end": 10.0},
+    {"block_type": "broll", "timeline_start": 10.0, "timeline_end": 20.0},
+    {"block_type": "hook", "timeline_start": 20.0, "timeline_end": 24.0},
+]}
+
+
+def _entry(element, anchor, start, duration, copy="Dr Ada Lovelace"):
+    entry = {"element": element, "anchor": anchor,
+             "start_seconds": start, "duration_seconds": duration,
+             "color": "#ffffff"}
+    if copy is not None:
+        entry["copy"] = [{"text": copy, "type_role": "display"}]
+    return entry
+
+
+def _resolve(entry, bands=frozenset({"bottom"})):
+    return resolve_plan([entry], timeline_duration=30, fps=30,
+                        caption_bands=bands,
+                        captioned_spans=band.captioned_spans(SPINE))
+
+
+def test_captioned_spans_are_the_blocks_4_01_puts_cards_on():
+    assert band.captioned_spans(SPINE) == ((0.0, 10.0), (20.0, 24.0))
+
+
+def test_the_captioned_block_types_match_step_4_01():
+    """The enumeration is stated here and read there; they must agree."""
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "library" / "steps"
+              / "step_4_01_plan_subtitles" / "step.py").read_text(encoding="utf-8")
+    assert 'block_type not in ("hook", "speech")' in source, (
+        "step 4.01 no longer selects captioned blocks with this line; "
+        "caption_band.CAPTIONED_BLOCK_TYPES may be stale")
+    assert set(band.CAPTIONED_BLOCK_TYPES) == {"hook", "speech"}
+
+
+def test_copy_in_the_caption_band_over_a_captioned_span_is_refused():
+    resolved = _resolve(_entry("lower_third", "bottom_centre", 1, 4))
+    assert not resolved.moments
+    assert resolved.dropped[0].reason == "collides_with_the_caption_band"
+    assert "bottom band" in resolved.dropped[0].detail
+
+
+@pytest.mark.parametrize("label,entry", [
+    ("the same element outside a captioned span",
+     _entry("lower_third", "bottom_centre", 12, 4)),
+    ("the same element in another band",
+     _entry("lower_third", "top_centre", 1, 4)),
+    ("chrome in the caption band - a bar is not a block of text",
+     _entry("progress_bar", "bottom_centre", 1, 4, copy=None)),
+    ("chrome in the caption band - brackets",
+     _entry("frame_accents", "bottom_centre", 1, 4, copy=None)),
+])
+def test_the_rule_passes_output_that_does_not_collide(label, entry):
+    resolved = _resolve(entry)
+    assert resolved.moments, f"{label} was refused and should not have been"
+
+
+def test_a_caller_that_cannot_say_where_the_captions_are_refuses_nothing():
+    """No guess. A resolver called without the rule behaves as before it."""
+    resolved = resolve_plan([_entry("lower_third", "bottom_centre", 1, 4)],
+                            timeline_duration=30, fps=30)
+    assert resolved.moments
+
+
+def test_every_anchor_the_vocabulary_declares_has_a_band():
+    for anchor in vocabulary.AXES_BY_NAME["anchor"].positions:
+        if anchor == "tracked":
+            # Refused before it reaches this rule; it has no frame
+            # position to put in a band.
+            with pytest.raises(band.CaptionBandError):
+                band.anchor_band(anchor)
+            continue
+        assert band.anchor_band(anchor) in band.BANDS
+
+
+def test_an_unreadable_caption_position_raises_rather_than_guessing(monkeypatch):
+    """A position nothing can place is a refusal, never a default band.
+
+    Guessing `bottom` here would put a graphic under a caption on every
+    project whose style names something this module has not seen.
+    """
+    monkeypatch.setattr(band, "resolve_subtitle_style",
+                        lambda **_: {"position": "sideways"})
+    with pytest.raises(band.CaptionBandError):
+        band.occupied_bands()
+
+
+def test_every_valid_caption_position_maps_to_a_band():
+    from library.tools.subtitle_style import VALID_POSITIONS
+    assert set(band.BAND_BY_CAPTION_POSITION) == set(VALID_POSITIONS)
+
+
+def test_lower_third_is_reachable_and_says_why():
+    entry = vocabulary.ELEMENTS_BY_KEY["lower_third"]
+    assert entry.reachable == vocabulary.REACHABLE_NOW
+    assert "caption_band" in entry.reachability_note
+
+
+# ── Two graphics drawn through each other ────────────────────────────
+#
+# A different collision from the caption one, found the same way: by
+# compositing over a real reel frame rather than rendering one element
+# at a time. `library/tools/motion_graphics_plan.overlapping_pairs`.
+
+from library.tools.motion_graphics_plan import overlapping_pairs  # noqa: E402
+
+
+def _moment(element, anchor, start=0, frames=90):
+    return {"element": element, "anchor": anchor, "row": 0,
+            "startFrame": start, "durationFrames": frames}
+
+
+def test_a_full_width_centre_collides_with_a_corner_in_its_own_band():
+    pairs = overlapping_pairs([
+        _moment("title_lockup", "top_centre"),
+        _moment("context_stamp", "top_left"),
+    ])
+    assert len(pairs) == 1
+    assert set(pairs[0]["elements"]) == {"title_lockup", "context_stamp"}
+    assert pairs[0]["involves_chrome"] is False
+
+
+def test_chrome_under_content_is_reported_as_chrome():
+    """`persist` elements are FOR holding under the piece."""
+    pairs = overlapping_pairs([
+        _moment("title_lockup", "top_centre"),
+        _moment("channel_bug", "top_right"),
+    ])
+    assert len(pairs) == 1 and pairs[0]["involves_chrome"] is True
+
+
+@pytest.mark.parametrize("label,moments", [
+    ("two different bands", [_moment("title_lockup", "top_centre"),
+                             _moment("stat_callout", "bottom_left")]),
+    ("two side cells, never the same column",
+     [_moment("stat_callout", "middle_left"),
+      _moment("lower_third", "middle_right")]),
+    ("one anchor - `row` is the mechanism and it works",
+     [_moment("title_lockup", "top_centre"),
+      _moment("context_stamp", "top_centre")]),
+    ("same band, but not on screen together",
+     [_moment("title_lockup", "top_centre", start=0, frames=30),
+      _moment("context_stamp", "top_left", start=30, frames=30)]),
+])
+def test_the_report_names_no_pair_that_cannot_collide(label, moments):
+    assert overlapping_pairs(moments) == [], label
+
+
+def test_the_report_travels_on_the_basis_record():
+    """A measurement nobody reads is not a measurement."""
+    resolved = resolve_plan(
+        [_entry("title_lockup", "top_centre", 1, 4, copy="A TITLE"),
+         _entry("context_stamp", "top_left", 1, 4, copy="PART 3")],
+        timeline_duration=30, fps=30)
+    record = resolved.basis_record()
+    assert record["drawn_through_each_other"], (
+        "two elements the resolver kept collide by construction and the "
+        "basis record says nothing about it")

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, interpolate, spring, useVideoConfig } from "remotion";
+import { AbsoluteFill, useCurrentFrame, interpolate, spring, staticFile, useVideoConfig } from "remotion";
 import { loadBundledFonts } from "../../fonts";
 
 // Same reason as SubtitleOverlay: this composition sets
@@ -46,6 +46,19 @@ export type PlannedElement = {
   /** The plan's own magnitudes. Null when the plan stated none. */
   footprint: number | null;
   emphasis: number | null;
+  /**
+   * A project-supplied file this element draws, as a path under
+   * Remotion's `public/` - `brand/<name>`, staged there from the
+   * project's own `brand_assets/`. `staticFile` turns it into the URL
+   * the render loads; Python states the path and never the URL, because
+   * how `public/` is served is Remotion's business and not the
+   * pipeline's. Absent for every element that draws no asset.
+   *
+   * The engine ships no artwork and states none (AGENTS.md 14), so this
+   * is a path the PROJECT supplied or the element was dropped before it
+   * reached these props - never a placeholder.
+   */
+  asset?: string;
   data?: any;
 };
 
@@ -128,6 +141,10 @@ export const rampFrames = (character: string): number =>
  * 1 for any other character: a caller asking "how much is revealed"
  * about a non-typewriter entrance is asking about text that is simply
  * all there.
+ *
+ * **This answers the ENTRANCE only.** `typewriterShown` is the one to
+ * call when the element has an exit as well - see the defect recorded
+ * there.
  */
 export const typewriterProgress = (
   localFrame: number,
@@ -138,6 +155,52 @@ export const typewriterProgress = (
   if (inFrames <= 0) return 1;
   return Math.min(1, Math.max(0, localFrame / inFrames));
 };
+
+/** How much text is on screen at `localFrame`, reading BOTH ramps, 0..1.
+ *
+ * `typewriter` is the only character whose animation is a reveal rather
+ * than a transform, and a reveal has two ends: characters arrive across
+ * the entrance ramp and leave across the exit ramp, the trailing ones
+ * first.
+ *
+ * The exit half did not exist. `exitTransform` carried
+ * `case "typewriter": return {};` under a comment saying characters
+ * "disappear in reverse", and every caller computed its reveal from the
+ * ENTRANCE field alone - so `exit: "typewriter"` was a plain opacity
+ * fade over the typewriter ramp's length. Rendered mid-exit, the ink sat
+ * at x 235..845 against 232..847 held: the same glyphs, dimmer. Reading
+ * one field and letting it stand for the other is what made a declared
+ * character draw nothing, so this function takes both and neither
+ * caller derives one from the other.
+ */
+export const typewriterShown = (
+  localFrame: number,
+  durationFrames: number,
+  entrance: string,
+  exit: string,
+): number => {
+  // Falls to 0 across the exit ramp, so the trailing characters go first.
+  const outFrames = exit === "typewriter" ? rampFrames(exit) : 0;
+  if (outFrames > 0) {
+    const fromEnd = durationFrames - localFrame;
+    const concealing = Math.min(1, Math.max(0, fromEnd / outFrames));
+    // Whichever ramp is active. They can only both be when the element is
+    // shorter than its two ramps together, and there the exit wins - the
+    // same precedence `extTransform` takes by being spread last.
+    if (concealing < 1) return concealing;
+  }
+  return typewriterProgress(localFrame, entrance);
+};
+
+/** Whether this element's text is mid-reveal at all, either end. */
+export const isTypewriting = (
+  localFrame: number,
+  durationFrames: number,
+  entrance: string,
+  exit: string,
+): boolean =>
+  (entrance === "typewriter" || exit === "typewriter")
+  && typewriterShown(localFrame, durationFrames, entrance, exit) < 1;
 
 /** Split a typewriter reveal across runs: how many characters of each show.
  *
@@ -200,6 +263,20 @@ export const elementOpacity = (
  * vocabulary's entrance/exit axis - the PLAN chooses the character, and
  * these functions define what that character looks like on screen.
  */
+/** The chromatic split `glitch` draws, as a `drop-shadow` chain.
+ *
+ * One definition, read by the entrance and the exit, so the two cannot
+ * drift into meaning different things by the same name. The three
+ * offsets and their colours are what `glitch` has always declared; only
+ * the CSS property carrying them changed.
+ */
+const chromaticSplit = (aberration: number): string =>
+  [
+    `drop-shadow(${aberration}px 0 rgba(255,0,0,0.7))`,
+    `drop-shadow(${-aberration}px 0 rgba(0,255,255,0.7))`,
+    `drop-shadow(0 ${aberration * 0.5}px rgba(0,255,0,0.5))`,
+  ].join(" ");
+
 export const entranceTransform = (
   localFrame: number,
   durationFrames: number,
@@ -264,6 +341,18 @@ export const entranceTransform = (
     // `glitch` - chromatic-aberration entrance inspired by Remotion Bits
     // GlitchIn (MIT, github.com/av/remotion-bits). Shifts RGB channels
     // apart and jitters position, both easing to zero.
+    //
+    // The split is a `filter: drop-shadow` chain and NOT `textShadow`.
+    // It was `textShadow` on this container, and `Runs` sets its own
+    // `textShadow` on every run it draws, which overrides an inherited
+    // one: rendered at mid-ramp, `max|R-B|` over every visible pixel was
+    // 0 while the same measurement on a red element returns 255. The
+    // aberration this case advertised had never reached a frame.
+    // `drop-shadow` composites the rendered subtree instead of being a
+    // text property, so it survives a child restating its own shadow,
+    // and it draws the split on the elements that carry no text at all -
+    // the bars, the brackets and the rules - which `textShadow` never
+    // could. The magnitudes are unchanged.
     case "glitch": {
       const aberration = interpolate(progress, [0, 1], [6, 0], {
         extrapolateLeft: "clamp",
@@ -273,11 +362,7 @@ export const entranceTransform = (
       const jitterY = Math.cos(progress * Math.PI * 6) * aberration * 0.3;
       return {
         transform: `translate(${jitterX}px, ${jitterY}px)`,
-        textShadow: [
-          `${aberration}px 0 rgba(255,0,0,0.7)`,
-          `${-aberration}px 0 rgba(0,255,255,0.7)`,
-          `0 ${aberration * 0.5}px rgba(0,255,0,0.5)`,
-        ].join(", "),
+        filter: chromaticSplit(aberration),
       };
     }
     default:
@@ -339,11 +424,18 @@ export const exitTransform = (
         transform: `translateY(${y}px)`,
       };
     }
-    // Typewriter exit: characters disappear in reverse. No spatial
-    // transform - handled at text level like the entrance.
+    // Typewriter exit: characters disappear in reverse, at the text
+    // level, driven by `element.exit === "typewriter"` in DrawnElement.
+    // There is no spatial transform, and this arm returns nothing on
+    // purpose - which is exactly why the reveal has to be read from the
+    // exit field and not from this switch. It used to carry this comment
+    // and NO reveal anywhere: rendered mid-exit the ink sat at x 235..845
+    // against 232..847 held, the same glyphs at lower opacity. The
+    // capability was a fade wearing another name.
     case "typewriter":
       return {};
     // Glitch exit: chromatic aberration increases as the element leaves.
+    // Same `drop-shadow` reasoning as the entrance.
     case "glitch": {
       const aberration = interpolate(progress, [0, 1], [6, 0], {
         extrapolateLeft: "clamp",
@@ -353,11 +445,7 @@ export const exitTransform = (
       const jitterY = Math.cos((1 - progress) * Math.PI * 6) * aberration * 0.3;
       return {
         transform: `translate(${jitterX}px, ${jitterY}px)`,
-        textShadow: [
-          `${aberration}px 0 rgba(255,0,0,0.7)`,
-          `${-aberration}px 0 rgba(0,255,255,0.7)`,
-          `0 ${aberration * 0.5}px rgba(0,255,0,0.5)`,
-        ].join(", "),
+        filter: chromaticSplit(aberration),
       };
     }
     default:
@@ -398,6 +486,13 @@ export const anchorStyle = (
         return ["bottom", "centre"];
       case "bottom_right":
         return ["bottom", "right"];
+      // `centre` is a DECLARED position, so it has its own arm. It used
+      // to be served by `default`, which is also what an unrecognised
+      // anchor falls into - the declared value and the fallback were
+      // indistinguishable in the source, and a capability index that
+      // reads this file could not tell that `centre` was implemented.
+      case "centre":
+        return ["middle", "centre"];
       default:
         return ["middle", "centre"];
     }
@@ -431,6 +526,17 @@ export const anchorStyle = (
   }
   return style;
 };
+
+/** The usable width between the safe-area insets, in pixels.
+ *
+ * The same number `SafeAreaInsets.centered_usable_width` reports on the
+ * Python side. An element sized as a SHARE of the frame is sized against
+ * this rather than against the delivery width, so a share means the same
+ * thing at any delivery format and nothing lands under the platform's
+ * own rail (library/tools/safe_area.py).
+ */
+const safeUsableWidth = (safeArea: Insets, frameWidth: number): number =>
+  Math.max(0, frameWidth - safeArea.left - safeArea.right);
 
 const Runs: React.FC<{ element: PlannedElement; scale: number }> = ({
   element,
@@ -635,7 +741,7 @@ const DrawnElement: React.FC<{
   frame: number;
   safeArea: Insets;
 }> = ({ element, frame, safeArea }) => {
-  const { fps } = useVideoConfig();
+  const { fps, width: frameWidth } = useVideoConfig();
   const localFrame = frame - element.startFrame;
   if (localFrame < 0 || localFrame >= element.durationFrames) {
     return null;
@@ -659,19 +765,24 @@ const DrawnElement: React.FC<{
   const extTransform = exitTransform(
     localFrame, element.durationFrames, element.exit);
 
-  // When the entrance is `typewriter`, compute the reveal progress so
-  // text-carrying elements can use TypewriterRuns instead of Runs.
-  const inFrames = RAMP_FRAMES[element.entrance] ?? 0;
-  const typewriterReveal = element.entrance === "typewriter" && inFrames > 0
-    ? Math.min(1, localFrame / inFrames)
-    : 1;
+  // When the entrance is `typewriter`, characters appear one at a time.
+  // When the EXIT is, they leave the same way in reverse. Both are read
+  // from their own field: reading the entrance and letting it stand for
+  // the exit is what left `exit: typewriter` a plain fade under a
+  // comment describing a reveal it never performed.
+  // Both ramps, from the one shared helper. FullFrameCard reads the same
+  // one, so a reveal means the same thing in both compositions.
+  const shown = typewriterShown(
+    localFrame, element.durationFrames, element.entrance, element.exit);
+  const typewriting = isTypewriting(
+    localFrame, element.durationFrames, element.entrance, element.exit);
 
   // TextContent: unified text renderer that uses TypewriterRuns for
-  // typewriter entrances and Runs for everything else.
+  // typewriter entrances and exits, and Runs for everything else.
   const TextContent: React.FC<{ scl?: number }> = ({ scl }) => {
     const s = scl ?? scale;
-    if (element.entrance === "typewriter" && typewriterReveal < 1) {
-      return <TypewriterRuns element={element} scale={s} revealProgress={typewriterReveal} />;
+    if (typewriting) {
+      return <TypewriterRuns element={element} scale={s} revealProgress={shown} />;
     }
     return <Runs element={element} scale={s} />;
   };
@@ -820,6 +931,40 @@ const DrawnElement: React.FC<{
       >
         <TextContent />
       </div>
+    );
+  }
+
+  // `channel_bug` - a project-supplied mark, held as chrome.
+  //
+  // The engine draws it and does not supply it: `asset` is a file out of
+  // the project's own `brand_assets/`, staged verbatim into Remotion's
+  // `public/brand/` by `remotion_brand_linker.link_brand_assets` and
+  // resolved to this URL by `generate_motion_props`. An entry naming a
+  // file that is not on disk never reaches here - `resolve_plan` drops
+  // it as `asset_not_found_on_disk`, the same refusal
+  // `compile_manifest` makes for an overlay segment the manifest names
+  // and disk does not have.
+  //
+  // It carries no copy and no type role. `footprint` is its share of the
+  // usable width and the element states its own; there is no default
+  // size here, because a bug drawn at a size the engine chose is the
+  // engine deciding how loud a client's mark is.
+  if (element.element === "channel_bug") {
+    if (!element.asset) return null;
+    return (
+      <img
+        src={staticFile(element.asset)}
+        alt=""
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          width: `${Math.round(safeUsableWidth(safeArea, frameWidth) * scale)}px`,
+          height: "auto",
+          objectFit: "contain",
+          display: "block",
+        }}
+      />
     );
   }
 

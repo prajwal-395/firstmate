@@ -35,6 +35,7 @@ from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
     props_draw_ink,
     resolve_plan,
 )
+from library.tools.caption_band import captioned_spans, occupied_bands
 from library.tools.safe_area import resolve_safe_area
 
 # The cyan every video carried until P3.1. It is not any shipped
@@ -73,6 +74,44 @@ def brand_palette_roles(brand_style: Optional[dict]) -> dict:
     return roles_from_palette((brand_style or {}).get("color_palette")) or {}
 
 
+#: Where a staged project asset lives under Remotion's `public/`.
+#: `remotion_brand_linker.link_brand_assets` is what puts it there, and
+#: `MotionGraphics` wraps this path in `staticFile` to load it.
+STAGED_ASSET_PREFIX = "brand"
+
+
+def project_asset_resolver(project_folder: str):
+    """A function turning a NAMED project file into a staged public path.
+
+    Returns None when there is no project to look in, which
+    `resolve_plan` reads as "no way to resolve an asset" and drops an
+    asset element under its own reason rather than rendering an empty
+    frame.
+
+    **Staged lazily, on the first asset actually asked for.** Copying a
+    project's brand files into the repository's `public/brand/` is a real
+    side effect, and a run whose plan names no asset should not have one.
+    """
+    if not project_folder:
+        return None
+
+    staged: dict = {}
+
+    def resolve(name: str) -> str:
+        if not staged:
+            from library.tools.remotion_brand_linker import link_brand_assets
+            result = link_brand_assets(project_folder)
+            staged["files"] = set(result.get("files") or [])
+        base = os.path.basename(str(name).strip())
+        # Basename only: a declaration is a file in the project's own
+        # brand_assets/, so a path that climbs out of it resolves to
+        # nothing rather than reaching whatever it points at.
+        return (f"{STAGED_ASSET_PREFIX}/{base}"
+                if base and base in staged["files"] else "")
+
+    return resolve
+
+
 def generate_motion_props(
     motion_graphics_plan,
     audio_spine: dict,
@@ -80,6 +119,7 @@ def generate_motion_props(
     width: int = 1080,
     height: int = 1920,
     brand_style: Optional[dict] = None,
+    brand_effect: Optional[dict] = None,
     project_folder: str = "",
     asked: bool = True,
 ) -> tuple:
@@ -93,6 +133,14 @@ def generate_motion_props(
 
     `resolved_plan` is the account of what was dropped and why. An empty
     layer that says which absence it is cannot be misread as a clean one.
+
+    `brand_effect` reaches this function for ONE reason: it names the
+    caption style, and through it the band this project's captions sit
+    in. An element drawing copy into that band over a captioned span is
+    dropped as `collides_with_the_caption_band` - the rule
+    `motion_graphics_vocabulary`'s `lower_third` entry was waiting on.
+    See `library/tools/caption_band.py`. It gates nothing else: the
+    template still refines and does not gate (AGENTS.md 10.2).
     """
     duration = timeline_duration(audio_spine)
     safe_area = resolve_safe_area(
@@ -104,6 +152,14 @@ def generate_motion_props(
         fps=fps,
         palette_roles=brand_palette_roles(brand_style),
         asked=asked,
+        caption_bands=occupied_bands(
+            brand_effect=brand_effect, brand_style=brand_style,
+            project_folder=project_folder or None),
+        captioned_spans=captioned_spans(audio_spine),
+        # A project-supplied file, for the elements that draw one. The
+        # engine ships no artwork (AGENTS.md 14): this looks one up and
+        # never supplies a substitute.
+        resolve_asset=project_asset_resolver(project_folder),
     )
     if not resolved.moments:
         return [], resolved

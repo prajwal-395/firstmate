@@ -232,6 +232,10 @@ def render_motion_graphics(data: dict) -> dict:
         # names no template resolves nothing here and its plan states
         # its own colours; the layer is not reduced by the absence.
         brand_style=data.get("brand_style", {}),
+        # Not a gate: the ONLY thing read out of it here is the caption
+        # style's `position`, which says which band the captions own.
+        # library/tools/caption_band.py.
+        brand_effect=data.get("brand_effect", {}),
         project_folder=project_folder,
         asked=motion_graphics_plan is not None,
     )

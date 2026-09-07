@@ -222,9 +222,13 @@ def test_a_plan_whose_entries_all_died_is_a_different_absence(tmp_path):
     `no_elements_planned` on purpose, and the casualties are named."""
     proc, log = _run_step(tmp_path, _payload(
         tmp_path, motion_graphics_plan=[
+            # `channel_bug` draws now (its component and its asset
+            # resolution landed together), so the entry that dies here is
+            # one naming a file the project does not have. Same shape of
+            # refusal, still a real one.
             {"element": "channel_bug", "start_seconds": 1.0,
              "duration_seconds": 2.0, "anchor": "centre",
-             "copy": {"display": "42%"}, "color": "#fff"},
+             "asset": "no_such_file.png", "color": "#fff"},
             {"element": "title_lockup", "start_seconds": 1.0,
              "duration_seconds": 2.0, "anchor": "centre",
              "copy": {"display": "no colour anywhere"}},
@@ -234,7 +238,7 @@ def test_a_plan_whose_entries_all_died_is_a_different_absence(tmp_path):
     basis = json.loads(proc.stdout)["motion_graphics_overlay"]["planning_basis"]
     assert basis["basis"] == mgp.EVERY_ENTRY_DROPPED
     reasons = {row["reason"] for row in basis["dropped"]}
-    assert reasons == {"renderer_cannot_draw_it_yet", "no_colour_to_draw_it_in"}
+    assert reasons == {"asset_not_found_on_disk", "no_colour_to_draw_it_in"}
     for row in basis["dropped"]:
         assert row["what_the_reason_means"]
 

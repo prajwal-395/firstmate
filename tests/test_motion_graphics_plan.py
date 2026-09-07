@@ -186,9 +186,16 @@ def test_a_local_start_frame_is_rebased_onto_its_own_segment():
 
 def test_an_element_the_renderer_cannot_draw_is_dropped_by_name():
     """Never rendered as nothing, and never swapped for a neighbour."""
-    unreachable = next(e.key for e in mgv.ROSTER
-                       if e.reachable != mgv.REACHABLE_NOW
-                       and e.copy != "required")
+    # Whichever entry the roster currently records as undrawable. It was
+    # `channel_bug` until its component was written; the search is over
+    # the roster so this test follows the flag rather than pinning a
+    # name that a repair makes stale.
+    unreachable = next((e.key for e in mgv.ROSTER
+                        if e.reachable != mgv.REACHABLE_NOW), None)
+    if unreachable is None:
+        pytest.skip("every roster entry is reachable; nothing to refuse. "
+                    "Runs again the moment an entry is added ahead of its "
+                    "component, which is what this test is for.")
     resolved = resolve([entry(element=unreachable)])
     assert resolved.dropped[0].reason == "renderer_cannot_draw_it_yet"
     assert resolved.dropped[0].detail

@@ -462,11 +462,17 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
+        reachable=REACHABLE_NOW,
         reachability_note=(
-            "No component. Also needs a caption-collision rule, because "
-            "the safe band it wants is the band plan_subtitles is "
-            "already grouping cards into."
+            "MotionGraphics/index.tsx draws it, and the caption-collision "
+            "rule this entry was waiting on is "
+            "library/tools/caption_band.py: an element drawing copy into "
+            "the band this project's captions occupy, over a span they "
+            "occupy it, is dropped as collides_with_the_caption_band. "
+            "Both halves are joined by "
+            "library/tools/render_capability_index.py, which is what "
+            "found this flag still saying `No component` after the "
+            "component had been written."
         ),
     ),
     MotionElement(
@@ -951,10 +957,17 @@ ROSTER: tuple[MotionElement, ...] = (
         ),
         axes=("anchor", "footprint", "emphasis", "asset"),
         copy="none",
-        reachable=NEEDS_RENDERER_WORK,
+        reachable=REACHABLE_NOW,
         reachability_note=(
-            "No component. The staging half exists - bookend_render.py "
-            "stages a project's own files verbatim into build output."
+            "MotionGraphics/index.tsx draws it, sized as a share of the "
+            "safe-area width. The staging half was already here - "
+            "remotion_brand_linker.link_brand_assets copies a project's "
+            "brand_assets/ into Remotion's public/brand/ - and "
+            "generate_motion_props.project_asset_resolver is what turns "
+            "a NAMED file into a staged path, lazily, so a run planning "
+            "no asset stages nothing. The engine still ships no artwork: "
+            "an entry naming a file the project does not have is dropped "
+            "as asset_not_found_on_disk."
         ),
     ),
 )

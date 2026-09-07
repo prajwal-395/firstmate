@@ -32,7 +32,7 @@ import {
   entranceTransform,
   exitTransform,
   typewriterCursorOn,
-  typewriterProgress,
+  typewriterShown,
   typewriterSplit,
 } from "../MotionGraphics";
 
@@ -148,7 +148,12 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   // typewriter entrance - a declared character that draws nothing, which
   // is the defect class this repository keeps removing (AGENTS.md 10.2).
   // The split is MotionGraphics' own, shared rather than respelled.
-  const reveal = typewriterProgress(frame, entrance);
+  //
+  // `typewriterShown` and not `typewriterProgress`: the latter answers
+  // the ENTRANCE only, so a card declaring `exit: "typewriter"` held
+  // every glyph and faded, which is the same defect this comment
+  // describes seen from the other end of the element.
+  const reveal = typewriterShown(frame, durationInFrames, entrance, exit);
   const { shown, cursorRun } = typewriterSplit(
     runs.map((run) => run.text.length),
     reveal,

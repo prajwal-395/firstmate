@@ -97,8 +97,10 @@ One enumeration, `library/tools/motion_graphics_plan.py`. Step 4.06 is hybrid: i
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (Any, Callable, Dict, FrozenSet, List, Optional,
+                    Sequence, Tuple)
 
+from library.tools import caption_band
 from library.tools import motion_graphics_vocabulary as vocabulary
 
 #: What the model's answer is called.  One spelling, here.
@@ -177,6 +179,29 @@ DROP_REASONS: Dict[str, str] = {
         "(motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET), so an empty "
         "run cannot be filled in from anywhere."
     ),
+    "collides_with_the_caption_band": (
+        "The element draws copy, its anchor is in the vertical band this "
+        "project's captions occupy, and its span touches a block "
+        "plan_subtitles puts a card on. The roster already declared this "
+        "refusal in prose - lower_third's `never` says a graphic that "
+        "collides with a caption 'has to move up or not be drawn' - and "
+        "the engine may not move it, because choosing a new anchor is "
+        "choosing a position. library/tools/caption_band.py."
+    ),
+    "no_asset_for_an_element_that_needs_one": (
+        "The roster entry declares the `asset` axis and the plan names no "
+        "file. The engine ships no artwork and states none (AGENTS.md "
+        "14), so there is nothing to substitute: an asset element with no "
+        "asset draws nothing, and an overlay that draws nothing is not "
+        "rendered."
+    ),
+    "asset_not_found_on_disk": (
+        "The plan names a file the project's brand_assets/ does not have, "
+        "or the caller supplied no way to look one up. Refused rather "
+        "than rendered as an empty frame - the same refusal "
+        "compile_manifest makes for an overlay segment the manifest names "
+        "and disk does not have."
+    ),
     "no_colour_to_draw_it_in": (
         "Neither a brand palette role nor a colour stated by the plan "
         "itself resolves to a colour. There is no fallback: drawing in a "
@@ -232,6 +257,104 @@ class Dropped:
         return row
 
 
+#: Horizontal cells that span the WHOLE usable width.
+#:
+#: `anchorStyle` sets BOTH `left: safeArea.left` and `right:
+#: safeArea.right` for a `centre` horizontal, which is what lets a
+#: centred title centre itself and what `progress_bar` needs to draw a
+#: full-width bar. It also means a `*_centre` element occupies every
+#: column of its band, so anything at `*_left` or `*_right` in the same
+#: band at the same moment is drawn through it.
+FULL_WIDTH_HORIZONTALS = ("centre",)
+
+
+def anchor_band(anchor: str) -> Tuple[str, str]:
+    """An anchor as (vertical band, horizontal cell).
+
+    The same decomposition `anchorStyle` performs, read from the name.
+    """
+    name = (anchor or "").strip().lower()
+    if name == "centre":
+        return ("middle", "centre")
+    vertical, _, horizontal = name.partition("_")
+    return (vertical, horizontal or "centre")
+
+
+def overlapping_pairs(moments: List[dict]) -> List[dict]:
+    """Pairs of moments that are CERTAIN to be drawn through each other.
+
+    **This is a measurement, and it is reported rather than enforced.**
+
+    `row` stacks elements sharing ONE anchor; it says nothing about two
+    anchors. And `anchorStyle` gives a `*_centre` element the whole
+    usable width, so a centred title and a corner stamp in the same
+    vertical band, live at the same moment, collide by construction -
+    there is no layout pass that could have separated them.
+
+    Found by compositing every reachable element over a real reel frame
+    (`data/vep-animation-completeness/`): the title ran through the
+    context stamp and the channel bug, the quote card through the lower
+    third and the stat callout, and the step counter through the progress
+    bar. Nine elements, four collisions, and every one of them passed
+    every check this repository had - because the demo renders that
+    proved the elements DRAW put one element on screen at a time.
+
+    Not a drop, for the reason AGENTS.md 10.4 gives: a full-width
+    `progress_bar` under a `bottom_left` counter may be exactly what the
+    plan meant, and a gate that fails correct output is no more coverage
+    than one that cannot fail. The pair is named so a reviewer sees it and
+    so a future layout pass has something to test against.
+    """
+    pairs: List[dict] = []
+    for i, first in enumerate(moments):
+        for second in moments[i + 1:]:
+            band_a, cell_a = anchor_band(first.get("anchor", ""))
+            band_b, cell_b = anchor_band(second.get("anchor", ""))
+            if band_a != band_b:
+                continue
+            if first.get("anchor") == second.get("anchor"):
+                # One anchor: `row` is the mechanism, and it works.
+                continue
+            if not (cell_a in FULL_WIDTH_HORIZONTALS
+                    or cell_b in FULL_WIDTH_HORIZONTALS):
+                # Two different side cells never share a column.
+                continue
+            start_a = first.get("startFrame", 0)
+            end_a = start_a + first.get("durationFrames", 0)
+            start_b = second.get("startFrame", 0)
+            end_b = start_b + second.get("durationFrames", 0)
+            if start_a >= end_b or start_b >= end_a:
+                continue
+            # Whether either side is declared CHROME. `persist` is the
+            # roster's own function for what holds under the piece -
+            # `frame_accents` is a border round the whole frame and
+            # `progress_bar` a rule at its foot - so chrome-under-content
+            # is what those elements are FOR, while content through
+            # content is two things the viewer must read in one place.
+            # Reported rather than filtered: which of the two a pair is
+            # is a reading, and this module does not take it.
+            functions = {
+                vocabulary.ELEMENTS_BY_KEY[key].function
+                for key in (first.get("element"), second.get("element"))
+                if key in vocabulary.ELEMENTS_BY_KEY
+            }
+            pairs.append({
+                "elements": [first.get("element"), second.get("element")],
+                "anchors": [first.get("anchor"), second.get("anchor")],
+                "band": band_a,
+                "involves_chrome": "persist" in functions,
+                "frames": [max(start_a, start_b), min(end_a, end_b)],
+                "why": (
+                    f"a {FULL_WIDTH_HORIZONTALS[0]!r} horizontal spans the "
+                    f"whole usable width, so both occupy every column of "
+                    f"the {band_a} band while they are both on screen. "
+                    f"`row` separates elements sharing ONE anchor and these "
+                    f"do not share one."
+                ),
+            })
+    return pairs
+
+
 @dataclass
 class ResolvedPlan:
     """What `resolve_plan` returns: the drawable moments and the basis."""
@@ -263,6 +386,8 @@ class ResolvedPlan:
             "proposed": self.proposed,
             "resolved": len(self.moments),
             "dropped": [d.as_record() for d in self.dropped],
+            # A measurement, never a gate. See `overlapping_pairs`.
+            "drawn_through_each_other": overlapping_pairs(self.moments),
         }
 
 
@@ -360,7 +485,11 @@ def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str]
 
 def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                  palette_roles: Optional[Dict[str, str]] = None,
-                 asked: bool = True) -> ResolvedPlan:
+                 asked: bool = True,
+                 caption_bands: Optional[FrozenSet[str]] = None,
+                 captioned_spans: Sequence[Tuple[float, float]] = (),
+                 resolve_asset: Optional[Callable[[str], str]] = None
+                 ) -> ResolvedPlan:
     """Turn the model's plan into drawable moments, naming every casualty.
 
     `timeline_duration` bounds a span and nothing else times one: the
@@ -369,6 +498,22 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
     `palette_roles` is what a brand template's palette resolved to, or
     `{}` when the project named no template. It REFINES - see
     :func:`resolve_colour` - and its absence drops nothing on its own.
+
+    `caption_bands` and `captioned_spans` are where and when this
+    project's captions are on screen, from `library/tools/caption_band.py`.
+    An element that draws copy into a band the captions occupy, over a
+    span they occupy it, is dropped as `collides_with_the_caption_band`.
+    Both default to empty, which refuses nothing: a caller that cannot
+    say where the captions are does not get a guess, and a resolver
+    called without them behaves exactly as it did before the rule
+    existed.
+
+    `resolve_asset` turns a file the plan NAMES into a URL the
+    composition can load, and returns `""` when the project does not have
+    it. Only elements declaring the `asset` axis consult it. There is no
+    fallback and no placeholder: the engine ships no artwork (AGENTS.md
+    14), so an unresolvable asset is a drop with a reason rather than an
+    element rendered as an empty frame.
     """
     palette_roles = palette_roles or {}
     if not asked:
@@ -444,8 +589,44 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             drop(entry, key, "no_copy_for_an_element_that_needs_one")
             continue
 
+        # Where the captions are, and when. Checked after the copy is
+        # known, because whether the element draws copy at all is half
+        # the question: a bar or a bracket in the caption band is not a
+        # collision, and refusing it would be a gate failing correct
+        # output.
+        collides = caption_band.collision(
+            element_key=key, anchor=anchor, start=start, end=end,
+            has_copy=bool(runs), bands=caption_bands or frozenset(),
+            spans=captioned_spans)
+        if collides:
+            drop(entry, key, "collides_with_the_caption_band", collides)
+            continue
+
+        # A project-supplied file, for the elements that draw one. Read
+        # from the roster's own axes rather than a second list of which
+        # elements take an asset.
+        asset_url = ""
+        if "asset" in element.axes:
+            named = _text(entry.get("asset") or entry.get("asset_file"))
+            if not named:
+                drop(entry, key, "no_asset_for_an_element_that_needs_one")
+                continue
+            asset_url = _text(resolve_asset(named)) if resolve_asset else ""
+            if not asset_url:
+                drop(entry, key, "asset_not_found_on_disk",
+                     f"{named!r} is not in the project's brand_assets/"
+                     if resolve_asset else
+                     f"{named!r} was named and this caller supplied no way "
+                     f"to look a project asset up")
+                continue
+
         colour, colour_basis = resolve_colour(entry, palette_roles)
-        if not colour:
+        # Asked of the elements the ROSTER says draw in a colour. An
+        # element whose axes do not include `colour_role` draws something
+        # else - `channel_bug` draws a project's own file - and demanding
+        # a colour of it would refuse it for failing to declare a
+        # dimension the vocabulary never gave it.
+        if not colour and "colour_role" in element.axes:
             drop(entry, key, "no_colour_to_draw_it_in",
                  "the entry names no colour_role the brand palette "
                  "resolves and states no colour of its own")
@@ -479,6 +660,7 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                 end / timeline_duration, 4) if timeline_duration else 0.0,
             "startFrame": int(round(start * fps)),
             "durationFrames": frames,
+            "asset": asset_url,
             "footprint": _number(entry.get("footprint")),
             "emphasis": _number(entry.get("emphasis")),
             "why": _text(entry.get("why") or entry.get("rationale")),
