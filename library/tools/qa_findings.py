@@ -128,8 +128,14 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
     # ── render_qa.py ──
     FindingReader(
         "lufs", "audio_mix",
-        "Integrated loudness and true peak of the delivered master. A "
-        "miss is a mix decision, not a render fault."),
+        "Integrated loudness and true peak of the delivered master. The "
+        "mix sets the balance, not the level of the sum: the Sep-03 master "
+        "needs +5.68 dB of makeup gain and its true peak is already -2.60 "
+        "dBTP, so gain without a limiter clips - no clip-gain decision "
+        "closes this. The priced fix is a post-export mastering pass "
+        "(library/tools/master_loudness.py, proven on that master: -19.68 "
+        "to -14.14 LUFS, gate passes), wired in 6.01 post-export once a "
+        "Resolve end-to-end witnesses it."),
     FindingReader(
         "black_frames", "compile_manifest",
         "Black nobody declared. The plan's own coverage assertion "
