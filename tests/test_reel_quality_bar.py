@@ -105,6 +105,27 @@ def test_there_is_no_third_kind():
         qb.QUALITIES = original
 
 
+def test_the_coherence_ruling_carries_the_looking_that_produced_it():
+    """"No deterministic half exists" is only worth anything with the
+    measurements in it, so the record has to keep them.
+
+    Same bar `FIRST_MEASUREMENT` is held to: a design argument that has
+    never met the material is a design argument.
+    """
+    record = qb.COHERENCE_DOES_NOT_GATE
+    candidates = record["candidates_measured"]
+    assert len(candidates) >= 4
+    for candidate in candidates:
+        assert candidate["half"].strip()
+        assert candidate["measured"].strip()
+        assert candidate["rejected"].strip()
+        assert isinstance(candidate["needs_a_model"], bool)
+    # At least one that needed NO model was tried, or the search was
+    # never made.
+    assert any(not c["needs_a_model"] for c in candidates)
+    assert "31" in record["why"]
+
+
 def test_the_length_band_is_the_one_reel_exchange_declares():
     """A guidance spelled twice is this repository's dominant bug class."""
     from library.tools import reel_conformance_verifier as verifier
@@ -128,14 +149,56 @@ def test_a_reel_inside_the_band_produces_no_duration_finding():
 
 
 @pytest.mark.parametrize("end,side", [(40.0, "under"), (170.0, "over")])
-def test_a_reel_outside_the_band_is_a_finding_and_it_is_an_error(end, side):
+def test_a_reel_outside_the_band_is_REPORTED_and_does_not_fail(end, side):
+    """The brief says "no fixed target ... preferably between 45-90
+    seconds" and "No hard cap", and settles it with "a coherent
+    90-second reel is right, a stitched 47-second one is not" - 47s
+    being inside the band. So the band is measured and reported, and it
+    does not decide (reel_quality_bar's docstring carries the reading).
+
+    The MEASUREMENT is unchanged: the finding still fires, still names
+    the side, and `within_guidance` still reads False."""
     transcript = _transcript(SEGMENTS)
     moment = _moment(end=end)
+    reading = qb.duration_reading(moment, transcript)
+    assert not reading["within_guidance"]
     findings = [f for f in qb.exact_findings(moment, transcript, {})
                 if f.code == qb.QB_DURATION]
     assert len(findings) == 1
-    assert findings[0].severity == qb.ERROR
+    assert findings[0].severity == qb.WARNING
     assert side in findings[0].message
+    # Nothing about its LENGTH fails it. (The bare moment carries no
+    # closer, which is a separate quality and still an error.)
+    errors = {f.code for f in qb.judge([moment], transcript)
+              .verdicts[0].errors}
+    assert qb.QB_DURATION not in errors
+    assert qb.QB_ABSURD_LENGTH not in errors
+
+
+def test_the_length_ERROR_is_the_mechanical_bound_and_it_CAN_fire():
+    """Duration still has a half that fails, and it is the one bound the
+    brief leaves standing - `reel_exchange.ABSURD_SECONDS`, past which a
+    candidate is most of the episode rather than a reel. Mechanical, not
+    editorial (AGENTS.md 10.5).
+
+    Both directions, because a bound nothing can trip reads as coverage
+    (AGENTS.md 10.4)."""
+    from library.tools.reel_exchange import ABSURD_SECONDS
+
+    transcript = _transcript(SEGMENTS + [
+        _segment(float(t), t + 4.0, "Craig", f"and then point {t} follows")
+        for t in range(104, 700, 4)], duration=1000.0)
+    absurd = _moment(end=10.0 + ABSURD_SECONDS + 30.0)
+    codes = {f.code: f for f in qb.exact_findings(absurd, transcript, {})}
+    assert qb.QB_ABSURD_LENGTH in codes
+    assert codes[qb.QB_ABSURD_LENGTH].severity == qb.ERROR
+    assert qb.QB_ABSURD_LENGTH in {
+        f.code for f in qb.judge([absurd], transcript).verdicts[0].errors}
+
+    # And it does NOT fire on a reel that is merely long.
+    long_but_real = _moment(end=10.0 + 170.0)
+    assert qb.QB_ABSURD_LENGTH not in {
+        f.code for f in qb.exact_findings(long_but_real, transcript, {})}
 
 
 def test_the_duration_measured_is_what_plays_not_the_body_window():
@@ -520,7 +583,13 @@ def test_a_reading_that_does_not_check_out_fails_the_reel_as_unusable():
     assert first.coherence == qb.UNJUDGED
 
 
-def test_a_reel_that_leans_on_the_episode_fails_coherence():
+def test_a_reel_that_leans_on_the_episode_RECORDS_and_does_not_fail():
+    """Asked as "does it lean on anything unheard", this read
+    not_followable on 31 of 31 real reels under two independent readers.
+    A column constant across a batch carries no information about that
+    batch, and four deterministic halves were measured and rejected
+    (`COHERENCE_DOES_NOT_GATE`). So the reading is RECORDED and the
+    verdict is not derived from it (AGENTS.md 10.4)."""
     transcript, moments = _batch()
     words = qb.reel_text(moments[0], transcript)
     quote = words.split()[0]
@@ -536,9 +605,40 @@ def test_a_reel_that_leans_on_the_episode_fails_coherence():
         "rank": 1, "basis": "x",
     }]})
     first = next(v for v in report.verdicts if v.number == 1)
+    # The observation is kept in full - it is evidence, not a verdict.
     assert first.coherence == qb.NOT_FOLLOWABLE
-    assert qb.QB_NOT_FOLLOWABLE in {f.code for f in first.findings}
-    assert first.verdict == qb.FAIL
+    finding = next(f for f in first.findings
+                   if f.code == qb.QB_NOT_FOLLOWABLE)
+    assert finding.severity == qb.WARNING
+    assert first.verdict == qb.PASS
+    assert first.as_dict()["coherence_gates"] is False
+
+
+def test_a_dependency_is_placed_at_the_word_the_reel_says_it():
+    """The exact half that survived: WHERE, not WHETHER.
+
+    Offset zero is the reel's first word - a position, not a window
+    somebody chose - and the closer is the range `reel_ranges` lays down
+    last."""
+    transcript, moments = _batch()
+    moment = moments[0]
+    words = qb.reel_text(moment, transcript).split()
+    opening, middle = words[0], words[len(words) // 2]
+    reading = qb.read_one({
+        "reel": 1, "claim_quote": opening, "opening_quote": opening,
+        "closing_quote": words[-1], "closing_asks_for": "x",
+        "takeaway_quote": opening,
+        "assumes_known": [{"what": "opens on it", "quote": opening},
+                          {"what": "later on", "quote": middle}],
+        "stops_developing_at": 1.0, "rank": 1, "basis": "x",
+    }, qb.reel_text(moment, transcript))
+    assert not reading.refused
+    placed = qb.dependency_positions(reading, moment, transcript)
+    assert [p["position"] for p in placed] == [qb.OPENING, qb.BODY]
+    assert placed[0]["at_word"] == 0
+    assert placed[1]["at_word"] > 0
+    # A reading nothing could check places nothing.
+    assert qb.dependency_positions(None, moment, transcript) == []
 
 
 def test_the_two_instruments_disagreeing_about_the_closer_is_reported():

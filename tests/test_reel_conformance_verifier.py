@@ -981,7 +981,21 @@ class TestF11SubtitleStyling:
 # ── Plan quality: Length ─────────────────────────────────────────────
 
 class TestPlanQualityLength:
-    """Plan quality gate: reel length within 45-90s guidance."""
+    """Plan quality: reel length against the 45-90s PREFERENCE.
+
+    Reported, never enforced. The brief says "no fixed target but
+    preferably between 45-90 seconds" and "No hard cap"; see
+    `reel_quality_bar`'s docstring for the reading and the ten reels
+    this failed before 2026-09-06.
+    """
+
+    def test_outside_the_band_is_a_WARNING_not_an_error(self):
+        """The severity is the whole repair, so it is pinned.
+
+        `reel_quality_bar.QB_ABSURD_LENGTH` is the length ERROR now."""
+        for seconds in (30.0, 120.0):
+            findings = check_plan_length("Reel 01", seconds)
+            assert [f.severity for f in findings] == ["warning"]
 
     def test_too_short(self):
         """A 30s reel is under the 45s minimum."""

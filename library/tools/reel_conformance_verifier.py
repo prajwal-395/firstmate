@@ -96,7 +96,7 @@ class FindingClass:
     F17 = "F17"  # PLANNING: caption card mixes speakers (bleed)
 
     # Plan quality gates (not from the audit, from the captain's list)
-    PQ_LENGTH = "PQ-LENGTH"       # reel outside 45-90s guidance
+    PQ_LENGTH = "PQ-LENGTH"       # outside the 45-90s PREFERENCE (warning)
     PQ_SPEAKERS = "PQ-SPEAKERS"   # not both speakers with real turns
     PQ_PICTURE = "PQ-PICTURE"     # plan span contains picture holes
 
@@ -1709,14 +1709,22 @@ def check_plan_length(reel_name: str,
     sitting in the file untouched.  A gate that cannot fire reads as
     coverage (AGENTS.md 10.4).
 
-    It fires now - `verify_reel` calls it - and it fires as an ERROR
-    rather than a warning, because the point at which a reel is JUDGED is
-    where the captain's brief has to bite.  The SELECTOR still weighs the
-    guidance rather than obeying it (`reel_exchange.LENGTH_GUIDANCE`
-    records why a hard ceiling was removed): a story that needs 95
-    seconds to finish is a real answer while the boundary can still be
-    moved.  Once the boundary is fixed, it is a fact about the reel and
-    is reported as one.
+    It fires now - `verify_reel` calls it - and it fires as a WARNING.
+    It was an ERROR until 2026-09-06, on the reasoning that "the point at
+    which a reel is JUDGED is where the captain's brief has to bite".
+    The brief does not bite there, and that is not a matter of taste: it
+    says "no fixed target but preferably between 45-90 seconds" and "No
+    hard cap", and settles it with "a coherent 90-second reel is right, a
+    stitched 47-second one is not" - 47 seconds being INSIDE the band.
+    `reel_exchange.LENGTH_GUIDANCE` says the same in its own docstring.
+    On the harvest batch this failed ten reels on length alone, one of
+    them by 0.3 seconds.
+
+    THE MEASUREMENT IS UNCHANGED - same band, same arithmetic, same ten
+    reels reported - and only the severity moved.  The ERROR that holds
+    length now is `reel_quality_bar.QB_ABSURD_LENGTH`, over
+    `reel_exchange.ABSURD_SECONDS`, which is mechanical rather than
+    editorial (AGENTS.md 10.5).
     """
     from library.tools.reel_quality_bar import LENGTH_GUIDANCE as _band
 
@@ -1730,8 +1738,9 @@ def check_plan_length(reel_name: str,
         reel=reel_name,
         message=(
             f"runs {plan_seconds:.1f}s, {by:.1f}s {side} the "
-            f"{low:.0f}-{high:.0f}s the brief asks for"),
-        severity="error",
+            f"{low:.0f}-{high:.0f}s the brief PREFERS - reported, not "
+            f"held against the reel"),
+        severity="warning",
         detail={
             "plan_seconds": round(plan_seconds, 1),
             "minimum": low,

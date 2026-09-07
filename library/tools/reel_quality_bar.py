@@ -38,8 +38,48 @@ Every one of those is exact.  None of them was being held.
 
 The two EXACT qualities
 -----------------------
-**DURATION.**  `reel_exchange.LENGTH_GUIDANCE` is the captain's brief -
-45 to 90 seconds - and it is imported from there rather than restated,
+**DURATION, which is MEASURED exactly and REPORTED rather than
+enforced.**  This changed on 2026-09-06 and the brief is the reason.  It
+says, in the captain's own words:
+
+    "no fixed target but preferably between 45-90 seconds (this is for
+    short form content on social media)"
+
+and beside it: *"No hard cap. What he rejected before was collage, not
+length - a coherent 90-second reel is right, a stitched 47-second one is
+not."*  Three statements that the band is a PREFERENCE - "no fixed
+target", "preferably", "No hard cap" - and a fourth that settles it: a
+47-second reel is INSIDE the band and can still be wrong, so length was
+never the thing that disqualifies.
+
+`reel_exchange.LENGTH_GUIDANCE`, the constant this module imports, says
+the same in its own docstring: "GUIDANCE THE MODEL WEIGHS, never a
+boundary this module enforces", and records that it stopped being a hard
+window on 2026-09-04 because enforcing it "silently withheld every
+stretch needing longer to finish".  This module imported that constant
+and made it an ERROR again, which re-created four days later exactly the
+defect that had been removed from its source.
+
+Measured on the harvest batch of 31: TEN were failed on length alone,
+and seven of the ten missed by under six seconds - 44.7s, 43.8s, 43.1s,
+40.4s, 40.3s, 39.6s, 39.5s against the 45s floor, and 93.1s against the
+90s ceiling.  **Reel 03 was failed by 0.3 seconds.**
+
+So NO NUMBER HERE CHANGED.  `duration_reading` measures exactly what it
+measured before and `within_guidance` still reads False for the same ten
+reels; what changed is that QB-DURATION is a WARNING.  Widening the band
+would have been tuning the measure to improve the result, which is the
+one move that would make it worthless.
+
+The ERROR that remains is `reel_exchange.ABSURD_SECONDS`, imported and
+not restated: past five minutes a "reel" is most of the episode.  That
+is MECHANICAL rather than editorial (AGENTS.md 10.5) and it is the only
+length bound the brief leaves standing.  It fired on 0 of the 31, and
+that is said here rather than left to read as coverage.  The brief
+declares no floor at all, so this module holds none.
+
+**THE CALL TO ACTION.**  `reel_exchange.LENGTH_GUIDANCE` is imported
+rather than restated,
 because a guidance spelled twice is this repository's dominant bug class
 (AGENTS.md 10.1).  The SELECTOR still weighs it: a story that needs 95
 seconds to finish is a real answer and `exchange_windows` deliberately
@@ -84,6 +124,28 @@ The two JUDGEMENT qualities, and why they are not asked for
 **COHERENCE** - "a stranger who has never heard the episode can follow
 it" - and **VALUE** - "does this hand a viewer something they can use" -
 cannot be computed.  They go to a model.
+
+**COHERENCE RECORDS AND DOES NOT GATE (2026-09-06).**  Asked as "does
+this reel lean on anything unheard", it read not_followable on 31 of 31,
+and a second reader that never saw the first reproduced that exactly.
+Any 40-second clip pulled out of a conversation leans on something, so a
+careful reader always finds one; a column constant across a batch
+carries no information about that batch.  Four deterministic halves were
+measured against those same 31 reels and every one failed - one was
+constant, one measured the transcript instead of the reel, one measured
+a different property, and one moved with a window width nobody could
+source.  `COHERENCE_DOES_NOT_GATE` carries each with the number that
+killed it.
+
+What survives is better recording rather than a verdict:
+`dependency_positions` places every dependency at the word the reel says
+it, which is exact.  That matters most for one number - **26 of the 31,
+identically under both readers, lean on something inside their own
+declared call to action**, almost always the product arriving named in
+the closing pitch.  That is the closer the captain ASKED for, and the
+gate was failing reels for carrying it.  VALUE still gates, and on this
+batch it found the one reel with nothing to carry away - the two
+readers picked the same one independently, and so had the selector.
 
 The hard part is that a recorded judgement must be worth something.  A
 model asked "is this good?" that answers "yes" has told you nothing, and
@@ -163,12 +225,16 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # docstring records where it came from and why it stopped being a
 # boundary.  Restating the numbers here would be the second enumeration
 # AGENTS.md 10.1 is about.
-from library.tools.reel_exchange import LENGTH_GUIDANCE
+from library.tools.reel_exchange import ABSURD_SECONDS, LENGTH_GUIDANCE
 
 __all__ = [
+    "BODY",
+    "COHERENCE_DOES_NOT_GATE",
     "EXACT",
     "FORBIDDEN_IN_THE_ASK",
+    "IN_CALL_TO_ACTION",
     "JUDGEMENT",
+    "OPENING",
     "QUALITIES",
     "READING_FIELDS",
     "READING_SCHEMA",
@@ -182,6 +248,7 @@ __all__ = [
     "coherence_of",
     "cta_reading",
     "declared_closers",
+    "dependency_positions",
     "duration_reading",
     "exact_findings",
     "format_table",
@@ -238,6 +305,81 @@ FIRST_MEASUREMENT = {
                  "MISPLACED rather than refusing it"),
     },
 }
+
+
+COHERENCE_DOES_NOT_GATE = {
+    "ruled": "2026-09-06",
+    "batch": "lucie/geo-podcast, the 31 proposals of the harvest run",
+    "why": (
+        "`coherence_of` was `NOT_FOLLOWABLE if reading.assumes_known else "
+        "FOLLOWABLE`, and it read not_followable on 31 of 31 - a column "
+        "constant across a batch carries no information about that batch. "
+        "A second reader that never saw the first reproduced it exactly, "
+        "31 of 31, so the observations are sound and about the material; "
+        "what the quality cannot do is DISCRIMINATE."),
+    # AGENTS.md 10.4 says to give a model-judged gate a DETERMINISTIC half
+    # and let that carry the verdict.  Four candidates for one were
+    # measured against the captain's own 31 reels before this was written.
+    # Each is recorded with the number that killed it, because "we looked
+    # and there is nothing" is only worth anything with the looking in it.
+    "candidates_measured": [
+        {"half": "the reel begins strictly inside a transcript segment",
+         "needs_a_model": False,
+         "measured": "0 of 31",
+         "rejected": "boundaries are always snapped to a segment start, so "
+                     "this is constant and could never fail"},
+        {"half": "the reel opens at a sentence boundary, read off the "
+                 "transcript's punctuation",
+         "needs_a_model": False,
+         "measured": "401 of 940 segments carry any of . ? !",
+         "rejected": "it would measure which transcription pass wrote the "
+                     "segment, not how the reel opens"},
+        {"half": "the reel begins partway through the speaker's own turn",
+         "needs_a_model": False,
+         "measured": "9 of 31 - it does discriminate",
+         "rejected": "it measures a DIFFERENT property. Reel 11 opens on "
+                     "the words 'so your' and still starts its speaker's "
+                     "turn cleanly, because an answer grammatically "
+                     "continues the question that prompted it"},
+        {"half": "a pronoun or demonstrative in the opening with no "
+                 "antecedent inside the reel",
+         "needs_a_model": False,
+         "measured": "14 of 31 over the first ten words, 23 of 31 over the "
+                     "first twenty",
+         "rejected": "the count is decided by a window width nobody can "
+                     "source, and it calls reel 11 - 'so your', the "
+                     "plainest mid-sentence opening in the batch - clean"},
+        {"half": "a dependency quoted from the reel's FIRST WORD, derived "
+                 "from the checked reading",
+         "needs_a_model": True,
+         "measured": "18 of 31 (reader 1) against 13 of 31 (reader 2), "
+                     "agreeing on 26 of 31",
+         "rejected": "it discriminates, but which reels fail depends on "
+                     "which model read them. Deriving a verdict from it "
+                     "would be enforcing a model's opinion with an "
+                     "arithmetic step in front of it"},
+    ],
+    "ruling": (
+        "There is no honest deterministic half, so coherence RECORDS and "
+        "does not gate. QB-NOT-FOLLOWABLE is a WARNING carrying "
+        "`dependency_positions` - which is exact - and the reading stays "
+        "as evidence. If a later batch produces a half that separates "
+        "reels without a model, this is the record it has to beat."),
+    # The second direction, and the one that makes the demotion urgent
+    # rather than merely tidy.  26 of the 31 - IDENTICALLY under both
+    # readers - lean on something inside their own declared call to
+    # action, almost always "the Lucy visibility system" arriving named.
+    # That is the closer the captain ASKED for, and the gate was failing
+    # reels for carrying it.  A gate that FAILS CORRECT OUTPUT is no more
+    # coverage than one that cannot fail (AGENTS.md 10.4).
+    "dependencies_inside_the_declared_closer": {
+        "reader_1": "26 of 31", "reader_2": "26 of 31"},
+}
+"""Why the coherence quality does not decide pass or fail.
+
+Kept beside `FIRST_MEASUREMENT` and for the same reason: a design
+argument that has never met the material is a design argument.
+"""
 
 
 # ── The four qualities, as data ──────────────────────────────────────
@@ -329,6 +471,7 @@ def assert_qualities_are_well_formed() -> None:
 # ── Findings ─────────────────────────────────────────────────────────
 
 QB_DURATION = "QB-DURATION"
+QB_ABSURD_LENGTH = "QB-ABSURD-LENGTH"
 QB_UNBUILDABLE = "QB-UNBUILDABLE"
 QB_CTA_ABSENT = "QB-CTA-ABSENT"
 QB_CTA_IN_BODY = "QB-CTA-IN-BODY"
@@ -351,6 +494,7 @@ FINDING_OWNERS: Dict[str, str] = {
     # Which quality each finding is about, so a report can be read by
     # quality rather than by code.
     QB_DURATION: "duration",
+    QB_ABSURD_LENGTH: "duration",
     QB_UNBUILDABLE: "duration",
     QB_CTA_ABSENT: "call_to_action",
     QB_CTA_IN_BODY: "call_to_action",
@@ -448,7 +592,8 @@ def played_speech(moment, transcript: dict) -> List[dict]:
                       key=lambda s: float(s.get("timeline_start") or 0.0))
     out: List[dict] = []
     offset = 0.0
-    for range_start, range_end in playable_ranges(moment, transcript)[0]:
+    for index, (range_start, range_end) in enumerate(
+            playable_ranges(moment, transcript)[0]):
         for segment in segments:
             start = float(segment.get("timeline_start") or 0.0)
             end = float(segment.get("timeline_end") or 0.0)
@@ -465,6 +610,7 @@ def played_speech(moment, transcript: dict) -> List[dict]:
                                   - range_start, 2),
                 "text": text,
                 "bound": bool(segment.get("resolve_item_id")),
+                "range": index,
             })
         offset += range_end - range_start
     return out
@@ -695,15 +841,25 @@ def exact_findings(moment, transcript: dict,
                          f"can be measured: {duration['unbuildable']}"),
                 detail=duration))
         return out
-    if not duration["within_guidance"]:
+    if duration["delivered_seconds"] > ABSURD_SECONDS:
+        out.append(BarFinding(
+            code=QB_ABSURD_LENGTH, reel=name, severity=ERROR,
+            message=(
+                f"runs {duration['delivered_seconds']:.1f}s, past the "
+                f"{ABSURD_SECONDS:.0f}s at which a candidate is most of "
+                f"the episode rather than a reel"),
+            detail=duration))
+    elif not duration["within_guidance"]:
         low, high = LENGTH_GUIDANCE
         side = "under" if duration["delivered_seconds"] < low else "over"
         out.append(BarFinding(
-            code=QB_DURATION, reel=name, severity=ERROR,
+            code=QB_DURATION, reel=name, severity=WARNING,
             message=(
                 f"runs {duration['delivered_seconds']:.1f}s, "
                 f"{duration['outside_by_seconds']:.1f}s {side} the "
-                f"{low:.0f}-{high:.0f}s the brief asks for"),
+                f"{low:.0f}-{high:.0f}s the brief PREFERS. The brief says "
+                f"\"no fixed target\" and \"No hard cap\", so this is "
+                f"reported and does not decide anything"),
             detail=duration))
 
     return out
@@ -1082,6 +1238,81 @@ def read_one(entry: dict, words: str,
 
 # ── JUDGEMENT: the verdicts the ENGINE derives ───────────────────────
 
+OPENING = "opening"
+IN_CALL_TO_ACTION = "in_call_to_action"
+BODY = "body"
+"""WHERE in a reel one of its dependencies is said.
+
+`OPENING` means the quote begins at the reel's FIRST WORD - offset zero,
+which is a position and not a window somebody chose.  There is
+deliberately no "first N words" and no "first sentence": both would be a
+boundary this module invented, and the transcript's own segments are
+between 2 and 20 words long on the field-test episode, so a boundary
+drawn on them would move with the chunker rather than with the reel.
+
+`IN_CALL_TO_ACTION` means the quote lies in the range `reel_ranges` lays
+down last - the closer.  That one matters more than it looks: see
+`COHERENCE_DOES_NOT_GATE`.
+"""
+
+
+def dependency_positions(reading: Optional[Reading], moment,
+                         transcript: dict) -> List[dict]:
+    """Each thing the reel leans on, and WHERE the reel says it.
+
+    Pure arithmetic over a quote `check_reading` has already established
+    is in the reel - so this adds no judgement of its own and cannot
+    disagree with the reading it is given.  A quote that is not in the
+    reel is skipped rather than placed, because the reading carrying it
+    was refused and nothing is derived from a refused reading.
+
+    `at_word` is the FIRST occurrence, which is the same containment
+    `check_reading` uses; a quote a reel says twice is placed at the
+    first of them and that is stated rather than hidden.
+    """
+    if reading is None or reading.refused or not reading.assumes_known:
+        return []
+    words = normalise(reel_text(moment, transcript))
+    if not words:
+        return []
+
+    closer_at = None
+    if cta_range_of(moment) is not None:
+        lines = played_speech(moment, transcript)
+        last = max((line["range"] for line in lines), default=None)
+        if last is not None and last > 0:
+            before = " ".join(line["text"] for line in lines
+                              if line["range"] < last)
+            closer_at = len(normalise(before).split())
+
+    placed: List[dict] = []
+    for item in reading.assumes_known:
+        quote = normalise((item or {}).get("quote"))
+        if not quote or quote not in words:
+            continue
+        at = len(words[:words.index(quote)].split())
+        if at == 0:
+            where = OPENING
+        elif closer_at is not None and at >= closer_at:
+            where = IN_CALL_TO_ACTION
+        else:
+            where = BODY
+        placed.append({
+            "what": (item or {}).get("what"),
+            "quote": (item or {}).get("quote"),
+            "at_word": at,
+            "position": where,
+        })
+    return placed
+
+
+def cta_range_of(moment):
+    """`reel_build.cta_range`, imported where it is used."""
+    from library.tools.reel_build import cta_range
+
+    return cta_range(moment)
+
+
 def coherence_of(reading: Optional[Reading]) -> str:
     """Can a stranger who has never heard the episode follow it?
 
@@ -1136,6 +1367,10 @@ class ReelVerdict:
     coherence: str = UNJUDGED
     value: str = UNJUDGED
     reading: Optional[Reading] = None
+    dependencies: List[dict] = field(default_factory=list)
+    """What this reel leans on, each placed at the word it is said -
+    `dependency_positions`.  Exact, and the reason coherence can be
+    recorded usefully without deciding anything."""
 
     @property
     def errors(self) -> List[BarFinding]:
@@ -1166,6 +1401,8 @@ class ReelVerdict:
             "duration": self.duration,
             "call_to_action": self.cta,
             "coherence": self.coherence,
+            "coherence_gates": False,
+            "dependencies": list(self.dependencies),
             "value": self.value,
             "rank": self.rank,
             "basis": self.reading.basis if self.reading else "",
@@ -1262,18 +1499,33 @@ def judge(moments: Sequence, transcript: dict,
 
         coherence = coherence_of(reading)
         value = value_of(reading)
+        positions = dependency_positions(reading, moment, transcript)
         if coherence == NOT_FOLLOWABLE:
+            # RECORDED, never enforced.  This fired on 31 of 31 under two
+            # independent readers, and 26 of those 31 lean on something
+            # inside their own declared call to action - the closer the
+            # captain asked for.  `COHERENCE_DOES_NOT_GATE` carries the
+            # four deterministic halves that were measured and why none
+            # of them can carry a verdict.
+            counted = {}
+            for placed in positions:
+                counted[placed["position"]] = counted.get(
+                    placed["position"], 0) + 1
+            where = ", ".join(f"{n} in the {p.replace('_', ' ')}"
+                              for p, n in sorted(counted.items())) or "nowhere"
             findings.append(BarFinding(
-                code=QB_NOT_FOLLOWABLE, reel=name, severity=ERROR,
+                code=QB_NOT_FOLLOWABLE, reel=name, severity=WARNING,
                 message=(
                     "leans on "
                     + "; ".join(
                         f"{(a or {}).get('what')!r} (at {(a or {}).get('quote')!r})"
                         for a in reading.assumes_known)
-                    + " - a listener who has not heard the episode cannot "
-                      "follow it"),
+                    + f" - {where}. Recorded rather than held against "
+                      f"this reel: see reel_quality_bar."
+                      f"COHERENCE_DOES_NOT_GATE"),
                 detail={"assumes_known":
-                        [dict(a) for a in reading.assumes_known]}))
+                        [dict(a) for a in reading.assumes_known],
+                        "positions": positions}))
         if value == DELIVERS_NOTHING:
             findings.append(BarFinding(
                 code=QB_NO_TAKEAWAY, reel=name, severity=ERROR,
@@ -1328,7 +1580,8 @@ def judge(moments: Sequence, transcript: dict,
             number=number, name=name,
             delivered_seconds=duration["delivered_seconds"],
             duration=duration, cta=cta, findings=findings,
-            coherence=coherence, value=value, reading=reading))
+            coherence=coherence, value=value, reading=reading,
+            dependencies=positions))
     return report
 
 
