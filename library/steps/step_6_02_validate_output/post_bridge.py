@@ -17,7 +17,6 @@ def resolve_validation(data: dict) -> dict:
     """
     det = data.get("deterministic_validation", {})
     llm = data.get("validation_result", {})
-    final_qa = data.get("final_qa_decision", "")
 
     det_status = det.get("status")
     llm_status = llm.get("status")
@@ -58,10 +57,15 @@ def resolve_validation(data: dict) -> dict:
         "qa_report": det.get("qa_report", [])
     }
     
-    return {
-        "final_qa_decision": final_qa,
-        "validation_result": final_result,
-    }
+    # ONE verdict leaves this node, and it is `validation_result`.
+    # `final_qa_decision` was declared beside it and echoed from
+    # `data.get("final_qa_decision", "")` - a key no edge routed, no
+    # handoff asked the model for and no default supplied, so it was the
+    # empty string on every run and no reader existed. Declared, not
+    # produced, and unread: the whole shape is deleted rather than given
+    # a value nobody would consult. `run_pipeline.py` reads
+    # `validation_result.status`, which is the real verdict.
+    return {"validation_result": final_result}
 
 
 def main():

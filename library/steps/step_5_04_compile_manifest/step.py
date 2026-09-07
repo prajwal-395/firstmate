@@ -1248,11 +1248,16 @@ def compile_manifest(out_dir: str) -> dict:
     catalog_data = load(out_dir, "catalog.json") or load(out_dir, "step_1_02.json")
     fps = catalog_data.get("project_fps", spine.get("frame_rate", 30.0))
     # THE RENDER TARGET. It comes from the product - the brand template,
-    # with a per-project override - and never from the footage. The
-    # catalog's `source_resolution` describes the source and is used for
-    # conform decisions only. Captain's ruling, 2026-08-19; see
-    # library/tools/delivery_format.py for what reading the source here
-    # cost.
+    # with a per-project override - and never from the footage. Captain's
+    # ruling, 2026-08-19; see library/tools/delivery_format.py for what
+    # reading the source here cost.
+    #
+    # This used to end "the catalog's `source_resolution` ... is used for
+    # conform decisions only", and NOTHING read it: `_conform_fields`
+    # takes each clip's OWN `width`/`height` off `clip_metadata`, which
+    # is the right grain, and the catalog's `source_resolution` is one
+    # project-wide modal number. The sentence was a claim about a read
+    # that does not happen. See library/tools/output_contract.py.
     _project_root = os.path.dirname(out_dir) if out_dir != "." else "."
     proj_res = resolve_delivery_format(_project_root)
     

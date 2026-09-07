@@ -63,7 +63,6 @@ import json
 import sys
 
 from library.tools.fairlight_presets import select_preset_for_content
-from library.tools.audio_reactive_sfx import align_sfx_to_prosody
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.sfx_duration import (
     SfxDurationRefused,
@@ -399,7 +398,6 @@ def resolve_sfx(
     music_selection: dict = None,
     frame_rate: float = 30.0,
     creative_direction: dict = None,
-    prosody_analysis: dict = None,
     brand_audio: dict = None,
     catalog: list = None,
 ) -> dict:
@@ -456,9 +454,16 @@ def resolve_sfx(
     # much as for padding them. The function is deleted, not just
     # unwired. Guarded by tests/test_no_creative_floors.py.
 
-    # Align to prosody if available
-    if prosody_analysis:
-        creative_plan = align_sfx_to_prosody(creative_plan, prosody_analysis)
+    # There is no prosody alignment here, and there must not be one
+    # again. `audio_reactive_sfx.align_sfx_to_prosody` ran at this point
+    # behind `if prosody_analysis:` and NEVER ONCE FIRED, for five
+    # independent reasons - no edge routes `prosody_analysis` here, the
+    # shape it read is not 1.05's, the measurement it wanted has never
+    # been produced, it branched on a `type` key the plan schema does not
+    # have, and it wrote a `start_time` nothing reads. What it claimed to
+    # do, `find_sfx_placement` and `_avoid_speech_collision` below
+    # already do from stronger signals. See
+    # library/tools/audio_reactive_sfx.py for the whole record.
 
     block_by_position = {str(b["position"]): b for b in spine_blocks}
 
@@ -647,7 +652,6 @@ def main():
     fps = data.get("project_fps", data.get("frame_rate", 30.0))
     
     cd = data.get("creative_direction", {})
-    prosody = data.get("prosody_analysis", {})
     brand_audio = data.get("brand_audio", {})
     
     # There is NO minimum SFX count. How many sound effects a piece gets is
@@ -664,7 +668,7 @@ def main():
     # names every offending id, so the retry has something to act on.
     try:
         result = resolve_sfx(creative, spine, temporal, music,
-                             music_selection, fps, cd, prosody, brand_audio)
+                             music_selection, fps, cd, brand_audio)
     except (UnplayableSfxPlan, SfxDurationRefused) as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)

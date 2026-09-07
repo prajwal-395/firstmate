@@ -53,25 +53,50 @@ from the other side.
   `sfx_candidates_toon`, `sfx_candidates_legend`, `topics_toon`,
   `transcripts_toon`) and a survey blind to it would report all seven.
 * ``code``       - a module outside the producing step's own directory
-  names the key as a string literal.  `compile_manifest` reads
-  `pipeline_data.json` directly rather than taking the edges' word
-  (AGENTS.md 10.1), so this route is not optional either.
+  READS the key: `d.get("k")`, `d["k"]`, `"k" in d`, `d.pop("k")`, or
+  the key inside a list handed to a call such as `require_keys(data,
+  [...])`.  `compile_manifest` reads `pipeline_data.json` directly
+  rather than taking the edges' word (AGENTS.md 10.1), so this route is
+  not optional either.
+
+  It is a READ position and not a bare name match, and that distinction
+  found six more unread outputs than the first survey did.  A key
+  appearing as a dict-literal KEY is a WRITE (`{"total_files": total}`
+  in an unrelated module credited `scan.total_files`); as a comparison
+  operand it is a carve-out, not a read (`key != "total_failed"` in
+  `run_pipeline.validate_step_output` was `temporal_index.total_failed`'s
+  ONLY credit); and as a call argument it is usually a step id
+  (`StepDir("ocr_extraction", ...)` credited `ocr_extraction`'s output
+  while `run_scope.DESELECTED_BY_DEFAULT` said in as many words that
+  nothing consumes it).
 
 What this survey CANNOT see, stated rather than left implicit
 -------------------------------------------------------------
-The `code` route is a key-NAME match, so it OVER-credits consumption,
-and it over-credits in the safe direction: the survey will not fail an
-output that really is read, and it will MISS an output whose name
-collides with an unrelated reader's.  Three collisions are known and
-are recorded in `KNOWN_NAME_COLLISIONS` rather than left for the next
-reader to re-derive.
+Even in read position a key-name match can land on an unrelated dict,
+and two keys in this tree are too generic to survive that:
+`temporal_index.source` and, until it was deleted,
+`creative_cohesion.step`.  `KNOWN_NAME_COLLISIONS` is where those are
+recorded, and it SUBTRACTS the credit rather than apologising for it -
+an entry there means "these readers are not reading this output", so
+the output falls back into the unread set and has to be adjudicated
+like any other.  A collision entry whose output has no readers left is
+stale and `disagreements` says so.
 
-It also cannot see a value that only reaches `summary.md`.
+It cannot see a value that only reaches `summary.md`.
 `step_exporter.generate_summary` renders whatever keys an output
 happens to carry, generically, so every output is "rendered" and no
 output is READ that way.  A count that reaches only the summary is
 REPORTED, not consumed, and `REPORTED_NOT_CONSUMED` is where that is
 said.
+
+And `run_pipeline.validate_step_output` is NOT a consumer, though it
+touches every declared output there is.  It checks that a declared
+output is present, of the declared type and not empty - the mirror of
+`input_contract` at the producing end, a check on the DECLARATION being
+honoured rather than a use of the value.  Crediting it would make every
+output consumed by construction, which is a gate that cannot fail
+(AGENTS.md 10.4).  Its one name-shaped read, `key != "total_failed"`,
+is an exclusion from a generic rule and is treated as the write it is.
 
 And it is an OUTPUT-level question.  A field INSIDE an output that
 nothing reads - which is what the confidence and the caption hash both
@@ -136,24 +161,101 @@ CLASSIFIERS = (
 
 REPORTED_NOT_CONSUMED = {
     ("validate_sfx_library", "sfx_library_status"):
-        "0.01 is an entry node with no outgoing edge. The gate is the "
-        "step's own exit code - `step.py` exits 1 on an invalid library "
-        "- and the status is the account of what it looked at.",
+        "0.01 is an entry node with no outgoing edge. DECISION: it stays "
+        "unread. The gate is the step's own exit code - `step.py` calls "
+        "`_fail` and exits 1 on an unplayable or empty library - and the "
+        "status is the account of what it looked at "
+        "(`{valid, sfx_library_path, entries, playable_entries, "
+        "missing_files, catalog_entries, catalog_entries_described}` on "
+        "001). Routing it would give a consumer a second, weaker copy of "
+        "a refusal that has already happened.",
+
+    ("scan", "total_files"):
+        "A count. DECISION: it stays unread - it is `len(raw_footage_files)`, "
+        "which travels on every edge out of 1.01. 17 and 17 on 001's run "
+        "of record. `direction_contradiction.DECLINED_OUTPUTS` says the "
+        "same of it from the other side.",
+    ("scan", "skipped_files"):
+        "A listing of what was NOT read. DECISION: it stays unread - a "
+        "reader would act on the files that ARE in "
+        "`raw_footage_files`, and an empty list is the normal answer "
+        "(it was `[]` on 001). Until 2026-09-07 the survey credited this "
+        "to `step_1_02_catalog_footage/step.py:297`, which is the "
+        "CATALOG's own key of the same name being WRITTEN.",
+
+    ("catalog", "total_clips"):
+        "A count. DECISION: it stays unread - it is `len(clip_catalog)`, "
+        "which is carried by nine edges. 17 and 17 on 001. It was "
+        "credited to `step_1_05_prosody_analysis/step.py:318` and "
+        "`analysis/vision_pipeline_v3.py:1794`, both of which are those "
+        "modules' own counts of their own work.",
+    ("catalog", "skipped_files"):
+        "The same listing, one step later, and the same decision. It was "
+        "credited to `step_1_01_scan_project/step.py:99`, which is SCAN's "
+        "own `skipped_files` being written, and runs BEFORE the catalog.",
+    ("catalog", "source_resolution"):
+        "The footage's modal stored resolution, measured by 1.02. "
+        "DECISION (2026-09-07): it stays unread, and it should. Every "
+        "decision that needs a resolution needs a PER-CLIP one, and that "
+        "travels as `clip_catalog[i].width/height` - which is what "
+        "`compile_manifest._conform_fields` reads, and what "
+        "`apply_fusion_comps` measures live off the media pool item "
+        "instead, at the moment it composites. `source_resolution` is "
+        "one project-wide number over 17 clips; giving it the reader its "
+        "old comment claimed would put back exactly the grain error the "
+        "captain's ruling of 2026-08-19 removed, when this value was "
+        "handed to Resolve as the timeline size under the name that "
+        "ruling retired, and shipped 001 as a 1920x1080 master with the "
+        "vertical overlays banded down the middle. It is kept "
+        "because it is a true measurement of the material "
+        "(`direction_contradiction.MEASURED_OUTPUTS`) and because "
+        "`tests/test_delivery_format.py` reads it as the proof that the "
+        "render target is NOT the source. The false comment that sent "
+        "the last reader looking - `step_5_04_compile_manifest/step.py`, "
+        "\"used for conform decisions only\" - is deleted.",
+
     ("semantic_analysis", "total_clips_analyzed"):
-        "A count of a listing. `direction_contradiction.DECLINED_OUTPUTS` "
-        "says the same of it from the other side.",
+        "A count of a listing. DECISION: it stays unread - it is "
+        "`len(semantic_analysis_documents)`, which is carried by six "
+        "edges. 17 and 17 on 001. "
+        "`direction_contradiction.DECLINED_OUTPUTS` says the same of it "
+        "from the other side.",
+
     ("temporal_index", "total_indexed"):
-        "A count. The measurements themselves travel as `full_indices`.",
+        "A count. DECISION: it stays unread - it is `len(full_indices)`, "
+        "and the measurements themselves travel as `full_indices` on ten "
+        "edges. 17 and 17 on 001.",
     ("temporal_index", "total_reused"):
-        "A count - how much of the index came off cache. Printed by the "
-        "step to stderr; nothing decides on it.",
+        "A count - how much of the index came off cache. DECISION: it "
+        "stays unread; the step prints it to stderr and nothing decides "
+        "on it. Its manifest entry now declares `may_be_empty`, because "
+        "ZERO IS THE CORRECT VALUE on any run that transcribed fresh - "
+        "001's run of record reused nothing - and "
+        "`run_pipeline.validate_step_output` reported that honest answer "
+        "as `semantically empty`. A check that fails correct output is "
+        "the same defect as one that cannot fail (AGENTS.md 10.4).",
+    ("temporal_index", "total_failed"):
+        "A count of clips the index could not be built for. DECISION: it "
+        "stays unread - a failure that matters is already visible as a "
+        "missing per-clip index, and 1.04 prints the count. Its ONLY "
+        "credit was `run_pipeline.py:2207`, `key != \"total_failed\"` "
+        "inside `validate_step_output` - the key named to EXEMPT it from "
+        "the zero-is-empty rule, which is an exception to a generic "
+        "check and not a read of the value. That single carve-out kept "
+        "an unread output out of both tables until 2026-09-07.",
+    ("temporal_index", "source"):
+        "`\"cache\"` or `\"fresh\"` - which route produced the index. "
+        "DECISION: it stays unread; `total_reused` beside it carries the "
+        "same fact with a number. Recorded in `KNOWN_NAME_COLLISIONS` "
+        "as well, because `source` is too generic a key for a name match "
+        "to mean anything: `.get(\"source\")` in "
+        "`dashboard/server.py`, `schemas/project_config.py` and "
+        "`step_2_04_music_selection/post_bridge.py` all read a different "
+        "dict.",
+
     ("assign_aroll", "total_a_roll_segments"):
-        "A count of what `a_roll_assignments` already carries.",
-    ("verify_reels", "reel_verification"):
-        "The terminal record of the `reels` process. The GATE is the "
-        "raise inside `reel_build.verify_built_reels`; this is what a "
-        "run reads back to say which plan and which timelines were "
-        "graded rather than only that nothing raised.",
+        "A count of what `a_roll_assignments` already carries. DECISION: "
+        "it stays unread - 8 and 8 on 001's run of record.",
 }
 
 
@@ -164,56 +266,60 @@ REPORTED_NOT_CONSUMED = {
 # ranking has to be made from.
 #
 # An entry leaves this table by being FIXED, not by being re-worded.
+# Two left it on 2026-09-07: `validate.final_qa_decision` was declared
+# and never produced, and the declaration and the dead echo are both
+# deleted; `verify_reels.reel_verification` now has a reader in
+# `manage_project._report_reel_verification`, which names the plan and
+# the timelines a build graded instead of printing only that nothing
+# raised.
 
 UNREAD_FINDINGS = {
-    ("catalog", "source_resolution"):
-        "Step 1.02 measures the footage's stored resolution and no step, "
-        "no edge and no tool reads the value. "
-        "`step_5_04_compile_manifest/step.py:1252` states a read that "
-        "does not happen (\"used for conform decisions only\"), and the "
-        "only other `source_resolution` in the engine is "
-        "`execution/apply_fusion_comps._source_resolution`, which "
-        "measures the resolution off Resolve's own media pool item and "
-        "never touches the catalog. COST: no decision is made on missing "
-        "data today - the Fusion path measures live, which is the more "
-        "correct source anyway - but AGENTS.md 5 requires a Background "
-        "be sized to the SOURCE clip's resolution, and the comment tells "
-        "a reader the manifest path already carries it.",
-    ("validate", "final_qa_decision"):
-        "Declared as an output of the DAG's exit node, and NOTHING "
-        "PRODUCES IT. `step_6_02_validate_output/post_bridge.py:20` "
-        "reads `data.get(\"final_qa_decision\", \"\")` - no edge routes "
-        "the key, no `handoff.md` asks the model for it, and no default "
-        "supplies one - so the value is the empty string on every run "
-        "and no reader exists. COST: the verdict a reader would consult "
-        "by that name is neither pass nor fail; the real verdict is "
-        "`validation_result.status`, which `run_pipeline.py:2147` reads. "
-        "Shapes 2 and 3 at once.",
+    ("ocr_extraction", "ocr_extraction"):
+        "Step 1.07 reads the on-screen text off every frame with EasyOCR "
+        "and no step, no edge and no tool reads the result. 1.07 has two "
+        "incoming edges and NO outgoing edge. The survey credited it "
+        "until 2026-09-07 because the output key and the step id are the "
+        "same string, so `StepDir(\"ocr_extraction\", ...)`, "
+        "`owning_node=\"ocr_extraction\"` and two dispatch-table keys "
+        "read as consumption - while "
+        "`run_scope.DESELECTED_BY_DEFAULT[\"ocr_extraction\"]` said in "
+        "as many words that nothing consumes it. COST: 445s per run on "
+        "001, and the step is DESELECTED BY DEFAULT for exactly this "
+        "reason, so the cost is only paid by a run that asks for it with "
+        "`--with ocr_extraction`. That standing decision is the "
+        "mitigation and it is already in code; what is NOT decided is "
+        "whether a planning step should read the text, which is the "
+        "captain's call and not this table's.",
 }
 
 
 # ── Credited by a name that means something else ─────────────────────
 #
-# The `code` route matches a string literal, so an unrelated reader of
-# an unrelated key with the same name credits the output.  These three
-# were checked by hand and are wrong; they are written down so the next
-# reader does not have to re-derive them, and so the survey's blind spot
-# is a list rather than a sentence.
+# Even in READ position a key-name match can land on an unrelated dict.
+# These entries SUBTRACT the credit: the readers stay on the row, the
+# `code` route does not fire, and the output falls back into the unread
+# set to be adjudicated like any other.  That is the opposite of what
+# this table did before 2026-09-07, when it recorded a known-false
+# credit and left it standing - which is a stale exemption reading as
+# coverage, the one thing the tables exist to prevent.
 #
-# They are NOT failures: over-crediting is the safe direction for a
-# gate (it will not fail correct output), and each of these three is a
-# count whose real verdict would be REPORTED_NOT_CONSUMED anyway.
+# An entry here whose output has no `code_readers` at all is stale:
+# there is no longer a collision to suppress, and `disagreements` says
+# so.  Three of the original entries went that way when the `code` route
+# became a read-position match - their credits were dict-literal keys,
+# which are writes.
 
 KNOWN_NAME_COLLISIONS = {
-    ("catalog", "skipped_files"):
-        "credited to `step_1_01_scan_project/step.py:99`, which is "
-        "SCAN's own `skipped_files` and runs BEFORE the catalog.",
-    ("scan", "skipped_files"):
-        "credited to `step_1_02_catalog_footage/step.py:297`, which is "
-        "the CATALOG's own key of the same name.",
-    ("catalog", "total_clips"):
-        "credited to `step_1_05_prosody_analysis/step.py:318`, which is "
-        "prosody's own count of the profiles it measured.",
+    ("temporal_index", "source"):
+        "`source` is one of the most generic keys in this tree. The "
+        "readers credited to it - `dashboard/server.py:406` "
+        "(`config[\"source\"][\"resolution\"]`), "
+        "`schemas/project_config.py`, "
+        "`step_2_04_music_selection/post_bridge.py:111` "
+        "(`selection.get(\"source\") == \"external\"`) and "
+        "`step_4_05_render_subtitles/step.py:433` (a brand asset's "
+        "source) - read four different dicts, none of them 1.04's "
+        "output. Its verdict is in REPORTED_NOT_CONSUMED.",
 }
 
 
@@ -230,6 +336,10 @@ class OutputRow:
     edge_consumers: Tuple[Tuple[str, str], ...] = ()
     own_prompt: str = ""
     code_readers: Tuple[Tuple[str, int], ...] = ()
+    name_collision: bool = False
+    """This output's `code_readers` are recorded in
+    `KNOWN_NAME_COLLISIONS` as reading something else of the same name,
+    so they do not carry it."""
 
     @property
     def routes(self) -> Tuple[str, ...]:
@@ -238,7 +348,7 @@ class OutputRow:
             found.append(ROUTE_EDGE)
         if self.own_prompt:
             found.append(ROUTE_OWN_PROMPT)
-        if self.code_readers:
+        if self.code_readers and not self.name_collision:
             found.append(ROUTE_CODE)
         return tuple(found)
 
@@ -256,7 +366,7 @@ class OutputRow:
                              self.edge_consumers)
         if self.own_prompt:
             return self.own_prompt
-        if self.code_readers:
+        if self.code_readers and not self.name_collision:
             return ", ".join(f"{path}:{line}"
                              for path, line in self.code_readers[:3])
         return ""
@@ -268,6 +378,10 @@ def _string_constants(path: Path) -> Dict[str, List[int]]:
     Literals rather than a text search: a key named in a COMMENT is a
     claim about a read, not a read, and `catalog.source_resolution` is
     the finding that distinction produced.
+
+    This is the polarity the OWN-PROMPT route needs - "does this
+    pre-bridge EMIT a key of this name" - which is a dict-literal key,
+    the opposite of a read.  The `code` route uses `_read_literals`.
     """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -277,6 +391,62 @@ def _string_constants(path: Path) -> Dict[str, List[int]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             found.setdefault(node.value, []).append(node.lineno)
+    return found
+
+
+def _read_literals(path: Path) -> Dict[str, List[int]]:
+    """String literals a file uses to READ a value out of something.
+
+    The `code` route asks who READS an output, and a bare name match
+    answers a different question: it credits the module that WRITES a
+    key of the same name into its own dict, the table that lists the key
+    as a step id, and the generic checker that names it only to exempt
+    it.  Six outputs were credited that way and none of them was read.
+
+    Four shapes count, and they are the shapes a merged input dict or a
+    slice of `pipeline_data.json` is actually opened with:
+
+      ``d.get("k")`` / ``d.pop("k")`` / ``d.setdefault("k", ...)``
+      ``d["k"]``
+      ``"k" in d``
+      ``f(..., ["k", ...], ...)`` - a key inside a list, tuple or set
+        handed to a call, which is how `require_keys(data, [...])`
+        refuses on an absent one.
+
+    A dict-literal key, a comparison operand and a bare call argument do
+    NOT count.  Widening this beyond a read position is how the survey
+    stops being able to fail.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return {}
+    found: Dict[str, List[int]] = {}
+
+    def note(node: ast.Constant) -> None:
+        found.setdefault(node.value, []).append(node.lineno)
+
+    def is_str(node) -> bool:
+        return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Attribute)
+                    and func.attr in ("get", "pop", "setdefault")
+                    and node.args and is_str(node.args[0])):
+                note(node.args[0])
+            for argument in list(node.args) + [kw.value for kw in
+                                               node.keywords]:
+                if isinstance(argument, (ast.List, ast.Tuple, ast.Set)):
+                    for element in argument.elts:
+                        if is_str(element):
+                            note(element)
+        elif isinstance(node, ast.Subscript) and is_str(node.slice):
+            note(node.slice)
+        elif isinstance(node, ast.Compare) and is_str(node.left):
+            if any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
+                note(node.left)
     return found
 
 
@@ -308,7 +478,7 @@ def survey() -> List[OutputRow]:
     from library.tools import processes
 
     constants = {path.relative_to(_REPO_ROOT).as_posix():
-                 _string_constants(path) for path in _python_files()}
+                 _read_literals(path) for path in _python_files()}
     for classifier in CLASSIFIERS:
         constants.pop(classifier, None)
 
@@ -351,10 +521,14 @@ def survey() -> List[OutputRow]:
                     (rel, literals[name][0])
                     for rel, literals in sorted(constants.items())
                     if name in literals and not rel.startswith(own))
+                # A collision SUBTRACTS the credit. The readers are kept
+                # on the row so `disagreements` can tell a live collision
+                # from a stale entry, and `routes` ignores them.
+                collided = (node_id, name) in KNOWN_NAME_COLLISIONS
                 rows.append(OutputRow(
                     process=process_id, node=node_id, step_dir=step_dir,
                     name=name, edge_consumers=consumers, own_prompt=prompt,
-                    code_readers=readers))
+                    code_readers=readers, name_collision=collided))
     return rows
 
 
@@ -397,6 +571,22 @@ def disagreements(rows: Sequence[OutputRow] = None) -> List[str]:
                 f"{key[0]}.{key[1]}: recorded as unread and it now HAS a "
                 f"reader. Delete the entry - a stale exemption reads as "
                 f"coverage.")
+
+    # And the third table's own staleness. A collision entry SUBTRACTS a
+    # credit, so one whose output has no `code_readers` left is
+    # suppressing nothing and reads as a blind spot that is still there.
+    by_key = {row.key: row for row in rows}
+    for key in sorted(KNOWN_NAME_COLLISIONS):
+        row = by_key.get(key)
+        if row is None:
+            problems.append(
+                f"{key[0]}.{key[1]}: recorded as a name collision but no "
+                f"step declares that output any more. Delete the entry.")
+        elif not row.code_readers:
+            problems.append(
+                f"{key[0]}.{key[1]}: recorded as a name collision and "
+                f"nothing names it any more, so there is no credit left "
+                f"to subtract. Delete the entry.")
     return problems
 
 

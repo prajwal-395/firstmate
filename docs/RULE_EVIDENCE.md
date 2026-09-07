@@ -6313,6 +6313,11 @@ terminal records, recorded with the reason in
 `output_contract.REPORTED_NOT_CONSUMED`.  Two are findings, and one more
 was a finding until this change fixed it.
 
+**Those numbers were the instrument, not the pipeline.**  The second
+pass below re-asked the same question with a `code` route that requires
+a READ, and the honest answer is **70 declared outputs and 13 that
+nothing reads**.
+
 **`judge_reels.reel_judgement` - the quality bar could not fail.**  Step
 3.05 computes the readings, checks every quote against the reel it is
 about, derives the two judgement qualities and returns them.  Both
@@ -6357,6 +6362,122 @@ exit node and nothing produces it.  `post_bridge.py:20` reads
 asks the model for it, and no reader exists.  It is the empty string on
 every run.  The real verdict is `validation_result.status`.
 
+## the-outputs-nobody-read-second-pass
+
+The audit above built the mechanism and left an INVENTORY.  This is what
+each entry ends as, and what re-asking the question found.
+
+### The `code` route was crediting six outputs to something not a read
+
+The survey's third route matched a key as a string literal ANYWHERE in a
+module outside the producing step.  Its own docstring said this
+over-credits "in the safe direction", and it does not: an over-credit
+keeps an unread output OUT of both tables, which is a gate declining to
+fail.  Six were credited by three shapes, none of them a read:
+
+| output | credited to | what that line really is |
+|---|---|---|
+| `scan.total_files` | `analysis/sfx_query.py:304`, `resolve_project_sync.py:302` | those modules WRITING their own `total_files` into their own dict |
+| `scan.skipped_files` | `step_1_02_catalog_footage/step.py:297` | the CATALOG writing its own key of the same name |
+| `catalog.skipped_files` | `step_1_01_scan_project/step.py:99` | SCAN writing its own, one step earlier |
+| `catalog.total_clips` | `step_1_05_prosody_analysis/step.py:318`, `analysis/vision_pipeline_v3.py:1794` | prosody's and vision's own counts of their own work |
+| `temporal_index.total_failed` | `run_pipeline.py:2207` | `key != "total_failed"` - the key named to EXEMPT it from the zero-is-empty rule |
+| `ocr_extraction.ocr_extraction` | `operations.py:808`, `project_layout.py:203`, `run_scope.py:233`, `step_exporter.py:155` | the STEP ID, in four tables - while `run_scope.DESELECTED_BY_DEFAULT` says in as many words that nothing consumes the output |
+
+The `code` route now requires a read POSITION - `d.get("k")`, `d["k"]`,
+`"k" in d`, `d.pop("k")`, or the key inside a list handed to a call, the
+shape `require_keys(data, [...])` refuses with.  Nothing that was
+genuinely read lost its credit: `assign_aroll.hook_assignment`,
+`judge_reels.reel_judgement`, `scan.project_config`,
+`validate.validation_result` and three of 1.04's outputs all survive.
+
+Two keys are too generic for a name match to mean anything even in read
+position - `temporal_index.source` and `creative_cohesion.step`, whose
+credits read four and five unrelated dicts.  `KNOWN_NAME_COLLISIONS` now
+SUBTRACTS a credit instead of recording a known-false one and leaving it
+standing, and `disagreements` fails on a collision entry with nothing
+left to subtract.
+
+**`run_pipeline.validate_step_output` is not a consumer**, and saying so
+is the point.  It touches every declared output - present, typed,
+non-empty - which is the producing end's mirror of `input_contract`, a
+check on the DECLARATION rather than a use of the value.  Crediting it
+would have made every output consumed by construction.
+
+### What each of the thirteen ends as
+
+Five FIXED, eight decided in code.
+
+**`validate.final_qa_decision` - deleted.**  Declared and produced by
+nobody, so both the declaration and the post-bridge's dead echo are
+gone.  The one thing that had to be checked first: the phantom was
+load-bearing for whether the QA model was called at all, because
+`llm_output_declarations` asks for the step's outputs minus what is
+already in hand.  It is not - 6.02 has no step.py, its pre-bridge emits
+`deterministic_validation`, and the model is still asked for
+`validation_result`, which is exactly its half.
+`tests/test_llm_context_routing.py` asked that question through a
+hand-written `{"validation_result"}` set called "produced by step.py";
+nothing produces it before the model, so the test was passing for the
+wrong reason.  It now drives the shipped `llm_output_declarations`.
+
+**`creative_cohesion.step` - deleted.**  A declared output carrying the
+constant `"5.03_creative_cohesion"`: the step's own id, which the
+ledger, `project_layout` and the `step_outputs` key it is filed under
+already carry.  Replayed on 001's real inputs, the only difference in
+the step's output is the removed key.
+
+**`verify_reels.reel_verification` - given a reader.**  The record names
+the plan a build was graded against and the timelines that were graded,
+and `cmd_build_reels` printed only `op.name: status`, so a build said
+"nothing raised" and never said what had been looked at.
+`manage_project._report_reel_verification` reads it.  Driven with the
+captain's real `lucie/geo-podcast` build record it names the plan and
+all 20 timelines; a record naming none SAYS so rather than printing a
+bare pass.
+
+**`temporal_index.total_reused` - the check on it failed correct
+output.**  `validate_step_output` treats any `total_*` output of 0 as
+"semantically empty", and zero reused clips is the CORRECT answer on
+every run that transcribed fresh - which is what project 001's run of
+record did.  Measured on that run's own `1_04_temporal_index/output.json`:
+
+| | issues reported |
+|---|---|
+| before | `Step 'temporal_index' output 'total_reused' is semantically empty: 0` |
+| after (`may_be_empty` declared) | none |
+| after, with `total_indexed` forced to 0 | `output 'total_indexed' is semantically empty: 0` |
+
+The false positive is gone and the real defect still fails.
+
+**`catalog.source_resolution` - decided, and the false comment
+deleted.**  It stays unread, and it should: it is ONE project-wide modal
+number over 17 clips, and every decision that needs a resolution needs a
+per-clip one.  `_conform_fields` reads each clip's own `width`/`height`
+off the catalog, and `apply_fusion_comps` measures live off the media
+pool item at the moment it composites.  Giving the modal number the
+reader its comment claimed would put back exactly the grain error the
+captain's ruling of 2026-08-19 removed.  The sentence in
+`step_5_04_compile_manifest/step.py` that sent the last reader looking -
+"used for conform decisions only" - is deleted.
+
+**The counts stay unread, and each entry now carries the proof.**
+`scan.total_files` 17 = `len(raw_footage_files)` 17;
+`catalog.total_clips` 17 = `len(clip_catalog)` 17;
+`semantic_analysis.total_clips_analyzed` 17 = `len(documents)` 17;
+`temporal_index.total_indexed` 17 = `len(full_indices)` 17;
+`assign_aroll.total_a_roll_segments` 8 = `len(a_roll_assignments)` 8 -
+all on 001's run of record.  `sfx_library_status` stays unread because
+0.01's gate is its own exit code, and its manifest description named
+three fields (`profiles_count`, `index_searchable`, ...) that the step
+has never produced; it now names the seven it does.
+
+**`ocr_extraction.ocr_extraction` is the one live finding.**  1.07 reads
+the on-screen text off every frame and has no outgoing edge.  It costs
+445s on 001 and the standing mitigation is already in code - the step is
+DESELECTED BY DEFAULT for exactly this reason.  Whether a planning step
+should read the text is the captain's decision, not the table's.
+
 ### The edge checker had only ever looked at one process
 
 `validate_dag_contracts.run_validation` opened
@@ -6399,31 +6520,70 @@ fails in three places with the old read restored.
 body mentions the parameter**.  Routing a value nothing reads is the
 defect being audited, so the dead parameter is pinned by a test instead.
 
-### align_sfx_to_prosody has never fired
+### align_sfx_to_prosody has never fired, and is now deleted
 
-`step_4_04_plan_sfx/post_bridge.py:650` reads
-`data.get("prosody_analysis", {})` and hands it to
-`audio_reactive_sfx.align_sfx_to_prosody`, which snaps whoosh and
-transition SFX to pause boundaries and impact SFX to emphasis peaks.
-It cannot fire, for three independent reasons at once:
+`step_4_04_plan_sfx/post_bridge.py` read `data.get("prosody_analysis", {})`
+and handed it to `audio_reactive_sfx.align_sfx_to_prosody`, which claimed
+to snap whoosh and transition SFX to pause boundaries and impact SFX to
+emphasis peaks.  The audit found three independent reasons it could not
+fire; following the value to the end found **five**:
 
-1. no DAG edge routes `prosody_analysis` into `plan_sfx` and its
-   manifest does not declare the input, so the value is always `{}`;
-2. the function reads `pauses` and `emphasis_peaks` at the TOP LEVEL,
-   while step 1.05's output is `{available, profiles: {clip_id: ...},
-   total_clips, error}`;
-3. `analysis/speech_advanced_pipeline.analyze_prosody` has never emitted
-   either key - it produces `pitch_stats`, `pitch_contour_10ms`,
-   `voice_quality`, `speaking_rate`, `intensity_contour_50ms` and
-   `duration_s`.
+1. **Nothing routes the input.**  No edge in `edit_video/dag.json` maps
+   `prosody_analysis` into `plan_sfx` - 1.05 routes to
+   `creative_direction` and `speech_sequence` only - and 4.04's manifest
+   declares no such input.  A post-bridge's stdin is
+   `gather_step_inputs`' dict, so the key is absent and the guard is
+   never true.  Measured on 001: the merged input keys are
+   `b_roll_assignments, clip_catalog, creative_brief, creative_direction,
+   music_analysis, music_selection, project_config, project_folder,
+   project_fps, rough_cut_review, semantic_analysis_documents,
+   temporal_event_indices, timed_spine, transition_spec` - no prosody.
+2. **The shape is wrong.**  It reads `pauses` and `emphasis_peaks` at the
+   TOP LEVEL; 1.05's output on 001 is
+   `{available, error, profiles, total_clips}`, and a per-clip profile is
+   `{analysis_time_s, audio_file, clip_id, prosody}`.
+3. **The measurement does not exist.**  `analyze_prosody` has never
+   emitted either key at any level: `pitch_stats`, `pitch_contour_10ms`,
+   `voice_quality`, `speaking_rate`, `intensity_contour_50ms`,
+   `duration_s`.  **This is the real reason.**  1 and 2 are routing, and
+   there was nothing to route.
+4. **It branches on a vocabulary the step withdrew.**  Both surviving
+   branches test `sfx["type"]` for "whoosh"/"transition"/"impact".  A
+   plan entry is `{spine_block_position, sfx_id, volume_db,
+   duration_seconds, rationale}`.  001's archived plan carries
+   `{rationale, sfx_id, spine_block_position, volume_level}` - no `type`.
+   The type words went when placement was re-keyed onto the sound's own
+   MEASURED envelope.
+5. **It writes a key nothing reads.**  It sets `sfx["start_time"]`;
+   `_locate_sfx` positions an entry from `spine_block_position` /
+   `target_block_position` / `timeline_start` / `timeline_in`, and
+   `start_time` appears nowhere else in the step.
 
-That is the same triple the function's own docstring gives for deleting
-its third branch ("no step has ever emitted an `engagement_scores` key,
-no DAG edge carried one into plan_sfx").  The two branches above it were
-in the same condition and survived.  It is NOT fixed here: making it
-fire needs a measurement that does not exist, a routing decision, and a
-clip-time to timeline-time mapping.  Cost as it stands: every SFX keeps
-the time the plan gave it, and `align_sfx_to_prosody` is a dict copy.
+Driven against 001's real plan and 001's real 1.05 output, the function
+returns the plan **unchanged** - and unchanged again when the missing
+`pauses`/`emphasis_peaks` are hand-supplied at the top level, because
+reason 4 still blocks it.  So deleting it changes nothing a viewer sees,
+and that is measured rather than assumed.
+
+**The capability is not lost.**  Three lines below the deleted call:
+`find_sfx_placement` snaps a `punchy` sound onto a measured audio ONSET
+within +/-200 ms and falls back to a measured energy peak, and
+`_avoid_speech_collision` moves a sound that would land on speech into
+the nearest GAP BETWEEN WORDS, from WhisperX word end times in the
+timeline domain.  Those are the same two ideas from stronger signals,
+keyed on measurement rather than on a word in a name, and applied to
+every sound rather than two name prefixes.  001's one planned sound
+records `placement_method: "scene-boundary/block-edge -> onset-snap
+(+/-100ms)"` - that mechanism saying which route it took.
+
+**Resurrecting it instead is ranked LAST and costed.**  A pause detector
+and an emphasis-peak detector would both have to be written, a threshold
+invented to call a contour sample a peak - which AGENTS.md 10.5 forbids
+- a clip-time to timeline-time mapping added, and the result would
+compete with two mechanisms already reading better signals.  The
+function is DELETED, the way `scale_sfx_density` was, with the whole
+record in `library/tools/audio_reactive_sfx.py` and a guard in
+`tests/test_no_creative_floors.py`.
 
 ### The name that means two things
 

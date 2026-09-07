@@ -19,7 +19,10 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from library.processes.edit_video.run_pipeline import present_llm_step
+from library.processes.edit_video.run_pipeline import (
+    llm_output_declarations,
+    present_llm_step,
+)
 from library.tools.context_projector import project_fields
 
 DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
@@ -211,24 +214,36 @@ def test_a_step_with_nothing_to_ask_does_not_call_the_model(tmp_path):
     )
 
 
-@pytest.mark.parametrize("node_id,produced_by_step_py", [
-    ("validate", {"validation_result"}),
+@pytest.mark.parametrize("node_id,already_in_hand,still_asked", [
+    ("validate", {"deterministic_validation"}, "validation_result"),
 ])
-def test_the_qa_calls_still_have_something_to_ask(node_id, produced_by_step_py):
-    """The skip must not silently take render or validate with it.
+def test_the_qa_calls_still_have_something_to_ask(node_id, already_in_hand,
+                                                  still_asked):
+    """The skip must not silently take the QA call with it.
 
-    Both are the same classification accident as semantic_analysis - a
-    handoff.md beside a step.py - but both ask the model for a key their
-    step.py does not produce, so both still call. What they SHOULD ask
-    for is an open decision, and it is not this change's to make.
+    6.02 is `bridge.py` + `handoff.md` + `post_bridge.py` and has NO
+    step.py: the pre-bridge emits `deterministic_validation`, the model
+    writes `validation_result`, and the post-bridge merges the two into
+    one verdict with the deterministic half decisive.
+
+    Asked through the shipped `llm_output_declarations` rather than by
+    re-implementing its subtraction here. The earlier version subtracted
+    a hand-written `{"validation_result"}` as "produced by step.py" -
+    which nothing produces before the model - so what kept the call
+    alive in that reading was `final_qa_decision`, an output declared by
+    the manifest and produced by nobody. Deleting the phantom (see
+    library/tools/output_contract.py) does NOT skip the call: the model
+    is still asked for the one key it actually writes.
     """
-    outputs = {o["name"] for o in
-               manifest(node_id)["interface"]["outputs"]}
-    assert outputs - produced_by_step_py, (
+    m = manifest(node_id)
+    have = declared_inputs(m) | set(already_in_hand)
+    asked = [o["name"] for o in llm_output_declarations(m, have)]
+    assert asked, (
         f"'{node_id}' now has nothing left to ask and its call would be "
         f"skipped. That is a decision about the QA calls, not a "
         f"consequence to absorb here."
     )
+    assert still_asked in asked, asked
 
 
 def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):

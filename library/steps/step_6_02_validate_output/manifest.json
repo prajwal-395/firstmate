@@ -27,10 +27,6 @@
     ],
     "outputs": [
       {
-        "name": "final_qa_decision",
-        "type": "string"
-      },
-      {
         "name": "validation_result",
         "type": "object",
         "description": "State output: validation_result"

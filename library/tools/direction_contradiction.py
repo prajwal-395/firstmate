@@ -202,7 +202,6 @@ DECLINED_OUTPUTS = {
     "color_grade_spec": "5.01 carries a declared look plus a colourist's judgement; neither is a measurement of the material",
     "audio_mix_spec": "5.02 - a mix plan. It embeds measured levels, but it is routed to no step holding the direction, so nothing here could read them",
     "cohesion_review": "5.03 observes decisions, not material",
-    "step": "5.03 - a step id",
     "assembly_manifest": "5.04 consolidates every decision taken; holding it against the direction proves nothing",
 }
 

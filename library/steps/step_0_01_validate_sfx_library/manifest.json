@@ -16,7 +16,7 @@
       {
         "name": "sfx_library_status",
         "type": "object",
-        "description": "Validation result: { valid: bool, profiles_count: int, index_searchable: bool }"
+        "description": "What the validation looked at: { valid, sfx_library_path, entries, playable_entries, missing_files, catalog_entries, catalog_entries_described }, plus `error`/`fix` on a refusal. The GATE is the step's own exit code, not this record - see library/tools/output_contract.py."
       }
     ],
     "requirements": [

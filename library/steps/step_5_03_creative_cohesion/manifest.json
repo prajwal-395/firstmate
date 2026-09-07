@@ -60,11 +60,6 @@
         "name": "cohesion_review",
         "type": "object",
         "description": "State output: cohesion_review - warnings, the adjustments step_5_04 applies, and the observations a step upstream owns (library/tools/cohesion_scope.py)"
-      },
-      {
-        "name": "step",
-        "type": "string",
-        "description": "State output: step"
       }
     ]
   },

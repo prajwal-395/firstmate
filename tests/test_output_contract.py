@@ -20,6 +20,30 @@ seen from two sides:
   survey blind to that route would report all seven.
 * `test_the_repository_agrees_with_its_own_tables` - the live ratchet.
 
+The second pass, 2026-09-07
+---------------------------
+The `code` route used to match a key ANYWHERE in a module as a string
+literal, and that over-credited six outputs to lines that are not reads
+- a dict-literal key being WRITTEN, a `key != "total_failed"` carve-out
+inside a generic checker, and a step id in four dispatch tables.  An
+over-credit keeps an unread output OUT of both tables, which is a gate
+declining to fail, so the route now requires a READ POSITION:
+
+* `test_a_read_position_is_credited` - every shape a merged input dict
+  is really opened with survives, so the tighter rule does not fail
+  correct output;
+* `test_a_name_that_is_not_a_read_is_not_credited` - one case per false
+  credit that was found;
+* `test_validate_step_output_is_not_credited_as_a_reader` -
+  `run_pipeline.validate_step_output` touches every declared output and
+  consumes none of them.  Crediting a declaration checker would make
+  every output consumed by construction.
+* `test_a_known_collision_leaves_the_output_unread` and
+  `test_a_collision_with_nothing_left_to_subtract_is_a_disagreement` -
+  `KNOWN_NAME_COLLISIONS` now SUBTRACTS a credit rather than recording a
+  known-false one and leaving it standing, and it is stale from its own
+  side too.
+
 The calibration, and why it is not a test
 -----------------------------------------
 `uncalled_functions` was checked against a number a previous lane
@@ -43,12 +67,14 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from library.tools.output_contract import (  # noqa: E402
+    KNOWN_NAME_COLLISIONS,
     REPORTED_NOT_CONSUMED,
     ROUTE_CODE,
     ROUTE_EDGE,
     ROUTE_OWN_PROMPT,
     UNREAD_FINDINGS,
     OutputRow,
+    _read_literals,
     disagreements,
     survey,
     uncalled_functions,
@@ -271,3 +297,194 @@ def test_every_process_dag_is_contract_checked():
     assert "every_dag" in source
     assert "edit_video" not in source
     assert validate_dag_contracts.run_validation() == 0
+
+
+# ── The `code` route is a READ, not a name ───────────────────────────
+
+def _literals(tmp_path, source):
+    path = tmp_path / "probe.py"
+    path.write_text(source, encoding="utf-8")
+    return _read_literals(path)
+
+
+@pytest.mark.parametrize("source", [
+    'value = data.get("wanted")',
+    'value = data.get("wanted", "")',
+    'value = data["wanted"]',
+    'present = "wanted" in data',
+    'value = data.pop("wanted", None)',
+    'require_keys(data, ["wanted", "other"], "where")',
+])
+def test_a_read_position_is_credited(tmp_path, source):
+    """Every shape a merged input dict is actually opened with.
+
+    Dropping any of these would make the survey report an output that
+    really is read, which AGENTS.md 10.4 calls the same defect as a gate
+    that cannot fail.
+    """
+    assert "wanted" in _literals(tmp_path, source), source
+
+
+@pytest.mark.parametrize("source,what", [
+    ('result = {"wanted": total}', "a dict-literal key is a WRITE"),
+    ('if key != "wanted":\n    pass', "a comparison is a carve-out"),
+    ('STEPS = [StepDir("wanted", "1_07_dir")]', "a call argument is a step id"),
+    ('def f():\n    """wanted is mentioned here."""', "a docstring is prose"),
+])
+def test_a_name_that_is_not_a_read_is_not_credited(tmp_path, source, what):
+    """The six false credits, one shape each.
+
+    `scan.total_files` was credited to two modules WRITING their own
+    `total_files`; `temporal_index.total_failed` to `key !=
+    "total_failed"` inside a generic checker; `ocr_extraction` to
+    `StepDir("ocr_extraction", ...)`.
+    """
+    assert "wanted" not in _literals(tmp_path, source), what
+
+
+def test_validate_step_output_is_not_credited_as_a_reader(rows):
+    """It touches every declared output and consumes none of them.
+
+    `run_pipeline.validate_step_output` checks that a declared output is
+    present, typed and non-empty - the producing end's mirror of
+    `input_contract`. Crediting it would make every output consumed by
+    construction: a gate that cannot fail.
+    """
+    unread_names = {row.name for row in rows if row.unread}
+    assert {"total_indexed", "total_reused", "total_failed"} <= unread_names
+
+
+# ── A collision SUBTRACTS the credit ─────────────────────────────────
+
+def test_a_known_collision_leaves_the_output_unread():
+    """The table corrects a false credit; it does not apologise for one."""
+    collided = OutputRow(
+        process="edit_video", node="temporal_index",
+        step_dir="step_1_04_temporal_index", name="source",
+        code_readers=(("library/dashboard/server.py", 406),),
+        name_collision=True)
+    assert collided.unread and collided.routes == ()
+    assert collided.evidence() == ""
+
+
+def test_a_collision_with_nothing_left_to_subtract_is_a_disagreement():
+    """The third table fails from its own stale side too."""
+    key = next(iter(KNOWN_NAME_COLLISIONS))
+    node, name = key
+    no_readers = OutputRow(process="edit_video", node=node,
+                           step_dir="step_0_00_whatever", name=name)
+    problems = disagreements([no_readers])
+    assert any("no credit left to subtract" in p for p in problems), problems
+
+
+def test_the_live_collision_still_has_credits_to_subtract(rows):
+    """And from the other side: a recorded collision must be real."""
+    by_key = {row.key: row for row in rows}
+    for key in KNOWN_NAME_COLLISIONS:
+        row = by_key[key]
+        assert row.code_readers, f"{key} suppresses nothing"
+        assert row.unread, f"{key} must fall back into the unread set"
+
+
+# ── What the second pass FIXED ───────────────────────────────────────
+
+def test_the_reel_verification_record_reaches_a_reader(rows):
+    """`cmd_build_reels` printed only that nothing raised.
+
+    The verify node returns which plan it graded and which timelines it
+    graded, and for a while nothing read it - so a build could not say
+    what had been looked at. A gate whose account of itself is unread
+    reads as coverage.
+    """
+    row = {r.key: r for r in rows}[("verify_reels", "reel_verification")]
+    assert not row.unread, row.routes
+    assert any(path == "manage_project.py" for path, _line
+               in row.code_readers)
+
+
+def _build_reels_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "manage_project_under_test", REPO / "manage_project.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_reel_verification_reader_names_what_was_graded(capsys):
+    """And it reports the plan and the timelines, not just a status."""
+    _build_reels_module()._report_reel_verification({"reel_verification": {
+        "passed": True, "plan_path": "/p/reel_proposals_v2.json",
+        "timelines_verified": ["Reel 01 - a", "Reel 05 - b"],
+        "resolve_project_name": "Podcast (field test)",
+        "master_timeline_name": "GEO Podcast - Synced"}})
+    said = capsys.readouterr().err
+    assert "2 reel timeline(s)" in said
+    assert "Podcast (field test)" in said
+    assert "/p/reel_proposals_v2.json" in said
+    assert "Reel 01 - a" in said and "Reel 05 - b" in said
+
+
+@pytest.mark.parametrize("payload", [
+    {"reel_build": {"timelines_built": ["Reel 01"]}},   # the OTHER node
+    {}, None, "not a dict",
+])
+def test_the_reader_says_nothing_about_a_payload_that_is_not_a_verdict(
+        capsys, payload):
+    """It reads one key. The build node's own payload is not that key."""
+    _build_reels_module()._report_reel_verification(payload)
+    assert capsys.readouterr().err == ""
+
+
+def test_a_verification_that_graded_nothing_says_so(capsys):
+    """A pass naming no timeline is the shape that would read as coverage."""
+    _build_reels_module()._report_reel_verification({"reel_verification": {
+        "passed": True, "plan_path": "", "timelines_verified": [],
+        "resolve_project_name": "X"}})
+    said = capsys.readouterr().err
+    assert "0 reel timeline(s)" in said
+    assert "the plan graded none" in said
+
+
+@pytest.mark.parametrize("node,name", [
+    ("validate", "final_qa_decision"),
+    ("creative_cohesion", "step"),
+])
+def test_a_phantom_output_is_no_longer_declared(rows, node, name):
+    """Two outputs left by being deleted, which is shape 3 cleaned up.
+
+    `final_qa_decision` was declared by 6.02 and produced by nothing -
+    the post-bridge echoed `data.get("final_qa_decision", "")`, a key no
+    edge routed and no handoff asked for. `creative_cohesion.step` was
+    the constant `"5.03_creative_cohesion"`: the step's own id, which
+    the ledger and the `step_outputs` key already carry.
+    """
+    assert (node, name) not in {row.key for row in rows}
+
+
+def test_zero_reused_clips_is_not_reported_as_empty():
+    """A count whose correct value is 0 must not read as a defect.
+
+    `total_reused` is how much of the temporal index came off cache, so
+    zero is the right answer on every first run - and it was 0 on
+    project 001's run of record. `validate_step_output` treats any
+    `total_*` of 0 as semantically empty, so the manifest declares
+    `may_be_empty` for this one key. The check still fires for
+    `total_indexed`, where 0 IS a defect.
+    """
+    import json
+
+    from library.processes.edit_video.run_pipeline import validate_step_output
+
+    manifest = json.loads(
+        (REPO / "library" / "steps" / "step_1_04_temporal_index" /
+         "manifest.json").read_text(encoding="utf-8"))
+    good = {"full_indices": [{"clip_id": "clip_001"}], "index_dir": "/i",
+            "source": "fresh", "temporal_event_indices": [{"clip_id": "c"}],
+            "total_failed": 0, "total_indexed": 1, "total_reused": 0}
+    assert validate_step_output("temporal_index", good, manifest) == []
+
+    nothing_indexed = dict(good, total_indexed=0)
+    issues = validate_step_output("temporal_index", nothing_indexed, manifest)
+    assert any("total_indexed" in issue for issue in issues), issues

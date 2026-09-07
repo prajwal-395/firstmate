@@ -7,7 +7,6 @@ from library.tools.fusion_macro_loader import load_macro, list_available_transit
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import PLANNABLE_TYPES
 from library.tools.fairlight_presets import get_preset, select_preset_for_content
-from library.tools.audio_reactive_sfx import align_sfx_to_prosody
 from library.tools.brand_registry import load_brand_template, query_slots
 from library.schemas.brand_template import BrandTemplate
 from library.schemas.preset_metadata import PresetEntry

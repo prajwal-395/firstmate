@@ -46,6 +46,10 @@ two steps the ruling named is how a third floor survived in
   entries - half the impacts on "moderate" - judged by an energy word
   read from a `creative_direction` key that does not exist, so the
   constant "moderate" decided it every time.
+* `library/tools/audio_reactive_sfx.align_sfx_to_prosody` MOVED a plan
+  entry - a whoosh onto the nearest pause, an impact onto the nearest
+  emphasis peak, inside a hardcoded 2.0 s window - off a measurement
+  this pipeline has never taken.  It never fired on any run.
 
 A floor is a floor whether it pads, rejects, warns, or cuts. The code
 guard below is deliberately narrow - it drives the real bridges and
@@ -65,6 +69,7 @@ and points here.
 - **A floor in the PROMPT is a floor.** `tests/test_no_creative_floors.py` guards every creative-planning prompt (`CREATIVE_PLANNING_STEPS`), DERIVED from `undetermined.DECLARING_STEPS` so a new model-reaching step is covered whether or not anybody remembers to add it.
 - **A floor in a BRIDGE is a floor.** [why](docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan)
 - **A floor that CUTS is still a floor.** `audio_reactive_sfx.scale_sfx_density` deleted half the plan's impacts because a constant said the piece was "moderate". Deleted, not unwired.
+- **A floor that MOVES a plan entry is still a floor.** `audio_reactive_sfx.align_sfx_to_prosody` snapped a sound to a pause or an emphasis peak inside a 2.0 s window. Deleted, not unwired - and it had never once fired.
 - **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output.
 - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
@@ -642,6 +647,30 @@ def test_nothing_scales_the_sfx_plan_by_energy():
     sfx_source = (SFX / "post_bridge.py").read_text(encoding="utf-8")
     assert "scale_sfx_density(" not in sfx_source, (
         "the SFX post-bridge scales the plan by energy again"
+    )
+
+
+def test_nothing_snaps_the_sfx_plan_to_a_prosody_window():
+    """`align_sfx_to_prosody` is gone, not unwired, and for the same reason.
+
+    It moved a whoosh onto a pause and an impact onto an emphasis peak
+    inside a hardcoded 2.0 s window - taste stated as fact - and it never
+    fired on any run, for five independent reasons recorded in
+    `library/tools/audio_reactive_sfx.py`. What it claimed to do, the SFX
+    post-bridge already does from measured onsets and real word
+    boundaries.
+    """
+    import library.tools.audio_reactive_sfx as ars
+
+    assert not hasattr(ars, "align_sfx_to_prosody"), (
+        "align_sfx_to_prosody is back. It never fired, and where a sound "
+        "lands is decided by the sound's measured envelope and the "
+        "spine's own word times - not by a 2.0 s window around a "
+        "measurement this pipeline does not take."
+    )
+    sfx_source = (SFX / "post_bridge.py").read_text(encoding="utf-8")
+    assert "align_sfx_to_prosody(" not in sfx_source, (
+        "the SFX post-bridge aligns the plan to prosody again"
     )
 
 

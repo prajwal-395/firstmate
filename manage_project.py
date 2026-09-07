@@ -937,6 +937,38 @@ def cmd_build_reels(args):
             state.setdefault("step_outputs", {})[node_id] = result.payload
             _edit_video_runner().save_pipeline_state(project_folder, state)
             print(f"{op.name}: {result.status}", file=sys.stderr)
+            _report_reel_verification(result.payload)
+
+
+def _report_reel_verification(payload) -> None:
+    """Say WHICH plan and WHICH timelines the verify node graded.
+
+    `verify_reels` returns a terminal record - `reel_verification` - and
+    for a while nothing read it: the loop above printed the operation's
+    status, so a build reported "nothing raised" and never said what had
+    been looked at.  A gate whose account of itself is unread reads as
+    coverage (AGENTS.md 10.4), and the record exists precisely so a run
+    can name the plan it graded against.
+
+    The RAISE inside `reel_build.verify_built_reels` is still the gate.
+    This does not re-judge it; it reports what passed.
+    """
+    if not isinstance(payload, dict):
+        return
+    record = payload.get("reel_verification")
+    if not isinstance(record, dict):
+        return
+    timelines = list(record.get("timelines_verified") or ())
+    print(
+        f"  verified {len(timelines)} reel timeline(s) in Resolve project "
+        f"{record.get('resolve_project_name') or '?'!r} against "
+        f"{record.get('plan_path') or '(no plan named)'}",
+        file=sys.stderr)
+    for name in timelines:
+        print(f"    - {name}", file=sys.stderr)
+    if not timelines:
+        print("    (the record names no timeline - the plan graded none)",
+              file=sys.stderr)
 
 
 def _reel_project_folder(project: str) -> str:
