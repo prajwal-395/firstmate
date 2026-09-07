@@ -63,7 +63,8 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "status",
-    "info", "trace", "organize", "resolve-organize",
+    "info", "trace", "organize", "resolve-organize", "resolve-prune",
+    "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes", "relink",
 )
 
@@ -571,6 +572,165 @@ def cmd_resolve_organize(args):
         print("\nNothing was changed. Pass --apply to perform this.")
     print()
     print(render_unplaced(result["unplaced"]))
+
+
+def cmd_resolve_prune(args):
+    """Remove the pool items no timeline plays, and delete their files.
+
+    IRREVERSIBLE, so it is staged: `--apply` removes the pool ITEMS and
+    stops, `--delete-files` is a second, separate consent for the files.
+    The manifest naming every path is written BEFORE either happens.
+    See library/tools/orphan_removal.py.
+    """
+    from library.tools.execution.organise_media_pool import open_project
+    from library.tools.execution.prune_orphans import (
+        journal_path_for,
+        manifest_path_for,
+        remove_pool_items,
+        survey,
+        save_project,
+        timeline_digests,
+        write_manifest,
+    )
+    from library.tools.orphan_removal import render_summary
+
+    project_folder = _reel_project_folder(args.project)
+    project, _master = open_project(project_folder)
+
+    if args.delete_files and not args.apply:
+        _delete_from_journal(project, project_folder, args.delete_files)
+        return
+
+    result = survey(project, project_folder)
+    manifest = write_manifest(result, project, project_folder,
+                              manifest_path_for(project_folder))
+    print(render_summary(result["counts"]))
+    print(f"\n  Manifest (every path): {manifest}")
+
+    if not args.apply:
+        print("\nNothing was changed. Pass --apply to remove the pool "
+              "items; files are only deleted with --delete-files as well.")
+        return
+
+    # Saved BEFORE the "before" snapshot, so the comparison isolates
+    # THIS removal: anything already pending in the open project would
+    # otherwise land in the "after" save and read as damage done here.
+    # SaveProject is on the project MANAGER; `project.SaveProject` is
+    # None, and calling it raises TypeError rather than saving.
+    save_project()
+    before = timeline_digests(result["database_path"])
+    journal = remove_pool_items(project, result,
+                                journal_path_for(project_folder))
+    print(f"\n  Removed {len(journal['removed'])} pool item(s). "
+          f"No file on disk was touched.")
+    print(f"  Journal: {journal['journal_path']}")
+
+    save_project()
+    after = timeline_digests(result["database_path"])
+    moved = sorted(name for name in set(before) | set(after)
+                   if before.get(name) != after.get(name))
+    print(f"  Timelines: {len(before)} before, {len(after)} after; "
+          f"{len(moved)} digest(s) moved.")
+    if moved:
+        for name in moved:
+            print(f"    CHANGED: {name}")
+        print("  Files were NOT deleted. Investigate before going further.")
+        sys.exit(1)
+
+    if not args.delete_files:
+        print(f"\n  Files were NOT deleted. Now that the pool items are "
+              f"gone and every timeline still hashes the same, delete "
+              f"them with:\n    resolve-prune {args.project} "
+              f"--delete-files {journal['journal_path']}")
+        return
+
+    _delete_from_journal(project, project_folder, journal["journal_path"])
+
+
+def _delete_from_journal(project, project_folder: str, journal_path: str):
+    """Delete the files a completed item-removal authorised.
+
+    Driven by the JOURNAL rather than a fresh survey: once the pool
+    items are gone a survey finds no orphans and would delete nothing
+    while reporting success.
+    """
+    from library.tools.execution.prune_orphans import (
+        current_referenced_paths,
+        delete_files,
+        files_from_journal,
+    )
+
+    paths = files_from_journal(journal_path)
+    referenced = current_referenced_paths(project, project_folder)
+    print(f"  {len(paths)} file(s) authorised by {journal_path}")
+    print(f"  {len(referenced)} path(s) some timeline plays right now - "
+          f"each deletion is proven against these, one file at a time.")
+    record = delete_files(paths, referenced, journal_path)
+    gib = record["bytes_freed"] / (1024 ** 3)
+    print(f"\n  Deleted {len(record['deleted'])} file(s), freeing "
+          f"{gib:.2f} GiB.")
+    if record["vanished_before_deletion"]:
+        print(f"  {len(record['vanished_before_deletion'])} file(s) had "
+              f"already gone between the plan and the deletion.")
+
+
+def cmd_resolve_mark_master(args):
+    """Mark the master with where each reel was taken from.
+
+    Markers only, and reversible: `--clear` removes exactly the ones
+    this wrote. The master is never moved, recoloured, retimed or
+    re-rendered (the captain's ruling of 2026-09-07).
+    See library/tools/master_markers.py.
+    """
+    from library.tools.execution.mark_master import (
+        apply_markers,
+        clear_markers,
+        journal_path_for,
+        plan_markers,
+    )
+    from library.tools.execution.organise_media_pool import open_project
+    from library.tools.execution.prune_orphans import save_project
+
+    project_folder = _reel_project_folder(args.project)
+    project, master_name = open_project(project_folder)
+
+    plan = plan_markers(project, project_folder, master_name)
+    if args.clear:
+        removed = clear_markers(plan["master"])
+        save_project()
+        print(f"  Removed {len(removed)} marker(s) this pipeline wrote "
+              f"from {master_name!r}.")
+        print(f"  {len(plan['existing']) - len(removed)} marker(s) that "
+              f"were not ours are untouched.")
+        return
+
+    frames = plan["master_frames"]
+    covered = plan["covered_frames"]
+    print(f"Master: {master_name!r}, {frames} frames.")
+    print(f"  {len(plan['reels'])} reel(s) located on it by footage "
+          f"overlap; {len(plan['unlocatable'])} could not be located.")
+    for entry in plan["unlocatable"]:
+        print(f"    NOT MARKED: {entry['reel']} - {entry['why']}")
+    print(f"  {len(plan['markers'])} disjoint region(s) of the episode are "
+          f"used, covering {covered} of {frames} frames "
+          f"({100.0 * covered / frames:.1f}%).")
+    by_colour = {}
+    for marker in plan["markers"]:
+        by_colour[marker.colour] = by_colour.get(marker.colour, 0) + 1
+    print("  Regions by recorded state: " + ", ".join(
+        f"{k}={v}" for k, v in sorted(by_colour.items())))
+    print(f"  {len(plan['existing'])} marker(s) already on the master.")
+
+    if not args.apply:
+        print("\nNothing was changed. Pass --apply to write them.")
+        return
+
+    journal = apply_markers(plan, journal_path_for(project_folder))
+    save_project()
+    print(f"\n  Wrote {len(journal['written'])} marker(s); removed "
+          f"{len(journal['removed_first'])} of this pipeline's own first.")
+    print(f"  Journal: {journal['journal_path']}")
+    print(f"  Remove them with: --clear")
 
 
 def render_plan_from_dict(plan: dict) -> str:
@@ -1106,6 +1266,38 @@ def main():
     p_rorg.add_argument("--check", action="store_true",
                         help="Report what is filed wrong; exit 1 if any")
     p_rorg.set_defaults(func=cmd_resolve_organize)
+
+    # resolve-prune
+    p_prune = sub.add_parser(
+        "resolve-prune",
+        help="Remove media-pool items no timeline plays, and delete their "
+             "files. IRREVERSIBLE; plans by default")
+    p_prune.add_argument("project", help="Project slug, or an absolute path "
+                                         "to the project directory")
+    p_prune.add_argument("--apply", action="store_true",
+                         help="Remove the pool items (default: plan only). "
+                              "Files are NOT deleted without --delete-files")
+    p_prune.add_argument("--delete-files", metavar="JOURNAL", nargs="?",
+                         const="", default=None,
+                         help="Delete the files a completed removal "
+                              "authorised, named by its journal. Given "
+                              "alone this is the second, separate consent; "
+                              "given with --apply it follows it directly")
+    p_prune.set_defaults(func=cmd_resolve_prune)
+
+    # resolve-mark-master
+    p_mark = sub.add_parser(
+        "resolve-mark-master",
+        help="Mark the master timeline with where each reel was taken "
+             "from. Markers only, and reversible")
+    p_mark.add_argument("project", help="Project slug, or an absolute path "
+                                        "to the project directory")
+    p_mark.add_argument("--apply", action="store_true",
+                        help="Write the markers (default: plan only)")
+    p_mark.add_argument("--clear", action="store_true",
+                        help="Remove the markers this pipeline wrote, and "
+                             "only those")
+    p_mark.set_defaults(func=cmd_resolve_mark_master)
 
     # check
     p_check = sub.add_parser("check", help="Run the readiness check for a project")

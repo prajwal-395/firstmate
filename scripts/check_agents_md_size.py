@@ -35,7 +35,15 @@ import sys
 # was the empty `### Visual verification` heading: removing it failed
 # `check_agents_md_preservation.py`, which is right - a heading is
 # cross-referenced whether or not it currently carries prose.
-CEILING = 53326
+# LOWERED 2026-09-07 with `## 5`, from 53,326: `## 5` gained two index rows -
+# `orphan_removal.py` (removing a pool item, which the organiser must never do)
+# and `master_markers.py` - and paid for both inside its own budget by moving
+# two HOW-TO sentences to the files their `Detail:` lines already point at:
+# the `neural_engine_directives` pop now lives only at
+# `resolve_build_timeline.py:37` and the `GetProperty()` read-back only at
+# `probe_resolve_capabilities.py:22`, both verbatim. The 78 characters left
+# over went off the ceiling rather than back into the spare.
+CEILING = 53248
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
