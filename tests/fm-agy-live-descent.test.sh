@@ -187,6 +187,7 @@ fm_backend_capture() {
 }
 
 fm_backend_send_key() {
+  [ -z "${KEYLOG_PATH:-}" ] || printf '%s\n' "$3" >> "$KEYLOG_PATH"
   [ "$FAKE_MODE" = picker ] || return 0
   case "$3" in
     Up|Down) fake_move "$3" ;;
@@ -200,14 +201,18 @@ fm_backend_send_key() {
 # times, so the retry count is not a tuning knob here - it is how many Enters
 # reach the worker. Modelling that faithfully is what makes the one-Enter rule
 # testable at all.
+# The submit verdict the fake pane answers with. `pending` is the default because
+# it is the helper's ordinary answer for a perfectly delivered `/model`, which
+# starts no turn; the no-picker tests below drive it through every verdict.
+FAKE_SUBMIT_VERDICT=pending
 fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> ...
   local i=0
-  [ "$FAKE_MODE" = picker ] || return 0
+  [ "$FAKE_MODE" = picker ] || { printf '%s' "$FAKE_SUBMIT_VERDICT"; return 0; }
   while [ "$i" -lt "$4" ]; do
     fake_enter
     i=$((i + 1))
   done
-  printf 'pending'
+  printf '%s' "$FAKE_SUBMIT_VERDICT"
   return 0
 }
 fm_busy_classify_meta() { printf '%s' "$FAKE_BUSY"; }
@@ -1044,6 +1049,64 @@ test_the_model_command_carries_exactly_one_enter() {
   pass "fm_agy_descent_switch: the model command carries exactly one Enter, so no retry commits a selection"
 }
 
+test_a_picker_that_never_opens_says_unknown_when_keys_may_have_landed() {
+  # THE FILED DEFECT. A confirmed delivery (verdict `empty`) with no picker
+  # must never be reported as "no keys were sent": the command reached the
+  # pane and only the picker is missing. `pending` is the same case - it is
+  # the helper's ordinary answer for a perfectly delivered `/model`, which
+  # starts no turn - and an unreadable delivery is unknown for the same reason.
+  local verdict out rc keys
+  local FM_AGY_DESCENT_PICKER_WAIT=2
+  FAKE_MODE=static
+  FAKE_PANE=$(ordinary_pane)
+  KEYLOG_PATH="$TMP_ROOT/no-picker-keys.log"
+  for verdict in empty pending unknown; do
+    FAKE_SUBMIT_VERDICT=$verdict
+    : > "$KEYLOG_PATH"
+    rc=0
+    out=$(fm_agy_descent_switch tmux fake:target fm-repro "$RUNG3" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] \
+      || fail "a picker that never opens must still refuse (verdict $verdict)"
+    assert_not_contains "$out" "no keys were sent" \
+      "a $verdict delivery with no picker must never claim nothing was sent"
+    assert_contains "$out" "is unknown" \
+      "a $verdict delivery with no picker must report the state as unknown"
+    keys=$(cat "$KEYLOG_PATH")
+    case "$keys" in
+      *Up*|*Down*|*Right*|*Left*|*Enter*)
+        fail "no navigation key may be sent before the picker is identified (verdict $verdict), sent: $keys" ;;
+    esac
+  done
+  KEYLOG_PATH=
+  FAKE_SUBMIT_VERDICT=pending
+  pass "fm_agy_descent_switch: a missing picker after a possibly-delivered command refuses as unknown, with no navigation sent"
+}
+
+test_a_picker_that_never_opens_says_not_sent_only_when_send_failed() {
+  # THE OTHER DIRECTION. A literal send failure proves nothing reached the
+  # pane, so that refusal - and only that one - still says no keys were sent.
+  local out rc=0 keys
+  local FM_AGY_DESCENT_PICKER_WAIT=2
+  FAKE_MODE=static
+  FAKE_PANE=$(ordinary_pane)
+  FAKE_SUBMIT_VERDICT=send-failed
+  KEYLOG_PATH="$TMP_ROOT/no-picker-keys-failed.log"
+  : > "$KEYLOG_PATH"
+  out=$(fm_agy_descent_switch tmux fake:target fm-repro "$RUNG3" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] \
+    || fail "a picker that never opens must refuse even on send-failed"
+  assert_contains "$out" "no keys were sent" \
+    "a send-failed delivery must still be reported as nothing sent"
+  keys=$(cat "$KEYLOG_PATH")
+  case "$keys" in
+    *Up*|*Down*|*Right*|*Left*|*Enter*)
+      fail "no navigation key may be sent before the picker is identified, sent: $keys" ;;
+  esac
+  KEYLOG_PATH=
+  FAKE_SUBMIT_VERDICT=pending
+  pass "fm_agy_descent_switch: only a send-failed delivery earns 'no keys were sent'"
+}
+
 # --- 7. Climbing back up ----------------------------------------------------
 #
 # The other half of the captain's rule, and the half that needed hysteresis. A
@@ -1689,6 +1752,8 @@ test_the_evaluation_can_be_turned_off
 test_a_crossed_floor_moves_the_worker_and_records_it
 test_a_walk_that_does_not_land_on_the_target_commits_nothing
 test_the_model_command_carries_exactly_one_enter
+test_a_picker_that_never_opens_says_unknown_when_keys_may_have_landed
+test_a_picker_that_never_opens_says_not_sent_only_when_send_failed
 test_a_reset_rung_climbs_the_worker_back_and_records_it
 test_the_climb_never_reaches_into_the_captains_reserve
 test_an_unread_rung_above_is_never_climbed_into

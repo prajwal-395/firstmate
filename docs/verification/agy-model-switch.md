@@ -261,7 +261,7 @@ command would otherwise take arrow keys and an Enter into whatever is actually
 there:
 
 ```
-refused caseB could not be moved from Claude Opus 4.6 (Thinking) to Gemini 3.1 Pro (High): the model picker did not open within 20s (delivery reported empty), so no keys were sent
+refused caseB could not be moved from Claude Opus 4.6 (Thinking) to Gemini 3.1 Pro (High): the model picker did not open within 20s (delivery reported empty), so whether the /model command landed is unknown - verify the worker model before sending again
 --- what actually reached that pane (no navigation keys, composer cleared): ---
 ❯ /model
 zsh: no such file or directory: /model
@@ -270,6 +270,8 @@ zsh: no such file or directory: /model
 
 Only the command itself reached the pane. No navigation key followed it, and the
 composer was returned to a clean prompt.
+The refusal above is quoted in its corrected wording: as first recorded it ended "so no keys were sent", which the pane transcript disproves - the delivery verdict was `empty` and `/model` visibly reached the pane.
+Only a `send-failed` literal send earns "no keys were sent"; any other verdict without a picker is reported as unknown, because retrying a switch that may have landed is a different recovery from retrying one that provably did not.
 
 ## Refreshing this record
 

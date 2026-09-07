@@ -786,7 +786,11 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
 
   # GUARD: not one navigation key is sent until agy has positively drawn the
   # picker. Without this, a version that renamed or removed /model would take
-  # arrow keys and an Enter straight into the composer of a live worker.
+  # arrow keys and an Enter straight into the composer of a live worker. The
+  # refusal below distinguishes what the delivery verdict proved: only a
+  # send-failed literal send earns "no keys were sent", because every other
+  # verdict means the /model command itself reached the pane and only the
+  # picker is missing, so whether the switch keys landed is unknown.
   waited=0
   while [ "$waited" -lt "$FM_AGY_DESCENT_PICKER_WAIT" ]; do
     text=$(fm_agy_descent_capture "$backend" "$target" "$label")
@@ -797,8 +801,16 @@ fm_agy_descent_switch() {  # <backend> <target> <label> <ladder-display>
   if ! fm_agy_descent_is_picker "$text"; then
     fm_agy_descent_escape "$backend" "$target" "$label" \
       || { printf 'the model picker did not open within %ss (delivery reported %s) and the worker could not be returned to a clean composer' "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"; return 1; }
-    printf 'the model picker did not open within %ss (delivery reported %s), so no keys were sent' \
-      "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"
+    case "${verdict:-nothing}" in
+      send-failed)
+        printf 'the model picker did not open within %ss (delivery reported %s), so no keys were sent' \
+          "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"
+        ;;
+      *)
+        printf 'the model picker did not open within %ss (delivery reported %s), so whether the /model command landed is unknown - verify the worker model before sending again' \
+          "$FM_AGY_DESCENT_PICKER_WAIT" "${verdict:-nothing}"
+        ;;
+    esac
     return 1
   fi
 
