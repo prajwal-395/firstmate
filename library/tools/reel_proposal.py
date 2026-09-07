@@ -288,12 +288,8 @@ class ReelMoment:
         body["straddling_within"] = [dict(x) for x in self.straddling_within]
         body["opening_observations"] = [dict(o) for o
                                         in self.opening_observations]
-        body["has_duplicate_take"] = bool(self.duplicate_takes)
-        body["timeline_name"] = self.timeline_name
-        body["duration_seconds"] = round(self.duration, 3)
         body["call_to_action"] = (self.call_to_action.as_dict()
                                   if self.call_to_action else None)
-        body["total_duration_seconds"] = round(self.total_duration, 3)
         return body
 
     @classmethod

@@ -213,7 +213,7 @@ def test_a_proposal_round_trips_with_the_captains_decision(tmp_path):
 
     data = json.loads(path.read_text())
     assert data["moments"][0]["approval"] == "proposed"
-    assert data["moments"][0]["timeline_name"] == "Reel 01 - seo-vs-geo"
+    assert "timeline_name" not in data["moments"][0]  # derived, not stored
 
     # the captain edits the file
     data["moments"][0]["approval"] = "approved"
@@ -484,16 +484,16 @@ def test_enrich_attaches_the_findings_to_the_moment():
              _spoken("we ran an audit last week where an seo team stuffed "
                      "keywords into h1 tags", 21.0, 30.0, uid="uid-2"))
     enriched = enrich(_moment(timeline_start=10.0, timeline_end=30.0), tx)
-    assert enriched.duplicate_takes
-    assert enriched.as_dict()["has_duplicate_take"] is True
+    assert enriched.as_dict()["duplicate_takes"]  # the list is non-empty
+    assert bool(enriched.duplicate_takes) is True
 
 
 def test_a_moment_with_no_repeat_says_so():
     tx = _tx(_spoken("seo convinces an algorithm to rank pages higher",
                      10.0, 18.0))
     enriched = enrich(_moment(timeline_start=10.0, timeline_end=18.0), tx)
-    assert enriched.duplicate_takes == ()
-    assert enriched.as_dict()["has_duplicate_take"] is False
+    assert enriched.as_dict()["duplicate_takes"] == []
+    assert bool(enriched.duplicate_takes) is False
 
 
 def test_a_repeat_never_removes_anything():
