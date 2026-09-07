@@ -718,26 +718,27 @@ test_scout_and_secondmate_scaffold() {
 # Regression test for the bug fixed in PR 8 (commit a9c8212): the Herdr
 # NOT-ENABLED section contained a literal {TASK} token in its prose, which
 # tripped the spawn guard added in PR 5.
-# The spawn guard (bin/fm-spawn.sh) refuses to launch when any {[A-Z_]+} token
-# remains in the brief file.  Firstmate fills the real placeholder by replacing
-# the text, so a SECOND occurrence of the same token in scaffold prose survives
-# the fill and blocks dispatch.
+# The dispatch guard (bin/fm-brief-lib.sh, used by both --check and spawn)
+# refuses to dispatch when any {[A-Z_]+} token remains in the brief file.
+# Firstmate fills the real placeholder by replacing the text, so a SECOND
+# occurrence of the same token in scaffold prose survives the fill and blocks
+# dispatch.
 # This test generates every scaffold variant and asserts that the number of
 # guard-matching token occurrences in the brief file matches the expected count
 # per variant, not just the unique set.  An extra occurrence of an expected token
 # (the exact original bug) is caught, along with any novel token.
-# It reads the guard's own regex from bin/fm-spawn.sh so the test cannot drift
-# from the pattern it protects.
+# It reads the guard's own pattern from its single owner bin/fm-brief-lib.sh,
+# so the test cannot drift from the pattern it protects.
 test_scaffold_tokens_match_spawn_guard_expectations() {
   local home guard_regex
   home="$TMP_ROOT/placeholder-guard-home"
   mkdir -p "$home/data"
 
-  # Extract the guard regex from bin/fm-spawn.sh rather than restating it.
-  # The guard line is: UNFILLED=$(grep -oE '\{[A-Z_]+\}' "$BRIEF" ...)
-  # We extract just the pattern between the single quotes after -oE.
-  guard_regex=$(sed -n "s/^UNFILLED=.*grep -oE '\\([^']*\\)'.*/\\1/p" "$ROOT/bin/fm-spawn.sh")
-  [ -n "$guard_regex" ] || fail "could not extract the spawn guard regex from bin/fm-spawn.sh"
+  # The canonical pattern lives in bin/fm-brief-lib.sh as
+  # FM_BRIEF_PLACEHOLDER_RE, already sourced above: use the owner's own value
+  # rather than restating it, so the test cannot drift from the guard.
+  guard_regex=$FM_BRIEF_PLACEHOLDER_RE
+  [ -n "$guard_regex" ] || fail "the brief library no longer declares FM_BRIEF_PLACEHOLDER_RE"
 
   # assert_token_counts <brief-file> <label> [TOKEN:COUNT ...]
   # Asserts: (1) every listed TOKEN appears exactly COUNT times, and
@@ -1077,6 +1078,104 @@ TERSE
   pass "fm-brief.sh --check: empty is the only refusal, it names every empty field, and a pre-contract brief warns rather than blocks"
 }
 
+# --check must agree with what spawn enforces: an untouched scaffold still
+# carrying its placeholders is refused, a scope field holding only the
+# scaffold's own placeholder prose is refused as empty, and a genuinely filled
+# brief still passes. A gate that cannot fail is worse than no gate, and one
+# that fails correct output is the same defect from the other side.
+test_check_refuses_placeholders_and_passes_filled_brief() {
+  local home id brief out status state
+  home="$TMP_ROOT/check-placeholders-home"
+  mkdir -p "$home/data"
+
+  # An untouched ship scaffold is refused and names its unfilled placeholders.
+  id="check-untouched-ship"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the untouched ship case"
+  brief="$home/data/$id/brief.md"
+  grep -qF "{TASK}" "$brief" || fail "the untouched fixture lost its {TASK} placeholder before the check ran"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "an untouched scaffold was reported as ready"
+  assert_contains "$out" "unfilled scaffold placeholder" "the refusal did not name unfilled placeholders"
+  assert_contains "$out" "{TASK}" "the refusal did not name the {TASK} placeholder"
+
+  # An untouched scout scaffold is refused the same way.
+  id="check-untouched-scout"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1 \
+    || fail "scaffold failed for the untouched scout case"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "an untouched scout scaffold was reported as ready"
+  assert_contains "$out" "unfilled scaffold placeholder" "the scout refusal did not name unfilled placeholders"
+
+  # A scope field holding only the scaffold's own placeholder prose is not an
+  # answer: the scope state itself reports such a field as empty.
+  id="check-placeholder-scope"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the placeholder-scope case"
+  brief="$home/data/$id/brief.md"
+  state=$(fm_brief_scope_state "$brief")
+  case "$state" in
+    empty*)
+      ;;
+    *)
+      fail "a scope field holding only scaffold placeholder prose was not reported empty (got: $state)"
+      ;;
+  esac
+  assert_contains "$state" "What done means for this task" \
+    "the placeholder-only scope state did not name the unanswered field"
+
+  # A genuinely filled brief still passes: every placeholder replaced with an
+  # answer, including the literal word `nothing` for Blocked on.
+  id="check-filled-ship"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the filled ship case"
+  brief="$home/data/$id/brief.md"
+  python3 - "$brief" <<'FILL'
+import sys
+path = sys.argv[1]
+values = {
+    "{TASK}": "Do the thing.",
+    "{DONE_CHECK}": "run the check",
+    "{SCOPE_DONE}": "The gate refuses an empty field.",
+    "{SCOPE_OUT_OF_SCOPE}": "Delivery mode resolution.",
+    "{SCOPE_KNOWN_UNKNOWNS}": "Whether a charter needs the same fields.",
+    "{SCOPE_BLOCKED_ON}": "nothing",
+}
+text = open(path).read()
+for token, value in values.items():
+    text = text.replace(token, value)
+open(path, "w").write(text)
+FILL
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a genuinely filled brief must report ready"
+  assert_contains "$out" "ready:" "the ready report did not say the brief is ready"
+
+  # A genuinely filled scout brief passes as well.
+  id="check-filled-scout"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1 \
+    || fail "scaffold failed for the filled scout case"
+  brief="$home/data/$id/brief.md"
+  python3 - "$brief" <<'FILL'
+import sys
+path = sys.argv[1]
+values = {
+    "{TASK}": "Investigate the thing.",
+    "{SCOPE_DONE}": "A report exists.",
+    "{SCOPE_OUT_OF_SCOPE}": "Shipping a fix.",
+    "{SCOPE_KNOWN_UNKNOWNS}": "Whether the log survives.",
+    "{SCOPE_BLOCKED_ON}": "nothing",
+}
+text = open(path).read()
+for token, value in values.items():
+    text = text.replace(token, value)
+open(path, "w").write(text)
+FILL
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a genuinely filled scout brief must report ready"
+
+  pass "fm-brief.sh --check: an untouched scaffold is refused, placeholder-only scope prose is empty, and a filled brief passes"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1100,6 +1199,7 @@ test_scout_and_secondmate_scaffold
 test_scaffold_tokens_match_spawn_guard_expectations
 test_task_scaffolds_carry_the_required_scope_fields
 test_scope_check_refuses_empty_and_never_judges_content
+test_check_refuses_placeholders_and_passes_filled_brief
 test_ship_base_verification_before_branching
 test_scout_does_not_assert_false_detached_head
 test_paused_examples_include_long_local_processes
