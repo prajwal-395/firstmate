@@ -22,11 +22,13 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The four this composition draws are
- * `title_lockup`, `quote_card`, `progress_bar` and `frame_accents` -
- * the four the roster marks `reachable_now`. An entry naming any other
- * element never reaches these props: `motion_graphics_plan.resolve_plan`
- * drops it with `renderer_cannot_draw_it_yet` and records the drop.
+ * `element` is a roster key. The ten this composition draws are
+ * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
+ * `lower_third`, `context_stamp`, `stat_callout`, `beat_accent`,
+ * `pointer_annotation` and `counter_roll` - the ten the roster marks
+ * `reachable_now`. An entry naming any other element never reaches
+ * these props: `motion_graphics_plan.resolve_plan` drops it with
+ * `renderer_cannot_draw_it_yet` and records the drop.
  */
 export type PlannedElement = {
   element: string;
@@ -127,6 +129,103 @@ export const elementOpacity = (
     opacity = Math.min(opacity, Math.max(0, fromEnd / outFrames));
   }
   return Math.max(0, Math.min(1, opacity));
+};
+
+/**
+ * The CSS transform an entrance or exit character applies.
+ *
+ * `fade` is opacity-only (handled by elementOpacity). `slide` moves
+ * vertically, `scale` zooms, `mask` clips, and `draw` does a longer
+ * scale-and-fade. These are the composition's own drawing of the
+ * vocabulary's entrance/exit axis - the PLAN chooses the character, and
+ * these functions define what that character looks like on screen.
+ */
+export const entranceTransform = (
+  localFrame: number,
+  durationFrames: number,
+  entrance: string,
+): React.CSSProperties => {
+  const inFrames = RAMP_FRAMES[entrance] ?? 0;
+  if (inFrames <= 0 || localFrame >= inFrames) return {};
+  const progress = Math.min(1, localFrame / inFrames);
+
+  switch (entrance) {
+    case "slide": {
+      const y = interpolate(progress, [0, 1], [40, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `translateY(${y}px)` };
+    }
+    case "scale": {
+      const s = interpolate(progress, [0, 1], [0.7, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `scale(${s})` };
+    }
+    case "mask": {
+      const clip = interpolate(progress, [0, 1], [100, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { clipPath: `inset(0 ${clip}% 0 0)` };
+    }
+    case "draw": {
+      const s = interpolate(progress, [0, 1], [0.85, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
+    }
+    default:
+      return {};
+  }
+};
+
+export const exitTransform = (
+  localFrame: number,
+  durationFrames: number,
+  exit: string,
+): React.CSSProperties => {
+  const outFrames = RAMP_FRAMES[exit] ?? 0;
+  if (outFrames <= 0) return {};
+  const fromEnd = durationFrames - localFrame;
+  if (fromEnd >= outFrames) return {};
+  const progress = Math.max(0, fromEnd / outFrames);
+
+  switch (exit) {
+    case "slide": {
+      const y = interpolate(progress, [0, 1], [40, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `translateY(${-y}px)` };
+    }
+    case "scale": {
+      const s = interpolate(progress, [0, 1], [0.7, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `scale(${s})` };
+    }
+    case "mask": {
+      const clip = interpolate(progress, [0, 1], [100, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { clipPath: `inset(0 0 0 ${clip}%)` };
+    }
+    case "draw": {
+      const s = interpolate(progress, [0, 1], [0.85, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
+    }
+    default:
+      return {};
+  }
 };
 
 type Insets = { top: number; right: number; bottom: number; left: number };
@@ -241,6 +340,13 @@ const DrawnElement: React.FC<{
   // size.
   const scale = element.footprint && element.footprint > 0 ? element.footprint : 1;
 
+  // Entrance and exit transforms: slide, scale, mask, and draw each
+  // produce their own spatial animation. Fade is opacity-only.
+  const entTransform = entranceTransform(
+    localFrame, element.durationFrames, element.entrance);
+  const extTransform = exitTransform(
+    localFrame, element.durationFrames, element.exit);
+
   // `title_lockup` - the upper third, now carrying the copy the plan
   // wrote. It has drawn since the pipeline's first render and has never
   // held a word, because nothing was ever asked for one.
@@ -249,6 +355,8 @@ const DrawnElement: React.FC<{
       <div
         style={{
           opacity,
+          ...entTransform,
+          ...extTransform,
           display: "flex",
           flexDirection: "column",
           gap: "12px",
@@ -267,6 +375,8 @@ const DrawnElement: React.FC<{
       <div
         style={{
           opacity,
+          ...entTransform,
+          ...extTransform,
           display: "flex",
           flexDirection: "column",
           gap: "16px",
@@ -367,6 +477,8 @@ const DrawnElement: React.FC<{
       <div
         style={{
           opacity,
+          ...entTransform,
+          ...extTransform,
           display: "flex",
           flexDirection: "column",
           gap: "8px",
@@ -388,6 +500,8 @@ const DrawnElement: React.FC<{
       <div
         style={{
           opacity,
+          ...entTransform,
+          ...extTransform,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -410,6 +524,8 @@ const DrawnElement: React.FC<{
       <div
         style={{
           opacity,
+          ...entTransform,
+          ...extTransform,
           display: "flex",
           flexDirection: "column",
           gap: "12px",
@@ -452,6 +568,68 @@ const DrawnElement: React.FC<{
           boxShadow: `0 0 16px ${element.color}, inset 0 0 16px ${element.color}`,
         }}
       />
+    );
+  }
+
+  // `counter_roll` - a figure that animates from one value to another
+  // across its life. The vocabulary says: "The CHANGE is the point -
+  // growth, a countdown, an elapsed quantity - and a static figure would
+  // show only its end." `data.start_value` and `data.end_value` drive
+  // the roll; the copy runs carry the label. Spring physics make the
+  // count feel organic rather than linear.
+  if (element.element === "counter_roll") {
+    const data = element.data ?? {};
+    const startVal = typeof data.start_value === "number" ? data.start_value : 0;
+    const endVal = typeof data.end_value === "number" ? data.end_value : 100;
+    const prefix = typeof data.prefix === "string" ? data.prefix : "";
+    const suffix = typeof data.suffix === "string" ? data.suffix : "";
+    const decimals = typeof data.decimals === "number" ? data.decimals : 0;
+
+    // Ease into the target with an interpolation that starts fast and
+    // settles, so the viewer reads the final value clearly.
+    const rollProgress = interpolate(
+      localFrame,
+      [0, Math.max(1, element.durationFrames * 0.8)],
+      [0, 1],
+      { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+    );
+    // Cubic ease-out for a natural deceleration
+    const eased = 1 - Math.pow(1 - rollProgress, 3);
+    const currentValue = startVal + (endVal - startVal) * eased;
+    const displayValue = decimals > 0
+      ? currentValue.toFixed(decimals)
+      : Math.round(currentValue).toLocaleString();
+    const fontSize = (TYPE_SIZE.display ?? 56) * scale * 1.5;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: `${Math.round(8 * scale)}px`,
+        }}
+      >
+        <div
+          style={{
+            fontSize: `${fontSize}px`,
+            fontWeight: 900,
+            color: element.color,
+            fontVariantNumeric: "tabular-nums",
+            textShadow: `0 0 40px ${element.color}40, 0 4px 16px rgba(0,0,0,0.5)`,
+            letterSpacing: "2px",
+            lineHeight: 1.0,
+          }}
+        >
+          {prefix}{displayValue}{suffix}
+        </div>
+        {element.runs.length > 0 && (
+          <Runs element={element} scale={scale * 0.7} />
+        )}
+      </div>
     );
   }
 

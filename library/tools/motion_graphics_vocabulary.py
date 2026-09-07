@@ -557,8 +557,12 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy", "data"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Implemented in Remotion. data.start_value and data.end_value "
+            "drive the roll with cubic ease-out; copy runs carry the label. "
+            "tabular-nums keeps digit widths stable across the animation."
+        ),
     ),
     MotionElement(
         key="comparison_bars",

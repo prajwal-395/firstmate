@@ -1,0 +1,134 @@
+{
+  "elements": [
+    {
+      "element": "title_lockup",
+      "anchor": "top_centre",
+      "row": 0,
+      "runs": [
+        { "text": "NEURAL NETWORKS", "type_role": "display" },
+        { "text": "The Architecture That Changed Everything", "type_role": "supporting" }
+      ],
+      "color": "#E8364F",
+      "entrance": "slide",
+      "exit": "fade",
+      "startFrame": 5,
+      "durationFrames": 80,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 0.44,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "frame_accents",
+      "anchor": "top_left",
+      "row": 0,
+      "runs": [],
+      "color": "#E8364F",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 180,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 1.0,
+      "footprint": 0.8,
+      "emphasis": 1.0
+    },
+    {
+      "element": "progress_bar",
+      "anchor": "bottom_left",
+      "row": 0,
+      "runs": [],
+      "color": "#E8364F",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 180,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 1.0,
+      "footprint": 0.6,
+      "emphasis": 1.0
+    },
+    {
+      "element": "counter_roll",
+      "anchor": "centre",
+      "row": 0,
+      "runs": [
+        { "text": "Parameters Trained", "type_role": "supporting" }
+      ],
+      "color": "#E8364F",
+      "entrance": "scale",
+      "exit": "fade",
+      "startFrame": 25,
+      "durationFrames": 90,
+      "timelineProgressStart": 0.14,
+      "timelineProgressEnd": 0.64,
+      "footprint": 1.2,
+      "emphasis": 1.0,
+      "data": {
+        "start_value": 0,
+        "end_value": 175000000000,
+        "prefix": "",
+        "suffix": "",
+        "decimals": 0
+      }
+    },
+    {
+      "element": "context_stamp",
+      "anchor": "top_right",
+      "row": 0,
+      "runs": [
+        { "text": "GPT-3  |  2020", "type_role": "micro" }
+      ],
+      "color": "#E8364F",
+      "entrance": "mask",
+      "exit": "fade",
+      "startFrame": 15,
+      "durationFrames": 70,
+      "timelineProgressStart": 0.08,
+      "timelineProgressEnd": 0.47,
+      "footprint": 0.8,
+      "emphasis": 1.0
+    },
+    {
+      "element": "quote_card",
+      "anchor": "middle_left",
+      "row": 0,
+      "runs": [
+        { "text": "Any sufficiently advanced technology is indistinguishable from magic.", "type_role": "supporting" },
+        { "text": "Arthur C. Clarke", "type_role": "micro" }
+      ],
+      "color": "#E8364F",
+      "entrance": "draw",
+      "exit": "fade",
+      "startFrame": 120,
+      "durationFrames": 60,
+      "timelineProgressStart": 0.67,
+      "timelineProgressEnd": 1.0,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "row": 1,
+      "runs": [
+        { "text": "Dr. Sarah Chen", "type_role": "display" },
+        { "text": "AI Research Lead, DeepMind", "type_role": "micro" }
+      ],
+      "color": "#E8364F",
+      "entrance": "slide",
+      "exit": "slide",
+      "startFrame": 120,
+      "durationFrames": 60,
+      "timelineProgressStart": 0.67,
+      "timelineProgressEnd": 1.0,
+      "footprint": 0.9,
+      "emphasis": 1.0
+    }
+  ],
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "safeArea": { "top": 120, "right": 64, "bottom": 320, "left": 64 },
+  "durationInFrames": 180
+}

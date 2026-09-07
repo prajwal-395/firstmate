@@ -1,0 +1,93 @@
+{
+  "elements": [
+    {
+      "element": "title_lockup",
+      "anchor": "top_centre",
+      "row": 0,
+      "runs": [
+        { "text": "THE FUTURE OF AI", "type_role": "display" },
+        { "text": "How Models Learn", "type_role": "supporting" }
+      ],
+      "color": "#FF6B35",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 90,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 0.5,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "frame_accents",
+      "anchor": "top_left",
+      "row": 0,
+      "runs": [],
+      "color": "#FF6B35",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 150,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 1.0,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "progress_bar",
+      "anchor": "top_left",
+      "row": 0,
+      "runs": [],
+      "color": "#FF6B35",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 150,
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 1.0,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "quote_card",
+      "anchor": "middle_left",
+      "row": 0,
+      "runs": [
+        { "text": "Intelligence is the ability to adapt to change.", "type_role": "supporting" },
+        { "text": "- Stephen Hawking", "type_role": "micro" }
+      ],
+      "color": "#FF6B35",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 60,
+      "durationFrames": 90,
+      "timelineProgressStart": 0.4,
+      "timelineProgressEnd": 1.0,
+      "footprint": 1.0,
+      "emphasis": 1.0
+    },
+    {
+      "element": "stat_callout",
+      "anchor": "bottom_centre",
+      "row": 0,
+      "runs": [
+        { "text": "175B", "type_role": "display" },
+        { "text": "Parameters", "type_role": "micro" }
+      ],
+      "color": "#FF6B35",
+      "entrance": "scale",
+      "exit": "fade",
+      "startFrame": 30,
+      "durationFrames": 60,
+      "timelineProgressStart": 0.2,
+      "timelineProgressEnd": 0.6,
+      "footprint": 1.2,
+      "emphasis": 1.0
+    }
+  ],
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "safeArea": { "top": 120, "right": 64, "bottom": 320, "left": 64 },
+  "durationInFrames": 150
+}
