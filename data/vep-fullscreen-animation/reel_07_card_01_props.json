@@ -1,0 +1,29 @@
+{
+  "background": "#000000",
+  "durationInFrames": 53,
+  "entrance": "blur",
+  "exit": "fade",
+  "fontFamily": "Montserrat",
+  "fps": 23.976023976023978,
+  "height": 1920,
+  "runs": [
+    {
+      "colour": "#FFB8D4",
+      "font_size": 84.0,
+      "text": "So ranking number one on Google, but being completely invisible to AI,",
+      "type_role": "display"
+    },
+    {
+      "colour": "#FFFFFF",
+      "text": "AKSHITA, CRAIG",
+      "type_role": "micro"
+    }
+  ],
+  "safeArea": {
+    "bottom": 320,
+    "left": 90,
+    "right": 120,
+    "top": 120
+  },
+  "width": 1080
+}

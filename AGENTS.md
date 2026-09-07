@@ -752,13 +752,12 @@ Detail: `library/tools/marker_payload.py`.
 
 ## 16. Motion graphics
 
-**The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.**
-Fifteen elements across seven functions. [why](docs/RULE_EVIDENCE.md#the-roster-nobody-wrote-down)
+**The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.** [why](docs/RULE_EVIDENCE.md#the-roster-nobody-wrote-down)
 
 - **An entry names a dimension; the magnitude belongs to whoever declares it.** `AXES` is the vocabulary of dimensions and no axis has a default or a bound. `colour_role` is a role of the declaring palette, never a colour; `type_role` is a weight, never a size.
-- **Reachability is REPORTED per entry, never a filter on membership.** Four entries are `reachable_now`, ten need renderer work and one needs a measurement nothing takes. The render path is broken; a roster written around it would keep the defect after the repair.
+- **Reachability is REPORTED per entry, never a filter on membership.** Read the counts off the roster; one written around today's renderer would keep its defect after the repair.
 - **`never` is not optional.** An entry that only says what a thing is teaches a model to reach for it everywhere, so every entry records refusals and `assert_roster_is_well_formed` raises without them.
-- **The boundary is the whole point.** `OUT_OF_VOCABULARY` names the module that owns each near miss. An element is in this roster when it is an ADDITIVE OVERLAY carrying meaning the picture and the captions do not already carry.
+- **The boundary is the whole point.** `OUT_OF_VOCABULARY` names the module that owns each near miss. An element is in this roster when it is an ADDITIVE OVERLAY carrying meaning the picture and the captions do not already carry; one that REPLACES it is `library/tools/full_frame_element.py` ([why](docs/FULL_FRAME_ELEMENTS.md)).
 - **Nothing here is keyed to one identity**, because the engine serves a daily channel and client work (§14). `channel_bug` draws a project-supplied asset; the engine ships no artwork and states none.
 - **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
 - `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route, the same shape `music_measurement.MEASUREMENT_LEGEND` takes. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column rather than listed twice (§10.2).

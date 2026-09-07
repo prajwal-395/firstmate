@@ -387,7 +387,8 @@ def _unanchored_band(segment: dict, anchored: Sequence[dict]) -> str:
 
 
 def spine_for_reel(moment, transcript: dict,
-                   ranges: Sequence[tuple[float, float]] | None = None
+                   ranges: Sequence[tuple[float, float]] | None = None,
+                   lead_seconds: float = 0.0,
                    ) -> dict:
     """The spine for one reel, in the reel's own time.
 
@@ -396,6 +397,17 @@ def spine_for_reel(moment, transcript: dict,
     `reel_build.reel_ranges(moment, transcript)` - pass it only when the
     caller already computed it, so one reel cannot be spined against one
     order and built against another.
+
+    `lead_seconds` is what a HEAD full-frame card occupies before the
+    reel's first word (`library/tools/full_frame_element.py`).  It is
+    applied ONCE, to the finished blocks, rather than threaded into the
+    dozen `reel_time` calls this function makes: every one of those is a
+    membership test or a bound, a constant shift preserves both the
+    ordering and the contiguity the spine contract checks, and one place
+    is one place to be wrong.  SOURCE clocks - `source_start`,
+    `source_end` and every `word_timestamps` entry - are untouched,
+    because where a word sits in the raw clip does not move when
+    something is placed in front of it (AGENTS.md 6).
 
     Returns `{"structure": [...]}`, validated against the spine
     contract before it is handed back: a spine that would fail
@@ -570,6 +582,17 @@ def spine_for_reel(moment, transcript: dict,
             f"captioned by any step.")
 
     unbindable = _unbindable_spans(dropped_rows, blocks, ranges)
+
+    if lead_seconds:
+        # The one place the lead enters the reel's own clock. Everything
+        # above is measured against the BODY; a card in front moves the
+        # body and nothing else.
+        for block in blocks:
+            block["timeline_start"] = float(block["timeline_start"]) + lead_seconds
+            block["timeline_end"] = float(block["timeline_end"]) + lead_seconds
+        for span in unbindable:
+            span["reel_start"] = round(span["reel_start"] + lead_seconds, 3)
+            span["reel_end"] = round(span["reel_end"] + lead_seconds, 3)
 
     # Fails here, with the reel in hand, rather than three steps later.
     validate_spine_blocks(blocks)

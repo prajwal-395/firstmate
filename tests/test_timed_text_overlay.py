@@ -302,6 +302,13 @@ def test_root_tsx_registers_only_general_compositions():
     project, not here - that is what `content.bookends` + `source:` is
     for (library/tools/bookends.py).  `FourthWallOverlay` was registered
     here; it is gone.
+
+    `FullFrameCard` is listed because it is series-NEUTRAL in the same
+    way the other three are: it draws whatever runs, colours and
+    typeface a project declares and states none of its own
+    (`library/tools/full_frame_element.py`, AGENTS.md 14).  The
+    assertion stays an EQUALITY rather than a subset check, so a
+    composition added without this reasoning still fails here.
     """
     with open(ROOT_TSX, encoding="utf-8") as f:
         src = f.read()
@@ -309,7 +316,8 @@ def test_root_tsx_registers_only_general_compositions():
         line.split('id="', 1)[1].split('"', 1)[0]
         for line in src.splitlines() if 'id="' in line
     )
-    assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay"}, (
+    assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay",
+                   "FullFrameCard"}, (
         f"Root.tsx registers {sorted(ids)}. A composition named after one "
         f"series is a project asset - declare it with content.bookends "
         f"and a project-owned `source:` instead.")

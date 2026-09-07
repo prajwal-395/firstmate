@@ -112,6 +112,62 @@ const TYPE_WEIGHT: Record<string, number> = {
  */
 const STACK_GAP_PX = 24;
 
+/** How many frames the named entrance or exit character ramps over.
+ *
+ * Exported so a SECOND composition can draw the same character without
+ * respelling the numbers. `FullFrameCard` is that second composition -
+ * it is not an overlay, so it cannot reuse this file's element renderer,
+ * but the character `blur` means the same thing on both surfaces and
+ * there must be one drawing of it in this engine, not two.
+ */
+export const rampFrames = (character: string): number =>
+  RAMP_FRAMES[character] ?? 0;
+
+/** How far a `typewriter` entrance has revealed at `localFrame`, 0..1.
+ *
+ * 1 for any other character: a caller asking "how much is revealed"
+ * about a non-typewriter entrance is asking about text that is simply
+ * all there.
+ */
+export const typewriterProgress = (
+  localFrame: number,
+  entrance: string,
+): number => {
+  if (entrance !== "typewriter") return 1;
+  const inFrames = rampFrames(entrance);
+  if (inFrames <= 0) return 1;
+  return Math.min(1, Math.max(0, localFrame / inFrames));
+};
+
+/** Split a typewriter reveal across runs: how many characters of each show.
+ *
+ * The one implementation, shared by `TypewriterRuns` here and by
+ * `FullFrameCard`. `cursorRun` is the index of the run the caret sits
+ * after, or -1 when the reveal is complete.
+ */
+export const typewriterSplit = (
+  lengths: number[],
+  progress: number,
+): { shown: number[]; cursorRun: number } => {
+  const total = lengths.reduce((sum, n) => sum + n, 0);
+  let remaining = Math.round(total * Math.min(1, Math.max(0, progress)));
+  const shown: number[] = [];
+  let cursorRun = -1;
+  for (let i = 0; i < lengths.length; i += 1) {
+    const take = Math.min(lengths[i], Math.max(0, remaining));
+    shown.push(take);
+    remaining -= take;
+    if (cursorRun === -1 && progress < 1 && take < lengths[i]) {
+      cursorRun = i;
+    }
+  }
+  return { shown, cursorRun };
+};
+
+/** Whether the caret is drawn on this frame of a reveal (~15Hz blink). */
+export const typewriterCursorOn = (progress: number): boolean =>
+  Math.floor(progress * 30) % 2 === 0;
+
 export const elementOpacity = (
   localFrame: number,
   durationFrames: number,
@@ -416,25 +472,22 @@ const TypewriterRuns: React.FC<{
   /** 0 = nothing revealed, 1 = all text revealed */
   revealProgress: number;
 }> = ({ element, scale, revealProgress }) => {
-  // Total character count across all runs, for proportional reveal.
-  const totalChars = element.runs.reduce((sum, run) => sum + run.text.length, 0);
-  const charsToShow = Math.round(totalChars * Math.min(1, Math.max(0, revealProgress)));
-
-  let charsRemaining = charsToShow;
-  const cursorBlink = Math.floor(revealProgress * 30) % 2 === 0; // blink at ~15Hz
+  // The reveal split is `typewriterSplit`, shared with FullFrameCard, so
+  // the caret lands in the same place on both surfaces.
+  const { shown, cursorRun } = typewriterSplit(
+    element.runs.map((run) => run.text.length),
+    revealProgress,
+  );
+  const cursorBlink = typewriterCursorOn(revealProgress);
 
   return (
     <>
       {element.runs.map((run, i) => {
-        const runChars = Math.min(run.text.length, Math.max(0, charsRemaining));
-        charsRemaining -= runChars;
+        const runChars = shown[i];
         const visibleText = run.text.slice(0, runChars);
         // Only show cursor after the last visible character of the
         // last partially-revealed run.
-        const showCursor =
-          revealProgress < 1 &&
-          runChars < run.text.length &&
-          charsRemaining === 0;
+        const showCursor = cursorRun === i;
 
         if (runChars === 0 && !showCursor) return null;
 

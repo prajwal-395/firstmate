@@ -16,6 +16,11 @@ import {
   timedTextOverlaySchema,
   type TimedTextOverlayProps,
 } from "./compositions/TimedTextOverlay";
+import {
+  FullFrameCard,
+  fullFrameCardSchema,
+  type FullFrameCardProps,
+} from "./compositions/FullFrameCard";
 // The studio has no pipeline behind it, so its preview defaults need the
 // safe area written down somewhere TypeScript can import. This file is
 // GENERATED from library/tools/safe_area.py by
@@ -52,6 +57,16 @@ const calculateMotionMetadata: CalculateMetadataFunction<MotionGraphicsProps> =
   };
 
 const calculateTimedTextMetadata: CalculateMetadataFunction<TimedTextOverlayProps> =
+  async ({ props }) => {
+    return {
+      durationInFrames: props.durationInFrames,
+      fps: props.fps,
+      width: props.width,
+      height: props.height,
+    };
+  };
+
+const calculateFullFrameMetadata: CalculateMetadataFunction<FullFrameCardProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -198,6 +213,33 @@ export const RemotionRoot: React.FC = () => {
           durationInFrames: 1800,
         }}
         calculateMetadata={calculateTimedTextMetadata}
+      />
+      <Composition
+        id="FullFrameCard"
+        component={FullFrameCard}
+        schema={fullFrameCardSchema}
+        durationInFrames={60}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          // Empty, and BLACK rather than a colour, for the same reason
+          // MotionGraphics defaults to no elements: a studio default
+          // carrying copy and a ground is a title card and a palette
+          // nobody chose sitting in the repository. Black is the absence
+          // of a look, not a choice of one (AGENTS.md 10.5).
+          runs: [],
+          background: "#000000",
+          entrance: "cut",
+          exit: "cut",
+          fontFamily: "Montserrat",
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          durationInFrames: 60,
+          safeArea: SAFE_AREA,
+        }}
+        calculateMetadata={calculateFullFrameMetadata}
       />
     </>
   );

@@ -128,6 +128,28 @@ class FindingClass:
     # property nothing could see.  See library/tools/reel_framing.py.
     F12 = "F12"  # ENCODING: delivered picture is not the declared framing
 
+    # 2026-09-07.  A reel may now contain a FULL-FRAME element - a card
+    # that REPLACES picture on V1 for its own stretch of reel time
+    # (library/tools/full_frame_element.py).  Three checks in this file
+    # would have misread one, and every one of them is a false ERROR on a
+    # correct build rather than a miss:
+    #
+    #   F4  counts V1/V2 items against the plan's placements, so a card
+    #       reads as an extra picture item AND its seconds are added to
+    #       whichever speaker owns V1.
+    #   F12 looks each V1/V2 item's source up in the CATALOG, and a
+    #       rendered card is not footage and is not in it, so the reel
+    #       comes back "framing could not be read".
+    #   The caption checks derive their expected cards from the reel's
+    #       spine, which is measured in BODY seconds; a head card pushes
+    #       every placed caption down by its length, so all of them read
+    #       as misplaced.
+    #
+    # F13 is the class for the card itself, and it can fail in BOTH
+    # directions: a declared card that is not on the timeline, and an
+    # item on the timeline that no declaration accounts for.
+    F13 = "F13"  # ENCODING: full-frame card missing, extra or mis-sized
+
     # Plan provenance, 2026-09-05: the verifier was caught grading 16
     # reels against a plan describing 14 completely different moments,
     # producing 42 confident, precise, meaningless errors.  This class
@@ -177,7 +199,8 @@ class FindingClass:
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10, FindingClass.F12,
-                    FindingClass.F18, FindingClass.F19}
+                    FindingClass.F13, FindingClass.F18,
+                    FindingClass.F19}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
                     FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17,
                     FindingClass.F20}
@@ -240,6 +263,20 @@ class PlannedCaption:
 
 
 @dataclass(frozen=True)
+class PlannedCard:
+    """One full-frame element the plan says this reel contains.
+
+    The verifier's own flattening of `full_frame_element.PlannedCard`, so
+    the check functions stay pure and testable without the renderer - the
+    same reason `PlannedPlacement` exists beside `reel_build`'s dicts.
+    """
+    render_name: str
+    placement: str
+    reel_start_frame: int
+    duration_frames: int
+
+
+@dataclass(frozen=True)
 class ReelPlan:
     """Everything the plan says about one reel."""
     reel_name: str
@@ -262,6 +299,19 @@ class ReelPlan:
     means the pipeline could not be asked, and the difference is the
     whole point: collapsing the two is how the caption gate came to
     expect zero cards, find 762, and pass."""
+
+    cards: Tuple["PlannedCard", ...] = ()
+    """The full-frame elements this reel contains, if any.
+
+    Empty for every project that declares none, which was every project
+    before 2026-09-07. `lead_seconds` below is what the HEAD ones push
+    everything else down by."""
+
+    lead_seconds: float = 0.0
+    """How long the head cards hold before the first frame of footage.
+
+    Derived from `cards`, carried rather than recomputed so the caption
+    derivation and the placement derivation cannot disagree about it."""
 
     cuts: tuple = ()
     """Bad takes removed (from reel_build.Cut)."""
@@ -482,10 +532,139 @@ def check_audio_holes(reel_name: str,
     return findings
 
 
+def card_items(video_items: Sequence[TimelineItem],
+               cards: Sequence["PlannedCard"],
+               ) -> Dict[str, TimelineItem]:
+    """Which timeline item is which planned card, by RENDER NAME.
+
+    Positive identification, never a guess: `full_frame_element` names
+    every rendered card `reel_NN_card_MM.mov` and that basename is on the
+    media pool item, so an item is a card because it IS that file. The
+    alternative - "a V1 item whose source is not in the catalog" - would
+    make every catalog gap look like a card, which is the shape of the
+    footage-relink defect rather than a way to find one.
+
+    Items the plan does not account for are simply absent from the
+    mapping; :func:`check_full_frame_cards` is what reports them.
+    """
+    wanted = {card.render_name: card for card in cards}
+    found: Dict[str, TimelineItem] = {}
+    for item in video_items:
+        stem = (item.source_file or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        if not stem:
+            stem = (item.name or "").rsplit(".", 1)[0]
+        if stem in wanted and stem not in found:
+            found[stem] = item
+    return found
+
+
+#: The basename shape `full_frame_element` renders a card to.  Used ONLY
+#: to spot an item that LOOKS like a card and is not in the plan - the
+#: other direction of the same gate.  Identification of a PLANNED card is
+#: by exact name (`card_items`).
+CARD_NAME_SHAPE = re.compile(r"^reel_\d+_card_\d+$")
+
+
+def check_full_frame_cards(reel_name: str,
+                           cards: Sequence["PlannedCard"],
+                           video_items: Sequence[TimelineItem],
+                           width: int, height: int,
+                           fps: float,
+                           ) -> List[Finding]:
+    """F13: every declared full-frame card is on the timeline, whole.
+
+    Both directions, because a gate that can only fail one way is half a
+    gate (AGENTS.md 10.4):
+
+    - a card the plan declares and the timeline does not carry.  A reel
+      that quietly starts on speech is indistinguishable from a project
+      that declared no card at all, which is how the 4th Wall end card
+      survived four months;
+    - an item shaped like a rendered card that no declaration accounts
+      for - the out-of-band append `bookends` forbids, arriving on the
+      reels path instead;
+    - a card placed at the wrong reel second, or with the wrong number of
+      frames.  One frame either way is an F1 black hole or an overlap.
+
+    Nothing here is a judgement.  Every comparison is between integers
+    the plan already fixed.
+    """
+    findings: List[Finding] = []
+    placed = card_items(video_items, cards)
+
+    for card in cards:
+        item = placed.get(card.render_name)
+        if item is None:
+            findings.append(Finding(
+                finding_class=FindingClass.F13, reel=reel_name,
+                message=(
+                    f"the plan declares a full-frame card "
+                    f"{card.render_name!r} at reel frame "
+                    f"{card.reel_start_frame} and no item on the timeline "
+                    f"is it"),
+                severity="error",
+                detail={"render_name": card.render_name,
+                        "expected_start_frame": card.reel_start_frame,
+                        "placed": False}))
+            continue
+        expected_start = card.reel_start_frame
+        if item.start_frame != expected_start:
+            findings.append(Finding(
+                finding_class=FindingClass.F13, reel=reel_name,
+                message=(
+                    f"full-frame card {card.render_name!r} starts at frame "
+                    f"{item.start_frame}, planned {expected_start}"),
+                severity="error",
+                detail={"render_name": card.render_name,
+                        "actual_start_frame": item.start_frame,
+                        "expected_start_frame": expected_start}))
+        if item.duration_frames != card.duration_frames:
+            findings.append(Finding(
+                finding_class=FindingClass.F13, reel=reel_name,
+                message=(
+                    f"full-frame card {card.render_name!r} runs "
+                    f"{item.duration_frames} frames, planned "
+                    f"{card.duration_frames}"),
+                severity="error",
+                detail={"render_name": card.render_name,
+                        "actual_frames": item.duration_frames,
+                        "expected_frames": card.duration_frames}))
+        if item.track_index != 1:
+            findings.append(Finding(
+                finding_class=FindingClass.F13, reel=reel_name,
+                message=(
+                    f"full-frame card {card.render_name!r} is on V"
+                    f"{item.track_index}. A full-frame element REPLACES "
+                    f"picture and belongs on V1; above V2 nothing in this "
+                    f"file can see it (F4 and F12 read V1 and V2 only), "
+                    f"and the footage under it would go on playing its "
+                    f"sound, which the reels path cannot turn down"),
+                severity="error",
+                detail={"render_name": card.render_name,
+                        "track": item.track_index}))
+
+    known = {card.render_name for card in cards}
+    for item in video_items:
+        stem = (item.source_file or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        if CARD_NAME_SHAPE.match(stem) and stem not in known:
+            findings.append(Finding(
+                finding_class=FindingClass.F13, reel=reel_name,
+                message=(
+                    f"the timeline carries {stem!r}, which is shaped like a "
+                    f"rendered full-frame card, and no declaration accounts "
+                    f"for it. A card appended out of band is the defect "
+                    f"`bookends` refuses by name on the master"),
+                severity="error",
+                detail={"render_name": stem, "declared": False,
+                        "start_frame": item.start_frame}))
+    return findings
+
+
 def check_item_count(reel_name: str,
                      planned_placements: Sequence[PlannedPlacement],
                      actual_video_items: Sequence[TimelineItem],
                      fps: float,
+                     cards: Sequence["PlannedCard"] = (),
                      ) -> List[Finding]:
     """F4: Compare planned item count vs placed, and per-speaker duration.
 
@@ -497,9 +676,16 @@ def check_item_count(reel_name: str,
 
     # Compare total picture item counts
     expected_count = len(planned_placements)
-    # Count only V1 and V2 items (picture tracks)
+    # Count only V1 and V2 items (picture tracks), and only FOOTAGE ones:
+    # a full-frame card is a picture item on V1 that no `placements` entry
+    # describes, because it comes from a declaration rather than from the
+    # master.  `check_full_frame_cards` is what holds it, by name and by
+    # frame, in both directions - dropping it here is not a hole.
+    card_by_item = {id(i): n for n, i in
+                    card_items(actual_video_items, cards).items()}
     actual_picture = [i for i in actual_video_items
-                      if i.track_index in (1, 2)]
+                      if i.track_index in (1, 2)
+                      and id(i) not in card_by_item]
     actual_count = len(actual_picture)
 
     if actual_count != expected_count:
@@ -594,6 +780,7 @@ def check_plan_describes_timeline(reel_name: str,
                                  keep_ranges: Sequence[Tuple[float, float]],
                                  total_frames: int,
                                  fps: float,
+                                 card_frames: int = 0,
                                  ) -> List[Finding]:
     """Refuse F4 when the RE-DERIVED plan is not the plan that was built.
 
@@ -629,13 +816,20 @@ def check_plan_describes_timeline(reel_name: str,
     so more precisely than F4 did - it names the frames that are missing
     rather than inferring a cause from an item count. The gate is not
     weakened: the same builds fail, with a truer message.
+
+    `card_frames` is what the reel's full-frame elements occupy, in the
+    same integer frames. They are part of the reel's length and none of
+    them comes from a keep range, so a reel carrying one is longer than
+    its ranges by exactly this - and left out, EVERY such reel would
+    refuse F4 as "not the plan that built this reel". Zero for every
+    project that declares none.
     """
     # `round()` on a float returns an int, so this IS
     # `reel_build.placements`' own `int(round(x * fps))` per range edge -
     # the builder's arithmetic, not an approximation of it.
     planned_frames = sum(
         round(end * fps) - round(start * fps)
-        for start, end in keep_ranges)
+        for start, end in keep_ranges) + int(card_frames)
     if planned_frames == total_frames:
         return []
     delta = total_frames - planned_frames
@@ -815,6 +1009,7 @@ def check_caption_reference(reel_name: str,
 def _clip_to_reel(seg_start: float,
                   seg_end: float,
                   keep_ranges: Sequence[Tuple[float, float]],
+                  lead_seconds: float = 0.0,
                   ) -> List[Tuple[float, float]]:
     """The parts of a master interval that the reel PLAYS, in reel seconds.
 
@@ -831,6 +1026,12 @@ def _clip_to_reel(seg_start: float,
     piece lies wholly inside one range, so its start is read inclusively
     and its end with `at_end=True` - a range is `[start, end)` and a
     piece ending exactly on a range edge would otherwise map to None.
+
+    `lead_seconds` is what a HEAD full-frame card pushes the reel down
+    by. The callers compare these pieces against items READ OFF THE
+    TIMELINE, whose frames already include the card, so a lead left out
+    here reports every second of speech as uncaptioned by exactly the
+    card's length (`library/tools/full_frame_element.py`).
     """
     from library.tools.reel_build import reel_time
 
@@ -840,8 +1041,9 @@ def _clip_to_reel(seg_start: float,
         high = min(range_end, seg_end)
         if high <= low:
             continue
-        at_low = reel_time(low, keep_ranges)
-        at_high = reel_time(high, keep_ranges, at_end=True)
+        at_low = reel_time(low, keep_ranges, lead_seconds=lead_seconds)
+        at_high = reel_time(high, keep_ranges, at_end=True,
+                            lead_seconds=lead_seconds)
         if at_low is None or at_high is None or at_high <= at_low:
             continue
         pieces.append((at_low, at_high))
@@ -853,6 +1055,7 @@ def check_caption_coverage(reel_name: str,
                            caption_cards: Sequence[dict],
                            keep_ranges: Sequence[Tuple[float, float]],
                            fps: float,
+                           lead_seconds: float = 0.0,
                            ) -> List[Finding]:
     """F5: Measure seconds of real speech with no caption over it.
 
@@ -950,7 +1153,7 @@ def check_caption_coverage(reel_name: str,
         played = 0.0
         for spoken_start, spoken_end in spoken:
             for reel_start, reel_end in _clip_to_reel(
-                    spoken_start, spoken_end, keep_ranges):
+                    spoken_start, spoken_end, keep_ranges, lead_seconds):
                 # How much of this piece is captioned?
                 captioned = 0.0
                 for c_start, c_end in caption_intervals:
@@ -1105,7 +1308,8 @@ def check_mixed_speakers(reel_name: str,
                          caption_cards: Sequence[dict],
                          transcript_segments: Sequence[dict],
                          keep_ranges: Sequence[Tuple[float, float]],
-                         fps: float) -> List[Finding]:
+                         fps: float,
+                         lead_seconds: float = 0.0) -> List[Finding]:
     """F17: A card must not mix two speakers.
 
     Maps each card's time span to the transcript's diarised word timings
@@ -1129,7 +1333,8 @@ def check_mixed_speakers(reel_name: str,
                 start = float(word["start"])
                 end = float(word["end"])
                 text = word["word"]
-                for r_start, r_end in _clip_to_reel(start, end, keep_ranges):
+                for r_start, r_end in _clip_to_reel(start, end, keep_ranges,
+                                                    lead_seconds):
                     reel_words.append({
                         "word": text.lower(),
                         "speaker": speaker,
@@ -1793,6 +1998,7 @@ def check_delivered_framing(reel_name: str,
                             source_sizes: Optional[dict] = None,
                             declared_intent: Optional[float] = None,
                             declared_crop_factor: float = 1.0,
+                            cards: Sequence["PlannedCard"] = (),
                             ) -> List[Finding]:
     """F12: Verify the picture on the frame is the picture declared.
 
@@ -1816,6 +2022,7 @@ def check_delivered_framing(reel_name: str,
     gate lacked when it expected zero cards, found 762 and passed
     (AGENTS.md 10.4).
     """
+    from library.tools.framing_intent import FILL
     from library.tools.reel_framing import (
         ReelFramingError, declared_picture, delivered_picture, disagreement)
 
@@ -1832,7 +2039,18 @@ def check_delivered_framing(reel_name: str,
                      "was meant to deliver. Nothing was graded."),
             severity="warning", detail={"declared_intent": None})]
 
-    sizes = source_sizes or {}
+    sizes = dict(source_sizes or {})
+    # A full-frame card is not footage: it is not in the catalog and there
+    # is no framing INTENT to grade it against, because it was rendered at
+    # the delivery frame by construction.  Skipping it silently would be
+    # the vacuity this function's own docstring refuses, so it is graded
+    # instead - against the WHOLE FRAME, which is what "full-frame" means
+    # and what a scaled or letterboxed card would fail.
+    card_by_item = {id(i): n for n, i in card_items(video_items, cards).items()}
+    for item in video_items:
+        if id(item) in card_by_item:
+            sizes[item.source_file] = {"width": width, "height": height,
+                                       "rotation": 0}
     footage = [i for i in video_items if i.track_index in (1, 2)]
     unreadable: List[str] = []
     # One finding per distinct disagreement, not per item: 34 clips of one
@@ -1846,13 +2064,20 @@ def check_delivered_framing(reel_name: str,
             if name not in unreadable:
                 unreadable.append(name)
             continue
+        is_card = id(item) in card_by_item
         try:
             delivered = delivered_picture(
                 meta["width"], meta["height"], width, height,
                 item.transform, meta.get("rotation", 0))
+            # A card's declaration IS the frame. `framing_intent` is a
+            # statement about how FOOTAGE is fitted, and a card was not
+            # fitted - it was drawn at 1080x1920. Grading it against the
+            # project's letterbox would report every correct card as
+            # wrong.
             declared = declared_picture(
                 meta["width"], meta["height"], width, height,
-                declared_intent, declared_crop_factor,
+                FILL if is_card else declared_intent,
+                1.0 if is_card else declared_crop_factor,
                 meta.get("rotation", 0))
         except ReelFramingError as exc:
             name = item.source_file.rsplit("/", 1)[-1] or item.name
@@ -2671,11 +2896,20 @@ def verify_reel(plan: ReelPlan,
     # `check_plan_describes_timeline` for what a re-derived plan is worth.
     plan_ranges = plan.keep_ranges or ((plan.span_start, plan.span_end),)
     not_this_plan = check_plan_describes_timeline(
-        plan.reel_name, plan_ranges, timeline.total_frames, fps)
+        plan.reel_name, plan_ranges, timeline.total_frames, fps,
+        card_frames=sum(c.duration_frames for c in plan.cards))
     findings.extend(not_this_plan)
     if not not_this_plan:
         findings.extend(check_item_count(
-            plan.reel_name, plan.placements, timeline.video_items, fps))
+            plan.reel_name, plan.placements, timeline.video_items, fps,
+            cards=plan.cards))
+
+    # F13: the full-frame elements themselves, in both directions.
+    # Runs unconditionally: "the plan declares none and the timeline
+    # carries one" is exactly the half a conditional would skip.
+    findings.extend(check_full_frame_cards(
+        plan.reel_name, plan.cards, timeline.video_items,
+        timeline.width, timeline.height, fps))
 
     # F18/F19/F20: the transition elements over this reel's cuts.
     #
@@ -2717,7 +2951,8 @@ def verify_reel(plan: ReelPlan,
             timeline.width, timeline.height,
             source_sizes=source_sizes,
             declared_intent=declared_intent,
-            declared_crop_factor=declared_crop_factor))
+            declared_crop_factor=declared_crop_factor,
+            cards=plan.cards))
 
     # F11: Subtitle styling - reads the OUTPUT cards, not the config
     findings.extend(check_subtitle_styling(
@@ -2817,7 +3052,7 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_caption_coverage(
             plan.reel_name, transcript_segments, placed_cards,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
-            fps))
+            fps, lead_seconds=plan.lead_seconds))
 
     # F6: Caption overlap
     if have_reference and cards:
@@ -2839,7 +3074,7 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_mixed_speakers(
             plan.reel_name, cards, transcript_segments,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
-            fps))
+            fps, lead_seconds=plan.lead_seconds))
 
     # The spans a viewer hears an edge of: the body, and the closer if
     # the reel has one.  NOT the bad-take seams inside the body, which
@@ -3020,7 +3255,9 @@ def _derive_plan_from_master(
     """
     from library.tools.reel_build import (
         keep_ranges as compute_keep_ranges,
+        lead_frames as compute_lead_frames,
         placements as compute_placements,
+        plan_cards as compute_cards,
         redundant_takes,
     )
 
@@ -3049,7 +3286,26 @@ def _derive_plan_from_master(
     # `verify_built_reels` caught the TypeError and re-raised it as
     # "Reel conformance verifier failed to run", so the verifier the
     # build gate depends on could not run at all.
-    placed = compute_placements(kr, master_clips, fps)
+    # The reel's FULL-FRAME elements, re-derived from the project's own
+    # declaration with the same code the build used - the same principle
+    # as the placements above, and for the same reason: a reel cannot be
+    # built to one rule and checked against another. A project that
+    # declares none gets `()` here, which is every project that has not
+    # opted in.
+    cards: Tuple[PlannedCard, ...] = ()
+    lead_frames = 0
+    if moment is not None and project_folder:
+        planned_cards = compute_cards(moment, transcript or {}, kr,
+                                      project_folder, fps)
+        cards = tuple(PlannedCard(render_name=c.render_name,
+                                  placement=c.placement,
+                                  reel_start_frame=c.reel_start_frame,
+                                  duration_frames=c.duration_frames)
+                      for c in planned_cards)
+        lead_frames = compute_lead_frames(planned_cards, fps)
+
+    placed = compute_placements(kr, master_clips, fps,
+                                lead_frames=lead_frames)
 
     planned_placements = tuple(
         PlannedPlacement(
@@ -3063,8 +3319,14 @@ def _derive_plan_from_master(
         for p in placed
     )
 
-    plan_seconds = sum(b - a for a, b in kr)
+    # The reel's length is what a viewer watches, cards included: a card
+    # occupies reel time rather than sitting over it, so leaving it out
+    # would report a 60s reel as 55s to PQ-LENGTH and to
+    # `render_check.check_duration`.
+    card_seconds = sum(c.duration_frames for c in cards) / fps if cards else 0.0
+    plan_seconds = sum(b - a for a, b in kr) + card_seconds
     plan_frames = plan_seconds * fps
+    lead_seconds = lead_frames / fps if fps else 0.0
 
     # A reel whose captions cannot be derived is REFUSED, not scored as
     # zero. The reason travels with the plan so the finding can name it.
@@ -3079,7 +3341,8 @@ def _derive_plan_from_master(
         if captions_unavailable:
             raise CaptionsUnavailable(captions_unavailable)
         captions = _derive_planned_captions(
-            moment, kr, transcript, fps, project_folder)
+            moment, kr, transcript, fps, project_folder,
+            lead_seconds=lead_seconds)
     except CaptionsUnavailable as unavailable:
         captions_unavailable = str(unavailable)
 
@@ -3093,6 +3356,8 @@ def _derive_plan_from_master(
         placements=planned_placements,
         captions=captions,
         captions_unavailable=captions_unavailable,
+        cards=cards,
+        lead_seconds=lead_seconds,
         cuts=cuts,
         keep_ranges=tuple(kr),
         call_to_action=closer,
@@ -3165,6 +3430,7 @@ def _derive_planned_captions(
     transcript: Optional[dict],
     fps: float,
     project_folder: str = "",
+    lead_seconds: float = 0.0,
 ) -> Tuple[PlannedCaption, ...]:
     """The caption cards the plan says this reel should carry.
 
@@ -3224,7 +3490,8 @@ def _derive_planned_captions(
             f"the verifier has no second copy of its rule") from unreachable
 
     try:
-        spine = spine_for_reel(moment, transcript, list(keep_ranges))
+        spine = spine_for_reel(moment, transcript, list(keep_ranges),
+                               lead_seconds=lead_seconds)
     except Exception as no_spine:  # noqa: BLE001 - `ReelSpineError` names
         # the counts and is a VERIFICATION FINDING, not a crash: a reel
         # with no speech left on it is something the report must say.

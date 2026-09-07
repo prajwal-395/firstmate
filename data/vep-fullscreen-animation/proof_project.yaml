@@ -1,0 +1,62 @@
+name: GEO Podcast (full-frame proof, lane 8)
+slug: geo-podcast-fullframe-proof
+client: lucie
+created: '2026-08-08'
+status: in_progress
+source:
+  type: mxf
+  resolution: 3840x2160
+  fps: 23.976
+  footage_root: /Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast
+    media
+pipeline:
+  subtitle_typography:
+    font: Montserrat
+    size: 58
+  speaker_subtitle_styles:
+    Akshita:
+      accentColor: '#FFB8D4'
+      fontColor: '#FFFFFF'
+      outlineColor: '#000000'
+      outlineWidth: 4
+      position: bottom
+    Craig:
+      accentColor: '#FBF0B8'
+      fontColor: '#FFFFFF'
+      outlineColor: '#000000'
+      outlineWidth: 4
+      position: bottom
+  creative_brief: creative_brief.md
+  brand_template: cinematic_narrative
+  sfx_library: ''
+  music_library: ''
+resolve:
+  project_name: Podcast (field test)
+  database: local
+  folder: Lucie Content/Social Media/Podcast
+  timeline_name: GEO Podcast - Synced
+tags:
+- podcast
+- interview
+- vertical
+- shortform
+description: Geography-focused podcast episode with Craig and Akshita
+effect:
+  full_frame_elements:
+  - element: full_frame_card
+    placement: head
+    duration_seconds: 2.2
+    background: '#000000'
+    entrance: blur
+    exit: fade
+    font_family: Montserrat
+    opening_seconds: 3.0
+    runs:
+    - bind: opening_line
+      type_role: display
+      colour: '#FFB8D4'
+      font_size: 84
+    - bind: speakers
+      type_role: micro
+      colour: '#FFFFFF'
+      uppercase: true

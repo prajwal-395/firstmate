@@ -93,6 +93,9 @@ leaving a repetition in a clip somebody chose deliberately.
 """
 from __future__ import annotations
 
+import os
+
+from library.tools.paths import REMOTION_DIR
 from library.tools.resolve_lock import assert_current_timeline
 from library.tools.timeline_ingest import resolve_project_exactly
 
@@ -781,7 +784,8 @@ def _closer_seam_frame(moment, ranges: Sequence[Tuple[float, float]],
 
 def reel_time(master_time: float,
               ranges: Sequence[Tuple[float, float]],
-              at_end: bool = False) -> Optional[float]:
+              at_end: bool = False,
+              lead_seconds: float = 0.0) -> Optional[float]:
     """Where a MASTER second lands on the reel, or None if it was cut.
 
     A reel is its keep ranges laid end to end, so a caption timed against
@@ -804,27 +808,45 @@ def reel_time(master_time: float,
     exclusive way falls outside every range and returns None. On a reel
     that closes on a CTA those are the words the whole feature exists to
     deliver. Pass `at_end=True` to read `(start, end]` instead.
+
+    `lead_seconds` is what a HEAD full-frame card pushes the whole reel
+    down by (`library/tools/full_frame_element.py`). It is added to the
+    ANSWER and never to the membership test, because "is this master
+    second played at all" is a question about the ranges and nothing
+    else. A caller measuring inside the BODY - `reel_opening`, which asks
+    which words fall in the reel's first three seconds of SPEECH - leaves
+    it at zero on purpose: a card in front does not change which words
+    open the talking.
     """
     cursor = 0.0
     for range_start, range_end in ranges:
         inside = (range_start < master_time <= range_end if at_end
                   else range_start <= master_time < range_end)
         if inside:
-            return cursor + (master_time - range_start)
+            return lead_seconds + cursor + (master_time - range_start)
         cursor += range_end - range_start
     return None
 
 
 def placements(ranges: Sequence[Tuple[float, float]],
-               clips: Sequence, fps: float) -> List[dict]:
+               clips: Sequence, fps: float,
+               lead_frames: int = 0) -> List[dict]:
     """Where each master clip lands on the reel, in exact frames and seconds.
 
     One entry per (keep range, overlapping clip). `record` is the running
     offset on the REEL, so the ranges close up and both tracks move
     together. Math is done in frames to prevent rounding holes at cuts.
+
+    `lead_frames` is what a HEAD full-frame card occupies before any
+    footage plays. It is added to the record cursor and to nothing else -
+    a card in front changes WHERE a clip lands, never which frames of it
+    play - and it is a whole number of FRAMES rather than seconds so the
+    card and the first clip abut exactly. A one-frame rounding gap here
+    is an F1 black hole (`reel_conformance_verifier`), which is why the
+    lead enters the picture arithmetic here and nowhere else.
     """
     out: List[dict] = []
-    cursor_frames = 0
+    cursor_frames = int(lead_frames)
     for range_start, range_end in ranges:
         range_start_f = int(round(range_start * fps))
         range_end_f = int(round(range_end * fps))
@@ -881,7 +903,8 @@ class _SegmentsWithEntries(list):
 
 def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
                            fps: float, width: int, height: int,
-                           timeline_name: str = "") -> list:
+                           timeline_name: str = "",
+                           lead_seconds: float = 0.0) -> list:
     """Caption one reel THROUGH THE PIPELINE'S OWN STEPS.
 
     The captain's ruling of 2026-09-04: `reel_subtitles.py` should never
@@ -925,7 +948,8 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     # subtitles is the defect this whole change exists to fix.
     from library.tools.reel_spine import ReelSpineError
     try:
-        spine = spine_for_reel(moment, transcript, ranges)
+        spine = spine_for_reel(moment, transcript, ranges,
+                               lead_seconds=lead_seconds)
     except ReelSpineError as why:
         print(f"  {name}: NO CAPTIONS - {why}",
               file=sys.stderr)
@@ -986,13 +1010,101 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     return segments
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", overlay_placements=None):
+def declared_cards(project_folder: str) -> list:
+    """The full-frame element declarations this project carries.
+
+    ``[]`` when it declares none, which is every project unless someone
+    opted in - the same shape ``content.bookends`` and
+    ``effect.timed_text_overlay`` take.  Malformed RAISES, here, before a
+    single timeline is created: a declaration that renders nothing is
+    indistinguishable from no declaration at all
+    (``library/tools/full_frame_element.py``).
+
+    Both sources are asked and the PROJECT wins, because a card is copy
+    the viewer reads and copy the viewer reads is artwork (AGENTS.md 14).
+    """
+    from library.tools.brand_registry import (
+        query_slots, resolve_project_template)
+    from library.tools.full_frame_element import (
+        declared_elements, resolve_declaration)
+
+    brand_effect = {}
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if os.path.exists(project_yaml):
+        import yaml
+        with open(project_yaml, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+        named = ((config.get("pipeline") or {}).get("brand_template") or "")
+        if named:
+            brand_effect = query_slots(
+                resolve_project_template(named), "effect")
+    return declared_elements(resolve_declaration(brand_effect, project_folder))
+
+
+def plan_cards(moment, transcript: dict, ranges, project_folder: str,
+               fps: float, declarations=None) -> list:
+    """Resolve this project's card declarations against ONE reel.
+
+    Returns ``[]`` when nothing is declared.  The facts a bound run
+    quotes are measured off `ranges` - the ranges the build is about to
+    place - so a card quotes the reel that will exist rather than the
+    span the plan asked for.
+    """
+    from library.tools import full_frame_element as ffe
+
+    declarations = (declared_cards(project_folder) if declarations is None
+                    else declarations)
+    if not declarations:
+        return []
+    facts = ffe.ReelFacts.from_moment(
+        moment, ranges, transcript,
+        opening_seconds=ffe.required_opening_window(declarations))
+    # In FRAMES, and by the SAME arithmetic `placements` uses per range
+    # edge, so a tail card starts on the frame after the last clip ends
+    # rather than a rounding away from it.
+    body_frames = sum(int(round(end * fps)) - int(round(start * fps))
+                      for start, end in ranges)
+    return ffe.plan_reel_cards(declarations, facts, body_frames, fps,
+                               project_folder=project_folder)
+
+
+def lead_frames(cards, fps: float) -> int:
+    """How many frames the HEAD cards occupy before any footage plays.
+
+    In FRAMES, and summed from each card's own already-rounded frame
+    count rather than from the seconds - a lead computed in seconds and
+    rounded once leaves a one-frame gap between the last card and the
+    first clip on some durations, and a one-frame gap is an F1 black
+    hole.
+    """
+    return sum(card.duration_frames for card in (cards or ())
+               if card.placement == "head")
+
+
+def card_render_dir(project_folder: str) -> str:
+    """Where this project's rendered cards live."""
+    from library.tools.full_frame_element import FULL_FRAME_RENDER_DIRNAME
+    return os.path.join(project_folder, "pipeline_output", "scratch",
+                        FULL_FRAME_RENDER_DIRNAME)
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
     what every build did before `built_name` existed.  A caller that
     passes something else is building the same reel into a different
     container - see `built_name`.
+
+    `cards` are the RENDERED full-frame elements this reel contains, each
+    carrying the file it was rendered to
+    (`library/tools/full_frame_element.py`).  They go on **V1**, which is
+    a picture track and not a layer above one: a full-frame element
+    REPLACES picture for its stretch rather than overlaying it, so it is
+    inside the same hole check, item count and framing check every other
+    picture item is.  A HEAD card pushes all the footage down by
+    `lead_frames`, which is the same number `reel_subtitle_segments` was
+    given, so picture and captions move together or not at all.
 
     `overlay_placements` are transition elements laid OVER the reel's own
     cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
@@ -1032,7 +1144,42 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         timeline.SetTrackName("video", OVERLAY_TRACK, "Transitions")
     
     ranges = reel_ranges(moment, transcript)
-    placements_list = placements(ranges, master_clips, fps)
+    lead = lead_frames(cards, fps)
+    placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
+
+    # The cards FIRST, so the timeline reads in play order, and on V1.
+    for card in (cards or ()):
+        path = getattr(card, "rendered_path", "") or ""
+        if not path or not os.path.isfile(path):
+            raise ReelBuildError(
+                f"{name}: full-frame card {card.render_name!r} was planned "
+                f"but its file is missing ({path!r}). A declared card that "
+                f"does not reach the timeline leaves the reel starting on "
+                f"speech, which is exactly what it looks like when nothing "
+                f"was declared at all.")
+        items = pool.ImportMedia([path])
+        if not items:
+            raise ReelBuildError(
+                f"{name}: Resolve would not import the rendered card "
+                f"{path!r}")
+        assert_current_timeline(project, timeline)
+        pool.AppendToTimeline([{
+            "mediaPoolItem": items[0],
+            "startFrame": 0,
+            # EXCLUSIVE, and this is MEASURED rather than assumed
+            # (AGENTS.md 5: judge a Resolve call by what it RETURNS).
+            # Written `duration_frames - 1` on the first build, the card
+            # came back off the timeline as [0..52) - 52 frames for a
+            # 53-frame plan - and the first clip started at 53, leaving a
+            # one-frame black hole that F1 reported and F13 named. It is
+            # the same exclusive reading the footage placement below uses
+            # for `source_out`.
+            "endFrame": card.duration_frames,
+            "mediaType": 1,
+            "trackIndex": 1,
+            # The card's own integer frame, never `round(seconds * fps)`.
+            "recordFrame": card.reel_start_frame,
+        }])
     
     root_folder = pool.GetRootFolder()
     def _find_pool_item(folder, filepath):
@@ -1452,6 +1599,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     caption_hashes = {}
     footage_binding_hashes = {}
     overlay_records = {}
+    # Read ONCE, before the loop: a malformed declaration must stop the
+    # whole build, not the twelfth reel of nineteen.
+    card_declarations = declared_cards(project_folder)
     for moment in building:
         name = built_name(moment, name_suffix)
         print(f"Building {name}", flush=True)
@@ -1465,12 +1615,32 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   f"{group['end']:.2f}s ({group['speaker']}): "
                   f"{group['why_nothing_was_cut']}", flush=True)
         ranges = reel_ranges(moment, transcript)
+
+        # Full-frame elements FIRST, because a head card decides where
+        # every other thing on this reel starts. Planned and rendered
+        # before anything is placed, so a declaration that cannot be
+        # resolved - a binding with nothing behind it, a typeface that
+        # will not draw - stops this reel here rather than after a
+        # timeline exists (`library/tools/full_frame_element.py`).
+        cards = plan_cards(moment, transcript, ranges, project_folder,
+                           fps=24000 / 1001, declarations=card_declarations)
+        if cards:
+            from library.tools.full_frame_element import render_reel_cards
+            print(f"  {len(cards)} full-frame element(s) declared",
+                  flush=True)
+            cards = render_reel_cards(
+                cards,
+                str(REMOTION_DIR),
+                card_render_dir(project_folder))
+        lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
+
         # Was: computed by the standalone captioner and then passed as
         # None, so every reel built since #524 carried no subtitles at
         # all while the work was done and discarded.
         subtitle_segments = None if skip_captions else reel_subtitle_segments(
             moment, transcript, ranges, project_folder,
-            fps=24000 / 1001, width=1080, height=1920, timeline_name=name)
+            fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
+            lead_seconds=lead)
 
         # RECORD what was placed. Derived at build time and previously
         # written down nowhere, which is why the verifier could re-derive
@@ -1533,9 +1703,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             project_folder=project_folder,
             transcript=transcript,
             timeline_name=name,
+            cards=cards,
             overlay_placements=(overlay_plan.placements
                                 if overlay_plan else None),
         )
+        for card in cards or ():
+            # SAID on the run that placed it, rather than recorded in the
+            # return value: the verifier re-derives the cards from the
+            # project's own declaration with this module's code, the same
+            # way it re-derives the placements, so a second copy in the
+            # build record would be a field with no reader (AGENTS.md
+            # 10.1).
+            print(f"  placed {card.placement} card {card.render_name} at "
+                  f"reel frame {card.reel_start_frame} "
+                  f"({card.duration_frames}f)", flush=True)
 
     # Record which plan we built from, so the verifier can detect
     # if the plan changes before verification runs.
