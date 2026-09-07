@@ -195,7 +195,8 @@ AXES: tuple[Axis, ...] = (
     Axis(
         name="entrance",
         ranges_over="the character of how the element arrives",
-        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur"),
+        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur",
+                   "typewriter", "glitch"),
         resolved_against=(
             "Remotion's own interpolate/spring; naming the set is not "
             "choosing one, and the strength of the chosen one is not "
@@ -205,7 +206,8 @@ AXES: tuple[Axis, ...] = (
     Axis(
         name="exit",
         ranges_over="the character of how the element leaves",
-        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur"),
+        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur",
+                   "typewriter", "glitch"),
         resolved_against="the same as entrance; the two are declared separately",
     ),
     Axis(
@@ -562,6 +564,47 @@ ROSTER: tuple[MotionElement, ...] = (
             "Implemented in Remotion. data.start_value and data.end_value "
             "drive the roll with cubic ease-out; copy runs carry the label. "
             "tabular-nums keeps digit widths stable across the animation."
+        ),
+    ),
+    MotionElement(
+        key="digit_counter",
+        function="quantify",
+        what_it_is=(
+            "A figure whose individual digits roll independently into "
+            "place using spring physics, creating a mechanical odometer "
+            "effect."
+        ),
+        earns_its_place=(
+            "The same purpose as counter_roll - the CHANGE is the point - "
+            "but with a different visual character: each digit springs "
+            "to its final position, and the least significant digits "
+            "settle before the most significant ones."
+        ),
+        needs=(
+            "an end value and a format, as data; a timing whose hold is "
+            "the roll"
+        ),
+        never=(
+            ("On a figure that does not change. A roll on a static "
+             "number is animation for its own sake, and the entry for "
+             "that is stat_callout."),
+            ("Where the intermediate values are fabricated. Rolling "
+             "through measurements nobody took is a chart of nothing."),
+            ("When the digits are too many to read at the frame size. "
+             "A twelve-digit number that rolls at phone scale is an "
+             "animation of nothing the viewer sees."),
+        ),
+        axes=("timing", "anchor", "footprint", "entrance", "exit",
+              "emphasis", "colour_role", "type_role", "copy", "data"),
+        copy="required",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Implemented in Remotion with per-digit spring rolling: each "
+            "digit of the target number rolls independently using "
+            "Remotion spring() physics with staggered delays. Non-digit "
+            "characters (commas, dots) render static. Inspired by "
+            "Remotion Bits AnimatedCounter "
+            "(MIT, github.com/av/remotion-bits)."
         ),
     ),
     MotionElement(

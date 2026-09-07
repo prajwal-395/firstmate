@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
+import { AbsoluteFill, useCurrentFrame, interpolate, spring, useVideoConfig } from "remotion";
 import { loadBundledFonts } from "../../fonts";
 
 // Same reason as SubtitleOverlay: this composition sets
@@ -22,11 +22,11 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The thirteen this composition draws are
+ * `element` is a roster key. The fourteen this composition draws are
  * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
  * `lower_third`, `context_stamp`, `stat_callout`, `beat_accent`,
- * `pointer_annotation`, `counter_roll`, `list_build`,
- * `comparison_bars` and `step_counter` - the thirteen the roster marks
+ * `pointer_annotation`, `counter_roll`, `digit_counter`, `list_build`,
+ * `comparison_bars` and `step_counter` - the fourteen the roster marks
  * `reachable_now`. An entry naming any other element never reaches
  * these props: `motion_graphics_plan.resolve_plan` drops it with
  * `renderer_cannot_draw_it_yet` and records the drop.
@@ -84,6 +84,8 @@ const RAMP_FRAMES: Record<string, number> = {
   mask: 8,
   draw: 12,
   blur: 10,
+  typewriter: 20,
+  glitch: 10,
 };
 
 /** The pixel size of each typographic weight the vocabulary names. */
@@ -197,6 +199,31 @@ export const entranceTransform = (
         transform: `translateY(${y}px)`,
       };
     }
+    // `typewriter` - character reveal handled by TypewriterRuns at the
+    // text level. No spatial transform: the container fades normally via
+    // elementOpacity while the text itself reveals character by character.
+    // Inspired by Remotion Bits BasicTypewriter (MIT, github.com/av/remotion-bits).
+    case "typewriter":
+      return {};
+    // `glitch` - chromatic-aberration entrance inspired by Remotion Bits
+    // GlitchIn (MIT, github.com/av/remotion-bits). Shifts RGB channels
+    // apart and jitters position, both easing to zero.
+    case "glitch": {
+      const aberration = interpolate(progress, [0, 1], [6, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      const jitterX = Math.sin(progress * Math.PI * 8) * aberration * 0.5;
+      const jitterY = Math.cos(progress * Math.PI * 6) * aberration * 0.3;
+      return {
+        transform: `translate(${jitterX}px, ${jitterY}px)`,
+        textShadow: [
+          `${aberration}px 0 rgba(255,0,0,0.7)`,
+          `${-aberration}px 0 rgba(0,255,255,0.7)`,
+          `0 ${aberration * 0.5}px rgba(0,255,0,0.5)`,
+        ].join(", "),
+      };
+    }
     default:
       return {};
   }
@@ -254,6 +281,27 @@ export const exitTransform = (
       return {
         filter: `blur(${blurAmount}px)`,
         transform: `translateY(${y}px)`,
+      };
+    }
+    // Typewriter exit: characters disappear in reverse. No spatial
+    // transform - handled at text level like the entrance.
+    case "typewriter":
+      return {};
+    // Glitch exit: chromatic aberration increases as the element leaves.
+    case "glitch": {
+      const aberration = interpolate(progress, [0, 1], [6, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      const jitterX = Math.sin((1 - progress) * Math.PI * 8) * aberration * 0.5;
+      const jitterY = Math.cos((1 - progress) * Math.PI * 6) * aberration * 0.3;
+      return {
+        transform: `translate(${jitterX}px, ${jitterY}px)`,
+        textShadow: [
+          `${aberration}px 0 rgba(255,0,0,0.7)`,
+          `${-aberration}px 0 rgba(0,255,255,0.7)`,
+          `0 ${aberration * 0.5}px rgba(0,255,0,0.5)`,
+        ].join(", "),
       };
     }
     default:
@@ -352,11 +400,189 @@ const Runs: React.FC<{ element: PlannedElement; scale: number }> = ({
   </>
 );
 
+/**
+ * Typewriter text reveal: characters appear one at a time with a blinking
+ * cursor at the reveal edge. Same styling as Runs, but clips each run's
+ * text to a character count that advances with `revealProgress` (0-1).
+ *
+ * Inspired by Remotion Bits BasicTypewriter (MIT, github.com/av/remotion-bits).
+ * The original is a standalone component; this integrates with the existing
+ * run/type_role/colour system so a typewriter entrance on any text-carrying
+ * element uses the plan's own copy and styling.
+ */
+const TypewriterRuns: React.FC<{
+  element: PlannedElement;
+  scale: number;
+  /** 0 = nothing revealed, 1 = all text revealed */
+  revealProgress: number;
+}> = ({ element, scale, revealProgress }) => {
+  // Total character count across all runs, for proportional reveal.
+  const totalChars = element.runs.reduce((sum, run) => sum + run.text.length, 0);
+  const charsToShow = Math.round(totalChars * Math.min(1, Math.max(0, revealProgress)));
+
+  let charsRemaining = charsToShow;
+  const cursorBlink = Math.floor(revealProgress * 30) % 2 === 0; // blink at ~15Hz
+
+  return (
+    <>
+      {element.runs.map((run, i) => {
+        const runChars = Math.min(run.text.length, Math.max(0, charsRemaining));
+        charsRemaining -= runChars;
+        const visibleText = run.text.slice(0, runChars);
+        // Only show cursor after the last visible character of the
+        // last partially-revealed run.
+        const showCursor =
+          revealProgress < 1 &&
+          runChars < run.text.length &&
+          charsRemaining === 0;
+
+        if (runChars === 0 && !showCursor) return null;
+
+        return (
+          <div
+            key={i}
+            style={{
+              fontSize: `${(TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) * scale}px`,
+              fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+              color: element.color,
+              textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+              lineHeight: 1.1,
+              letterSpacing: run.type_role === "display" ? "3px" : "0px",
+              textTransform: run.type_role === "display" ? "uppercase" : "none",
+            }}
+          >
+            {visibleText}
+            {showCursor && (
+              <span style={{ opacity: cursorBlink ? 1 : 0 }}>|</span>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+/**
+ * Per-digit spring counter: each digit of the target number rolls
+ * independently using spring physics, creating a mechanical odometer
+ * effect. Each digit gets its own spring with a staggered delay, so
+ * the least significant digits settle first.
+ *
+ * Inspired by Remotion Bits AnimatedCounter (MIT, github.com/av/remotion-bits).
+ * The original is a standalone composition; this integrates with the
+ * existing counter_roll element's data contract and colour system.
+ */
+const DigitRoll: React.FC<{
+  value: string;
+  fontSize: number;
+  color: string;
+  localFrame: number;
+  fps: number;
+  durationFrames: number;
+}> = ({ value, fontSize, color, localFrame, fps, durationFrames }) => {
+  const digits = value.split("");
+  const digitHeight = fontSize * 1.2;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        overflow: "hidden",
+        height: `${digitHeight}px`,
+      }}
+    >
+      {digits.map((char, i) => {
+        // Non-digit characters (commas, dots, prefixes, suffixes) render static.
+        const digitVal = parseInt(char, 10);
+        if (isNaN(digitVal)) {
+          return (
+            <span
+              key={i}
+              style={{
+                fontSize: `${fontSize}px`,
+                fontWeight: 900,
+                color,
+                lineHeight: 1.2,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {char}
+            </span>
+          );
+        }
+
+        // Each digit springs at a stagger: the last digit (ones place)
+        // starts first, giving the odometer look of the least significant
+        // digits settling before the most significant ones.
+        const reverseIndex = digits.length - 1 - i;
+        const staggerDelay = Math.round(reverseIndex * (fps * 0.06));
+        const delayedFrame = Math.max(0, localFrame - staggerDelay);
+
+        // Spring from 0 to the target digit. The strip is 10 digits
+        // (0-9) tall, and we translate to show the right one.
+        const springVal = spring({
+          frame: delayedFrame,
+          fps,
+          config: {
+            damping: 15,
+            stiffness: 80,
+            mass: 0.8,
+          },
+          durationInFrames: Math.max(1, durationFrames - staggerDelay),
+        });
+        const yOffset = -digitVal * digitHeight * springVal;
+
+        return (
+          <div
+            key={i}
+            style={{
+              width: `${fontSize * 0.65}px`,
+              height: `${digitHeight}px`,
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                transform: `translateY(${yOffset}px)`,
+              }}
+            >
+              {Array.from({ length: 10 }, (_, d) => (
+                <div
+                  key={d}
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    fontWeight: 900,
+                    color,
+                    lineHeight: 1.2,
+                    height: `${digitHeight}px`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const DrawnElement: React.FC<{
   element: PlannedElement;
   frame: number;
   safeArea: Insets;
 }> = ({ element, frame, safeArea }) => {
+  const { fps } = useVideoConfig();
   const localFrame = frame - element.startFrame;
   if (localFrame < 0 || localFrame >= element.durationFrames) {
     return null;
@@ -380,6 +606,23 @@ const DrawnElement: React.FC<{
   const extTransform = exitTransform(
     localFrame, element.durationFrames, element.exit);
 
+  // When the entrance is `typewriter`, compute the reveal progress so
+  // text-carrying elements can use TypewriterRuns instead of Runs.
+  const inFrames = RAMP_FRAMES[element.entrance] ?? 0;
+  const typewriterReveal = element.entrance === "typewriter" && inFrames > 0
+    ? Math.min(1, localFrame / inFrames)
+    : 1;
+
+  // TextContent: unified text renderer that uses TypewriterRuns for
+  // typewriter entrances and Runs for everything else.
+  const TextContent: React.FC<{ scl?: number }> = ({ scl }) => {
+    const s = scl ?? scale;
+    if (element.entrance === "typewriter" && typewriterReveal < 1) {
+      return <TypewriterRuns element={element} scale={s} revealProgress={typewriterReveal} />;
+    }
+    return <Runs element={element} scale={s} />;
+  };
+
   // `title_lockup` - the upper third, now carrying the copy the plan
   // wrote. It has drawn since the pipeline's first render and has never
   // held a word, because nothing was ever asked for one.
@@ -395,7 +638,7 @@ const DrawnElement: React.FC<{
           gap: "12px",
         }}
       >
-        <Runs element={element} scale={scale} />
+        <TextContent />
       </div>
     );
   }
@@ -417,7 +660,7 @@ const DrawnElement: React.FC<{
           paddingLeft: `${Math.round(28 * scale)}px`,
         }}
       >
-        <Runs element={element} scale={scale} />
+        <TextContent />
       </div>
     );
   }
@@ -522,7 +765,7 @@ const DrawnElement: React.FC<{
           backdropFilter: "blur(8px)",
         }}
       >
-        <Runs element={element} scale={scale} />
+        <TextContent />
       </div>
     );
   }
@@ -545,7 +788,7 @@ const DrawnElement: React.FC<{
         }}
       >
         <div style={{ color: "#fff", textShadow: "none" }}>
-          <Runs element={element} scale={scale * 0.8} />
+          <TextContent scl={scale * 0.8} />
         </div>
       </div>
     );
@@ -565,7 +808,7 @@ const DrawnElement: React.FC<{
           alignItems: "center",
         }}
       >
-        <Runs element={element} scale={scale * 1.5} />
+        <TextContent scl={scale * 1.5} />
       </div>
     );
   }
@@ -608,8 +851,8 @@ const DrawnElement: React.FC<{
   // across its life. The vocabulary says: "The CHANGE is the point -
   // growth, a countdown, an elapsed quantity - and a static figure would
   // show only its end." `data.start_value` and `data.end_value` drive
-  // the roll; the copy runs carry the label. Spring physics make the
-  // count feel organic rather than linear.
+  // the roll; the copy runs carry the label. Cubic ease-out makes the
+  // count decelerate into the final value.
   if (element.element === "counter_roll") {
     const data = element.data ?? {};
     const startVal = typeof data.start_value === "number" ? data.start_value : 0;
@@ -658,6 +901,85 @@ const DrawnElement: React.FC<{
           }}
         >
           {prefix}{displayValue}{suffix}
+        </div>
+        {element.runs.length > 0 && (
+          <Runs element={element} scale={scale * 0.7} />
+        )}
+      </div>
+    );
+  }
+
+  // `digit_counter` - per-digit spring counter: each digit of the target
+  // number rolls independently using spring physics, creating a
+  // mechanical odometer effect. Least-significant digits settle first.
+  // Ships alongside counter_roll as a second option; the captain chooses.
+  //
+  // Inspired by Remotion Bits AnimatedCounter
+  // (MIT, github.com/av/remotion-bits).
+  if (element.element === "digit_counter") {
+    const data = element.data ?? {};
+    const endVal = typeof data.end_value === "number" ? data.end_value : 100;
+    const prefix = typeof data.prefix === "string" ? data.prefix : "";
+    const suffix = typeof data.suffix === "string" ? data.suffix : "";
+    const decimals = typeof data.decimals === "number" ? data.decimals : 0;
+
+    const displayValue = decimals > 0
+      ? endVal.toFixed(decimals)
+      : Math.round(endVal).toLocaleString();
+    const fontSize = (TYPE_SIZE.display ?? 56) * scale * 1.5;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: `${Math.round(8 * scale)}px`,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            textShadow: `0 0 40px ${element.color}40, 0 4px 16px rgba(0,0,0,0.5)`,
+            letterSpacing: "2px",
+          }}
+        >
+          {prefix && (
+            <span
+              style={{
+                fontSize: `${fontSize}px`,
+                fontWeight: 900,
+                color: element.color,
+                lineHeight: 1.0,
+              }}
+            >
+              {prefix}
+            </span>
+          )}
+          <DigitRoll
+            value={displayValue}
+            fontSize={fontSize}
+            color={element.color}
+            localFrame={localFrame}
+            fps={fps}
+            durationFrames={element.durationFrames}
+          />
+          {suffix && (
+            <span
+              style={{
+                fontSize: `${fontSize}px`,
+                fontWeight: 900,
+                color: element.color,
+                lineHeight: 1.0,
+              }}
+            >
+              {suffix}
+            </span>
+          )}
         </div>
         {element.runs.length > 0 && (
           <Runs element={element} scale={scale * 0.7} />

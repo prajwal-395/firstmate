@@ -1,0 +1,102 @@
+{
+  "elements": [
+    {
+      "element": "title_lockup",
+      "anchor": "top_centre",
+      "row": 0,
+      "runs": [
+        {"text": "THE TRANSFORMER ERA", "type_role": "display"},
+        {"text": "How attention changed everything", "type_role": "supporting"}
+      ],
+      "color": "#E8364F",
+      "entrance": "typewriter",
+      "exit": "fade",
+      "startFrame": 5,
+      "durationFrames": 120,
+      "timelineProgressStart": 0,
+      "timelineProgressEnd": 1,
+      "footprint": null,
+      "emphasis": null,
+      "data": {}
+    },
+    {
+      "element": "digit_counter",
+      "anchor": "centre",
+      "row": 0,
+      "runs": [
+        {"text": "Parameters", "type_role": "micro"}
+      ],
+      "color": "#4ECDC4",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 30,
+      "durationFrames": 150,
+      "timelineProgressStart": 0,
+      "timelineProgressEnd": 1,
+      "footprint": null,
+      "emphasis": null,
+      "data": {
+        "start_value": 0,
+        "end_value": 175000000000,
+        "decimals": 0,
+        "suffix": ""
+      }
+    },
+    {
+      "element": "quote_card",
+      "anchor": "middle_left",
+      "row": 0,
+      "runs": [
+        {"text": "Attention is all you need.", "type_role": "supporting"},
+        {"text": "- Vaswani et al., 2017", "type_role": "micro"}
+      ],
+      "color": "#FFE66D",
+      "entrance": "glitch",
+      "exit": "fade",
+      "startFrame": 140,
+      "durationFrames": 120,
+      "timelineProgressStart": 0,
+      "timelineProgressEnd": 1,
+      "footprint": null,
+      "emphasis": null,
+      "data": {}
+    },
+    {
+      "element": "frame_accents",
+      "anchor": "top_left",
+      "row": 0,
+      "runs": [],
+      "color": "#E8364F",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 270,
+      "timelineProgressStart": 0,
+      "timelineProgressEnd": 1,
+      "footprint": 0.8,
+      "emphasis": null,
+      "data": {}
+    },
+    {
+      "element": "progress_bar",
+      "anchor": "bottom_left",
+      "row": 0,
+      "runs": [],
+      "color": "#E8364F",
+      "entrance": "fade",
+      "exit": "fade",
+      "startFrame": 0,
+      "durationFrames": 270,
+      "timelineProgressStart": 0,
+      "timelineProgressEnd": 1,
+      "footprint": 0.6,
+      "emphasis": null,
+      "data": {}
+    }
+  ],
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "safeArea": {"top": 120, "right": 80, "bottom": 320, "left": 80},
+  "durationInFrames": 270
+}
