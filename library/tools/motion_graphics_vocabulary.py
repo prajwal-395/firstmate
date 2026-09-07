@@ -195,7 +195,7 @@ AXES: tuple[Axis, ...] = (
     Axis(
         name="entrance",
         ranges_over="the character of how the element arrives",
-        positions=("cut", "fade", "slide", "scale", "mask", "draw"),
+        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur"),
         resolved_against=(
             "Remotion's own interpolate/spring; naming the set is not "
             "choosing one, and the strength of the chosen one is not "
@@ -205,7 +205,7 @@ AXES: tuple[Axis, ...] = (
     Axis(
         name="exit",
         ranges_over="the character of how the element leaves",
-        positions=("cut", "fade", "slide", "scale", "mask", "draw"),
+        positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur"),
         resolved_against="the same as entrance; the two are declared separately",
     ),
     Axis(
@@ -588,8 +588,12 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy", "data"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Implemented in Remotion. data.values drives the proportional "
+            "bar widths; runs carry the labels. Each bar grows with "
+            "staggered cubic ease-out in the order the runs are listed."
+        ),
     ),
 
     # ── enumerate ────────────────────────────────────────────────────
@@ -622,8 +626,12 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy"),
         copy="required",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Implemented in Remotion. Each run is one list item with a "
+            "bullet marker, revealed with staggered cubic ease-out and "
+            "upward slide. Items hold once appeared."
+        ),
     ),
     MotionElement(
         key="step_counter",
@@ -652,8 +660,12 @@ ROSTER: tuple[MotionElement, ...] = (
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy", "data"),
         copy="optional",
-        reachable=NEEDS_RENDERER_WORK,
-        reachability_note="No component.",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Implemented in Remotion. data.position and data.total drive "
+            "the display; optional copy runs label the current section. "
+            "tabular-nums keeps digit widths stable."
+        ),
     ),
 
     # ── point ────────────────────────────────────────────────────────

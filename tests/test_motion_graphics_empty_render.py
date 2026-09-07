@@ -222,7 +222,7 @@ def test_a_plan_whose_entries_all_died_is_a_different_absence(tmp_path):
     `no_elements_planned` on purpose, and the casualties are named."""
     proc, log = _run_step(tmp_path, _payload(
         tmp_path, motion_graphics_plan=[
-            {"element": "list_build", "start_seconds": 1.0,
+            {"element": "channel_bug", "start_seconds": 1.0,
              "duration_seconds": 2.0, "anchor": "centre",
              "copy": {"display": "42%"}, "color": "#fff"},
             {"element": "title_lockup", "start_seconds": 1.0,

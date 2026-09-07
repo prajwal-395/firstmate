@@ -22,10 +22,11 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The ten this composition draws are
+ * `element` is a roster key. The thirteen this composition draws are
  * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
  * `lower_third`, `context_stamp`, `stat_callout`, `beat_accent`,
- * `pointer_annotation` and `counter_roll` - the ten the roster marks
+ * `pointer_annotation`, `counter_roll`, `list_build`,
+ * `comparison_bars` and `step_counter` - the thirteen the roster marks
  * `reachable_now`. An entry naming any other element never reaches
  * these props: `motion_graphics_plan.resolve_plan` drops it with
  * `renderer_cannot_draw_it_yet` and records the drop.
@@ -82,6 +83,7 @@ const RAMP_FRAMES: Record<string, number> = {
   scale: 8,
   mask: 8,
   draw: 12,
+  blur: 10,
 };
 
 /** The pixel size of each typographic weight the vocabulary names. */
@@ -178,6 +180,23 @@ export const entranceTransform = (
       });
       return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
     }
+    // `blur` - inspired by Remotion Bits BlurIn (MIT, github.com/av/remotion-bits).
+    // A heavier blur than draw (8px vs 4px) with a slight upward drift,
+    // designed for text defocusing from nothing to sharp.
+    case "blur": {
+      const blurAmount = interpolate(progress, [0, 1], [8, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      const y = interpolate(progress, [0, 1], [12, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return {
+        filter: `blur(${blurAmount}px)`,
+        transform: `translateY(${y}px)`,
+      };
+    }
     default:
       return {};
   }
@@ -222,6 +241,20 @@ export const exitTransform = (
         extrapolateRight: "clamp",
       });
       return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
+    }
+    case "blur": {
+      const blurAmount = interpolate(progress, [0, 1], [8, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      const y = interpolate(progress, [0, 1], [-12, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return {
+        filter: `blur(${blurAmount}px)`,
+        transform: `translateY(${y}px)`,
+      };
     }
     default:
       return {};
@@ -625,6 +658,219 @@ const DrawnElement: React.FC<{
           }}
         >
           {prefix}{displayValue}{suffix}
+        </div>
+        {element.runs.length > 0 && (
+          <Runs element={element} scale={scale * 0.7} />
+        )}
+      </div>
+    );
+  }
+
+  // `list_build` - items appearing one at a time with staggered entrances.
+  // Each run is one list item, revealed as its portion of the duration
+  // arrives. Uses spring physics for a natural settle on each item.
+  if (element.element === "list_build") {
+    const items = element.runs;
+    if (!items.length) return null;
+    // Each item gets an equal share of the hold. The entrance happens
+    // at the front of its share, so item N appears after item N-1 has
+    // settled but before the element's own exit begins.
+    const holdFrames = Math.max(1, element.durationFrames - (RAMP_FRAMES[element.exit] ?? 0));
+    const staggerInterval = holdFrames / items.length;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          gap: `${Math.round(12 * scale)}px`,
+        }}
+      >
+        {items.map((run, i) => {
+          const itemStart = Math.round(i * staggerInterval);
+          const itemProgress = Math.max(0, Math.min(1,
+            (localFrame - itemStart) / Math.max(1, staggerInterval * 0.6),
+          ));
+          // Cubic ease-out for a natural deceleration per item
+          const eased = 1 - Math.pow(1 - itemProgress, 3);
+          const itemOpacity = eased;
+          const itemY = interpolate(eased, [0, 1], [20, 0], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          });
+
+          return (
+            <div
+              key={i}
+              style={{
+                opacity: itemOpacity,
+                transform: `translateY(${itemY}px)`,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: `${Math.round(12 * scale)}px`,
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.round(8 * scale)}px`,
+                  height: `${Math.round(8 * scale)}px`,
+                  borderRadius: "50%",
+                  backgroundColor: element.color,
+                  marginTop: `${Math.round(10 * scale)}px`,
+                  flexShrink: 0,
+                }}
+              />
+              <div
+                style={{
+                  fontSize: `${(TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) * scale}px`,
+                  fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+                  color: element.color,
+                  textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+                  lineHeight: 1.3,
+                }}
+              >
+                {run.text}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // `comparison_bars` - labelled horizontal bars at proportional lengths,
+  // each growing from zero to its share of the maximum. The bars appear
+  // in the order the runs are listed, which is the order spoken.
+  if (element.element === "comparison_bars") {
+    const data = element.data ?? {};
+    const values: number[] = Array.isArray(data.values) ? data.values : [];
+    const maxValue = Math.max(...values, 1);
+    const items = element.runs;
+    // Use whichever is shorter: runs or values. Extra of either is ignored.
+    const count = Math.min(items.length, values.length);
+    if (count === 0) return null;
+
+    const holdFrames = Math.max(1, element.durationFrames - (RAMP_FRAMES[element.exit] ?? 0));
+    const staggerInterval = holdFrames / count;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          gap: `${Math.round(16 * scale)}px`,
+          width: "100%",
+        }}
+      >
+        {Array.from({ length: count }).map((_, i) => {
+          const itemStart = Math.round(i * staggerInterval);
+          const growProgress = Math.max(0, Math.min(1,
+            (localFrame - itemStart) / Math.max(1, staggerInterval * 0.7),
+          ));
+          const eased = 1 - Math.pow(1 - growProgress, 3);
+          const barWidth = (values[i] / maxValue) * 100 * eased;
+
+          return (
+            <div
+              key={i}
+              style={{
+                opacity: eased,
+                display: "flex",
+                flexDirection: "column",
+                gap: `${Math.round(4 * scale)}px`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: `${(TYPE_SIZE[items[i].type_role] ?? TYPE_SIZE.micro) * scale}px`,
+                  fontWeight: TYPE_WEIGHT[items[i].type_role] ?? TYPE_WEIGHT.micro,
+                  color: element.color,
+                  textShadow: "0px 2px 8px rgba(0,0,0,0.5)",
+                }}
+              >
+                {items[i].text}
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: `${Math.round(12 * scale)}px`,
+                  backgroundColor: "rgba(255, 255, 255, 0.1)",
+                  borderRadius: `${Math.round(6 * scale)}px`,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${barWidth}%`,
+                    height: "100%",
+                    backgroundColor: element.color,
+                    borderRadius: `${Math.round(6 * scale)}px`,
+                    boxShadow: `0 0 12px ${element.color}60`,
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // `step_counter` - a positional marker saying "2 of 5". The position
+  // and total come from data; an optional copy run labels the section.
+  if (element.element === "step_counter") {
+    const data = element.data ?? {};
+    const position = typeof data.position === "number" ? data.position : 1;
+    const total = typeof data.total === "number" ? data.total : 1;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: `${Math.round(8 * scale)}px`,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: `${Math.round(4 * scale)}px`,
+          }}
+        >
+          <span
+            style={{
+              fontSize: `${(TYPE_SIZE.display ?? 56) * scale}px`,
+              fontWeight: 900,
+              color: element.color,
+              fontVariantNumeric: "tabular-nums",
+              textShadow: `0 0 24px ${element.color}40, 0 4px 12px rgba(0,0,0,0.5)`,
+              lineHeight: 1.0,
+            }}
+          >
+            {position}
+          </span>
+          <span
+            style={{
+              fontSize: `${(TYPE_SIZE.micro ?? 24) * scale}px`,
+              fontWeight: TYPE_WEIGHT.micro ?? 600,
+              color: element.color,
+              opacity: 0.6,
+              textShadow: "0px 2px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            of {total}
+          </span>
         </div>
         {element.runs.length > 0 && (
           <Runs element={element} scale={scale * 0.7} />
