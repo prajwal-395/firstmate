@@ -116,8 +116,13 @@ def test_the_step_is_still_routed_the_document_it_summarises():
         "the catalog is what joins a stem-keyed document to a clip_id")
     edges = [(e["from"], e["to"], e.get("data_mapping", {}))
              for e in DAG["edges"] if e["to"] == "plan_transitions"]
-    assert ("catalog", "plan_transitions", {"clip_catalog": "clip_catalog"}) \
-        in edges
+    catalog_edges = [mapping for src, _dst, mapping in edges
+                     if src == "catalog"]
+    assert len(catalog_edges) == 1
+    # Containment, not equality: the edge also carries `project_fps`,
+    # which `duration_frames` is computed from. What this test is about
+    # is that the catalog still reaches the step at all.
+    assert catalog_edges[0].get("clip_catalog") == "clip_catalog"
     assert any(src == "semantic_analysis" for src, _, _ in edges)
 
 

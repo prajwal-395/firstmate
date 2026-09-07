@@ -447,7 +447,15 @@ def main():
     music = data.get("music_selection", {})
     temporal_raw = data.get("temporal_event_indices", [])
     temporal = temporal_raw.get("temporal_event_indices", temporal_raw) if isinstance(temporal_raw, dict) else temporal_raw
-    fps = data.get("frame_rate", 30.0)
+    # `project_fps` FIRST, and `frame_rate` is a key nothing in this
+    # pipeline has ever produced. The catalog measures the timebase and
+    # calls it `project_fps`; step 4.04 was given the edge and the read
+    # in #124 ("every consumer used to read its own 30.0 default because
+    # no edge carried it") and this consumer was left behind, so every
+    # `duration_frames` below was computed at 30.0. On the captain's
+    # geo-podcast, which is 23.976 fps, a 400 ms transition became 12
+    # frames and played for 500 ms.
+    fps = data.get("project_fps", data.get("frame_rate", 30.0))
 
     # Extract new inputs
     creative_direction = data.get("creative_direction", {})

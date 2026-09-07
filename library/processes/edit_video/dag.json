@@ -697,7 +697,8 @@
       "from": "catalog",
       "to": "plan_transitions",
       "data_mapping": {
-        "clip_catalog": "clip_catalog"
+        "clip_catalog": "clip_catalog",
+        "project_fps": "project_fps"
       }
     },
     {

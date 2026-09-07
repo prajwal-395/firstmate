@@ -1638,9 +1638,12 @@ def format_table(report: BarReport) -> str:
 # ── CLI ──────────────────────────────────────────────────────────────
 
 JUDGEMENT_FILENAME = "reel_judgement.json"
-"""Where step 3.05's answer is kept for a reader outside a run.
+"""Where a judgement placed BY HAND is looked for.
 
-One spelling, here, because the step writes it and this CLI reads it."""
+One spelling, here.  It is not where step 3.05 writes - the step writes
+its output the way every step does, into
+`pipeline_output/steps/3_05_judge_reels/output.json` - and reading only
+this path was the defect `read_judgement` exists to remove."""
 
 
 def judgement_path(project_folder: str):
@@ -1649,6 +1652,67 @@ def judgement_path(project_folder: str):
 
     return (ProjectLayout(str(project_folder))
             .read_path(Area.REVIEW, JUDGEMENT_FILENAME))
+
+
+def step_judgement_path(project_folder: str):
+    """Where step 3.05 really writes: its own step directory.
+
+    `step_exporter.export_step_output` writes `<step_dir>/output.json`
+    for every step, and 3.05 is not an exception.  Addressed through
+    `ProjectLayout.step_dir` rather than composed, so the one owner of
+    the project-side layout stays the one owner (AGENTS.md 8).
+    """
+    from library.tools.project_layout import STEP_OUTPUT_FILE, ProjectLayout
+
+    return ProjectLayout(str(project_folder)).step_dir(
+        "judge_reels") / STEP_OUTPUT_FILE
+
+
+def read_judgement(project_folder: str):
+    """Step 3.05's reading of these reels, or None, and WHERE it came from.
+
+    Returns `(judgement, source_path)`; `(None, "")` when there is none.
+
+    The defect this removes
+    -----------------------
+    Step 3.05 computes `reel_judgement` and returns it as its output, so
+    the runner stores it in `pipeline_data.json` and exports it to the
+    step's own directory.  Both readers of a judgement - this module's
+    CLI and `reel_conformance_verifier`, which is what step 7.02 runs -
+    opened `review/reel_judgement.json` instead, **and nothing in this
+    repository ever wrote that file.**  So coherence and value, two of
+    the captain's four reel qualities, read UNJUDGED on every
+    verification, and the message printed beside them said "Run
+    judge_reels (step 3.05)" - which could be run, and changed nothing.
+
+    On the captain's `geo-podcast` the file exists and is byte-for-byte
+    the step's own `reel_judgement`, written one minute after the step
+    ran: the middle of the chain was a person.  That is the same defect
+    `reel_proposal.write_from_step_output` was written to remove for the
+    proposal, and the same fix does not apply here - the proposal is a
+    file the captain RULES on, so it has to be a file; a judgement is
+    only ever the model's reading, so it is read from where the step
+    wrote it.
+
+    The hand-placed file still WINS when it exists, because a captain
+    who put one there meant it to be read.
+    """
+    for path in (judgement_path(project_folder),
+                 step_judgement_path(project_folder)):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                document = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        # The step's own output carries the judgement under its key
+        # beside whatever else the step emitted; a hand-placed file is
+        # the judgement itself. Both are accepted, and neither is
+        # guessed at: the key is the one `post_bridge.resolve` returns.
+        if isinstance(document, dict) and "reel_judgement" in document:
+            document = document["reel_judgement"]
+        if isinstance(document, dict):
+            return document, str(path)
+    return None, ""
 
 
 def main(argv=None) -> int:
@@ -1663,8 +1727,8 @@ def main(argv=None) -> int:
                              "approved proposal).")
     parser.add_argument("--judgement", default="",
                         help="The model's readings (default: the project's "
-                             f"review/{JUDGEMENT_FILENAME}, when it has "
-                             f"one).")
+                             f"review/{JUDGEMENT_FILENAME} when it has "
+                             f"one, otherwise step 3.05's own output).")
     parser.add_argument("--json", action="store_true",
                         help="Emit the report as JSON instead of a table.")
     args = parser.parse_args(argv)
@@ -1677,15 +1741,21 @@ def main(argv=None) -> int:
     transcript = json.loads(
         transcript_path(project).read_text(encoding="utf-8"))
 
-    supplied = args.judgement or judgement_path(project)
-    try:
-        with open(supplied, encoding="utf-8") as handle:
-            judgement = json.load(handle)
-    except (OSError, ValueError):
-        judgement = None
-        print(f"no reading of these reels at {supplied} - the two EXACT "
+    if args.judgement:
+        try:
+            with open(args.judgement, encoding="utf-8") as handle:
+                judgement, source = json.load(handle), args.judgement
+        except (OSError, ValueError):
+            judgement, source = None, ""
+    else:
+        judgement, source = read_judgement(project)
+    if judgement is None:
+        print(f"no reading of these reels on file - the two EXACT "
               f"qualities are held below and coherence and value read "
-              f"UNJUDGED.\n", file=sys.stderr)
+              f"UNJUDGED. Looked in {judgement_path(project)} and "
+              f"{step_judgement_path(project)}.\n", file=sys.stderr)
+    else:
+        print(f"reading these reels from {source}\n", file=sys.stderr)
 
     report = judge(moments, transcript, judgement)
     if args.json:

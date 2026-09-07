@@ -6287,3 +6287,197 @@ location work, and the wrong location would then spread.
 `tests/test_context_fields_binds.py` fails on `origin/main` in both
 directions that matter - it fires on `select_reels` and stays silent on
 the eleven steps that project correctly.
+
+## the-outputs-nobody-read
+
+`library/tools/input_contract.py` asks who REFUSES when a declared input
+is absent.  Nothing asked the mirror question - **who READS what a step
+produces** - and that is the question behind the defect class the
+captain calls the biggest quality point in the pipeline: data computed
+and then not reaching where it was needed.
+
+Seven instances were found by hand in two working days (per-line
+transcriber confidence discarded at write time; `caption_content_hash`
+fed the wrong argument; step 3.04's allow-list one level too deep;
+`enforce_min_duration` never called; `duplicate_takes` consumed by
+nothing; captions with no footage binding; the reels path reading no
+picture).  `library/tools/output_contract.py` is the mechanism, and
+`tests/test_output_contract.py` is the ratchet.
+
+### What the survey found
+
+72 declared outputs across 31 steps in both processes.  31 are carried
+by a DAG edge, 19 by the producing step's own prompt, 14 by a module
+elsewhere, and **8 by nothing at all**.  Six of the eight are counts and
+terminal records, recorded with the reason in
+`output_contract.REPORTED_NOT_CONSUMED`.  Two are findings, and one more
+was a finding until this change fixed it.
+
+**`judge_reels.reel_judgement` - the quality bar could not fail.**  Step
+3.05 computes the readings, checks every quote against the reel it is
+about, derives the two judgement qualities and returns them.  Both
+readers of that answer - `reel_quality_bar.main` and
+`reel_conformance_verifier`, which is what step 7.02 runs - opened
+`<project>/pipeline_output/review/reel_judgement.json`, and **nothing in
+this repository ever wrote that file**.  On the captain's
+`lucie/geo-podcast` the file exists and is byte-for-byte the step's own
+`reel_judgement`, written one minute after the step ran: the middle of
+the chain was a person, which is the same defect
+`reel_proposal.write_from_step_output` was created to remove for the
+proposal.
+
+Measured on that project's 31-moment plan, with the hand-copied file
+absent - the state every other project is in:
+
+| | reels | judged | coherence | value | verdict | findings |
+|---|---:|---|---|---|---|---|
+| judgement not found | 31 | False | 31 `unjudged` | 31 `unjudged` | 31 pass | 41, in 2 codes |
+| read from step 3.05's output | 31 | True | 31 `not_followable` | 30 `delivers`, 1 `delivers_nothing` | 30 pass, **1 fail** | 73, in 4 codes |
+
+Two whole finding codes could never fire: `QB-NOT-FOLLOWABLE` (31
+warnings) and `QB-NO-TAKEAWAY` (one error, on `Reel 22 -
+a-score-is-not-a-fix`, which is the reel that flips to FAIL).  The 31
+of 31 `not_followable` reproduces `reel_quality_bar.COHERENCE_DOES_NOT_GATE`
+exactly, which is the number that calibrates the measurement.
+
+`reel_quality_bar.read_judgement` is the fix: one spelling of where a
+judgement lives, preferring a hand-placed `review/reel_judgement.json`
+because a captain who put one there meant it to be read, and otherwise
+reading step 3.05's own `output.json`.  Both call sites ask it.
+
+**`catalog.source_resolution`** is measured by step 1.02 and read by
+nothing.  `step_5_04_compile_manifest/step.py:1252` states a read that
+does not happen; the only other `source_resolution` in the engine is
+`execution/apply_fusion_comps._source_resolution`, which measures the
+resolution off Resolve's own media pool item.
+
+**`validate.final_qa_decision`** is declared as an output of the DAG's
+exit node and nothing produces it.  `post_bridge.py:20` reads
+`data.get("final_qa_decision", "")`; no edge routes the key, no handoff
+asks the model for it, and no reader exists.  It is the empty string on
+every run.  The real verdict is `validation_result.status`.
+
+### The edge checker had only ever looked at one process
+
+`validate_dag_contracts.run_validation` opened
+`library/processes/edit_video/dag.json` BY NAME, so the `reels`
+process's edge - `build_reels` -> `verify_reels`, carrying `reel_build`
+- was never checked by the gate that exists to check exactly that.  It
+now reads `processes.every_dag()`, which scans the directory.
+
+### The timebase two planners never received
+
+`step_4_02_plan_transitions/post_bridge.py` read
+`data.get("frame_rate", 30.0)`, and `step_4_03_plan_vfx` reads the same
+key.  **Nothing in this pipeline has ever produced `frame_rate` as a
+step input**: the catalog measures the timebase and calls it
+`project_fps`.  No edge carried `project_fps` to either step, so the
+default won on every run.
+
+Step 4.04 was given the edge and the read in #124, and its manifest line
+says why in as many words: *"Every consumer used to read its own 30.0
+default because no edge carried it."*  Two of the three consumers were
+left behind, and the reason it stayed invisible is that project 001 is
+30 fps, so the wrong answer and the right one agreed.
+
+`lucie/geo-podcast` is **23.976 fps**.  `duration_map` scales with
+`frame_rate / 30`:
+
+| `duration_feel` | frames at 30.0 | plays for | frames at 23.976 | plays for |
+|---|---:|---:|---:|---:|
+| quick | 6 | 250 ms | 4 | 167 ms |
+| medium | 10 | 417 ms | 7 | 292 ms |
+| slow | 15 | 626 ms | 11 | 459 ms |
+
+Every drawn transition on that project held about 50% longer than the
+word the model wrote asked for.  4.02 now takes `project_fps` on the
+catalog edge and reads it first; `tests/test_transition_frames_use_the_projects_timebase.py`
+fails in three places with the old read restored.
+
+4.03 is deliberately NOT routed: it threads `frame_rate` into
+`resolve_vfx` and `resolve_generator_overlays`, and **neither function
+body mentions the parameter**.  Routing a value nothing reads is the
+defect being audited, so the dead parameter is pinned by a test instead.
+
+### align_sfx_to_prosody has never fired
+
+`step_4_04_plan_sfx/post_bridge.py:650` reads
+`data.get("prosody_analysis", {})` and hands it to
+`audio_reactive_sfx.align_sfx_to_prosody`, which snaps whoosh and
+transition SFX to pause boundaries and impact SFX to emphasis peaks.
+It cannot fire, for three independent reasons at once:
+
+1. no DAG edge routes `prosody_analysis` into `plan_sfx` and its
+   manifest does not declare the input, so the value is always `{}`;
+2. the function reads `pauses` and `emphasis_peaks` at the TOP LEVEL,
+   while step 1.05's output is `{available, profiles: {clip_id: ...},
+   total_clips, error}`;
+3. `analysis/speech_advanced_pipeline.analyze_prosody` has never emitted
+   either key - it produces `pitch_stats`, `pitch_contour_10ms`,
+   `voice_quality`, `speaking_rate`, `intensity_contour_50ms` and
+   `duration_s`.
+
+That is the same triple the function's own docstring gives for deleting
+its third branch ("no step has ever emitted an `engagement_scores` key,
+no DAG edge carried one into plan_sfx").  The two branches above it were
+in the same condition and survived.  It is NOT fixed here: making it
+fire needs a measurement that does not exist, a routing decision, and a
+clip-time to timeline-time mapping.  Cost as it stands: every SFX keeps
+the time the plan gave it, and `align_sfx_to_prosody` is a dict copy.
+
+### The name that means two things
+
+Step 1.04 declares BOTH `temporal_event_indices` (summary rows:
+`index_path`, `speech_duration`, `total_words`, counts) and
+`full_indices` (the whole per-clip index).  Every one of its ten DAG
+edges carries `full_indices` - three of them renamed to
+`temporal_event_indices` at the consumer.  So the same name holds two
+different shapes depending on which side of an edge you read it from,
+and six sites across four steps carry a dead `isinstance(dict)` branch
+reaching for the envelope that never arrives
+(`step_3_02_select_broll/bridge.py:157`, `post_bridge.py:438`,
+`step_4_02_plan_transitions/post_bridge.py:448`,
+`step_4_04_plan_sfx/bridge.py:137`, `post_bridge.py:643`, and
+`step_2_02_speech_sequence/post_bridge.py:792`, which reaches for
+`index_dir`).  Nothing is wrong today; what is wrong is that the
+belief encoded in six places is false, and a re-map to the envelope
+would silently hand four of them the summary rows.
+
+### link_group_id is a uuid nobody reads
+
+`mesh_spine/post_bridge.py:100` mints a `uuid.uuid4()` per speech block
+"for A/V synchronization ... so the XMEML generator can pair video and
+audio clipitems using reciprocal `<link>` blocks".  It is threaded
+through `assign_aroll` and written onto every V1 and A1 clip by
+`compile_manifest`.  **The XMEML route is closed** - AGENTS.md 5, "do
+not wire FCPXML or DRP project-file surgery back in" - so the intended
+reader was removed by policy and the field outlived it.  17 references
+across three steps and five test files, read by no renderer, and a
+fresh uuid on every compile.
+
+### What the survey cannot see, and says so
+
+The `code` route is a key-NAME match, so it over-credits consumption -
+in the safe direction, since a gate that fails correct output is the
+same defect as one that cannot fail.  Three collisions are recorded in
+`output_contract.KNOWN_NAME_COLLISIONS`.  A value that only reaches
+`summary.md` is not read at all: `step_exporter.generate_summary`
+renders whatever keys an output happens to carry.  And it is an
+OUTPUT-level question; a field inside an output is invisible to it.
+
+`output_contract.uncalled_functions` is the one field-level half that is
+mechanical, and it was calibrated against a published finding rather
+than against itself: run over the tree at `33c421c^` - the commit before
+the one that wired it - it reports `enforce_min_duration
+library/steps/step_4_01_plan_subtitles/step.py:292`, which is issue
+#564 word for word.  Over today's tree it does not.  It reports 41
+module-level public functions in `library/` that nothing calls, and it
+REPORTS rather than fails, because escalating a pre-existing finding is
+the captain's decision.
+
+Its own first draft was wrong and is worth recording: it read
+`second_pass.request` as uncalled, which would have claimed the two-pass
+music measurement never runs.  The caller is
+`from library.tools.second_pass import request as second_pass_request`,
+and the scan did not follow import aliases.  The instrument was wrong,
+not the pipeline.

@@ -60,7 +60,26 @@ case "${1:-}" in
 esac
 
 REPORT_DIR="$(mktemp -d)"
-trap 'rm -rf "${REPORT_DIR}"' EXIT
+# KEPT on a non-zero exit, and only then.  The trap used to be an
+# unconditional `rm -rf`, so the JUnit reports this gate computes were
+# deleted before anyone could read them: a FAIL printed a count and left
+# nothing that says WHICH test failed.  On a transient failure - which is
+# the case that most needs the report, because it may not reproduce -
+# the evidence was gone by the time the verdict was on screen.  Measured
+# once during #597: `main: 5078 executed, 1 failed` and no way to name
+# the test.  Same defect class as the audit that found it (a measurement
+# computed and then dropped), in the gate itself.
+_keep_report_on_failure() {
+  local status=$?
+  if [ "${status}" -ne 0 ]; then
+    echo
+    echo "JUnit reports kept for diagnosis: ${REPORT_DIR}"
+    echo "  (delete it yourself; a passing run cleans up after itself)"
+  else
+    rm -rf "${REPORT_DIR}"
+  fi
+}
+trap _keep_report_on_failure EXIT
 
 # Reads a JUnit report pytest wrote and prints `<state> <detail>`.
 # Never prints `ok` unless the file exists, parses, counts more than zero

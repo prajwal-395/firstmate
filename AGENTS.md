@@ -398,7 +398,9 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 
 **Key-name mismatches are the dominant bug class.**
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
-Join semantic documents to the catalog with `library/tools/semantic_index.py`: documents are keyed by FILE STEM, the catalog by `clip_XXX`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+Join semantic documents to the catalog with `library/tools/semantic_index.py`: documents are keyed by FILE STEM, the catalog by `clip_XXX`.
+
+**A declared output has a READER.** `library/tools/output_contract.py`. [why](docs/RULE_EVIDENCE.md#the-outputs-nobody-read)
 
 **A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
 Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
@@ -488,7 +490,7 @@ Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#ove
 Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
 
 **A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
-Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
+Detail: `library/tools/motion_graphics_plan.py`.
 
 **A project may caption each speaker differently, and the engine declares no per-speaker values.**
 Detail: `library/tools/subtitle_style.py`.

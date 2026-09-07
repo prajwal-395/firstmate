@@ -3454,14 +3454,14 @@ def run_verification(
     if moments and transcript and not plan_refused:
         from library.tools import reel_quality_bar as _bar
 
-        judgement = None
+        judgement, judgement_source = None, ""
         if project_folder:
-            try:
-                with open(_bar.judgement_path(project_folder),
-                          encoding="utf-8") as handle:
-                    judgement = json.load(handle)
-            except (OSError, ValueError):
-                judgement = None
+            # `read_judgement`, never the review path alone. Step 3.05
+            # writes its answer into its OWN step directory like every
+            # other step; opening only `review/reel_judgement.json` -
+            # which nothing in this repository writes - is why coherence
+            # and value read UNJUDGED on every verification ever run.
+            judgement, judgement_source = _bar.read_judgement(project_folder)
         bar_report = _bar.judge(moments, transcript, judgement)
         unattached = attach_quality_bar(bar_report, reel_results)
         if unattached:
@@ -3473,6 +3473,9 @@ def run_verification(
             print("Quality bar: no reading of these reels on file, so "
                   "coherence and value are UNJUDGED. Run judge_reels "
                   "(step 3.05).", file=err)
+        else:
+            print(f"Quality bar: read the judgement from "
+                  f"{judgement_source}", file=err)
 
     # ── Snapshot everything AFTER (for read-only proof) ───────────────
     print("Re-reading all timelines (after hash)...", file=err)
