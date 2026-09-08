@@ -12,9 +12,9 @@
 #        fm-brief.sh <task-id> --check
 #   --check reports whether an already-scaffolded brief is ready to dispatch: it
 #   refuses while any scaffold placeholder below is still unfilled, while any
-#   required scope field below is still empty (naming every unfilled one), and
-#   while a ship brief's Done-check demands the whole suite without a stated
-#   fan-out reason.
+#   required scope field below is still empty (naming every unfilled one), while
+#   a ship brief's Done-check demands the whole suite without a stated fan-out
+#   reason, and while a ship brief lacks the required merge-before-PR step.
 #   bin/fm-spawn.sh runs the identical gates before launching a ship or scout
 #   task, so a brief this reports ready is a brief the spawn accepts.
 #   bin/fm-brief-lib.sh owns every gate and its wording.
@@ -97,6 +97,10 @@
 # When writing a task's done-check, name the narrowest test command that proves the
 # change, or name none; never prescribe a full-suite or full-lane run as the worker's
 # iteration loop, because that is the cost the ladder above exists to avoid.
+# Every ship Definition of done below requires the worker to merge the tracked
+# upstream before the PR is opened and to run the chosen selection once ON the
+# merged tree: a squash merge of a stale branch reverts cleanly with no
+# conflict, so advice was not enough and the step is now a dispatch gate.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -185,9 +189,10 @@ done
 
 # --check inspects a brief that already exists, so it takes neither a delivery
 # mode nor a scaffold kind. bin/fm-brief-lib.sh owns the verdict and its wording;
-# this branch only resolves the path and reports the ready case. The three gates
+# this branch only resolves the path and reports the ready case. The four gates
 # run in the same order as bin/fm-spawn.sh: unfilled placeholders first, then
-# the scope contract, then the whole-suite Done-check guard.
+# the scope contract, then the whole-suite Done-check guard, then the
+# merge-before-PR step.
 if [ "$CHECK" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
   [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
@@ -199,6 +204,7 @@ if [ "$CHECK" -eq 1 ]; then
   fm_brief_placeholder_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_fullsuite_check "$CHECK_BRIEF" "dispatch" || exit 1
+  fm_brief_merge_check "$CHECK_BRIEF" "dispatch" || exit 1
   echo "ready: $CHECK_BRIEF (every required scope field is answered)"
   exit 0
 fi
@@ -476,7 +482,11 @@ case "$MODE" in
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`.
+Before opening the PR, merge the tracked upstream into your branch so the PR cannot silently revert work that landed while you were building.
+Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream, resolve any conflicts, and run your chosen test selection once ON the merged tree before pushing.
+A squash merge of a stale branch reverts cleanly with no conflict, so this step is required, not advice.
+If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
+When the merged tree is green, push your branch and open a PR with \`gh-axi\`.
 
 **Hand the build wait to firstmate - never poll the check set yourself.**
 Re-checking a build from here costs a full model turn per check and delivers nothing.
@@ -510,8 +520,11 @@ EOF
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
+Before reporting ready, merge the tracked upstream into your branch so the eventual merge cannot silently revert work that landed while you were building.
+Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream (prefer a rebase onto it to keep the branch a clean fast-forward), resolve any conflicts, and run your chosen test selection once ON the merged tree.
+A fast-forward of a stale branch lands cleanly with no conflict, so this step is required, not advice.
+If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
+When it is implemented and committed on the merged tree, append \`done: ready in branch fm/$ID\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
     ;;
@@ -523,7 +536,11 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+Before reporting complete, merge the tracked upstream into your branch so the PR cannot silently revert work that landed while you were building.
+Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream, resolve any conflicts, and run your chosen test selection once ON the merged tree.
+A squash merge of a stale branch reverts cleanly with no conflict, so this step is required, not advice.
+If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
+When the merged tree is green, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
