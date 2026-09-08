@@ -4,7 +4,9 @@
 # bin/fm-brief.sh scaffolds four scope fields into every ship and scout brief,
 # and both bin/fm-brief.sh --check and bin/fm-spawn.sh gate dispatch through
 # this one implementation: first on unfilled scaffold placeholders, then on the
-# four scope fields. No side effects on source. set -u / set -e safe.
+# four scope fields, then on the whole-suite Done-check guard, then on the
+# merge-before-PR step, then on the Herdr lifecycle scan. No side effects on
+# source. set -u / set -e safe.
 #
 # The four fields, in scaffold order:
 #   What done means for this task  - this task's finish line, not the project's.
@@ -84,6 +86,23 @@
 # and pass vacuously. There is deliberately no pre-contract grandfathering: an
 # older ship brief with a Done-check but without the step is refused so the
 # missing merge is reported rather than silently skipped.
+#
+# The same fail-closed shape guards omitted Herdr intent. A brief scaffolded
+# without --herdr-lab carries a short declaration instead of the lab contract,
+# but prose is only read when the worker reads it. So dispatch additionally
+# refuses a brief whose filled # Task text itself drives Herdr lifecycle
+# behavior while the brief carries no lab contract, with the regeneration
+# instruction. bin/fm-brief.sh --check and bin/fm-spawn.sh both gate through
+# fm_brief_herdr_check below, so the two never hold separate opinions.
+#
+# Detection rule, argued rather than exhaustive. A demand is a # Task line
+# naming herdr alongside a lifecycle verb (start, stop, delete, restart,
+# provision, handoff, profile, reload, teardown). A line carrying a
+# prohibition cue (do not, never, without, cannot, stop and regenerate) is not
+# a demand. Deliberately not caught: read-only mentions such as
+# `herdr session list`, which drive no lifecycle, and Herdr named in a scope
+# field as out of scope or unknown, which is context rather than lifecycle the
+# worker will drive - only the # Task section is scanned.
 
 # Canonical field headings, in scaffold order, separated by "|".
 FM_BRIEF_SCOPE_FIELDS='What done means for this task|Out of scope|Known unknowns|Blocked on'
@@ -238,6 +257,52 @@ fm_brief_merge_check() {  # <brief-path> <what>
   echo "       A squash merge of a stale branch reverts cleanly with no conflict, so the" >&2
   echo "       worker must merge the tracked upstream and verify ON the merged tree before" >&2
   echo "       the PR is opened; restore the scaffold's own step instead of working around it." >&2
+  return 1
+}
+
+# Print the # Task section of a brief: from its heading to the next
+# heading. Prints nothing when the brief carries no Task heading, so callers
+# gate only briefs that record task text. Any heading level matches.
+fm_brief_task_section() {  # <brief-path>
+  awk '
+    /^#/ {
+      heading = $0
+      sub(/^#+[[:space:]]*/, "", heading)
+      sub(/[[:space:]]+$/, "", heading)
+      if (tolower(heading) == "task") { in_section = 1; next }
+      if (in_section) exit
+      next
+    }
+    in_section { print }
+  ' "$1" 2>/dev/null
+}
+
+# Print the first # Task line (already lowercased) that drives Herdr
+# lifecycle, or nothing. Prohibition lines are skipped first so a refusal to
+# touch Herdr never reads as a demand for it.
+fm_brief_herdr_demand_line() {
+  awk '
+    /do not|does not|never|avoid|must not|without|cannot|refus|stop and regenerate/ { next }
+    /herdr/ && /start|stop|delet|restart|provision|handoff|profil|reload|teardown|live/ { print; exit }
+  '
+}
+
+# Gate one brief on Herdr lifecycle driven by its own task text without the
+# lab contract. Returns 0 when dispatch may proceed (lab contract present, no
+# Task section, or no lifecycle demand), 1 naming the demand otherwise.
+# <what> names the action being gated so the refusal reads in the caller's
+# own terms. Only presence is judged, never whether the lifecycle is wise.
+fm_brief_herdr_check() {  # <brief-path> <what>
+  local brief=$1 what=$2 task lowered demand_line
+  grep -q '^# Herdr isolation - HARD SAFETY CONTRACT' "$brief" 2>/dev/null && return 0
+  task=$(fm_brief_task_section "$brief")
+  [ -n "$task" ] || return 0
+  lowered=$(printf '%s\n' "$task" | tr '[:upper:]' '[:lower:]')
+  demand_line=$(printf '%s\n' "$lowered" | fm_brief_herdr_demand_line) || demand_line=
+  [ -n "$demand_line" ] || return 0
+  echo "error: $brief drives Herdr lifecycle in its task text ('${demand_line}'), so $what is refused:" >&2
+  echo "       Regenerate the brief with --herdr-lab before dispatch; never hand-add Herdr lifecycle" >&2
+  echo "       commands to this unguarded brief." >&2
   return 1
 }
 
