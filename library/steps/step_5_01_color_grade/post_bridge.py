@@ -83,7 +83,13 @@ def resolve_color_grade(data: dict) -> dict:
         # judged no-correction from an absent decision.
         decided=True,
         assessment=str(data.get(ASSESSMENT_FIELD) or "").strip(),
+        subject_grades=data.get("subject_grades") or [],
     )
+    for drop in (result["color_grade_spec"].get("subject_grade_drops")
+                 or []):
+        print(f"  5.01: dropped a subject grade for "
+              f"{drop.get('clip_id') or '(no clip named)'} - "
+              f"{drop['reason']}: {drop['detail']}", file=sys.stderr)
     for mismatch in (result["color_grade_spec"]["correction_basis"].get(
             "assessment_mismatches") or []):
         print(f"  5.01: grade_assessment disagrees with what shipped - "

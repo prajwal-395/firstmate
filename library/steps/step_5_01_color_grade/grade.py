@@ -435,7 +435,8 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
                        reference_image: str = "", house_look=None,
                        *, measured_clips=None, corrections=None,
                        dropped=None, decided: bool = False,
-                       assessment: str = "") -> dict:
+                       assessment: str = "",
+                       subject_grades: list = None) -> dict:
     """Assemble the colour grade spec.
 
     Args:
@@ -581,6 +582,24 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
 
     basis = planning_basis(decided, list(corrections or []), dropped)
 
+    # Subject-scoped grades: the colourist's region entries, parsed
+    # here and grounded later. 5.01 carries no segmentation, so this
+    # half is syntactic only (scope, target kind, readable values);
+    # compile_manifest grounds each entry against the clip's 1.06
+    # masks, writes the matte, and drops what does not ground - see
+    # library/tools/subject_grade.py.
+    from library.tools.subject_grade import parse_plan_entry
+    subject_kept, subject_drops = [], []
+    for raw in (subject_grades or []):
+        clean, drop = parse_plan_entry(raw)
+        if drop is not None:
+            subject_drops.append({
+                "clip_id": (raw or {}).get("clip_id", "?")
+                if isinstance(raw, dict) else "?",
+                "reason": drop["reason"], "detail": drop["detail"]})
+        else:
+            subject_kept.append(clean)
+
     look_notes = describe_look(look)
     if look is not None and reference is None:
         look_notes += (
@@ -615,6 +634,11 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
                 clips_in_the_cut=[row["clip_id"] for row in measured_clips]),
             "consistency_notes": _consistency_notes(
                 per_clip_adjustments, reference, unmeasured_clips, basis),
+            # Region-scoped grades, still ungrounded: compile_manifest
+            # resolves each against its clip's tracked subject, writes
+            # the matte, and records what did not survive beside them.
+            "subject_grades": subject_kept,
+            "subject_grade_drops": subject_drops,
         },
     }
 

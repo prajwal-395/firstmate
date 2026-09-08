@@ -118,6 +118,7 @@ from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   resolve_framing_intent, source_covers_frame,
                                   resolve_crop_factor, DEFAULT_CROP_FACTOR)
 from tools.delivery_format import resolve_delivery_format
+from library.tools.subject_grade import apply_subject_grades
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
 )
@@ -1904,6 +1905,76 @@ def compile_manifest(out_dir: str) -> dict:
             for key, value in fusion_look.items():
                 effect.setdefault(key, value)
 
+    # ── Subject-scoped grades (5.01 subject_grades) ──
+    # Each entry grounds against its clip's 1.06 segmentation, writes a
+    # timeline-rate matte under this step's own directory (the layout
+    # answers "which step wrote this" by where the file is), and merges
+    # the masked-grade keys onto every placement cut from that source.
+    # What does not ground is a drop with a reason, never a
+    # whole-frame grade in its place.
+    subject_mattes = []
+    subject_grade_drops = list(
+        color_data.get("color_grade_spec", {}).get(
+            "subject_grade_drops", []) or [])
+    subject_entries = (
+        color_data.get("color_grade_spec", {}).get("subject_grades", [])
+        or [])
+    if subject_entries:
+        _seg_dir = os.path.join(out_dir, "1_06_object_segmentation")
+        _matte_dir = os.path.join(out_dir, "subject_mattes")
+        _source_to_cid = {path: cid
+                          for cid, path in clip_lookup.items()}
+        _seg_cache: dict = {}
+
+        def _seg_for(cid):
+            if cid not in _seg_cache:
+                _seg_cache[cid] = None
+                _seg_path = os.path.join(
+                    _seg_dir, f"{cid}_segmentation.json")
+                if os.path.exists(_seg_path):
+                    with open(_seg_path, encoding="utf-8") as f:
+                        _seg_cache[cid] = json.load(f)
+            return _seg_cache[cid]
+
+        _seen_drop_keys = {
+            (d.get("clip_id"), d.get("reason")) for d in subject_grade_drops}
+        for clip in v1_clips + v2_clips:
+            if clip.get("bookend"):
+                continue
+            cid = _source_to_cid.get(clip.get("source_file"))
+            if cid is None:
+                continue
+            wanted = [e for e in subject_entries
+                      if e.get("clip_id") == cid]
+            if not wanted:
+                continue
+            meta = clip_metadata.get(cid, {})
+            _cw, _ch = meta.get("width"), meta.get("height")
+            dur = max(int(round((clip.get("timeline_out", 0)
+                                 - clip.get("timeline_in", 0)) * fps)), 0)
+            seg = _seg_for(cid)
+            _sample_fps = float((seg or {}).get("sample_fps") or 2.0)
+            patch, drops, mattes = apply_subject_grades(
+                wanted, {cid: seg}, matte_dir=_matte_dir,
+                timeline_fps=float(fps),
+                played_frames={cid: dur},
+                source_resolution=(
+                    {cid: (_ch, _cw)} if _cw and _ch else {}),
+                start_samples={cid: int(float(
+                    clip.get("source_in", 0.0)) * _sample_fps)},
+                matte_stems={cid: f"{cid}_{clip['label']}"})
+            for drop in drops:
+                _drop_key = (drop.get("clip_id"), drop.get("reason"))
+                if _drop_key not in _seen_drop_keys:
+                    _seen_drop_keys.add(_drop_key)
+                    subject_grade_drops.append(drop)
+                    logger.warning("  Subject grade not built: %s",
+                                   drop.get("detail"))
+            if cid in patch:
+                effect = per_clip_effects.setdefault(clip["label"], {})
+                effect.update(patch[cid])
+            subject_mattes.extend(mattes)
+
     # ── The subject-safe conform's own comp (§10.3) ──
     # `_conform_fields` decided the geometry; this is the only thing that
     # carries it to the picture. A clip whose fill crop is too narrow for
@@ -2117,6 +2188,11 @@ def compile_manifest(out_dir: str) -> dict:
         "cohesion_adjustments": cohesion_record,
         "audio": audio_config,
         "color_grade": color_data.get("color_grade_spec", {}),
+        # Subject-scoped grades: the matte records (which files gate
+        # which clip's grade) and every entry that did not survive, in
+        # one place. The validator holds the records to disk.
+        "subject_mattes": subject_mattes,
+        "subject_grade_drops": subject_grade_drops,
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
         "_spine_blocks": [_spine_block_entry(b) for b in structure],
         "subtitle_overlay": subtitle_overlay_data.get(

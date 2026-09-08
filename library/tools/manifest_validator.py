@@ -304,6 +304,26 @@ def validate_manifest_semantics(manifest: dict) -> list[str]:
     errors.extend(_check_no_flash_captions(manifest))
     errors.extend(_check_no_effect_on_everything(manifest))
     errors.extend(_check_subject_survives_the_conform(manifest))
+    errors.extend(_check_subject_mattes_cover_windows(manifest))
+    return errors
+
+
+def _check_subject_mattes_cover_windows(manifest: dict) -> list[str]:
+    """P9: a subject grade's matte must exist and cover its window.
+
+    An overlay segment the manifest names and disk does not have
+    refuses the compile (AGENTS.md 10.2); a subject matte is held to
+    the same. `compile_manifest` already validates each matte at write
+    time - this is the half that catches a hand-edited manifest, or a
+    matte directory moved after the compile.
+    """
+    from library.tools.subject_grade import validate_matte
+
+    errors = []
+    for record in (manifest.get("subject_mattes", []) or []):
+        for error in validate_matte(
+                record, played_frames=record.get("frame_count", 0)):
+            errors.append(f"subject_mattes: {error}")
     return errors
 
 

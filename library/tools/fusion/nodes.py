@@ -293,6 +293,7 @@ class FusionNode:
         self.tool_type = tool_type
         self.attrs: dict[str, object] = {}
         self.inputs: dict[str, object] = {}
+        self.clips: list[dict] = []
         self.pos: tuple[int, int] = (0, 0)
 
     def set_attr(self, key: str, value: object) -> "FusionNode":
@@ -344,6 +345,33 @@ class FusionNode:
             raise TypeError(
                 f"Unsupported input type for {name}: {type(value)}"
             )
+        return self
+
+    def add_clip(self, filename: str, *, start_frame: int = 0,
+                 length: Optional[int] = None) -> "FusionNode":
+        """Point a Loader at the first frame of a numbered image sequence.
+
+        A matte is frames of pixels, and a `.comp` is text: the Loader is
+        the node that turns one into the other. `filename` is the first
+        frame's path; Resolve follows the numbering from it. `length` trims
+        the sequence (TrimOut); without it the Loader reads to the last
+        frame on disk.
+        """
+        clip: dict[str, object] = {
+            "ID": "Clip1",
+            "Filename": filename,
+            "StartFrame": start_frame,
+            "LengthSetManually": True,
+            "TrimIn": 0,
+            "ExtendFirst": False,
+            "ExtendLast": False,
+            "Loop": 1,
+            "GlobalStart": start_frame,
+        }
+        if length is not None:
+            clip["TrimOut"] = max(int(length) - 1, 0)
+            clip["GlobalEnd"] = start_frame + max(int(length) - 1, 0)
+        self.clips.append(clip)
         return self
 
     def _validate(self) -> None:
@@ -431,6 +459,16 @@ class FusionNode:
         # Attributes (top-level, before Inputs)
         for key, val in self.attrs.items():
             lines.append(f"{i2}{key} = {_lua_value(val)},")
+
+        # Clips table (Loader image sequences)
+        if self.clips:
+            lines.append(f"{i2}Clips = {{")
+            for clip in self.clips:
+                lines.append(f"{i2}\tClip {{")
+                for key, val in clip.items():
+                    lines.append(f"{i2}\t\t{key} = {_lua_value(val)},")
+                lines.append(f"{i2}\t}},")
+            lines.append(f"{i2}}},")
 
         # Inputs block
         if self.inputs:

@@ -96,6 +96,13 @@
     ],
     "llm_outputs": [
       {
+        "name": "subject_grades",
+        "type": "list",
+        "required": true,
+        "may_be_empty": true,
+        "description": "Subject-scoped grades - 'warm the speaker, leave the room'. Each: clip_id (exactly as clip_exposure spells it), target {kind: 'person', role: 'speaker'} (the ONLY target that grounds - a generic object such as 'the laptop' resolves to nothing and is dropped, never guessed at), scope 'subject-only' (the only drawable region scope), and grade with any of gain (neutral 1.0), contrast (neutral 0.0), saturation (neutral 1.0). A grade with every term neutral is dropped: leaving the subject alone is said by not naming it. There is no bound on any value and nothing is substituted for a term you leave out - neutral means that axis is not moved. An empty list is a legitimate answer and means no region grade. Grounding happens at compile time against the clip's tracked subject masks: an entry whose clip holds no face-seeded subject is dropped there, and the grade is never applied whole-frame in its place."
+      },
+      {
         "name": "color_correction",
         "type": "list",
         "required": true,

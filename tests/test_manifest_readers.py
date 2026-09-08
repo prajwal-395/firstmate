@@ -31,6 +31,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 EXEMPTED_KEYS = {
     "transitions_downgraded": "Recorded for dashboard export only, no renderer consumes it",
     "cohesion_adjustments": "Recorded for dashboard export only, no renderer consumes it",
+    "subject_grade_drops": (
+        "Why the subject-grade layer is the length it is, including the "
+        "entries compile_manifest dropped because the clip held no "
+        "face-seeded subject. Recorded for the reviewer and the dashboard "
+        "export; no renderer consumes it. See "
+        "library/tools/subject_grade.py"
+    ),
     "vfx_planning_basis": (
         "Why the VFX layer is the length it is, including the entries "
         "this step dropped because no clip on V1 or V2 covered them. "
@@ -118,6 +125,13 @@ EXPECTED_READERS = {
          "Places the rendered Remotion timed-text segments on V6, so each "
          "moment the brand template declared is burned over the picture for "
          "the frames it declared."),
+    ],
+    "subject_mattes": [
+        ("library/tools/manifest_validator.py",
+         "_check_subject_mattes_cover_windows",
+         "Holds every subject-grade matte record to disk before the render: "
+         "a named-but-absent matte, or one that does not cover its played "
+         "window, refuses the compile instead of shipping an unmasked grade."),
     ],
 }
 

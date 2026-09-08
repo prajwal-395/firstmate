@@ -128,6 +128,15 @@ def build_effect_comp(effects: dict, clip_dur: int,
             saturation=effects.get('grade_saturation', 1.0)
         ))
 
+    # A subject-scoped grade: the plan's own values gated by a tracked
+    # matte through EffectMask. The keys arrive from
+    # `subject_grade.apply_subject_grades` via compile_manifest; every
+    # value in them was written by the colourist, and an absent key
+    # reads neutral (the axis is not moved), never a look.
+    if 'subject_grade_matte' in effects:
+        from library.tools.subject_grade import block_from_effects
+        engine.add(block_from_effects(effects))
+
     if effects.get('glow_gain', 0.0) > 0:
         engine.add(fx.glow(
             gain=effects.get('glow_gain', 0.0),
