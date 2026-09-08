@@ -22,13 +22,16 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The fourteen this composition draws are
+ * `element` is a roster key. The sixteen this composition draws are
  * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
- * `lower_third`, `context_stamp`, `stat_callout`, `beat_accent`,
- * `pointer_annotation`, `counter_roll`, `digit_counter`, `list_build`,
- * `comparison_bars` and `step_counter` - the fourteen the roster marks
- * `reachable_now`. An entry naming any other element never reaches
- * these props: `motion_graphics_plan.resolve_plan` drops it with
+ * `lower_third`, `channel_bug`, `context_stamp`, `stat_callout`,
+ * `beat_accent`, `pointer_annotation`, `counter_roll`, `digit_counter`,
+ * `list_build`, `comparison_bars`, `step_counter` and `website_panel` -
+ * the sixteen the roster marks `reachable_now`. The seventeenth roster
+ * entry, `tracked_label`, has no arm: it needs a per-frame position
+ * nothing measures, so no plan reaches here asking for it. An entry
+ * naming any other element never reaches these props:
+ * `motion_graphics_plan.resolve_plan` drops it with
  * `renderer_cannot_draw_it_yet` and records the drop.
  */
 export type PlannedElement = {
@@ -99,6 +102,10 @@ const RAMP_FRAMES: Record<string, number> = {
   blur: 10,
   typewriter: 20,
   glitch: 10,
+  // `flip` turns a quarter-turn in perspective, so it ramps over the
+  // same length as `draw` - long enough to read as a turn, short
+  // enough to stay a transition.
+  flip: 12,
 };
 
 /** The pixel size of each typographic weight the vocabulary names. */
@@ -265,10 +272,13 @@ export const elementOpacity = (
  * The CSS transform an entrance or exit character applies.
  *
  * `fade` is opacity-only (handled by elementOpacity). `slide` moves
- * vertically, `scale` zooms, `mask` clips, and `draw` does a longer
- * scale-and-fade. These are the composition's own drawing of the
- * vocabulary's entrance/exit axis - the PLAN chooses the character, and
- * these functions define what that character looks like on screen.
+ * vertically, `scale` zooms, `mask` clips, `draw` does a longer
+ * scale-and-fade, and `flip` turns the element edge-on in CSS
+ * perspective - the popup half of the captain's "models and graphics
+ * that popup", with no new renderer dependency. These are the
+ * composition's own drawing of the vocabulary's entrance/exit axis - the
+ * PLAN chooses the character, and these functions define what that
+ * character looks like on screen.
  */
 /** The chromatic split `glitch` draws, as a `drop-shadow` chain.
  *
@@ -372,6 +382,18 @@ export const entranceTransform = (
         filter: chromaticSplit(aberration),
       };
     }
+    // `flip` - a CSS-3D quarter-turn in perspective: edge-on at the
+    // start of the ramp, facing the viewer at rest. `perspective()` on
+    // the transform itself is enough - no 3D children to preserve -
+    // and Chromium (which Remotion renders with) flattens it onto the
+    // frame like any other transform.
+    case "flip": {
+      const angle = interpolate(progress, [0, 1], [90, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `perspective(900px) rotateY(${angle}deg)` };
+    }
     default:
       return {};
   }
@@ -454,6 +476,19 @@ export const exitTransform = (
         transform: `translate(${jitterX}px, ${jitterY}px)`,
         filter: chromaticSplit(aberration),
       };
+    }
+    // `flip` exit mirrors the entrance the way `slide` does: it
+    // arrives turning one way and leaves turning the other, so the
+    // exit is not the entrance replayed. `progress` is 1 at the
+    // start of the exit ramp (the element at rest) and 0 at its end
+    // (edge-on), which is why the range reads -90 to 0 and not the
+    // entrance's 90 to 0.
+    case "flip": {
+      const angle = interpolate(progress, [0, 1], [-90, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      return { transform: `perspective(900px) rotateY(${angle}deg)` };
     }
     default:
       return {};
@@ -1476,6 +1511,78 @@ const DrawnElement: React.FC<{
         {element.runs.length > 0 && (
           <Runs element={element} scale={scale * 0.7} />
         )}
+      </div>
+    );
+  }
+
+  // `website_panel` - a page the speech is talking about, as picture.
+  //
+  // The capture is a project-supplied still out of the project's own
+  // `brand_assets/`, staged into Remotion's `public/brand/` by
+  // `remotion_brand_linker.link_brand_assets` and resolved to this URL
+  // by `generate_motion_props` - the same route `channel_bug` takes.
+  // The engine never screenshots the web itself: a live fetch needs
+  // the network and answers differently when it is repeated, so what
+  // is on screen is always a file somebody took, composited here with
+  // the alpha the engine already requires. An entry naming a file the
+  // project does not have never reaches here - `resolve_plan` drops it
+  // as `asset_not_found_on_disk`, the same refusal `compile_manifest`
+  // makes for an overlay segment the manifest names and disk does not
+  // have.
+  //
+  // The chrome is drawn in the element's own colour: a bar carrying
+  // the plan's copy as the address, when the plan states any. No
+  // address stated, no address bar - the roster refuses a stated one
+  // the capture was not taken of, and an invented one here would be
+  // the engine supplying copy. The bar is dark with the colour as its
+  // rule, the way `quote_card` carries its colour, so the address
+  // stays legible whatever the plan declared.
+  if (element.element === "website_panel") {
+    if (!element.asset) return null;
+    const address =
+      element.runs.length > 0 ? element.runs[0].text : "";
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          width: `${Math.round(safeUsableWidth(safeArea, frameWidth) * scale)}px`,
+          borderRadius: `${Math.round(16 * scale)}px`,
+          overflow: "hidden",
+          backgroundColor: "rgba(0, 0, 0, 0.85)",
+          border: `${Math.round(3 * scale)}px solid ${element.color}`,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+        }}
+      >
+        {address !== "" && (
+          <div
+            style={{
+              padding: `${Math.round(10 * scale)}px ${Math.round(16 * scale)}px`,
+              borderBottom: `${Math.round(3 * scale)}px solid ${element.color}`,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              fontSize: `${(TYPE_SIZE.micro ?? 24) * scale}px`,
+              fontWeight: TYPE_WEIGHT.micro ?? 600,
+              color: "#fff",
+            }}
+          >
+            {address}
+          </div>
+        )}
+        <img
+          src={staticFile(element.asset)}
+          alt=""
+          style={{
+            width: "100%",
+            height: "auto",
+            objectFit: "contain",
+            display: "block",
+          }}
+        />
       </div>
     );
   }

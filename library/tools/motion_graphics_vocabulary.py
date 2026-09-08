@@ -102,7 +102,7 @@ the same shape ``sfx_library.load_sfx_catalog`` and
 ``music_measurement.MEASUREMENT_LEGEND`` take, so a planning step's
 bridge can put the whole roster in front of the model as a table without
 this module knowing anything about prompts.  Nothing is shortlisted:
-fifteen entries fit, and whatever selects a shortlist becomes the chooser
+seventeen entries fit, and whatever selects a shortlist becomes the chooser
 (AGENTS.md section 10.5).
 """
 
@@ -196,7 +196,7 @@ AXES: tuple[Axis, ...] = (
         name="entrance",
         ranges_over="the character of how the element arrives",
         positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur",
-                   "typewriter", "glitch"),
+                   "typewriter", "glitch", "flip"),
         resolved_against=(
             "Remotion's own interpolate/spring; naming the set is not "
             "choosing one, and the strength of the chosen one is not "
@@ -207,7 +207,7 @@ AXES: tuple[Axis, ...] = (
         name="exit",
         ranges_over="the character of how the element leaves",
         positions=("cut", "fade", "slide", "scale", "mask", "draw", "blur",
-                   "typewriter", "glitch"),
+                   "typewriter", "glitch", "flip"),
         resolved_against="the same as entrance; the two are declared separately",
     ),
     Axis(
@@ -383,7 +383,7 @@ class MotionElement:
     reachability_note: str = ""
 
 
-#: The roster. Fifteen entries across seven functions.
+#: The roster. Seventeen entries across seven functions.
 #:
 #: **What the size was aimed at.** Small enough that the whole table fits
 #: in a prompt and nothing has to be shortlisted - whatever selects a
@@ -970,6 +970,50 @@ ROSTER: tuple[MotionElement, ...] = (
             "as asset_not_found_on_disk."
         ),
     ),
+    MotionElement(
+        key="website_panel",
+        function="quote",
+        what_it_is=(
+            "A capture of a page the speech is talking about, framed in "
+            "a drawn browser chrome and composited with alpha, so the "
+            "viewer can read what the speaker is describing."
+        ),
+        earns_its_place=(
+            "Moments when the speech points at something on a page that "
+            "the picture does not show. Without it the viewer hears "
+            "about a page they never see."
+        ),
+        never=(
+            ("Fetched live at render time. The engine never screenshots "
+             "the web: a fetch needs the network, answers differently "
+             "when it is repeated, and draws artwork nobody supplied. "
+             "The capture is a project asset, taken by whoever publishes "
+             "the video, and staged verbatim."),
+            ("Full frame. A panel that covers the picture replaces it, "
+             "and replacing the picture is a full-frame element or a "
+             "bookend, owned elsewhere."),
+            ("Addressed to a page the capture is not of. The chrome "
+             "shows the address the plan states; stating one the "
+             "capture was not taken of mislabels what is on screen."),
+        ),
+        needs=(
+            "a still capture from the project's brand_assets/, staged "
+            "verbatim; an anchor, a timing and a footprint; a colour "
+            "role or a stated colour for the chrome"
+        ),
+        axes=("timing", "anchor", "footprint", "entrance", "exit",
+              "emphasis", "colour_role", "copy", "asset"),
+        copy="optional",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "MotionGraphics/index.tsx draws the chrome and the capture: "
+            "the address bar shows the plan's copy when it states any, "
+            "and the capture loads through staticFile from public/brand/, "
+            "where remotion_brand_linker stages stills. A video capture "
+            "is not staged - the linker copies stills only - so a panel "
+            "moves across its entrance and exit alone, never within."
+        ),
+    ),
 )
 
 ELEMENTS_BY_KEY: dict[str, MotionElement] = {e.key: e for e in ROSTER}
@@ -1197,7 +1241,7 @@ def roster_rows(include_unreachable: bool = True) -> list[dict]:
     """The roster as rows, for a bridge to serialise into a prompt table.
 
     `include_unreachable` exists for a caller that has to plan against
-    today's renderer. It defaults to the WHOLE roster: fifteen entries
+    today's renderer. It defaults to the WHOLE roster: seventeen entries
     fit, nothing needs shortlisting, and whatever selects a shortlist
     becomes the chooser (AGENTS.md section 10.5).
     """

@@ -54,7 +54,7 @@ would silently change what composites over what - a stacking order
 nobody chose.
 
 **What is refused, and why refusing is the honest answer.**
-`motion_graphics_vocabulary.ROSTER` is fifteen elements and the
+`motion_graphics_vocabulary.ROSTER` is seventeen elements and the
 composition draws four of them.  An entry naming one of the other eleven
 is DROPPED with `renderer_cannot_draw_it_yet` and the drop is RECORDED -
 never quietly rendered as nothing, and never silently substituted with a

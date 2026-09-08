@@ -16,6 +16,11 @@ test the moment the two halves disagree, in both directions.
 Where it stands after this lane: **43 draws, 1 not yet, 1 refused, 0
 disagreements.**
 
+After the website-panel lane: **46 draws, 1 not yet, 1 refused, 0
+disagreements** - `website_panel` plus the `flip` entrance and exit.
+`python3 -m library.tools.render_capability_index` is the inventory;
+what follows is the reading of it.
+
 ## 1. The ceiling moved, and the join is what found it
 
 A drawing capability lives in two files that nothing joined. The Python half
@@ -25,10 +30,10 @@ flag **alone**. Nothing compared them.
 
 | Surface | Declared | Drew | Draws now |
 |---|---|---|---|
-| Overlay elements | 16 | 13 | **16** |
+| Overlay elements | 16 | 13 | **16**, then **17** with `website_panel` |
 | Full-frame elements (#606) | 1 | 1 | 1 |
-| Entrance characters | 9 | 8 | **9** |
-| Exit characters | 9 | 8 | **9** |
+| Entrance characters | 9 | 8 | **9**, then **10** with `flip` |
+| Exit characters | 9 | 8 | **9**, then **10** with `flip` |
 | Anchors | 10 | 9 (+1 refused) | 9 (+1 refused) |
 
 ### 1.1 `lower_third` - drawn, and declared unreachable
@@ -286,3 +291,49 @@ BREAK: glitch split back to textShadow
   rank 1) - the repair is taste.
 - No project was re-run end to end. The evidence is stills at delivery size
   composited over a real reel frame, not a rebuilt reel.
+
+## 9. The website-panel lane (2026-09-08) - what it built and what it refused
+
+The captain's 2026-09-04 instruction ("take a website ... chroma key
+that in, or use some kinda alpha setting ... models and graphics that
+popup") named two capabilities the roster did not have. Both are built;
+the two readings that look like them and are not are refused here, with
+the reason, so a later lane does not re-decide them by accident.
+
+**Built: `website_panel`.** A project-supplied still capture of a page,
+framed in a drawn browser chrome whose address bar shows the plan's
+copy when it states any, composited with the alpha the engine already
+requires. The capture travels the `channel_bug` route - a named file
+out of the project's own `brand_assets/`, staged verbatim by
+`remotion_brand_linker`, resolved lazily by
+`generate_motion_props.project_asset_resolver` - so no new mechanism
+was built beside the old one. `tests/test_website_panel.py` pins it:
+resolves with a staged asset, drops as `no_asset_for_an_element_that
+_needs_one` with none named and `asset_not_found_on_disk` with a
+missing one, and puts ink on a rendered frame (failed beforehand with
+"drew nothing at all", verified both ways round).
+
+**Built: `flip`.** A CSS-3D quarter-turn entrance and exit
+(`perspective` plus `rotateY`, edge-on to facing on arrival, facing to
+edge-on the other way on departure) - the popup half of the
+instruction, with no new renderer dependency. Declared on the
+vocabulary's entrance/exit axes, drawn in both transform switches, and
+covered by the existing render-backed parametrisation in
+`tests/test_motion_character_draws.py`, which reads new axis positions
+as new cases on its own.
+
+**Refused: a live website fetch at render time.** The roster entry says
+it: a fetch needs the network, answers differently when it is
+repeated, and draws artwork nobody supplied. The capture is taken by
+whoever publishes the video and staged verbatim - the same line
+`channel_bug` draws between engine and project.
+
+**Refused: true 3D-model rendering (`@remotion/three`).** No project
+owns a model asset - the same measurement that closed the chroma-key
+question in `transition_overlay.py` (no green-screen source on any
+project or library) applies: a renderer for assets nobody holds is a
+capability with no planner asking for it, the defect §5 rank 4 names.
+It would also add a runtime 3D dependency to `remotion-subtitles/` for
+one element. If a project ships a model, the honest route is an
+asset-axis entry like this one, with the model file staged verbatim -
+not a second renderer beside the composition.
