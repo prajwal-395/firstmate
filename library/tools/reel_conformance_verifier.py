@@ -1376,6 +1376,60 @@ def check_caption_hangs(reel_name: str,
     return findings
 
 
+def _is_sequential_turn(words: Sequence[dict]) -> bool:
+    """Do these card-overlapping words contain a speaker TURN?
+
+    True when the speakers' word hulls are DISJOINT in time - one
+    speaker stops, the other starts - which is the one shape a
+    regrouping can separate: the card can be split between them.  Two
+    voices sounding at the same instant (mic bleed, or a talk-over
+    like reel 5's 'about' under 'recommend you or your brand.') cannot
+    be grouped apart, so that is not a card defect.
+
+    Hulls, not pairs: in sustained simultaneous speech (reel 15's
+    passage, both mics carrying 'yeah so ai is actually better' at
+    once) the FIRST word of one speaker and the LAST of the other are
+    trivially disjoint, while every instant between them carries both
+    voices.  A pairwise rule reads that chorus as a turn; separability
+    of the whole hulls does not.
+
+    Decided on MASTER intervals, which are the measured values.  The
+    reel mapping is monotone but does float arithmetic, so an exact
+    abutment in master time can read as a hairline overlap in reel
+    time - deciding here keeps a back-to-back turn a turn.
+    """
+    hulls: Dict[str, list] = {}
+    for word in words:
+        speaker = word["speaker"]
+        start, end = word["master_start"], word["master_end"]
+        if speaker in hulls:
+            hulls[speaker][0] = min(hulls[speaker][0], start)
+            hulls[speaker][1] = max(hulls[speaker][1], end)
+        else:
+            hulls[speaker] = [start, end]
+    spans = list(hulls.values())
+    for i, first in enumerate(spans):
+        for second in spans[i + 1:]:
+            if min(first[1], second[1]) > max(first[0], second[0]):
+                return False
+    return True
+
+
+#: How much two reel-time intervals must overlap to count as overlapping.
+#:
+#: Float hygiene, not a judgement.  Both sides of the comparison are
+#: DERIVED - card edges from word ends through `reel_time`, word pieces
+#: from range edges through the same function - so an exact abutment in
+#: the transcript can read as a ~1e-9s overlap here.  Reel 10's closing
+#: card ends exactly where its closer begins; the dust made Akshita's
+#: first closer word overlap the card by a nanosecond, and with the two
+#: words 1085 master seconds apart the turn test read a hairline of
+#: nothing as a speaker turn.  A microsecond is four orders below a
+#: frame (41.7ms) - no render can express it - while real overlaps
+#: (bleed, talk-over, turns) are milliseconds at the very least.
+REEL_OVERLAP_EPSILON = 1e-6
+
+
 def check_mixed_speakers(reel_name: str,
                          caption_cards: Sequence[dict],
                          transcript_segments: Sequence[dict],
@@ -1393,6 +1447,17 @@ def check_mixed_speakers(reel_name: str,
     same instant), not two people talking at once.  575 cuts bleed at
     the spine block boundary so a block carries one speaker; this check
     catches any bleed that survives that cut.
+
+    **Overlap is not mixing.**  Reel 5 of the rebuild carries a card of
+    Akshita's words alone ('recommend you or your brand.') over Craig's
+    simultaneous onset ('about') - every regrouping of those words
+    overlaps him too, so failing the card fails correct output
+    (AGENTS.md 10.4).  Only a SEQUENTIAL turn errors: one speaker's
+    words then the other's, disjoint in time, which a split between
+    them separates.  Simultaneous overlap is COUNTED AND NAMED in a
+    warning of its own, because a check that narrows what it errors on
+    and does not say so reports a clean reel and tells nobody what it
+    declined to look at (the F7-held and F8-between-words convention).
     """
     findings: List[Finding] = []
 
@@ -1410,6 +1475,8 @@ def check_mixed_speakers(reel_name: str,
                     reel_words.append({
                         "word": text.lower(),
                         "speaker": speaker,
+                        "master_start": start,
+                        "master_end": end,
                         "reel_start": r_start,
                         "reel_end": r_end
                     })
@@ -1417,6 +1484,7 @@ def check_mixed_speakers(reel_name: str,
                 continue
 
     # Check each card against the reel words.
+    simultaneous: List[tuple] = []
     for card in caption_cards:
         c_start = card.get("reel_start", 0)
         c_end = card.get("reel_end", 0)
@@ -1424,10 +1492,13 @@ def check_mixed_speakers(reel_name: str,
 
         overlapping_words = [
             rw for rw in reel_words
-            if rw["reel_start"] < c_end and rw["reel_end"] > c_start
+            if rw["reel_start"] < c_end - REEL_OVERLAP_EPSILON
+            and rw["reel_end"] > c_start + REEL_OVERLAP_EPSILON
         ]
         speakers = set(rw["speaker"] for rw in overlapping_words)
-        if len(speakers) > 1:
+        if len(speakers) <= 1:
+            continue
+        if _is_sequential_turn(overlapping_words):
             findings.append(Finding(
                 finding_class=FindingClass.F17,
                 reel=reel_name,
@@ -1436,6 +1507,31 @@ def check_mixed_speakers(reel_name: str,
                     f"{', '.join(sorted(speakers))}"
                 ),
             ))
+        else:
+            simultaneous.append((card_text, sorted(speakers)))
+
+    if simultaneous:
+        listed = ", ".join(
+            f"'{text[:40]}' ({'/'.join(voices)})"
+            for text, voices in simultaneous[:5])
+        if len(simultaneous) > 5:
+            listed += f", +{len(simultaneous) - 5} more"
+        findings.append(Finding(
+            finding_class=FindingClass.F17,
+            reel=reel_name,
+            message=(
+                f"{len(simultaneous)} caption card(s) span simultaneous "
+                f"speech by two speakers - talk-over or mic bleed, not a "
+                f"turn, so no regrouping separates them: {listed}"),
+            severity="warning",
+            detail={
+                "simultaneous_cards": len(simultaneous),
+                "cards": [
+                    {"text": text[:60], "speakers": voices}
+                    for text, voices in simultaneous[:10]
+                ],
+            },
+        ))
 
     return findings
 

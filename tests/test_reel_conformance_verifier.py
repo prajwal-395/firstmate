@@ -2011,6 +2011,84 @@ class TestCaptionHangs:
         assert len(findings_correct) == 0
 
 
+class TestF17SequentialTurnVsSimultaneousTalkover:
+    """F17 claims a card MIXES two speakers. Reel 5 of the rebuild
+    (2026-09-08) proves time overlap is not mixing: Akshita's card
+    'recommend you or your brand.' (412.63-413.85s) carries only her
+    words, but Craig's overlapping onset 'about' (412.77-414.03s) shares
+    the same seconds, so the check failed a card no regrouping can fix -
+    every sub-span of it overlaps Craig too. Only a SEQUENTIAL turn
+    (one speaker's words then the other's, disjoint in time) is a card
+    defect, because only that can be regrouped apart."""
+
+    def _reel5_segments(self):
+        return [
+            _row(412.63, 413.85, "Akshita", "recommend you or your brand.",
+                 item_id="uid-a",
+                 words=tuple(
+                     {"word": w, "start": a, "end": b, "timed": True}
+                     for w, (a, b) in {
+                         "recommend": (412.63, 412.99),
+                         "you": (413.01, 413.17),
+                         "or": (413.37, 413.43),
+                         "your": (413.45, 413.57),
+                         "brand.": (413.59, 413.85),
+                     }.items())),
+            _row(412.77, 414.03, "Craig", "about",
+                 words=({"word": "about", "start": 412.77, "end": 414.03,
+                          "timed": True},)),
+        ]
+
+    def test_simultaneous_talkover_is_not_an_error(self):
+        """The reel-5 card, exactly as derived: single-speaker words over
+        simultaneous speech. No regrouping separates two voices sounding
+        at once, so failing it fails correct output (AGENTS.md 10.4)."""
+        segments = self._reel5_segments()
+        keep_ranges = [(342.038, 413.851)]
+        cards = [_caption_card(412.63 - 342.038, 413.85 - 342.038,
+                               "recommend you or your brand.")]
+        findings = check_mixed_speakers(
+            "Reel 05", cards, segments, keep_ranges, FPS)
+        errors = [f for f in findings if f.severity == "error"]
+        assert errors == [], "a single-speaker card over talk-over is not mixing"
+
+    def test_simultaneous_talkover_is_still_named(self):
+        """A check that narrows what it errors on and does not say so
+        reports a clean reel and tells nobody what it declined to look
+        at - the F7-held and F8-between-words convention."""
+        segments = self._reel5_segments()
+        keep_ranges = [(342.038, 413.851)]
+        cards = [_caption_card(412.63 - 342.038, 413.85 - 342.038,
+                               "recommend you or your brand.")]
+        findings = check_mixed_speakers(
+            "Reel 05", cards, segments, keep_ranges, FPS)
+        warnings = [f for f in findings if f.severity == "warning"]
+        assert len(warnings) == 1
+        assert warnings[0].finding_class == FindingClass.F17
+        assert "Akshita" in warnings[0].message
+        assert "Craig" in warnings[0].message
+
+    def test_a_sequential_turn_still_errors(self):
+        """The gate must still fail on the thing it exists for: one card
+        spanning Craig's words THEN Akshita's is regroupable apart."""
+        segments = [
+            _row(1.0, 2.0, "Craig", "here",
+                 words=({"word": "here", "start": 1.0, "end": 2.0,
+                         "timed": True},)),
+            _row(2.0, 3.0, "Akshita", "yeah so",
+                 words=({"word": "yeah", "start": 2.0, "end": 2.5,
+                         "timed": True},
+                        {"word": "so", "start": 2.5, "end": 3.0,
+                         "timed": True},)),
+        ]
+        cards = [_caption_card(1.0, 3.0, "here yeah so")]
+        findings = check_mixed_speakers(
+            "Reel 05", cards, segments, [(0.0, 10.0)], FPS)
+        errors = [f for f in findings if f.severity == "error"]
+        assert len(errors) == 1
+        assert errors[0].finding_class == FindingClass.F17
+
+
 
 # ── F18/F19/F20: transition elements laid over a cut ─────────────────
 #

@@ -433,9 +433,82 @@ def partial_overlaps(start: float, end: float,
     return cut
 
 
+def _word_intervals(transcript: dict) -> List[tuple]:
+    """Every timed word interval in the transcript, bound or straddling.
+
+    Untimed words (no usable start/end) cannot say whether a boundary
+    lands inside them, so they are not offered as evidence that one did -
+    the same rule F8's `_row_words` applies at the gate.
+    """
+    out = []
+    for segment in transcript.get("segments") or ():
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                out.append((word_start, word_end))
+    return out
+
+
+def _snap_out_of_words(start: float, end: float,
+                       words: Sequence[tuple]) -> tuple:
+    """Move each boundary out of any word interior, outward.
+
+    A boundary strictly inside a word moves to the word's start (a
+    start) or end (an end), so the reel opens and closes ON word edges
+    rather than through a word.  Outward for the same reason the
+    segment pass widens outward: moving inward drops a word the
+    proposer meant to include.
+
+    A boundary exactly ON a word edge is already clean and stays.
+
+    Iterated to a fixed point: a word edge can itself sit inside ANOTHER
+    overlapping word, and one pass would leave the boundary mid-word.
+    Each move is strictly outward and lands on a word edge, of which
+    there are finitely many, so the loop always settles.
+    """
+    for _ in range(len(words) + 1):
+        moved = False
+        for word_start, word_end in words:
+            if word_start < start < word_end:
+                start = word_start
+                moved = True
+            if word_start < end < word_end:
+                end = word_end
+                moved = True
+        if not moved:
+            break
+    return start, end
+
+
+def _widen_to_segments(start: float, end: float,
+                       segments: Sequence[dict]) -> tuple:
+    """One fixed-point segment pass: the loop `snap_to_speech` always ran.
+    """
+    # ITERATE to a fixed point. Extending the span pulls in segments that
+    # were outside it, and those can themselves be partially covered - so
+    # one pass leaves a boundary mid-sentence and `validate_proposal`
+    # refuses it. Found exactly that way, on reel 12 of the second batch.
+    for _ in range(_SNAP_PASSES):
+        touching = [x for x in segments
+                    if float(x["timeline_end"]) > start
+                    and float(x["timeline_start"]) < end]
+        if not touching:
+            return start, end
+        widened = (min(float(x["timeline_start"]) for x in touching),
+                   max(float(x["timeline_end"]) for x in touching))
+        if widened == (start, end):
+            return widened
+        start, end = widened
+    return start, end
+
+
 def snap_to_speech(start: float, end: float, transcript: dict,
                    ) -> tuple:
-    """Move a span OUT to the nearest whole-segment boundaries.
+    """Move a span OUT to whole segments, then OUT of any word interior.
 
     Outward rather than inward, because trimming to the nearest inner
     boundary silently drops words the proposer meant to include, while
@@ -456,21 +529,25 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     # preview showed a clean close that the built reel did not have.
     # The two halves now read the same list.
     segments = bound_segments(transcript)
-    # ITERATE to a fixed point. Extending the span pulls in segments that
-    # were outside it, and those can themselves be partially covered - so
-    # one pass leaves a boundary mid-sentence and `validate_proposal`
-    # refuses it. Found exactly that way, on reel 12 of the second batch.
-    for _ in range(_SNAP_PASSES):
-        touching = [x for x in segments
-                    if float(x["timeline_end"]) > start
-                    and float(x["timeline_start"]) < end]
-        if not touching:
-            return start, end
-        widened = (min(float(x["timeline_start"]) for x in touching),
-                   max(float(x["timeline_end"]) for x in touching))
-        if widened == (start, end):
-            return widened
-        start, end = widened
+    words = _word_intervals(transcript)
+    # Four phases, in this order, and the order is the contract.
+    # Segments first: a boundary must never cut a bound row, and only
+    # the segment pass knows rows.  Words second: a segment edge can
+    # still sit inside a STRADDLING row's word - reel 5 of the rebuild
+    # ended at 413.851s, Akshita's row end, through Craig's overlapping
+    # 'about' (412.77-414.03s) - which the segment pass cannot see.
+    # Segments a third time, because the word move can touch a bound
+    # row the first pass did not reach; and words last, so the span the
+    # proposal stores opens and closes on word edges.  The segment phases
+    # settle by the existing fixed-point loop and the word phases by the
+    # one above, so the sequence always settles.
+    # A final span that still cuts a bound row is refused downstream by
+    # `validate_proposal` - the rows genuinely overlap, and no drawer
+    # can reconcile that, so it says so instead of guessing.
+    start, end = _widen_to_segments(start, end, segments)
+    start, end = _snap_out_of_words(start, end, words)
+    start, end = _widen_to_segments(start, end, segments)
+    start, end = _snap_out_of_words(start, end, words)
     return start, end
 
 

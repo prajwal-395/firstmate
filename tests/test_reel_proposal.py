@@ -385,6 +385,54 @@ def test_a_straddling_segment_does_not_make_a_boundary_illegal():
     assert straddling_within(10.0, 18.0, tx)[0]["text"] == "bridged"
 
 
+def test_snap_moves_an_end_out_of_a_straddling_word():
+    """Reel 5 of the rebuild (2026-09-08) ended at 413.851s - the end of
+    Akshita's bound row - and inside Craig's straddling word 'about'
+    (412.77-414.03s). Segment snapping cannot see words, and straddlers
+    are excluded from its arithmetic, so the raw end survived and the
+    build failed F8 on it. The drawer snaps OUT of the word, to its end.
+    """
+    tx = _tx(
+        _bound(speaker="Craig", text="the setup", timeline_start=342.038,
+               timeline_end=350.0, resolve_item_id="uid-0",
+               words=[{"word": "setup", "start": 342.1, "end": 342.5}]),
+        _bound(speaker="Akshita", text="recommend you or your brand.",
+               timeline_start=412.63, timeline_end=413.85,
+               resolve_item_id="uid-a",
+               words=[{"word": "recommend", "start": 412.63, "end": 412.99},
+                      {"word": "you", "start": 413.01, "end": 413.17},
+                      {"word": "or", "start": 413.37, "end": 413.43},
+                      {"word": "your", "start": 413.45, "end": 413.57},
+                      {"word": "brand.", "start": 413.59, "end": 413.85}]),
+        _bound(speaker="Craig", text="about",
+               timeline_start=412.77, timeline_end=414.03,
+               resolve_item_id=None,
+               words=[{"word": "about", "start": 412.77, "end": 414.03}]),
+        _bound(speaker="Craig", text="a lot of times",
+               timeline_start=414.05, timeline_end=420.0,
+               resolve_item_id="uid-c",
+               words=[{"word": "times", "start": 414.23, "end": 414.33}]),
+    )
+    assert snap_to_speech(342.038, 413.851, tx) == (342.038, 414.03)
+
+
+def test_snap_moves_a_start_out_of_a_straddling_word():
+    """The same cut, at the other edge: a snapped start that lands
+    inside a straddling word moves back to the word's start, so the
+    reel opens on a word boundary rather than mid-word."""
+    tx = _tx(
+        _bound(speaker="Craig", text="about",
+               timeline_start=12.77, timeline_end=14.03,
+               resolve_item_id=None,
+               words=[{"word": "about", "start": 12.77, "end": 14.03}]),
+        _bound(speaker="Craig", text="a lot of times",
+               timeline_start=13.0, timeline_end=18.0,
+               resolve_item_id="uid-c",
+               words=[{"word": "lot", "start": 13.1, "end": 13.2}]),
+    )
+    assert snap_to_speech(13.0, 17.0, tx) == (12.77, 18.0)
+
+
 def test_enrich_ignores_straddling_segments_too():
     """Otherwise a preview shows words the reel does not contain, and
     names a speaker who is not in it."""

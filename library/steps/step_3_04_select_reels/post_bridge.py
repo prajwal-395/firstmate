@@ -99,9 +99,11 @@ def resolve(llm_output: dict, data: dict) -> dict:
             dropped.append({"entry": entry,
                             "reason": "no usable start/end"})
             continue
-        # Out to whole segments: a short must not open or close
-        # mid-sentence, and 63 of this episode's 906 segments straddle a
-        # cut and are excluded from the arithmetic entirely.
+        # Out to whole segments, then out of any word interior: a short
+        # must not open or close mid-sentence, and 63 of this episode's
+        # 906 segments straddle a cut and are excluded from the segment
+        # arithmetic entirely - while their WORDS still constrain the
+        # boundary (`reel_proposal.snap_to_speech`).
         start, end = snap_to_speech(start, end, transcript)
         cta, cta_dropped = _call_to_action(entry, start, end, transcript)
         if cta_dropped:
