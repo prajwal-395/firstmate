@@ -1013,8 +1013,20 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     segments.caption_entries = plan_entries
     segments.spine = spine
     for index, props in enumerate(props_list, 1):
+        # `reuse=True`: the cache-and-pair. A rebuild re-derives the same
+        # props for an unchanged caption, and the segment name (speaker +
+        # timeline + source span, `subtitle_segment_id`) plus the recorded
+        # reuse key (props digest + renderer fingerprint, step 4.05) are
+        # the per-card identity `caption_content_hash` cannot supply - it
+        # digests the whole card list into one per-reel hash, so it can
+        # never key a per-card cache. A caption whose text, timing, style
+        # or renderer changed re-renders; one that did not is paired back
+        # to the file already on disk instead of orphaning it with a fresh
+        # render. The plain-run default stays False (opt-in, never
+        # flipped) - this call site is the explicit opt-in.
         rendered = render.run(props, out_dir, name,
-                              progress=f"[{index}/{len(props_list)}]")
+                              progress=f"[{index}/{len(props_list)}]",
+                              reuse=True)
         if rendered is not None:
             segments.append(rendered)
     return segments
