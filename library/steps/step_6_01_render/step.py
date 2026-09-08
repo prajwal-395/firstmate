@@ -44,7 +44,14 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
         raise ValueError("project_folder is required to place the export")
 
     output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS, step="render"))
-    output_name = manifest.get("project", {}).get("name", DEFAULT_TIMELINE_NAME)
+    # The export is the deliverable OF this timeline, so it carries the
+    # timeline's own name - including PR 460's timestamp/duration/draft
+    # suffix. Recomputing it from the manifest's base project name is how
+    # every run overwrote exports/<base>.mp4 in place while the timestamped
+    # timelines accumulated beside it (D9). Identity, not a second
+    # timestamp computation: a fresh strftime here could tick over a second
+    # boundary and name a file no timeline holds.
+    output_name = timeline_name or manifest.get("project", {}).get("name", DEFAULT_TIMELINE_NAME)
 
     cmd = [
         sys.executable, RENDER_SCRIPT,
