@@ -25,7 +25,9 @@ What it checks, ported from the audit's findings
   split by straddling segments (a real gap) vs frame-quantisation residue
   (not a defect).
 - **F6: Caption card overlap** - cards that cannot coexist on one track.
-- **F7: Short caption cards** - cards shorter than 0.5s.
+- **F7: Short placed items** - caption, video and audio items under
+  the 0.5s readability floor (`manifest_validator.
+  MIN_CAPTION_DISPLAY_SECONDS`), measured on what the build placed.
 - **F9: Duplicate placements** - a placement loop that runs once per clip
   PER CLIP, producing N*N items at duplicate record positions.  This
   verifier is the only guard against that class of bug because
@@ -65,17 +67,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import sys
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-# The ONE exemption on the caption floor, shared with the manifest's own
-# P6 check so a reel and a master cannot be held to different rules.
+# The caption readability floor, shared with the manifest's own P6 check
+# so a reel and a master are never held to different floors.  F7 applies
+# it with NO exemption - see `check_short_captions` for why the
+# last-of-block clause cannot survive on the placed path.
 from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
 from library.tools.frame_utils import span_frames
-from library.tools.manifest_validator import ends_with_its_block
+from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
 from library.tools.reel_exchange import LENGTH_GUIDANCE
 
 
@@ -89,7 +94,7 @@ class FindingClass:
     F4 = "F4"  # ENCODING: dropped clips (item count mismatch)
     F5 = "F5"  # PLANNING: uncaptioned speech (straddling segments)
     F6 = "F6"  # PLANNING: overlapping caption cards
-    F7 = "F7"  # PLANNING: short caption cards (<0.5s)
+    F7 = "F7"  # PLANNING: placed items under the readability floor (<0.5s)
     F8 = "F8"  # PLANNING: boundary cuts through unseen speech
 
     # 2026-09-06.  F2 paired planned cards to placed items BY LIST INDEX
@@ -1895,81 +1900,58 @@ def check_mixed_speakers(reel_name: str,
 def check_short_captions(reel_name: str,
                          caption_cards: Sequence[dict],
                          fps: float,
-                         min_duration_seconds: float = 0.5,
+                         min_duration_seconds: float = MIN_CAPTION_DISPLAY_SECONDS,
                          ) -> List[Finding]:
-    """F7: Find caption cards shorter than the minimum display time.
+    """F7: a placed caption item under the readability floor FAILS.
 
-    AGENTS.md 10.4 requires no caption card under 0.5s, but the reel
-    caption path has no minimum-duration rule and nothing checks for one.
-    The audit found 29 cards under 0.5s, 7 of them under 3 frames.
+    AGENTS.md 10.4 requires no caption card under 0.5s.  The floor is
+    NOT chosen here: it is `manifest_validator.
+    MIN_CAPTION_DISPLAY_SECONDS`, the pipeline's own hard floor - the
+    threshold `render_qa`'s `subtitle_too_short` already uses and the
+    one the manifest's P6 check enforces.  At 23.976fps it is 12
+    frames; the flash cards this exists to catch are 2-3.
 
-    A card that ends WITH its spine block is HELD, not failed - the same
-    exemption `manifest_validator` applies to a manifest, through the same
-    predicate, because a reel checked against a different rule from the
-    master is checked against a different rule.  A card is on screen until
-    the next card's first word and the last card of a block has no next
-    word, so no grouping and no extension can lengthen one.
+    There is deliberately NO last-of-block exemption.  The exemption's
+    intent was real: a block-final card cannot be lengthened by any
+    regrouping (it is on screen until the next card's first word, and
+    the last card of a block has no next word).  But that is a fact
+    about the grouping, not a claim the card is readable - and on the
+    placed path the clause is always satisfied, because a one-card
+    block's only card is trivially its last.  Re-measured 2026-09-06
+    across 23 built reels, 44 of 45 under-floor cards satisfied both
+    clauses trivially, being last because they were alone; on
+    2026-09-08 the captain's approved reels 02, 03 and 19 each carried
+    a 2-3 frame flash every gate had HELD.  A check whose exemption is
+    always satisfied is a check that cannot refuse.
 
-    Measured on the nineteen approved reels of `lucie/geo-podcast`: 38 of
-    832 derived cards sit under the floor and ALL 38 satisfy both clauses,
-    which is the same 4.6% the master timeline shows after the grouping
-    fix.  Reporting them as 38 defects was the count being wrong, not the
-    reels.
+    So an unreadable card fails whatever block it ends with, and the
+    remedy stays where it belongs: upstream, in `reel_spine.
+    _merge_fragment_blocks` (rejoin the fragment row to its sentence)
+    and in never authoring a sub-second keep - never in a warning that
+    calls a flash acceptable because nothing could lengthen it.
 
-    **The exemption held cards that WERE reachable, and it said the
-    opposite about them.**  Re-measured 2026-09-06 across 23 built
-    reels: 45 of 984 cards sat under the floor and **44 of the 45 were
-    the ONLY card of their block** - which is to say they satisfied both
-    clauses trivially, being last because they were alone.  Nearly all
-    of those blocks were a transcript row the transcriber split
-    mid-sentence, so the message's "no grouping can lengthen it" was
-    true of the grouping and false of the card: rejoining the row to
-    its own sentence lengthens it, and that is what
-    `reel_spine._merge_fragment_blocks` now does before 4.01 ever sees
-    the spine.  **36 of the 45 go**, leaving 9 - six blocks the reel
-    genuinely holds alone with nothing contiguous beside them (`yeah.`
-    between two turns of the other speaker) and three that are now the
-    last of SEVERAL cards, which is the case this exemption was written
-    for.
-
-    **Held cards are COUNTED AND NAMED**, in a warning of their own.  A
-    check that drops its exemptions silently reports a clean reel and
-    tells nobody what it declined to look at, which is the vacuous gate
-    this file exists to remove.
+    Measured in FRAMES off the placed item, not seconds off the plan:
+    the caller passes the cards built from `timeline.caption_items`,
+    whose `frames` is the placed `duration_frames`.
     """
     findings: List[Finding] = []
+    floor_frames = int(math.ceil(min_duration_seconds * fps))
 
-    # The end each block's last card reaches - one clause of the
-    # exemption, and the only part of it that needs the other cards.
-    last_end_in_block: dict = {}
-    for card in caption_cards:
-        position = card.get("block_position")
-        if position is None:
-            continue
-        end = _card_end(card)
-        if end > last_end_in_block.get(position, float("-inf")):
-            last_end_in_block[position] = end
-
-    held = []
     for i, card in enumerate(caption_cards):
         duration = _card_end(card) - \
                    card.get("reel_start", card.get("start_seconds", 0))
-        frames = card.get("frames", int(round(duration * fps)))
-        if duration < min_duration_seconds:
-            position = card.get("block_position")
-            if position is not None and ends_with_its_block(
-                    _card_end(card), last_end_in_block.get(position),
-                    card.get("block_end")):
-                held.append((i, card.get("text", "")[:30],
-                             round(duration, 3), frames))
-                continue
+        frames = card.get("frames")
+        if frames is None:
+            frames = int(round(duration * fps))
+        if frames < floor_frames:
             findings.append(Finding(
                 finding_class=FindingClass.F7,
                 reel=reel_name,
                 message=(
                     f"caption card {i+1} '{card.get('text', '')[:30]}' "
                     f"is {frames} frames ({duration:.3f}s), under the "
-                    f"{min_duration_seconds}s minimum"),
+                    f"{min_duration_seconds}s readability floor "
+                    f"({floor_frames} frames at {fps:.3f}fps)"),
                 severity="error",
                 detail={
                     "caption_index": i,
@@ -1977,33 +1959,86 @@ def check_short_captions(reel_name: str,
                     "duration_frames": frames,
                     "text": card.get("text", "")[:60],
                     "minimum_seconds": min_duration_seconds,
+                    "minimum_frames": floor_frames,
                 },
             ))
 
-    if held:
-        listed = ", ".join(f"card {i+1} {t!r} {d:.3f}s"
-                           for i, t, d, _ in held[:5])
-        if len(held) > 5:
-            listed += f", +{len(held) - 5} more"
-        findings.append(Finding(
-            finding_class=FindingClass.F7,
-            reel=reel_name,
-            message=(
-                f"{len(held)} of {len(caption_cards)} caption cards are "
-                f"under {min_duration_seconds}s and HELD, not failed: each "
-                f"is the last card of its spine block and ends where that "
-                f"block ends, so no grouping can lengthen it. Held: "
-                f"{listed}"),
-            severity="warning",
-            detail={
-                "held_by_block": len(held),
-                "cards_checked": len(caption_cards),
-                "minimum_seconds": min_duration_seconds,
-                "held": [{"caption_index": i, "text": t,
-                          "duration_seconds": d, "duration_frames": f}
-                         for i, t, d, f in held],
-            },
-        ))
+    return findings
+
+
+def _placed_item_frames(item) -> Optional[int]:
+    """A placed timeline item's duration in frames, dict or TimelineItem."""
+    if isinstance(item, dict):
+        frames = item.get("duration_frames")
+        if frames is not None:
+            return int(frames)
+        start = item.get("start_frame")
+        end = item.get("end_frame")
+        if start is not None and end is not None:
+            return int(end) - int(start)
+        return None
+    frames = getattr(item, "duration_frames", None)
+    if frames is not None:
+        return int(frames)
+    return int(item.end_frame) - int(item.start_frame)
+
+
+def _placed_item_name(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("name", ""))
+    return str(getattr(item, "name", ""))
+
+
+def check_short_av_items(reel_name: str,
+                         video_items,
+                         audio_items,
+                         fps: float,
+                         min_duration_seconds: float = MIN_CAPTION_DISPLAY_SECONDS,
+                         ) -> List[Finding]:
+    """F7, placed picture-and-sound half: a placed video or audio item
+    under the SAME readability floor FAILS.
+
+    The report's keep-range slivers are this class: R02's 3-frame
+    "their keywords" video chirp, R04's 10-frame "in AI over" and
+    5-frame "size." audio fragments, R02's 5-frame "that's" blip, R10's
+    6-frame breath.  A viewer hears an orphaned word-sliver across a
+    multi-second gap, and no caption check can see it because most of
+    these slivers carry no card at all.  Reel timelines carry no SFX
+    stingers or other legitimately sub-second items - picture on
+    V1/V2, dialogue on the two audio tracks - so the floor needs no
+    track exemption either.
+    """
+    findings: List[Finding] = []
+    floor_frames = int(math.ceil(min_duration_seconds * fps))
+
+    for kind, items in (("video", video_items or ()),
+                        ("audio", audio_items or ())):
+        for n, item in enumerate(items):
+            frames = _placed_item_frames(item)
+            if frames is None:
+                continue
+            if frames < floor_frames:
+                findings.append(Finding(
+                    finding_class=FindingClass.F7,
+                    reel=reel_name,
+                    message=(
+                        f"{kind} item {n+1} "
+                        f"'{_placed_item_name(item)[:30]}' is {frames} "
+                        f"frames ({frames / fps:.3f}s), under the "
+                        f"{min_duration_seconds}s readability floor "
+                        f"({floor_frames} frames at {fps:.3f}fps)"),
+                    severity="error",
+                    detail={
+                        "kind": kind,
+                        "item_index": n,
+                        "duration_seconds": round(frames / fps, 3),
+                        "duration_frames": frames,
+                        "name": _placed_item_name(item)[:60],
+                        "minimum_seconds": min_duration_seconds,
+                        "minimum_frames": floor_frames,
+                    },
+                ))
+
     return findings
 
 
@@ -3674,18 +3709,21 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_caption_duration(
             plan.reel_name, plan.captions, timeline.caption_items, fps))
 
-    # F6 and F7 read the CARDS rather than the placed items, because they
-    # measure overlap and length against what the plan asked for.  The
+    # F6 reads the CARDS rather than the placed items, because it
+    # measures overlap against what the plan asked for.  The
     # plan's own derived cards are the reference when the caller passes
     # none, which is every real run: `verify_built_reels` never passed
-    # `caption_cards`, so both were skipped on live builds even before the
+    # `caption_cards`, so it was skipped on live builds even before the
     # plan side was empty.
     #
     # F5 no longer reads these - it reads the cards ON THE TIMELINE, for
-    # the reason spelled out below.  F6 and F7 still grade the re-derived
-    # plan, which is the same reference F2 above now REFUSES without a
-    # recorded baseline; extending that refusal to them is owed work, not
-    # something this comment should imply is already done.
+    # the reason spelled out below.  F7 joined it: it reads the placed
+    # caption ITEMS, because a card that was never placed is never on
+    # screen and a flash that WAS placed is the defect.  F6 still grades
+    # the re-derived plan, which is the same reference F2 above now
+    # REFUSES without a recorded baseline; extending that refusal to it
+    # is owed work, not something this comment should imply is already
+    # done.
     cards = caption_cards if caption_cards is not None else [
         {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
          "text": c.text, "speaker": c.speaker, "frames": c.frames,
@@ -3731,10 +3769,31 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_caption_overlaps(
             plan.reel_name, cards, fps))
 
-    # F7: Short captions
-    if have_reference and cards:
+    # F7: short placed items - caption cards, then picture and sound.
+    #
+    # The caption half reads the CARDS ON THE TIMELINE (`placed_cards`
+    # above), never the plan's derived cards: on the captain's nineteen
+    # 832 cards derived against 763 placed, and the three flash cards
+    # the 2026-09-08 report names - R02 card 0 "yeah." 3f, R03 card 3
+    # "yeah" 3f, R19 card 32 "yeah." 2f - are placed items.  There is no
+    # last-of-block exemption: each was trivially the last card of its
+    # own block, which is why every gate HELD them.  See
+    # `check_short_captions` for the exemption's intent and why it
+    # cannot survive here.
+    #
+    # The A/V half applies the same floor to placed video and audio
+    # items - the keep-range slivers (R02's 3f chirp, R04's 10f and 5f
+    # fragments, R10's 6f blip) play as orphaned word-slivers most of
+    # which carry no card at all.  It measures only the timeline, so it
+    # needs no plan reference; the caption half keeps the reference
+    # gate its siblings use.
+    if have_reference and placed_cards:
         findings.extend(check_short_captions(
-            plan.reel_name, cards, fps))
+            plan.reel_name, placed_cards, fps))
+    if timeline.video_items or timeline.audio_items:
+        findings.extend(check_short_av_items(
+            plan.reel_name, timeline.video_items, timeline.audio_items,
+            fps))
 
     # F15: Caption hangs - a card whose duration far exceeds its speech.
     # Both halves: the plan side grades what was asked for, the placed
