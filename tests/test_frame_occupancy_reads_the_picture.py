@@ -47,6 +47,7 @@ from library.tools import render_qa
 from library.tools.render_qa import (
     DEFAULT_SAMPLE_FPS,
     OverlaySegment,
+    _overlay_ink_frames,
     _stream_raw_frames,
     measure_frame_occupancy,
 )
@@ -112,7 +113,12 @@ def _measure(frames, spans, overlays=None, ink=None):
 
     def stream(video_path, *a, **k):
         if video_path in ink:
-            return iter(list(ink[video_path]))
+            # `_overlay_ink_frames` decodes at twice the sample rate and
+            # unions the triplet centred on each sample, so each
+            # per-sample mask is served twice: the two double-rate frames
+            # the fixture's static content decodes to.
+            return iter([m for mask in ink[video_path]
+                         for m in (mask, mask)])
         return iter(frames)
 
     with pytest.MonkeyPatch.context() as mp:
@@ -357,3 +363,66 @@ def test_the_alpha_of_a_real_transparent_overlay_is_what_is_masked(tmp_path):
         real, abs=0.01), masked.value
     assert masked.value["samples_carrying_overlay_ink"] > 0
     assert masked.passed, masked.detail
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None,
+                    reason="ffmpeg/ffprobe not available")
+def test_a_mask_grid_straddling_a_hard_cut_still_masks_the_ink(tmp_path):
+    """D5's cause, not its symptom: one grid-aligned frame is a lottery
+    pick wherever the overlay file cuts.
+
+    Measured on 001: sub_block_10 cuts caption cards at file 1.25s, the
+    2 Hz mask grid read that blank transition frame at the 33.5s sample,
+    the empty union collapsed to no mask at all, and the sample read
+    0.4688 against a real 0.3167. Each sample therefore yields the union
+    of the three double-rate frames centred on it, so the blank frame of
+    a hard cut cannot empty the mask while the cards on either side of
+    it carry ink.
+    """
+    # Timing only, no geometry: a small frame keeps the ProRes fixture
+    # cheap, and nothing here is laid out from the delivery size.
+    w, h = 160, 120
+    card_a = {"x": 10, "y": 20, "w": 50, "h": 16}
+    card_b = {"x": 80, "y": 60, "w": 50, "h": 16}
+    card = ("drawbox=x={x}:y={y}:w={w}:h={h}:color=white:t=fill:"
+            "enable='{en}'")
+    overlay = tmp_path / "cut.mov"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"color=c=white:s={w}x{h}:r=30:d=2",
+         "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}:r=30:d=2,"
+            + card.format(en="lt(n,38)", **card_a) + ","
+            + card.format(en="gte(n,39)", **card_b),
+         "-filter_complex", "[0][1]alphamerge",
+         "-c:v", "prores_ks", "-profile:v", "4444",
+         "-pix_fmt", "yuva444p10le",
+         str(overlay)],
+        check=True, capture_output=True)
+
+    def box_mask(b):
+        m = np.zeros((h, w), dtype=bool)
+        m[b["y"]:b["y"] + b["h"], b["x"]:b["x"] + b["w"]] = True
+        return m
+
+    box_a = box_mask(card_a)
+    box_b = box_mask(card_b)
+    # Frame 38 is blank; the 2 Hz grid from 0.2667s lands on it at the
+    # third sample (file 1.2667s), the way 001's grid landed on its own
+    # transition frame at 33.5s.
+    want = [box_a, box_a, box_a | box_b, box_b]
+    gen = _overlay_ink_frames(
+        OverlaySegment(str(overlay), 0.0, 2.0, 0.0), 2.0, w, h, 0.2667)
+    try:
+        got = [next(gen) for _ in range(4)]
+    finally:
+        gen.close()
+
+    assert len(got) == len(want)
+    for k, (mask, expected) in enumerate(zip(got, want)):
+        covered = (mask & expected).sum() / expected.sum()
+        leaked = (mask & ~expected).sum() / expected.sum()
+        assert covered > 0.99, (
+            f"sample {k} lost ink the file carries beside it: "
+            f"coverage {covered:.4f}")
+        assert leaked < 0.01, (
+            f"sample {k} masks rows nothing drew: leakage {leaked:.4f}")

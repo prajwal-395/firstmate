@@ -835,9 +835,26 @@ def _overlay_ink_frames(segment: "OverlaySegment", sample_fps: float,
     inside the segment, so the stream starts at the matching second of the
     file and every frame after it lines up with a sample by construction.
 
+    Decoded at twice the sample rate, and each sample yields the UNION of
+    the three double-rate frames centred on it - the quarter-second
+    before it, the quarter-second holding it, and the quarter-second
+    after.  A single grid-aligned frame is a lottery pick wherever the
+    file cuts: the frame the grid lands on can be the blank frame of a
+    hard cut while the render shows the card on either side of it, and
+    then the mask is empty exactly where the master carries ink.
+    Measured on 001: sub_block_10 cuts caption cards at file 1.25s, the
+    2 Hz grid read that blank frame at the 33.5s sample, `mask_at`
+    collapsed the empty union to None, and the sample read 0.4688
+    against a real 0.3167.  The triplet cannot miss ink the render
+    shows - the render composites the same file at the same file
+    second - and where it masks rows the render left bare, the walk
+    resolves them as bar, which is what they are wherever a bar is what
+    the overlay was drawn over.
+
     Scaled to the master's frame with `neighbor`, because the answer is a
     mask: interpolating one invents partial ink at every edge.
     """
+    import collections
     offset = max(0.0, segment.source_in + (first_sample - segment.start))
     # TRIMMED, not seeked. `-ss` rebases the stream's timestamps onto the
     # seek point and the sample grid is laid out from there, which is
@@ -847,18 +864,50 @@ def _overlay_ink_frames(segment: "OverlaySegment", sample_fps: float,
     # file's own clock, and `setpts=PTS-STARTPTS` puts the grid on the
     # first frame at or after `offset` - within one frame of it, which
     # is the finest a video can be asked about.
-    for frame in _stream_raw_frames(
-            segment.path, 'gray', 1, width, height, sample_fps,
-            # Bounded generously - the trim has already discarded the
-            # head, so this only has to be long enough - because the
-            # generator is closed the moment the segment stops being
-            # live and nothing decodes past that anyway.
-            duration_seconds=offset + max(0.0, segment.end - first_sample)
-            + 2.0 / sample_fps,
-            trim=f'trim=start={offset:.6f},setpts=PTS-STARTPTS',
-            extract='format=rgba,alphaextract,scale='
-                    f'{width}:{height}:flags=neighbor'):
-        yield frame[0] >= OVERLAY_INK_ALPHA
+    double_fps = 2.0 * float(sample_fps)
+    source = _stream_raw_frames(
+        segment.path, 'gray', 1, width, height, double_fps,
+        # Bounded generously - the trim has already discarded the
+        # head, so this only has to be long enough - because the
+        # generator is closed the moment the segment stops being
+        # live and nothing decodes past that anyway.
+        duration_seconds=offset + max(0.0, segment.end - first_sample)
+        + 2.0 / sample_fps,
+        trim=f'trim=start={offset:.6f},setpts=PTS-STARTPTS',
+        extract='format=rgba,alphaextract,scale='
+                f'{width}:{height}:flags=neighbor')
+    buffered = collections.deque()  # [(double_slot, mask)], slot = k
+    slot = 0
+    stream_done = False
+    sample = 0
+    while True:
+        # Sample `sample` sits at double-slot 2*sample and owns the
+        # triplet centred on it. It is ready once slot 2*sample+1 has
+        # been decoded, or the file ends first - past the end the
+        # triplet is partial, the way the single-frame stream used to
+        # run past it on the duration grace below.
+        need = 2 * sample + 1
+        while not stream_done and (not buffered or buffered[-1][0] < need):
+            try:
+                frame = next(source)
+            except StopIteration:
+                stream_done = True
+            else:
+                buffered.append((slot, frame[0] >= OVERLAY_INK_ALPHA))
+                slot += 1
+        if not buffered:
+            return
+        owned = [mask for (k, mask) in buffered if k >= 2 * sample - 1]
+        # The next sample owns 2*sample+1 and up, so everything below
+        # that is dropped - never more than the masks live at one
+        # instant, the way `_OverlayInk` promises its callers.
+        while buffered and buffered[0][0] < 2 * sample + 1:
+            buffered.popleft()
+        union = owned[0]
+        for mask in owned[1:]:
+            union = union | mask
+        sample += 1
+        yield union
 
 
 class _OverlayInk:
