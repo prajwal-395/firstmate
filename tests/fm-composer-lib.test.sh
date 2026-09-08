@@ -349,6 +349,44 @@ test_matrix_opencode_leftbar_signals() {
   pass "matrix: opencode's left-bar composer reads empty everywhere and scans the full active run"
 }
 
+test_matrix_unicode_ellipsis_placeholder() {
+  # Opencode's idle hint now renders its dots as U+2026 HORIZONTAL ELLIPSIS
+  # with a rotating quoted suggestion (observed 2026-09-08): `Ask anything…
+  # "Fix broken tests"`. The fleet-wide idle literals spell three ASCII dots,
+  # so without ellipsis normalisation the hint reads as real typed text and an
+  # idle opencode worker classifies pending forever instead of empty.
+  local uni ascii typed
+  uni=$'  ┃\n  ┃  Ask anything… "Fix broken tests"\n  ┃\n  ┃  Build · GPT-5.5 Fast OpenAI · high\n  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  assert_screen "opencode unicode-ellipsis idle on plain backends" empty "$CAPS_PLAIN" "$uni"
+  assert_screen "opencode unicode-ellipsis idle on herdr" empty "$CAPS_STYLED" "$uni"
+  assert_screen "opencode unicode-ellipsis idle on zellij" empty "$CAPS_STYLED_NOID" "$uni"
+  ascii=$'  ┃\n  ┃  Ask anything... "What is the tech stack?"\n  ┃\n  ┃  Build · GPT-5.5 Fast OpenAI · high\n  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  assert_screen "opencode ascii-dots idle on plain backends" empty "$CAPS_PLAIN" "$ascii"
+  typed=$'┃\n┃  refactor the parser please\n┃\n┃  Build · GPT-5.5 Fast OpenAI · high\n╹▀▀▀▀'
+  assert_screen "opencode real typed text stays pending on tmux" pending "$CAPS_TMUX" "$typed" 1
+  assert_screen "opencode real typed text stays pending on herdr" pending "$CAPS_STYLED" "$typed"
+  # The same cosmetic switch on any other placeholder is covered by the same
+  # normalisation at the match layer, not by another literal: grok's bordered
+  # `Type a message…` matches the fleet-wide set once normalised, and the ASCII
+  # form still does. This stays a literal match, not a catch-all: longer text
+  # carrying an ellipsis still refuses to match the anchored placeholder.
+  fm_composer_idle_matches 'Type a message…' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive \
+    || fail "a Unicode-ellipsis grok placeholder must match the idle set"
+  fm_composer_idle_matches 'Type a message...' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive \
+    || fail "the ASCII grok placeholder must still match the idle set"
+  fm_composer_idle_matches 'Type a message… and more' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive \
+    && fail "a longer line carrying an ellipsis must NOT match the anchored placeholder"
+  fm_composer_idle_matches 'wait…' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive \
+    && fail "ordinary typed text carrying an ellipsis must NOT match the idle set"
+  # Recorded limit of this sweep: the box geometry proof
+  # (fm_composer_geometry_spaces) maps only ASCII printables onto blank, so a
+  # harness that BOTH switches to `…` AND re-pads its box for display columns
+  # would trip the byte-exact width check before matching is even reached.
+  # The left-bar path that actually broke has no width proof and is fully
+  # covered; a real bordered-harness switch would need a geometry follow-up.
+  pass "matrix: a Unicode-ellipsis idle placeholder reads empty, ASCII still does, and real typed text stays pending"
+}
+
 test_matrix_grok_titled_bottom_border() {
   # Real idle grok: a bordered box whose BOTTOM border carries the model name.
   # The audit showed the title alone flipped tmux's geometry check to
@@ -633,6 +671,7 @@ test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_pi_separated_needs_identity
 test_matrix_opencode_leftbar_signals
+test_matrix_unicode_ellipsis_placeholder
 test_matrix_grok_titled_bottom_border
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
