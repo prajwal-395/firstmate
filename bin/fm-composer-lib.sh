@@ -376,7 +376,10 @@ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 # The ONE fleet-wide idle-placeholder set: composer text a harness renders in
 # an EMPTY composer that a plain capture cannot tell from typed text. Grok's
 # bordered placeholder and opencode's left-bar hint (which continues with a
-# rotating quoted suggestion, hence the unanchored tail). cursor-agent renders
+# rotating quoted suggestion, hence the unanchored tail; opencode now renders
+# the hint's dots as U+2026 HORIZONTAL ELLIPSIS, observed 2026-09-08, and
+# fm_composer_idle_matches normalises that code point onto three ASCII dots
+# before matching so these literals stay ASCII). cursor-agent renders
 # two, both anchored: `Plan, search, build anything` in a fresh session and
 # `Add a follow-up` once a turn has completed (verified live on cursor-agent
 # 2026.08.11-e8db854). FM_COMPOSER_IDLE_RE overrides for an unverified harness;
@@ -467,8 +470,23 @@ EOF
 }
 
 fm_composer_idle_matches() {
-  local content=$1 idle_re=$2 idle_case=$3
+  local content=$1 idle_re=$2 idle_case=$3 ellipsis
   [ -n "$idle_re" ] || return 1
+  # U+2026 HORIZONTAL ELLIPSIS normalisation: a harness may render the trailing
+  # dots of its idle placeholder as one Unicode ellipsis code point where the
+  # fleet-wide literals below spell three ASCII dots (opencode's idle hint now
+  # reads `Ask anything… "…"` with a rotating quoted suggestion, observed
+  # 2026-09-08; grok's `Type a message…` would read the same way). Map it onto
+  # `...` BEFORE matching so the one literal set never has to track a
+  # harness's cosmetic punctuation switch. This function is the single choke
+  # point every idle check funnels through (both content-classifier match
+  # points, the ghost-remnant check, the left-bar scan, and selected-content
+  # extraction), so one mapping covers every placeholder at once. The anchored
+  # literals themselves stay ASCII and reviewable, and real typed text still
+  # cannot match them - only the punctuation spelling is normalised, never the
+  # words, so this cannot widen into a catch-all.
+  printf -v ellipsis '%b' '\0342\0200\0246'
+  content=${content//"$ellipsis"/...}
   case "$idle_case" in
     insensitive) printf '%s' "$content" | grep -qiE "$idle_re" ;;
     *) printf '%s' "$content" | grep -qE "$idle_re" ;;
