@@ -409,6 +409,61 @@ def resolve_caption_overlaps(entries: list) -> dict:
     return {"trimmed": trimmed, "merged": merged}
 
 
+def _clamp_stretched_words(words: list, min_display: float) -> list:
+    """A word spanning longer than any genuine word keeps its onset only.
+
+    WhisperX stretches one word across the silence before the next
+    speaker resumes - reel 10's 34.13s 'audits', reel 24's 3.03s
+    'concise,'. The onset is the measured edge (the stretch runs
+    forward over trailing silence) while the end is known-bad, and
+    rendering the full span draws a card that hangs seconds past the
+    speech it belongs to (F15). Dropping the word is not the answer
+    either: it was spoken, and a caption must still show it.
+
+    So the word keeps its onset and is shown for the legibility floor -
+    exactly what `enforce_min_duration` gives a genuine short word at
+    the same onset, so no duration enters the system grouping could not
+    already produce. Clamping the WORD rather than the card also splits
+    the group where the fake adjacency was: the silence a stretched
+    tail bridged becomes a gap wider than `max_gap`, and no card spans
+    it.
+
+    The bound is `MAX_WORD_SECONDS`, imported rather than restated: the
+    same rule F5's speech measure reads, so the span the coverage gate
+    declines to count as speech is the span no card is drawn over. The
+    clamp is SAID, naming each word, because a timing this step rewrote
+    and did not report is a measurement it falsified quietly.
+    """
+    from library.tools.reel_conformance_verifier import MAX_WORD_SECONDS
+
+    out = []
+    clamped = []
+    for word in words:
+        span = float(word["end"]) - float(word["start"])
+        if span > MAX_WORD_SECONDS:
+            narrowed = dict(word)
+            narrowed["end"] = round(float(word["start"]) + min_display, 3)
+            clamped.append((word.get("word", ""), word["start"],
+                            word["end"]))
+            out.append(narrowed)
+        else:
+            out.append(word)
+    if clamped:
+        listed = ", ".join(
+            f"{text!r} {start:.2f}-{end:.2f}s"
+            for text, start, end in clamped[:5])
+        if len(clamped) > 5:
+            listed += f", +{len(clamped) - 5} more"
+        print(
+            f"NOTE: {len(clamped)} word(s) span longer than "
+            f"{MAX_WORD_SECONDS:.1f}s - the aligner bridging silence, "
+            f"not speech - so each keeps its onset and is shown for "
+            f"the {min_display:.1f}s legibility floor: {listed}",
+            file=sys.stderr,
+        )
+    return out
+
+
 def split_into_groups(
     words_with_times: list,
     fits_fn=None,
@@ -456,7 +511,9 @@ def split_into_groups(
     if not words_with_times:
         return []
 
-    words = list(words_with_times)
+    # A stretched tail fakes adjacency across silence; narrow the words
+    # before anything measures a gap off them.
+    words = _clamp_stretched_words(list(words_with_times), min_display)
     n = len(words)
 
     def _ends_a_thought(word: str) -> bool:
