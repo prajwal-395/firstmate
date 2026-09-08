@@ -976,7 +976,32 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   done
   exit "$rc"
 fi
-ID=${POS[0]}
+ID=${POS[0]:-}
+[ -n "$ID" ] || {
+  echo "error: missing <task-id> positional; usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>] [--model <name>] [--effort <level>] [--backend <name>] (ship), fm-spawn.sh <task-id> <project-dir> --scout [...] (scout), fm-spawn.sh <task-id> [<firstmate-home>] [...] --secondmate" >&2
+  exit 1
+}
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+  # Ship and scout spawns take the project directory as the second positional.
+  # Refusing a missing or non-path argument here - before backend selection,
+  # locks, and any fleet mutation - is what keeps a spawn from ever guessing
+  # which project to launch into. A bare project NAME is never a target: it
+  # would resolve against the caller's cwd instead of the home. Absolute paths
+  # and projects/<name> (resolved through the home below) are the accepted
+  # forms; anything else carrying a slash still faces the resolution refusal
+  # where the directory is entered.
+  [ "${#POS[@]}" -ge 2 ] || {
+    echo "error: missing <project-dir> positional; ship and scout spawns require the project's absolute directory path (or projects/<name>) as the second positional, never a bare project name" >&2
+    exit 1
+  }
+  case "${POS[1]}" in
+    */*) ;;
+    *)
+      echo "error: project argument '${POS[1]}' is not a directory path; pass an absolute directory path or projects/<name>, not a bare project name" >&2
+      exit 1
+      ;;
+  esac
+fi
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_CONTROL_LOCK="$STATE/.control-$ID.lock"
@@ -1855,7 +1880,12 @@ if [ "$KIND" = secondmate ]; then
     BRIEF="$DATA/$ID/brief.md"
   fi
 else
-  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  # The cd's own stderr stays suppressed so a failure surfaces only as the
+  # actionable refusal below, never as a raw shell line number.
+  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" 2>/dev/null && pwd)" || {
+    echo "error: project directory cannot be resolved: $PROJ; pass an absolute directory path or projects/<name>" >&2
+    exit 1
+  }
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
