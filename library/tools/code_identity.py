@@ -108,6 +108,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # root decides what the scan sees.  Scan is seconds, so a rare
         # schema edit re-scanning is the cheap, correct trade.
         "library/schemas/project_config.py",
+        # Imported by project_config: the subtitle_overlay_geometry /
+        # subtitle_overlay_container vocabularies the scan's declaration
+        # parsing validates against, so a fix here changes what the scan
+        # accepts.
+        "library/tools/overlay_mode.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
