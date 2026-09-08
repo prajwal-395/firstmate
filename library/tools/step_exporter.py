@@ -490,6 +490,8 @@ def _summary_color_grade(name: str, out: dict) -> str:
             f"proposed correction(s) reached the CDL.")
         if basis.get("assessment"):
             lines.append(f"\n{basis['assessment']}")
+        for mismatch in basis.get("assessment_mismatches") or []:
+            lines.append(f"\n⚠ {mismatch['detail']}")
     notes = spec.get("look_notes", "")
     if notes:
         lines.append(f"\n{notes}")

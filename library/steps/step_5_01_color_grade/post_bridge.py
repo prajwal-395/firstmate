@@ -84,6 +84,10 @@ def resolve_color_grade(data: dict) -> dict:
         decided=True,
         assessment=str(data.get(ASSESSMENT_FIELD) or "").strip(),
     )
+    for mismatch in (result["color_grade_spec"]["correction_basis"].get(
+            "assessment_mismatches") or []):
+        print(f"  5.01: grade_assessment disagrees with what shipped - "
+              f"{mismatch['detail']}", file=sys.stderr)
     return result
 
 

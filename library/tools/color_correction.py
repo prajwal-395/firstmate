@@ -138,6 +138,7 @@ One enumeration, `library/tools/color_correction.py`. [why - the nine measured c
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -588,12 +589,19 @@ def planning_basis(decided: bool, corrections: Sequence[Correction],
 
 
 def basis_record(basis: str, corrections: Sequence[Correction],
-                 dropped: Sequence[Dropped], assessment: str = "") -> dict:
+                 dropped: Sequence[Dropped], assessment: str = "",
+                 clips_in_the_cut: Sequence[str] = ()) -> dict:
     """The whole account of what the colourist did, for the spec.
 
     `proposed` and `resolved` are counted separately for the same reason
     `vfx_plan_basis` counts them: an empty result reads identically
     whether nothing was proposed or everything was discarded.
+
+    `assessment_mismatches` is D11's guard: the assessment's checkable
+    claims held against the corrections that shipped
+    (`check_assessment`). Empty when nothing checkable disagreed - which
+    covers both "the claim holds" and "the prose made no checkable
+    claim", and the function says which prose it cannot read.
     """
     if basis not in BASIS_READINGS:
         raise RuntimeError(
@@ -605,11 +613,126 @@ def basis_record(basis: str, corrections: Sequence[Correction],
         "proposed": len(corrections) + len(dropped),
         "resolved": len(corrections),
         "assessment": assessment,
+        "assessment_mismatches": check_assessment(
+            assessment, corrections, clips_in_the_cut),
         "dropped": [
             {"reason": d.reason, "detail": d.detail, "entry": d.entry}
             for d in dropped
         ],
     }
+
+
+#: Scope words that make an assessment sentence a claim about the whole
+#: cut rather than about a named clip. Closed vocabulary, in the shape
+#: `direction_contradiction` keeps: a claim outside it is not checked,
+#: and inventing a reading of one would be this module deciding what
+#: the colourist meant (AGENTS.md 10.5).
+UNIVERSAL_SCOPE_WORDS = (
+    "every",
+    "all",
+    "each",
+    "everywhere",
+    "throughout",
+    "across the board",
+    "whole cut",
+    "entire cut",
+)
+
+#: Bare words the colourist writes for terms whose key carries a suffix.
+#: `exposure +0.5 stops` means `exposure_stops`; nothing else here needs
+#: an alias, so nothing else gets one.
+TERM_ALIASES = {
+    "exposure": "exposure_stops",
+}
+
+_NUMBER_RE = re.compile(r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)")
+_CLIP_ID_RE = re.compile(r"clip_\d+", re.IGNORECASE)
+
+
+def check_assessment(assessment: Any,
+                     corrections: Sequence[Correction],
+                     clips_in_the_cut: Sequence[str]) -> List[Dict[str, Any]]:
+    """Hold the assessment's checkable claims against what shipped.
+
+    D11: the colourist wrote "one global saturation of 1.10 on every
+    placed clip" while two entries carried no `saturation` term and
+    shipped at neutral. Both halves were stored, both were read by a
+    human, and nothing compared them.
+
+    A claim is checkable only when the prose carries all three of a
+    universal scope word (`UNIVERSAL_SCOPE_WORDS`), exactly one
+    correction term (`CORRECTION_TERMS`, plus `TERM_ALIASES`), and
+    exactly one number. Anything else is DECLINED - returned as no
+    mismatch - because pairing two numbers with two terms, or reading
+    a per-clip sentence as a universal one, invents a reading this
+    module must not invent. A term the answer left out reads as that
+    term's neutral, which is the composition's own rule
+    (`compose_cdl`), not a second statement of it; a clip with no
+    entry at all ships every term neutral.
+
+    This REPORTS, never refuses. A prose claim is a model judgement,
+    and a gate that fails correct output is no coverage (AGENTS.md
+    10.4, and `direction_contradiction`'s flag-never-act shape).
+
+    Returns:
+        One record per contradicted claim - `term`, `claimed`, the
+        `scope` word that made it universal, the `clips` shipping
+        something else with their effective values, and a `detail`
+        sentence. Empty when nothing checkable disagreed.
+    """
+    if not assessment or not isinstance(assessment, str):
+        return []
+    if not list(clips_in_the_cut):
+        return []
+    lowered = assessment.lower()
+    scope = next(
+        (word for word in UNIVERSAL_SCOPE_WORDS
+         if re.search(r"\b" + re.escape(word) + r"\b", lowered)),
+        None)
+    if scope is None:
+        return []
+    terms = [term.key for term in CORRECTION_TERMS if term.key in lowered]
+    for alias, key in TERM_ALIASES.items():
+        if re.search(r"\b" + re.escape(alias) + r"\b", lowered) \
+                and key not in terms:
+            terms.append(key)
+    if len(terms) != 1:
+        return []
+    term = TERMS_BY_KEY[terms[0]]
+    if not term.scalar:
+        # A triple claim ("slope 1.1, 1.0, 0.9 on every clip") is three
+        # numbers the prose may punctuate any way it likes. Declined
+        # rather than parsed.
+        return []
+    numbers = _NUMBER_RE.findall(_CLIP_ID_RE.sub(" ", assessment))
+    if len(numbers) != 1:
+        return []
+    claimed = float(numbers[0])
+
+    by_clip = {c.clip_id: c for c in corrections}
+    offending: List[str] = []
+    for clip_id in clips_in_the_cut:
+        correction = by_clip.get(clip_id)
+        value = getattr(correction, term.key, None) \
+            if correction is not None else None
+        effective = float(value) if value is not None else float(
+            term.neutral)
+        if abs(effective - claimed) >= 1e-9:
+            offending.append(f"{clip_id} (ships {effective})")
+    if not offending:
+        return []
+    return [{
+        "term": term.key,
+        "claimed": claimed,
+        "scope": scope,
+        "clips": [row.split(" ", 1)[0] for row in offending],
+        "detail": (
+            f"grade_assessment claims {term.key} {claimed} on {scope} "
+            f"clip(s), but {len(offending)} of "
+            f"{len(list(clips_in_the_cut))} ship something else: "
+            f"{', '.join(offending)}. A term the answer leaves out "
+            f"ships neutral ({term.neutral})."),
+    }]
 
 
 def describe_correction(correction: Optional[Correction]) -> str:

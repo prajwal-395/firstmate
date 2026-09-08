@@ -608,8 +608,11 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
             "unmeasured_clips": unmeasured_clips,
             # WHICH absence an ungraded run is. Four readings, spelled
             # differently on purpose - see library/tools/color_correction.
+            # The clip list travels too, so the assessment's checkable
+            # claims are held against what shipped (D11).
             "correction_basis": basis_record(
-                basis, list(corrections or []), dropped, assessment),
+                basis, list(corrections or []), dropped, assessment,
+                clips_in_the_cut=[row["clip_id"] for row in measured_clips]),
             "consistency_notes": _consistency_notes(
                 per_clip_adjustments, reference, unmeasured_clips, basis),
         },
