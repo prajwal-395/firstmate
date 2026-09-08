@@ -32,12 +32,16 @@ against the piece. It is **not** a grid you have to land on: a graphic may
 start mid-sentence and run across three blocks, or hold for a second and a
 half inside one, whichever the piece wants.
 
-Every entry declares `start_seconds` and `duration_seconds` in **timeline
-seconds**, measured from the start of the video.
+Every entry is timed one of two ways, never both in one entry. A
+timed entry declares `start_seconds` and `duration_seconds` in
+**timeline seconds**, measured from the start of the video. An
+anchored entry (below) is timed by its words instead and OMITS both:
+an entry naming an anchor phrase beside explicit seconds is dropped,
+because two timings is ambiguous and nobody picks one for you.
 `motion_graphics_frame.timeline_duration_seconds` is where the picture ends.
-There is no default duration and no default start: an entry that declares
-neither is dropped, because inventing one would put the clip-boundary
-coupling straight back.
+There is no default duration and no default start: a timed entry that
+declares neither is dropped, because inventing one would put the
+clip-boundary coupling straight back.
 
 ## Several graphics may be on screen at once, in rows
 
@@ -102,6 +106,11 @@ anchoring works for any element whose moment is a spoken one: a
 `counter_roll` arriving on the number it counts, a `list_build` staged to
 the words that enumerate it.
 
+Plan one only where the picture does not already show what the speech
+is about. A visual on every noun is clutter, not coverage - whether a
+span earns one is your judgement, not a quota, and the engine states no
+count either way.
+
 ## Rules
 
 - How many graphics this video gets is a creative decision, not a quota.
@@ -120,16 +129,34 @@ the words that enumerate it.
 
 ## Your answer
 
-One entry per graphic:
+One entry per graphic, in one of two shapes - a timed entry is timed by
+seconds, an anchored entry by its words, and one entry never carries
+both timings:
 
 ```json
 {
   "element": "a key from motion_elements_toon",
-  "subject": "free text, what this span is about - your reasoning, on the record",
-  "anchor_phrase": "words from timeline_context_toon this lands on - INSTEAD of start/duration",
-  "hold_seconds": 2.0,
   "start_seconds": 0.0,
   "duration_seconds": 0.0,
+  "anchor": "one of motion_graphics_frame.anchors",
+  "row": 0,
+  "copy": {"display": "...", "supporting": "...", "micro": "..."},
+  "color": "#RRGGBB",
+  "colour_role": "text | outline | accent",
+  "entrance": "cut | fade | slide | scale | mask | draw",
+  "exit": "cut | fade | slide | scale | mask | draw",
+  "footprint": 1.0,
+  "emphasis": 1.0,
+  "why": "the question this answers for the viewer"
+}
+```
+
+```json
+{
+  "element": "subject_emblem",
+  "subject": "free text, what this span is about - your reasoning, on the record",
+  "anchor_phrase": "words from timeline_context_toon this lands on - INSTEAD of start/duration, which are omitted",
+  "hold_seconds": 2.0,
   "anchor": "one of motion_graphics_frame.anchors",
   "row": 0,
   "copy": {"display": "...", "supporting": "...", "micro": "..."},

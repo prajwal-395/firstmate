@@ -95,7 +95,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "The motion graphics this video carries. Each entry: element (a key from the roster), start_seconds and duration_seconds in TIMELINE seconds, anchor, row, copy, color or colour_role, entrance, exit, why. An empty list is a decision that the piece wants none."
+          "description": "The motion graphics this video carries. Each entry: element (a key from the roster), anchor, row, copy, color or colour_role, entrance, exit, why. A TIMED entry carries start_seconds and duration_seconds in TIMELINE seconds. An ANCHORED entry instead carries subject (free text saying what the span of speech is about, in your own words), anchor_phrase (words from timeline_context_toon the graphic arrives on) and optionally hold_seconds - and OMITS start_seconds and duration_seconds; naming both timings drops the entry as conflicting_timing. An empty list is a decision that the piece wants none."
       }
     ]
   },
