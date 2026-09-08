@@ -903,12 +903,57 @@ def check_caption_duration(reel_name: str,
 
     A planned card with no item near its start frame is no longer
     absorbed into a shift; it is reported as F14.
+
+    **Cards are graded as the SEGMENTS the builder places, never one by
+    one.** Step 4.01 groups a block's words into several cards
+    (`subtitle_entries`) and step 4.05 renders one overlay per block
+    (`generate_subtitle_props_per_block`), sequencing that block's cards
+    INSIDE the file - so `build_reel_timeline` places one V3 item per
+    block, spanning its first card's start to its last card's end. That
+    is the unit the pipeline promises: `compile_manifest` refuses a
+    build whose per-block segment does not span the block's captions.
+    Pairing each card against the block-spanning item compares a card's
+    duration to its container's, which fires F2 on every block's first
+    card (delta = the rest of the block) and F14 on every other card -
+    one finding per planned card - on a correct build. Measured 2026-09-07
+    on a freshly rebuilt reel 1: 34 planned cards, 34 such findings.
+
+    So the expected side is grouped by block first, and each expected
+    SEGMENT (min card start to max card end, in the same frames
+    arithmetic the builder places with) is paired to the placed item at
+    its start frame. Per-card timing inside the file is the renderer's,
+    not the timeline's: the item cannot express it, so the check grades
+    what the timeline decides - position and span - and grading the
+    container against the container is what keeps this a real gate.
+    A short, long, shifted or missing segment still fails.
     """
     findings: List[Finding] = []
 
-    unclaimed = list(enumerate(actual_captions))
+    # The unit the builder places: one segment per spine block, spanning
+    # the block's cards. Grouped here rather than read from the render,
+    # because the plan is what is being graded and the render is what
+    # the pairing below already reads off the timeline.
+    segments: List[dict] = []
+    by_block: Dict[object, List[int]] = {}
     for i, cap in enumerate(planned_captions):
-        want = cap.start_seconds * fps
+        by_block.setdefault(cap.block_position, []).append(i)
+    for block, indices in by_block.items():
+        cards = [planned_captions[i] for i in indices]
+        start = min(c.start_seconds for c in cards)
+        end = max(c.end_seconds for c in cards)
+        segments.append({
+            "block": block,
+            "start_seconds": start,
+            "frames": max(int(round((end - start) * fps)), 1),
+            "card_count": len(cards),
+            "text": cards[0].text,
+            "first_index": min(indices),
+        })
+    segments.sort(key=lambda s: (s["start_seconds"], s["first_index"]))
+
+    unclaimed = list(enumerate(actual_captions))
+    for n, seg in enumerate(segments):
+        want = seg["start_seconds"] * fps
         best = None
         for position, (_, item) in enumerate(unclaimed):
             gap = abs(item.start_frame - want)
@@ -920,35 +965,46 @@ def check_caption_duration(reel_name: str,
                 finding_class=FindingClass.F14,
                 reel=reel_name,
                 message=(
-                    f"caption {i+1} '{cap.text[:30]}' was planned at "
-                    f"{cap.start_seconds:.2f}s ({want:.0f}f) and no item "
+                    f"caption segment {n+1} (block {seg['block']}, "
+                    f"{seg['card_count']} cards starting "
+                    f"'{seg['text'][:30]}') was planned at "
+                    f"{seg['start_seconds']:.2f}s ({want:.0f}f) and no item "
                     f"is placed within {PAIRING_TOLERANCE_FRAMES} frames "
                     f"of it - it was planned and never placed"),
                 severity="error",
-                detail={"caption_index": i,
-                        "planned_start_seconds": round(cap.start_seconds, 3),
+                detail={"segment_index": n,
+                        "block": None if seg["block"] is None
+                        else str(seg["block"]),
+                        "card_count": seg["card_count"],
+                        "planned_start_seconds": round(
+                            seg["start_seconds"], 3),
                         "planned_start_frame": round(want),
-                        "planned_frames": cap.frames,
-                        "text": cap.text[:60]},
+                        "planned_frames": seg["frames"],
+                        "text": seg["text"][:60]},
             ))
             continue
         _, (_, actual) = best[0], unclaimed.pop(best[1])
-        delta = actual.duration_frames - cap.frames
+        delta = actual.duration_frames - seg["frames"]
         if delta != 0:
             findings.append(Finding(
                 finding_class=FindingClass.F2,
                 reel=reel_name,
                 message=(
-                    f"caption {i+1} '{cap.text[:30]}' planned "
-                    f"{cap.frames} frames, placed {actual.duration_frames} "
+                    f"caption segment {n+1} (block {seg['block']}, "
+                    f"{seg['card_count']} cards starting "
+                    f"'{seg['text'][:30]}') planned "
+                    f"{seg['frames']} frames, placed {actual.duration_frames} "
                     f"(delta {delta:+d})"),
                 severity="error",
                 detail={
-                    "caption_index": i,
-                    "planned_frames": cap.frames,
+                    "segment_index": n,
+                    "block": None if seg["block"] is None
+                    else str(seg["block"]),
+                    "card_count": seg["card_count"],
+                    "planned_frames": seg["frames"],
                     "actual_frames": actual.duration_frames,
                     "delta": delta,
-                    "text": cap.text[:60],
+                    "text": seg["text"][:60],
                 },
             ))
 

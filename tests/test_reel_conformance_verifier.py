@@ -340,11 +340,14 @@ class TestF2CaptionDuration:
         """
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="first", speaker="Akshita", frames=24),
+                           text="first", speaker="Akshita", frames=24,
+                           block_position="body_1"),
             PlannedCaption(start_seconds=2.0, end_seconds=3.0,
-                           text="never placed", speaker="Akshita", frames=24),
+                           text="never placed", speaker="Akshita", frames=24,
+                           block_position="body_2"),
             PlannedCaption(start_seconds=3.0, end_seconds=4.5,
-                           text="third", speaker="Craig", frames=36),
+                           text="third", speaker="Craig", frames=36,
+                           block_position="body_3"),
         )
         actual = (
             _item("video", 2, 24, 48, name="a"),    # 24f at frame 24
@@ -364,26 +367,117 @@ class TestF2CaptionDuration:
         """A plan longer than the timeline reports every missing card."""
         planned = tuple(
             PlannedCaption(start_seconds=float(n), end_seconds=n + 1.0,
-                           text=f"card {n}", speaker="Akshita", frames=24)
+                           text=f"card {n}", speaker="Akshita", frames=24,
+                           block_position=f"body_{n}")
             for n in range(5))
         actual = (_item("video", 2, 0, 24, name="a"),)
         findings = check_caption_duration("Reel 01", planned, actual, FPS)
         f14 = [f for f in findings if f.finding_class == FindingClass.F14]
-        assert len(f14) == 4, "four planned cards have no item"
-        assert [f.detail["caption_index"] for f in f14] == [1, 2, 3, 4]
+        assert len(f14) == 4, "four planned segments have no item"
+        assert [f.detail["segment_index"] for f in f14] == [1, 2, 3, 4]
 
     def test_an_item_is_claimed_once(self):
         """Two cards cannot both pair with the same placed item."""
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="one", speaker="Akshita", frames=24),
+                           text="one", speaker="Akshita", frames=24,
+                           block_position="body_1"),
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="two", speaker="Akshita", frames=24),
+                           text="two", speaker="Akshita", frames=24,
+                           block_position="body_2"),
         )
         actual = (_item("video", 2, 24, 48, name="a"),)
         findings = check_caption_duration("Reel 01", planned, actual, FPS)
         f14 = [f for f in findings if f.finding_class == FindingClass.F14]
         assert len(f14) == 1
+
+
+class TestF2SegmentGranularity:
+    """F2/F14 pair at the SEGMENT granularity the builder places.
+
+    The 2026-09-07 rebuild failure: reel 1 was rebuilt fresh (per-block
+    overlay segments, one V3 item per block) and verification failed it
+    with 34 errors - one per planned card. The check paired every CARD
+    against the block-spanning item, so each block's first card drew F2
+    (delta = the rest of the block) and every other card drew F14.
+    The builder was right - per-block segments are what `compile_manifest`
+    promises (`_assert_subtitle_overlay_matches_plan`) - and the check
+    was grading cards against their container.
+    """
+
+    def _block_item(self, start_s: float, end_s: float,
+                    name: str = "seg") -> TimelineItem:
+        """One placed item exactly as the builder places a block segment:
+        record at the block's first card start, spanning to its last."""
+        start = int(round(start_s * FPS))
+        end = int(round(end_s * FPS))
+        return _item("video", 3, start, end, name=name)
+
+    def test_fresh_build_with_multi_card_blocks_is_clean(self):
+        """The rebuild's shape: two cards in one block, one in the next,
+        placed as two block-spanning items. Before the fix this drew
+        one F2 and one F14; after, nothing."""
+        planned = (
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="first card", speaker="Akshita",
+                           frames=round(1.0 * FPS),
+                           block_position="body_1"),
+            PlannedCaption(start_seconds=2.0, end_seconds=3.5,
+                           text="second card", speaker="Akshita",
+                           frames=round(1.5 * FPS),
+                           block_position="body_1"),
+            PlannedCaption(start_seconds=5.0, end_seconds=6.0,
+                           text="third card", speaker="Akshita",
+                           frames=round(1.0 * FPS),
+                           block_position="body_2"),
+        )
+        actual = (
+            self._block_item(1.0, 3.5),
+            self._block_item(5.0, 6.0),
+        )
+        findings = check_caption_duration("Reel 01", planned, actual, FPS)
+        assert findings == [], (
+            "a faithful per-block placement must draw no finding; got "
+            f"{[(f.finding_class, f.message) for f in findings]}")
+
+    def test_short_segment_still_draws_f2(self):
+        """Segment granularity must not swallow a real defect: a block
+        placed shorter than planned still fails, with the segment delta."""
+        planned = (
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="first card", speaker="Akshita",
+                           frames=round(1.0 * FPS),
+                           block_position="body_1"),
+            PlannedCaption(start_seconds=2.0, end_seconds=3.5,
+                           text="second card", speaker="Akshita",
+                           frames=round(1.5 * FPS),
+                           block_position="body_1"),
+        )
+        actual = (self._block_item(1.0, 3.0),)  # half a second short
+        findings = check_caption_duration("Reel 01", planned, actual, FPS)
+        f2 = [f for f in findings if f.finding_class == FindingClass.F2]
+        assert len(f2) == 1
+        assert f2[0].detail["delta"] == -round(0.5 * FPS)
+        assert f2[0].detail["card_count"] == 2
+
+    def test_missing_segment_draws_f14_naming_the_block(self):
+        """A block with no item at all is still F14 - and it names the
+        block and how many cards never reached the timeline."""
+        planned = (
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="first card", speaker="Akshita",
+                           frames=round(1.0 * FPS),
+                           block_position="body_1"),
+            PlannedCaption(start_seconds=2.0, end_seconds=3.5,
+                           text="second card", speaker="Akshita",
+                           frames=round(1.5 * FPS),
+                           block_position="body_1"),
+        )
+        findings = check_caption_duration("Reel 01", planned, (), FPS)
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F14
+        assert findings[0].detail["block"] == "body_1"
+        assert findings[0].detail["card_count"] == 2
 
 
 # ── F3: Master-inherited holes ──────────────────────────────────────
@@ -2099,10 +2193,10 @@ class TestCaptionProvenanceGate:
         captions = (
             PlannedCaption(start_seconds=0.0, end_seconds=1.0,
                            text="one two", speaker="Akshita",
-                           frames=frames),
+                           frames=frames, block_position="body_1"),
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
                            text="three four", speaker="Akshita",
-                           frames=frames),
+                           frames=frames, block_position="body_2"),
         )
         placed = (
             _item("video", 3, 0, frames - 1, name="card one two"),
@@ -2150,11 +2244,14 @@ class TestCaptionProvenanceGate:
         name, plan, timeline = self._gradeable()
         regrouped = (
             PlannedCaption(start_seconds=0.0, end_seconds=0.5,
-                           text="one", speaker="Akshita", frames=12),
+                           text="one", speaker="Akshita", frames=12,
+                           block_position="body_1"),
             PlannedCaption(start_seconds=0.5, end_seconds=1.0,
-                           text="two", speaker="Akshita", frames=12),
+                           text="two", speaker="Akshita", frames=12,
+                           block_position="body_1"),
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="three four", speaker="Akshita", frames=24),
+                           text="three four", speaker="Akshita", frames=24,
+                           block_position="body_2"),
         )
         provenance = {"caption_hashes": {
             name: caption_content_hash(regrouped)}}
