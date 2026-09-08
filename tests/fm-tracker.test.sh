@@ -54,6 +54,13 @@ for arg in "$@"; do
 done
 
 if [ "$want_graphql" -eq 1 ]; then
+  case " $* " in
+    *"addSubIssue"*)
+      if [ -f "$FAKE_GH_DIR/graphql.fail" ]; then
+        cat "$FAKE_GH_DIR/graphql.fail" >&2
+        exit 1
+      fi ;;
+  esac
   [ -f "$FAKE_GH_DIR/graphql.out" ] || exit 0
   cat "$FAKE_GH_DIR/graphql.out"
   exit 0
@@ -131,7 +138,7 @@ run_notify() {  # <home> <args...>
 }
 
 reset_gh() {
-  rm -f "$FAKE_GH_DIR"/rest* "$FAKE_GH_DIR"/http.* "$FAKE_GH_DIR"/graphql.out
+  rm -f "$FAKE_GH_DIR"/rest* "$FAKE_GH_DIR"/http.* "$FAKE_GH_DIR"/graphql.out "$FAKE_GH_DIR"/graphql.fail
   : > "$FAKE_GH_LOG"
 }
 
@@ -310,6 +317,42 @@ reset_gh
 out=$(run_tracker "$HOME_A" add o/r --type task --title 'x' --blocked-by 'twelve' 2>&1)
 expect_code_out 2 "$?" "$out" "a non-numeric blocker must be a usage error"
 pass "add refuses a non-numeric blocker"
+
+# ===========================================================================
+# A full parent degrades to a standalone ticket, never a lost one
+# ===========================================================================
+#
+# GitHub holds a hard ceiling of 100 sub-issues per parent, closed ones counted
+# too, so a destination that accumulates enough curated children stops accepting
+# attachments. The ticket itself is already created when the attachment fails,
+# so the failure must name its number and say it stands alone: anything less
+# reads as "nothing was filed" and buys a duplicate on retry.
+
+reset_gh
+printf '363\n' > "$FAKE_GH_DIR/rest.default"
+printf 'gh: Failed to add sub-issue #363 to parent #156. Parent cannot have more than 100 sub-issues\n' > "$FAKE_GH_DIR/graphql.fail"
+out=$(run_tracker "$HOME_A" add o/r --type decision --title 'a late decision' \
+  --body "$GOOD_DECISION" --parent 156 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "attaching under a full parent must fail"
+assert_grep "POST" "$FAKE_GH_LOG" "the refused attachment must still leave its created ticket"
+assert_contains "$out" "created #363" "the failure must report the created ticket"
+assert_contains "$out" "100" "the failure must name the ceiling that refused it"
+assert_contains "$out" "stands alone" "the failure must say the ticket stands alone"
+pass "an attachment refused at the ceiling still leaves a named standalone ticket"
+
+# The room-below-the-ceiling path is unchanged: the ticket is created, attached,
+# and reported as both.
+reset_gh
+printf '364\n' > "$FAKE_GH_DIR/rest.default"
+out=$(run_tracker "$HOME_A" add o/r --type decision --title 'an early decision' \
+  --body "$GOOD_DECISION" --parent 156 2>&1)
+rc=$?
+expect_code_out 0 "$rc" "$out" "attaching under a parent with room must succeed"
+assert_contains "$out" "created #364" "a successful add must report its ticket"
+assert_contains "$out" "attached under #156" "a successful attach must report its parent"
+assert_grep "addSubIssue" "$FAKE_GH_LOG" "a successful add must call the attach mutation"
+pass "an attachment under a parent with room is created, attached and reported"
 
 # ===========================================================================
 # frontier: ready, blocked, and what each blocked ticket waits on
