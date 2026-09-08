@@ -2960,6 +2960,11 @@ EOF
 // OpenCode's own event stream are reported. Context percentage and quota
 // are not reported because OpenCode does not expose a context window size
 // and the Go plan has no public usage API.
+//
+// Retry evidence: on session.status retry, records the vendor's own
+// attempt/next backoff horizon via bin/fm-opencode-retry.sh (contract owned
+// there), so supervision can tell a quota-scale block from a transient
+// retry without reading rendered text. Cleared on idle.
 import { execFile } from "node:child_process";
 const busyEvent = (state, event) =>
   new Promise((resolve) => {
@@ -2971,11 +2976,27 @@ const busyEvent = (state, event) =>
 const HERDR_PANE = "${HERDR_PANE_ID:-}";
 let lastModel = "";
 const reportModel = (modelID) => {
-  if (!HERDR_PANE || !modelID || modelID === lastModel) return;
+  if (!modelID || modelID === lastModel) return;
   lastModel = modelID;
+  if (!HERDR_PANE) return;
   execFile("$FM_ROOT/bin/fm-herdr-opencode-metadata.sh",
     [HERDR_PANE, modelID], () => {});
 };
+const recordRetry = (status, sessionID) =>
+  new Promise((resolve) => {
+    const attempt = status && status.attempt;
+    const next = status && status.next;
+    if (typeof attempt !== "number" || typeof next !== "number") { resolve(); return; }
+    execFile("$FM_ROOT/bin/fm-opencode-retry.sh", [
+      "record", "$STATE_REAL", "$ID",
+      String(attempt), String(next), lastModel || "-", sessionID || "-",
+    ], () => resolve());
+  });
+const clearRetry = () =>
+  new Promise((resolve) => {
+    execFile("$FM_ROOT/bin/fm-opencode-retry.sh",
+      ["clear", "$STATE_REAL", "$ID"], () => resolve());
+  });
 export const FmBusyState = async () => {
   let activeSession = null;
   return {
@@ -2990,15 +3011,20 @@ export const FmBusyState = async () => {
       }
       if (event.type === "session.status") {
         const sessionID = event.properties.sessionID;
-        const statusType = event.properties.status && event.properties.status.type;
+        const status = event.properties.status;
+        const statusType = status && status.type;
         if (statusType === "busy" || statusType === "retry") {
           if (activeSession === null) activeSession = sessionID;
-          if (sessionID === activeSession) await busyEvent("busy", "session-" + statusType);
+          if (sessionID === activeSession) {
+            await busyEvent("busy", "session-" + statusType);
+            if (statusType === "retry") await recordRetry(status, sessionID);
+          }
           return;
         }
         if (statusType === "idle" && sessionID === activeSession) {
           activeSession = null;
           await busyEvent("idle", "session-status-idle");
+          await clearRetry();
         }
         return;
       }
@@ -3006,6 +3032,7 @@ export const FmBusyState = async () => {
         if (event.properties.sessionID === activeSession) {
           activeSession = null;
           await busyEvent("idle", "session-idle");
+          await clearRetry();
         }
         await new Promise((resolve) => {
           execFile("touch", ["$TURNEND"], () => resolve());

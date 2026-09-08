@@ -11,7 +11,14 @@ TMP_ROOT=$(fm_test_tmproot fm-on)
 # and physicalize macOS's /var -> /private/var alias before transport validation.
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
-trap 'if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then kill "$(cat "$TMP_ROOT/remote-jobs/worker.pid")" 2>/dev/null || true; fi; rm -rf -- "$TMP_ROOT"' EXIT
+# Bound for the EXIT trap's graceful-shutdown wait below, pre-declared so
+# ShellCheck sees the assignment outside the single-quoted trap string.
+FM_ON_EXIT_WAIT_END=0
+# The worker traps TERM for graceful shutdown and removes worker.pid among
+# its last writes, so killing it and immediately removing the tree can race
+# the shutdown writes ("Directory not empty"). Wait boundedly for the pid
+# file to disappear first; the cap keeps a hung worker from wedging cleanup.
+trap 'if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then kill "$(cat "$TMP_ROOT/remote-jobs/worker.pid")" 2>/dev/null || true; FM_ON_EXIT_WAIT_END=$((SECONDS + 10)); while [ -f "$TMP_ROOT/remote-jobs/worker.pid" ] && [ "$SECONDS" -lt "$FM_ON_EXIT_WAIT_END" ]; do sleep 0.1; done; fi; rm -rf -- "$TMP_ROOT"' EXIT
 LOCAL_HOME="$TMP_ROOT/local-home"
 REMOTE_ROOT="$TMP_ROOT/remote-root"
 REMOTE_HOME="$TMP_ROOT/remote-home"
