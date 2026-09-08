@@ -663,10 +663,12 @@ def _build_manifest(tmp_path):
     }
 
 
-def _run_build(tmp_path, manifest, media):
+def _run_build(tmp_path, manifest, media, configure=None):
     """Drive the real build_timeline against the fake, with the Fusion
     pass modelled as what it is: a subprocess that draws comps on
-    whatever timeline is CURRENT when it runs."""
+    whatever timeline is CURRENT when it runs. `configure`, when given,
+    is called with (resolve, project) before the build runs, so a test
+    can reshape the fake scripting surface."""
     import resolve_build_timeline as rbt
 
     project = _BuildProject()
@@ -675,6 +677,9 @@ def _run_build(tmp_path, manifest, media):
     pm = resolve.GetProjectManager.return_value
     pm.GetCurrentProject.return_value = project
     pm.GetProjectListInCurrentFolder.return_value = ["Pipeline_Edit"]
+
+    if configure is not None:
+        configure(resolve, project)
 
     pool_items = {p: _PoolItem(p) for p in media.values()}
     root = MagicMock()
@@ -755,3 +760,58 @@ def test_the_build_falls_back_to_markers_and_says_so(tmp_path):
     assert any("UNAPPLIED target" in n for n in names), names
     assert any("Resolve said no" in w for w in result["warnings"])
     assert result["audio_mix_delivery"]["delivered"] is False
+
+
+def _limiter_marker_names(project):
+    return [m["name"] for m in
+            project.GetCurrentTimeline().markers.values()]
+
+
+def test_an_unreadable_fairlight_api_still_leaves_a_limiter_marker(tmp_path):
+    """D6's cause, not its symptom: the limiter guard judges whether the
+    Fairlight route answered, never how a decline is spelled. A build
+    whose GetFairlightPresets answers with anything but presets - here a
+    RuntimeError, the shape a scripting host without the method raises -
+    must fall back to the marker, not fail the build. Only the
+    None-call shape (TypeError) was caught; every other shape escaped."""
+    media, manifest = _build_manifest(tmp_path)
+    threshold_db = -2.5
+    manifest["audio_mix"]["master_limiter"]["threshold_db"] = threshold_db
+
+    def _break_the_api(resolve, project):
+        resolve.GetFairlightPresets.side_effect = RuntimeError(
+            "no such method on this build")
+
+    project, result = _run_build(
+        tmp_path, manifest, media, configure=_break_the_api)
+
+    expected = f"Master Limiter: {threshold_db}dBTP"
+    assert expected in _limiter_marker_names(project), \
+        "the limiter fell back to nothing instead of a marker"
+
+
+def test_a_declined_fairlight_apply_still_leaves_a_limiter_marker(tmp_path):
+    """Same guard, second half: the preset is listed but applying it
+    declines - here a RuntimeError, the shape a timeline race or a
+    foreign build raises (assert_current_timeline's own ResolveRaceError
+    escapes a TypeError-only catch the same way). The build must complete
+    with the marker, not die inside the guard."""
+    media, manifest = _build_manifest(tmp_path)
+    threshold_db = -2.5
+    manifest["audio_mix"]["master_limiter"]["threshold_db"] = threshold_db
+
+    def _list_then_decline(resolve, project):
+        # The key is the protocol name the captain's preset must carry -
+        # the same name the guard looks up - so the guard takes the
+        # "preset exists" branch and reaches the apply it must survive.
+        resolve.GetFairlightPresets.return_value = {
+            "Pipeline_Master_Limiter": {}}
+        project.ApplyFairlightPresetToCurrentTimeline = MagicMock(
+            side_effect=RuntimeError("preset route declined"))
+
+    project, result = _run_build(
+        tmp_path, manifest, media, configure=_list_then_decline)
+
+    expected = f"Master Limiter: {threshold_db}dBTP"
+    assert expected in _limiter_marker_names(project), \
+        "a declined apply left no marker behind"

@@ -1471,10 +1471,16 @@ def build_timeline(
         applied = False
         
         # Check if the API is available by calling it, not with hasattr
+        # (AGENTS.md section 5: hasattr is always True on Resolve's
+        # scripting proxies, including invented names). Any failure to
+        # read the presets means the route is unavailable - the guard
+        # judges the outcome, never the spelling of the failure - so a
+        # declined probe falls back to the marker below instead of
+        # failing the build.
         presets = None
         try:
             presets = resolve.GetFairlightPresets()
-        except TypeError:
+        except Exception:
             pass
             
         if presets is not None:
@@ -1494,7 +1500,15 @@ def build_timeline(
                 try:
                     assert_current_timeline(project, timeline)
                     applied = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
-                except TypeError:
+                except Exception as exc:
+                    # A decline is a decline, whatever its shape: a missing
+                    # method (TypeError), a timeline race mid-apply
+                    # (ResolveRaceError from the assert above), or a build
+                    # that answers some other way. The marker below is the
+                    # fallback for all of them - the limiter must never
+                    # fail the build.
+                    print(f"  ⚠ Fairlight preset '{preset_name}' could not be applied: {exc}",
+                          file=sys.stderr)
                     applied = False
                     
                 if applied:
