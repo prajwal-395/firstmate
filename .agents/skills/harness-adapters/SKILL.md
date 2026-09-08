@@ -249,6 +249,7 @@ The checkpoint is deliberately foreground and bounded so Codex regains control r
 | Fact | Value |
 |---|---|
 | Busy state | The Firstmate-owned plugin's semantic `session.status`: `busy` and `retry` are active, `idle` is inactive, latched to the worker's own session. |
+| Usage-cap visibility | A capped lane stays in `retry` with an hours-long backoff instead of failing; the plugin records the vendor's `attempt`/`next` horizon and a quota-scale horizon reads `blocked` in supervision. Contract: `bin/fm-opencode-retry.sh`. |
 | Exit command | `/exit` |
 | Interrupt | double Escape; known flaky while a long shell command runs, so use `bin/fm-control.sh <task-id> relaunch` for a wedged pane |
 

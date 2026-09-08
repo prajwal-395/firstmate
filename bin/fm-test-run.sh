@@ -183,6 +183,7 @@ family_for_basename() {
     fm-kimi-harness.test.sh|fm-muse-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
+    fm-opencode-retry.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-stopped-lib.test.sh|fm-subagent-pretool-check.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
@@ -512,6 +513,7 @@ tests/fm-muse-signals-live-e2e.test.sh 15
 tests/fm-on.test.sh 8314
 tests/fm-open-decisions-resolved-fold.test.sh 361
 tests/fm-opencode-primary-live-e2e.test.sh 15
+tests/fm-opencode-retry.test.sh 5000
 tests/fm-operational-input.test.sh 201
 tests/fm-peek-remote.test.sh 5000
 tests/fm-pending-reply.test.sh 16688

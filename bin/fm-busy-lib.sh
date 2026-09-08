@@ -33,7 +33,10 @@
 # task's recorded harness classifies unknown, so one adapter's writer can
 # never classify another adapter):
 #   pi-ext           Pi/pi-signed per-task extension (agent_start/agent_settled)
-#   opencode-plugin  OpenCode per-task plugin (session.status)
+#   opencode-plugin  OpenCode per-task plugin (session.status). A retry that
+#                    carries a quota-scale backoff horizon is supervision-
+#                    visible as blocked through bin/fm-opencode-retry.sh plus
+#                    bin/fm-crew-state.sh; that contract owns the threshold.
 #   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd)
 #   agy-hook         agy lifecycle hooks (PreInvocation opens, Stop closes),
 #                    delivered by the ONE firstmate-owned global agy plugin
