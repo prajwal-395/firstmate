@@ -26,12 +26,19 @@ SUBTITLE_RENDER_BUFFER_S = 0.5
 
 def generate_subtitle_props_per_block(
     subtitle_data: dict,
-    fps: int = 30,
+    fps: float = 30,
     width: int = 1080,
     height: int = 1920,
     audio_spine: dict = None,
 ) -> list[dict]:
     """Generate SubtitleOverlay props grouped by spine block.
+
+    `fps` is the TIMELINE rate, exact - 24000/1001 on the reels path, not
+    24. Frame counts below are media frames of a file rendered at this
+    rate, so they land 1:1 on the timeline. Rounding it to an integer
+    renders media at a different rate than the timeline and costs every
+    segment a frame in Resolve's time-mapping (vep-caption-segment-
+    off-by-one-frame). Remotion renders fractional fps faithfully.
 
     Returns a list of prop dicts, one per spine block containing subtitles.
     Each block's subtitles have their frame timings re-based to 0 (relative

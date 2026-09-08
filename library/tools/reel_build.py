@@ -987,8 +987,17 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         spine, brand_effect={}, brand_style={}, project_folder=project_folder)
     plan_entries = (plan.get("subtitle_plan") or {}).get(
         "subtitle_entries") or []
+    # The render fps IS the timeline fps, exactly - never int(round()).
+    # Rounding 24000/1001 to 24 renders 24fps media that Resolve time-maps
+    # onto the 23.976 timeline, and the fractional frame is lost: every
+    # caption segment landed one frame short (15 x F2 delta -1 on the
+    # 2026-09-08 rebuild) while the verifier correctly expects
+    # round(span * 24000/1001). Same-fps media maps 1:1 under any snap,
+    # so the placed length equals the expected one exactly. Remotion
+    # renders fractional fps faithfully (measured: 24000/1001 in, true
+    # 24000/1001 ProRes out), and full-frame cards already pass it through.
     props_list = generate_subtitle_props_per_block(
-        plan["subtitle_plan"], fps=int(round(fps)), width=width, height=height,
+        plan["subtitle_plan"], fps=fps, width=width, height=height,
         audio_spine=spine)
     if not props_list:
         result = _SegmentsWithEntries()
