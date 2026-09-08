@@ -2018,8 +2018,44 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     return {"promoted": finals, "organised": organised}
 
 
+def _organise_after_refusal(project, project_folder: str,
+                            master_timeline_name: str | None) -> None:
+    """File what a refused build imported, instead of stranding it.
+
+    `build_reel_timeline` puts every caption card, subtitle segment,
+    transition element and explainer it places through
+    `pool.ImportMedia`, which lands in whatever bin is CURRENT. On the
+    pass path `promote_staged_reels(organise=True)` files those clips
+    afterwards; on the refusal path nothing did, so a refused reel -
+    reel 05 of the 2026-09-08 rebuild - left its 26 caption renders
+    loose in `Reels/Current plan`. Running the organiser here files
+    them the same way: generated and placed by nothing becomes
+    `Reel subtitles/Not placed on any timeline`, and anything the
+    surviving timelines still place files per reel. Timelines already
+    filed stay where they are - the plan is derived from the same
+    provenance the discard just updated.
+
+    Never raises: a filing failure is said on stderr, and the gate's
+    own refusal - the verdict that matters - still propagates.
+    """
+    if not master_timeline_name:
+        return
+    try:
+        from library.tools.execution.organise_media_pool import (
+            organise_project,
+        )
+        organise_project(project, project_folder,
+                         master_timeline_name, apply=True)
+    except Exception as organise_failed:
+        import sys as _sys
+        print(f"  organise after refusal failed ({organise_failed}) - "
+              f"stray clips may remain; file them with "
+              f"resolve-organize", file=_sys.stderr)
+
+
 def discard_staged_reels(project, project_folder: str,
-                         staging_names) -> None:
+                         staging_names,
+                         master_timeline_name: str | None = None) -> None:
     """Delete refused staging containers and forget their baselines.
 
     The gate-fail path, called before the refusal propagates: the
@@ -2030,11 +2066,21 @@ def discard_staged_reels(project, project_folder: str,
     verifier grades the surviving approved reels against a refused
     build's baseline. The approved timelines are never named here and
     cannot be reached through this function.
+
+    When `master_timeline_name` is given, the media pool is then filed
+    the way the pass path files it, so the caption clips the refused
+    staging imported do not stay loose in whatever bin was current.
+    `None` keeps the old behaviour (discard only) for callers that do
+    not name the master.
     """
     import os
 
     staging = list(staging_names or ())
     if not staging:
+        # Nothing staged, but a build that imported before failing may
+        # still have left clips behind - file those too.
+        _organise_after_refusal(project, project_folder,
+                                master_timeline_name)
         return
     found = timelines_to_replace(project, set(staging))
     assert_deletion_scope(found, set(staging))
@@ -2046,10 +2092,12 @@ def discard_staged_reels(project, project_folder: str,
     _drop_overlay_records(review_dir, staging)
     from library.tools.explainer_plan import drop_plan_reels
     drop_plan_reels(project_folder, staging)
+    _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
 def discard_staged_record(project_folder: str, resolve_project_name: str,
-                          staging_names) -> None:
+                          staging_names,
+                          master_timeline_name: str | None = None) -> None:
     """Connect to Resolve and discard the named staging containers.
 
     The `verify_reels` node's fail path: the build node already
@@ -2058,9 +2106,15 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
     before the refusal propagates, and the approved timelines are
     still in the project. A connect failure is said, not swallowed -
     but it never stops the gate's own refusal from propagating.
+
+    When `master_timeline_name` is given, the pool is filed afterwards
+    for the same reason `discard_staged_reels` files it: a refusal
+    that leaves its caption imports loose is the defect, and the gate
+    refusing is correct.
     """
     project = _connect_resolve_project(resolve_project_name)
-    discard_staged_reels(project, project_folder, staging_names)
+    discard_staged_reels(project, project_folder, staging_names,
+                         master_timeline_name)
 
 
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
@@ -2465,7 +2519,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except Exception:
         placed = list(dict.fromkeys(
             built_reel_names + ([current_staging] if current_staging else [])))
-        discard_staged_reels(project, project_folder, placed)
+        discard_staged_reels(project, project_folder, placed,
+                             master_timeline_name)
         raise
 
     # What each reel's explainer really was, INCLUDING the empty ones.
@@ -2526,7 +2581,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # baselines go, the approved timelines were never named.
             # Reel 5's F17+F8 is exactly this path - and the reel the
             # captain approved is still in the project afterwards.
-            discard_staged_reels(project, project_folder, built_reel_names)
+            # The pool is filed too, so the refused staging's caption
+            # imports do not stay loose where ImportMedia left them.
+            discard_staged_reels(project, project_folder, built_reel_names,
+                                 master_timeline_name)
             raise
         promoted = promote_staged_reels(
             project_folder, resolve_name, master_timeline_name,

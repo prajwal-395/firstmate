@@ -454,5 +454,5 @@ def test_the_step_discards_staging_when_the_gate_refuses():
             "timeline_transcript": {"segments": []},
         })
 
-    assert discard.call_args[0][1:] == ("Mock Project", [staged])
+    assert discard.call_args[0][1:] == ("Mock Project", [staged], MASTER)
     assert not promote.called

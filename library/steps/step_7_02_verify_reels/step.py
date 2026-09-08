@@ -122,7 +122,7 @@ def verify_reels(data: dict) -> dict:
             try:
                 discard_staged_record(
                     project_folder, resolve_project_name,
-                    list(staged.values()))
+                    list(staged.values()), master_timeline_name)
             except Exception as cleanup_failed:
                 import sys as _sys
                 print(f"verify_reels: gate refused AND staging cleanup "
