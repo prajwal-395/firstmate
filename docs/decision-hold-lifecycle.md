@@ -12,6 +12,10 @@ It never reads report bodies, review artifacts, terminal output, or chat.
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
 It creates a kind `captain` backlog item when absent and invokes `tasks-axi hold <id> --reason <reason> --kind captain` on every retry.
 It rejects an identity collision, a changed title, and attempts to reopen an already resolved identity.
+It records the reason as a `Question:` line in the hold body alongside origin, key, and state, so a reviewed record carries its own question while `hold_reason` stays the dispatch-readable source.
+An idempotent retry heals a stub body that still lacks one.
+The `backfill` subcommand is the one-shot repair for older stubs: `backfill <origin-id> <decision-key>` copies one stored hold reason into its body, and `backfill --all` sweeps every open captain decision hold the same way.
+Both refuse a non-stub body, a resolution record, and a hold closed outside the script, and a second run of either is a no-op.
 
 The `complete` subcommand unions the reviewed keys into `decision_keys=` and appends `decisions_reviewed=1` while originating task metadata is live.
 A post-teardown visual review can complete against the surviving report and durable holds without recreating volatile task metadata.
@@ -86,6 +90,7 @@ Additional quoted `blocked_by` regression verification date: 2026-07-17.
 Plural blocker-readiness and mixed-home projection verification date: 2026-07-22.
 Unrouted close-path verification date: 2026-08-13.
 Answer-time closure verification date: 2026-08-16.
+Question-body verification date: 2026-09-08.
 
 The focused end-to-end regression uses only synthetic `sample` identities and decision text.
 It begins with a completed investigation and visual review whose genuine unresolved choice exists only in the report.
@@ -104,11 +109,13 @@ Four holds whose answers route no work close, the one still blocking routed work
 The capture is left unacknowledged throughout, so the wake firstmate needs in order to act on the answers is never retired.
 A replayed delivery closes nothing new and is not rejected as a different decision, a source with no binding closes nothing at all, and the `answer` subcommand itself refuses an empty or missing decision file, an absent hold, and a drifted retry.
 A separate regression drives the real `fm-send` over a stubbed transport to prove the chat channel reaches the same intake for a decision already transferred to its hold, which the status ledger alone can no longer close.
+A question-body regression proves a newly created hold records its reason as a `Question:` line while leaving `hold_reason` in place, a legacy three-line stub backfills from its stored hold reason and converges on retry, an idempotent `hold` retry heals a stub the same way, a hold closed outside the script is refused toward `repair` rather than rewritten, and `backfill --all` repairs every remaining stub in one sweep while leaving the closed hold untouched.
 
 The final verification commands and their exact summarized outputs follow.
 
 ```text
 $ bash tests/fm-decision-hold-lifecycle.test.sh
+ok - a hold body carries its question and a legacy stub backfills from its stored hold_reason
 ok - report-only unresolved decision is reproduced and completion refuses before loss
 ok - non-forced scout teardown always requires durable inventory verification
 ok - a declined decision closes with a recorded answer and no routed work

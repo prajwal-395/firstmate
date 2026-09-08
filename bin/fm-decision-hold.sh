@@ -16,6 +16,15 @@
 # All backlog mutations run in the active FM_HOME, which keeps main-home and
 # secondmate-home ownership aligned with the work that discovered the decision.
 #
+# A hold body carries its own question. New holds record --reason as a
+# `Question:` line alongside origin, key, and state, because hold_reason is
+# where dispatch tooling reads it while the body is what a reviewed record
+# shows. An idempotent `hold` retry heals a stub body that still lacks one.
+# `backfill` is the one-shot repair for older stubs: it copies the stored
+# hold_reason into the body, never moves or clears it, never touches a
+# resolution record or a hold closed outside the script, and a second run is
+# a no-op, so backfilling is a pure data move with no judgement in it.
+#
 # Usage:
 #   fm-decision-hold.sh id <origin-id> <decision-key>
 #   fm-decision-hold.sh hold <origin-id> <decision-key> \
@@ -31,6 +40,8 @@
 #   fm-decision-hold.sh binding <source-id>
 #   fm-decision-hold.sh decline <origin-id> <decision-key> --decision-file <path>
 #   fm-decision-hold.sh repair <origin-id> <decision-key> --decision-file <path>
+#   fm-decision-hold.sh backfill <origin-id> <decision-key>
+#   fm-decision-hold.sh backfill --all
 #
 # `complete` is the shared investigation and visual-review completion gate.
 # `--none` is an explicit semantic attestation that the just-reviewed surface has
@@ -389,8 +400,43 @@ command_id() {
   hold_id "$1" "$2"
 }
 
+hold_question_body() {  # <origin> <key> <reason>; prints the canonical hold body
+  printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.\nQuestion: %s' "$1" "$2" "$3"
+}
+
+body_has_question() {  # <hold-body>
+  case "$1" in
+    *'\nQuestion: '*|'"Question: '*) return 0 ;;
+  esac
+  return 1
+}
+
+# A legacy stub body, in tasks-axi show's escaped form, carries only origin,
+# key, and state. Parse it into STUB_ORIGIN/STUB_KEY and refuse anything else,
+# so a backfill can only ever rebuild a known stub, never rewrite foreign text.
+STUB_ORIGIN=''
+STUB_KEY=''
+parse_stub_body() {  # <hold-body>; sets STUB_ORIGIN/STUB_KEY
+  local inner=${1#\"} rest key_line state_line
+  inner=${inner%\"}
+  case "$inner" in
+    'Origin: '*'\nDecision key: '*'\nState: awaiting captain decision.') : ;;
+    *) return 1 ;;
+  esac
+  STUB_ORIGIN=${inner%%'\n'*}
+  STUB_ORIGIN=${STUB_ORIGIN#'Origin: '}
+  rest=${inner#*'\n'}
+  key_line=${rest%%'\n'*}
+  STUB_KEY=${key_line#'Decision key: '}
+  state_line=${rest#*'\n'}
+  [ "$state_line" = 'State: awaiting captain decision.' ] || return 1
+  case "$STUB_ORIGIN" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$STUB_KEY" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "$inner" = "Origin: $STUB_ORIGIN\\nDecision key: $STUB_KEY\\nState: awaiting captain decision." ] || return 1
+}
+
 command_hold() {
-  local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body
+  local origin=${1:-} key=${2:-} title='' reason='' repo='' id show state kind existing_title body hold_body
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   shift 2
   while [ "$#" -gt 0 ]; do
@@ -417,6 +463,19 @@ command_hold() {
     [ "$state" != "done" ] || fail "captain decision $id is already durably resolved; use a new decision key for a new decision"
     [ "$kind" = captain ] || fail "existing backlog identity $id is not kind captain"
     [ "$existing_title" = "$title" ] || fail "existing captain hold $id has a different title"
+    hold_body=$(show_field "$show" body)
+    case "$hold_body" in
+      *"Resolution recorded by fm-decision-hold."*) : ;;
+      *)
+        # A stub left by an older hold gains its question on retry. Bodies that
+        # already carry one, or that no longer match the known stub shape, are
+        # left alone; backfill owns the deliberate repair.
+        if parse_stub_body "$hold_body"; then
+          tasks_axi update "$id" --body "$(hold_question_body "$origin" "$key" "$reason")" >/dev/null \
+            || fail "could not record the question on existing captain hold $id"
+        fi
+        ;;
+    esac
   else
     if [ -z "$repo" ] && [ -f "$STATE/$origin.meta" ]; then
       repo=$(meta_value "$STATE/$origin.meta" project)
@@ -425,7 +484,7 @@ command_hold() {
     fi
     [ -n "$repo" ] || repo=firstmate
     validate_one_line repo "$repo"
-    body=$(printf 'Origin: %s\nDecision key: %s\nState: awaiting captain decision.' "$origin" "$key")
+    body=$(hold_question_body "$origin" "$key" "$reason")
     tasks_axi add "$id" "$title" --kind captain --repo "$repo" --body "$body" >/dev/null \
       || fail "could not create captain decision item $id"
   fi
@@ -832,6 +891,115 @@ command_repair() {
   printf 'repaired: %s\n' "$id"
 }
 
+backfill_one() {  # <origin-id> <decision-key>
+  local origin=$1 key=$2 id show state kind hold_kind hold_reason hold_body
+  validate_slug origin-id "$origin"
+  validate_slug decision-key "$key"
+  require_tasks_axi
+  id=$(hold_id "$origin" "$key")
+  show=$(task_show "$id") || fail "captain decision $id is absent from $FM_HOME/data/backlog.md"
+  state=$(show_field "$show" state)
+  kind=$(show_field "$show" kind)
+  hold_kind=$(show_field "$show" hold_kind)
+  hold_body=$(show_field "$show" body)
+  [ "$kind" = captain ] || fail "backlog item $id is not kind captain"
+  [ "$hold_kind" = captain ] \
+    || fail "backlog item $id was never held for the captain; backfill repairs stub bodies only on captain holds"
+  if body_has_question "$hold_body"; then
+    printf 'unchanged: %s already carries its question\n' "$id"
+    return 0
+  fi
+  case "$hold_body" in
+    *"Resolution recorded by fm-decision-hold."*)
+      printf 'unchanged: %s is already resolved\n' "$id"
+      return 0
+      ;;
+  esac
+  [ "$state" = queued ] \
+    || fail "captain hold $id is closed without a recorded decision; use repair to record the captain decision"
+  parse_stub_body "$hold_body" \
+    || fail "captain hold $id has a non-stub body with no question; left untouched"
+  [ "$STUB_ORIGIN" = "$origin" ] && [ "$STUB_KEY" = "$key" ] \
+    || fail "captain hold $id body names a different origin or key; left untouched"
+  hold_reason=$(show_field "$show" hold_reason)
+  case "$hold_reason" in
+    ''|'-'|'"-"') fail "captain hold $id has no stored hold reason to backfill from" ;;
+  esac
+  tasks_axi update "$id" --body "$(hold_question_body "$origin" "$key" "$hold_reason")" >/dev/null \
+    || fail "could not backfill the question on $id"
+  show=$(task_show "$id") || fail "captain decision $id disappeared while backfilling"
+  body_has_question "$(show_field "$show" body)" \
+    || fail "backfilling $id did not retain its question"
+  printf 'backfilled: %s\n' "$id"
+}
+
+backfill_all() {
+  local rows row candidate show state kind hold_kind hold_reason hold_body
+  local backfilled=0 unchanged=0 skipped=0
+  require_tasks_axi
+  rows=$(tasks_axi list --kind captain --state queued) \
+    || fail "could not list open captain holds for backfill"
+  while IFS= read -r row; do
+    case "$row" in
+      *"-decision-"*) : ;;
+      *) continue ;;
+    esac
+    candidate=${row%%,*}
+    candidate=${candidate// /}
+    [ -n "$candidate" ] || continue
+    case "$candidate" in *[!A-Za-z0-9._-]*) continue ;; esac
+    show=$(task_show "$candidate") \
+      || { skipped=$((skipped + 1)); printf 'skipped: %s (absent)\n' "$candidate"; continue; }
+    state=$(show_field "$show" state)
+    kind=$(show_field "$show" kind)
+    hold_kind=$(show_field "$show" hold_kind)
+    hold_body=$(show_field "$show" body)
+    if [ "$state" != queued ] || [ "$kind" != captain ] || [ "$hold_kind" != captain ]; then
+      skipped=$((skipped + 1))
+      printf 'skipped: %s (not an open captain hold)\n' "$candidate"
+      continue
+    fi
+    if body_has_question "$hold_body"; then
+      unchanged=$((unchanged + 1))
+      continue
+    fi
+    case "$hold_body" in
+      *"Resolution recorded by fm-decision-hold."*)
+        unchanged=$((unchanged + 1))
+        continue
+        ;;
+    esac
+    parse_stub_body "$hold_body" \
+      || { skipped=$((skipped + 1)); printf 'skipped: %s (non-stub body)\n' "$candidate"; continue; }
+    hold_reason=$(show_field "$show" hold_reason)
+    case "$hold_reason" in
+      ''|'-'|'"-"')
+        skipped=$((skipped + 1))
+        printf 'skipped: %s (no stored hold reason)\n' "$candidate"
+        continue
+        ;;
+    esac
+    tasks_axi update "$candidate" --body "$(hold_question_body "$STUB_ORIGIN" "$STUB_KEY" "$hold_reason")" >/dev/null \
+      || fail "could not backfill the question on $candidate"
+    backfilled=$((backfilled + 1))
+    printf 'backfilled: %s\n' "$candidate"
+  done <<EOF
+$rows
+EOF
+  printf 'backfill: backfilled=%s unchanged=%s skipped=%s\n' "$backfilled" "$unchanged" "$skipped"
+}
+
+command_backfill() {
+  [ "$#" -ge 1 ] || { usage >&2; exit 2; }
+  if [ "$1" = --all ]; then
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    backfill_all
+    return 0
+  fi
+  [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+  backfill_one "$1" "$2"
+}
+
 case "${1:-}" in
   id) shift; command_id "$@" ;;
   hold) shift; command_hold "$@" ;;
@@ -845,6 +1013,7 @@ case "${1:-}" in
   binding) shift; command_binding "$@" ;;
   decline) shift; command_decline "$@" ;;
   repair) shift; command_repair "$@" ;;
+  backfill) shift; command_backfill "$@" ;;
   -h|--help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

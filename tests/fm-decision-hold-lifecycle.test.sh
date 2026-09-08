@@ -1114,6 +1114,106 @@ SH
   pass "the chat channel feeds the same keyed-answer intake a captured review does"
 }
 
+test_hold_body_carries_question_and_backfills_stub() {
+  local home id hold show out legacy retry oob
+  home=$(make_home question-body)
+  id=sample-question-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate sample questions" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create question-body origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf '# Sample question review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
+
+  hold=$(run_decisions "$home" hold "$id" route \
+    --title "Choose the sample route" --reason "captain route choice pending" --repo sample) \
+    || fail "could not register the question-body hold"
+  show=$(tasks_in "$home" show "$hold" --full)
+  assert_contains "$show" "Question: captain route choice pending" \
+    "a newly created hold did not record its question in the body"
+  assert_contains "$show" "hold_reason: captain route choice pending" \
+    "recording the question in the body must leave hold_reason in place"
+  assert_contains "$show" "held: yes" "the questioned hold did not stay held"
+
+  legacy=$id-decision-legacy
+  tasks_in "$home" add "$legacy" "Choose the legacy sample" --kind captain --repo sample \
+    --body "$(printf 'Origin: %s\nDecision key: legacy\nState: awaiting captain decision.' "$id")" >/dev/null \
+    || fail "could not create the legacy stub fixture"
+  tasks_in "$home" hold "$legacy" --reason "captain legacy choice pending" --kind captain >/dev/null \
+    || fail "could not hold the legacy stub fixture"
+  show=$(tasks_in "$home" show "$legacy" --full)
+  assert_not_contains "$show" "Question:" "the legacy stub fixture must start with no question in its body"
+
+  out=$(run_decisions "$home" backfill "$id" legacy) \
+    || fail "backfill could not repair the legacy stub"
+  assert_contains "$out" "backfilled: $legacy" "backfill did not report the repaired hold"
+  show=$(tasks_in "$home" show "$legacy" --full)
+  assert_contains "$show" "Question: captain legacy choice pending" \
+    "backfill did not restore the question from the stored hold_reason"
+  assert_contains "$show" "hold_reason: captain legacy choice pending" \
+    "backfill must copy hold_reason, never move it"
+  assert_contains "$show" "state: queued" "backfill closed or moved the repaired hold"
+  assert_contains "$show" "held: yes" "backfill released the repaired hold"
+
+  out=$(run_decisions "$home" backfill "$id" legacy) \
+    || fail "backfill retry was not idempotent"
+  assert_contains "$out" "unchanged:" "backfill retry did not report a no-op"
+
+  retry=$id-decision-retry
+  tasks_in "$home" add "$retry" "Choose the retry sample" --kind captain --repo sample \
+    --body "$(printf 'Origin: %s\nDecision key: retry\nState: awaiting captain decision.' "$id")" >/dev/null \
+    || fail "could not create the retry stub fixture"
+  run_decisions "$home" hold "$id" retry \
+    --title "Choose the retry sample" --reason "captain retry choice pending" --repo sample >/dev/null \
+    || fail "hold retry over a stub did not succeed"
+  show=$(tasks_in "$home" show "$retry" --full)
+  assert_contains "$show" "Question: captain retry choice pending" \
+    "an idempotent hold retry left the stub body without its question"
+
+  oob=$id-decision-oob
+  tasks_in "$home" add "$oob" "Choose the oob sample" --kind captain --repo sample \
+    --body "$(printf 'Origin: %s\nDecision key: oob\nState: awaiting captain decision.' "$id")" >/dev/null \
+    || fail "could not create the out-of-band stub fixture"
+  tasks_in "$home" hold "$oob" --reason "captain oob choice pending" --kind captain >/dev/null \
+    || fail "could not hold the out-of-band stub fixture"
+  tasks_in "$home" "done" "$oob" >/dev/null \
+    || fail "could not close the out-of-band stub fixture"
+  if run_decisions "$home" backfill "$id" oob > "$home/oob-backfill.out" 2> "$home/oob-backfill.err"; then
+    fail "backfill repaired a hold closed outside the script instead of leaving it to repair"
+  fi
+  assert_grep "repair" "$home/oob-backfill.err" "refused out-of-band backfill must point at repair"
+  show=$(tasks_in "$home" show "$oob" --full)
+  assert_not_contains "$show" "Question:" "a refused out-of-band backfill rewrote the closed hold"
+
+  tasks_in "$home" add "$id-decision-sweep-a" "Choose sweep A" --kind captain --repo sample \
+    --body "$(printf 'Origin: %s\nDecision key: sweep-a\nState: awaiting captain decision.' "$id")" >/dev/null \
+    || fail "could not create the first sweep stub fixture"
+  tasks_in "$home" hold "$id-decision-sweep-a" --reason "captain sweep-a choice pending" --kind captain >/dev/null \
+    || fail "could not hold the first sweep stub fixture"
+  tasks_in "$home" add "$id-decision-sweep-b" "Choose sweep B" --kind captain --repo sample \
+    --body "$(printf 'Origin: %s\nDecision key: sweep-b\nState: awaiting captain decision.' "$id")" >/dev/null \
+    || fail "could not create the second sweep stub fixture"
+  tasks_in "$home" hold "$id-decision-sweep-b" --reason "captain sweep-b choice pending" --kind captain >/dev/null \
+    || fail "could not hold the second sweep stub fixture"
+  out=$(run_decisions "$home" backfill --all) \
+    || fail "backfill --all could not sweep the stub holds"
+  assert_contains "$out" "backfilled: $id-decision-sweep-a" "the sweep missed its first stub"
+  assert_contains "$out" "backfilled: $id-decision-sweep-b" "the sweep missed its second stub"
+  assert_contains "$out" "backfilled=2" "the sweep summary did not count both repairs"
+  show=$(tasks_in "$home" show "$id-decision-sweep-a" --full)
+  assert_contains "$show" "Question: captain sweep-a choice pending" \
+    "the sweep did not restore the first question from its stored hold_reason"
+  show=$(tasks_in "$home" show "$oob" --full)
+  assert_not_contains "$show" "Question:" "the sweep rewrote a hold closed outside the script"
+  out=$(run_decisions "$home" backfill --all) \
+    || fail "backfill --all retry was not idempotent"
+  assert_contains "$out" "backfilled=0" "the sweep retry did not converge to a no-op"
+
+  pass "a hold body carries its question and a legacy stub backfills from its stored hold_reason"
+}
+
+test_hold_body_carries_question_and_backfills_stub
+
 test_uninventoried_report_decision_refuses_completion
 
 test_scout_teardown_always_requires_inventory_verification
