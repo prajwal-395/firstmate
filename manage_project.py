@@ -868,6 +868,19 @@ def cmd_check(args):
     if len(res_counts) > 1:
         print(f"REPORT: Mixed resolutions detected: {res_counts}", file=sys.stderr)
 
+    # 6. Standalone scripts beside the footage are VISIBLE, never refused.
+    # Record 2026-09-06: three scripts in the captain's project folder
+    # re-implemented pipeline steps outside every repository-side guard,
+    # which all look at the REPOSITORY. A REPORT names them so a run
+    # beside an unseen parallel implementation says so; a refusal would
+    # dictate how the captain works in their own directories, and that
+    # call is the captain's. See library/tools/project_scripts.py.
+    print("Checking project folder for standalone scripts...")
+    from library.tools.project_scripts import find_standalone_scripts
+    for script in find_standalone_scripts(project_dir):
+        print(f"REPORT: Standalone Python script in project folder: "
+              f"{os.path.relpath(script, project_dir)}", file=sys.stderr)
+
     print("\nReadiness check PASS.")
 
 
