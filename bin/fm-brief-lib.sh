@@ -41,6 +41,29 @@
 # headings. Those warn once and proceed rather than becoming undispatchable; a
 # brief carrying SOME of the headings is a current-generation brief with a field
 # emptied, and that is refused.
+#
+# The same fail-closed shape guards the Done-check of a ship brief: a Done-check
+# that demands the whole suite overrides the test-selection ladder the scaffold
+# teaches above it, because the Done-check is the last instruction the worker
+# reads. The gate refuses the demand unless the same section states a fan-out
+# reason, the way the scope contract refuses emptiness rather than judging
+# quality. bin/fm-brief.sh --check and bin/fm-spawn.sh both gate through
+# fm_brief_fullsuite_check below, so the two never hold separate opinions.
+#
+# Detection rule, argued rather than exhaustive. A demand is a line in the
+# Done-check section only - never the scaffold's own ladder prose - matching a
+# whole-suite phrase (full/whole/entire/complete suite, full/entire/whole test
+# suite, all tests) or a whole-suite command form (a bare pytest with no path
+# and no selection flag, pytest over tests/ as a directory, make test/check).
+# A line carrying a prohibition cue (do not, does not, never, avoid, must not,
+# without, cannot) is not a demand: "Do NOT run the full suite" is the guardrail
+# working, not the defect. Deliberately not caught: other runners' full-suite
+# spellings (npm, cargo, go, tox, bazel) and filtered pytest runs (-k, -m, a
+# path argument) - judging those would refuse legitimate briefs, and the
+# recorded incidents are all pytest-suite demands. A stated reason is any
+# fan-out cue in the same section (fan-out, because, reason, justif-, wide,
+# touch-, affect-, span-, across, cover-): presence, never quality, because a
+# required reason that is judged gets filled with noise.
 
 # Canonical field headings, in scaffold order, separated by "|".
 FM_BRIEF_SCOPE_FIELDS='What done means for this task|Out of scope|Known unknowns|Blocked on'
@@ -113,6 +136,65 @@ fm_brief_scope_state() {  # <brief-path>
       if (out == "") { print "ok" } else { print "empty" out }
     }
   ' "$1" 2>/dev/null
+}
+
+# Print the Done-check section of a brief: from its heading to the next
+# heading. Prints nothing when the brief carries no Done-check heading (scout
+# briefs, secondmate charters, and pre-contract briefs), so callers gate only
+# ship briefs through the full-suite check below. Any heading level matches.
+fm_brief_donecheck_section() {  # <brief-path>
+  awk '
+    /^#/ {
+      heading = $0
+      sub(/^#+[[:space:]]*/, "", heading)
+      sub(/[[:space:]]+$/, "", heading)
+      if (tolower(heading) == "done-check") { in_section = 1; next }
+      if (in_section) exit
+      next
+    }
+    in_section { print }
+  ' "$1" 2>/dev/null
+}
+
+# Gate one brief on a whole-suite demand in its Done-check without a stated
+# fan-out reason. Returns 0 when dispatch may proceed (no Done-check section,
+# no demand, or a demand with a reason), 1 naming the demand otherwise.
+# <what> names the action being gated so the refusal reads in the caller's own
+# terms. Only presence is judged, never the quality of the reason.
+fm_brief_fullsuite_check() {  # <brief-path> <what>
+  local brief=$1 what=$2 section lowered demand_line
+  section=$(fm_brief_donecheck_section "$brief")
+  [ -n "$section" ] || return 0
+  lowered=$(printf '%s\n' "$section" | tr '[:upper:]' '[:lower:]')
+  demand_line=$(printf '%s\n' "$lowered" | fm_brief_fullsuite_demand_line) || demand_line=
+  [ -n "$demand_line" ] || return 0
+  if printf '%s\n' "$lowered" | grep -qE 'fan-? ?out|because|reason|justif|wide|touch(es|ing)?|affects?|affecting|spans?|spanning|across|covers?|covering'; then
+    return 0
+  fi
+  echo "error: $brief demands the whole suite in its Done-check ('${demand_line}'), so $what is refused:" >&2
+  echo "       Name the narrower selection that proves the change instead - usually the test files" >&2
+  echo "       covering the changed files, per the brief's own test-selection ladder." >&2
+  echo "       A brief that genuinely needs the whole suite states its fan-out reason in the" >&2
+  echo "       Done-check (e.g. 'full suite because compile_manifest touches every lane')," >&2
+  echo "       and then it passes; there is no flag that skips this check." >&2
+  return 1
+}
+
+# Print the first Done-check line (already lowercased) that demands the whole
+# suite, or nothing. Prohibition lines are skipped first so a ban on the full
+# suite never reads as a demand for it. A pytest line is a demand unless it
+# names a path (a slash or .py token) or a selection flag (-k, -m and their
+# long forms): "run pytest to verify" is bare, "run pytest tests/foo.py" and
+# "run pytest -k brief" are selections. pytest over the tests/ directory is
+# always a demand and is tested before the path exclusion.
+fm_brief_fullsuite_demand_line() {
+  awk '
+    /do not|does not|never|avoid|must not|without|cannot|refus/ { next }
+    /(full|whole|entire|complete)[ -]+(test[ -]+)?suite|all[ -]+tests/ { print; exit }
+    /pytest[ \t]+tests\/?([ \t]|$|[;&])/ { print; exit }
+    /pytest/ && !/\// && !/\.py/ && !/-k([^a-z]|$)/ && !/-m([^a-z]|$)/ && !/--deselect/ && !/--lf/ { print; exit }
+    /(^|[ \t])make[ \t]+(test|check)([ \t]|$|[;&])/ { print; exit }
+  '
 }
 
 # Gate one brief. Returns 0 when dispatch may proceed (warning once for a brief
