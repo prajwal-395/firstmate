@@ -85,6 +85,8 @@ from pathlib import Path
 
 import pytest
 
+from library.tools.creative_floors import QUOTA_PATTERNS, QUOTA_PHRASES
+
 REPO = Path(__file__).resolve().parents[1]
 STEPS = REPO / "library" / "steps"
 BROLL = STEPS / "step_3_02_select_broll"
@@ -177,37 +179,12 @@ def sfx_library(tmp_path_factory):
 
 
 # ── The prompts must not demand a count ───────────────────────────────
-
-QUOTA_PHRASES = [
-    "must plan exactly 5",
-    "must plan exactly 5-15",
-    "must plan exactly 5-10",
-    "must select 5",
-    "must plan between",
-    "exactly 5-10 sfx",
-    "5-15 b-roll",
-    "default 5-10 sfx",
-    # The two that survived the ruling until 2026-08-25.
-    "must plan at least",
-    "strictly select exactly",
-    "an empty list is a failure",
-]
-
-# A quota does not have to be phrased as one. "at least N", "N-M items"
-# and "every clip MUST have" all set a floor, so the guard also refuses a
-# bare numeric range next to a plural noun and a per-clip MUST.
-QUOTA_PATTERNS = [
-    # "at least 3", "at least three"
-    r"at least\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-    # "3-7 VFX items", "10-15 passages"
-    r"\b\d+\s*-\s*\d+\s+(?:vfx|sfx|b-roll|passages|items|effects|cutaways|sounds)\b",
-    # "every talking head clip >3s MUST have at least a slow zoom".
-    # Deliberately narrower than a bare "every ... must have": select_broll
-    # says every non-speech block must have B-roll, and that is a COVERAGE
-    # requirement, not a floor - an uncovered block is a black hole that
-    # compile_manifest._assert_timeline_fully_covered fails on.
-    r"every\b[^.\n]{0,80}\bmust\s+have\s+at\s+least\b",
-]
+#
+# The vocabulary lives in `library/tools/creative_floors.py`, once: the
+# floors test reads steps for it, and a project-declared creative task is
+# refused at declaration time against the same list. A guard whose
+# vocabulary exists in only one place cannot reach a second prompt
+# without being restated.
 
 
 @pytest.mark.parametrize(

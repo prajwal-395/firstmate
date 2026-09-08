@@ -165,7 +165,17 @@ class Declaration:
 
 
 def declares(step_id: str) -> bool:
-    return step_id in DECLARING_STEPS
+    if step_id in DECLARING_STEPS:
+        return True
+    # A project-declared creative task reaches a model by construction -
+    # its invocation goes through `present_llm_step`, which is the whole
+    # membership rule - so it declares like every other model-reaching
+    # invocation rather than forming the subset this module refuses to
+    # choose. The `task:` namespace is creative_tasks', so a step id can
+    # never take this branch. Imported lazily: creative_tasks imports
+    # this module, so a top-level import would be a cycle.
+    from library.tools.creative_tasks import is_task_key
+    return is_task_key(step_id)
 
 
 def schema_entry() -> dict:

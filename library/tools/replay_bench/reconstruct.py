@@ -307,6 +307,38 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             else:
                 prompt = craft_role.prompt_block(node_id) + prompt
 
+            # A project-declared task's role, evidence and interview are
+            # read off the project's own declaration rather than the
+            # step tables above, so they need the declaration loaded.
+            # Empty for every step id; a task key that loads nothing is
+            # NOTED rather than reconstructed quietly. Mirrors
+            # `present_llm_step`, in the same order. A revision that
+            # predates the module has nothing to import, and that is a
+            # real difference between the trees rather than something to
+            # paper over - so it is NOTED, not swallowed.
+            _task_evidence: dict = {}
+            _task_interview = False
+            try:
+                from library.tools import creative_tasks as _creative_tasks
+            except ImportError:
+                notes.append("this tree has no "
+                             "library.tools.creative_tasks: a "
+                             "project-declared task prompt is reconstructed "
+                             "without its role block")
+            else:
+                if _creative_tasks.is_task_key(node_id):
+                    try:
+                        prompt = _creative_tasks.prepend_task_role(
+                            project_dir, node_id, prompt)
+                        _task_evidence = _creative_tasks.task_evidence(
+                            project_dir, node_id)
+                        _task_interview = _creative_tasks.asks_interview(
+                            project_dir, node_id,
+                            bool(inputs.get("creative_brief")))
+                    except Exception as exc:  # noqa: BLE001 - wording only
+                        notes.append(f"project-declared task {node_id} did "
+                                     f"not load: {exc}")
+
             schema_outputs = list(llm_outputs)
             try:
                 from library.tools import undetermined
@@ -331,6 +363,11 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                         direction_contradiction.schema_entry())
                     # Per step, because its evidence sources are.
                     prompt += direction_contradiction.prompt_block(node_id)
+                elif _task_evidence:
+                    schema_outputs.append(
+                        direction_contradiction.schema_entry())
+                    prompt += direction_contradiction.prompt_block_for(
+                        _task_evidence)
             try:
                 from library.tools import brief_attachment, briefing_interview
             except ImportError:
@@ -344,7 +381,7 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                 # inputs' own `creative_brief`, which is the same fact
                 # `present_llm_step` reads at the same point.
                 _attached = bool(inputs.get("creative_brief"))
-                if briefing_interview.asks(node_id, _attached):
+                if briefing_interview.asks(node_id, _attached) or _task_interview:
                     schema_outputs.append(briefing_interview.schema_entry())
                     try:
                         _a = brief_attachment.read_declaration(project_dir)

@@ -634,19 +634,18 @@ def schema_entry() -> dict:
     }
 
 
-def prompt_block(step_id: str) -> str:
-    """The instruction, delivered as DATA beside the context.
+def prompt_block_for(evidence: Dict[str, str]) -> str:
+    """The instruction for a holder of `evidence`, whatever declared it.
 
-    The handoffs are frozen, so this takes the route
-    `music_measurement.MEASUREMENT_LEGEND` and `CUTS_LEGEND` already
-    take: the words travel with the call rather than being edited into
-    the prompt file.
-
-    The block is per step because the two closed vocabularies it names -
-    the direction's own fields, and the measurements THIS step was
-    routed - are what make an entry checkable.
+    Steps hold DAG-routed measurements (`prompt_block` below, per step
+    because the vocabularies it names are per step). A project-declared
+    creative task holds the measurements its own declaration names -
+    the OFF_DAG_MEASUREMENTS shape, which `select_reels` and
+    `music_selection` already take for measurements no edge carries - so
+    it is rendered through this same builder rather than a second one.
+    One shape for "flag what you measured against what you were handed".
     """
-    sources = evidence_sources(step_id)
+    sources = dict(evidence)
     lines = [
         "\n\n## Where your measurements disagree with the direction\n\n",
         f"Alongside your answer, return `{FIELD}`: the places where "
@@ -709,6 +708,21 @@ def prompt_block(step_id: str) -> str:
     return "".join(lines)
 
 
+def prompt_block(step_id: str) -> str:
+    """The instruction, delivered as DATA beside the context.
+
+    The handoffs are frozen, so this takes the route
+    `music_measurement.MEASUREMENT_LEGEND` and `CUTS_LEGEND` already
+    take: the words travel with the call rather than being edited into
+    the prompt file.
+
+    The block is per step because the two closed vocabularies it names -
+    the direction's own fields, and the measurements THIS step was
+    routed - are what make an entry checkable.
+    """
+    return prompt_block_for(evidence_sources(step_id))
+
+
 def _normalise_entry(raw: Any) -> Optional[Dict[str, str]]:
     if isinstance(raw, str):
         text = raw.strip()
@@ -727,7 +741,8 @@ def _normalise_entry(raw: Any) -> Optional[Dict[str, str]]:
     return entry or None
 
 
-def is_evidenced(step_id: str, entry: Dict[str, str]) -> bool:
+def is_evidenced(step_id: str, entry: Dict[str, str],
+                 evidence: Optional[Dict[str, str]] = None) -> bool:
     """Whether an entry carries the evidence that makes it a contradiction.
 
     Three conditions, and all three are closed vocabularies rather than
@@ -736,15 +751,22 @@ def is_evidenced(step_id: str, entry: Dict[str, str]) -> bool:
     was actually routed. Nothing here judges whether the disagreement is
     real - that is the captain's, and a rule deciding it would become the
     director (AGENTS.md 10.5).
+
+    `evidence` overrides the DAG-derived table: a project-declared
+    creative task holds the measurements its own declaration names
+    rather than routed ones, and `take` below passes them through. None
+    means "what the derivation says", which is every step.
     """
+    sources = EVIDENCE_SOURCES.get(step_id, {}) if evidence is None else evidence
     return (
         entry.get("direction_field") in DIRECTION_KEYS
         and bool(entry.get("measurement"))
-        and entry.get("measured_in") in EVIDENCE_SOURCES.get(step_id, {})
+        and entry.get("measured_in") in sources
     )
 
 
-def take(step_id: str, answer: Any) -> tuple:
+def take(step_id: str, answer: Any,
+         evidence: Optional[Dict[str, str]] = None) -> tuple:
     """Split the flag out of a model answer.
 
     Returns `(answer_without_the_field, Flag)`.
@@ -756,8 +778,15 @@ def take(step_id: str, answer: Any) -> tuple:
     also what makes compliance structural rather than promised - the
     output that leaves this function is the output the step would have
     produced without the field.
+
+    `evidence` is the project-declared task half: a task's measurements
+    come from its own declaration rather than the derivation, so its
+    caller passes them and `is_evidenced` reads them instead. None means
+    "the derivation", which is every step - and a caller passing an
+    evidence map for a step id would be overruling the derivation, so
+    only None is valid there.
     """
-    if not flags(step_id) or not isinstance(answer, dict):
+    if (evidence is None and not flags(step_id)) or not isinstance(answer, dict):
         return answer, Flag(step_id=step_id, reading=NOT_DECLARED)
 
     if FIELD not in answer:
@@ -787,8 +816,8 @@ def take(step_id: str, answer: Any) -> tuple:
             step_id=step_id, reading=NOT_DECLARED,
             malformed=f"{len(rows)} entries, none of them readable")
 
-    evidenced = [e for e in entries if is_evidenced(step_id, e)]
-    unevidenced = [e for e in entries if not is_evidenced(step_id, e)]
+    evidenced = [e for e in entries if is_evidenced(step_id, e, evidence)]
+    unevidenced = [e for e in entries if not is_evidenced(step_id, e, evidence)]
     reading = CONTRADICTED if evidenced else UNEVIDENCED
     return remainder, Flag(step_id=step_id, reading=reading, entries=evidenced,
                            unevidenced=unevidenced, malformed=malformed)

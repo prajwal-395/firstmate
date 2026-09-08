@@ -756,17 +756,16 @@ def role_for(step_id: str):
     return ROLES.get(step_id)
 
 
-def prompt_block(step_id: str) -> str:
-    """The role, as the text prepended to that step's handoff.
+def render_block(role: CraftRole) -> str:
+    """The role as the text prepended to a handoff, for any holder.
 
-    Empty for a step with no declared role, so the call site is one
-    unconditional line and a step that gains a role needs no runner
-    change.
+    The holder is usually a step (`prompt_block` below), but a
+    project-declared creative task carries its own role
+    (`library/tools/creative_tasks.py`) and is rendered through this
+    same function - one shape for "who is reading this context", whether
+    the reader was declared by the engine or by the project. A second
+    renderer would let the two disagree about what a role is.
     """
-    role = ROLES.get(step_id)
-    if role is None:
-        return ""
-
     lines = [
         f"## Who you are: the {role.discipline}",
         "",
@@ -785,3 +784,16 @@ def prompt_block(step_id: str) -> str:
         lines += [f"- {item}" for item in role.corrects]
     lines += ["", NEUTRALITY_LINE, "", "---", "", ""]
     return "\n".join(lines)
+
+
+def prompt_block(step_id: str) -> str:
+    """The role, as the text prepended to that step's handoff.
+
+    Empty for a step with no declared role, so the call site is one
+    unconditional line and a step that gains a role needs no runner
+    change.
+    """
+    role = ROLES.get(step_id)
+    if role is None:
+        return ""
+    return render_block(role)

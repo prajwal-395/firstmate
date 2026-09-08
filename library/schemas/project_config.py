@@ -95,6 +95,12 @@ class PipelineConfig:
     # video is a judgement belonging to whoever owns the video, so the
     # engine keeps no default list.  Empty means "the map is enough".
     creative_brief_inline: List[str] = field(default_factory=list)
+    # Project-declared creative tasks: named pieces of craft judgement the
+    # pipeline INVOKES, instead of adding a permanent step for work only
+    # some projects need (reel selection is the first). Each entry is a
+    # mapping - see library/tools/creative_tasks.py, which is the one
+    # place that reads them. Empty means the project declares none.
+    creative_tasks: List[dict] = field(default_factory=list)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
 
@@ -234,6 +240,28 @@ class ProjectConfig:
                         f"pipeline.subtitle_typography declares {unknown}, "
                         f"which nothing reads. It takes "
                         f"{list(TYPOGRAPHY_KEYS)}.")
+        if self.pipeline.creative_tasks is not None:
+            # Structural only: that it is a list of mappings each naming
+            # the task. Whether the role is complete, the handoff exists
+            # and the prompt carries no floor is
+            # library/tools/creative_tasks.py's refusal, where the project
+            # root is available to read the handoff from.
+            declared = self.pipeline.creative_tasks
+            if not isinstance(declared, list):
+                errors.append(
+                    "pipeline.creative_tasks must be a list of task "
+                    f"declarations, got {type(declared).__name__}.")
+            else:
+                for i, entry in enumerate(declared):
+                    if not isinstance(entry, dict):
+                        errors.append(
+                            f"pipeline.creative_tasks[{i}] must be a "
+                            f"mapping, got {type(entry).__name__}.")
+                    elif not entry.get("name") or not isinstance(
+                            entry.get("name"), str):
+                        errors.append(
+                            f"pipeline.creative_tasks[{i}] names no task: "
+                            f"each entry needs a non-empty string `name`.")
         return errors
 
 @dataclass
@@ -275,6 +303,8 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
             pipeline_data.get("creative_brief_inline", []) or []),
+        creative_tasks=list(
+            pipeline_data.get("creative_tasks", []) or []),
         sfx_library=pipeline_data.get("sfx_library", ""),
         music_library=pipeline_data.get("music_library", ""),
     )
@@ -351,6 +381,11 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if not config.pipeline.creative_brief_inline
                else {"creative_brief_inline":
                      list(config.pipeline.creative_brief_inline)}),
+            # Only when declared, for the same reason: an empty list in
+            # every project.yaml reads as a decision nobody made.
+            **({} if not config.pipeline.creative_tasks
+               else {"creative_tasks":
+                     [dict(t) for t in config.pipeline.creative_tasks]}),
             "sfx_library": config.pipeline.sfx_library,
             "music_library": config.pipeline.music_library,
         },

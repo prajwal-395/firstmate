@@ -59,7 +59,8 @@ import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
-                           craft_role, direction_contradiction,
+                           craft_role, creative_tasks,
+                           direction_contradiction,
                            operations, post_bridge_retry, run_restart,
                            second_pass, undetermined)
 from library.tools import run_control
@@ -1718,6 +1719,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # See library/tools/craft_role.py.
         prompt = craft_role.prompt_block(node_id) + prompt
 
+        # A project-declared creative task carries its own role, rendered
+        # through the same renderer one line up. `task:` keys are
+        # creative_tasks', so for every step id this returns the prompt
+        # unchanged without touching disk. See
+        # library/tools/creative_tasks.py.
+        prompt = creative_tasks.prepend_task_role(
+            inputs.get("project_folder", ""), node_id, prompt)
+
         schema_outputs = list(llm_outputs)
         if undetermined.declares(node_id):
             schema_outputs.append(undetermined.schema_entry())
@@ -1727,9 +1736,22 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # direction it inherited.  Same route, same reason, and the same
         # rule that it never becomes one of the step's outputs.
         # See library/tools/direction_contradiction.py.
-        if direction_contradiction.flags(node_id):
+        #
+        # A project-declared task holds the measurements its own
+        # declaration names rather than routed ones
+        # (`creative_tasks.task_evidence`), so its flag is rendered from
+        # those through the same builder. Empty for every step id, so
+        # this changes nothing unless a task is being invoked. See
+        # library/tools/creative_tasks.py.
+        _task_evidence = creative_tasks.task_evidence(
+            inputs.get("project_folder", ""), node_id)
+        if direction_contradiction.flags(node_id) or _task_evidence:
             schema_outputs.append(direction_contradiction.schema_entry())
-            prompt += direction_contradiction.prompt_block(node_id)
+            if direction_contradiction.flags(node_id):
+                prompt += direction_contradiction.prompt_block(node_id)
+            else:
+                prompt += direction_contradiction.prompt_block_for(
+                    _task_evidence)
 
         # No creative brief was attached, so the step is asked what it
         # would have needed to know rather than planning in silence.
@@ -1743,8 +1765,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # exactly when the project attached one. One source, no second
         # place that can answer differently.
         # See library/tools/briefing_interview.py.
+        #
+        # A project-declared task is interviewed when its own declaration
+        # asks for the brief and none is attached
+        # (`creative_tasks.asks_interview`) - the same rule, read off the
+        # task instead of a manifest. False for every step id.
         brief_attached = bool(inputs.get("creative_brief"))
-        if briefing_interview.asks(node_id, brief_attached):
+        if briefing_interview.asks(node_id, brief_attached) or creative_tasks.asks_interview(
+                inputs.get("project_folder", ""), node_id, brief_attached):
             schema_outputs.append(briefing_interview.schema_entry())
             try:
                 _attachment = brief_attachment.read_declaration(
@@ -1971,10 +1999,20 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # which is also what makes compliance structural: the output that
         # leaves here is the one the step would have produced without the
         # field, so a step that flags cannot deviate.
+        # The predicate is recomputed here rather than carried from the
+        # schema section above, which only runs when a manifest declared
+        # something to ask: a call with no manifest still splits an
+        # answer's fields out below.
+        _interview_asked = (
+            briefing_interview.asks(
+                node_id, bool(inputs.get("creative_brief")))
+            or creative_tasks.asks_interview(
+                inputs.get("project_folder", ""),
+                node_id, bool(inputs.get("creative_brief"))))
         parsed_result, _interview = briefing_interview.take(
-            node_id, parsed_result, bool(inputs.get("creative_brief")))
-        if briefing_interview.asks(
-                node_id, bool(inputs.get("creative_brief"))):
+            node_id, parsed_result, bool(inputs.get("creative_brief")),
+            _interview_asked)
+        if _interview_asked:
             briefing_interview.record(_interview)
             if logger:
                 logger.log(
@@ -1983,9 +2021,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                     detail=briefing_interview.as_records([_interview])[0],
                 )
 
+        # The task's own declared evidence, or None for the derivation -
+        # which is every step. Empty for every step id, so this changes
+        # nothing unless a task is being invoked.
+        _take_evidence = creative_tasks.task_evidence(
+            inputs.get("project_folder", ""), node_id) or None
         parsed_result, _flag = direction_contradiction.take(
-            node_id, parsed_result)
-        if direction_contradiction.flags(node_id):
+            node_id, parsed_result, _take_evidence)
+        if direction_contradiction.flags(node_id) or _take_evidence:
             direction_contradiction.record(_flag)
             if logger:
                 logger.log(

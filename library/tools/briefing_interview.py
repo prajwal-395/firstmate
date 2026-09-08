@@ -266,7 +266,8 @@ def _normalise_entry(raw: Any) -> Optional[Dict[str, str]]:
     return None
 
 
-def take(step_id: str, answer: Any, brief_attached: bool) -> tuple:
+def take(step_id: str, answer: Any, brief_attached: bool,
+         asked: bool | None = None) -> tuple:
     """Split the questions out of a model answer.
 
     Returns `(answer_without_the_field, Interview)`.
@@ -275,8 +276,15 @@ def take(step_id: str, answer: Any, brief_attached: bool) -> tuple:
     outputs are what its manifest declares, `validate_step_output`
     refuses an unexpected key, and a post-bridge is handed the model's
     answer as its own input.
+
+    `asked` overrides the `asks()` predicate: a project-declared creative
+    task is interviewed when its own declaration asks for the brief
+    (`creative_tasks.asks_interview`), which `asks()` cannot see - it
+    reads step manifests, and a task is not a step. None means "ask the
+    predicate", which is every step.
     """
-    if not asks(step_id, brief_attached) or not isinstance(answer, dict):
+    _asked = asked if asked is not None else asks(step_id, brief_attached)
+    if not _asked or not isinstance(answer, dict):
         return answer, Interview(step_id=step_id, reading=NOT_DECLARED)
 
     if FIELD not in answer:

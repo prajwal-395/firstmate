@@ -6638,3 +6638,45 @@ music measurement never runs.  The caller is
 `from library.tools.second_pass import request as second_pass_request`,
 and the scan did not follow import aliases.  The instrument was wrong,
 not the pipeline.
+
+## project-declared-creative-tasks
+
+The captain, 2026-09-04, on seeing reel selection land as step 3.4:
+*"wait did you make it a permanent pipeline step?? if so why? like yes
+this is something the LLM has to do but at the same time it is not a
+permament step in the pipeline but rather part of the spec / brief in the
+project itself that can be referenced"*.
+
+They were right and firstmate had over-corrected. The original complaint
+was that the creative judgement CIRCUMVENTED the pipeline - the sixteen
+reels of the field test were chosen by a crewmate's own judgement
+wrapped in a validator, no model ever reached (findings section 15).
+"Make it a step" fixes the circumvention but conflates two claims: "the
+LLM must do this with a real brief" and "this must be a permanent step".
+Reel selection is project-shaped - a marketing render or a single-video
+edit has no reels - and the engine would carry a step most projects
+never run.
+
+The assessment's two halves: `project_config` already carries
+`creative_brief`, which gives the same class of guarantee - a
+project-declared document that provably reaches a prompt. What it does
+not carry is a craft role or a task: the brief is context handed to a
+step that already exists, and it never causes a model to be INVOKED. And
+step-hood is what forces the invocation with a recorded prompt, and
+what makes the three guards reach it - `craft_role`'s role plumbing,
+the floors gate's derived roster, `direction_contradiction`'s coverage.
+A brief that nothing invokes is a document, and a document a worker
+reads and then acts on in-turn is the section-15 failure with better
+paperwork. Any move had to REPLACE the forcing function, not relocate
+the text.
+
+So the mechanism routes a project-declared task through
+`present_llm_step` itself - the same recorded prompt, schema rendering,
+backends, QA loop and collectors - and reconciles the three guards
+against the declaration: the role prepended by the shared renderer, the
+floors gate reading the task's prompt (and refusing a floored
+declaration), the contradiction field rendered from the task's own
+declared evidence. `select_reels` was deliberately NOT migrated on top
+of it: the record makes the migration conditional on the mechanism and
+defers it past the live field test, and a migration folded into a live
+test is the collision this task's out-of-scope list exists to prevent.
