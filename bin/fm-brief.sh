@@ -101,6 +101,11 @@
 # upstream before the PR is opened and to run the chosen selection once ON the
 # merged tree: a squash merge of a stale branch reverts cleanly with no
 # conflict, so advice was not enough and the step is now a dispatch gate.
+# The direct-PR done owns the remaining stale window too: its Passed verdict
+# re-checks freshness before done, because the default branch can advance
+# between opening the PR and merging it. Local-only stays safe by
+# construction through the guarded fast-forward merge, and no-mistakes hands
+# currency to the pipeline after handoff, so neither carries that line.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -503,7 +508,9 @@ Both lines are required: the \`$PAUSED_VERB:\` line is what tells firstmate your
 If arming refuses, append \`blocked: build watch could not be armed - {the exact error}\` and stop; do not fall back to polling.
 
 **You still own your own build failures.** Firstmate is woken once the check set reaches a verdict and relays it to you:
-- **Passed** - append \`done: PR {url} checks complete\` and stop.
+- **Passed** - the branch can still have gone stale while the checks were running, so re-check freshness before reporting done: fetch the tracked remote and see whether the default branch advanced since your pre-PR merge.
+  If it did, \`comm -12\` the two file lists: on overlap, merge the tracked upstream again, re-run your chosen test selection once ON the merged tree, push, and re-arm the watch with the declare-and-stop above instead of reporting done; on no overlap, append \`done: PR {url} checks complete\` and stop.
+  If it did not advance, append \`done: PR {url} checks complete\` and stop.
 - **Failed** - diagnose and fix on the same branch, push the fix, then arm the watch again and repeat the declare-and-stop above. Repeat until it passes.
   If you cannot fix the failure, append \`blocked: PR {url} checks failed - {summary}\` and stop.
 - **Conflicting, or no checks at all** - that is not a pass. Resolve it (rebase the branch, or report what is missing) and re-arm, or append \`blocked: {why}\` and stop.
