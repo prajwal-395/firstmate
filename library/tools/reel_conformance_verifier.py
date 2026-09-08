@@ -4173,8 +4173,28 @@ def run_verification(
     plan_source = ""
     if plan_path:
         if os.path.isfile(plan_path):
-            from library.tools.reel_proposal import read_proposal
+            from library.tools.reel_proposal import (
+                read_proposal, snap_moment_to_speech)
             moments = read_proposal(plan_path)
+            if transcript:
+                # The build repairs stored boundaries on the way through;
+                # the gate grades what the build placed, so it reads the
+                # same repair rather than the raw file.  Without this a
+                # stored proposal predating the boundary snap fails here
+                # on seconds the build no longer plays.
+                repaired = []
+                for moment in moments:
+                    fixed, moves = snap_moment_to_speech(
+                        moment, transcript)
+                    for move in moves:
+                        word = (f" through '{move['through']}'"
+                                if move.get("through") else "")
+                        print(f"  Reel {moment.number:02d}: "
+                              f"{move['boundary']} {move['was']:.3f}s -> "
+                              f"{move['now']:.3f}s{word} (stored proposal "
+                              f"predates the boundary snap)", file=err)
+                    repaired.append(fixed)
+                moments = repaired
             plan_source = f"proposal file: {plan_path}"
             print(f"Plan:    {plan_source} ({len(moments)} moments)",
                   file=err)

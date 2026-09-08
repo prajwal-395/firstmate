@@ -2185,6 +2185,27 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")) as f:
         transcript = json.load(f)
+
+    # Stored proposals predate the boundary drawer: a boundary drawn
+    # before it can sit inside a word, and the build reads the file
+    # AS-IS.  Repair each moment on the way through with the SAME snap
+    # generation runs, so the rebuild plays word-edge boundaries without
+    # re-deciding WHICH moments the captain approved
+    # (`reel_proposal.snap_moment_to_speech`).  In memory only - the file
+    # keeps exactly what they ruled on.
+    from library.tools.reel_proposal import snap_moment_to_speech
+    repaired = []
+    for moment in moments:
+        fixed, moves = snap_moment_to_speech(moment, transcript)
+        for move in moves:
+            word = (f" through '{move['through']}'"
+                    if move.get("through") else "")
+            print(f"  Reel {moment.number:02d}: {move['boundary']} "
+                  f"{move['was']:.3f}s -> {move['now']:.3f}s{word} "
+                  f"(stored proposal predates the boundary snap)",
+                  file=sys.stderr)
+        repaired.append(fixed)
+    moments = repaired
         
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):

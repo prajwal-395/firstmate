@@ -551,6 +551,88 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     return start, end
 
 
+def _word_through(transcript: dict, when: float) -> Optional[str]:
+    """The word spoken at `when`, or None.
+
+    For the build-time repair report only: names the word a stored
+    boundary sat inside, so the operator sees WHAT moved it.
+    """
+    for segment in transcript.get("segments") or ():
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start and word_start < when < word_end:
+                return str(word.get("word", ""))
+    return None
+
+
+def snap_moment_to_speech(moment: ReelMoment,
+                          transcript: dict) -> tuple:
+    """Repair a STORED moment's boundaries at build time.
+
+    The boundary drawer snaps every boundary OUT of word interiors when
+    a proposal is GENERATED (`step_3_04_select_reels/post_bridge.py`),
+    but the stored `reel_proposals_v2.json` predates that drawer and is
+    read AS-IS at build time - so a stored boundary can still sit inside
+    a word and stall the rebuild at the F8 gate.  This applies the SAME
+    `snap_to_speech` to whatever proposal is read, on the way through:
+    the body window and, where one is declared, the closing CTA range.
+
+    Option (b) and deliberately not (a): it moves boundaries off word
+    edges WITHOUT re-running selection, so WHICH moments the captain
+    approved is untouched - only where each one opens and closes.  The
+    file on disk is never rewritten; the repair lives on the in-memory
+    moment the build and the verifier both consume.
+
+    Returns `(repaired, moves)`.  A moment already clean returns ITSELF
+    with no moves - the snap is a fixed point on word edges, so repair
+    is idempotent and a fresh proposal passes through byte-identical in
+    its spans.  `moves` names each repaired boundary, what it was, what
+    it is now, and the word it sat inside, because a repair the operator
+    cannot see is a silent content change.
+    """
+    moves: List[dict] = []
+    start, end = snap_to_speech(float(moment.timeline_start),
+                                float(moment.timeline_end), transcript)
+    if start != float(moment.timeline_start):
+        moves.append({"boundary": "body_start",
+                      "was": float(moment.timeline_start), "now": start,
+                      "through": _word_through(
+                          transcript, float(moment.timeline_start))})
+    if end != float(moment.timeline_end):
+        moves.append({"boundary": "body_end",
+                      "was": float(moment.timeline_end), "now": end,
+                      "through": _word_through(
+                          transcript, float(moment.timeline_end))})
+    cta = getattr(moment, "call_to_action", None)
+    new_cta = cta
+    if cta is not None:
+        cta_start, cta_end = snap_to_speech(float(cta.timeline_start),
+                                            float(cta.timeline_end),
+                                            transcript)
+        if cta_start != float(cta.timeline_start):
+            moves.append({"boundary": "cta_start",
+                          "was": float(cta.timeline_start), "now": cta_start,
+                          "through": _word_through(
+                              transcript, float(cta.timeline_start))})
+        if cta_end != float(cta.timeline_end):
+            moves.append({"boundary": "cta_end",
+                          "was": float(cta.timeline_end), "now": cta_end,
+                          "through": _word_through(
+                              transcript, float(cta.timeline_end))})
+        if (cta_start, cta_end) != (float(cta.timeline_start),
+                                    float(cta.timeline_end)):
+            new_cta = replace(cta, timeline_start=cta_start,
+                              timeline_end=cta_end)
+    if not moves:
+        return moment, moves
+    return (replace(moment, timeline_start=start, timeline_end=end,
+                    call_to_action=new_cta), moves)
+
+
 # ── Repeated takes ───────────────────────────────────────────────────
 #
 # The captain warned that the rough cut "includes several takes of the
