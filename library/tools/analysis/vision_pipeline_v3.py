@@ -49,6 +49,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 from library.tools.analysis import picture_quality
 from library.tools.camera_stability import read_camera_stability
+from library.tools.segment_coverage import (
+    coverage_summary,
+    normalize_segments,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1563,13 +1567,25 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     scene, t = analyze_scene(analyzer, video_path, duration, temporal_index)
     total_time += t
     total_calls += 1
-    print(f"({t:.1f}s) → {len(scene)} scene(s)")
+    # The model describes whatever span it feels like - on project 001
+    # four long clips stop at 13.9-18.9 s while one 85.8 s clip was
+    # described whole (issue #302). Normalize once here so one sloppy
+    # end does not become fifteen quiet misreads, and record what share
+    # of the clip was actually described: nothing downstream may invent
+    # a location for the rest.
+    scene = normalize_segments(scene, duration)
+    scene_coverage = coverage_summary(scene, duration)
+    print(f"({t:.1f}s) → {len(scene)} scene(s), "
+          f"{scene_coverage['ratio']:.0%} of {duration:.1f}s described")
 
     # 2. Camera
     print(f"  [Camera] One-shot (1 call, video)...", end=" ", flush=True)
     camera, t = analyze_camera(analyzer, video_path, duration)
     total_time += t
     total_calls += 1
+    # The same one-shot shape as the scene pass, so the same sloppy
+    # bounds - normalized for the same reason.
+    camera = normalize_segments(camera, duration)
     print(f"({t:.1f}s) → {len(camera)} mode(s)")
 
     # 3. Actions
@@ -1661,6 +1677,12 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         "actions": actions,
         "objects": objects,
         "assessment": assessment,
+
+        # What share of the clip `scene` actually describes (#302). A
+        # machine-readable pin of the measurement the run log prints
+        # above; the prose every consumer reads carries the same gaps
+        # in words (`vision_schema_adapter.scene_prose`).
+        "scene_coverage": scene_coverage,
 
         "analysis_metadata": {
             "pipeline_version": "v3",

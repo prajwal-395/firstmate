@@ -45,6 +45,8 @@ A step wanting framing, stability, usable ranges or subject visibility must list
 
 import math
 
+from library.tools.segment_coverage import coverage_gaps
+
 _V3_VERSION = "v3"
 
 # Content types the analyser reports for footage whose subject is speaking
@@ -108,12 +110,41 @@ def _fmt_range_inward(start, end) -> str:
     return f"{low:.1f}-{high:.1f}s"
 
 
+# Rendered for a range of the clip no scene segment covers. `scene[]`
+# describes 374.2 s of project 001's 807.0 s (46.4%, issue #302) and the
+# prose used to render only the described part, so a planning step read a
+# 10%-described clip as a described clip and chose windows blind to their
+# picture. The gap is said in the same time-bounded shape as a segment,
+# with the key word first so a length cap still leaves it carrying the
+# gap. Never a location, a lighting or a feature: those were not measured
+# for this range.
+UNDESCRIBED_SCENE_RANGE = "undescribed - no scene observation for this range"
+
+# The same shape on the camera axis: the one-shot pass can equally stop
+# early, and `analysis.motion` hid that the same way.
+UNDESCRIBED_CAMERA_RANGE = "undescribed - no camera observation for this range"
+
+
+def _with_gaps(prose: str, segments, duration, marker: str) -> str:
+    """`prose` plus one time-bounded marker per undescribed range."""
+    gaps = coverage_gaps(segments, duration)
+    if not gaps:
+        return prose
+    lines = [prose] if prose else []
+    for start, end in gaps:
+        lines.append(f"[{_fmt_range(start, end)}] {marker}")
+    return " ".join(lines).strip()
+
+
 def scene_prose(doc: dict) -> str:
     """The ``scene[]`` segments rendered as one time-bounded description.
 
     This is what `analysis.scene` used to hold, except that it described a
-    single representative still ("The image shows...") while this describes
-    the clip across its whole length.
+    single representative still ("The image shows...") while this renders
+    the segments the vision pass returned - plus one explicit marker per
+    range it never described, so a reader can tell a fully described clip
+    from a 10%-described one instead of choosing blind past the last
+    segment's end.
     """
     lines = []
     for seg in doc.get("scene") or []:
@@ -129,7 +160,9 @@ def scene_prose(doc: dict) -> str:
         if features:
             parts.append("notable: " + "; ".join(str(f) for f in features))
         lines.append(f"{head} " + ". ".join(str(p) for p in parts))
-    return " ".join(lines).strip()
+    return _with_gaps(
+        " ".join(lines).strip(), doc.get("scene"),
+        doc.get("duration_s"), UNDESCRIBED_SCENE_RANGE)
 
 
 def camera_prose(doc: dict) -> str:
@@ -137,7 +170,8 @@ def camera_prose(doc: dict) -> str:
 
     Framing and stability per time range are the fields the audit found
     measured-but-unreachable; this is the string form that reaches steps
-    still reading `analysis.motion`.
+    still reading `analysis.motion`. Ranges the pass never described are
+    marked, not omitted - see `scene_prose`.
     """
     lines = []
     for seg in doc.get("camera") or []:
@@ -153,7 +187,9 @@ def camera_prose(doc: dict) -> str:
             f"[{_fmt_range(seg.get('start'), seg.get('end'))}] "
             + ", ".join(str(p) for p in parts)
         )
-    return " ".join(lines).strip()
+    return _with_gaps(
+        " ".join(lines).strip(), doc.get("camera"),
+        doc.get("duration_s"), UNDESCRIBED_CAMERA_RANGE)
 
 
 # Rendered as the ``visual`` field of a block whose action window could not

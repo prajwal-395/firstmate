@@ -1,0 +1,241 @@
+"""`scene[]` describes 46.4% of 001's footage, and no reader could see the gap.
+
+Issue #302: `scene[]` covers 374.2 s of 807.0 s. The vision pass returns
+one segment for fifteen of seventeen clips - IMG_1816 is 188.6 s and is
+described for 18.9 of them - and the segments were stored verbatim and
+rendered as prose with no account of the range they do not cover. Step
+2.01's trace on the run of record: "I chose those moments blind to their
+picture."
+
+The fix is honest coverage, not invented coverage: the producer
+normalizes the model's bounds and records `scene_coverage` on the
+profile, and the prose every consumer reads marks each undescribed range
+explicitly. No location, lighting or feature is ever written for a range
+the vision pass never described.
+
+Run this file at the parent of the fix and the gap-marking tests fail -
+the prose renders the described prefix and says nothing about the other
+90%.
+"""
+
+import json
+import math
+import os
+import sys
+
+import pytest
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+
+from library.tools.segment_coverage import (
+    coverage_gaps,
+    coverage_summary,
+    normalize_segments,
+)
+from library.tools.vision_schema_adapter import (
+    adapt_semantic_document,
+    camera_prose,
+    scene_prose,
+)
+
+
+# IMG_1816's shape on the run of record: 188.578 s of footage, one
+# segment describing the first 18.9 s.
+PREFIX_ONLY = {
+    "clip_id": "IMG_1816",
+    "file_path": "/footage/IMG_1816.MOV",
+    "duration_s": 188.578,
+    "scene": [
+        {"start": 0.0, "end": 18.9,
+         "location": "Outdoor urban area",
+         "type": "outdoor", "lighting": "Daylight",
+         "notable_features": ["Parked cars"]},
+    ],
+    "camera": [
+        {"start": 0.0, "end": 188.578, "mode": "handheld",
+         "framing": "medium", "stability": "stable",
+         "movement": "walking"},
+    ],
+    "actions": [],
+    "objects": [],
+    "assessment": {"content_type": "person_talking_to_camera"},
+    "analysis_metadata": {"pipeline_version": "v3"},
+}
+
+# IMG_1814's shape: described whole (the model's own end overshoots the
+# clip by 0.057 s - sloppiness, not a gap).
+FULLY_DESCRIBED = {
+    "clip_id": "IMG_1814",
+    "file_path": "/footage/IMG_1814.MOV",
+    "duration_s": 45.943,
+    "scene": [
+        {"start": 0.0, "end": 46.0,
+         "location": "Outdoor parking lot and construction site",
+         "type": "outdoor", "lighting": "Daylight",
+         "notable_features": ["Construction site with steel frame"]},
+    ],
+    "camera": [
+        {"start": 0, "end": 46, "mode": "handheld", "framing": "wide",
+         "stability": "stable", "movement": "stationary"},
+    ],
+    "actions": [],
+    "objects": [],
+    "assessment": {"content_type": "scenery"},
+    "analysis_metadata": {"pipeline_version": "v3"},
+}
+
+
+def test_prefix_only_scene_prose_names_the_undescribed_range():
+    """The run-of-record failure: 18.9 s described, 169.7 s of silence."""
+    prose = scene_prose(PREFIX_ONLY)
+    assert "Outdoor urban area" in prose
+    assert "undescribed" in prose, (
+        "the prose renders the described prefix and says nothing about "
+        "the other 90% - a planning step reads this as a described clip")
+    assert "18.9-188.6s" in prose
+
+
+def test_fully_described_clip_gains_no_marker():
+    """A gate that cries gap on full coverage is no coverage either."""
+    assert "undescribed" not in scene_prose(FULLY_DESCRIBED)
+    assert "undescribed" not in camera_prose(FULLY_DESCRIBED)
+
+
+def test_empty_scene_with_known_duration_says_the_whole_clip_is_undescribed():
+    """No segment at all is the same gap, not a blank cell."""
+    doc = dict(PREFIX_ONLY, scene=[])
+    prose = scene_prose(doc)
+    assert prose == "[0.0-188.6s] undescribed - no scene observation for this range"
+
+
+def test_unknown_duration_renders_segments_verbatim():
+    """A gap against an unknown length is a guess, so none is named."""
+    doc = {k: v for k, v in PREFIX_ONLY.items() if k != "duration_s"}
+    prose = scene_prose(doc)
+    assert "Outdoor urban area" in prose
+    assert "undescribed" not in prose
+
+
+def test_camera_prose_names_its_gap_too():
+    """The one-shot camera pass has the same shape, so the same marker."""
+    doc = dict(PREFIX_ONLY, camera=[
+        {"start": 0.0, "end": 20.0, "mode": "handheld",
+         "framing": "medium", "stability": "stable",
+         "movement": "walking"},
+    ])
+    prose = camera_prose(doc)
+    assert "undescribed" in prose
+    assert "20.0-188.6s" in prose
+
+
+def test_the_marker_carries_no_structure_fields():
+    """The prose travels inline in 3.02; the structure must not travel
+    with it (`test_no_scene_structure_travels_inline`)."""
+    prose = scene_prose(PREFIX_ONLY)
+    for marker in ("notable_features", "seen [", "usable_ranges_method"):
+        assert marker not in prose
+
+
+def test_adapted_analysis_scene_carries_the_gap():
+    """`analysis.scene` is the routed carrier - the gap must survive
+    adaptation, on stored profiles as well as fresh ones."""
+    adapted = adapt_semantic_document(dict(PREFIX_ONLY))
+    assert "undescribed" in adapted["analysis"]["scene"]
+
+
+def test_normalize_sorts_clamps_and_drops_empties():
+    raw = [
+        {"start": 100.0, "end": 500.0, "location": "lot"},
+        {"start": 0.0, "end": 18.9, "location": "street"},
+        {"start": 5.0, "end": 5.0, "location": "nothing"},
+        {"start": "bad", "end": 9.0, "location": "malformed"},
+        "junk",
+    ]
+    normalized = normalize_segments(raw, 188.578)
+    assert [(s["start"], s["end"]) for s in normalized] == [
+        (0.0, 18.9), (100.0, 188.578)]
+    # Every other key survives verbatim.
+    assert normalized[0]["location"] == "street"
+    assert normalized[1]["location"] == "lot"
+
+
+def test_coverage_summary_counts_overlaps_once():
+    summary = coverage_summary(
+        [{"start": 0.0, "end": 10.0}, {"start": 5.0, "end": 15.0}], 100.0)
+    assert summary["described_s"] == 15.0
+    assert summary["ratio"] == 0.15
+    assert summary["undescribed_ranges"] == [[15.0, 100.0]]
+
+
+def test_prefix_only_summary_matches_the_issue_measurement():
+    summary = coverage_summary(PREFIX_ONLY["scene"], PREFIX_ONLY["duration_s"])
+    assert summary["described_s"] == pytest.approx(18.9)
+    assert summary["ratio"] == pytest.approx(18.9 / 188.578, abs=1e-4)
+    assert summary["undescribed_ranges"] == [[18.9, 188.578]]
+
+
+def test_sub_second_slivers_are_not_reported():
+    """46.0 on a 45.943 s clip is timestamp wobble, not a gap."""
+    assert coverage_gaps(FULLY_DESCRIBED["scene"], 45.943) == []
+    assert coverage_summary(
+        FULLY_DESCRIBED["scene"], 45.943)["undescribed_ranges"] == []
+
+
+# ── The producer half: what the vision pass stores ────────────────────
+
+class _StubAnalyzer:
+    """One canned answer per pass label, no model anywhere near it."""
+
+    def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
+                           max_tokens=512, label="pass"):
+        if label == "Scene":
+            result = [dict(PREFIX_ONLY["scene"][0])]
+        elif label == "Camera":
+            result = [dict(PREFIX_ONLY["camera"][0])]
+        elif label.startswith("Actions"):
+            result = {"actions": []}
+        elif label.startswith("Objects"):
+            result = []
+        else:
+            result = {"content_type": "person_talking_to_camera",
+                      "primary_subject_visible": [[0, 188]]}
+        return result, json.dumps(result), 0.1
+
+
+def test_analyze_clip_stores_normalized_scene_and_its_coverage():
+    """The profile records what share was described, so no later reader
+    has to recompute it - or can miss it."""
+    from unittest.mock import patch
+
+    from library.tools.analysis import vision_pipeline_v3 as vp
+
+    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
+            "duration_s": 188.578, "fps": 30.0, "resolution": [1920, 1080]}
+    with patch.object(vp.picture_quality, "measure_soft_picture",
+                      return_value=[]):
+        profile = vp.analyze_clip(
+            _StubAnalyzer(), meta, [], [], "", None, "/tmp/nonexistent-cache")
+
+    assert profile["scene"][0]["end"] == 18.9
+    coverage = profile["scene_coverage"]
+    assert coverage["total_s"] == 188.578
+    assert coverage["ratio"] == pytest.approx(18.9 / 188.578, abs=1e-4)
+    assert coverage["undescribed_ranges"] == [[18.9, 188.578]]
+    json.dumps(profile)
+
+
+def test_analyze_clip_prints_the_described_share(capsys):
+    """The operator sees 10% at analysis time, not at edit time."""
+    from unittest.mock import patch
+
+    from library.tools.analysis import vision_pipeline_v3 as vp
+
+    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
+            "duration_s": 188.578, "fps": 30.0, "resolution": [1920, 1080]}
+    with patch.object(vp.picture_quality, "measure_soft_picture",
+                      return_value=[]):
+        vp.analyze_clip(
+            _StubAnalyzer(), meta, [], [], "", None, "/tmp/nonexistent-cache")
+    out = capsys.readouterr().out
+    assert "10%" in out and "described" in out
