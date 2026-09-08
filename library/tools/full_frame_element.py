@@ -110,9 +110,11 @@ How a declaration reaches the picture, in order
 1. :func:`resolve_declaration` reads the project's ``project.yaml`` (or
    the brand template's ``effect`` slot) and :func:`declared_elements`
    normalises it, raising on anything malformed.
-2. :func:`plan_reel_cards` turns each declaration into a CARD - the props,
-   the reel seconds it occupies, and the file it will be rendered to -
-   using facts measured off the reel itself (:class:`ReelFacts`).
+2. :func:`plan_reel_cards` turns each declaration into planned picture -
+   a CARD per declaration, or one SEGMENT per keep range for a
+   ``full_frame_span`` - the props, the reel seconds it occupies, and
+   the file it will be rendered to - using facts measured off the reel
+   itself (:class:`ReelFacts`).
 3. :func:`render_reel_cards` renders each one through Remotion, OPAQUE
    (no ``--transparent``): a full-frame element is the picture, so it
    carries its own ground rather than relying on black showing through an
@@ -241,6 +243,49 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "`_normalise` refuses anything else by name.",
         ),
     ),
+    FullFrameElementKind(
+        key="full_frame_span",
+        what=("The reel's whole body as one animated element: a segment "
+              "per keep range, each a full frame of type on the declared "
+              "ground, abutting so the segments cover the body's own "
+              "seconds exactly, in place of picture rather than over it. "
+              "The word the seven-back-to-back-cards build of "
+              "docs/ANIMATED_REEL_CEILING.md was missing."),
+        axes=("placement", "segments", "entrance", "exit", "copy",
+              "type_role", "colour_role", "image"),
+        copy="required",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Each segment is drawn by the FullFrameCard Remotion "
+            "composition - the same component, the same opaque ProRes "
+            "4444 render, one file per segment - and "
+            "tests/test_full_frame_span.py renders a two-segment span "
+            "and reads per-segment ink back off the frames before this "
+            "flag was set. A segment may name a project image through "
+            "the same slot a card's mark takes, drawn by the same "
+            "composition node tests/test_fullframe_card_image.py proved."),
+        never=(
+            "Never a card beside it: the span already covers the reel's "
+            "whole body, so a head or tail card on the same reel is two "
+            "pictures on the same seconds. `plan_reel_cards` refuses the "
+            "mix by name.",
+            "Never over footage: it replaces picture for the whole body, "
+            "so footage video is not placed where a span plays "
+            "(reel_build.build_reel_timeline suppresses it) - two "
+            "pictures on V1 is an overlap, not a composite.",
+            "Never a declared duration: a span lasts as long as the "
+            "body it covers, measured off the keep ranges at plan time. "
+            "A second number is a second source of truth, so "
+            "`duration_seconds` on a span is refused, not read.",
+            "Never a merged or split sentence: segments anchor to keep "
+            "ranges one by one, and a segment count that is not the "
+            "range count refuses rather than joining or cutting speech "
+            "(which would be an edit, and edits are not this layer's).",
+            "Never artwork the engine supplies: the ground, the typeface "
+            "and every word are the declaration's (AGENTS.md 14), the "
+            "same as a card's.",
+        ),
+    ),
 )
 
 ELEMENTS_BY_KEY: dict[str, FullFrameElementKind] = {
@@ -325,6 +370,16 @@ lands inside a sentence the editor made contiguous.  ``reel_build``'s own
 ``closer_seam`` documents the same seam from the caption side.
 """
 
+SPAN_PLACEMENT = "span"
+"""Where a span sits: over the reel's whole body, and nowhere else.
+
+The ONLY placement a ``full_frame_span`` declaration may carry, and one
+no ``full_frame_card`` may carry.  A span is not a card with a long
+duration - it is a different declaration, so the mid-reel refusal a card
+carries is untouched by it: ``_normalise`` refuses ``span`` on a card
+and anything but ``span`` on a span, each by name.
+"""
+
 MOTION_CHARACTERS = tuple(_mg.AXES_BY_NAME["entrance"].positions)
 """How a card arrives and leaves.
 
@@ -368,6 +423,13 @@ COPY_BINDINGS: dict[str, str] = {
     ),
     "reel_number": (
         "The reel's number in the plan (ReelMoment.number)."
+    ),
+    "range_line": (
+        "Inside a span segment only: the words spoken in that segment's "
+        "own keep range, verbatim, in reel-time order. A quotation of "
+        "the reel's own speech, the binding the animated-reel build of "
+        "docs/ANIMATED_REEL_CEILING.md laid per card by hand. Refused "
+        "outside a span segment, where 'that range' names nothing."
     ),
 }
 
@@ -441,9 +503,58 @@ class ReelFacts:
             return ", ".join(s for s in self.speakers if s)
         if name == "reel_number":
             return str(self.reel_number) if self.reel_number else ""
+        if name == "range_line":
+            raise FullFrameDeclarationError(
+                "a run binds to 'range_line', which resolves per SEGMENT "
+                "against that segment's own keep range - never per reel. "
+                "It is resolved where the span is planned "
+                "(`_plan_span`), not here.")
         raise FullFrameDeclarationError(
             f"{name!r} is not a copy binding; known: "
             f"{', '.join(sorted(COPY_BINDINGS))}")
+
+    @staticmethod
+    def range_line(range_index: int,
+                   ranges: Sequence[tuple[float, float]],
+                   transcript: dict) -> str:
+        """The words spoken in one keep range, verbatim, in reel-time order.
+
+        The quotation a span segment binds when it names ``range_line``:
+        what the reel itself plays during that segment's own seconds.  Read
+        off the PLAYED ranges through ``reel_build.reel_time`` - the same
+        arithmetic ``reel_opening.opening_words`` goes through, so the
+        segment quotes the reel that exists rather than the span the plan
+        asked for.
+
+        Untimed words are skipped rather than guessed at, for the reason
+        ``opening_words`` states.  Unlike that function there is no
+        first-speaker filter: a range is a kept sentence, not an opening
+        line, and dropping a speaker's words from inside it would be an
+        edit.  ``""`` when the range holds no timed words - the caller
+        refuses the segment by name rather than drawing it empty.
+        """
+        from library.tools.reel_build import reel_time
+
+        if (not isinstance(range_index, int) or isinstance(range_index, bool)
+                or not 0 <= range_index < len(ranges)):
+            raise FullFrameDeclarationError(
+                f"range_line asks for keep range {range_index!r} and the "
+                f"reel plays {len(ranges)}; a segment quotes its own range "
+                f"by index, never another one.")
+        found: list[tuple[float, str]] = []
+        for segment in ((transcript or {}).get("segments") or []):
+            for word in (segment.get("words") or []):
+                if not word.get("timed"):
+                    continue
+                at = reel_time(float(word["start"]), ranges)
+                if at is None:
+                    continue
+                found.append((at, str(word.get("word", ""))))
+        lo = sum(r[1] - r[0] for r in ranges[:range_index])
+        hi = lo + (ranges[range_index][1] - ranges[range_index][0])
+        return " ".join(
+            text for at, text in sorted(found)
+            if lo - 1e-9 <= at < hi - 1e-9 and text).strip()
 
 
 def required_opening_window(declarations: Sequence[dict]) -> float:
@@ -584,6 +695,22 @@ def _normalise(raw: Any, index: int) -> dict:
             f"{element.reachable}: {element.reachability_note}")
 
     placement = str(raw.get("placement") or "").strip().lower()
+    if key == "full_frame_span":
+        if placement != SPAN_PLACEMENT:
+            raise FullFrameDeclarationError(
+                f"{label} is a span and has placement={raw.get('placement')!r}; "
+                f"a span covers the reel's whole body, so its placement is "
+                f"{SPAN_PLACEMENT!r} and nothing else - head or tail on a "
+                f"span would be a card beside the picture it already is.")
+        return _normalise_span(raw, index, placement)
+    if placement == SPAN_PLACEMENT:
+        raise FullFrameDeclarationError(
+            f"{label} is a card and has placement='span'; a span is the "
+            f"whole-span element full_frame_span, not a long card. A card "
+            f"sits at the {' or the '.join(PLACEMENTS)} of the reel - "
+            f"there is no default, because where a card sits is an "
+            f"editorial decision, and no mid-reel position exists because "
+            f"a card between two keep ranges lands inside a sentence.")
     if placement not in PLACEMENTS:
         raise FullFrameDeclarationError(
             f"{label} has placement={raw.get('placement')!r}; a card sits "
@@ -605,6 +732,33 @@ def _normalise(raw: Any, index: int) -> dict:
             f"should be choosing as content - the same reading "
             f"bookends.MAX_BOOKEND_SECONDS records.")
 
+    shared = _shared_fields(raw, index, label)
+    runs = raw.get("runs")
+    if not isinstance(runs, (list, tuple)) or not runs:
+        raise FullFrameDeclarationError(
+            f"{label} declares no `runs`; a card with no copy on it draws "
+            f"a coloured rectangle, and an element that draws nothing is "
+            f"not rendered (AGENTS.md 10.2)")
+
+    return {
+        "element": key,
+        "placement": placement,
+        "duration_seconds": float(duration),
+        **shared,
+        "runs": [_normalise_run(run, index, position)
+                 for position, run in enumerate(runs, start=1)],
+    }
+
+
+def _shared_fields(raw: Any, index: int, label: str) -> dict:
+    """The declaration fields a card and a span fill identically.
+
+    Ground, motion characters, typeface, position, separator and the
+    opening window: the engine states none of them, so both shapes refuse
+    them absent in the same words.  What differs - a card's declared
+    duration and runs, a span's measured body and segments - stays in
+    `_normalise` and `_normalise_span`.
+    """
     background = str(raw.get("background") or "").strip()
     if not background:
         raise FullFrameDeclarationError(
@@ -635,13 +789,6 @@ def _normalise(raw: Any, index: int) -> dict:
             f"cannot deliver. A substituted face is a valid picture of the "
             f"right size that nothing downstream can tell apart.")
 
-    runs = raw.get("runs")
-    if not isinstance(runs, (list, tuple)) or not runs:
-        raise FullFrameDeclarationError(
-            f"{label} declares no `runs`; a card with no copy on it draws "
-            f"a coloured rectangle, and an element that draws nothing is "
-            f"not rendered (AGENTS.md 10.2)")
-
     opening_seconds = raw.get("opening_seconds")
     if opening_seconds is not None:
         if (not isinstance(opening_seconds, (int, float))
@@ -670,6 +817,30 @@ def _normalise(raw: Any, index: int) -> dict:
     # resolves it to a staged public path. The engine ships no artwork
     # (AGENTS.md 14), so a name that resolves to nothing REFUSES at
     # plan time rather than drawing a card with a hole in it.
+    image_fields = _normalise_image_fields(raw, label)
+
+    return {
+        "background": background,
+        "entrance": entrance,
+        "exit": exit_char,
+        "font_family": font_family,
+        "font_file": str(font_file) if font_file else None,
+        "y": float(y) if y is not None else None,
+        **image_fields,
+        "separator": str(raw.get("separator") or ", "),
+        "opening_seconds": (float(opening_seconds)
+                            if opening_seconds is not None else None),
+    }
+
+
+def _normalise_image_fields(raw: Any, label: str) -> dict:
+    """A project-supplied still, named but not yet resolved.
+
+    One shape for a card's mark and a span segment's: the declaration
+    names a file out of the project's own brand_assets/ (plus an
+    optional width), and the plan resolves it through the channel_bug
+    shape - staged lazily, refused by name when it resolves to nothing.
+    """
     image = raw.get("image")
     if image is not None:
         if not isinstance(image, str) or not image.strip():
@@ -690,31 +861,99 @@ def _normalise(raw: Any, index: int) -> dict:
                 f"{label} states an image_width for an image it does not "
                 f"name; a magnitude with nothing to size is a declaration "
                 f"nobody can read back.")
-
     return {
-        "element": key,
-        "placement": placement,
-        "duration_seconds": float(duration),
-        "background": background,
-        "entrance": entrance,
-        "exit": exit_char,
-        "font_family": font_family,
-        "font_file": str(font_file) if font_file else None,
-        "runs": [_normalise_run(run, index, position)
-                 for position, run in enumerate(runs, start=1)],
-        "y": float(y) if y is not None else None,
         "image": image.strip() if image is not None else None,
         "image_width": (float(image_width)
                         if image_width is not None else None),
-        "separator": str(raw.get("separator") or ", "),
-        "opening_seconds": (float(opening_seconds)
-                            if opening_seconds is not None else None),
     }
 
 
-def _normalise_run(raw: Any, card_index: int, run_index: int) -> dict:
+def _normalise_span(raw: dict, index: int, placement: str) -> dict:
+    """One whole-span declaration, checked field by field.  Refuses by name.
+
+    A span is what the seven-back-to-back-cards build was reaching for:
+    one declaration whose segments cover the reel's whole body.  Its
+    duration is MEASURED off the keep ranges at plan time, never stated -
+    ``duration_seconds`` here is refused rather than read - and each
+    segment anchors to one keep range by index, so the boundaries sit on
+    the reel's own edit points the way that build's did.
+    """
+    label = f"full_frame_elements[{index}]"
+    if raw.get("duration_seconds") is not None:
+        raise FullFrameDeclarationError(
+            f"{label} is a span and states duration_seconds="
+            f"{raw.get('duration_seconds')!r}; a span lasts as long as the "
+            f"body it covers, measured off the keep ranges at plan time. "
+            f"A second number is a second source of truth.")
+    if raw.get("runs") is not None:
+        raise FullFrameDeclarationError(
+            f"{label} is a span and carries `runs`; one copy block cannot "
+            f"say what each segment of the body shows. A span carries "
+            f"`segments`, one per keep range, each with its own `runs`.")
+    if raw.get("image") is not None or raw.get("image_width") is not None:
+        raise FullFrameDeclarationError(
+            f"{label} is a span and names an `image`; a span is the "
+            f"container, and the unit that renders is the segment - each "
+            f"segment names its own image, so one mark for the whole span "
+            f"would be a second source for what the segments already say.")
+    segments = raw.get("segments")
+    if not isinstance(segments, (list, tuple)) or not segments:
+        raise FullFrameDeclarationError(
+            f"{label} declares no `segments`; a span with no segments "
+            f"covers the body with nothing, and an element that draws "
+            f"nothing is not rendered (AGENTS.md 10.2)")
+    shared = _shared_fields(raw, index, label)
+    return {
+        "element": "full_frame_span",
+        "placement": placement,
+        "duration_seconds": None,
+        **shared,
+        "segments": [_normalise_segment(segment, index, position)
+                     for position, segment in enumerate(segments, start=1)],
+    }
+
+
+def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
+    """One span segment: the copy - and optionally the mark - one keep
+    range's seconds show.
+
+    A segment is the unit that renders (one file per segment through
+    the FullFrameCard composition), so it names its own `image` through
+    the same slot a card's mark takes, resolved the same way at plan
+    time.  A segment naming no image carries no image key, which is
+    what keeps its props rendering byte-identically to a card's.
+    """
+    label = f"full_frame_elements[{span_index}].segments[{position}]"
+    if not isinstance(raw, dict):
+        raise FullFrameDeclarationError(
+            f"{label} must be a mapping, got {type(raw).__name__}")
+    runs = raw.get("runs")
+    if not isinstance(runs, (list, tuple)) or not runs:
+        raise FullFrameDeclarationError(
+            f"{label} declares no `runs`; a segment with no copy on it "
+            f"draws a coloured rectangle, and an element that draws "
+            f"nothing is not rendered (AGENTS.md 10.2)")
+    return {
+        "runs": [_normalise_segment_run(run, span_index, position, number)
+                 for number, run in enumerate(runs, start=1)],
+        **_normalise_image_fields(raw, label),
+    }
+
+
+def _normalise_segment_run(raw: Any, span_index: int, position: int,
+                           run_index: int) -> dict:
+    """One run inside one span segment: the card run shape, retargeted."""
+    return _normalise_run(
+        raw, span_index, run_index,
+        label=(f"full_frame_elements[{span_index}].segments[{position}]"
+               f".runs[{run_index}]"))
+
+
+def _normalise_run(raw: Any, card_index: int, run_index: int,
+                    label: Optional[str] = None) -> dict:
     """One run of copy: literal text OR a binding, never both, never neither."""
-    label = f"full_frame_elements[{card_index}].runs[{run_index}]"
+    label = (label if label is not None
+             else f"full_frame_elements[{card_index}].runs[{run_index}]")
     if not isinstance(raw, dict):
         raise FullFrameDeclarationError(
             f"{label} must be a mapping, got {type(raw).__name__}")
@@ -824,6 +1063,8 @@ def plan_reel_cards(declarations: Sequence[dict],
                     width: int = 1080,
                     height: int = 1920,
                     project_folder: Optional[str] = None,
+                    ranges: Optional[Sequence[tuple[float, float]]] = None,
+                    transcript: Optional[dict] = None,
                     resolve_asset=None,
                     ) -> list[PlannedCard]:
     """Resolve every declaration against ONE reel, in the order it plays.
@@ -833,6 +1074,12 @@ def plan_reel_cards(declarations: Sequence[dict],
     what a tail card is placed after.  Head cards are laid out from reel
     frame zero in declaration order; the total of their durations is what
     ``reel_build.lead_frames`` shifts everything else by.
+
+    ``ranges`` and ``transcript`` are what a SPAN is planned from: its
+    segments anchor to the reel's own keep ranges one by one, so the
+    boundaries sit on the reel's own edit points.  Cards never read them -
+    a card's duration is declared, not measured - so callers planning
+    cards alone pass neither.
 
     **In FRAMES throughout.**  A card's position is arithmetic on counts
     the plan has already rounded, so the card and the clip beside it abut
@@ -847,12 +1094,27 @@ def plan_reel_cards(declarations: Sequence[dict],
     if not declarations:
         return []
 
-    safe_area = resolve_safe_area(project_folder, width=width, height=height)
+    spans = [d for d in declarations
+             if d.get("element") == "full_frame_span"]
     # An injected resolver wins (tests); otherwise the project's own
-    # brand_assets/ is the lookup, built lazily so a run whose cards
-    # name no image stages nothing.
+    # brand_assets/ is the lookup, built lazily so a run whose elements
+    # name no image stages nothing. Built before the span dispatch, so
+    # a span segment names its image through the same slot a card's
+    # mark takes rather than a second mechanism.
     resolver = (resolve_asset if resolve_asset is not None
                 else _project_asset_resolver(project_folder))
+    if spans:
+        if len(spans) > 1 or len(spans) != len(declarations):
+            raise FullFrameDeclarationError(
+                f"a full_frame_span already covers the reel's whole body; "
+                f"{len(declarations)} declaration(s) on one reel, "
+                f"{len(spans)} of them span(s). A card beside a span is "
+                f"two pictures on the same seconds, and two spans are two "
+                f"covers for one body - declare one span alone.")
+        return _plan_span(spans[0], 1, facts, ranges, transcript, fps,
+                          width, height, project_folder, resolver)
+
+    safe_area = resolve_safe_area(project_folder, width=width, height=height)
     heads = [d for d in declarations if d["placement"] == "head"]
     tails = [d for d in declarations if d["placement"] == "tail"]
 
@@ -938,12 +1200,29 @@ def _plan_one(declaration: dict, index: int, reel_start_frame: int,
 
 
 def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
-                 index: int) -> dict:
-    """One run with its words settled, or a refusal naming what was empty."""
+                 index: int,
+                 span_context: Optional[dict] = None) -> dict:
+    """One run with its words settled, or a refusal naming what was empty.
+
+    ``span_context`` carries a span segment's own range
+    (``{"range_index": i, "ranges": [...], "transcript": {...}}``) and is
+    how a run binding to ``range_line`` quotes it.  Without one that
+    binding refuses: outside a span segment 'that range' names nothing.
+    """
     if run["bind"]:
         if run["bind"] == "speakers":
             text = declaration["separator"].join(
                 s for s in facts.speakers if s)
+        elif run["bind"] == "range_line":
+            if span_context is None:
+                raise FullFrameDeclarationError(
+                    f"full_frame_elements[{index}] binds a run to "
+                    f"'range_line' outside a span segment. That binding "
+                    f"quotes the segment's own keep range, so on a card - "
+                    f"which covers no range - it names nothing.")
+            text = ReelFacts.range_line(
+                span_context["range_index"], span_context["ranges"],
+                span_context["transcript"])
         else:
             text = facts.binding(run["bind"],
                                  declaration.get("opening_seconds"))
@@ -961,6 +1240,116 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
     if run["font_size"] is not None:
         out["font_size"] = run["font_size"]
     return out
+
+
+def _plan_span(declaration: dict, index: int, facts: ReelFacts,
+               ranges: Optional[Sequence[tuple[float, float]]],
+               transcript: Optional[dict],
+               fps: float, width: int, height: int,
+               project_folder: Optional[str],
+               resolve_asset=None) -> list[PlannedCard]:
+    """One span declaration into one abutting segment per keep range.
+
+    Segment ``i`` covers range ``i`` and nothing else: its frames are the
+    range's own per-edge rounding - ``int(round(end * fps)) -
+    int(round(start * fps))``, the same arithmetic
+    ``reel_build.placements`` lays footage down in - so the segments abut
+    exactly and together cover the body's own seconds, the way the seven
+    back-to-back cards of docs/ANIMATED_REEL_CEILING.md did by hand.
+
+    Each segment renders through the FullFrameCard composition, opaque,
+    like a card: the span is a word the planner can choose, not a second
+    renderer.  ``render_name`` says ``span`` rather than ``card`` so the
+    verifier identifies it as what it is
+    (``reel_conformance_verifier.CARD_NAME_SHAPE``).
+    """
+    label = f"full_frame_elements[{index}]"
+    if not ranges:
+        raise FullFrameDeclarationError(
+            f"{label} is a span and no keep ranges were passed to plan it "
+            f"from; a span anchors one segment per range, so without them "
+            f"there is nothing to anchor to. reel_build.plan_cards passes "
+            f"the ranges the build is about to place.")
+    segments = declaration["segments"]
+    if len(segments) != len(ranges):
+        raise FullFrameDeclarationError(
+            f"{label} declares {len(segments)} segment(s) and the reel "
+            f"plays {len(ranges)} keep range(s). One segment covers one "
+            f"range - joining two ranges into one segment would merge two "
+            f"kept sentences, and splitting one would cut one in half. "
+            f"Say what each kept sentence looks like.")
+    if transcript is None:
+        transcript = {}
+
+    safe_area = resolve_safe_area(project_folder, width=width, height=height)
+    planned: list[PlannedCard] = []
+    cursor = 0
+    for position, (segment, (range_start, range_end)) in enumerate(
+            zip(segments, ranges), start=1):
+        start_f = int(round(range_start * fps))
+        end_f = int(round(range_end * fps))
+        duration_frames = end_f - start_f
+        if duration_frames <= 0:
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] covers keep range "
+                f"({range_start:.3f}, {range_end:.3f}), which rounds to "
+                f"{duration_frames} frames at {fps:.3f}fps; a segment "
+                f"must occupy at least one")
+        context = {"range_index": position - 1, "ranges": list(ranges),
+                   "transcript": transcript}
+        resolved = tuple(
+            _resolve_run(run, declaration, facts, index,
+                         span_context=context)
+            for run in segment["runs"])
+        props: dict = {
+            "runs": [dict(run) for run in resolved],
+            "background": declaration["background"],
+            "entrance": declaration["entrance"],
+            "exit": declaration["exit"],
+            "fontFamily": declaration["font_family"],
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "durationInFrames": duration_frames,
+            "safeArea": safe_area.as_props(),
+        }
+        if declaration["y"] is not None:
+            props["y"] = declaration["y"]
+        if declaration["font_file"]:
+            props["fontFile"] = static_font_path(declaration["font_file"])
+        # A segment naming an image resolves it through the same slot a
+        # card's mark takes, and refuses by name when it resolves to
+        # nothing - the same refusal, because it is the same hole. A
+        # segment naming no image carries no `image` key at all, which
+        # is what keeps its props rendering byte-identically.
+        if segment.get("image"):
+            named = segment["image"]
+            url = resolve_asset(named) if resolve_asset else ""
+            seg_label = f"{label}.segments[{position}]"
+            if not url:
+                raise FullFrameDeclarationError(
+                    f"{seg_label} names image={named!r}, "
+                    f"which is not in the project's brand_assets/"
+                    if resolve_asset else
+                    f"{seg_label} names image={named!r} "
+                    f"and this caller supplied no way to look a project "
+                    f"asset up")
+            props["image"] = url
+            if segment.get("image_width") is not None:
+                props["imageWidth"] = segment["image_width"]
+        planned.append(PlannedCard(
+            index=position,
+            element="full_frame_span",
+            placement=SPAN_PLACEMENT,
+            reel_start_frame=cursor,
+            duration_seconds=duration_frames / fps,
+            duration_frames=duration_frames,
+            props=props,
+            render_name=f"reel_{facts.reel_number:02d}_span_{position:02d}",
+            resolved_runs=resolved,
+        ))
+        cursor += duration_frames
+    return planned
 
 
 # ── Rendering ────────────────────────────────────────────────────────

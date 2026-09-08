@@ -284,6 +284,13 @@ class PlannedCard:
     placement: str
     reel_start_frame: int
     duration_frames: int
+    element: str = ""
+    """Which roster entry planned it (`full_frame_element`'s key).
+
+    Empty for the cards the tests construct by hand, which predate the
+    second entry; ``check_full_frame_cards`` reads it only to name what
+    it is holding ("card" or "span segment") in a finding.
+    """
 
 
 @dataclass(frozen=True)
@@ -551,13 +558,14 @@ def check_audio_holes(reel_name: str,
 def card_items(video_items: Sequence[TimelineItem],
                cards: Sequence["PlannedCard"],
                ) -> Dict[str, TimelineItem]:
-    """Which timeline item is which planned card, by RENDER NAME.
+    """Which timeline item is which planned element, by RENDER NAME.
 
     Positive identification, never a guess: `full_frame_element` names
-    every rendered card `reel_NN_card_MM.mov` and that basename is on the
-    media pool item, so an item is a card because it IS that file. The
+    every rendered card `reel_NN_card_MM.mov` and every span segment
+    `reel_NN_span_SS.mov`, and that basename is on the media pool item,
+    so an item is an element because it IS that file. The
     alternative - "a V1 item whose source is not in the catalog" - would
-    make every catalog gap look like a card, which is the shape of the
+    make every catalog gap look like an element, which is the shape of the
     footage-relink defect rather than a way to find one.
 
     Items the plan does not account for are simply absent from the
@@ -574,11 +582,11 @@ def card_items(video_items: Sequence[TimelineItem],
     return found
 
 
-#: The basename shape `full_frame_element` renders a card to.  Used ONLY
-#: to spot an item that LOOKS like a card and is not in the plan - the
-#: other direction of the same gate.  Identification of a PLANNED card is
-#: by exact name (`card_items`).
-CARD_NAME_SHAPE = re.compile(r"^reel_\d+_card_\d+$")
+#: The basename shapes `full_frame_element` renders to.  Used ONLY
+#: to spot an item that LOOKS like a full-frame element and is not in
+#: the plan - the other direction of the same gate.  Identification of a
+#: PLANNED element is by exact name (`card_items`).
+CARD_NAME_SHAPE = re.compile(r"^reel_\d+_(card_\d+|span_\d+)$")
 
 
 def check_full_frame_cards(reel_name: str,
@@ -587,20 +595,20 @@ def check_full_frame_cards(reel_name: str,
                            width: int, height: int,
                            fps: float,
                            ) -> List[Finding]:
-    """F13: every declared full-frame card is on the timeline, whole.
+    """F13: every declared full-frame element is on the timeline, whole.
 
     Both directions, because a gate that can only fail one way is half a
     gate (AGENTS.md 10.4):
 
-    - a card the plan declares and the timeline does not carry.  A reel
+    - an element the plan declares and the timeline does not carry.  A reel
       that quietly starts on speech is indistinguishable from a project
       that declared no card at all, which is how the 4th Wall end card
       survived four months;
-    - an item shaped like a rendered card that no declaration accounts
+    - an item shaped like a rendered element that no declaration accounts
       for - the out-of-band append `bookends` forbids, arriving on the
       reels path instead;
-    - a card placed at the wrong reel second, or with the wrong number of
-      frames.  One frame either way is an F1 black hole or an overlap.
+    - an element placed at the wrong reel second, or with the wrong number
+      of frames.  One frame either way is an F1 black hole or an overlap.
 
     Nothing here is a judgement.  Every comparison is between integers
     the plan already fixed.
@@ -609,12 +617,14 @@ def check_full_frame_cards(reel_name: str,
     placed = card_items(video_items, cards)
 
     for card in cards:
+        noun = ("span segment" if card.element == "full_frame_span"
+                else "card")
         item = placed.get(card.render_name)
         if item is None:
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
-                    f"the plan declares a full-frame card "
+                    f"the plan declares a full-frame {noun} "
                     f"{card.render_name!r} at reel frame "
                     f"{card.reel_start_frame} and no item on the timeline "
                     f"is it"),
@@ -628,7 +638,7 @@ def check_full_frame_cards(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
-                    f"full-frame card {card.render_name!r} starts at frame "
+                    f"full-frame {noun} {card.render_name!r} starts at frame "
                     f"{item.start_frame}, planned {expected_start}"),
                 severity="error",
                 detail={"render_name": card.render_name,
@@ -638,7 +648,7 @@ def check_full_frame_cards(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
-                    f"full-frame card {card.render_name!r} runs "
+                    f"full-frame {noun} {card.render_name!r} runs "
                     f"{item.duration_frames} frames, planned "
                     f"{card.duration_frames}"),
                 severity="error",
@@ -649,7 +659,7 @@ def check_full_frame_cards(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
-                    f"full-frame card {card.render_name!r} is on V"
+                    f"full-frame {noun} {card.render_name!r} is on V"
                     f"{item.track_index}. A full-frame element REPLACES "
                     f"picture and belongs on V1; above V2 nothing in this "
                     f"file can see it (F4 and F12 read V1 and V2 only), "
@@ -667,8 +677,8 @@ def check_full_frame_cards(reel_name: str,
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
                     f"the timeline carries {stem!r}, which is shaped like a "
-                    f"rendered full-frame card, and no declaration accounts "
-                    f"for it. A card appended out of band is the defect "
+                    f"rendered full-frame element, and no declaration accounts "
+                    f"for it. An element appended out of band is the defect "
                     f"`bookends` refuses by name on the master"),
                 severity="error",
                 detail={"render_name": stem, "declared": False,
@@ -3183,9 +3193,14 @@ def verify_reel(plan: ReelPlan,
     # demonstrably describes THIS timeline.  See
     # `check_plan_describes_timeline` for what a re-derived plan is worth.
     plan_ranges = plan.keep_ranges or ((plan.span_start, plan.span_end),)
+    # A span's segments are the body's own frames, not extra ones - the
+    # footage video they replace was suppressed at build time - so
+    # counting them beside the ranges would lay down twice the reel.
+    span_present = any(c.placement == "span" for c in plan.cards)
     not_this_plan = check_plan_describes_timeline(
         plan.reel_name, plan_ranges, timeline.total_frames, fps,
-        card_frames=sum(c.duration_frames for c in plan.cards))
+        card_frames=(0 if span_present
+                     else sum(c.duration_frames for c in plan.cards)))
     findings.extend(not_this_plan)
     if not not_this_plan:
         findings.extend(check_item_count(
@@ -3600,12 +3615,21 @@ def _derive_plan_from_master(
         cards = tuple(PlannedCard(render_name=c.render_name,
                                   placement=c.placement,
                                   reel_start_frame=c.reel_start_frame,
-                                  duration_frames=c.duration_frames)
+                                  duration_frames=c.duration_frames,
+                                  element=c.element)
                       for c in planned_cards)
         lead_frames = compute_lead_frames(planned_cards, fps)
 
-    placed = compute_placements(kr, master_clips, fps,
-                                lead_frames=lead_frames)
+    # A span replaces the footage video for the whole body
+    # (`reel_build.build_reel_timeline` suppresses it where a span
+    # plays), so the re-derived picture plan is empty rather than the
+    # ranges: expecting the suppressed clips here would report every
+    # span-built reel as "planned N items, found 0".  Cards never take
+    # this branch - a card sits beside the footage, not in place of it.
+    span_present = any(c.placement == "span" for c in cards)
+    placed = ([] if span_present
+              else compute_placements(kr, master_clips, fps,
+                                      lead_frames=lead_frames))
 
     planned_placements = tuple(
         PlannedPlacement(
@@ -3622,9 +3646,13 @@ def _derive_plan_from_master(
     # The reel's length is what a viewer watches, cards included: a card
     # occupies reel time rather than sitting over it, so leaving it out
     # would report a 60s reel as 55s to PQ-LENGTH and to
-    # `render_check.check_duration`.
+    # `render_check.check_duration`.  A span's segments ARE the body's
+    # seconds rather than extra ones - they abut over exactly the keep
+    # ranges - so adding the body again would report every span-built
+    # reel at twice its length.
     card_seconds = sum(c.duration_frames for c in cards) / fps if cards else 0.0
-    plan_seconds = sum(b - a for a, b in kr) + card_seconds
+    plan_seconds = (card_seconds if span_present
+                    else sum(b - a for a, b in kr) + card_seconds)
     plan_frames = plan_seconds * fps
     lead_seconds = lead_frames / fps if fps else 0.0
 

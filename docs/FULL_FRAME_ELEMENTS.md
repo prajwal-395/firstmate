@@ -293,6 +293,20 @@ are mechanics, not taste: no palette, typeface or motion character is invented.
 Pinned by `tests/test_fullframe_card_image.py`, including a still that fails
 with zero wordmark pixels on a composition without the drawing node.
 
+**Where a span may sit** is `span` and nothing else, and it is a different
+declaration rather than a relaxation of the card's rule: a card with
+`placement: span` is refused by name, and a mid-reel card stays refused
+exactly as before. A span states no `duration_seconds` - it lasts as long
+as the body it covers, measured off the keep ranges at plan time - and
+carries `segments`, one per keep range, each with its own `runs`. A
+segment may bind `range_line`: the words spoken in its own range,
+verbatim, the quotation the ceiling lane laid per card by hand. A segment
+may also name its own `image`, resolved and drawn through the same slot
+the card's mark takes - one mark per rendered segment, never one for the
+whole span, because each segment is the unit that renders. Where a
+span plays the footage video is suppressed and the spine audio stays, so
+the reel is an animated cut over its own speech.
+
 **How long it may hold** is the declaration's. The engine bounds it only where
 the bound is mechanical: at least one frame, and at most
 `MAX_CARD_SECONDS = 30.0` - the same number and the same reading as
@@ -379,11 +393,16 @@ not re-derive it from a fractal.
   a treatment of picture that EXISTS is Fusion's.
 - **The placement shape**: a full-frame thing is a picture item on V1 occupying
   its own reel seconds, and the lead arithmetic lives in exactly three functions.
-- **The roster shape**: `full_frame_element.ROSTER` is one entry today.
+- **The roster shape**: `full_frame_element.ROSTER` is two entries: a
+  card (`full_frame_card`, head-or-tail, declared duration capped at
+  30s) and a span (`full_frame_span`, one segment per keep range,
+  covering the body's own seconds - the word the seven-back-to-back-cards
+  build of `docs/ANIMATED_REEL_CEILING.md` was missing).
   `assert_roster_is_well_formed` forces any new entry to declare its refusals
   (`never`), its axes and its reachability. **`reachable_now` is set only once an
-  entry genuinely renders and has been read back off a timeline** - this one was
-  flipped after §6, not before.
+  entry genuinely renders and has been read back** - the card's was
+  flipped after §6; the span's after `tests/test_full_frame_span.py`
+  rendered two segments and read per-segment ink back off the frames.
 - **The declaration shape**: project.yaml wins, the engine states no taste, and a
   malformed declaration RAISES rather than being dropped.
 - **F13**: the class for "this element is missing, extra, mis-placed or

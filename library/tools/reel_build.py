@@ -1073,8 +1073,13 @@ def plan_cards(moment, transcript: dict, ranges, project_folder: str,
     # rather than a rounding away from it.
     body_frames = sum(int(round(end * fps)) - int(round(start * fps))
                       for start, end in ranges)
+    # The ranges and the transcript travel too, and only a span reads
+    # them: its segments anchor to the keep ranges one by one, so the
+    # boundaries sit on the reel's own edit points.  Cards never read
+    # them - a card's duration is declared, not measured.
     return ffe.plan_reel_cards(declarations, facts, body_frames, fps,
-                               project_folder=project_folder)
+                               project_folder=project_folder,
+                               ranges=list(ranges), transcript=transcript)
 
 
 def lead_frames(cards, fps: float) -> int:
@@ -1085,6 +1090,11 @@ def lead_frames(cards, fps: float) -> int:
     rounded once leaves a one-frame gap between the last card and the
     first clip on some durations, and a one-frame gap is an F1 black
     hole.
+
+    A span contributes nothing here: it does not precede the footage, it
+    replaces it for the whole body (`build_reel_timeline` suppresses the
+    footage video where a span plays), so there is no lead to shift
+    anything by.
     """
     return sum(card.duration_frames for card in (cards or ())
                if card.placement == "head")
@@ -1319,7 +1329,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     inside the same hole check, item count and framing check every other
     picture item is.  A HEAD card pushes all the footage down by
     `lead_frames`, which is the same number `reel_subtitle_segments` was
-    given, so picture and captions move together or not at all.
+    given, so picture and captions move together or not at all.  A SPAN
+    covers the whole body instead: the footage video is suppressed where
+    it plays and the spine audio stays, so the reel is an animated cut
+    over its own speech.
 
     `overlay_placements` are transition elements laid OVER the reel's own
     cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
@@ -1375,6 +1388,22 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
+    # A span IS the picture for the whole body, so the footage video it
+    # replaces is not placed: two pictures on V1 would be an overlap, not
+    # a composite, and an overlay hiding the footage would leave its
+    # sound playing underneath - the unimplementable shape
+    # `full_frame_element` was written to refuse.  The spine's AUDIO
+    # stays - a span covers the reel's seconds, it does not silence
+    # them - which is what makes the reel an animated cut over its own
+    # speech rather than a silent card.  Said where the operator is
+    # looking, because a reel whose footage went nowhere should never
+    # read as a reel that lost it.
+    span_present = any(getattr(card, "placement", "") == "span"
+                       for card in (cards or ()))
+    if span_present:
+        print(f"  {name}: full-frame span covers the body - footage video "
+              f"suppressed, spine audio kept", file=sys.stderr)
+
     # The cards FIRST, so the timeline reads in play order, and on V1.
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
@@ -1424,6 +1453,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         
     for p in placements_list:
         c = p["clip"]
+        if span_present and c.track_type == "video":
+            continue
         pool_item = _find_pool_item(root_folder, c.source_file)
         if not pool_item:
             print(f"Source file {c.source_file} not in media pool", file=sys.stderr)
