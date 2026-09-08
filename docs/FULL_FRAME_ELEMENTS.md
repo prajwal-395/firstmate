@@ -245,6 +245,8 @@ effect:
       exit: fade
       font_family: Montserrat
       opening_seconds: 3.0        # the window a bound opening_line quotes
+      image: lucie-logo.png       # optional: a file in brand_assets/
+      image_width: 320            # optional: pixels; absent means contained
       runs:
         - bind: opening_line      # or: text: "..."
           type_role: display
@@ -278,6 +280,18 @@ binding and nothing here changes.
 **Where a card may sit** is `head` or `tail`, and the refusal of mid-reel is
 structural rather than editorial: a reel is its keep ranges laid end to end, so a
 card between two of them lands inside a sentence the editor made contiguous.
+
+**A card may draw the project's own mark.** `image` names a still in the
+project's `brand_assets/` (a wordmark); the plan resolves it to the staged
+`public/brand/` path through the `channel_bug` shape - lazily, so cards naming
+no image stage nothing - and the composition draws it above the runs. The engine
+ships no artwork, so a name that resolves to nothing REFUSES the card rather
+than drawing one with a hole in it. `image_width` is the mark's width in pixels
+when the declaration states one; unstated, the mark is contained to the safe box
+it already sits in. Position (stacked above the runs, centred) and containment
+are mechanics, not taste: no palette, typeface or motion character is invented.
+Pinned by `tests/test_fullframe_card_image.py`, including a still that fails
+with zero wordmark pixels on a composition without the drawing node.
 
 **How long it may hold** is the declaration's. The engine bounds it only where
 the bound is mechanical: at least one frame, and at most

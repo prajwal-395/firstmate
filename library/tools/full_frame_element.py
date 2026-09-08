@@ -214,13 +214,19 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
               "declared stretch of the reel's own time, in place of "
               "picture rather than over it."),
         axes=("placement", "timing", "entrance", "exit", "copy",
-              "type_role", "colour_role"),
+              "type_role", "colour_role", "image"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
             "Drawn by the FullFrameCard Remotion composition and placed on "
             "V1 by reel_build.build_reel_timeline. Rendered and read back "
-            "off a built timeline before this flag was set."),
+            "off a built timeline before this flag was set. The `image` "
+            "axis draws a project-supplied still (a wordmark) above the "
+            "runs, resolved through the channel_bug shape - a named file "
+            "out of the project's own brand_assets/, staged lazily into "
+            "Remotion's public/brand/ - and proved by a still that fails "
+            "without the drawing node (tests/test_fullframe_card_image.py)."
+        ),
         never=(
             "Never over speech: it occupies its own reel seconds, so there "
             "is no speech underneath it to talk over.",
@@ -658,6 +664,33 @@ def _normalise(raw: Any, index: int) -> dict:
                 f"position rather than a chosen one - there is no picture "
                 f"underneath to clear.")
 
+    # An image slot, for a project-supplied still such as a wordmark.
+    # The channel_bug shape, not a second mechanism: the declaration
+    # names a file out of the project's own brand_assets/ and the plan
+    # resolves it to a staged public path. The engine ships no artwork
+    # (AGENTS.md 14), so a name that resolves to nothing REFUSES at
+    # plan time rather than drawing a card with a hole in it.
+    image = raw.get("image")
+    if image is not None:
+        if not isinstance(image, str) or not image.strip():
+            raise FullFrameDeclarationError(
+                f"{label} has image={image!r}; the image is a file in the "
+                f"project's own brand_assets/, named so the plan can "
+                f"stage it. Omit it and the card draws its runs alone.")
+
+    image_width = raw.get("image_width")
+    if image_width is not None:
+        if (not isinstance(image_width, (int, float))
+                or isinstance(image_width, bool) or image_width <= 0):
+            raise FullFrameDeclarationError(
+                f"{label} has image_width={image_width!r}; a width is a "
+                f"positive number of pixels of the delivery frame")
+        if image is None:
+            raise FullFrameDeclarationError(
+                f"{label} states an image_width for an image it does not "
+                f"name; a magnitude with nothing to size is a declaration "
+                f"nobody can read back.")
+
     return {
         "element": key,
         "placement": placement,
@@ -670,6 +703,9 @@ def _normalise(raw: Any, index: int) -> dict:
         "runs": [_normalise_run(run, index, position)
                  for position, run in enumerate(runs, start=1)],
         "y": float(y) if y is not None else None,
+        "image": image.strip() if image is not None else None,
+        "image_width": (float(image_width)
+                        if image_width is not None else None),
         "separator": str(raw.get("separator") or ", "),
         "opening_seconds": (float(opening_seconds)
                             if opening_seconds is not None else None),
@@ -742,6 +778,45 @@ def _normalise_run(raw: Any, card_index: int, run_index: int) -> dict:
 # ── Planning one reel's cards ────────────────────────────────────────
 
 
+def _project_asset_resolver(project_folder: Optional[str]):
+    """A function turning a NAMED project file into a staged public path.
+
+    The same shape
+    ``generate_motion_props.project_asset_resolver`` takes, and for the
+    same reason: the engine ships no artwork (AGENTS.md 14), so this
+    looks a file up and never supplies a substitute.  Returns None when
+    there is no project to look in, which :func:`_plan_one` reads as
+    "no way to resolve an asset" and refuses on.
+
+    **Staged lazily, on the first asset actually asked for.**  Copying
+    a project's brand files into the repository's ``public/brand/`` is
+    a real side effect, and a run whose cards name no image should not
+    have one - which is also what leaves the render working with no
+    separate prep call: by the time ``render_reel_cards`` runs, the
+    plan has already staged what the card draws.
+    """
+    if not project_folder:
+        return None
+
+    from library.tools.render_fonts import PROJECT_FONT_DIR
+
+    staged: dict = {}
+
+    def resolve(name: str) -> str:
+        if not staged:
+            from library.tools.remotion_brand_linker import link_brand_assets
+            result = link_brand_assets(project_folder)
+            staged["files"] = set(result.get("files") or [])
+        base = os.path.basename(str(name).strip())
+        # Basename only: a declaration is a file in the project's own
+        # brand_assets/, so a path that climbs out of it resolves to
+        # nothing rather than reaching whatever it points at.
+        return (f"{PROJECT_FONT_DIR}/{base}"
+                if base and base in staged["files"] else "")
+
+    return resolve
+
+
 def plan_reel_cards(declarations: Sequence[dict],
                     facts: ReelFacts,
                     body_frames: int,
@@ -749,6 +824,7 @@ def plan_reel_cards(declarations: Sequence[dict],
                     width: int = 1080,
                     height: int = 1920,
                     project_folder: Optional[str] = None,
+                    resolve_asset=None,
                     ) -> list[PlannedCard]:
     """Resolve every declaration against ONE reel, in the order it plays.
 
@@ -763,12 +839,20 @@ def plan_reel_cards(declarations: Sequence[dict],
     exactly.  Seconds enter only when something asks for them.
 
     A binding that resolves to nothing raises here, at plan time, rather
-    than rendering a card with a hole in it.
+    than rendering a card with a hole in it.  A named ``image`` is
+    resolved the same way - through ``resolve_asset``, or the project's
+    own brand_assets/ when none is injected - and a name that resolves
+    to nothing raises too, for the same reason.
     """
     if not declarations:
         return []
 
     safe_area = resolve_safe_area(project_folder, width=width, height=height)
+    # An injected resolver wins (tests); otherwise the project's own
+    # brand_assets/ is the lookup, built lazily so a run whose cards
+    # name no image stages nothing.
+    resolver = (resolve_asset if resolve_asset is not None
+                else _project_asset_resolver(project_folder))
     heads = [d for d in declarations if d["placement"] == "head"]
     tails = [d for d in declarations if d["placement"] == "tail"]
 
@@ -778,7 +862,7 @@ def plan_reel_cards(declarations: Sequence[dict],
     for declaration in heads:
         index += 1
         card = _plan_one(declaration, index, cursor, facts, fps,
-                         width, height, safe_area)
+                         width, height, safe_area, resolver)
         planned.append(card)
         cursor += card.duration_frames
 
@@ -786,7 +870,7 @@ def plan_reel_cards(declarations: Sequence[dict],
     for declaration in tails:
         index += 1
         card = _plan_one(declaration, index, cursor, facts, fps,
-                         width, height, safe_area)
+                         width, height, safe_area, resolver)
         planned.append(card)
         cursor += card.duration_frames
     return planned
@@ -794,7 +878,7 @@ def plan_reel_cards(declarations: Sequence[dict],
 
 def _plan_one(declaration: dict, index: int, reel_start_frame: int,
               facts: ReelFacts, fps: float, width: int, height: int,
-              safe_area) -> PlannedCard:
+              safe_area, resolve_asset=None) -> PlannedCard:
     resolved = tuple(_resolve_run(run, declaration, facts, index)
                      for run in declaration["runs"])
     duration_frames = int(round(declaration["duration_seconds"] * fps))
@@ -819,6 +903,26 @@ def _plan_one(declaration: dict, index: int, reel_start_frame: int,
         props["y"] = declaration["y"]
     if declaration["font_file"]:
         props["fontFile"] = static_font_path(declaration["font_file"])
+    # A named image that resolves to nothing REFUSES the card by name.
+    # The engine ships no artwork, so there is no substitute to draw -
+    # and a card with a hole in it is the failure the refusal exists
+    # to make impossible. A card naming no image carries no `image`
+    # key at all, which is what keeps props written before this slot
+    # existed rendering byte-identically.
+    if declaration.get("image"):
+        named = declaration["image"]
+        url = resolve_asset(named) if resolve_asset else ""
+        if not url:
+            raise FullFrameDeclarationError(
+                f"full_frame_elements[{index}] names image={named!r}, "
+                f"which is not in the project's brand_assets/"
+                if resolve_asset else
+                f"full_frame_elements[{index}] names image={named!r} "
+                f"and this caller supplied no way to look a project "
+                f"asset up")
+        props["image"] = url
+        if declaration.get("image_width") is not None:
+            props["imageWidth"] = declaration["image_width"]
 
     return PlannedCard(
         index=index,

@@ -25,7 +25,7 @@
  * this engine, not two.
  */
 import React from "react";
-import { AbsoluteFill, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Img, staticFile, useCurrentFrame } from "remotion";
 import { loadBundledFonts, loadProjectFont } from "../../fonts";
 import {
   elementOpacity,
@@ -67,6 +67,21 @@ export type FullFrameCardProps = {
    * nothing for a position to be measured against.
    */
   y?: number;
+  /**
+   * A project-supplied still this card draws above its runs, as a path
+   * under Remotion's `public/` - `brand/<name>`, staged there from the
+   * project's own `brand_assets/`. `staticFile` turns it into the URL
+   * the render loads; Python states the path and never the URL, because
+   * how `public/` is served is Remotion's business and not the
+   * pipeline's. Absent for every card that draws no image.
+   *
+   * The engine ships no artwork and states none (AGENTS.md 14), so this
+   * is a path the PROJECT supplied or the card was refused before it
+   * reached these props - never a placeholder.
+   */
+  image?: string;
+  /** The image's width in pixels of the delivery frame, when stated. */
+  imageWidth?: number;
 };
 
 export const fullFrameCardSchema = {} as any;
@@ -111,6 +126,8 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   durationInFrames,
   safeArea,
   y,
+  image,
+  imageWidth,
 }) => {
   const frame = useCurrentFrame();
 
@@ -203,6 +220,38 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
           ...motion,
         }}
       >
+        {/*
+          The project's own mark, stacked above the runs in the same
+          centred column - the wordmark reading order, not a chosen
+          layout. Inside the entrance/exit container, so it arrives and
+          leaves with the card, but outside the per-run typewriter
+          split: it is a picture, not a glyph, and a reveal that spells
+          it out letter by letter would be a declared character drawing
+          something it does not mean.
+
+          No default size here, for the reason `channel_bug` states its
+          own: a mark drawn at a size the engine chose is the engine
+          deciding how loud a client's mark is. A declaration that
+          states `image_width` gets exactly that many pixels; one that
+          does not is contained to the safe box it is already inside,
+          which is mechanics (`fits_in_box`) rather than taste.
+        */}
+        {image ? (
+          <Img
+            src={staticFile(image)}
+            alt=""
+            style={{
+              width:
+                imageWidth === undefined || imageWidth === null
+                  ? undefined
+                  : `${Math.round(imageWidth)}px`,
+              maxWidth: "100%",
+              height: "auto",
+              objectFit: "contain",
+              display: "block",
+            }}
+          />
+        ) : null}
         {runs.map((run, index) => {
           const visible = run.text.slice(0, shown[index]);
           const showCursor = cursorRun === index;
