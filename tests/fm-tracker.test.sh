@@ -219,7 +219,8 @@ pass "the prose guard matches whole words, not letters inside unrelated ones"
 for innocent in \
   'The renderer blockers out of the pipeline' \
   'Unblocked by the ruling that already landed' \
-  'Read the codependents table before the join'; do
+  'Read the codependents table before the join' \
+  "the vision step's blocks produce"; do
   reset_gh
   printf '7\n' > "$FAKE_GH_DIR/rest.default"
   out=$(run_tracker "$HOME_A" add o/r --type task --title 'a task' --body "$innocent" 2>&1)
@@ -239,6 +240,17 @@ expect_code_out 1 "$rc" "$out" "a genuine prose blocker must still be refused"
 assert_contains "$out" "depends on" "the refusal must print the text it matched"
 assert_contains "$out" "line 2" "the refusal must name the line it matched on"
 pass "the prose refusal prints the matched text and its line"
+
+# Bare "blocks" is ordinary English, so it refuses only when it names the
+# blocked issue. Without a reference there is no edge for the query to miss.
+reset_gh
+out=$(run_tracker "$HOME_A" add o/r --type task --title 'a task' \
+  --body 'This blocks #12 until the ruling lands.' 2>&1)
+rc=$?
+expect_code_out 1 "$rc" "$out" "'blocks #12' prose must still be refused"
+assert_contains "$out" "blocks #12" "the refusal must print the text it matched"
+assert_no_grep "POST" "$FAKE_GH_LOG" "refused 'blocks #12' must not create anything"
+pass "the prose guard still refuses blocks naming an issue"
 
 # A body carrying an already-correct task list is NOT prose and must be accepted,
 # or the refusal would be unusable.

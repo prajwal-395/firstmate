@@ -60,7 +60,12 @@ FM_TRACKER_EDGE_RE='^- \[[ xX]\] #[1-9][0-9]*$'
 # font-independent one" contains the letters of "dependent on" and refused a
 # heading about typography. A guard that refuses correct bodies gets worked
 # around, which costs the real defect it was built to stop.
-FM_TRACKER_PROSE_WORDS='blocked[ -]?by|blocked on|blocks|depends on|dependent on|waiting on|waits on|blocker'
+#
+# Bare "blocks" is ordinary English - building blocks, a pipeline step whose
+# blocks produce output - so it only counts when it names the blocked issue.
+# Without a reference there is no edge for the frontier query to miss, which is
+# the only thing this guard protects.
+FM_TRACKER_PROSE_WORDS='blocked[ -]?by|blocked on|blocks +#[0-9]+|depends on|dependent on|waiting on|waits on|blocker'
 FM_TRACKER_PROSE_RE='(^|[^[:alnum:]_])('"$FM_TRACKER_PROSE_WORDS"')([^[:alnum:]_]|$)'
 
 FM_TRACKER_WATCH_MAGIC='fm-tracker-watch-v1'
