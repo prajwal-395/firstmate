@@ -27,10 +27,12 @@
 #   A ship or scout spawn also refuses a brief that still carries unfilled
 #   scaffold placeholders, that leaves any of its four required scope fields
 #   empty, or - for a ship brief - whose Done-check demands the whole suite
-#   without a stated fan-out reason, on the same read-the-brief pattern;
+#   without a stated fan-out reason or that lacks the required merge-before-PR
+#   step, on the same read-the-brief pattern;
 #   bin/fm-brief-lib.sh owns the placeholder pattern, those field names, both
-#   tests, the Done-check demand rule, and every refusal wording, and a brief
-#   scaffolded before the fields existed warns once and launches.
+#   tests, the Done-check demand rule, the merge-step rule, and every refusal
+#   wording, and a brief scaffolded before the fields existed warns once and
+#   launches.
 #   A ship or scout spawn also files that task's GitHub tracker ticket, because
 #   this is the one path a dispatch cannot route around and a ticket firstmate has
 #   to REMEMBER to file is one that does not get filed. bin/fm-tracker.sh's `sync`
@@ -1953,6 +1955,17 @@ fi
 # not gated on it.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   fm_brief_fullsuite_check "$BRIEF" "this spawn" || exit 1
+fi
+
+# Merge-before-PR step, checked in the same place and manner as the gates
+# above: a squash merge of a stale branch reverts cleanly with no conflict, so
+# the worker must merge the tracked upstream and verify ON the merged tree
+# before the PR is opened. bin/fm-brief-lib.sh is the single owner of the
+# step rule and the wording; bin/fm-brief.sh --check runs this same gate, so
+# the two never hold separate opinions. Scout briefs carry no PR and
+# secondmate charters carry no delivery, so the gate passes them vacuously.
+if [ "$KIND" = ship ]; then
+  fm_brief_merge_check "$BRIEF" "this spawn" || exit 1
 fi
 
 # Brief/spawn delivery agreement, checked before any endpoint exists.
