@@ -258,6 +258,15 @@ class ReelMoment:
     plays its body and then this range, and `reel_build.reel_ranges` is
     the only place that order is spelled."""
 
+    closer_repeats: tuple = ()
+    """What the closer repeats - of itself, and of the body it closes.
+
+    Measured by `reel_build.closer_repeats` on the ranges the reel
+    actually plays, so the model that chose the span sees, while it can
+    still pick another closer, that the reel says those words twice.  A
+    closer echoing the body may be a deliberate callback, so this
+    reports and never refuses - same shape as `refused_take_groups`."""
+
     @property
     def duration(self) -> float:
         """The BODY window's length.  `total_duration` includes the CTA."""
@@ -289,7 +298,8 @@ class ReelMoment:
         body["opening_observations"] = [dict(o) for o
                                         in self.opening_observations]
         body["call_to_action"] = (self.call_to_action.as_dict()
-                                  if self.call_to_action else None)
+                                   if self.call_to_action else None)
+        body["closer_repeats"] = [dict(r) for r in self.closer_repeats]
         return body
 
     @classmethod
@@ -315,6 +325,8 @@ class ReelMoment:
                                     (data.get("straddling_within") or ())),
             call_to_action=(CallToAction.from_dict(data["call_to_action"])
                             if data.get("call_to_action") else None),
+            closer_repeats=tuple(
+                dict(r) for r in (data.get("closer_repeats") or ())),
         )
 
 
@@ -1115,10 +1127,11 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
                        moment.call_to_action, transcript),
                    opening_observations=tuple(
                        opening_for(moment, transcript, preview)),
-                   duplicate_takes=tuple(duplicate_takes(
-                       moment.timeline_start, moment.timeline_end,
-                       transcript)),
-                   refused_take_groups=tuple(refused_for(moment, transcript)))
+                    duplicate_takes=tuple(duplicate_takes(
+                        moment.timeline_start, moment.timeline_end,
+                        transcript)),
+                    refused_take_groups=tuple(refused_for(moment, transcript)),
+                    closer_repeats=tuple(closer_for(moment, transcript)))
 
 
 def _midword_keep_edges_for(moment: ReelMoment,
@@ -1150,6 +1163,19 @@ def refused_for(moment, transcript: dict) -> list:
     from library.tools.reel_build import refused_take_groups
     return refused_take_groups(moment.timeline_start, moment.timeline_end,
                                transcript)
+
+
+def closer_for(moment, transcript: dict) -> list:
+    """What this moment's closer repeats, measured for the plan.
+
+    The closer comes from anywhere in the episode and is placed whole,
+    so a closer echoing the body is the reel playing those words twice -
+    and the model that picked the closer is the one that can still pick
+    another.  A lazy import, like `refused_for`: the builder imports
+    this module back.
+    """
+    from library.tools.reel_build import closer_repeats
+    return closer_repeats(moment, transcript)
 
 
 def opening_for(moment, transcript: dict, preview: str) -> list:

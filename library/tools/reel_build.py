@@ -32,6 +32,17 @@ the captain reviews in Resolve through
 already looking.  A wrong cut is content they have to notice is missing;
 a marker is one keystroke to act on.
 
+DISTANT repeats are suspects, never cuts.  A pair that meets the CUT
+text bars with agreeing durations but sits further apart than
+CUT_WINDOW_SECONDS survives for exactly one reason - distance - and
+distance alone cannot tell a callback from a retake, so widening the
+window would cut deliberate restatement.  The suspect lane therefore
+runs the same bars with no window and reports what only distance kept:
+same speaker, over both bars, durations within DURATION_RATIO, gap past
+CUT_WINDOW_SECONDS.  No new number: the window is the existing one,
+read as the classifier rather than moved as the gate.
+`tests/test_reel_distant_repeats.py`.
+
 A TAKE IS REMOVED WHOLE OR NOT AT ALL
 -------------------------------------
 The unit of a cut is a RUN of repeated lines, not a pair.  A run with a
@@ -87,7 +98,14 @@ Two things this deliberately is not:
 The CTA range is placed WHOLE - `redundant_takes` is not run over it.  It
 is a passage the plan named to the second and the captain approved; a
 retake scan silently shortening the closer would be a worse failure than
-leaving a repetition in a clip somebody chose deliberately.
+leaving a repetition in a clip somebody chose deliberately.  Placed
+whole is not unscanned, though: `closer_repeats` measures the closer
+against itself and against the body ranges the reel actually plays, and
+reports both - carried per moment by `reel_proposal.enrich` so the
+model sees the echo while it can still pick another closer, and printed
+by `rebuild_reels_in_project` so an operator sees it at build time.
+A closer echoing the body is the reel playing those words twice; which
+of the two readings stays is taste, so the report never shortens one.
 
 `tests/test_reel_build.py`.
 """
@@ -311,8 +329,10 @@ def _segments_in(start: float, end: float, transcript: dict) -> List[dict]:
 
 
 def _scan(start: float, end: float, transcript: dict,
-          containment_floor: float, jaccard_floor: float,
-          enforce_shape: bool) -> Tuple[List[Cut], List[Blocked]]:
+           containment_floor: float, jaccard_floor: float,
+           enforce_shape: bool,
+           window_seconds: Optional[float] = CUT_WINDOW_SECONDS,
+           ) -> Tuple[List[Cut], List[Blocked]]:
     """Every pair the text bars accept, split by what the SHAPE test did.
 
     The two returns are the same scan seen twice: `cuts` are the pairs
@@ -326,6 +346,10 @@ def _scan(start: float, end: float, transcript: dict,
     the third left standing (see `redundant_runs`).  Scoring now happens
     BEFORE the shape test so that a refusal can say what it refused;
     which pairs are CUT is unchanged, because a cut still needs both.
+
+    `window_seconds=None` runs the same bars with no window at all.  Only
+    the suspect lane asks that way: the cut lane always passes the
+    window, so no distant pair can become a cut whatever else it meets.
     """
     inside = _segments_in(start, end, transcript)
     used, found, blocked = set(), [], []
@@ -336,7 +360,9 @@ def _scan(start: float, end: float, transcript: dict,
         for second in inside[index + 1:]:
             if id(second) in used or first.get("speaker") != second.get("speaker"):
                 continue
-            if second["timeline_start"] - first["timeline_end"] > CUT_WINDOW_SECONDS:
+            if (window_seconds is not None
+                    and second["timeline_start"] - first["timeline_end"]
+                    > window_seconds):
                 break
             da = first["timeline_end"] - first["timeline_start"]
             db = second["timeline_end"] - second["timeline_start"]
@@ -649,12 +675,37 @@ def redundant_takes(start: float, end: float, transcript: dict) -> List[Cut]:
 
 
 def suspected_takes(start: float, end: float, transcript: dict) -> List[Cut]:
-    """Near misses. These become MARKERS, never edits."""
-    confident = {(c.dropped_start, c.kept_start)
-                 for c in redundant_takes(start, end, transcript)}
+    """Near misses, plus distant near-identicals. These become MARKERS, never edits.
+
+    Two lanes, one return.  The loose lane is the old one: pairs inside
+    the window under the cut bars, shape unenforced.  The distant lane is
+    new: pairs past the window at the CUT bars with the shape enforced -
+    the only reason those survive is distance, which is judgement, so
+    they are surfaced rather than removed.  A distant pair touching audio
+    a confident cut already drops is left out: that audio does not play,
+    so reporting it would mark a repetition the viewer never hears."""
+    cuts = redundant_takes(start, end, transcript)
+    confident = {(c.dropped_start, c.kept_start) for c in cuts}
+    dropped = {c.dropped_start for c in cuts}
     loose, _blocked = _scan(start, end, transcript,
-                            SUSPECT_CONTAINMENT, 0.0, False)
-    return [c for c in loose if (c.dropped_start, c.kept_start) not in confident]
+                            SUSPECT_CONTAINMENT, 0.0, False,
+                            CUT_WINDOW_SECONDS)
+    out = [c for c in loose
+           if (c.dropped_start, c.kept_start) not in confident]
+    seen = {(c.dropped_start, c.kept_start) for c in out}
+    distant, _blocked = _scan(start, end, transcript,
+                              CUT_CONTAINMENT, CUT_JACCARD, True, None)
+    for candidate in distant:
+        key = (candidate.dropped_start, candidate.kept_start)
+        if key in confident or key in seen:
+            continue
+        if candidate.dropped_start in dropped:
+            continue
+        if candidate.kept_start - candidate.dropped_end <= CUT_WINDOW_SECONDS:
+            continue
+        seen.add(key)
+        out.append(candidate)
+    return out
 
 
 def keep_ranges(start: float, end: float,
@@ -767,6 +818,79 @@ def cta_range(moment) -> Optional[Tuple[float, float]]:
     if not isinstance(end, (int, float)) or isinstance(end, bool):
         return None
     return (float(start), float(end))
+
+
+def closer_repeats(moment, transcript: dict) -> List[dict]:
+    """What the closer repeats - of itself, and of the body it closes.
+
+    Two shapes, both REPORTED, neither applied.  The closer is placed
+    WHOLE whatever this finds: a passage the plan named and the captain
+    approved is never silently shortened, and a closer echoing the body
+    may be a deliberate callback rather than a leftover take.  Which of
+    the two readings stays is taste, so this names both ranges and leaves
+    the choice to whoever chose them - the model at selection time (via
+    `reel_proposal.enrich`), the captain at review, the operator at build.
+
+    No number of its own: the text bars and `DURATION_RATIO` are the
+    cut's, read here as "same enough to play twice".  The body side is
+    only what the reel PLAYS - segments the cut lane drops are skipped,
+    because a closer echoing audio that never plays is not a double
+    play.  An empty list is a complete answer: the closer says nothing
+    the reel already said.
+    """
+    closer = cta_range(moment)
+    if closer is None:
+        return []
+    out: List[dict] = []
+    for cut in _scan(closer[0], closer[1], transcript,
+                     CUT_CONTAINMENT, CUT_JACCARD, True,
+                     CUT_WINDOW_SECONDS)[0]:
+        record = cut.as_dict()
+        record["kind"] = "closer_repeats_itself"
+        record["why_kept"] = (
+            "the closer stutters, and the closer is placed whole - pick "
+            "a tighter closer or redraw its range rather than letting "
+            "this shorten it silently")
+        out.append(record)
+    cuts = redundant_takes(moment.timeline_start, moment.timeline_end,
+                           transcript)
+    surviving = [segment
+                 for segment in _segments_in(moment.timeline_start,
+                                             moment.timeline_end, transcript)
+                 if not _is_removed(segment, cuts)]
+    for body in surviving:
+        for said in _segments_in(closer[0], closer[1], transcript):
+            if body.get("speaker") != said.get("speaker"):
+                continue
+            containment, jaccard = _pair_scores(body, said)
+            if containment < CUT_CONTAINMENT or jaccard < CUT_JACCARD:
+                continue
+            body_dur = (float(body["timeline_end"])
+                        - float(body["timeline_start"]))
+            said_dur = (float(said["timeline_end"])
+                        - float(said["timeline_start"]))
+            if body_dur <= 0 or said_dur <= 0:
+                continue
+            if max(body_dur, said_dur) / min(body_dur, said_dur) > DURATION_RATIO:
+                continue
+            out.append({
+                "kind": "closer_echoes_body",
+                "body_start": round(float(body["timeline_start"]), 2),
+                "body_end": round(float(body["timeline_end"]), 2),
+                "body_text": (body.get("text") or "").strip(),
+                "closer_start": round(float(said["timeline_start"]), 2),
+                "closer_end": round(float(said["timeline_end"]), 2),
+                "closer_text": (said.get("text") or "").strip(),
+                "speaker": body.get("speaker"),
+                "containment": round(containment, 3),
+                "jaccard": round(jaccard, 3),
+                "why_kept": (
+                    "the reel plays these words twice - once in the body, "
+                    "once in the closer - and the closer is placed whole. "
+                    "Keep the callback deliberately, or pick a closer that "
+                    "says something the body has not said."),
+            })
+    return out
 
 
 def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
@@ -2504,10 +2628,42 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # operator is already looking. Silence here is what let reel 03
             # be rebuilt worse at the open than the timeline it replaced.
             for group in refused_take_groups(moment.timeline_start,
-                                             moment.timeline_end, transcript):
+                                              moment.timeline_end, transcript):
                 print(f"  repetition kept at {group['start']:.2f}-"
                       f"{group['end']:.2f}s ({group['speaker']}): "
                       f"{group['why_nothing_was_cut']}", flush=True)
+            # A repetition distance alone kept in, said where the operator
+            # is already looking. Suspects never cut, so this changes
+            # nothing placed - it only names what the reel plays twice.
+            for suspect in suspected_takes(moment.timeline_start,
+                                           moment.timeline_end, transcript):
+                if (suspect.kept_start - suspect.dropped_end
+                        <= CUT_WINDOW_SECONDS):
+                    continue
+                print(f"  distant repeat kept at "
+                      f"{suspect.dropped_start:.2f}-"
+                      f"{suspect.dropped_end:.2f}s echoed at "
+                      f"{suspect.kept_start:.2f}-"
+                      f"{suspect.kept_end:.2f}s ({suspect.speaker}): "
+                      f"same words {suspect.kept_start - suspect.dropped_end:.1f}s "
+                      f"apart, kept because distance alone cannot tell a "
+                      f"callback from a retake", flush=True)
+            for echo in closer_repeats(moment, transcript):
+                if echo["kind"] == "closer_echoes_body":
+                    print(f"  closer echoes the body: "
+                          f"{echo['body_start']:.2f}-{echo['body_end']:.2f}s "
+                          f"said again at {echo['closer_start']:.2f}-"
+                          f"{echo['closer_end']:.2f}s "
+                          f"({echo['speaker']}) - the reel plays those "
+                          f"words twice", flush=True)
+                else:
+                    print(f"  closer repeats itself: "
+                          f"{echo['dropped_start']:.2f}-"
+                          f"{echo['dropped_end']:.2f}s said again at "
+                          f"{echo['kept_start']:.2f}-"
+                          f"{echo['kept_end']:.2f}s "
+                          f"({echo['speaker']}) - the closer is placed "
+                          f"whole", flush=True)
             ranges = reel_ranges(moment, transcript)
 
             # Full-frame elements FIRST, because a head card decides where
