@@ -54,6 +54,30 @@ def frame_to_seconds(frame: int, fps: float) -> float:
     return frame / fps
 
 
+def span_frames(start_seconds: float, end_seconds: float,
+                fps: float) -> tuple:
+    """Integer record span for a continuous-time segment: PER-EDGE rounding.
+
+    Returns ``(start_frame, end_frame)`` with each edge rounded
+    independently, so the duration is ``end_frame - start_frame`` - NOT
+    ``round((end - start) * fps)``.  The two agree except when both
+    fractional parts round the same way, and that is exactly when it
+    matters: two spans that abut in seconds (``end_a == start_b``) abut
+    in frames too, because both sides round the same shared edge to the
+    same integer.  Rounding the duration instead overlaps the neighbour
+    by a frame whenever the fractions misalign - measured 2026-09-08 on
+    reel 07 blocks 22/23, which abut at 62.374s and were laid as
+    [1442,1496) over [1495,1529) until Resolve trimmed one.
+
+    This is the same arithmetic picture ``reel_build.placements`` uses
+    per range edge.  Both the reel caption placer and the F2 caption
+    check read it from here, so the two cannot disagree about what a
+    block's span is.
+    """
+    return (seconds_to_frame(start_seconds, fps),
+            seconds_to_frame(end_seconds, fps))
+
+
 def duration_to_frames(duration_seconds: float, fps: float) -> int:
     """Convert a duration in seconds to frame count.
 

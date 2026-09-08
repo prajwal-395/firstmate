@@ -480,6 +480,96 @@ class TestF2SegmentGranularity:
         assert findings[0].detail["card_count"] == 2
 
 
+class TestF2AbuttingBlocks:
+    """F2 on blocks that abut EXACTLY in seconds - reel 07, 2026-09-08.
+
+    The rebuild failed deterministically (twice identically) with::
+
+        caption segment 24 (block 23, 2 cards starting
+        'number one on google because y') planned 34 frames, placed 33
+
+    Measured off the rendered props: block 22 spans 60.125-62.374s and
+    block 23 spans 62.374-63.809s - the boundary second is IDENTICAL, so
+    the plan holds no overlap.  Per-block integer placement
+    (``round(start)`` + ``round(duration)``) laid them as [1442,1496) and
+    [1495,1529): frame 1495 asked for twice.  Of all 30 placed caption
+    spans on the reel this is the ONLY overlap, and the single F2 is on
+    the later block - Resolve trimmed a frame where the request
+    overlapped, deterministically on both attempts.
+
+    The builder manufactured the overlap out of abutting inputs, so the
+    fix is on the encoding side: spans are rounded PER EDGE -
+    ``[round(start), round(end))`` - the same arithmetic picture
+    ``placements`` already uses, under which abutting blocks abut.
+    The check grades that same span, so the two agree by construction
+    and the gate stays exact (no tolerance widened).
+    """
+
+    # Reel 07 block 22/23 boundary, full precision from the props files.
+    AK22 = (60.125, 62.374)
+    AK23 = (62.374, 63.809)
+
+    def _planned(self):
+        return (
+            PlannedCaption(start_seconds=60.125, end_seconds=61.200,
+                           text="first card of block 22", speaker="Akshita",
+                           frames=round((61.200 - 60.125) * FPS),
+                           block_position="22"),
+            PlannedCaption(start_seconds=61.200, end_seconds=62.374,
+                           text="second card of block 22", speaker="Akshita",
+                           frames=round((62.374 - 61.200) * FPS),
+                           block_position="22"),
+            PlannedCaption(start_seconds=62.374, end_seconds=63.100,
+                           text="number one on google because you",
+                           speaker="Akshita",
+                           frames=round((63.100 - 62.374) * FPS),
+                           block_position="23"),
+            PlannedCaption(start_seconds=63.100, end_seconds=63.809,
+                           text="have may have optimized your services.",
+                           speaker="Akshita",
+                           frames=round((63.809 - 63.100) * FPS),
+                           block_position="23"),
+        )
+
+    def test_abutting_blocks_draw_no_f2(self):
+        """Per-edge spans of abutting blocks abut: no overlap, no F2.
+
+        Old arithmetic expected round(duration) - 54 and 34 - against
+        per-edge placed spans of 53 and 35, drawing two F2s on a
+        faithful build.  After the fix both sides read the per-edge
+        span and this is clean.
+        """
+        planned = self._planned()
+        actual = (
+            _item("video", 3, 1442, 1495, name="block22"),
+            _item("video", 3, 1495, 1530, name="block23"),
+        )
+        assert actual[0].end_frame <= actual[1].start_frame, (
+            "the placed spans must not overlap")
+        findings = check_caption_duration("Reel 07", planned, actual, FPS)
+        assert findings == [], (
+            "abutting blocks placed on abutting spans must draw no "
+            f"finding; got {[(f.finding_class, f.message) for f in findings]}")
+
+    def test_genuinely_short_segment_still_draws_f2(self):
+        """The gate still refuses a real defect at adverse fractions.
+
+        Block 23's per-edge span is [1495, 1530) - 35 frames.  An item
+        three frames short of that is beyond any rounding explanation
+        and must fail, with the per-edge delta.
+        """
+        planned = self._planned()
+        actual = (
+            _item("video", 3, 1442, 1495, name="block22"),
+            _item("video", 3, 1495, 1527, name="block23"),
+        )
+        findings = check_caption_duration("Reel 07", planned, actual, FPS)
+        f2 = [f for f in findings if f.finding_class == FindingClass.F2]
+        assert len(f2) == 1
+        assert f2[0].detail["delta"] == 1527 - 1530 == -3
+        assert f2[0].detail["card_count"] == 2
+
+
 # ── F3: Master-inherited holes ──────────────────────────────────────
 
 class TestF3MasterHoles:

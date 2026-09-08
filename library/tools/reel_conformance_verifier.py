@@ -74,6 +74,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # The ONE exemption on the caption floor, shared with the manifest's own
 # P6 check so a reel and a master cannot be held to different rules.
 from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
+from library.tools.frame_utils import span_frames
 from library.tools.manifest_validator import ends_with_its_block
 from library.tools.reel_exchange import LENGTH_GUIDANCE
 
@@ -936,6 +937,19 @@ def check_caption_duration(reel_name: str,
     what the timeline decides - position and span - and grading the
     container against the container is what keeps this a real gate.
     A short, long, shifted or missing segment still fails.
+
+    The segment span is rounded PER EDGE - `span_frames(start, end)` -
+    never `round((end - start) * fps)`.  Two blocks that abut in
+    seconds share one edge and must share it in frames: duration
+    rounding lays them overlapping by a frame whenever both fractions
+    round the same way, and Resolve trims one off the later item.
+    Measured 2026-09-08 on reel 07 blocks 22/23, abutting at 62.374s:
+    asked [1442,1496) over [1495,1529), read back 33 of 34 planned -
+    the lone F2 of the rebuild, deterministic across both attempts.
+    The builder (`build_reel_timeline`) places this same span, read
+    from the same helper, so placer and check agree by construction
+    and the gate stays exact: a short, long or shifted segment still
+    draws F2 with a non-zero delta.
     """
     findings: List[Finding] = []
 
@@ -951,10 +965,14 @@ def check_caption_duration(reel_name: str,
         cards = [planned_captions[i] for i in indices]
         start = min(c.start_seconds for c in cards)
         end = max(c.end_seconds for c in cards)
+        # Per-edge span, the same `span_frames` the builder places -
+        # never round((end - start) * fps), which overlaps an abutting
+        # neighbour by a frame on adverse fractions (reel 07, 2026-09-08).
+        span_start, span_end = span_frames(start, end, fps)
         segments.append({
             "block": block,
             "start_seconds": start,
-            "frames": max(int(round((end - start) * fps)), 1),
+            "frames": max(span_end - span_start, 1),
             "card_count": len(cards),
             "text": cards[0].text,
             "first_index": min(indices),

@@ -96,6 +96,7 @@ from __future__ import annotations
 import os
 
 from library.tools.paths import REMOTION_DIR
+from library.tools.frame_utils import span_frames
 from library.tools.resolve_lock import assert_current_timeline
 from library.tools.timeline_ingest import resolve_project_exactly
 
@@ -1486,15 +1487,28 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             continue
 
         assert_current_timeline(project, timeline)
+        # The record span is rounded PER EDGE - [round(start), round(end))
+        # - never round(start) + round(duration).  Abutting blocks share
+        # one edge in seconds and must share it in frames, or the spans
+        # overlap by a frame and Resolve trims one off the later item
+        # (reel 07 block 23, 2026-09-08: planned 34, placed 33, the lone
+        # F2 of the rebuild).  The source range is the same duration
+        # counted from the content start, inside the render handles 4.05
+        # leaves either side.  `span_frames` is the one arithmetic; F2
+        # grades exactly this span, so placer and check agree by
+        # construction and the gate stays exact.
+        record_start, record_end = span_frames(
+            segment["timeline_start"], segment["timeline_end"], fps)
+        content_frames = max(record_end - record_start, 1)
         pool.AppendToTimeline([{
             "mediaPoolItem": items[0],
             # 4.05 renders animation handles either side of the content
             # and reports where the content actually starts and ends.
             # Placing the whole rendered clip would overlap the next.
             "startFrame": segment["source_in_frame"],
-            "endFrame": segment["source_out_frame"],
+            "endFrame": segment["source_in_frame"] + content_frames,
             "trackIndex": 3,
-            "recordFrame": int(round(segment["timeline_start"] * fps)),
+            "recordFrame": record_start,
         }])
 
     # Transition elements last, on the track above the captions. Placed
