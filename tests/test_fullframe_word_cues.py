@@ -351,3 +351,43 @@ def test_the_reveal_lands_on_the_word(tmp_path, entrance):
     assert 0.9 < late_ratio < 1.1, (
         f"{entrance}: past the last word the cued frame has {late_ratio:.2f}x "
         f"the timed frame's ink - the cues must converge, not hide")
+
+
+def _right_crop_ink(image, fraction=0.6, ground=GROUND_RGB, tolerance=30):
+    """Ink in the right-hand crop, where the SECOND word lives."""
+    pixels = image.load()
+    width, height = image.size
+    return sum(
+        1 for y in range(height) for x in range(int(width * fraction), width)
+        if any(abs(c - t) > tolerance
+               for c, t in zip(pixels[x, y][:3], ground)))
+
+
+@renders_available
+def test_mask_rises_words_not_blocks(tmp_path):
+    """A cued mask rises each word out of its own mask - pixels prove it.
+
+    At frame 20 (t=0.667s) "ALPHA" (cued 0.0-0.1s) has settled and "BETA"
+    (cued 0.8-0.9s) is unspoken. The old block-level wipe drew the whole
+    laid-out line clipped to the left half - which leaves the left halves
+    of BETA's glyphs in the frame's right crop. The per-word rise hides
+    unspoken words inside their own masks, so the right crop is empty.
+    Fails on the block wipe; passes only on per-word drawing.
+    """
+    pytest.importorskip("PIL", reason="needs Pillow to measure the stills")
+    entry = copy.deepcopy(SPAN)
+    entry["entrance"] = "mask"
+    entry["word_sync"] = True
+    planned = _plan(ffe.declared_elements({"full_frame_elements": [entry]}))
+    cued_props = planned[0].props
+    assert cued_props["runs"][0]["text"] == "ALPHA BETA"
+
+    early_cued = _still(cued_props, tmp_path, "mask_words_early",
+                        EARLY_FRAME)
+    assert _ink_count(early_cued) > 200, (
+        "the cued mask frame drew no text at all - the first word never "
+        "arrived")
+    assert _right_crop_ink(early_cued) < 100, (
+        f"the cued mask frame drew {_right_crop_ink(early_cued)}px in the "
+        f"right crop at frame {EARLY_FRAME} - the unspoken word is "
+        f"showing, which is the block-level wipe, not per-word masks")

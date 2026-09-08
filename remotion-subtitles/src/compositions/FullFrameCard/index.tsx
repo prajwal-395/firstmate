@@ -25,7 +25,13 @@
  * this engine, not two.
  */
 import React from "react";
-import { AbsoluteFill, Img, staticFile, useCurrentFrame } from "remotion";
+import {
+  AbsoluteFill,
+  Easing,
+  Img,
+  staticFile,
+  useCurrentFrame,
+} from "remotion";
 import { loadBundledFonts, loadProjectFont } from "../../fonts";
 import {
   elementOpacity,
@@ -166,21 +172,115 @@ export const wordCuedChars = (
   return Math.max(0, shown);
 };
 
-/** The entrance transform at word progress `p`, 0..1.
+/** One word on the word clock, resolved against the runs it is drawn from.
  *
- * The same drawing `entranceTransform` in MotionGraphics gives `mask`
- * and `draw`, with the word clock substituted for the ramp clock - one
- * drawing of each character, not two. `typewriter` needs none: it is a
- * reveal, not a transform, and the split below already reads the cues.
+ * `runIndex` is which run draws the word, so the word keeps its run's
+ * colour, weight and size. Offsets are character offsets into the runs'
+ * concatenation - the same string `_word_cues` counts `chars` over - so
+ * this split and the plan's cues agree word for word.
+ */
+export type CuedWord = {
+  text: string;
+  runIndex: number;
+  start: number;
+  end: number;
+};
+
+/** Split the runs' concatenation into the words the cues pace, in order.
+ *
+ * Returns null when the words on screen are not the words the clock
+ * carries - a cue boundary must coincide with a word boundary, and a
+ * mismatch here means the plan's refusal did not run. The caller falls
+ * back to the block-level wipe rather than landing near words instead
+ * of on them.
+ */
+export const splitCuedWords = (
+  runs: CardRun[],
+  cues: WordCue[],
+): CuedWord[] | null => {
+  const texts = runs.map((run) => run.text);
+  const joined = texts.join("");
+  const words: { text: string; at: number }[] = [];
+  const pattern = /\S+/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(joined)) !== null) {
+    words.push({ text: match[0], at: match.index });
+  }
+  if (words.length !== cues.length) return null;
+  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  const out: CuedWord[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    if (words[i].text.toLowerCase() !== ordered[i].word.toLowerCase()) {
+      return null;
+    }
+    let runIndex = texts.length - 1;
+    let cursor = 0;
+    for (let r = 0; r < texts.length; r += 1) {
+      cursor += texts[r].length;
+      if (words[i].at < cursor) {
+        runIndex = r;
+        break;
+      }
+    }
+    out.push({
+      text: words[i].text,
+      runIndex,
+      start: ordered[i].start,
+      end: ordered[i].end,
+    });
+  }
+  return out;
+};
+
+/** How far a word has risen at `frame`, 0 (hidden in its mask) to 1.
+ *
+ * The window is the word's own measured speech - cue start to cue end -
+ * so the rise is choreographed to the voice rather than to the card's
+ * seconds. A cue with no measured duration still owns its frame: with
+ * nothing to ramp across, the word lands instead of never arriving.
+ * The easing is the reference catalogue's, not a chosen curve:
+ * remotion-bits `AnimatedText` paces its per-word y/blur/opacity stagger
+ * with `easeOutCubic` (the captain's reference link, Blur In and Word by
+ * Word pages), and GSAP's SplitText text-masking demo rises each masked
+ * line on the same ease-out shape.
+ */
+export const cuedWordProgress = (
+  frame: number,
+  fps: number,
+  word: CuedWord,
+): number => {
+  const startF = word.start * fps;
+  const endF = word.end * fps;
+  if (!(endF > startF)) return frame >= startF ? 1 : 0;
+  const p = (frame - startF) / (endF - startF);
+  const clamped = Math.min(1, Math.max(0, p));
+  return Easing.out(Easing.cubic)(clamped);
+};
+
+/** How far below its rest line a word at progress `p` sits, in percent.
+ *
+ * 120 rather than 100: the mask wrapper carries descender clearance
+ * below the line box, and 100% would leave the word's top edge sitting
+ * in that clearance - a sliver of glyph before the word is spoken.
+ * 120 clears the line box plus the clearance, so unspoken is invisible.
+ */
+export const cuedWordRisePercent = (progress: number): number =>
+  (1 - Math.min(1, Math.max(0, progress))) * 120;
+
+/** The entrance transform at word progress `p`, 0..1, for `draw`.
+ *
+ * The same drawing `entranceTransform` in MotionGraphics gives, with
+ * the word clock substituted for the ramp clock - one drawing of the
+ * character, not two. `typewriter` needs none: it is a reveal, not a
+ * transform, and the split below already reads the cues. `mask` needs
+ * none either: a cued mask rises each word out of its own mask
+ * (`cuedWordProgress`), which a block-level wipe cannot draw.
  */
 export const wordCuedEntrance = (
   progress: number,
   entrance: string,
 ): React.CSSProperties => {
   const p = Math.min(1, Math.max(0, progress));
-  if (entrance === "mask") {
-    return { clipPath: `inset(0 ${(1 - p) * 100}% 0 0)` };
-  }
   if (entrance === "draw") {
     return {
       transform: `scale(${0.85 + 0.15 * p})`,
@@ -281,10 +381,22 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   }
   const { shown, cursorRun } = typewriterSplit(runLengths, reveal);
   const cursorOn = typewriterCursorOn(reveal);
+  // A cued `mask` rises each word out of its own mask instead of wiping
+  // the block: the SplitText line-masking look, paced by the word clock.
+  // Every other cued character keeps its block-level drawing, and a word
+  // list the cues do not match keeps the wipe - the mismatch means the
+  // plan's refusal did not run, and landing near words is not landing on
+  // them.
+  const cuedWords =
+    cued && entrance === "mask"
+      ? splitCuedWords(runs, wordCues as WordCue[])
+      : null;
   const motion = {
-    ...(cued && entrance !== "typewriter"
-      ? wordCuedEntrance(wordProgress, entrance)
-      : entranceTransform(frame, durationInFrames, entrance)),
+    ...(cuedWords
+      ? {}
+      : cued && entrance !== "typewriter"
+        ? wordCuedEntrance(wordProgress, entrance)
+        : entranceTransform(frame, durationInFrames, entrance)),
     ...exitTransform(frame, durationInFrames, exit),
   };
 
@@ -359,32 +471,93 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
             }}
           />
         ) : null}
-        {runs.map((run, index) => {
-          const visible = run.text.slice(0, shown[index]);
-          const showCursor = cursorRun === index;
-          if (visible.length === 0 && !showCursor) return null;
-          return (
-            <div
-              key={index}
-              style={{
-                color: run.colour,
-                fontSize: `${run.font_size ?? TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting}px`,
-                fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
-                lineHeight: 1.18,
-                textAlign: "center",
-                width: "100%",
-                // Wrapped against the safe box, never the frame: the outer
-                // insets belong to the platform's interface.
-                overflowWrap: "break-word",
-              }}
-            >
-              {visible}
-              {showCursor && (
-                <span style={{ opacity: cursorOn ? 1 : 0 }}>|</span>
-              )}
-            </div>
-          );
-        })}
+        {cuedWords ? (
+          <div
+            style={{
+              color: runs[cuedWords[0]?.runIndex ?? 0]?.colour,
+              fontSize: `${runs[cuedWords[0]?.runIndex ?? 0]?.font_size ?? TYPE_SIZE[runs[cuedWords[0]?.runIndex ?? 0]?.type_role] ?? TYPE_SIZE.supporting}px`,
+              fontWeight:
+                TYPE_WEIGHT[runs[cuedWords[0]?.runIndex ?? 0]?.type_role] ??
+                TYPE_WEIGHT.supporting,
+              lineHeight: 1.18,
+              textAlign: "center",
+              width: "100%",
+              overflowWrap: "break-word",
+            }}
+          >
+            {cuedWords.map((word, index) => {
+              const run = runs[word.runIndex] ?? runs[0];
+              const rise = cuedWordRisePercent(
+                cuedWordProgress(frame, fps, word),
+              );
+              return (
+                <React.Fragment key={index}>
+                  {index > 0 ? " " : null}
+                  {/*
+                    One masked line per word, in the GSAP SplitText
+                    shape: the outer span is the mask (overflow hidden),
+                    the inner one rises from below it to its rest line.
+                    The bottom clearance keeps descenders inside the
+                    mask at rest - without it the mask clips every
+                    descending glyph - and the rise clears the line box
+                    plus that clearance, so unspoken is invisible.
+                    Colour, weight and size stay the run's: the clock
+                    paces the words, it does not restyle them.
+                  */}
+                  <span
+                    style={{
+                      display: "inline-block",
+                      overflow: "hidden",
+                      verticalAlign: "bottom",
+                      paddingBottom: "0.18em",
+                      marginBottom: "-0.18em",
+                      color: run.colour,
+                      fontSize: `${run.font_size ?? TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting}px`,
+                      fontWeight:
+                        TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        transform: `translateY(${rise}%)`,
+                      }}
+                    >
+                      {word.text}
+                    </span>
+                  </span>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        ) : (
+          runs.map((run, index) => {
+            const visible = run.text.slice(0, shown[index]);
+            const showCursor = cursorRun === index;
+            if (visible.length === 0 && !showCursor) return null;
+            return (
+              <div
+                key={index}
+                style={{
+                  color: run.colour,
+                  fontSize: `${run.font_size ?? TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting}px`,
+                  fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+                  lineHeight: 1.18,
+                  textAlign: "center",
+                  width: "100%",
+                  // Wrapped against the safe box, never the frame: the outer
+                  // insets belong to the platform's interface.
+                  overflowWrap: "break-word",
+                }}
+              >
+                {visible}
+                {showCursor && (
+                  <span style={{ opacity: cursorOn ? 1 : 0 }}>|</span>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </AbsoluteFill>
   );
