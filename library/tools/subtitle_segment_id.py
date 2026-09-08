@@ -84,6 +84,14 @@ def slug(value: Optional[object], absent: str) -> str:
     to decide what the absence of that component is called.  Two missing
     components must not both become the empty string, or a name loses the
     very distinction it exists to carry.
+
+    A slug longer than `_SLUG_MAX` is cut at the last word boundary
+    inside the limit, never mid-word: reel 05's caption names broke as
+    `invisible-o`, `envisio` and `goo` because the cut was a character
+    count.  The bound itself is unchanged - only where the cut lands
+    moves, and only ever shorter.  A single word longer than the limit
+    has no boundary to break on and keeps the hard cut; uniqueness never
+    rested on the readable half, which is what the digest is for.
     """
     if value is None:
         return absent
@@ -93,7 +101,18 @@ def slug(value: Optional[object], absent: str) -> str:
     text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
     if not text:
         return absent
-    return text[:_SLUG_MAX].rstrip("-")
+    if len(text) <= _SLUG_MAX:
+        return text
+    cut = text[:_SLUG_MAX].rstrip("-")
+    if len(cut) == _SLUG_MAX and text[_SLUG_MAX] != "-":
+        # Mid-word: the next character continues the word the cut just
+        # split, so back up to the previous boundary. A cut landing
+        # exactly on a boundary, and a single unbreakable word, are
+        # returned as before.
+        mark = cut.rfind("-")
+        if mark > 0:
+            cut = cut[:mark]
+    return cut
 
 
 def _span_token(source_start: Optional[float],

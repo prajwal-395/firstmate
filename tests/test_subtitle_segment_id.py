@@ -163,3 +163,30 @@ def test_a_measurement_beats_a_declaration():
 def test_no_timeline_name_is_invented():
     assert timeline_scope({}, project_config=None) == ""
     assert "notimeline" in segment_identifier(_binding(timeline=""))
+
+
+# ── A slug breaks on a word boundary, never mid-word ─────────────────
+
+def test_a_truncated_slug_breaks_on_a_word_boundary():
+    """Reel 05's caption names broke mid-word (`invisible-o`, `envisio`,
+    `goo`): the slug hard-cut at the length limit. A slug longer than the
+    limit ends at the last word boundary inside it instead."""
+    assert slug("Reel 05 - the-audit-that-was-eye-opening",
+               "notimeline") == "reel-05-the-audit-that-was-eye"
+
+
+def test_a_slug_within_the_limit_is_untouched():
+    assert slug("Akshita Rao", "nospeaker") == "akshita-rao"
+    assert slug("Reel 01 - geography", "notimeline") == "reel-01-geography"
+
+
+def test_a_single_word_longer_than_the_limit_keeps_its_cut():
+    """One unbreakable word has no boundary to break on. The hard cut
+    stays - uniqueness never rested on the readable half, which is what
+    the digest is for - it just never splits a word that a boundary
+    could have saved."""
+    from library.tools.subtitle_segment_id import _SLUG_MAX
+    long_word = "a" * (_SLUG_MAX + 8)
+    cut = slug(long_word, "x")
+    assert len(cut) <= _SLUG_MAX
+    assert cut == "a" * _SLUG_MAX

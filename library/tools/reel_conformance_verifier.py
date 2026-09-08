@@ -102,6 +102,7 @@ class FindingClass:
     # into a shift, and this is that finding.
     F14 = "F14"  # PLANNING: caption planned and never placed
     F15 = "F15"  # PLANNING: caption card hangs past its words
+    F16 = "F16"  # PLANNING: a placed caption name breaks mid-word
     F17 = "F17"  # PLANNING: caption card mixes speakers (bleed)
 
     # 2026-09-07: the ANIMATED EXPLAINER, on its own video track.
@@ -213,7 +214,7 @@ ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F13, FindingClass.F18,
                     FindingClass.F19}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
-                    FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F17,
+                    FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F16, FindingClass.F17,
                     FindingClass.F20}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
@@ -1475,10 +1476,29 @@ def _card_end(card) -> float:
     return card.get("reel_end", card.get("end_seconds", 0))
 
 
+def _hang_limit_seconds(word_count: int) -> float:
+    """How long a caption of this many words may stay on screen.
+
+    The ONE expression of the hang bound, shared by the plan-side and
+    the placed-side F15 rather than restated in each: a card of N words
+    should not exceed ``N * max_gap`` seconds, and never less than the
+    legibility floor. ``max_gap`` (1.0 s) is the pipeline's silence
+    threshold - if two words were further apart they would never have
+    been grouped together - and 0.7 s is the minimum display duration
+    the grouping extends a short card to. Measured across 92 real cards:
+    0 false positives, highest observed per-word rate 0.960 s.
+    """
+    # max_gap: the pipeline's silence threshold (step_4_01 _feasible
+    # rejects groups spanning a wider gap).
+    MAX_GAP = 1.0
+    MIN_CAPTION_DISPLAY = 0.7
+    return max(MIN_CAPTION_DISPLAY, word_count * MAX_GAP)
+
+
 def check_caption_hangs(reel_name: str,
                         caption_cards: Sequence[dict],
                         fps: float) -> List[Finding]:
-    """F15: A card must not hang far past the speech it belongs to.
+    """F15 (plan side): A card must not hang far past the speech it belongs to.
 
     The primary defense is in the grouping (step_4_01 ``split_into_groups``),
     which caps a card's end at `last_word_end + max_gap` using the actual
@@ -1492,11 +1512,13 @@ def check_caption_hangs(reel_name: str,
     positives.  The highest per-word rate observed is 0.960 s, leaving
     a 0.040 s margin.  This makes the check a secondary safety net, not
     the primary cap.
+
+    This grades the PLAN's cards.  What the viewer sees is what was
+    PLACED, and a span correct in the plan and wrong on the timeline
+    passes this - reel 05's 239-frame hang did exactly that.  The placed
+    half is :func:`check_placed_caption_hangs`, which `verify_reel`
+    runs beside this one.
     """
-    # max_gap: the pipeline's silence threshold (step_4_01 _feasible
-    # rejects groups spanning a wider gap).
-    MAX_GAP = 1.0
-    MIN_CAPTION_DISPLAY = 0.7
     findings: List[Finding] = []
     for card in caption_cards:
         start = card.get("reel_start", 0)
@@ -1507,7 +1529,7 @@ def check_caption_hangs(reel_name: str,
             continue
         # Detection heuristic: N words * max_gap.  The grouping cap uses
         # the actual last-word-end, which is tighter and cannot cut speech.
-        max_duration = max(MIN_CAPTION_DISPLAY, word_count * MAX_GAP)
+        max_duration = _hang_limit_seconds(word_count)
         if end - start > max_duration:
             findings.append(Finding(
                 finding_class=FindingClass.F15,
@@ -1519,6 +1541,195 @@ def check_caption_hangs(reel_name: str,
                 ),
             ))
     return findings
+
+
+def check_placed_caption_hangs(
+        reel_name: str,
+        caption_cards: Sequence[dict],
+        placed_items: Sequence[TimelineItem],
+        fps: float) -> List[Finding]:
+    """F15 (placed side): a placed caption item must not hang past its words.
+
+    The blind spot this closes: :func:`check_caption_hangs` grades the
+    plan's cards, so a span that is correct in the plan and wrong on the
+    timeline passes.  Reel 05's card at frame 1329 ("yeah so ranking
+    tells google") was five words in the plan and 239 frames - nearly ten
+    seconds - on the timeline, under a green verdict.
+
+    Each placed item is paired to its planned SEGMENT by start frame -
+    the same ``PAIRING_TOLERANCE_FRAMES`` identity F2 already uses, and
+    the same per-block grouping (a block's cards sequenced inside one
+    placed overlay is the unit the builder places).  The DURATION is read
+    off the placed item; the WORD BUDGET comes from the paired segment's
+    cards, because a placed overlay carries no text - and the bound is
+    :func:`_hang_limit_seconds`, the same expression as the plan side,
+    not a second opinion about how long words may last.
+
+    Reports DIVERGENCE only: a pair whose planned segment already hangs
+    is the plan side's finding, and reporting it here too would count
+    one defect twice.  An item with no planned segment near its start,
+    and a segment with no item, are F14/F2's to report, not this one's.
+    """
+    findings: List[Finding] = []
+    segments: List[dict] = []
+    by_block: Dict[object, List[dict]] = {}
+    for card in caption_cards:
+        by_block.setdefault(card.get("block_position"), []).append(card)
+    for block, cards in by_block.items():
+        starts = [c.get("reel_start", c.get("start_seconds", 0))
+                  for c in cards]
+        ends = [c.get("reel_end", c.get("end_seconds", 0)) for c in cards]
+        words = sum(len(str(c.get("text", "")).split()) for c in cards)
+        segments.append({
+            "block": block,
+            "start_seconds": min(starts),
+            "planned_seconds": max(ends) - min(starts),
+            "words": words,
+            "text": str(cards[0].get("text", "")),
+        })
+    segments.sort(key=lambda s: s["start_seconds"])
+
+    unclaimed = list(placed_items)
+    for n, seg in enumerate(segments):
+        if seg["words"] == 0:
+            continue
+        want = seg["start_seconds"] * fps
+        best = None
+        for position, item in enumerate(unclaimed):
+            gap = abs(item.start_frame - want)
+            if gap <= PAIRING_TOLERANCE_FRAMES and (
+                    best is None or gap < best[0]):
+                best = (gap, position)
+        if best is None:
+            continue
+        item = unclaimed.pop(best[1])
+        placed_seconds = item.duration_frames / fps
+        limit = _hang_limit_seconds(seg["words"])
+        if seg["planned_seconds"] > limit:
+            # The plan already hangs here - the plan side's finding.
+            # Saying it again would count one defect twice.
+            continue
+        if placed_seconds > limit:
+            findings.append(Finding(
+                finding_class=FindingClass.F15,
+                reel=reel_name,
+                message=(
+                    f"placed caption segment {n + 1} (block "
+                    f"{seg['block']}, {seg['words']} words starting "
+                    f"'{seg['text'][:30]}') runs {placed_seconds:.2f}s "
+                    f"on the timeline against a plan of "
+                    f"{seg['planned_seconds']:.2f}s "
+                    f"(limit {limit:.1f}s) - correct in the plan, "
+                    f"hanging on the timeline"),
+                severity="error",
+                detail={
+                    "segment_index": n,
+                    "block": None if seg["block"] is None
+                    else str(seg["block"]),
+                    "words": seg["words"],
+                    "planned_seconds": round(seg["planned_seconds"], 3),
+                    "placed_seconds": round(placed_seconds, 3),
+                    "placed_frames": item.duration_frames,
+                    "limit_seconds": round(limit, 3),
+                    "text": seg["text"][:60],
+                },
+            ))
+    return findings
+
+
+def check_caption_slugs(reel_name: str,
+                        caption_items: Sequence[TimelineItem],
+                        ) -> List[Finding]:
+    """F16: a placed caption name must not break mid-word.
+
+    Reel 05's caption names broke as `invisible-o`, `envisio`, `goo` and
+    `goog` - every truncated card on that reel measured at the slug
+    length limit, because the slug hard-cut at a character count.  A
+    caption's TEXT never truncates (4.01 joins whole word tokens, pinned
+    by `test_no_card_from_a_reel_spine_ever_splits_a_word`), so the name
+    is the one place a mid-word cut can reach a viewer - it is what an
+    editor reads on the V3 track and in the media pool.
+
+    Two halves, because neither sees the whole defect alone:
+
+    - The timeline component must equal what `slug` (the producer,
+      `library/tools/subtitle_segment_id.py`) returns for this reel's
+      own name today.  A correct producer agrees with its check by
+      construction; a hard cut at the limit does not.  It is the
+      timeline component because that is the long one - speaker, block
+      and span never reach the limit on a real project, and their full
+      values are not on the item to recompute from.  This half alone
+      would have stayed quiet on reel 05 before the producer was fixed:
+      the old names agree with the old producer, which is exactly why
+      the producer fix and this check land together.
+    - Names shaped `sub_<timeline>_<speaker>_<text>_<digest>` (one
+      component per underscore field, five fields) carry the caption
+      TEXT the old producer slugged into the filename.  The current
+      producer emits no text component, so this shape is always old
+      output - and its text slug is graded on its own shape, with no
+      source text and no limit literal: a component ending in a dash
+      was cut (a correct slug never ends with one - the producer
+      strips them), and one ending in `-<single letter>` other than
+      `a` or `I` ends inside a word, because no English word is one
+      letter long besides those two.  Digits are excluded - a lone
+      `3` is a number, not a fragment.  What this half cannot see is
+      said plainly: a multi-letter fragment (`envisio`, `goog`) is
+      indistinguishable from a complete word without the source text,
+      so the timeline - not the verifier - is where that half is
+      closed, by the producer never cutting one.
+
+    One finding per reel, listing every offender: fifty-six copies of
+    one sentence is a report nobody reads.  Names outside the segment
+    shape (`sub_<timeline>_...`) are skipped - an unparseable V3 name is
+    F11's unattributed-card territory, not a truncation.
+    """
+    from library.tools.subtitle_segment_id import slug
+
+    want = slug(reel_name, "notimeline")
+    bad: List[dict] = []
+    for item in caption_items:
+        stem = (item.name or "").rsplit(".", 1)[0]
+        parts = stem.split("_")
+        if len(parts) < 2 or parts[0] != "sub":
+            continue
+        reasons: List[str] = []
+        if parts[1] != want:
+            reasons.append(
+                f"timeline slug {parts[1]!r} is not what the producer "
+                f"writes for this reel ({want!r})")
+        if len(parts) == 5:
+            text_comp = parts[3]
+            if text_comp.endswith("-"):
+                reasons.append(
+                    f"caption slug {text_comp!r} ends on a dash - it was "
+                    f"cut, and a correct slug never ends with one")
+            elif re.search(r"-[b-hj-z]$", text_comp):
+                reasons.append(
+                    f"caption slug {text_comp!r} ends inside a word")
+        if reasons:
+            bad.append({"name": item.name,
+                        "start_frame": item.start_frame,
+                        "reasons": reasons})
+    if not bad:
+        return []
+    listed = ", ".join(f"{b['name']!r} at frame {b['start_frame']}"
+                       for b in bad[:3])
+    if len(bad) > 3:
+        listed += f", +{len(bad) - 3} more"
+    return [Finding(
+        finding_class=FindingClass.F16,
+        reel=reel_name,
+        message=(
+            f"{len(bad)} of {len(caption_items)} placed caption names "
+            f"break mid-word: {listed}"),
+        severity="error",
+        detail={
+            "items": len(bad),
+            "items_total": len(caption_items),
+            "want_timeline_slug": want,
+            "offenders": bad[:10],
+        },
+    )]
 
 
 def _is_sequential_turn(words: Sequence[dict]) -> bool:
@@ -3412,6 +3623,13 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_subtitle_styling(
         plan.reel_name, timeline.caption_items, timeline.video_items))
 
+    # F16: caption names break on a word boundary, never mid-word.
+    # Reads the placed names only - no plan reference needed, the
+    # producer recomputes what a correct name carries - so it runs
+    # unconditionally like F11 beside it.
+    findings.extend(check_caption_slugs(
+        plan.reel_name, timeline.caption_items))
+
     # The caption checks, and the emptiness that used to disable them.
     #
     # A reel built with `--skip-captions` legitimately has none on either
@@ -3518,10 +3736,19 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_short_captions(
             plan.reel_name, cards, fps))
 
-    # F15: Caption hangs - a card whose duration far exceeds its speech
+    # F15: Caption hangs - a card whose duration far exceeds its speech.
+    # Both halves: the plan side grades what was asked for, the placed
+    # side grades what is on the timeline. The placed half reports
+    # DIVERGENCE only (a pair the plan already hangs is the plan side's
+    # finding), so one defect is never counted twice - and a span that
+    # is correct in the plan and hanging on the timeline, which is what
+    # reel 05 shipped, is the placed half's alone.
     if have_reference and cards:
         findings.extend(check_caption_hangs(
             plan.reel_name, cards, fps))
+    if have_reference and cards and timeline.caption_items:
+        findings.extend(check_placed_caption_hangs(
+            plan.reel_name, cards, timeline.caption_items, fps))
 
     # F17: Mixed speakers on one card (requires transcript for diarisation)
     if have_reference and cards and transcript_segments:

@@ -18,7 +18,9 @@ import pytest
 
 from library.tools.reel_conformance_verifier import (
     check_caption_hangs,
+    check_caption_slugs,
     check_mixed_speakers,
+    check_placed_caption_hangs,
     Finding,
     FindingClass,
     PlannedCaption,
@@ -2509,3 +2511,160 @@ class TestCaptionProvenanceGate:
         assert len(duration) == len(plan.captions)
         assert all(f.finding_class == FindingClass.F2 for f in duration)
         assert all(f.detail["delta"] == -1 for f in duration)
+
+
+# ── F15, pointed at what was placed ──────────────────────────────────
+
+def _placed_caption(start_frame: int, duration_frames: int,
+                    name: str) -> TimelineItem:
+    """One caption item as read off a timeline, for F15-placed tests."""
+    return _item("video", 3, start_frame, start_frame + duration_frames,
+                 source_file="/captions/overlay.mov", speaker="",
+                 name=name)
+
+
+def _planned_card(start: float, end: float, text: str,
+                  block: str = "body_7") -> dict:
+    """One plan-side caption card dict, carrying its spine block."""
+    card = _caption_card(start, end, text)
+    card["block_position"] = block
+    return card
+
+
+class TestPlacedCaptionHangs:
+    """F15 grades the PLACED item, not the plan card.
+
+    Reel 05's card at frame 1329 ("yeah so ranking tells google") was
+    correct in the plan and 239 frames long on the timeline. The old
+    wiring graded the plan card and passed a ten-second hang under a
+    green verdict. These fixtures replay that shape: a short correct
+    plan beside a placed item that hangs.
+    """
+
+    HANG_START = 1329
+    HANG_FRAMES = 239  # the real placed duration off reel 05
+
+    def _reel05(self):
+        plan = [_planned_card(55.375, 57.2, "yeah so ranking tells google")]
+        hang = _placed_caption(
+            self.HANG_START, self.HANG_FRAMES,
+            "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+            "yeah-so-ranking-tells-google_05383e4d.mov")
+        return plan, hang
+
+    def test_the_plan_side_gate_is_blind_to_a_placed_hang(self):
+        """The old wiring, shown passing what the new wiring must catch:
+        the plan card is short and correct, so `check_caption_hangs`
+        reports nothing - while 239 frames sit on the timeline."""
+        plan, _ = self._reel05()
+        assert check_caption_hangs("Reel 05", plan, FPS) == []
+
+    def test_a_placed_hang_is_an_F15(self):
+        """The new wiring fires on the same fixture."""
+        plan, hang = self._reel05()
+        findings = check_placed_caption_hangs("Reel 05", plan, [hang], FPS)
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F15
+        assert findings[0].detail["placed_frames"] == self.HANG_FRAMES
+
+    def test_a_correctly_placed_segment_is_quiet(self):
+        """The same plan placed as planned draws nothing - the gate must
+        not fail correct output."""
+        plan = [_planned_card(55.375, 57.2, "yeah so ranking tells google")]
+        start = int(round(55.375 * FPS))
+        end = int(round(57.2 * FPS))
+        placed = _placed_caption(
+            start, end - start,
+            "sub_reel-05-the-audit-that-was-eye_akshita_body-7_"
+            "55375-57200_05383e4d.mov")
+        assert check_placed_caption_hangs(
+            "Reel 05", plan, [placed], FPS) == []
+
+    def test_only_the_hanging_segment_fires(self):
+        """Two segments, one placed as planned and one hanging: exactly
+        one finding, on the hanging one."""
+        first = _planned_card(10.0, 11.0, "a short line here", block="b1")
+        second = _planned_card(55.375, 57.2, "yeah so ranking tells google",
+                               block="b2")
+        ok = _placed_caption(int(round(10.0 * FPS)),
+                             int(round(11.0 * FPS)) - int(round(10.0 * FPS)),
+                             "seg-ok.mov")
+        _, hang = self._reel05()
+        findings = check_placed_caption_hangs(
+            "Reel 05", [first, second], [ok, hang], FPS)
+        assert len(findings) == 1
+        assert findings[0].detail["placed_frames"] == self.HANG_FRAMES
+
+
+# ── F16: caption names break on a word boundary ──────────────────────
+
+class TestCaptionSlugFragments:
+    """F16: no placed caption name breaks mid-word.
+
+    The three names below are verbatim off reel 05's timeline
+    (2026-09-08): the timeline slug cut at thirty characters mid-word,
+    like every other card on that reel.
+    """
+    REEL = "Reel 05 - the-audit-that-was-eye-opening"
+
+    REAL_NAMES = [
+        (440, 40,
+         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "it-they-were-being-invisible-o_54079ecd.mov"),
+        (482, 56,
+         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "their-services-were-not-being-_825fef8a.mov"),
+        (546, 36,
+         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "the-same-way-that-they-envisio_c270b8f1.mov"),
+        (1616, 12,
+         "sub_reel-05-the-audit-that-was-eye-o_craig_"
+         "here-yeah-so-ranking-tells-goo_e896ede1.mov"),
+        (1628, 11,
+         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "ranking-tells-google-that-you-_1cbbb2da.mov"),
+        (1837, 43,
+         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "yourself-the-lucy-visibility-s_979c0be4.mov"),
+    ]
+
+    def _items(self, rows):
+        return [_placed_caption(start, duration, name)
+                for start, duration, name in rows]
+
+    def test_reel05s_real_names_are_flagged(self):
+        findings = check_caption_slugs(self.REEL, self._items(self.REAL_NAMES))
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F16
+        assert findings[0].detail["items"] == len(self.REAL_NAMES)
+
+    def test_word_boundary_names_are_quiet(self):
+        """Names as the fixed producer writes them draw nothing - the
+        check must not fail correct output."""
+        from library.tools.subtitle_segment_id import (
+            segment_binding, segment_identifier)
+        bindings = [
+            segment_binding(
+                timeline=self.REEL, speaker="Akshita", block_position="b7",
+                source_clip_id="clip_003", source_start=131.42295,
+                source_end=151.69320),
+            segment_binding(
+                timeline=self.REEL, speaker="Craig", block_position="b8",
+                source_clip_id="clip_004", source_start=200.0,
+                source_end=205.0),
+        ]
+        items = [_placed_caption(100 + index * 50, 40, segment_identifier(b))
+                 for index, b in enumerate(bindings)]
+        assert check_caption_slugs(self.REEL, items) == []
+
+    def test_a_short_reel_name_is_quiet(self):
+        items = self._items([(100, 40, "sub_reel-01-geography_akshita_"
+                                       "body-1_10000-11000_ab12cd34.mov")])
+        assert check_caption_slugs("Reel 01 - geography", items) == []
+
+    def test_names_outside_the_segment_shape_are_not_its_subject(self):
+        """F16 grades segment identifiers. Anything else on V3 is F11's
+        unattributed-card territory, not a truncation - skipping is not
+        passing quietly, it is staying in its lane."""
+        items = self._items([(100, 40, "caption0001.mov")])
+        assert check_caption_slugs(self.REEL, items) == []
