@@ -705,8 +705,12 @@ class TestF5CaptionCoverage:
         segments = [
             # Bound segment - has caption coverage
             _row(0.0, 10.0, "Akshita", "hello world", item_id="uid-1"),
-            # Straddling segment - NO resolve_item_id, NO caption
-            _row(10.0, 18.0, "Craig", "this straddles a cut"),
+            # Straddling segment - NO resolve_item_id, NO caption.
+            # Sane word timings (four 2s words): a stretched single
+            # word belongs to the stretched-word test below, not here.
+            _row(10.0, 18.0, "Craig", "this straddles a cut",
+                 speaking=((10.0, 12.0), (12.0, 14.0),
+                           (14.0, 16.0), (16.0, 18.0))),
         ]
         # Only one caption covering the bound segment
         captions = [_caption_card(0.0, 10.0, "hello world")]
@@ -731,8 +735,11 @@ class TestF5CaptionCoverage:
         """
         segments = [
             # Begins 5s BEFORE the reel and runs 5s into it, uncaptioned.
+            # Five 2s words: the row crosses the boundary, no word does.
             _row(5.0, 15.0, "Craig",
-                 "a row the reel starts in the middle of"),
+                 "a row the reel starts in the middle of",
+                 speaking=((5.0, 7.0), (7.0, 9.0), (9.0, 11.0),
+                           (11.0, 13.0), (13.0, 15.0))),
         ]
         keep_ranges = [(10.0, 20.0)]
 
@@ -751,8 +758,11 @@ class TestF5CaptionCoverage:
         speech that needed a caption.
         """
         segments = [
+            # Fifteen 2s words; a 10s take is removed from the middle.
             _row(0.0, 30.0, "Akshita",
-                 "a row with a bad take taken out of its middle"),
+                 "a row with a bad take taken out of its middle",
+                 speaking=tuple((float(i), float(i + 2))
+                                for i in range(0, 30, 2))),
         ]
         # 10s removed from the middle: the reel plays 20s of this row.
         keep_ranges = [(0.0, 10.0), (20.0, 30.0)]
@@ -785,6 +795,59 @@ class TestF5CaptionCoverage:
         findings = check_caption_coverage(
             "Reel 01", segments, captions, keep_ranges, FPS)
         assert len(findings) == 0
+
+    def test_a_stretched_word_is_not_counted_as_speech(self):
+        """Reel 10's shape: one 34.13s word, otherwise card-covered.
+
+        Craig's "audits" (732.69-766.82) is a single word the aligner
+        stretched across Akshita's whole story. Her cards leave 2.6s of
+        gaps; counting the word reported those pauses as Craig talking
+        with no caption and failed the reel. The word is excluded and
+        the narrowing is REPORTED, never silent.
+        """
+        segments = [
+            # No binding, one 34.13s word: the stretched residue itself.
+            _row(732.69, 766.819, "Craig", "audits"),
+            _row(733.02, 760.0, "Akshita", "her story", item_id="uid-a",
+                 speaking=tuple((float(i), float(i + 1))
+                                for i in range(733, 760))),
+            _row(762.0, 766.5, "Akshita", "her story",
+                 item_id="uid-b",
+                 speaking=((762.0, 763.0), (763.0, 764.0),
+                           (764.0, 765.0), (765.0, 766.5))),
+        ]
+        # Cards are in REEL seconds (master minus the range start
+        # 720.75); the words above are in master seconds, as rows are.
+        captions = [_caption_card(12.27, 39.25, "her story"),
+                    _caption_card(41.25, 45.75, "her story")]
+        keep_ranges = [(720.75, 771.001)]
+
+        findings = check_caption_coverage(
+            "Reel 10", segments, captions, keep_ranges, FPS)
+        errors = [f for f in findings if f.severity == "error"]
+        assert errors == [], (
+            "pauses between another speaker's cards are not Craig's speech")
+        warnings = [f for f in findings if f.severity == "warning"]
+        assert any(w.detail.get("stretched_words") == 1
+                   for w in warnings), (
+            "the excluded word must be reported, not skipped quietly")
+
+    def test_sane_straddling_speech_with_no_caption_still_fails(self):
+        """The gate is not weakened: straddling speech with honest word
+        timings and nothing on screen over it is still an error."""
+        segments = [
+            _row(732.69, 736.0, "Craig", "audits indeed yes",
+                 speaking=((732.69, 733.2), (733.4, 734.1),
+                           (734.3, 736.0))),
+        ]
+        findings = check_caption_coverage(
+            "Reel 10", segments, [], [(720.75, 771.001)], FPS)
+        errors = [f for f in findings
+                  if f.finding_class == FindingClass.F5
+                  and f.severity == "error"]
+        assert len(errors) == 1
+        assert errors[0].detail["straddling_seconds"] == pytest.approx(
+            2.9, abs=0.05)
 
 
 # ── F6: Caption overlap ─────────────────────────────────────────────
@@ -1969,7 +2032,8 @@ class TestF5MeasuresSpeechNotRowSpan:
                                  name="sub_reel-01_craig_one-second.mov"),),
         )
         segments = [_row(0.0, 25.0, "Craig", "talking the whole time",
-                         speaking=((0.0, 25.0),))]
+                          speaking=tuple((float(i), float(i + 1))
+                                         for i in range(25)))]
         result = verify_reel(plan, timeline, transcript_segments=segments)
         f5 = [f for f in result.findings
               if f.finding_class == FindingClass.F5 and f.severity == "error"]

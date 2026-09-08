@@ -1150,6 +1150,26 @@ def _clip_to_reel(seg_start: float,
     return pieces
 
 
+MAX_WORD_SECONDS = 3.0
+"""The longest a single word's timing may span and still count as speech.
+
+Measured on the captain's field test: 8,492 words on bound rows run
+0.02-2.65s (p99.9 0.92s), while the transcript's 11 straddling-residue
+rows are single words spanning 1.26-62.63s - WhisperX stretching the
+last word across the silence before the speaker resumes (F8's docstring
+names the 19.04s and 34.47s cases). A word longer than every one of
+those 8,492 is the aligner bridging silence, not speech, and counting
+it second-for-second reports pauses between the other speaker's cards
+as uncaptioned speech: reel 10's 34.13s "audits" read as 3.6s of Craig
+with no caption, where one talk-over word is all he says in 34s.
+
+Such words are EXCLUDED from the speech measure and REPORTED, never
+silently skipped (AGENTS.md 10.4): the warning names how many and
+their total span, so a future transcript with genuinely slower speech
+shows up as a warning rather than passing quietly.
+"""
+
+
 def check_caption_coverage(reel_name: str,
                            transcript_segments: Sequence[dict],
                            caption_cards: Sequence[dict],
@@ -1205,6 +1225,16 @@ def check_caption_coverage(reel_name: str,
     stopped carrying word timings must not quietly turn this check back
     into the one it replaced (AGENTS.md 10.4).
 
+    **A word longer than `MAX_WORD_SECONDS` is the aligner bridging
+    silence, not speech, and is not counted.** The word-level fix above
+    assumed each word's span is speech; reel 10's "audits" is one word
+    spanning 34.13s, of which ~0.4s is Craig talking and the rest is
+    Akshita's story. Counting it reported 3.6s of "speech with no
+    caption" where the transcript attributes no words to anyone - pauses
+    between her cards. Excluded words are REPORTED in a warning naming
+    how many and their total span, so the narrowing is visible rather
+    than a quieter gate.
+
     **Seconds are summed PER ROW, so two uncaptioned rows overlapping each
     other count twice.** This is a two-mic recording and both tracks
     carry rows, so the total is an upper bound on wall-clock uncaptioned
@@ -1235,6 +1265,9 @@ def check_caption_coverage(reel_name: str,
     residue_uncaptioned = 0.0
 
     rows_without_words = 0
+    stretched_words = 0
+    stretched_span = 0.0
+    stretched_uncovered = 0.0
 
     for segment in transcript_segments:
         has_item_id = bool(segment.get("resolve_item_id"))
@@ -1246,8 +1279,17 @@ def check_caption_coverage(reel_name: str,
         # and reported rather than passed off as a word measurement.
         spoken = [(a, b) for a, b, _ in _row_words(segment)]
         envelope_only = not spoken
+        stretched: list = []
         if envelope_only:
             spoken = [(seg_start, seg_end)]
+        else:
+            measurable = []
+            for a, b in spoken:
+                if b - a > MAX_WORD_SECONDS:
+                    stretched.append((a, b))
+                else:
+                    measurable.append((a, b))
+            spoken = measurable
 
         uncaptioned = 0.0
         played = 0.0
@@ -1276,6 +1318,27 @@ def check_caption_coverage(reel_name: str,
             else:
                 residue_uncaptioned += uncaptioned
 
+        # A stretched word the reel plays under no card is speech the
+        # gate declined to measure, and that is said. One fully covered
+        # by cards, or not played at all, leaves nothing uncaptioned
+        # and is not reported: a warning on every reel a stretched word
+        # merely touches would be noise, not coverage.
+        for stretch_start, stretch_end in stretched:
+            stretch_uncovered = 0.0
+            for reel_start, reel_end in _clip_to_reel(
+                    stretch_start, stretch_end, keep_ranges, lead_seconds):
+                captioned = 0.0
+                for c_start, c_end in caption_intervals:
+                    overlap_start = max(reel_start, c_start)
+                    overlap_end = min(reel_end, c_end)
+                    if overlap_end > overlap_start:
+                        captioned += overlap_end - overlap_start
+                stretch_uncovered += (reel_end - reel_start) - captioned
+            if stretch_uncovered > 0.01:
+                stretched_words += 1
+                stretched_span += stretch_end - stretch_start
+                stretched_uncovered += stretch_uncovered
+
     # Straddling uncaptioned speech is a real defect (F5)
     if straddling_uncaptioned > 0.5:
         findings.append(Finding(
@@ -1303,6 +1366,24 @@ def check_caption_coverage(reel_name: str,
                 f"- the seconds above are an upper bound for those rows"),
             severity="warning",
             detail={"rows_without_word_timings": rows_without_words},
+        ))
+
+    if stretched_words:
+        findings.append(Finding(
+            finding_class=FindingClass.F5,
+            reel=reel_name,
+            message=(
+                f"{stretched_words} word(s) spanning longer than "
+                f"{MAX_WORD_SECONDS:.1f}s were not counted as speech "
+                f"({stretched_span:.1f}s of word span, "
+                f"{stretched_uncovered:.1f}s of it with no caption over "
+                f"it) - the aligner stretches a word across silence, "
+                f"and counting it reports pauses as uncaptioned speech"),
+            severity="warning",
+            detail={"stretched_words": stretched_words,
+                    "stretched_span_seconds": round(stretched_span, 1),
+                    "stretched_uncovered_seconds": round(
+                        stretched_uncovered, 1)},
         ))
 
     # Residue is NOT a defect - but report it for visibility if large
