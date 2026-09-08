@@ -2078,3 +2078,105 @@ def test_f20_does_not_fail_the_gate():
     assert FindingClass.F20 in __import__(
         "library.tools.reel_conformance_verifier",
         fromlist=["WARNING_CLASSES"]).WARNING_CLASSES
+
+
+# ── F2/F14 refuse without a recorded caption baseline ────────────
+
+class TestCaptionProvenanceGate:
+    """`verify_reel` must not grade F2/F14 against a re-derived grouping.
+
+    The moment-plan hash can match while the caption grouping has drifted
+    underneath it (39 cards derived where 28 were placed) - grading that
+    drift reads as a placement defect. So F2/F14 grade ONLY against the
+    recorded baseline, and refuse with NO_REFERENCE otherwise.
+    """
+
+    def _gradeable(self):
+        """A reel whose cards WOULD draw F2s if graded: every placed item
+        is one frame short of its plan, the audit's own off-by-one."""
+        name = "Reel 01 - provenance-gate"
+        frames = 24
+        captions = (
+            PlannedCaption(start_seconds=0.0, end_seconds=1.0,
+                           text="one two", speaker="Akshita",
+                           frames=frames),
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="three four", speaker="Akshita",
+                           frames=frames),
+        )
+        placed = (
+            _item("video", 3, 0, frames - 1, name="card one two"),
+            _item("video", 3, frames, 2 * frames - 1,
+                  name="card three four"),
+        )
+        plan = _plan(reel_name=name, plan_seconds=2.0,
+                     span_start=0.0, span_end=2.0,
+                     placements=(_placement(1, 0.0, 2.0),),
+                     captions=captions,
+                     keep_ranges=((0.0, 2.0),))
+        timeline = _timeline(
+            reel_name=name,
+            video_items=(_item("video", 1, 0, 2 * frames),),
+            audio_items=(_item("audio", 1, 0, 2 * frames),),
+            caption_items=placed,
+            total_frames=2 * frames)
+        return name, plan, timeline
+
+    @staticmethod
+    def _duration_findings(findings):
+        return [f for f in findings
+                if f.finding_class in (FindingClass.F2, FindingClass.F14)]
+
+    @staticmethod
+    def _provenance_refusals(findings):
+        return [f for f in findings
+                if f.finding_class == FindingClass.NO_REFERENCE
+                and f.detail.get("check") == "F2/F14"]
+
+    def test_refuses_without_any_provenance(self):
+        """No record of what was placed: refuse, do not grade."""
+        _, plan, timeline = self._gradeable()
+        result = verify_reel(plan, timeline, caption_provenance=None)
+        assert self._duration_findings(result.findings) == []
+        refusals = self._provenance_refusals(result.findings)
+        assert len(refusals) == 1
+        assert refusals[0].severity == "error"
+        assert refusals[0].detail["graded"] is False
+
+    def test_refuses_when_the_grouping_changed(self):
+        """A recorded baseline for a DIFFERENT grouping: refuse."""
+        from library.tools.plan_provenance import caption_content_hash
+
+        name, plan, timeline = self._gradeable()
+        regrouped = (
+            PlannedCaption(start_seconds=0.0, end_seconds=0.5,
+                           text="one", speaker="Akshita", frames=12),
+            PlannedCaption(start_seconds=0.5, end_seconds=1.0,
+                           text="two", speaker="Akshita", frames=12),
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="three four", speaker="Akshita", frames=24),
+        )
+        provenance = {"caption_hashes": {
+            name: caption_content_hash(regrouped)}}
+        result = verify_reel(plan, timeline,
+                             caption_provenance=provenance)
+        assert self._duration_findings(result.findings) == []
+        refusals = self._provenance_refusals(result.findings)
+        assert len(refusals) == 1
+        assert refusals[0].detail["graded"] is False
+
+    def test_grades_against_the_matching_baseline(self):
+        """The gate refuses the unknown, not the known: a matching record
+        grades normally, and the planted off-by-one draws its F2s."""
+        from library.tools.plan_provenance import caption_content_hash
+
+        name, plan, timeline = self._gradeable()
+        provenance = {"caption_hashes": {
+            name: caption_content_hash(plan.captions)}}
+        result = verify_reel(plan, timeline,
+                             caption_provenance=provenance)
+        assert self._provenance_refusals(result.findings) == []
+        duration = self._duration_findings(result.findings)
+        assert len(duration) == len(plan.captions)
+        assert all(f.finding_class == FindingClass.F2 for f in duration)
+        assert all(f.detail["delta"] == -1 for f in duration)
