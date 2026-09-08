@@ -22,8 +22,10 @@ for it to be somewhere else.
 - Raising is the point.  An unread declaration reads exactly like a
   step that deliberately declares none, and the two must not look the
   same from any caller.
-- `library/schema/manifest.schema.json` puts the field at the top level
-  for the same reason, so the schema and the reader agree.
+- `declared_context_fields` below is the only enforcer of that location:
+  a dead `library/schema/manifest.schema.json` once described it too, but
+  nothing ever loaded that file, so it was deleted rather than left as a
+  second spelling of the rule.
 - `tests/test_context_fields_binds.py`.
 
 `project_fields` is documented on the function.

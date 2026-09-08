@@ -131,8 +131,9 @@ def test_a_declaration_is_where_the_projection_reads_it(step):
 
     Reading both would be two spellings of the same rule, free to
     disagree; ignoring the second is what shipped. The manifest's top
-    level is the location, and `library/schema/manifest.schema.json`
-    says the same thing.
+    level is the location, enforced by `declared_context_fields` - the
+    dead `library/schema/manifest.schema.json` once described it too,
+    but nothing ever loaded that file, so it was deleted.
     """
     m = json.loads(
         (STEPS / step / "manifest.json").read_text(encoding="utf-8"))

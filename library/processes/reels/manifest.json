@@ -1,5 +1,4 @@
 {
-  "$schema": "../../schema/manifest.schema.json",
   "id": "reels",
   "name": "Reels — Build and Verify",
   "version": "1.0.0",

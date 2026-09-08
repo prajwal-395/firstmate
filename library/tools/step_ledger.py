@@ -23,9 +23,10 @@ Every step manifest declares its stage in ``classification.stage``:
 
 ``stage_of`` below is where that declaration is ENFORCED - it raises on a
 missing or unknown stage, and the runner calls it for every DAG node on
-every invocation.  ``library/schema/manifest.schema.json`` lists the field
-too, but nothing in the tree loads that file, so do not mistake it for the
-gate; ``tests/test_step_ledger.py`` walks every step directory instead.
+every invocation.  (A ``library/schema/manifest.schema.json`` once listed
+the field too, but nothing ever loaded it, so it was deleted rather than
+mistaken for the gate.)  ``tests/test_step_ledger.py`` walks every step
+directory instead.
 
 The two ledgers are separate keys in the state file, so
 ``reset_stage(state, EDIT, ...)`` is STRUCTURALLY INCAPABLE of touching

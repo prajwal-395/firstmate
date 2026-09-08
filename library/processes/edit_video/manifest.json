@@ -1,5 +1,4 @@
 {
-  "$schema": "../../schema/manifest.schema.json",
   "id": "edit_video",
   "name": "Edit Video \u2014 Full Pipeline",
   "version": "1.0.0",

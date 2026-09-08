@@ -221,17 +221,6 @@ def test_manifests_declare_requirements_not_prose():
         assert "postconditions" not in interface
 
 
-def test_the_schema_no_longer_requires_the_prose_fields():
-    schema = json.loads(
-        (REPO / "library" / "schema" / "manifest.schema.json").read_text(
-            encoding="utf-8"))
-    interface = schema["properties"]["interface"]
-    assert "preconditions" not in interface["properties"]
-    assert "postconditions" not in interface["properties"]
-    assert "requirements" in interface["properties"]
-    assert set(interface["required"]) == {"inputs", "outputs"}
-
-
 def test_plan_subtitles_no_longer_requires_what_it_does_not_read():
     """The captain's own example - and only the half that is mine.
 

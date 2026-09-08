@@ -6,9 +6,9 @@ Every step manifest declared `interface.preconditions` and
 `interface.postconditions` as prose - `"'audio_spine' exists in state"`,
 `"'rough_cut_review.passed' is true in state"`.  126 strings across 29
 manifests, and **nothing evaluated one of them**.  The only consumers
-were `library/schema/manifest.schema.json`, which required the FIELD to
-exist, and one test asserting the substring `"parselmouth"` appeared in
-step 1.05's list.
+were a `library/schema/manifest.schema.json` that required the FIELD to
+exist (deleted - nothing ever loaded it) and one test asserting the
+substring `"parselmouth"` appeared in step 1.05's list.
 
 Meanwhile the real gating lived in three places that read two different
 declarations: `run_scope._assert_dependencies_met` (selection time),
