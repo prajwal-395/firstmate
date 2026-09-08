@@ -88,7 +88,9 @@ def test_analyze_prosody_success(sample_speech_regions):
     
     assert "voice_quality" in result
     assert result["voice_quality"]["hnr_db"] == 25.0
-    assert result["voice_quality"]["quality_assessment"] == "clear"
+    # Issue #263: no vocal-register label is assigned - HNR on field
+    # recordings measures ambient noise as much as the voice.
+    assert "quality_assessment" not in result["voice_quality"]
 
 def test_speaking_rate_calculation(sample_speech_regions):
     """Test speaking rate extraction from speech regions."""
@@ -144,8 +146,21 @@ def test_analyze_speech_advanced_file_output(tmp_path):
             assert data["clip_id"] == "test_clip"
             assert "analysis_time_s" in data
 
-def test_voice_quality_categories():
-    """Test the categorization logic for voice quality."""
+def test_voice_quality_reports_hnr_without_register_label():
+    """No HNR value produces a vocal-register word (issue #263).
+
+    The old hnr > 20 / > 10 ladder read "breathy" on 16 of 17 clips of
+    project 001 - outdoor iPhone audio where HNR measures ambient
+    noise, not the voice. Every measured HNR below is one of those
+    recorded values (clip_017's 15.6 included); each must come back as
+    a number with no label beside it.
+    """
+    # Measured HNR across project 001, from the issue.
+    issue_hnr_values = [
+        -1.4, 0.7, 8.0, 2.3, 0.2, 3.7, 4.5, -0.5, 5.4, 4.4, 6.3,
+        6.6, 8.1, 6.3, 6.1, 7.7, 15.6,
+    ]
+
     def create_mock_call(hnr_value):
         def side_effect(obj, action, *args, **kwargs):
             if action == "Get mean":
@@ -162,23 +177,29 @@ def test_voice_quality_categories():
     mock_praat = MagicMock()
     mock_parselmouth = MagicMock()
     mock_parselmouth.praat = mock_praat
-    
+
     mock_s = MagicMock()
     mock_s.duration = 0.02
     mock_parselmouth.Sound.return_value = mock_s
-    
+
     with patch.dict(sys.modules, {'parselmouth': mock_parselmouth, 'parselmouth.praat': mock_praat}):
-        # Test "clear" (> 20)
-        mock_praat.call.side_effect = create_mock_call(25.0)
-        res1 = analyze_prosody("dummy.wav")
-        assert res1["voice_quality"]["quality_assessment"] == "clear"
-        
-        # Test "slightly_breathy" (10-20)
-        mock_praat.call.side_effect = create_mock_call(15.0)
-        res2 = analyze_prosody("dummy.wav")
-        assert res2["voice_quality"]["quality_assessment"] == "slightly_breathy"
-        
-        # Test "breathy" (< 10)
-        mock_praat.call.side_effect = create_mock_call(5.0)
-        res3 = analyze_prosody("dummy.wav")
-        assert res3["voice_quality"]["quality_assessment"] == "breathy"
+        for hnr_value in issue_hnr_values:
+            mock_praat.call.side_effect = create_mock_call(hnr_value)
+            res = analyze_prosody("dummy.wav")
+            vq = res["voice_quality"]
+            assert "quality_assessment" not in vq, (
+                f"HNR {hnr_value} dB produced a register label: {vq!r}")
+            assert vq["hnr_db"] == round(hnr_value, 1)
+
+        # A measured 0.0 dB is a number, not an absence.
+        mock_praat.call.side_effect = create_mock_call(0.0)
+        res_zero = analyze_prosody("dummy.wav")
+        assert res_zero["voice_quality"]["hnr_db"] == 0.0
+        assert "quality_assessment" not in res_zero["voice_quality"]
+
+        # Unmeasured HNR reads as None, still with no label.
+        for unmeasured in (None, float("nan")):
+            mock_praat.call.side_effect = create_mock_call(unmeasured)
+            res = analyze_prosody("dummy.wav")
+            assert res["voice_quality"]["hnr_db"] is None
+            assert "quality_assessment" not in res["voice_quality"]

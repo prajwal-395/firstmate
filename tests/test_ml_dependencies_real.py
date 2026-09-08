@@ -101,9 +101,11 @@ def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
 
     vq = prosody.get("voice_quality")
     assert vq is not None, "voice_quality missing from a real measurement"
-    assert vq.get("quality_assessment") in (
-        "clear", "slightly_breathy", "breathy", "unknown"), (
-        f"unexpected quality_assessment: {vq.get('quality_assessment')}")
+    # Issue #263: HNR is reported as a number with no vocal-register
+    # label beside it - on field recordings the number measures the
+    # environment as much as the voice.
+    assert "quality_assessment" not in vq, (
+        f"register label reappeared: {vq!r}")
     hnr = vq.get("hnr_db")
     assert hnr is None or isinstance(hnr, float), f"hnr_db is not measured: {hnr!r}"
 

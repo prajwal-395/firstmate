@@ -18,7 +18,9 @@ Why this matters for editing:
 - Pitch contour shows WHERE the speaker emphasizes, asks questions
   (rising intonation), or trails off (falling pitch)
 - Speaking rate shows engagement/energy shifts
-- Voice quality shows emotional register (clear vs breathy)
+- Voice quality metrics (jitter, shimmer, HNR) are reported as numbers.
+  No vocal-register label is assigned: on field recordings HNR measures
+  ambient noise as much as the voice (issue #263).
 - The LLM can interpret all of this directly — no need for a separate
   emotion classifier (Gemma4 vision + transcript + prosody already
   give richer emotional signal than any 4-class audio model)
@@ -121,7 +123,8 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
                 ),
             }
 
-        # 2. Voice quality (jitter, shimmer, HNR)
+        # Voice quality inputs: jitter, shimmer (from the point process)
+        # and HNR (mean harmonics-to-noise ratio over the clip).
         point_process = call(sound, "To PointProcess (periodic, cc)", 75, 600)
 
         try:
@@ -137,15 +140,32 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
         except Exception:
             hnr = None
 
+        # 2. Voice quality (jitter, shimmer, HNR) - MEASURED ONLY.
+        # No vocal-register label is assigned (issue #263): on field
+        # recordings HNR measures ambient noise as much as the voice.
+        # Sixteen of seventeen clips on project 001 read "breathy"
+        # under the old hnr > 20 / > 10 ladder - and so does audio with
+        # no voice in it at all. A number a reader can judge beats a
+        # word that means "outdoors", so HNR is reported and the label
+        # is gone.
+        def _measured(value, places):
+            """A Praat return as a rounded float, or None when unmeasured.
+
+            Explicit None/NaN checks: a measured 0.0 is a number, and
+            `if value` would have discarded it as unmeasured.
+            """
+            if value is None:
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return round(number, places) if not np.isnan(number) else None
+
         voice_quality = {
-            "jitter_local": round(float(jitter), 5) if jitter and not np.isnan(jitter) else None,
-            "shimmer_local": round(float(shimmer), 5) if shimmer and not np.isnan(shimmer) else None,
-            "hnr_db": round(float(hnr), 1) if hnr and not np.isnan(hnr) else None,
-            "quality_assessment": (
-                "clear" if hnr and hnr > 20 else
-                "slightly_breathy" if hnr and hnr > 10 else
-                "breathy" if hnr else "unknown"
-            ),
+            "jitter_local": _measured(jitter, 5),
+            "shimmer_local": _measured(shimmer, 5),
+            "hnr_db": _measured(hnr, 1),
         }
 
         # 3. Speaking rate (from speech regions if available)

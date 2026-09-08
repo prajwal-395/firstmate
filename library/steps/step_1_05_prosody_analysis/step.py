@@ -7,7 +7,8 @@ that the LLM can use for creative decisions:
 
   - Pitch (F0) contour → emphasis, questions, trailing off
   - Speaking rate → engagement/energy shifts
-  - Voice quality (jitter, shimmer, HNR) → emotional register
+  - Voice quality (jitter, shimmer, HNR) → reported as numbers, never
+  as a register label (issue #263: outdoors HNR measures the noise)
   - Intensity contour → loudness dynamics
 
 Delegates to library/tools/analysis/speech_advanced_pipeline.py.
