@@ -1251,3 +1251,57 @@ def read_plans(project_folder: str) -> dict:
         return {}
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def rename_plan_reels(project_folder: str, mapping: dict) -> None:
+    """Rename `plans[].reel` fields in the recorded explainer plans.
+
+    The staging half of promotion: a staged build records its explainer
+    plans under the staging container so F21 grades the staging, and
+    promotion renames the claim to the final timeline name. Plans for
+    reels outside `mapping` are untouched. No file yet is a no-op -
+    a build that drew nothing for any reel recorded nothing.
+    """
+    import os
+
+    from library.tools.project_layout import Area, ProjectLayout
+    if not mapping:
+        return
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.REVIEW)),
+        PLAN_FILENAME)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    for plan in (payload.get("plans") or []):
+        if plan.get("reel") in mapping:
+            plan["reel"] = mapping[plan["reel"]]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def drop_plan_reels(project_folder: str, names) -> None:
+    """Remove recorded explainer plans for the named reels.
+
+    The gate-fail half of a refused staging: no baseline may survive
+    for a container that is about to be deleted. Absent file or absent
+    names are no-ops.
+    """
+    import os
+
+    from library.tools.project_layout import Area, ProjectLayout
+    drop = set(names or ())
+    if not drop:
+        return
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.REVIEW)),
+        PLAN_FILENAME)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    payload["plans"] = [plan for plan in (payload.get("plans") or [])
+                        if plan.get("reel") not in drop]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)

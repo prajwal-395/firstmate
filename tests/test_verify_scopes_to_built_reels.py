@@ -36,7 +36,10 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from library.tools.reel_build import rebuild_reels_in_project
+from library.tools.reel_build import (
+    STAGING_SUFFIX,
+    rebuild_reels_in_project,
+)
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in range(1, 20)]
@@ -76,7 +79,12 @@ def _moment(number, name):
 
 def _timeline(name):
     timeline = MagicMock()
-    timeline.GetName.return_value = name
+    timeline._name = name
+    timeline.GetName.side_effect = lambda: timeline._name
+    def _rename(new):
+        timeline._name = new
+        return True
+    timeline.SetName.side_effect = _rename
     return timeline
 
 
@@ -85,7 +93,13 @@ class FakeProject:
         self.timelines = [_timeline(name) for name in names]
         pool = MagicMock()
         pool.DeleteTimelines.side_effect = self._delete
+        pool.CreateEmptyTimeline.side_effect = self._create
         self._pool = pool
+
+    def _create(self, name):
+        timeline = _timeline(name)
+        self.timelines.append(timeline)
+        return timeline
 
     def _delete(self, timelines):
         for timeline in timelines:
@@ -104,6 +118,13 @@ class FakeProject:
     def GetTimelineByIndex(self, index):
         return self.timelines[index - 1]
 
+    def names(self):
+        return [t.GetName() for t in self.timelines]
+
+
+def _staging(final):
+    return final + STAGING_SUFFIX
+
 
 def _run_build(resolve_project, project_dir, **kwargs):
     """Drive the ONE build path with Resolve, the placer and captions faked.
@@ -111,7 +132,13 @@ def _run_build(resolve_project, project_dir, **kwargs):
     Returns the build record and the mocked verifier gate, so tests read
     what the gate was ASKED to grade rather than inferring it.
     """
-    with patch("library.tools.reel_build.build_reel_timeline"), \
+    def _place(**place_kwargs):
+        name = place_kwargs.get("timeline_name")
+        assert name, "the placer was asked to build into no container"
+        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+
+    with patch("library.tools.reel_build.build_reel_timeline",
+               side_effect=_place), \
             patch("library.tools.reel_build.reel_subtitle_segments") as caps, \
             patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
             patch("library.tools.reel_build.resolve_project_exactly",
@@ -131,7 +158,8 @@ def _run_build(resolve_project, project_dir, **kwargs):
 # ── The builder hands the gate its own scope ─────────────────────────
 
 def test_a_partial_build_grades_only_the_timeline_it_placed(project):
-    """Building reel 3 of 19 must ask the verifier for exactly one name.
+    """Building reel 3 of 19 must ask the verifier for exactly one name -
+    the staging container it placed, never the approved timeline.
 
     Before the fix the gate was called with no scope at all, so it
     graded all nineteen - the call the quadratic cost and the 94
@@ -142,8 +170,12 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
     record, gate = _run_build(resolve_project, project, only=[3])
 
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
+    assert record["staged_timelines"] == {}
     gate.assert_called_once()
-    assert gate.call_args[1]["only_reels"] == ["Reel 03 - moment-3"]
+    assert gate.call_args[1]["only_reels"] == [
+        _staging("Reel 03 - moment-3")]
+    # Promoted: the final name is back and no staging is left behind.
+    assert sorted(resolve_project.names()) == sorted([MASTER] + APPROVED)
 
 
 def test_a_full_build_grades_everything_it_placed(project):
@@ -159,7 +191,8 @@ def test_a_full_build_grades_everything_it_placed(project):
 
     assert record["timelines_built"] == APPROVED
     gate.assert_called_once()
-    assert gate.call_args[1]["only_reels"] == APPROVED
+    assert gate.call_args[1]["only_reels"] == [
+        _staging(name) for name in APPROVED]
 
 
 def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
@@ -173,7 +206,7 @@ def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
     assert record["timelines_built"] == [
         "Reel 03 - moment-3 (whole-take rebuild)"]
     assert gate.call_args[1]["only_reels"] == [
-        "Reel 03 - moment-3 (whole-take rebuild)"]
+        _staging("Reel 03 - moment-3 (whole-take rebuild)")]
 
 
 # ── The verifier honours the scope ───────────────────────────────────
@@ -345,6 +378,7 @@ def test_the_step_forwards_the_build_record_as_its_scope():
 
     built = ["Reel 03 - moment-3"]
     with patch("library.tools.reel_build.verify_built_reels") as gate, \
+            patch("library.tools.reel_build.promote_staged_reels") as promote, \
             patch("library.tools.timeline_transcript.transcript_path",
                   return_value="/tmp/project/transcript.json"):
         record = module.verify_reels({
@@ -359,4 +393,66 @@ def test_the_step_forwards_the_build_record_as_its_scope():
         })
 
     assert gate.call_args[1]["only_reels"] == built
+    assert not promote.called
     assert record["reel_verification"]["timelines_verified"] == built
+
+
+def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
+    """The DAG path: the build staged, this node grades the staging and
+    promotes on a pass - returning the final names, not the staging."""
+    module = _verify_step_module()
+
+    final = "Reel 03 - moment-3"
+    staged = _staging(final)
+    with patch("library.tools.reel_build.verify_built_reels") as gate, \
+            patch("library.tools.reel_build.promote_staged_reels",
+                  return_value={"promoted": [final],
+                                "organised": None}) as promote, \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value="/tmp/project/transcript.json"):
+        record = module.verify_reels({
+            "project_folder": "/tmp/project",
+            "reel_build": {
+                "timelines_built": [staged],
+                "staged_timelines": {final: staged},
+                "resolve_project_name": "Mock Project",
+                "master_timeline_name": MASTER,
+                "plan_path": "/tmp/project/plan.json",
+            },
+            "timeline_transcript": {"segments": []},
+        })
+
+    assert gate.call_args[1]["only_reels"] == [staged]
+    assert promote.call_args[0][1:4] == (
+        "Mock Project", MASTER, {final: staged})
+    assert record["reel_verification"]["timelines_verified"] == [final]
+
+
+def test_the_step_discards_staging_when_the_gate_refuses():
+    """A refused gate on the DAG path still removes the staging before
+    the refusal propagates - the approved timelines are never named."""
+    module = _verify_step_module()
+
+    final = "Reel 03 - moment-3"
+    staged = _staging(final)
+    with patch("library.tools.reel_build.verify_built_reels",
+               side_effect=RuntimeError("F8 end cuts mid-word")), \
+            patch("library.tools.reel_build.discard_staged_record") as discard, \
+            patch("library.tools.reel_build.promote_staged_reels") as promote, \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value="/tmp/project/transcript.json"), \
+            pytest.raises(RuntimeError, match="F8 end cuts mid-word"):
+        module.verify_reels({
+            "project_folder": "/tmp/project",
+            "reel_build": {
+                "timelines_built": [staged],
+                "staged_timelines": {final: staged},
+                "resolve_project_name": "Mock Project",
+                "master_timeline_name": MASTER,
+                "plan_path": "/tmp/project/plan.json",
+            },
+            "timeline_transcript": {"segments": []},
+        })
+
+    assert discard.call_args[0][1:] == ("Mock Project", [staged])
+    assert not promote.called

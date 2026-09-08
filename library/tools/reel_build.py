@@ -1598,6 +1598,59 @@ def _write_overlay_records(review_dir: str, built_reel_names,
     return path
 
 
+def _rename_overlay_records(review_dir: str, mapping: dict) -> None:
+    """Rename transition-element records, staging -> final.
+
+    The staging half of promotion, for the same reason the provenance
+    sidecar is renamed: the verifier graded the staging against this
+    file, and after promotion the same placements live under the final
+    name. Records for reels outside `mapping` are untouched. No file
+    yet is a no-op - a project that declares no element records none.
+    """
+    import json
+    import os
+
+    if not mapping:
+        return
+    path = os.path.join(review_dir, "transition_overlays.json")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        stored = json.load(f) or {}
+    for old, new in mapping.items():
+        if old in stored:
+            stored[new] = stored.pop(old)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(stored, f, indent=2)
+
+
+def _drop_overlay_records(review_dir: str, names) -> None:
+    """Remove transition-element records for the named reels.
+
+    The gate-fail half of a refused staging: no record may survive for
+    a container that is about to be deleted, or F18 would grade the
+    surviving approved timeline against a refused build's placements.
+    """
+    import json
+    import os
+
+    drop = set(names or ())
+    if not drop:
+        return
+    path = os.path.join(review_dir, "transition_overlays.json")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        stored = json.load(f) or {}
+    for name in drop:
+        stored.pop(name, None)
+    if not stored:
+        os.remove(path)
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(stored, f, indent=2)
+
+
 def timelines_to_replace(project, target_names) -> list:
     """The existing timelines THIS build will replace, by exact name.
 
@@ -1702,6 +1755,59 @@ def built_name(moment, name_suffix: str = "") -> str:
     return f"{moment.timeline_name}{name_suffix}"
 
 
+STAGING_SUFFIX = " (rebuild staging)"
+"""What a rebuild is placed INTO before the gate passes.
+
+The container a reel is graded in is never the approved timeline it
+may replace: the build stages into `<final>{STAGING_SUFFIX}`, the
+conformance verifier grades the staging, and only a pass promotes it
+to the final name. A gate-failing build then deletes its own staging
+and the approved reel is still there - which is the whole fix for the
+2026-09-08 rebuild, where reel 5's F17+F8 failure landed on the live
+timeline because the delete ran before the gate.
+
+The suffix keeps the `Reel NN - ...` head intact, so the verifier's
+reel-number parse and moment match work on a staging container
+unchanged. `timelines_to_replace` matches it exactly like any other
+name, so a stale staging container from a crashed run is found by the
+same lookup - and REFUSED, never reused.
+"""
+
+BACKUP_SUFFIX = " (pre-rebuild backup)"
+"""Where the approved timeline waits while a passing staging takes its name.
+
+Promotion cannot rename the staging to the final name while the
+original still holds it, and deleting the original first would reopen
+the exact loss window this staging exists to close. So the original
+moves to `<final>{BACKUP_SUFFIX}` first, the staging takes the final
+name, and only then are the backups deleted. At every step every
+second of approved content exists under SOME name; a crash leaves
+named debris and the next build refuses until it is cleared, which is
+recoverable where a deletion is not.
+"""
+
+
+def staging_name(final_name: str) -> str:
+    """The staging container a rebuild of `final_name` is placed into."""
+    return f"{final_name}{STAGING_SUFFIX}"
+
+
+def destage(name: str) -> str:
+    """The final name a staging container promotes to, or refuse."""
+    if not name.endswith(STAGING_SUFFIX):
+        raise ReelBuildError(
+            f"{name!r} is not a staging container - it does not end in "
+            f"{STAGING_SUFFIX!r}. Promotion renames only what the build "
+            f"staged; anything else under that name is not this build's "
+            f"to move.")
+    return name[: -len(STAGING_SUFFIX)]
+
+
+def backup_name(final_name: str) -> str:
+    """Where the approved timeline waits out one promotion."""
+    return f"{final_name}{BACKUP_SUFFIX}"
+
+
 def _read_judgement(project_folder: str):
     """Step 3.05's reading of these reels, or None.
 
@@ -1738,61 +1844,288 @@ def _brand_effect(project_folder: str) -> dict:
         return {}
 
 
+def _connect_resolve_project(resolve_project_name: str):
+    """The named Resolve project, addressed exactly, never by prefix.
+
+    `resolve_project_exactly` is referenced as this module's own global
+    - not a function-local import - so a patch of
+    `library.tools.reel_build.resolve_project_exactly` applies here
+    rather than being shadowed by a fresh import of the real one.
+    """
+    import sys
+
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        import os as _os
+        _os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+        _os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
+        if "PYTHONPATH" not in _os.environ:
+            _os.environ["PYTHONPATH"] = ""
+        _os.environ["PYTHONPATH"] += ":" + _os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
+        sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
+        import DaVinciResolveScript as dvr
+
+    from library.tools import resolve_locale as _locale_mod
+    resolve = _locale_mod.scriptapp_preserving_locale(dvr, "Resolve")
+    return resolve_project_exactly(
+        resolve.GetProjectManager(), resolve_project_name)
+
+
+def promote_staged_reels(project_folder: str, resolve_project_name: str,
+                         master_timeline_name: str,
+                         staged_to_final: dict,
+                         organise: bool = True) -> dict:
+    """Move passing stagings onto their final timeline names.
+
+    The ONLY place an approved timeline is deleted. Reachable only
+    after the conformance gate passed on the staging containers, so a
+    gate-failing build can never arrive here - structure, not
+    vigilance. Per reel, in phases:
+
+    1. the approved original, where one exists, is renamed to its
+       backup name - nothing is deleted and nothing is lost;
+    2. the staging is renamed to the final name - each `SetName` is
+       judged by what it returns, and a refusal names the backups that
+       still hold the approved content;
+    3. the sidecar baselines (provenance, transition overlays,
+       explainer plans) are renamed staging -> final, so the next
+       verifier grades the promoted timelines against the baseline the
+       gate just passed rather than refusing on absence;
+    4. only then are the backups deleted, guarded by
+       `assert_deletion_scope` against the backup set.
+
+    A fresh build - no timeline under the final name yet - skips phase
+    1 for that reel; everything else is identical, so there is one
+    swap path rather than a replacing path and a fresh path.
+
+    Stale debris REFUSES: leftover staging or backup containers from
+    an interrupted run are named and the operator clears them in
+    Resolve before re-running. Reusing a debris container as this
+    run's staging would grade one run's content as another's.
+
+    Returns `{"promoted": [final names...], "organised": ...}`.
+    """
+    if not staged_to_final:
+        return {"promoted": [], "organised": None}
+    for staging in staged_to_final.values():
+        destage(staging)
+    finals = list(staged_to_final.keys())
+    backups = {final: backup_name(final) for final in finals}
+
+    project = _connect_resolve_project(resolve_project_name)
+    pool = project.GetMediaPool()
+
+    stale_backups = timelines_to_replace(project, set(backups.values()))
+    if stale_backups:
+        raise ReelBuildError(
+            f"REFUSING to promote: {len(stale_backups)} backup "
+            f"timeline(s) from an interrupted run are still in the "
+            f"project - "
+            f"{sorted(t.GetName() for t in stale_backups)}. They hold "
+            f"approved content a previous run moved aside. Restore or "
+            f"delete them in Resolve and re-run; promoting over them "
+            f"would orphan that content.")
+    staged_found = {t.GetName(): t for t in
+                    timelines_to_replace(project, set(staged_to_final.values()))}
+    missing_staging = [s for s in staged_to_final.values()
+                       if s not in staged_found]
+    if missing_staging:
+        raise ReelBuildError(
+            f"REFUSING to promote: the build record names staged "
+            f"timeline(s) {missing_staging} that are not in Resolve "
+            f"project {resolve_project_name!r}. Deleting the approved "
+            f"originals now would replace them with nothing.")
+    originals = {t.GetName(): t for t in
+                 timelines_to_replace(project, set(finals))}
+    assert_deletion_scope(list(originals.values()), set(finals))
+
+    for final in finals:
+        staging = staged_to_final[final]
+        if final in originals:
+            if not originals[final].SetName(backups[final]):
+                raise ReelBuildError(
+                    f"REFUSING to promote: Resolve would not rename "
+                    f"{final!r} aside to {backups[final]!r}. Nothing "
+                    f"was deleted and the staging {staging!r} is "
+                    f"untouched - re-run once Resolve allows renames.")
+            print(f"Retired {final} to {backups[final]}", flush=True)
+    for final in finals:
+        staging = staged_to_final[final]
+        if not staged_found[staging].SetName(final):
+            raise ReelBuildError(
+                f"REFUSING to promote: Resolve would not rename staging "
+                f"{staging!r} to {final!r}. The approved content is "
+                f"safe under "
+                f"{[backups[f] for f in finals if f in originals]} - "
+                f"rename it back in Resolve and re-run.")
+        print(f"Promoted {staging} to {final}", flush=True)
+
+    import os
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    # The baselines were filed under the staging containers the gate
+    # graded; the claim is renamed to the final names, which carry the
+    # same cards over the same footage. `{old: new}` throughout.
+    claimed = {staging: final for final, staging in staged_to_final.items()}
+    from library.tools.plan_provenance import rename_reel_entries
+    rename_reel_entries(review_dir, claimed)
+    _rename_overlay_records(review_dir, claimed)
+    from library.tools.explainer_plan import rename_plan_reels
+    rename_plan_reels(project_folder, claimed)
+
+    backup_timelines = timelines_to_replace(project, set(backups.values()))
+    assert_deletion_scope(backup_timelines, set(backups.values()))
+    if backup_timelines:
+        pool.DeleteTimelines(backup_timelines)
+
+    organised = None
+    if organise:
+        from library.tools.execution.organise_media_pool import (
+            organise_project, render_unplaced)
+        organised = organise_project(
+            project, project_folder, master_timeline_name, apply=True)
+        print(f"Filed {len(organised['journal']['moves'])} media-pool "
+              f"item(s); undo with "
+              f"resolve-organize --revert "
+              f"{organised['journal']['journal_path']}", flush=True)
+        print(render_unplaced(organised["unplaced"]), flush=True)
+    return {"promoted": finals, "organised": organised}
+
+
+def discard_staged_reels(project, project_folder: str,
+                         staging_names) -> None:
+    """Delete refused staging containers and forget their baselines.
+
+    The gate-fail path, called before the refusal propagates: the
+    staging timelines are removed - guarded by `assert_deletion_scope`
+    against the staging set, so a wrong list cannot take an approved
+    timeline with it - and the provenance, overlay and explainer
+    records filed under the staging names are dropped, so no later
+    verifier grades the surviving approved reels against a refused
+    build's baseline. The approved timelines are never named here and
+    cannot be reached through this function.
+    """
+    import os
+
+    staging = list(staging_names or ())
+    if not staging:
+        return
+    found = timelines_to_replace(project, set(staging))
+    assert_deletion_scope(found, set(staging))
+    if found:
+        project.GetMediaPool().DeleteTimelines(found)
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    from library.tools.plan_provenance import drop_reel_entries
+    drop_reel_entries(review_dir, staging)
+    _drop_overlay_records(review_dir, staging)
+    from library.tools.explainer_plan import drop_plan_reels
+    drop_plan_reels(project_folder, staging)
+
+
+def discard_staged_record(project_folder: str, resolve_project_name: str,
+                          staging_names) -> None:
+    """Connect to Resolve and discard the named staging containers.
+
+    The `verify_reels` node's fail path: the build node already
+    returned, so the in-process discard in `rebuild_reels_in_project`
+    cannot run. The refused staging is still removed and forgotten
+    before the refusal propagates, and the approved timelines are
+    still in the project. A connect failure is said, not swallowed -
+    but it never stops the gate's own refusal from propagating.
+    """
+    project = _connect_resolve_project(resolve_project_name)
+    discard_staged_reels(project, project_folder, staging_names)
+
+
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
                              name_suffix: str = "",
                              organise: bool = True) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
-    A BUILD MAY ONLY DELETE WHAT IT IS ABOUT TO PLACE.  This used to
-    delete every timeline whose name began `"Reel "` and then build the
-    approved moments, which is a different and much larger act: on the
-    field-test project it destroys nineteen approved timelines in order
-    to write nineteen, and it destroys any reel the current plan no
-    longer contains without saying so.  The names this call will place
-    are computed first and only those are deleted, so a rebuild replaces
-    exactly its own output and a build of one reel touches one timeline.
-    `write_provenance` has merged rather than replaced since #568 for
-    the same reason - *"a partial rebuild must not delete the provenance
-    of the reels it did not touch"* - and the delete loop was the half
-    that made a partial rebuild impossible in the first place.
+    NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
+    delete the timelines it was about to replace first and run the
+    conformance verifier last, so a build the gate refused - reel 5 of
+    the 2026-09-08 rebuild, F17 (mixed-speaker card) plus F8 (end cuts
+    mid-word) - exited 1 AFTER replacing the live timeline, converting
+    an approved reel into verify-failed content
+    (`docs/REEL_REBUILD_RUN_20260908_R3.md`). The delete-then-verify
+    order made that outcome expressible; the order below makes it not:
+
+    1. STAGE: each reel is placed into `<final>{STAGING_SUFFIX}` and
+       NOTHING existing is deleted or renamed. The gate grades the
+       staging containers, and the sidecar baselines (provenance,
+       transition overlays, explainer plans) are filed under the
+       staging names so the grading has a recorded baseline.
+    2. VERIFY (when `verify` is true): the gate runs over the staging.
+       A refusal deletes the staging containers, drops their sidecar
+       entries, and raises - the approved timelines were never named
+       and are still there.
+    3. PROMOTE: only a pass renames staging -> final, retiring each
+       approved original to a backup name first and deleting the
+       backups last (`promote_staged_reels`). Filing the media pool
+       (`organise`) happens here, because filing is about reels that
+       already exist under their real names.
+
+    With `verify=False` the call stops after staging and returns the
+    staging record; the `verify_reels` node grades it and promotes on
+    a pass. Either way no path deletes an approved timeline before a
+    passing gate.
+
+    A BUILD MAY ONLY DELETE WHAT IT IS ABOUT TO PLACE - and now it
+    deletes nothing at all until promotion. The names this call will
+    place are still computed first and a build of one reel still
+    touches one timeline. `write_provenance` has merged rather than
+    replaced since #568 for the same reason - *"a partial rebuild must
+    not delete the provenance of the reels it did not touch"*.
 
     `only` selects WHICH approved moments to build, by reel number.
     `None` is every approved moment, which is what every caller had.
 
-    `name_suffix` is appended to the name each reel is built INTO.  `""`
-    is the plan's own name, which is what every caller had.  A non-empty
-    suffix builds the same plan into a different container, which is the
-    only way to compare a rebuild against an approved timeline instead
-    of overwriting it.  It reaches the captions too (`built_name`).
+    `name_suffix` is appended to the FINAL name each reel promotes to.
+    `""` is the plan's own name, which is what every caller had. A
+    non-empty suffix builds the same plan toward a different final
+    container, which is the only way to compare a rebuild against an
+    approved timeline instead of overwriting it. It reaches the
+    captions too (`built_name`) - via the STAGING name, so a rebuild
+    never renders into the overlay files the approved timeline still
+    points at.
 
-    `organise` files the media pool after the build, so a rebuild TIDIES
-    UP rather than accumulating: the reels this call placed land in
-    `Reels/Current plan`, and a reel the live plan no longer names moves
-    to `Reels/Earlier plans` - moved and relabelled, never deleted.
-    Without it, `CreateEmptyTimeline` and `ImportMedia` put what they
-    make into whatever bin was CURRENT, which is wherever the operator
-    last clicked; measured on the field test, that scattered 49
-    timelines and 2,573 renders across three bins with nothing recording
-    why.  It runs AFTER the build and after provenance, because filing
-    is about reels that already exist and a failure to file must not
-    read as a failure to build.  See
-    `library/tools/resolve_organization.py`.
+    `organise` files the media pool after promotion, so a rebuild
+    TIDIES UP rather than accumulating: the reels this call placed
+    land in `Reels/Current plan`, and a reel the live plan no longer
+    names moves to `Reels/Earlier plans` - moved and relabelled, never
+    deleted. Without it, `CreateEmptyTimeline` and `ImportMedia` put
+    what they make into whatever bin was CURRENT, which is wherever
+    the operator last clicked; measured on the field test, that
+    scattered 49 timelines and 2,573 renders across three bins with
+    nothing recording why. It runs AFTER promotion, because filing is
+    about reels that already exist and a failure to file must not read
+    as a failure to build. See
+    `library/tools/resolve_organization.py`. With `verify=False` the
+    filing is deferred to whoever promotes.
 
-    `verify` defaults to True, so nothing that called this before gets a
-    weaker gate than it had: a direct caller still has the conformance
-    verifier run at the end and still gets a raise on a defective build.
+    `verify` defaults to True, so nothing that called this before gets
+    a weaker gate than it had: a direct caller still has the
+    conformance verifier run and still gets a raise on a defective
+    build - with the approved timelines intact.
 
     The one caller that passes False is the `build_reels` node of
     `library/processes/reels`, whose process has `verify_reels` as its
-    own node.  A build that was placed and a build that conformed are two
-    facts that fail for different reasons, and a ledger keyed by node id
-    can only tell them apart if two nodes recorded them.  Running the
-    verifier in both places would report one set of findings twice under
-    two step ids.
+    own node. A build that was placed and a build that conformed are
+    two facts that fail for different reasons, and a ledger keyed by
+    node id can only tell them apart if two nodes recorded them.
+    Running the verifier in both places would report one set of
+    findings twice under two step ids.
 
-    The RETURN VALUE is what the edge to `verify_reels` carries.  Every
-    field of it was already computed here and then dropped on the floor -
+    The RETURN VALUE is what the edge to `verify_reels` carries.
+    `timelines_built` names what is IN RESOLVE right now - the staging
+    containers while staged, the final names once promoted - so the
+    record is always directly gradeable and never names a timeline
+    that does not exist. `staged_timelines` maps final -> staging
+    while anything is staged and is `{}` once promotion renamed them;
+    the verifier promotes off that mapping. Every other field was
+    already computed here and then dropped on the floor -
     `built_reel_names` and `caption_hashes` went into provenance and
     nowhere else - which is how a verifier could re-derive a different
     grouping a day later and grade against it.
@@ -1865,8 +2198,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         
     snapshot = snapshot_timeline(timeline, project.GetName())
     master_clips = snapshot.clips
-    
-    pool = project.GetMediaPool()
 
     # WHICH moments this call builds, decided before anything is touched.
     # `only` is reel numbers; an approved moment not named by it is left
@@ -1886,21 +2217,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 f"quietly skipped them would report success having placed "
                 f"nothing.")
 
-    # DELETE ONLY WHAT THIS CALL IS ABOUT TO PLACE, and REFUSE rather
-    # than delete anything else. See `timelines_to_replace` and
+    # STAGE, not replace: the final names this call is FOR, and the
+    # staging containers it actually places. Nothing existing is
+    # deleted or renamed here - promotion does that, and only on a
+    # passing gate. See `timelines_to_replace` and
     # `assert_deletion_scope`.
     target_names = {built_name(m, name_suffix) for m in building}
-    timelines_to_delete = timelines_to_replace(project, target_names)
-    assert_deletion_scope(timelines_to_delete, target_names)
-
-    if timelines_to_delete:
-        print(f"Replacing {len(timelines_to_delete)} existing timeline(s): "
-              f"{sorted(t.GetName() for t in timelines_to_delete)}",
-              flush=True)
-        pool.DeleteTimelines(timelines_to_delete)
-    else:
-        print(f"Deleting nothing: none of "
-              f"{sorted(target_names)} exists yet.", flush=True)
+    # In BUILD order, not set order: everything downstream - the gate
+    # scope, the promotion order, the record - reads this mapping's
+    # order, and a run must report reels in the order it built them.
+    staged_to_final = {built_name(m, name_suffix): staging_name(built_name(m, name_suffix))
+                       for m in building}
+    staged_names = set(staged_to_final.values())
+    stale_staging = timelines_to_replace(project, staged_names)
+    if stale_staging:
+        raise ReelBuildError(
+            f"REFUSING to build: {len(stale_staging)} staging "
+            f"timeline(s) from an interrupted run are still in the "
+            f"project - "
+            f"{sorted(t.GetName() for t in stale_staging)}. Delete "
+            f"them in Resolve and re-run; reusing a debris container "
+            f"would grade one run's content as another's.")
+    stale_backups = timelines_to_replace(
+        project, {backup_name(final) for final in target_names})
+    if stale_backups:
+        raise ReelBuildError(
+            f"REFUSING to build: {len(stale_backups)} backup "
+            f"timeline(s) from an interrupted promotion are still in "
+            f"the project - "
+            f"{sorted(t.GetName() for t in stale_backups)}. They hold "
+            f"approved content a previous run moved aside. Restore or "
+            f"delete them in Resolve and re-run.")
 
     # The project's transition-element declaration, resolved ONCE - the
     # element is measured here rather than per reel, so a declaration
@@ -1930,132 +2277,149 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # nineteen answers to one question.
     judgement = _read_judgement(project_folder)
     brand_effect = _brand_effect(project_folder)
-    for moment in building:
-        name = built_name(moment, name_suffix)
-        print(f"Building {name}", flush=True)
-        built_reel_names.append(name)
-        # A repetition this build is LEAVING IN, and why, said where the
-        # operator is already looking. Silence here is what let reel 03
-        # be rebuilt worse at the open than the timeline it replaced.
-        for group in refused_take_groups(moment.timeline_start,
-                                         moment.timeline_end, transcript):
-            print(f"  repetition kept at {group['start']:.2f}-"
-                  f"{group['end']:.2f}s ({group['speaker']}): "
-                  f"{group['why_nothing_was_cut']}", flush=True)
-        ranges = reel_ranges(moment, transcript)
+    # A build that fails HALF WAY must not leave half a staging behind
+    # silently either: whatever was placed is discarded on the way out,
+    # so a re-run starts from no debris of this run. The approved
+    # timelines were never touched and need no recovery.
+    current_staging: str | None = None
+    try:
+        for moment in building:
+            final = built_name(moment, name_suffix)
+            name = staged_to_final[final]
+            current_staging = name
+            print(f"Building {name}", flush=True)
+            # A repetition this build is LEAVING IN, and why, said where the
+            # operator is already looking. Silence here is what let reel 03
+            # be rebuilt worse at the open than the timeline it replaced.
+            for group in refused_take_groups(moment.timeline_start,
+                                             moment.timeline_end, transcript):
+                print(f"  repetition kept at {group['start']:.2f}-"
+                      f"{group['end']:.2f}s ({group['speaker']}): "
+                      f"{group['why_nothing_was_cut']}", flush=True)
+            ranges = reel_ranges(moment, transcript)
 
-        # Full-frame elements FIRST, because a head card decides where
-        # every other thing on this reel starts. Planned and rendered
-        # before anything is placed, so a declaration that cannot be
-        # resolved - a binding with nothing behind it, a typeface that
-        # will not draw - stops this reel here rather than after a
-        # timeline exists (`library/tools/full_frame_element.py`).
-        cards = plan_cards(moment, transcript, ranges, project_folder,
-                           fps=24000 / 1001, declarations=card_declarations)
-        if cards:
-            from library.tools.full_frame_element import render_reel_cards
-            print(f"  {len(cards)} full-frame element(s) declared",
-                  flush=True)
-            cards = render_reel_cards(
-                cards,
-                str(REMOTION_DIR),
-                card_render_dir(project_folder))
-        lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
+            # Full-frame elements FIRST, because a head card decides where
+            # every other thing on this reel starts. Planned and rendered
+            # before anything is placed, so a declaration that cannot be
+            # resolved - a binding with nothing behind it, a typeface that
+            # will not draw - stops this reel here rather than after a
+            # timeline exists (`library/tools/full_frame_element.py`).
+            cards = plan_cards(moment, transcript, ranges, project_folder,
+                               fps=24000 / 1001, declarations=card_declarations)
+            if cards:
+                from library.tools.full_frame_element import render_reel_cards
+                print(f"  {len(cards)} full-frame element(s) declared",
+                      flush=True)
+                cards = render_reel_cards(
+                    cards,
+                    str(REMOTION_DIR),
+                    card_render_dir(project_folder))
+            lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
 
-        # Was: computed by the standalone captioner and then passed as
-        # None, so every reel built since #524 carried no subtitles at
-        # all while the work was done and discarded.
-        subtitle_segments = None if skip_captions else reel_subtitle_segments(
-            moment, transcript, ranges, project_folder,
-            fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
-            lead_seconds=lead)
+            # Was: computed by the standalone captioner and then passed as
+            # None, so every reel built since #524 carried no subtitles at
+            # all while the work was done and discarded.
+            subtitle_segments = None if skip_captions else reel_subtitle_segments(
+                moment, transcript, ranges, project_folder,
+                fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
+                lead_seconds=lead)
 
-        # The animated explainer. A project that declares none gets
-        # `([], plan)` with the plan saying `not_declared`, and the
-        # timeline it gets is the one it got before this existed.
-        explainer_segments, explainer_plan = reel_explainer_segments(
-            moment, transcript, ranges, project_folder,
-            fps=24000 / 1001, width=1080, height=1920,
-            judgement=judgement, brand_effect=brand_effect,
-            timeline_name=name)
-        explainer_plans.append(explainer_plan)
+            # The animated explainer. A project that declares none gets
+            # `([], plan)` with the plan saying `not_declared`, and the
+            # timeline it gets is the one it got before this existed.
+            explainer_segments, explainer_plan = reel_explainer_segments(
+                moment, transcript, ranges, project_folder,
+                fps=24000 / 1001, width=1080, height=1920,
+                judgement=judgement, brand_effect=brand_effect,
+                timeline_name=name)
+            explainer_plans.append(explainer_plan)
 
-        # RECORD what was placed. Derived at build time and previously
-        # written down nowhere, which is why the verifier could re-derive
-        # a different grouping a day later and grade against it.
-        #
-        # Two hashes, answering different questions:
-        # - caption_content_hash: WHAT was said and WHEN in the reel.
-        # - footage_binding_hash: WHICH footage the captions were
-        #   computed against. A caption that passes the content check
-        #   but fails the binding check was placed against footage that
-        #   moved - exactly the defect that was invisible before.
-        if subtitle_segments:
-            entries = getattr(subtitle_segments, "caption_entries", None)
-            if entries:
-                from library.tools.plan_provenance import caption_content_hash
-                caption_hashes[name] = caption_content_hash(entries)
-            spine = getattr(subtitle_segments, "spine", None)
-            if spine:
-                from library.tools.plan_provenance import footage_binding_hash
-                try:
-                    footage_binding_hashes[name] = footage_binding_hash(spine)
-                except ValueError:
-                    pass  # No bindings in spine - skip silently
+            # RECORD what was placed. Derived at build time and previously
+            # written down nowhere, which is why the verifier could re-derive
+            # a different grouping a day later and grade against it.
+            #
+            # Two hashes, answering different questions:
+            # - caption_content_hash: WHAT was said and WHEN in the reel.
+            # - footage_binding_hash: WHICH footage the captions were
+            #   computed against. A caption that passes the content check
+            #   but fails the binding check was placed against footage that
+            #   moved - exactly the defect that was invisible before.
+            if subtitle_segments:
+                entries = getattr(subtitle_segments, "caption_entries", None)
+                if entries:
+                    from library.tools.plan_provenance import caption_content_hash
+                    caption_hashes[name] = caption_content_hash(entries)
+                spine = getattr(subtitle_segments, "spine", None)
+                if spine:
+                    from library.tools.plan_provenance import footage_binding_hash
+                    try:
+                        footage_binding_hashes[name] = footage_binding_hash(spine)
+                    except ValueError:
+                        pass  # No bindings in spine - skip silently
 
-        # Transition elements over this reel's own cuts. The plan is
-        # made from the SAME `ranges` the picture was placed from, so an
-        # element cannot land on a cut that is not there. An empty plan
-        # says why it is empty and that reason is printed, because a
-        # declaration that quietly draws nothing is the failure this
-        # whole area keeps producing (AGENTS.md 10.2).
-        overlay_plan = None
-        if overlay_declared:
-            overlay_plan = overlay_mod.plan_reel_overlays(
-                overlay_effect, ranges, 24000 / 1001, project_folder,
-                closer_seam_frame=_closer_seam_frame(
-                    moment, ranges, 24000 / 1001))
-            overlay_records[name] = overlay_plan.as_dict()
-            if overlay_plan.placements:
-                # The GESTURE is said on the run that places it. An
-                # element that stamps the cut rather than hiding it is a
-                # legitimate choice and an easy one to make by accident:
-                # both are asked for in the same words, and the
-                # difference is invisible until it is on the timeline.
-                print(f"  {len(overlay_plan.placements)} transition "
-                      f"element(s) on V{overlay_mod.OVERLAY_TRACK}: "
-                      f"seams {[p.seam_index for p in overlay_plan.placements]}"
-                      f" - {overlay_plan.element.gesture}", flush=True)
-            else:
-                print(f"  no transition element placed: "
-                      f"{overlay_plan.reason_empty}", flush=True)
+            # Transition elements over this reel's own cuts. The plan is
+            # made from the SAME `ranges` the picture was placed from, so an
+            # element cannot land on a cut that is not there. An empty plan
+            # says why it is empty and that reason is printed, because a
+            # declaration that quietly draws nothing is the failure this
+            # whole area keeps producing (AGENTS.md 10.2).
+            overlay_plan = None
+            if overlay_declared:
+                overlay_plan = overlay_mod.plan_reel_overlays(
+                    overlay_effect, ranges, 24000 / 1001, project_folder,
+                    closer_seam_frame=_closer_seam_frame(
+                        moment, ranges, 24000 / 1001))
+                overlay_records[name] = overlay_plan.as_dict()
+                if overlay_plan.placements:
+                    # The GESTURE is said on the run that places it. An
+                    # element that stamps the cut rather than hiding it is a
+                    # legitimate choice and an easy one to make by accident:
+                    # both are asked for in the same words, and the
+                    # difference is invisible until it is on the timeline.
+                    print(f"  {len(overlay_plan.placements)} transition "
+                          f"element(s) on V{overlay_mod.OVERLAY_TRACK}: "
+                          f"seams {[p.seam_index for p in overlay_plan.placements]}"
+                          f" - {overlay_plan.element.gesture}", flush=True)
+                else:
+                    print(f"  no transition element placed: "
+                          f"{overlay_plan.reason_empty}", flush=True)
 
-        build_reel_timeline(
-            project=project,
-            moment=moment,
-            master_clips=master_clips,
-            subtitle_segments=subtitle_segments,
-            fps=24000/1001,
-            width=1080,
-            height=1920,
-            project_folder=project_folder,
-            transcript=transcript,
-            timeline_name=name,
-            cards=cards,
-            overlay_placements=(overlay_plan.placements
-                                if overlay_plan else None),
-            explainer_segments=explainer_segments,
-        )
-        for card in cards or ():
-            # SAID on the run that placed it, rather than recorded in the
-            # return value: the verifier re-derives the cards from the
-            # project's own declaration with this module's code, the same
-            # way it re-derives the placements, so a second copy in the
-            # build record would be a field with no reader (AGENTS.md
-            # 10.1).
-            print(f"  placed {card.placement} card {card.render_name} at "
-                  f"reel frame {card.reel_start_frame} "
-                  f"({card.duration_frames}f)", flush=True)
+            build_reel_timeline(
+                project=project,
+                moment=moment,
+                master_clips=master_clips,
+                subtitle_segments=subtitle_segments,
+                fps=24000/1001,
+                width=1080,
+                height=1920,
+                project_folder=project_folder,
+                transcript=transcript,
+                timeline_name=name,
+                cards=cards,
+                overlay_placements=(overlay_plan.placements
+                                    if overlay_plan else None),
+                explainer_segments=explainer_segments,
+            )
+            # Placed: only now is this staging a container the gate may
+            # grade and promotion may move. An exception above leaves the
+            # name off this list and the except below removes whatever
+            # half-built container may exist under it.
+            built_reel_names.append(name)
+            for card in cards or ():
+                # SAID on the run that placed it, rather than recorded in the
+                # return value: the verifier re-derives the cards from the
+                # project's own declaration with this module's code, the same
+                # way it re-derives the placements, so a second copy in the
+                # build record would be a field with no reader (AGENTS.md
+                # 10.1).
+                print(f"  placed {card.placement} card {card.render_name} at "
+                      f"reel frame {card.reel_start_frame} "
+                      f"({card.duration_frames}f)", flush=True)
+    except Exception:
+        placed = list(dict.fromkeys(
+            built_reel_names + ([current_staging] if current_staging else [])))
+        discard_staged_reels(project, project_folder, placed)
+        raise
 
     # What each reel's explainer really was, INCLUDING the empty ones.
     # Recorded rather than re-derived, for the reason
@@ -2090,44 +2454,63 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     _write_overlay_records(review_dir, built_reel_names, overlay_records)
 
     organised = None
-    if organise:
-        from library.tools.execution.organise_media_pool import (
-            organise_project, render_unplaced)
-        organised = organise_project(
-            project, project_folder, master_timeline_name, apply=True)
-        print(f"Filed {len(organised['journal']['moves'])} media-pool "
-              f"item(s); undo with "
-              f"resolve-organize --revert "
-              f"{organised['journal']['journal_path']}", flush=True)
-        # A rebuild renders a NEW caption identity for every passage it
-        # changed and imports it; the previous generation's pool items
-        # stay, and filing them under `Not placed on any timeline` moves
-        # them without ever saying how many there now are.  So the build
-        # that produced them SAYS so, on the run that produced them.
-        # Measured on the field test: 1,216 such items, 5.40 GiB, and no
-        # rebuild had ever mentioned one of them.
-        print(render_unplaced(organised["unplaced"]), flush=True)
-
+    staged_out = dict(staged_to_final)
     if verify:
-        # Scoped to what THIS call placed: verifying the whole project
-        # here is what made one reel cost 49 gradings, and grading
-        # eighteen untouched timelines against the current plan is how
-        # a clean single-reel build failed on findings it never touched
+        # Scoped to what THIS call placed - the staging containers, not
+        # the approved timelines: verifying the whole project here is
+        # what made one reel cost 49 gradings, and grading eighteen
+        # untouched timelines against the current plan is how a clean
+        # single-reel build failed on findings it never touched
         # (data/vep-rebuild-verify/report.md 3.5). `None` is unreachable
         # here - `built_reel_names` is a list, possibly empty - and an
         # empty one is refused inside `verify_built_reels` rather than
         # passing on nothing.
-        verify_built_reels(
-            project_folder=project_folder,
-            resolve_project_name=resolve_name,
-            master_timeline_name=master_timeline_name,
-            plan_path=proposal_path,
-            transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
-            only_reels=list(built_reel_names),
-        )
+        try:
+            verify_built_reels(
+                project_folder=project_folder,
+                resolve_project_name=resolve_name,
+                master_timeline_name=master_timeline_name,
+                plan_path=proposal_path,
+                transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
+                only_reels=list(built_reel_names),
+            )
+        except Exception:
+            # The gate refused: the staging containers and their
+            # baselines go, the approved timelines were never named.
+            # Reel 5's F17+F8 is exactly this path - and the reel the
+            # captain approved is still in the project afterwards.
+            discard_staged_reels(project, project_folder, built_reel_names)
+            raise
+        promoted = promote_staged_reels(
+            project_folder, resolve_name, master_timeline_name,
+            dict(staged_to_final), organise=organise)
+        organised = promoted["organised"]
+        # From here the record speaks final names: what is in Resolve
+        # now is the promoted timelines, and the sidecar files were
+        # renamed to match by the promotion.
+        final_names = promoted["promoted"]
+        caption_hashes = {
+            final: caption_hashes[staged_to_final[final]]
+            for final in final_names if staged_to_final[final] in caption_hashes}
+        footage_binding_hashes = {
+            final: footage_binding_hashes[staged_to_final[final]]
+            for final in final_names
+            if staged_to_final[final] in footage_binding_hashes}
+        overlay_records = {
+            final: overlay_records[staged_to_final[final]]
+            for final in final_names
+            if staged_to_final[final] in overlay_records}
+        built_reel_names = list(final_names)
+        staged_out = {}
 
     return {
         "timelines_built": built_reel_names,
+        # Final -> staging while anything is staged, `{}` once
+        # promotion renamed them. The `verify_reels` node grades
+        # `timelines_built` and promotes off this mapping; absent on
+        # records written before staging existed, which are already
+        # final and promote to nothing.
+        "staged_timelines": staged_out,
         "caption_hashes": caption_hashes,
         "plan_path": proposal_path,
         "resolve_project_name": resolve_name,
@@ -2140,7 +2523,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "reels_requested": None if wanted is None else sorted(wanted),
         "name_suffix": name_suffix,
         # Where the media pool was filed, and the journal that undoes it.
-        # None when the caller declined; never a silent empty record.
+        # None when the caller declined - and when the call stopped at
+        # staging (`verify=False`), where filing waits for whoever
+        # promotes. Never a silent empty record.
         "organised": organised,
         # The transition elements laid over each reel's cuts, per reel,
         # INCLUDING the reels where nothing was placed and why. An empty

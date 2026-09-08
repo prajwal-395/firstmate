@@ -94,23 +94,67 @@ def verify_reels(data: dict) -> dict:
             "is nothing this node may grade. Grading every reel timeline "
             "instead would re-grade work this build never touched; "
             "re-run build_reels.")
-    verify_built_reels(
-        project_folder=project_folder,
-        resolve_project_name=resolve_project_name,
-        master_timeline_name=master_timeline_name,
-        plan_path=plan_path,
-        # ONE spelling of where the transcript lives, owned by the module
-        # that writes it (tests/test_operations.py pins that it is not
-        # composed by hand outside reel_build.py).
-        transcript_path=str(transcript_path(project_folder)),
-        only_reels=timelines_built)
+    # `staged_timelines` maps final -> staging while anything is
+    # staged. It is absent on records written before staging existed -
+    # those timelines are already final and promote to nothing, so
+    # grading them is the whole job and there is no second half.
+    staged = dict(build.get("staged_timelines") or {})
+    try:
+        verify_built_reels(
+            project_folder=project_folder,
+            resolve_project_name=resolve_project_name,
+            master_timeline_name=master_timeline_name,
+            plan_path=plan_path,
+            # ONE spelling of where the transcript lives, owned by the
+            # module that writes it (tests/test_operations.py pins that
+            # it is not composed by hand outside reel_build.py).
+            transcript_path=str(transcript_path(project_folder)),
+            only_reels=timelines_built)
+    except Exception:
+        # The gate refused: the staging containers and their baselines
+        # go before the refusal propagates, or the next build would
+        # refuse on this run's debris. The approved timelines were
+        # never named and are still in the project. A discard that
+        # itself fails is said, never silent - but it never stops the
+        # gate's own refusal, which is the verdict that matters.
+        if staged:
+            from library.tools.reel_build import discard_staged_record
+            try:
+                discard_staged_record(
+                    project_folder, resolve_project_name,
+                    list(staged.values()))
+            except Exception as cleanup_failed:
+                import sys as _sys
+                print(f"verify_reels: gate refused AND staging cleanup "
+                      f"failed ({cleanup_failed}) - clear the staging "
+                      f"timelines {sorted(staged.values())} in Resolve "
+                      f"before re-running", file=_sys.stderr)
+        raise
+
+    # Promotion is the build's deferred second half, and it runs HERE -
+    # after this gate passed, never before. The build node stages into
+    # separate containers and grades nothing; this node grades the
+    # staging and only then moves it onto the final names, retiring
+    # each approved original to a backup first
+    # (`reel_build.promote_staged_reels`).
+    organised = None
+    if staged:
+        from library.tools.reel_build import promote_staged_reels
+        promoted = promote_staged_reels(
+            project_folder, resolve_project_name, master_timeline_name,
+            staged)
+        organised = promoted["organised"]
+        timelines_verified = list(promoted["promoted"])
+    else:
+        timelines_verified = list(timelines_built)
 
     return {"reel_verification": {
         "passed": True,
         "plan_path": plan_path,
-        "timelines_verified": list(build.get("timelines_built") or ()),
+        "timelines_verified": timelines_verified,
         "resolve_project_name": resolve_project_name,
         "master_timeline_name": master_timeline_name,
+        "organised": organised,
     }}
 
 

@@ -35,7 +35,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from library.tools.reel_build import (
+    BACKUP_SUFFIX,
     ReelBuildError,
+    STAGING_SUFFIX,
     assert_deletion_scope,
     rebuild_reels_in_project,
     timelines_to_replace,
@@ -81,12 +83,17 @@ def _moment(number, name):
 
 def _timeline(name):
     timeline = MagicMock()
-    timeline.GetName.return_value = name
+    timeline._name = name
+    timeline.GetName.side_effect = lambda: timeline._name
+    def _rename(new):
+        timeline._name = new
+        return True
+    timeline.SetName.side_effect = _rename
     return timeline
 
 
 class FakeProject:
-    """A Resolve project whose media pool really deletes.
+    """A Resolve project whose media pool really creates and deletes.
 
     A mock that only RECORDS the delete call cannot answer the question
     the captain asked - are the other eighteen still there - so this
@@ -98,7 +105,14 @@ class FakeProject:
         self.created = []
         pool = MagicMock()
         pool.DeleteTimelines.side_effect = self._delete
+        pool.CreateEmptyTimeline.side_effect = self._create
         self._pool = pool
+
+    def _create(self, name):
+        timeline = _timeline(name)
+        self.timelines.append(timeline)
+        self.created.append(name)
+        return timeline
 
     def _delete(self, timelines):
         for timeline in timelines:
@@ -123,7 +137,13 @@ class FakeProject:
 
 def _run(resolve_project, project_dir, **kwargs):
     """Drive the ONE build path with Resolve, the verifier and the placer faked."""
-    with patch("library.tools.reel_build.build_reel_timeline") as placed, \
+    def _place(**place_kwargs):
+        name = place_kwargs.get("timeline_name")
+        assert name, "the placer was asked to build into no container"
+        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+
+    with patch("library.tools.reel_build.build_reel_timeline",
+               side_effect=_place) as placed, \
             patch("library.tools.reel_build.reel_subtitle_segments") as caps, \
             patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
             patch("library.tools.reel_build.resolve_project_exactly",
@@ -148,9 +168,11 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     """The whole defect, stated as the survivors.
 
     Reel 03 is legitimately replaced - it is the one being rebuilt, and
-    the fake placer does not put it back.  The other EIGHTEEN and the
-    master must still be there.  Under the loop this replaces, this
-    assertion reads `['GEO Podcast - Synced']`.
+    promotion retires its original to a backup and moves the passing
+    staging onto its name. The other EIGHTEEN and the master must still
+    be there, and no staging or backup container may be left behind.
+    Under the loop this replaces, this assertion reads
+    `['GEO Podcast - Synced']`.
     """
     resolve_project = FakeProject([MASTER] + APPROVED)
 
@@ -162,9 +184,12 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     for name in untouched:
         assert name in survivors, f"{name} was deleted by a build of reel 3"
     assert len(untouched) == 18
-    assert survivors == [MASTER] + untouched
+    assert sorted(survivors) == sorted([MASTER] + APPROVED)
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
+    assert record["staged_timelines"] == {}
     assert placed.call_count == 1
+    assert placed.call_args[1]["timeline_name"] == (
+        "Reel 03 - moment-3" + STAGING_SUFFIX)
 
 
 def test_building_one_reel_into_a_new_name_deletes_nothing_at_all(project):
@@ -173,12 +198,13 @@ def test_building_one_reel_into_a_new_name_deletes_nothing_at_all(project):
     record, placed, _ = _run(resolve_project, project, only=[3],
                              name_suffix=" (pipeline rebuild)")
 
-    assert resolve_project.names() == [MASTER] + APPROVED
+    assert sorted(resolve_project.names()) == sorted(
+        [MASTER] + APPROVED + ["Reel 03 - moment-3 (pipeline rebuild)"])
     assert not resolve_project.GetMediaPool().DeleteTimelines.called
     assert record["timelines_built"] == [
         "Reel 03 - moment-3 (pipeline rebuild)"]
     assert placed.call_args[1]["timeline_name"] == (
-        "Reel 03 - moment-3 (pipeline rebuild)")
+        "Reel 03 - moment-3 (pipeline rebuild)" + STAGING_SUFFIX)
 
 
 def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
@@ -186,6 +212,9 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
 
     The old loop deleted it because the name began "Reel ". Deleting a
     timeline nothing is about to replace is destruction, not a rebuild.
+    Promotion deletes only the backups it retired this run's originals
+    to - nineteen, each carrying a backup suffix, none of them the
+    orphan.
     """
     resolve_project = FakeProject([MASTER] + APPROVED + ["Reel 99 - orphan"])
 
@@ -193,7 +222,10 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
 
     assert "Reel 99 - orphan" in resolve_project.names()
     deleted = resolve_project.GetMediaPool().DeleteTimelines.call_args[0][0]
-    assert sorted(t.GetName() for t in deleted) == sorted(APPROVED)
+    assert sorted(t.GetName() for t in deleted) == sorted(
+        name + BACKUP_SUFFIX for name in APPROVED)
+    assert sorted(resolve_project.names()) == sorted(
+        [MASTER] + APPROVED + ["Reel 99 - orphan"])
     assert record["timelines_built"] == APPROVED
     assert placed.call_count == 19
 
@@ -227,6 +259,9 @@ def test_the_guard_is_wired_where_the_deletion_happens(project):
 
     The selection is made to over-collect - the shape the old loop had -
     and the build must refuse before anything is deleted or placed.
+    Nothing is deleted before the gate passes any more, so the refusal
+    now fires at the staging check: a debris container is never reused
+    as this run's staging, whatever produced the list.
     """
     resolve_project = FakeProject([MASTER] + APPROVED)
     everything = [t for t in resolve_project.timelines
@@ -271,6 +306,11 @@ def test_the_suffix_reaches_the_caption_filenames(project):
     caption content - so a rebuild under the old label writes new words
     into the exact files the approved timeline still points at, leaving
     every database row identical and the picture changed.
+
+    The staging container carries the final name plus the staging
+    suffix, so its renders land in their own files and the approved
+    timeline's overlays are untouched until promotion renames the
+    timeline (pool items, not filenames, are what it points at).
     """
     resolve_project = FakeProject([MASTER] + APPROVED)
 
@@ -278,7 +318,7 @@ def test_the_suffix_reaches_the_caption_filenames(project):
                       name_suffix=" (pipeline rebuild)")
 
     assert caps.call_args[1]["timeline_name"] == (
-        "Reel 03 - moment-3 (pipeline rebuild)")
+        "Reel 03 - moment-3 (pipeline rebuild)" + STAGING_SUFFIX)
 
 
 def test_the_record_says_what_the_build_was_asked_for(project):
@@ -287,6 +327,7 @@ def test_the_record_says_what_the_build_was_asked_for(project):
     full, _, _ = _run(resolve_project, project)
     assert full["reels_requested"] is None
     assert full["name_suffix"] == ""
+    assert full["staged_timelines"] == {}
     assert json.dumps(full)
 
     resolve_project = FakeProject([MASTER] + APPROVED)
@@ -294,6 +335,7 @@ def test_the_record_says_what_the_build_was_asked_for(project):
                          name_suffix=" (pipeline rebuild)")
     assert partial["reels_requested"] == [3, 5]
     assert partial["name_suffix"] == " (pipeline rebuild)"
+    assert partial["staged_timelines"] == {}
 
 
 # ── What `only` accepts, and what it refuses ─────────────────────────

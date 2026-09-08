@@ -305,6 +305,68 @@ def write_provenance(
     return str(out)
 
 
+def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
+    """Rename reel keys in the provenance sidecar, staging -> final.
+
+    A staged build records its caption and footage-binding hashes under
+    the staging container it actually placed, so the gate grades the
+    staging against a recorded baseline. Promotion renames the claim to
+    the final timeline name: the cards and the footage did not change,
+    only the container's name did. Entries for reels outside `mapping`
+    are left exactly as they are - the same merge rule `write_provenance`
+    keeps for a partial rebuild.
+    """
+    if not mapping:
+        return
+    path = Path(review_dir) / PROVENANCE_FILENAME
+    if not path.is_file():
+        raise ValueError(
+            f"cannot promote reels: no provenance record at {path}")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    missing = [old for old in mapping if old not in
+               set(doc.get("built_reels") or [])]
+    if missing:
+        raise ValueError(
+            f"cannot promote reels: provenance records no build for "
+            f"{missing} - refusing to rename a baseline that was never "
+            f"written")
+    renamed = [mapping.get(name, name)
+               for name in (doc.get("built_reels") or [])]
+    doc["built_reels"] = sorted(renamed)
+    for key in ("caption_hashes", "footage_binding_hashes"):
+        entries = dict(doc.get(key) or {})
+        for old, new in mapping.items():
+            if old in entries:
+                entries[new] = entries.pop(old)
+        doc[key] = entries
+    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
+def drop_reel_entries(review_dir: str, names) -> None:
+    """Remove reel keys from the provenance sidecar.
+
+    The gate-fail path: a refused staging must not leave a baseline
+    behind, or a later verifier would grade the approved timeline that
+    survived against cards the refused build derived. Absent file or
+    absent keys are no-ops - there is nothing to forget.
+    """
+    path = Path(review_dir) / PROVENANCE_FILENAME
+    if not path.is_file():
+        return
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    drop = set(names or ())
+    if not drop:
+        return
+    doc["built_reels"] = [name for name in (doc.get("built_reels") or [])
+                          if name not in drop]
+    for key in ("caption_hashes", "footage_binding_hashes"):
+        entries = dict(doc.get(key) or {})
+        for name in drop:
+            entries.pop(name, None)
+        doc[key] = entries
+    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
 def check_captions_match_provenance(
     reel_name: str,
     cards,

@@ -6,6 +6,8 @@ import sys
 
 from library.tools.reel_build import rebuild_reels_in_project
 
+MASTER = "GEO Podcast - Synced"
+
 # These tests drive the builder against a STAND-IN Resolve project, which
 # has no media pool to file. Organising is exercised where it can be:
 # `tests/test_organise_media_pool.py` against a pool double that answers
@@ -16,6 +18,70 @@ ORGANISE = False
 def mock_dvr():
     with patch.dict("sys.modules", {"DaVinciResolveScript": MagicMock()}):
         yield
+
+
+class _StagingTimeline:
+    """A timeline whose name really changes when renamed."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
+    def SetName(self, name):
+        self._name = name
+        return True
+
+
+class _ResolveProject:
+    """A Resolve project whose pool really creates, renames and deletes."""
+
+    def __init__(self, names):
+        self.timelines = [_StagingTimeline(name) for name in names]
+        pool = MagicMock()
+        pool.DeleteTimelines.side_effect = self._delete
+        pool.CreateEmptyTimeline.side_effect = self._create
+        self._pool = pool
+
+    def _delete(self, timelines):
+        for timeline in timelines:
+            self.timelines.remove(timeline)
+        return True
+
+    def _create(self, name):
+        timeline = _StagingTimeline(name)
+        self.timelines.append(timeline)
+        return timeline
+
+    def GetName(self):
+        return "Mock Project"
+
+    def GetMediaPool(self):
+        return self._pool
+
+    def GetTimelineCount(self):
+        return len(self.timelines)
+
+    def GetTimelineByIndex(self, index):
+        return self.timelines[index - 1]
+
+    def names(self):
+        return [t.GetName() for t in self.timelines]
+
+
+def _placing(resolve_project):
+    """The placer mock, creating the container it was asked for.
+
+    The real placer creates the timeline first and fills it after, so
+    "what exists afterwards" is honest at the container level while
+    every placed item stays mocked away.
+    """
+    def _place(**kwargs):
+        name = kwargs.get("timeline_name")
+        assert name, "the placer was asked to build into no container"
+        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+    return _place
 
 @pytest.fixture
 def mock_project_env(tmp_path):
@@ -53,14 +119,9 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
     moment.timeline_end = 10.0
     mock_read_prop.return_value = [moment]
     
-    mock_proj = MagicMock()
-    mock_proj.GetName.return_value = "Mock Project"
-    
-    mock_timeline = MagicMock()
-    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
-    mock_proj.GetTimelineCount.return_value = 1
-    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_proj = _ResolveProject([MASTER])
     mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
     
     mock_run_verif.return_value = 1
     
@@ -75,6 +136,9 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
                              organise=ORGANISE)
     assert "Hole found" in str(exc_info.value)
     assert "F1" in str(exc_info.value)
+    # The refused staging is removed again: a failing build leaves the
+    # project exactly as it found it, not one debris container up.
+    assert mock_proj.names() == [MASTER]
 
 @patch("library.tools.reel_build.build_reel_timeline")
 @patch("library.tools.resolve_locale.scriptapp_preserving_locale")
@@ -92,13 +156,9 @@ def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mo
     moment.timeline_end = 10.0
     mock_read_prop.return_value = [moment]
 
-    mock_proj = MagicMock()
-    mock_proj.GetName.return_value = "Mock Project"
-    mock_timeline = MagicMock()
-    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
-    mock_proj.GetTimelineCount.return_value = 1
-    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_proj = _ResolveProject([MASTER])
     mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
     
     def side_effect(**kwargs):
         report_path = kwargs.get("json_path")
@@ -113,6 +173,9 @@ def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mo
                              organise=ORGANISE)
     mock_build.assert_called_once()
     mock_run_verif.assert_called_once()
+    # Promoted: the staging container now carries the final name and no
+    # staging container is left behind.
+    assert mock_proj.names() == [MASTER, "Reel 01"]
     
     report_file = mock_project_env / "pipeline_output" / "review" / "conformance_report.json"
     assert report_file.exists()
@@ -133,13 +196,9 @@ def test_verifier_unavailable_fails(mock_resolve_style, mock_snapshot, mock_read
     moment.timeline_end = 10.0
     mock_read_prop.return_value = [moment]
     
-    mock_proj = MagicMock()
-    mock_proj.GetName.return_value = "Mock Project"
-    mock_timeline = MagicMock()
-    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
-    mock_proj.GetTimelineCount.return_value = 1
-    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_proj = _ResolveProject([MASTER])
     mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
     
     original_import = __import__
     def mock_import(name, *args, **kwargs):
@@ -167,13 +226,9 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
     moment.timeline_end = 10.0
     mock_read_prop.return_value = [moment]
     
-    mock_proj = MagicMock()
-    mock_proj.GetName.return_value = "Mock Project"
-    mock_timeline = MagicMock()
-    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
-    mock_proj.GetTimelineCount.return_value = 1
-    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_proj = _ResolveProject([MASTER])
     mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
     
     # run_verification returns 0 if there are only warnings
     mock_run_verif.return_value = 0
@@ -206,13 +261,9 @@ def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_sn
     moment.timeline_end = 10.0
     mock_read_prop.return_value = [moment]
 
-    mock_proj = MagicMock()
-    mock_proj.GetName.return_value = "Mock Project"
-    mock_timeline = MagicMock()
-    mock_timeline.GetName.return_value = "GEO Podcast - Synced"
-    mock_proj.GetTimelineCount.return_value = 1
-    mock_proj.GetTimelineByIndex.return_value = mock_timeline
+    mock_proj = _ResolveProject([MASTER])
     mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
     
     mock_run_verif.return_value = 0
     
