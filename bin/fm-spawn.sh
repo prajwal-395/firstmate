@@ -25,9 +25,11 @@
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
 #   A ship or scout spawn also refuses a brief that still carries unfilled
-#   scaffold placeholders or that leaves any of its four required scope fields
-#   empty, on the same read-the-brief pattern; bin/fm-brief-lib.sh owns the
-#   placeholder pattern, those field names, and both tests, and a brief
+#   scaffold placeholders, that leaves any of its four required scope fields
+#   empty, or - for a ship brief - whose Done-check demands the whole suite
+#   without a stated fan-out reason, on the same read-the-brief pattern;
+#   bin/fm-brief-lib.sh owns the placeholder pattern, those field names, both
+#   tests, the Done-check demand rule, and every refusal wording, and a brief
 #   scaffolded before the fields existed warns once and launches.
 #   A ship or scout spawn also files that task's GitHub tracker ticket, because
 #   this is the one path a dispatch cannot route around and a ticket firstmate has
@@ -1884,6 +1886,18 @@ fm_brief_placeholder_check "$BRIEF" "this spawn" || exit 1
 # so a secondmate spawn is not gated on them.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   fm_brief_scope_check "$BRIEF" "this spawn" || exit 1
+fi
+
+# Whole-suite Done-check guard, checked in the same place and manner as the two
+# gates above: a Done-check demanding the whole suite overrides the scaffold's
+# test-selection ladder, because the Done-check is the last instruction the
+# worker reads. bin/fm-brief-lib.sh is the single owner of the demand rule, the
+# fan-out-reason escape, and the wording; bin/fm-brief.sh --check runs this same
+# gate, so the two never hold separate opinions. Scout briefs carry no
+# Done-check section, so the gate passes them vacuously; a secondmate spawn is
+# not gated on it.
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  fm_brief_fullsuite_check "$BRIEF" "this spawn" || exit 1
 fi
 
 # Brief/spawn delivery agreement, checked before any endpoint exists.

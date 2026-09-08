@@ -11,11 +11,13 @@
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #        fm-brief.sh <task-id> --check
 #   --check reports whether an already-scaffolded brief is ready to dispatch: it
-#   refuses while any scaffold placeholder below is still unfilled, and while any
-#   required scope field below is still empty, naming every unfilled one.
+#   refuses while any scaffold placeholder below is still unfilled, while any
+#   required scope field below is still empty (naming every unfilled one), and
+#   while a ship brief's Done-check demands the whole suite without a stated
+#   fan-out reason.
 #   bin/fm-spawn.sh runs the identical gates before launching a ship or scout
 #   task, so a brief this reports ready is a brief the spawn accepts.
-#   bin/fm-brief-lib.sh owns both gates and their wording.
+#   bin/fm-brief-lib.sh owns every gate and its wording.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -183,9 +185,9 @@ done
 
 # --check inspects a brief that already exists, so it takes neither a delivery
 # mode nor a scaffold kind. bin/fm-brief-lib.sh owns the verdict and its wording;
-# this branch only resolves the path and reports the ready case. The two gates
+# this branch only resolves the path and reports the ready case. The three gates
 # run in the same order as bin/fm-spawn.sh: unfilled placeholders first, then
-# the scope contract.
+# the scope contract, then the whole-suite Done-check guard.
 if [ "$CHECK" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
   [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
@@ -196,6 +198,7 @@ if [ "$CHECK" -eq 1 ]; then
   [ -f "$CHECK_BRIEF" ] || { echo "error: no brief at $CHECK_BRIEF" >&2; exit 1; }
   fm_brief_placeholder_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
+  fm_brief_fullsuite_check "$CHECK_BRIEF" "dispatch" || exit 1
   echo "ready: $CHECK_BRIEF (every required scope field is answered)"
   exit 0
 fi
