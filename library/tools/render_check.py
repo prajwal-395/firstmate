@@ -121,9 +121,28 @@ def check_captions(video_path: str, plan_data: dict) -> List[RenderCheckFinding]
         if dur <= 0:
             failures.append(RenderCheckFinding("captions", False, f"Caption {i} has invalid duration"))
             continue
-            
-        t_sample = start + min(0.5, dur / 2)
-        t_overlay = t_sample - start
+
+        # Probe the SPAN, not one instant. A check that samples one
+        # instant of a span cannot see a span that changes: the overlay
+        # file may cut or fade mid-segment, so the one sample can land
+        # on a blank frame while the render draws the caption on either
+        # side of it (D5's single-pick shape, fixed there by union over
+        # a triplet; `subtitle_qa` already probes with
+        # `find_inked_timestamps`). The overlay is blank only when every
+        # probe across the span is blank, and the caption counts as
+        # drawn when any inked probe matches the render.
+        track_fps = 30.0
+        if isinstance(subtitle_overlay, dict):
+            try:
+                track_fps = float(subtitle_overlay.get("fps") or 30.0)
+            except (TypeError, ValueError):
+                track_fps = 30.0
+        try:
+            source_in = float(seg.get("source_in_frame") or 0.0) / track_fps
+        except (TypeError, ValueError):
+            source_in = 0.0
+        n_probes = 5
+        t_samples = [start + dur * (k + 0.5) / n_probes for k in range(n_probes)]
         
         def get_overlay_plane(t, fmt, overlay_path=overlay_path):
             if fmt == 'alpha':
@@ -138,19 +157,6 @@ def check_captions(video_path: str, plan_data: dict) -> List[RenderCheckFinding]
                 return np.frombuffer(b, dtype=np.uint8)
             return None
 
-        alpha = get_overlay_plane(t_overlay, 'alpha')
-        overlay_luma = get_overlay_plane(t_overlay, 'gray')
-        
-        if alpha is None or overlay_luma is None:
-            failures.append(RenderCheckFinding("captions", False, f"Caption {i} overlay could not be read"))
-            continue
-            
-        if np.max(alpha) < 10:
-            failures.append(RenderCheckFinding("captions", False, f"Caption {i} overlay is blank"))
-            continue
-            
-        alpha_mask = alpha > 128
-        
         def get_frame(t):
             cmd = ['ffmpeg', '-nostdin', '-ss', str(t), '-i', video_path, '-vframes', '1', '-f', 'image2pipe', '-vcodec', 'rawvideo', '-pix_fmt', 'gray', '-']
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -159,25 +165,57 @@ def check_captions(video_path: str, plan_data: dict) -> List[RenderCheckFinding]
             if len(b) > 0:
                 return np.frombuffer(b, dtype=np.uint8)
             return None
-            
-        frame_during = get_frame(t_sample)
-        
-        if frame_during is None:
-            failures.append(RenderCheckFinding("captions", False, f"Caption {i} could not extract frames"))
+
+        best_mad = None
+        saw_ink = False
+        saw_unreadable = False
+        mismatch = False
+        for t_sample in t_samples:
+            t_overlay = source_in + (t_sample - start)
+            probe_alpha = get_overlay_plane(t_overlay, 'alpha')
+            if probe_alpha is None:
+                saw_unreadable = True
+                continue
+            if np.max(probe_alpha) < 10:
+                continue
+            probe_luma = get_overlay_plane(t_overlay, 'gray')
+            if probe_luma is None:
+                saw_unreadable = True
+                continue
+            probe_mask = probe_alpha > 128
+
+            frame_probe = get_frame(t_sample)
+
+            if frame_probe is None:
+                saw_unreadable = True
+                continue
+
+            if len(frame_probe) != len(probe_mask):
+                failures.append(RenderCheckFinding("captions", False, f"Caption {i} resolution mismatch between overlay and video"))
+                mismatch = True
+                break
+
+            saw_ink = True
+            rendered_caption = frame_probe[probe_mask]
+            expected_caption = probe_luma[probe_mask]
+
+            diff = np.abs(rendered_caption.astype(np.int32) - expected_caption.astype(np.int32))
+            mad = float(np.mean(diff))
+            if best_mad is None or mad < best_mad:
+                best_mad = mad
+            if mad <= 50.0:
+                break
+
+        if mismatch:
             continue
-            
-        if len(frame_during) != len(alpha_mask):
-            failures.append(RenderCheckFinding("captions", False, f"Caption {i} resolution mismatch between overlay and video"))
+        if not saw_ink:
+            if saw_unreadable:
+                failures.append(RenderCheckFinding("captions", False, f"Caption {i} overlay could not be read"))
+            else:
+                failures.append(RenderCheckFinding("captions", False, f"Caption {i} overlay is blank at all {n_probes} probes across the span"))
             continue
-            
-        rendered_caption = frame_during[alpha_mask]
-        expected_caption = overlay_luma[alpha_mask]
-        
-        diff = np.abs(rendered_caption.astype(np.int32) - expected_caption.astype(np.int32))
-        mad = np.mean(diff)
-        
-        if mad > 50.0:
-            failures.append(RenderCheckFinding("captions", False, f"Caption {i} not visibly drawn (MAD={mad:.1f})"))
+        if best_mad is not None and best_mad > 50.0:
+            failures.append(RenderCheckFinding("captions", False, f"Caption {i} not visibly drawn (MAD={best_mad:.1f})"))
             
     if not failures:
         return [RenderCheckFinding("captions", True, f"All {len(segments)} captions visible")]

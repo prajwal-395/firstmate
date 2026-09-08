@@ -182,3 +182,97 @@ def test_explicit_zero_captions_plan_passes(tmp_path):
     assert findings[0].passed is True
     assert "Zero captions planned" in findings[0].message
 
+
+def test_truly_blank_overlay_still_fails(tmp_path):
+    """The span probes must keep their teeth: an overlay blank at EVERY
+    probe across the span is still reported, not waved through."""
+    from library.tools.render_check import check_captions
+
+    width, height = 1080, 1920
+    timeline_start, timeline_end = 0.5, 2.5
+    dur = timeline_end - timeline_start
+    overlay_path = str(tmp_path / "blank_overlay.mov")
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'lavfi',
+        '-i', f'color=c=black@0.0:s={width}x{height}:r=24:d={dur},format=rgba',
+        '-map', '0:v', '-c:v', 'prores_ks', '-profile:v', '4',
+        '-pix_fmt', 'yuva444p10le', overlay_path,
+    ], capture_output=True, check=True)
+    video_path = str(tmp_path / "blank_caption.mp4")
+    build_fixture_video(video_path, has_text=True)
+
+    plan = {"subtitle_overlay": {"segments": [{
+        "overlay_path": overlay_path,
+        "timeline_start": timeline_start,
+        "timeline_end": timeline_end,
+        "source_in_frame": 0,
+    }]}}
+    findings = check_captions(video_path, plan)
+    failures = [f for f in findings if not f.passed]
+    assert len(failures) == 1
+    assert "blank" in failures[0].message
+
+
+def test_caption_blank_verdict_probes_the_span_not_one_instant(tmp_path):
+    """The alpha blank-caption finding must not decide a span from one instant.
+
+    D5's single-pick shape on another surface: the overlay file carries ink
+    across the segment but is blank exactly at the one instant the check
+    samples - a hard cut or fade inside the file, the way 001's caption
+    cards cut mid-file. The caption is drawn, so no "overlay is blank"
+    failure may be reported.
+    """
+    from library.tools.render_check import check_captions
+
+    width, height = 1080, 1920
+    timeline_start, timeline_end = 0.5, 2.5
+    dur = timeline_end - timeline_start
+    # The instant the single-pick code samples, derived from its own
+    # expression - never a copied literal.
+    sampled_offset = min(0.5, dur / 2)
+    # A blank window around that instant: generous enough that seek slop
+    # cannot hide it, narrow enough that the rest of the span keeps ink.
+    wb0, wb1 = sampled_offset - 0.25, sampled_offset + 0.25
+
+    overlay_path = str(tmp_path / "cut_overlay.mov")
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'lavfi',
+        '-i', f'color=c=black@0.0:s={width}x{height}:r=24:d={dur},format=rgba',
+        '-f', 'lavfi',
+        '-i', f'color=c=white@1.0:s=600x150:r=24:d={dur},format=rgba',
+        '-filter_complex', (
+            f'[0:v][1:v]overlay=x=(W-600)/2:y=H-300:format=auto'
+            f":enable='lt(t,{wb0})+gt(t,{wb1})'[v]"
+        ),
+        '-map', '[v]', '-c:v', 'prores_ks', '-profile:v', '4',
+        '-pix_fmt', 'yuva444p10le', overlay_path,
+    ], capture_output=True, check=True)
+
+    # The render draws the same box where the overlay carries ink, so the
+    # visibility half of the check has a matching frame to compare.
+    ink_t = timeline_start + dur * 0.5
+    box_on0, box_on1 = ink_t - 0.5, ink_t + 0.5
+    video_path = str(tmp_path / "cut_caption.mp4")
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'lavfi',
+        '-i', f'testsrc=s={width}x{height}:r=24:d={dur}',
+        '-filter_complex', (
+            f'color=c=white:s=600x150:r=24:d={dur}[box];'
+            f'[0:v][box]overlay=x=(W-600)/2:y=H-300'
+            f":enable='between(t,{box_on0},{box_on1})'[vout]"
+        ),
+        '-map', '[vout]',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '0',
+        '-r', '24', video_path,
+    ], capture_output=True, check=True)
+
+    plan = {"subtitle_overlay": {"segments": [{
+        "overlay_path": overlay_path,
+        "timeline_start": timeline_start,
+        "timeline_end": timeline_end,
+        "source_in_frame": 0,
+    }]}}
+    findings = check_captions(video_path, plan)
+    failures = [f for f in findings if not f.passed]
+    assert failures == [], f"caption drawn across the span reported as failed: {failures}"
+
