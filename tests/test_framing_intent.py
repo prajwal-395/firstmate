@@ -301,3 +301,58 @@ class TestTheManifestRecordsBoth:
                             subject_center_x=0.5, subject_width=0.8)
         assert "framing_backdrop" in got
         assert got["framing_delivered"] == FILL
+
+
+class TestAProjectDeclarationEscapesThePunchIn:
+    """Issue #277: every landscape clip shipped punched in 3.1605x,
+    showing 31.6% of its width, because 001 declared nothing and the
+    default is FILL. #311 fixed 001 by declaration -
+    ``pipeline.framing_intent: 0.0`` - plus the ``framing_delivered``
+    record that says what each clip actually gives. The resolve step
+    and the conform step are tested separately above; what nothing
+    pinned is that the two meet - that a 001-style project declaration
+    really reaches the conform and no landscape clip keeps a fill_zoom.
+    Break the wiring between them and both halves still pass while the
+    fix silently unravels."""
+
+    @staticmethod
+    def _conform_project_clip(project_folder, clip_id, width, height,
+                              rotation=0):
+        from library.steps.step_5_04_compile_manifest.step import (
+            _conform_fields,
+        )
+        intent = resolve_framing_intent(project_folder=project_folder)
+        meta = {clip_id: {"width": width, "height": height,
+                          "rotation": rotation}}
+        return _conform_fields(meta, clip_id, (1080, 1920),
+                               framing_intent=intent)
+
+    def test_declared_letterbox_letterboxes_the_landscape_aroll(
+            self, tmp_path):
+        folder = write_project(tmp_path, """
+            name: Project 001 Shape
+            slug: project-001-shape
+            pipeline:
+              framing_intent: 0.0
+        """)
+        got = self._conform_project_clip(folder, "IMG_1817.MOV", 1920, 1080)
+        assert got["framing_intent"] == LETTERBOX
+        assert got["framing_delivered"] == LETTERBOX
+        assert got["needs_conform"] is False
+        assert "fill_zoom" not in got
+
+    def test_declared_letterbox_still_fills_a_portrait_cutaway(
+            self, tmp_path):
+        """001's seven cutaways are shot portrait: no bars to give, so
+        the same declaration delivers a full frame and says so."""
+        folder = write_project(tmp_path, """
+            name: Project 001 Shape
+            slug: project-001-shape
+            pipeline:
+              framing_intent: 0.0
+        """)
+        got = self._conform_project_clip(folder, "cutaway.MOV", 1920, 1080,
+                                         rotation=90)
+        assert got["framing_intent"] == LETTERBOX
+        assert got["framing_delivered"] == FILL
+        assert got["needs_conform"] is False
